@@ -7351,15 +7351,15 @@ export default function TranscriptSeekMock(
                   <img
                     src={activePreviewVisual.imageUrl}
                     alt=""
-                    className={joinClassNames("hammer-monitor__media", dynamicStyles.previewMediaClassName)}
+                    className={["hammer-monitor__media", dynamicStyles.previewMediaClassName].filter(Boolean).join(" ")}
                     data-testid="hammer-visual-preview-image"
                   />
                   {showPreviewVisualFrame && activePreviewPlacementRecord ? (
                     <div
-                      className={joinClassNames(
+                      className={[
                         "hammer-monitor__selection-frame",
                         dynamicStyles.previewFrameClassName,
-                      )}
+                      ].filter(Boolean).join(" ")}
                       onMouseDown={(event) => beginPreviewVisualDrag(
                         "move",
                         activePreviewPlacementRecord.placement_id,
