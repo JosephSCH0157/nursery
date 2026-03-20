@@ -488,15 +488,17 @@ export default function BellowsJoin() {
     }
 
     let active = true;
-    setResolvedLink(null);
-    setGuestKey(null);
-    setPresenceCount(0);
-    setPresenceConnected(false);
-    setHostSignal(null);
-    setPhase("resolving");
-    setErrorMessage(null);
-    setUsedCache(false);
-    setStatusMessage("Validating Bellows join link...");
+    deferStateUpdate(() => {
+      setResolvedLink(null);
+      setGuestKey(null);
+      setPresenceCount(0);
+      setPresenceConnected(false);
+      setHostSignal(null);
+      setPhase("resolving");
+      setErrorMessage(null);
+      setUsedCache(false);
+      setStatusMessage("Validating Bellows join link...");
+    });
 
     void resolveJoinContinuation(repository, sessionId, token)
       .then((result) => {
@@ -578,12 +580,14 @@ export default function BellowsJoin() {
       setHostSignal(nextSignal);
     });
 
-    setPhase("connecting");
-    setStatusMessage(
-      usedCache
-        ? "Rejoining the Bellows session channel from this tab."
-        : "Connecting to the Bellows session channel.",
-    );
+    deferStateUpdate(() => {
+      setPhase("connecting");
+      setStatusMessage(
+        usedCache
+          ? "Rejoining the Bellows session channel from this tab."
+          : "Connecting to the Bellows session channel.",
+      );
+    });
 
     channel.subscribe((status: string) => {
       if (!active) return;

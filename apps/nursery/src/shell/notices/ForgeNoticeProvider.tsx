@@ -171,11 +171,12 @@ export default function ForgeNoticeProvider({ children }: ForgeNoticeProviderPro
   }, [dismissNotice, navigate]);
 
   useEffect(() => {
+    const timers = dismissTimersRef.current;
     return () => {
-      for (const timerId of dismissTimersRef.current.values()) {
+      for (const timerId of timers.values()) {
         clearTimer(timerId);
       }
-      dismissTimersRef.current.clear();
+      timers.clear();
     };
   }, []);
 

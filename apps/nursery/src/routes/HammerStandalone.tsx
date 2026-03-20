@@ -517,7 +517,7 @@ export default function HammerStandalone() {
                 AI Controls
               </button>
               <NavLink to={subscriptionsHref} onClick={() => setMenuOpen(false)}>
-                Forge Billing
+                Account & Billing
               </NavLink>
               <Link to={forgeBackHref} onClick={() => setMenuOpen(false)}>
                 Back to Forge

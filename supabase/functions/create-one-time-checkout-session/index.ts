@@ -11,6 +11,31 @@ type CreateCheckoutSessionBody = {
   cancelUrl?: string;
 };
 
+type TongsRpcClient = {
+  rpc: (
+    fn: string,
+    args?: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+};
+
+type TongsBillingCustomersTableClient = {
+  from: (
+    relation: "billing_customers",
+  ) => {
+    select: (columns: string) => {
+      eq: (
+        column: "user_id",
+        value: string,
+      ) => {
+        maybeSingle: () => Promise<{
+          data: { stripe_customer_id: string | null } | null;
+          error: { message?: string } | null;
+        }>;
+      };
+    };
+  };
+};
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -30,6 +55,10 @@ function getBearerToken(req: Request): string | null {
   if (!auth.startsWith("Bearer ")) return null;
   const token = auth.slice("Bearer ".length).trim();
   return token || null;
+}
+
+function normalizeString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
@@ -106,55 +135,108 @@ serve(async (req) => {
   const user = authData.user;
 
   try {
-    let stripeCustomerId: string | null = null;
+    let stripeCustomerId = "";
+    const customerName = typeof user.user_metadata?.full_name === "string"
+      ? user.user_metadata.full_name.trim()
+      : "";
     const forgeCustomerMetadata = {
       supabase_user_id: user.id,
       forge_user_id: user.id,
       forge_product: "podcasters_forge",
     };
+    const billingCustomers = supabaseAdmin.schema("tongs") as unknown as TongsBillingCustomersTableClient;
+    const tongsRpc = supabaseAdmin.schema("tongs") as unknown as TongsRpcClient;
 
-    const { data: profileRow, error: profileError } = await supabaseAdmin
-      .from("profiles")
+    const { data: billingCustomerRow, error: billingCustomerLookupError } = await billingCustomers
+      .from("billing_customers")
       .select("stripe_customer_id")
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (profileError) {
+    if (billingCustomerLookupError) {
       throw new Error(
-        `Failed to read profiles.stripe_customer_id: ${profileError.message}`,
+        `Failed to read tongs.billing_customers: ${billingCustomerLookupError.message}`,
       );
     }
 
-    if (
-      profileRow?.stripe_customer_id &&
-      typeof profileRow.stripe_customer_id === "string"
-    ) {
-      stripeCustomerId = profileRow.stripe_customer_id.trim();
+    stripeCustomerId = normalizeString(billingCustomerRow?.stripe_customer_id);
+
+    if (!stripeCustomerId) {
+      try {
+        const { data: profileRow, error: profileError } = await supabaseAdmin
+          .from("profiles")
+          .select("stripe_customer_id")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (profileError) {
+          console.warn(
+            "[create-one-time-checkout-session]",
+            `legacy_profile_lookup_failed user_id=${user.id} error=${profileError.message}`,
+          );
+        } else {
+          stripeCustomerId = normalizeString(profileRow?.stripe_customer_id);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(
+          "[create-one-time-checkout-session]",
+          `legacy_profile_lookup_exception user_id=${user.id} error=${message}`,
+        );
+      }
     }
 
     if (!stripeCustomerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? undefined,
+        name: customerName || undefined,
         metadata: forgeCustomerMetadata,
       });
 
       stripeCustomerId = customer.id;
+    } else {
+      await stripe.customers.update(stripeCustomerId, {
+        email: user.email ?? undefined,
+        name: customerName || undefined,
+        metadata: forgeCustomerMetadata,
+      });
+    }
 
+    try {
       const { error: updateError } = await supabaseAdmin
         .from("profiles")
         .update({ stripe_customer_id: stripeCustomerId })
         .eq("user_id", user.id);
 
       if (updateError) {
-        throw new Error(
-          `Failed to store stripe_customer_id: ${updateError.message}`,
+        console.warn(
+          "[create-one-time-checkout-session]",
+          `legacy_profile_write_failed user_id=${user.id} error=${updateError.message}`,
         );
       }
-    } else {
-      await stripe.customers.update(stripeCustomerId, {
-        email: user.email ?? undefined,
-        metadata: forgeCustomerMetadata,
-      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        "[create-one-time-checkout-session]",
+        `legacy_profile_write_exception user_id=${user.id} error=${message}`,
+      );
+    }
+
+    const { error: billingCustomerError } = await tongsRpc.rpc(
+      "upsert_billing_customer",
+      {
+        p_user_id: user.id,
+        p_stripe_customer_id: stripeCustomerId,
+        p_email: user.email ?? null,
+        p_customer_name: customerName || null,
+        p_metadata: forgeCustomerMetadata,
+      },
+    );
+
+    if (billingCustomerError) {
+      throw new Error(
+        `upsert_billing_customer failed: ${billingCustomerError.message}`,
+      );
     }
 
     const price = await stripe.prices.retrieve(priceId);
