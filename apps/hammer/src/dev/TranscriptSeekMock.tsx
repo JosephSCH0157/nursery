@@ -2121,25 +2121,10 @@ export default function TranscriptSeekMock(
       scale: activePreviewVisual.kind === "image" ? activePreviewVisual.placement.scale : 1,
     }
     : null;
-  const activePreviewMediaStyle: CSSProperties | undefined = activePreviewPlacementDraft
-    ? {
-      objectPosition: `${Math.round(activePreviewPlacementDraft.x * 100)}% ${Math.round(activePreviewPlacementDraft.y * 100)}%`,
-      transform: `scale(${activePreviewPlacementDraft.scale})`,
-    }
-    : undefined;
   const showPreviewVisualFrame = Boolean(
     activePreviewVisual.kind === "image"
     && activePreviewPlacementRecord,
   );
-  const activePreviewFrameStyle: CSSProperties | undefined = activePreviewPlacementDraft
-    ? {
-      left: `${clamp(activePreviewPlacementDraft.x * 100, 18, 82)}%`,
-      top: `${clamp(activePreviewPlacementDraft.y * 100, 18, 82)}%`,
-      width: `${clamp(26 * activePreviewPlacementDraft.scale, 18, 72)}%`,
-      height: `${clamp(34 * activePreviewPlacementDraft.scale, 18, 78)}%`,
-      transform: "translate(-50%, -50%)",
-    }
-    : undefined;
 
   useEffect(() => {
     previewVisualAssetUrlsRef.current = previewVisualAssetUrls;
@@ -6280,6 +6265,21 @@ export default function TranscriptSeekMock(
     const monitorSurfaceClassName = addRule("monitor-surface", {
       aspectRatio: previewMonitorAspectRatio,
     });
+    const previewMediaClassName = activePreviewPlacementDraft
+      ? addRule("preview-media", {
+        objectPosition: `${Math.round(activePreviewPlacementDraft.x * 100)}% ${Math.round(activePreviewPlacementDraft.y * 100)}%`,
+        transform: `scale(${activePreviewPlacementDraft.scale})`,
+      })
+      : "";
+    const previewFrameClassName = activePreviewPlacementDraft
+      ? addRule("preview-frame", {
+        left: `${clamp(activePreviewPlacementDraft.x * 100, 18, 82)}%`,
+        top: `${clamp(activePreviewPlacementDraft.y * 100, 18, 82)}%`,
+        width: `${clamp(26 * activePreviewPlacementDraft.scale, 18, 72)}%`,
+        height: `${clamp(34 * activePreviewPlacementDraft.scale, 18, 78)}%`,
+        transform: "translate(-50%, -50%)",
+      })
+      : "";
     const progressFillClassName = addRule("progress-fill", {
       width: `${progressPercent}%`,
     });
@@ -6328,6 +6328,8 @@ export default function TranscriptSeekMock(
       cssText: rules.join("\n"),
       monitorSurfaceClassName,
       playheadClassName,
+      previewFrameClassName,
+      previewMediaClassName,
       progressFillClassName,
       proposedChangeLayoutClassNames,
       rulerTickClassNames,
@@ -6336,6 +6338,7 @@ export default function TranscriptSeekMock(
     };
   }, [
     effectiveDurationSec,
+    activePreviewPlacementDraft,
     paneLayout.center_px,
     paneLayout.left_px,
     paneLayout.right_px,
@@ -7348,14 +7351,15 @@ export default function TranscriptSeekMock(
                   <img
                     src={activePreviewVisual.imageUrl}
                     alt=""
-                    className="hammer-monitor__media"
-                    style={activePreviewMediaStyle}
+                    className={joinClassNames("hammer-monitor__media", dynamicStyles.previewMediaClassName)}
                     data-testid="hammer-visual-preview-image"
                   />
                   {showPreviewVisualFrame && activePreviewPlacementRecord ? (
                     <div
-                      className="hammer-monitor__selection-frame"
-                      style={activePreviewFrameStyle}
+                      className={joinClassNames(
+                        "hammer-monitor__selection-frame",
+                        dynamicStyles.previewFrameClassName,
+                      )}
                       onMouseDown={(event) => beginPreviewVisualDrag(
                         "move",
                         activePreviewPlacementRecord.placement_id,

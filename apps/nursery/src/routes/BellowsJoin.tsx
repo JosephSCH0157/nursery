@@ -828,12 +828,12 @@ export default function BellowsJoin() {
               <span>Mic Activity</span>
               <strong>{describeAudioActivity(localMedia.audioActivity)}</strong>
             </div>
-            <div className="bellows-join__meter-track">
-              <div
-                className="bellows-join__meter-fill"
-                style={{ width: `${localMedia.audioLevelPct}%` }}
-              />
-            </div>
+            <progress
+              className="bellows-join__meter-track"
+              value={localMedia.audioLevelPct}
+              max={100}
+              aria-label={`Microphone activity level: ${localMedia.audioLevelPct}%`}
+            />
           </div>
 
           <ul className="bellows-join__details">
