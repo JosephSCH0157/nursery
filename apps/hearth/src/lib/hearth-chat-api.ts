@@ -424,6 +424,15 @@ function runtimeFromResponse(payload: {
   };
 }
 
+function coalesceScriptTextIntoOps(
+  ops: HearthOp[],
+  scriptText: string | undefined,
+): HearthOp[] {
+  if (!scriptText?.trim()) return ops;
+  if (ops.some((op) => op.op === "set_body")) return ops;
+  return [...ops, { op: "set_body", value: scriptText }];
+}
+
 function createStorageObjectPath(parts: string[]): string {
   return parts
     .map((part) => part.trim())
@@ -918,7 +927,8 @@ export async function requestHearthChatReply(
 
   const assistantText = parsed?.assistant_text ?? "";
   const gate = parsed?.gate;
-  const ops = parsed?.ops ?? [];
+  const scriptText = parsed?.script_text ?? undefined;
+  const ops = coalesceScriptTextIntoOps(parsed?.ops ?? [], scriptText);
   if (!assistantText && ops.length === 0) {
     return {
       ok: false,
@@ -933,7 +943,7 @@ export async function requestHearthChatReply(
     status: response.status,
     assistantText,
     ops,
-    scriptText: parsed?.script_text ?? undefined,
+    scriptText,
     tagAudit: parsed?.tag_audit ?? undefined,
     gate,
     runtime,

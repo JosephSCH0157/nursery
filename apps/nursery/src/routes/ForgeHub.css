@@ -12,7 +12,9 @@
 .forge-hub__backdrop {
   position: absolute;
   inset: 0;
-  background-image: var(--forge-hub-backdrop);
+  background-image:
+    linear-gradient(180deg, rgba(10, 10, 12, 0.74), rgba(6, 8, 12, 0.84)),
+    url("../../../../assets/forge-interior.png");
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;

@@ -24,6 +24,10 @@ export type MappedHandle = {
 
 import { debugLog, hudLog } from '../env/logging';
 import { readReadyScriptText, type ReadyScriptReference } from '../forge/ready-scripts';
+import {
+  hasUsableReadyScriptContent,
+  readReadyScriptRecordContent,
+} from './ready-script-loading';
 
 const scriptsById = new Map<string, ScriptRecord>();
 const mappedHandles = new Map<string, MappedHandle>();
@@ -118,16 +122,18 @@ export const ScriptStore = {
 
   async get(id: string): Promise<ScriptRecord | null> {
     const existing = scriptsById.get(id);
-    if (existing && existing.content) return existing;
+    if (existing && hasUsableReadyScriptContent(existing.content)) return existing;
 
     const mapped = mappedHandles.get(id);
     if (!mapped) {
       const ready = readyRefsById.get(id);
-      if (!ready) return existing ?? null;
+      if (!ready) return hasUsableReadyScriptContent(existing?.content) ? existing : null;
 
       try {
-        const text = await readReadyScriptText(ready.workpieceId, ready.path);
-        if (typeof text !== 'string') return existing ?? null;
+        const text = await readReadyScriptRecordContent(ready, readReadyScriptText);
+        if (!hasUsableReadyScriptContent(text)) {
+          return hasUsableReadyScriptContent(existing?.content) ? existing : null;
+        }
         const rec: ScriptRecord = {
           id: ready.id,
           title: ready.title,
@@ -140,7 +146,7 @@ export const ScriptStore = {
         return rec;
       } catch (err) {
         try { console.warn('[scripts-store] failed to load ready script', err); } catch {}
-        return existing ?? null;
+        return hasUsableReadyScriptContent(existing?.content) ? existing : null;
       }
     }
 
@@ -149,7 +155,7 @@ export const ScriptStore = {
       if (!ok) {
         hudLog('script:permission:denied', { id });
         try { (window as any).toast?.('Allow folder access to load scripts, then try Refresh.', { type: 'warning' }); } catch {}
-        return existing ?? null;
+        return hasUsableReadyScriptContent(existing?.content) ? existing : null;
       }
       const file = await (mapped.handle as any).getFile();
       const text = await readMappedFile(file);
@@ -165,7 +171,7 @@ export const ScriptStore = {
       return rec;
     } catch (err) {
       try { console.warn('[scripts-store] failed to load mapped script', err); } catch {}
-      return existing ?? null;
+      return hasUsableReadyScriptContent(existing?.content) ? existing : null;
     }
   },
 

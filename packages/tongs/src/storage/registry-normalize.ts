@@ -6,12 +6,11 @@ import type {
   MountTargetType,
   WorkspaceMountRegistry,
 } from "../types.js";
+import { getDefaultMirrorEnabled, getDefaultMountTarget, getMountRolePolicy, isTargetEligibleForRole } from "../roles.js";
 import {
   ALL_MOUNT_ROLES,
   DEFAULT_MIRROR_POLICY,
   STORAGE_REGISTRY_VERSION,
-  isCloudCanonicalRole,
-  isLocalOnlyRole,
 } from "./storage-contract.js";
 
 const TARGET_SET: ReadonlySet<MountTargetType> = new Set(["local", "tongs_cloud"]);
@@ -44,9 +43,11 @@ function sanitizeLocal(input: unknown): MountLocalConfig | undefined {
 }
 
 function defaultTargetForRole(role: MountRole): MountTargetType {
-  if (isLocalOnlyRole(role)) return "local";
-  if (isCloudCanonicalRole(role)) return "tongs_cloud";
-  return "local";
+  return getDefaultMountTarget(role);
+}
+
+function defaultMirrorEnabledForRole(role: MountRole): boolean {
+  return getDefaultMirrorEnabled(role);
 }
 
 export function normalizeRegistry(
@@ -64,7 +65,9 @@ export function normalizeRegistry(
       mounts: ALL_MOUNT_ROLES.map((role) => ({
         role,
         target: defaultTargetForRole(role),
-        mirror: isCloudCanonicalRole(role) ? { enabled: false, policy: DEFAULT_MIRROR_POLICY } : undefined,
+          mirror: defaultTargetForRole(role) === "tongs_cloud"
+            ? { enabled: defaultMirrorEnabledForRole(role), policy: DEFAULT_MIRROR_POLICY }
+            : undefined,
         updatedAtIso: nowIso,
       })),
     };
@@ -76,6 +79,7 @@ export function normalizeRegistry(
       : fallbackWorkspaceId;
 
   const version = typeof input["version"] === "number" ? input["version"] : undefined;
+  const isPreCloudMirrorRecordingMigration = version == null || version < STORAGE_REGISTRY_VERSION;
   if (version !== STORAGE_REGISTRY_VERSION) {
     mutated = true;
   }
@@ -117,6 +121,7 @@ export function normalizeRegistry(
   const mounts: MountRegistryEntry[] = [];
 
   for (const role of ALL_MOUNT_ROLES) {
+    const policy = getMountRolePolicy(role);
     let entry = byRole.get(role) ?? { role, target: defaultTargetForRole(role) };
     let entryMutated = !byRole.has(role);
 
@@ -125,32 +130,39 @@ export function normalizeRegistry(
       entryMutated = true;
     }
 
-    if (isLocalOnlyRole(role)) {
-      if (entry.target !== "local") {
-        console.warn(`[tongs] mount registry override: "${role}" forced to local-only.`);
-        entry.target = "local";
-        entryMutated = true;
-      }
-      if (entry.mirror) {
-        console.warn(`[tongs] mount registry override: "${role}" mirror disabled for local-only role.`);
-        entry.mirror = undefined;
-        entryMutated = true;
-      }
+    if (!isTargetEligibleForRole(role, entry.target)) {
+      console.warn(`[tongs] mount registry override: "${role}" target reset to ${policy.defaultTarget}.`);
+      entry.target = policy.defaultTarget;
+      entryMutated = true;
     }
 
-    if (isCloudCanonicalRole(role)) {
+    if (isPreCloudMirrorRecordingMigration && (role === "recordings" || role === "exports")) {
       if (entry.target !== "tongs_cloud") {
-        console.warn(`[tongs] mount registry override: "${role}" forced to cloud canonical.`);
         entry.target = "tongs_cloud";
         entryMutated = true;
       }
 
+      const migratedMirrorVaultKey = entry.mirror?.vaultKey ?? entry.local?.vaultKey;
+      const migratedMirrorHint = entry.mirror?.hint ?? entry.local?.hint;
+      entry.mirror = {
+        enabled: true,
+        policy: entry.mirror?.policy ?? DEFAULT_MIRROR_POLICY,
+        vaultKey: migratedMirrorVaultKey,
+        hint: migratedMirrorHint,
+      };
+      entryMutated = true;
+    }
+
+    if (entry.target === "tongs_cloud") {
       if (!entry.mirror) {
-        entry.mirror = { enabled: false, policy: DEFAULT_MIRROR_POLICY };
+        entry.mirror = {
+          enabled: defaultMirrorEnabledForRole(role),
+          policy: DEFAULT_MIRROR_POLICY,
+        };
         entryMutated = true;
       } else {
         const nextMirror: MountMirrorConfig = {
-          enabled: entry.mirror.enabled ?? false,
+          enabled: entry.mirror.enabled ?? defaultMirrorEnabledForRole(role),
           policy: entry.mirror.policy ?? DEFAULT_MIRROR_POLICY,
           vaultKey: entry.mirror.vaultKey,
           hint: entry.mirror.hint,

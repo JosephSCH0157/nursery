@@ -25,6 +25,24 @@
   force = true
 
 [[redirects]]
+  from = "/api/anvil/asr/whisper"
+  to = "/.netlify/functions/anvil-whisper"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/tongs"
+  to = "/.netlify/functions/tongs"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/tongs/*"
+  to = "/.netlify/functions/tongs/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

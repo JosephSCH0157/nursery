@@ -1,9 +1,8 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session as SupabaseSession } from "@supabase/supabase-js";
-import { loadMountRegistry } from "../lib/mount-registry";
+import type { Workspace } from "@barstock/lib/tongs-api";
 import { supabase } from "../lib/supabase";
-import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
 import { ForgeNav } from "../nav/ForgeNav";
 import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree, type ForgeNavSection } from "../nav/forgeNavTree";
 import {
@@ -13,8 +12,12 @@ import {
   warnMissingWorkspaceParamInDev,
 } from "../lib/forge-route-context";
 import { useForgeCloudStatus, type ForgeCloudState } from "../lib/forge-cloud-status";
-import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
 import "./AppShell.css";
+
+const AiControlsPanel = lazy(async () => {
+  const module = await import("../components/hearth/AiControlsPanel");
+  return { default: module.AiControlsPanel };
+});
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
@@ -170,6 +173,13 @@ export default function AppShell() {
   const lastSessionUserId = useRef<string | null>(null);
   const lastUrlWorkspaceRefresh = useRef<string | null>(null);
   const lastCanonicalNavTarget = useRef<string | null>(null);
+  const pendingWorkspaceSelection = useRef<{
+    active: boolean;
+    target: string | null;
+  }>({
+    active: false,
+    target: null,
+  });
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -197,13 +207,27 @@ export default function AppShell() {
   const inviteToken = useMemo(() => readInviteToken(location.search), [location.search]);
   const cloud = useForgeCloudStatus({ session, sessionLoading });
 
+  const clearPendingWorkspaceSelection = useCallback(() => {
+    pendingWorkspaceSelection.current.active = false;
+    pendingWorkspaceSelection.current.target = null;
+  }, []);
+
   useEffect(() => {
-    const res = loadMountRegistry("default");
-    if (!res.ok) {
-      console.warn("[tongs] mount registry recovered/seeded due to issues:", res.issues);
-    } else if (res.seeded) {
-      console.log("[tongs] mount registry seeded");
-    }
+    let cancelled = false;
+
+    void import("../lib/mount-registry").then(({ loadMountRegistry }) => {
+      if (cancelled) return;
+      const res = loadMountRegistry("default");
+      if (!res.ok) {
+        console.warn("[tongs] mount registry recovered/seeded due to issues:", res.issues);
+      } else if (res.seeded) {
+        console.log("[tongs] mount registry seeded");
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -228,10 +252,15 @@ export default function AppShell() {
   }, []);
 
   const selectWorkspace = useCallback((id: string | null) => {
+    pendingWorkspaceSelection.current.active = true;
+    pendingWorkspaceSelection.current.target = id;
     if (id) setWorkspaceAccessDeniedId(null);
     setWorkspaceId(id);
     saveActiveWorkspaceId(id);
-    if (!location.pathname.startsWith("/app")) return;
+    if (!location.pathname.startsWith("/app")) {
+      clearPendingWorkspaceSelection();
+      return;
+    }
 
     const nextHref = buildForgeRouteHref(location.pathname, {
       search: location.search,
@@ -239,7 +268,10 @@ export default function AppShell() {
       workpieceId: urlContext.workpieceId,
     });
     const nextSearch = searchFromHref(nextHref);
-    if (nextSearch === location.search) return;
+    if (nextSearch === location.search) {
+      clearPendingWorkspaceSelection();
+      return;
+    }
     nav(
       {
         pathname: location.pathname,
@@ -248,7 +280,14 @@ export default function AppShell() {
       },
       { replace: true },
     );
-  }, [location.pathname, location.search, location.hash, nav, urlContext.workpieceId]);
+  }, [
+    clearPendingWorkspaceSelection,
+    location.pathname,
+    location.search,
+    location.hash,
+    nav,
+    urlContext.workpieceId,
+  ]);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -261,6 +300,7 @@ export default function AppShell() {
     setLoadingWorkspaces(true);
     setWorkspaceLoadError(null);
     try {
+      const { listMyWorkspaces } = await import("@barstock/lib/tongs-api");
       const ws = await listMyWorkspaces();
       setWorkspaces(ws);
       saveWorkspaceCache(ws);
@@ -309,6 +349,7 @@ export default function AppShell() {
     if (!userId) {
       lastSessionUserId.current = null;
       lastUrlWorkspaceRefresh.current = null;
+      clearPendingWorkspaceSelection();
       setWorkspaces((prev) => (prev.length ? [] : prev));
       setWorkspaceId(null);
       setWorkspaceLoadError(null);
@@ -331,18 +372,40 @@ export default function AppShell() {
         : (saved && workspaces.some((w) => w.id === saved)) ? saved
           : (workspaces[0]?.id ?? null);
     if (pick !== workspaceId) selectWorkspace(pick);
-  }, [session, workspaces, workspaceId, refreshWorkspaces, selectWorkspace, urlWorkspaceId]);
+  }, [
+    clearPendingWorkspaceSelection,
+    session,
+    workspaces,
+    workspaceId,
+    refreshWorkspaces,
+    selectWorkspace,
+    urlWorkspaceId,
+  ]);
 
   useEffect(() => {
     if (!session || !urlWorkspaceId) {
       lastUrlWorkspaceRefresh.current = null;
+      if (!urlWorkspaceId) {
+        clearPendingWorkspaceSelection();
+      }
+      return;
+    }
+
+    const pendingSelection = pendingWorkspaceSelection.current;
+    if (
+      pendingSelection.active
+      && pendingSelection.target !== urlWorkspaceId
+      && workspaceId === pendingSelection.target
+    ) {
       return;
     }
 
     if (workspaces.some((w) => w.id === urlWorkspaceId)) {
       if (workspaceId !== urlWorkspaceId) {
         selectWorkspace(urlWorkspaceId);
+        return;
       }
+      clearPendingWorkspaceSelection();
       return;
     }
 
@@ -351,7 +414,15 @@ export default function AppShell() {
     }
     lastUrlWorkspaceRefresh.current = urlWorkspaceId;
     void refreshWorkspaces({ force: true, preferId: urlWorkspaceId });
-  }, [session, urlWorkspaceId, workspaces, workspaceId, refreshWorkspaces, selectWorkspace]);
+  }, [
+    clearPendingWorkspaceSelection,
+    session,
+    urlWorkspaceId,
+    workspaces,
+    workspaceId,
+    refreshWorkspaces,
+    selectWorkspace,
+  ]);
 
   useEffect(() => {
     if (!session || !urlWorkspaceId) return;
@@ -429,9 +500,15 @@ export default function AppShell() {
     const selectedWorkspaceId = workspaceId && workspaces.some((workspace) => workspace.id === workspaceId)
       ? workspaceId
       : null;
+    const pendingWorkspaceId =
+      pendingWorkspaceSelection.current.active
+      && pendingWorkspaceSelection.current.target
+      && workspaces.some((workspace) => workspace.id === pendingWorkspaceSelection.current.target)
+        ? pendingWorkspaceSelection.current.target
+        : null;
     const enforceWorkspaceInUrl = routeRequiresWorkspace(location.pathname);
     const targetWorkspaceId = enforceWorkspaceInUrl
-      ? selectedWorkspaceId
+      ? (pendingWorkspaceId ?? selectedWorkspaceId)
       : urlWorkspaceId;
     const nextHref = buildForgeRouteHref(location.pathname, {
       search: location.search,
@@ -868,7 +945,7 @@ export default function AppShell() {
   const navExtraItems = useMemo(
     () => [
       { id: "ai-controls", label: "AI Controls", actionId: FORGE_NAV_ACTION_AI_CONTROLS },
-      { id: "forge-subscriptions", label: "Forge Subscriptions", to: "/app/subscriptions" },
+      { id: "forge-subscriptions", label: "Forge Billing", to: "/app/subscriptions" },
     ],
     [],
   );
@@ -919,6 +996,7 @@ export default function AppShell() {
             <div className="appshell-workspace-stack">
               <div className="appshell-workspace-controls">
                 <select
+                  aria-label="Workspace"
                   value={workspaceValue}
                   disabled={workspaceSelectDisabled}
                   onChange={(e) => {
@@ -1085,6 +1163,7 @@ export default function AppShell() {
                   )}
                   <div className="appshell-row appshell-row--wrap">
                     <select
+                      aria-label="Select workspace"
                       value={workspaceGateChoice}
                       onChange={(e) => setWorkspaceGateChoice(e.target.value)}
                       className="appshell-gate-select"
@@ -1268,11 +1347,13 @@ export default function AppShell() {
           onClick={() => setAiControlsOpen(false)}
         >
           <div onClick={(event) => event.stopPropagation()}>
-            <AiControlsPanel
-              onClose={() => setAiControlsOpen(false)}
-              workspaceId={workspaceId}
-              workspaceRole={activeWorkspace?.role ?? null}
-            />
+            <Suspense fallback={<div className="appshell-card">Loading AI controls...</div>}>
+              <AiControlsPanel
+                onClose={() => setAiControlsOpen(false)}
+                workspaceId={workspaceId}
+                workspaceRole={activeWorkspace?.role ?? null}
+              />
+            </Suspense>
           </div>
         </div>
       ) : null}

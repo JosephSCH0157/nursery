@@ -1,0 +1,134 @@
+.subscriptions-page {
+  display: grid;
+  gap: 16px;
+  color: #e6edf7;
+}
+
+.subscriptions-page__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.subscriptions-page__title {
+  margin: 0;
+  font-size: 1.75rem;
+}
+
+.subscriptions-page__copy {
+  margin: 8px 0 0;
+  max-width: 72ch;
+  color: rgba(230, 237, 247, 0.78);
+}
+
+.subscriptions-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.subscriptions-card {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(15, 23, 42, 0.84));
+  padding: 18px;
+  box-shadow: 0 18px 44px rgba(2, 6, 23, 0.24);
+}
+
+.subscriptions-card--wide {
+  grid-column: 1 / -1;
+}
+
+.subscriptions-card--notice {
+  max-width: 640px;
+}
+
+.subscriptions-card h3 {
+  margin: 0 0 10px;
+  font-size: 1.1rem;
+}
+
+.subscriptions-card__copy {
+  margin: 0 0 16px;
+  color: rgba(230, 237, 247, 0.78);
+}
+
+.subscriptions-facts {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.subscriptions-facts--compact {
+  margin-top: 16px;
+}
+
+.subscriptions-facts div {
+  display: grid;
+  gap: 4px;
+}
+
+.subscriptions-facts dt {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.subscriptions-facts dd {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.subscriptions-actions,
+.subscriptions-pack-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.subscriptions-button,
+.subscriptions-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.subscriptions-button:hover,
+.subscriptions-link-button:hover {
+  filter: brightness(1.06);
+}
+
+.subscriptions-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.subscriptions-status {
+  margin: 12px 0 0;
+  font-size: 0.92rem;
+}
+
+.subscriptions-status--success {
+  color: #93c5fd;
+}
+
+.subscriptions-status--info {
+  color: rgba(191, 219, 254, 0.9);
+}
+
+.subscriptions-status--error {
+  color: #fca5a5;
+}

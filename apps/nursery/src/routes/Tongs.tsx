@@ -1,10 +1,13 @@
 import { useState } from "react";
+import { useLocation } from "react-router-dom";
 import TongsCalendar from "./TongsCalendar";
+import TongsReleasePrep from "./TongsReleasePrep";
 import TongsRecordingSessions from "./TongsRecordingSessions";
+import TongsStorage from "./TongsStorage";
 import TongsTeam from "./TongsTeam";
 import "./Tongs.css";
 
-type TongsMode = "calendar" | "sessions" | "team";
+type TongsMode = "calendar" | "sessions" | "team" | "release" | "storage";
 
 const MODE_STORAGE_KEY = "forge_tongs_mode_v1";
 
@@ -12,7 +15,9 @@ function readStoredMode(): TongsMode {
   if (typeof window === "undefined") return "sessions";
   try {
     const raw = window.localStorage.getItem(MODE_STORAGE_KEY);
-    if (raw === "calendar" || raw === "sessions" || raw === "team") return raw;
+    if (raw === "calendar" || raw === "sessions" || raw === "team" || raw === "release" || raw === "storage") {
+      return raw;
+    }
   } catch {
     // ignore storage failures
   }
@@ -26,6 +31,15 @@ function writeStoredMode(mode: TongsMode): void {
   } catch {
     // ignore storage failures
   }
+}
+
+function readModeFromSearch(search: string): TongsMode | null {
+  const params = new URLSearchParams(search);
+  const raw = params.get("mode")?.trim().toLowerCase() ?? "";
+  if (raw === "calendar" || raw === "sessions" || raw === "team" || raw === "release" || raw === "storage") {
+    return raw;
+  }
+  return null;
 }
 
 function ModeButton({
@@ -50,7 +64,10 @@ function ModeButton({
 }
 
 export default function TongsRoute() {
-  const [mode, setMode] = useState<TongsMode>(() => readStoredMode());
+  const location = useLocation();
+  const routeMode = readModeFromSearch(location.search);
+  const [mode, setMode] = useState<TongsMode>(() => routeMode ?? readStoredMode());
+  const activeMode = routeMode ?? mode;
 
   const setModeAndPersist = (nextMode: TongsMode) => {
     setMode(nextMode);
@@ -61,22 +78,40 @@ export default function TongsRoute() {
     <div className="tongs-page">
       <div className="tongs-mode-row">
         <ModeButton
-          active={mode === "sessions"}
+          active={activeMode === "sessions"}
           label="Recording Sessions"
           onClick={() => setModeAndPersist("sessions")}
         />
         <ModeButton
-          active={mode === "calendar"}
+          active={activeMode === "calendar"}
           label="Calendar"
           onClick={() => setModeAndPersist("calendar")}
         />
         <ModeButton
-          active={mode === "team"}
+          active={activeMode === "team"}
           label="Team"
           onClick={() => setModeAndPersist("team")}
         />
+        <ModeButton
+          active={activeMode === "storage"}
+          label="Storage"
+          onClick={() => setModeAndPersist("storage")}
+        />
+        <ModeButton
+          active={activeMode === "release"}
+          label="Release Prep"
+          onClick={() => setModeAndPersist("release")}
+        />
       </div>
-      {mode === "calendar" ? <TongsCalendar /> : mode === "team" ? <TongsTeam /> : <TongsRecordingSessions />}
+      {activeMode === "calendar"
+        ? <TongsCalendar />
+        : activeMode === "team"
+        ? <TongsTeam />
+        : activeMode === "storage"
+        ? <TongsStorage />
+        : activeMode === "release"
+        ? <TongsReleasePrep />
+        : <TongsRecordingSessions />}
     </div>
   );
 }

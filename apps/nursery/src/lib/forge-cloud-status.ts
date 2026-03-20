@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { resolveTongsApiToken } from "@hearth/lib/tongs-fetch";
 
 export type ForgeCloudStatus = "connected" | "auth_missing" | "local_only" | "offline";
 
@@ -21,6 +20,51 @@ type ForgeCloudStatusOptions = {
   localOnly?: boolean;
 };
 
+type ForgeWindow = Window &
+  typeof globalThis & {
+    __forgeTongsApiToken?: unknown;
+    __tpTongsApiToken?: unknown;
+  };
+
+const PLACEHOLDER_TONGS_TOKENS = new Set(["DEV_TOKEN"]);
+
+function readString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function resolveTongsApiTokenSnapshot(): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const fromQuery = readString(params.get("tongs_api_token") ?? params.get("tongsApiToken"));
+    if (fromQuery && !PLACEHOLDER_TONGS_TOKENS.has(fromQuery)) {
+      return fromQuery;
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const runtimeWindow = window as ForgeWindow;
+    const fromWindow = readString(runtimeWindow.__forgeTongsApiToken ?? runtimeWindow.__tpTongsApiToken);
+    if (fromWindow && !PLACEHOLDER_TONGS_TOKENS.has(fromWindow)) {
+      return fromWindow;
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const fromStorage = readString(window.localStorage.getItem("forge_tongs_api_token_v1"));
+    return fromStorage && !PLACEHOLDER_TONGS_TOKENS.has(fromStorage) ? fromStorage : null;
+  } catch {
+    return null;
+  }
+}
+
 function readOnlineState(): boolean {
   if (typeof navigator === "undefined") return true;
   return navigator.onLine;
@@ -33,7 +77,7 @@ function resolveForgeCloudState(args: {
   localOnly: boolean;
 }): ForgeCloudState {
   const hasSession = Boolean(args.session?.access_token);
-  const hasTongsApiToken = Boolean(resolveTongsApiToken());
+  const hasTongsApiToken = Boolean(resolveTongsApiTokenSnapshot());
   const hasCloudAuth = hasSession || hasTongsApiToken;
   const isChecking = args.sessionLoading && !hasCloudAuth && !args.localOnly && args.isOnline;
 

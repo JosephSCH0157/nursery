@@ -12,7 +12,7 @@ import type {
 } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 
-export type HammerPrepStatus = "not_started" | "preparing" | "prepared" | "needs_review";
+export type HammerPrepStatus = "idle" | "preparing" | "prepared" | "prep_failed";
 export type HammerAlignmentStatus = "not_started" | "pending" | "aligned" | "needs_review";
 export type HammerPresenceMode = "viewing" | "editing";
 
@@ -41,16 +41,96 @@ export interface HammerPersistedEditorSession {
   last_opened_at: string;
 }
 
+export type HammerDerivedTextMacroKind =
+  | "filler_cleanup"
+  | "retake_tightening";
+
+export type HammerDerivedTextOperationKind =
+  | "filler_removed"
+  | "retake_fragment_removed";
+
+export interface HammerDerivedTextOperation {
+  kind: HammerDerivedTextOperationKind;
+  value: string;
+  start: number;
+  end: number;
+}
+
+export interface HammerDerivedTextChange {
+  segment_id: string;
+  original_text: string;
+  cleaned_text: string;
+  operations: HammerDerivedTextOperation[];
+}
+
+export interface HammerDerivedTextLayer {
+  layer_id: string;
+  recipe_ref: string;
+  macro_kind: HammerDerivedTextMacroKind;
+  status: "review" | "active" | "discarded";
+  created_at: string;
+  based_on_transcript_id: string;
+  summary: {
+    changed_segment_count: number;
+    removal_count: number;
+    untouched_segment_count: number;
+  };
+  changes: HammerDerivedTextChange[];
+}
+
+export interface HammerPersistedDerivedTextLayers {
+  schema_version: 1;
+  active_layer_id: string | null;
+  output_layer_id: string | null;
+  layers: HammerDerivedTextLayer[];
+}
+
+export type HammerSubtitleFormat = "srt" | "vtt";
+
+export interface HammerPersistedSubtitleArtifact {
+  format: HammerSubtitleFormat;
+  generated_at: string;
+  source_transcript_id: string;
+  source_layer_id: string | null;
+  source_kind: "raw" | "derived";
+  source_recipe_ref: string | null;
+  approximate_timing: boolean;
+  entry_count: number;
+  content: string;
+}
+
+export interface HammerPersistedSubtitleOutputs {
+  schema_version: 1;
+  last_generated_format: HammerSubtitleFormat | null;
+  srt: HammerPersistedSubtitleArtifact | null;
+  vtt: HammerPersistedSubtitleArtifact | null;
+}
+
 export interface HammerPersistedStructuredTranscript {
   schema_version: 1;
   transcript_id: string;
   media_id: string | null;
+  media_signature: string | null;
+  prepared_at: string;
+  structure: "speaker_turns";
+  source_media_ref: MediaRef | null;
   diarization: {
     label_scheme: "forge-neutral-speakers.v1";
     labels: string[];
+    raw_labels: string[];
     version: string | null;
+    provider: "openai";
+    provider_request_id: string | null;
+    model: string | null;
   };
+  confidence_flags: Array<{
+    turn_id: string;
+    code: "speaker_boundary_low_confidence";
+    detail: string;
+  }>;
   segments: HammerTranscriptSegment[];
+  derived_text_layers?: HammerPersistedDerivedTextLayers;
+  subtitle_outputs?: HammerPersistedSubtitleOutputs;
 }
 
 export interface HammerPersistedSpeakerMap {
@@ -65,10 +145,23 @@ export interface HammerPersistedSpeakerMap {
 
 export interface HammerVisualPlacementRecord {
   placement_id: string;
+  entry_id: string;
   anchor_segment_id: string;
+  matched_segment_ids: string[];
+  anchor_text: string | null;
   asset_ref: string;
+  asset_id: string | null;
+  asset_path: string | null;
+  storage_key: string | null;
+  label: string | null;
+  visual_mode: string | null;
+  start_sec: number;
+  end_sec: number;
   confidence: number | null;
+  timing_source: "transcript_match" | "ordered_fallback";
   status: "placed" | "uncertain";
+  ingest_state?: "suggested" | "approved";
+  uncertainty_flags: string[];
 }
 
 export interface HammerPersistedVisualPlacements {
@@ -79,12 +172,29 @@ export interface HammerPersistedVisualPlacements {
   placements: HammerVisualPlacementRecord[];
 }
 
+export type HammerAudioPolishPass = "studio_sound" | "noise_cleanup" | "level_consistency";
+export type HammerAudioPolishStatus = "not_started" | "preparing" | "prepared" | "failed";
+export type HammerAudioPolishFailureCode =
+  | "unsupported_source"
+  | "source_unavailable"
+  | "processing_failed";
+
 export interface HammerPersistedAudioPolish {
   schema_version: 1;
-  status: "not_started" | "prepared";
-  prepared_passes: string[];
+  status: HammerAudioPolishStatus;
+  prepared_passes: HammerAudioPolishPass[];
   source_artifact_paths: string[];
   settings_summary: Record<string, string | number | boolean | null>;
+  source_media_id: string | null;
+  source_media_signature: string | null;
+  processor_version: string | null;
+  prepared_at: string | null;
+  output_local_relpath: string | null;
+  output_workpiece_path: string | null;
+  output_mime_type: string | null;
+  output_duration_ms: number | null;
+  failure_code: HammerAudioPolishFailureCode | null;
+  failure_reason: string | null;
 }
 
 export interface HammerPersistedMacroHooks {

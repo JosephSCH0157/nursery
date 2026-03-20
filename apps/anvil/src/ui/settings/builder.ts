@@ -11,7 +11,6 @@ export function buildSettingsContent(rootEl: HTMLElement | null) {
       <button type="button" class="settings-tab" data-settings-tab="media" aria-pressed="false">Media</button>
       <button type="button" class="settings-tab" data-settings-tab="recording" aria-pressed="false">Recording</button>
       <button type="button" class="settings-tab" data-settings-tab="advanced" aria-pressed="false">Advanced</button>
-      <button type="button" class="settings-tab" data-settings-tab="pricing" aria-pressed="false">Pricing</button>
       <button type="button" class="settings-tab" data-settings-tab="about" aria-pressed="false">About</button>
     </div>
 
@@ -244,70 +243,6 @@ export function buildSettingsContent(rootEl: HTMLElement | null) {
           <button id="btnExportSettings" class="chip btn-chip" type="button">Export settings</button>
           <button id="btnImportSettings" class="chip btn-chip" type="button">Import settings</button>
         </div>
-      </section>
-
-      <section class="settings-panel" data-settings-panel="pricing" data-tab-content="pricing" hidden>
-      <div class="settings-card anim-in">
-        <h4>Anvil Teleprompter</h4>
-        <p>Professional teleprompting for podcasters and creators who read out loud.</p>
-        <p>
-          Anvil is built for real-world recording — not influencer scripts, not AI voices, not gimmicks.
-          It stays with you as you speak, adapts when you pause or speed up, and keeps your delivery natural.
-        </p>
-        <h5>Pricing</h5>
-        <div class="row gap">
-          <div class="settings-value">
-            <strong>$15</strong>
-            <span>/ month</span>
-          </div>
-          <div class="settings-meta">Cancel anytime</div>
-        </div>
-        <div class="row gap">
-          <div class="settings-value">
-            <strong>$40</strong>
-            <span>/ quarter</span>
-          </div>
-          <div class="settings-meta">3 months · Save $5</div>
-        </div>
-        <div
-          id="billingStatusPanel"
-          class="settings-small"
-          style="margin-top:10px;padding:10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;display:grid;gap:4px;"
-        >
-          <div><strong>Billing status</strong></div>
-          <div id="billingStatusSummary">Billing: loading...</div>
-          <div>Paid: <span id="billingStatusPaid">--</span></div>
-          <div>Tier: <span id="billingStatusTier">--</span></div>
-          <div>Status: <span id="billingStatusSubscription">--</span></div>
-          <div>Period end: <span id="billingStatusPeriodEnd">--</span></div>
-          <div>Customer: <span id="billingStatusCustomer">--</span></div>
-          <div>Subscription: <span id="billingStatusSubId">--</span></div>
-        </div>
-        <p><strong>What’s included</strong></p>
-        <ul>
-          <li>Speech-synced & Hybrid scrolling keeps you in rhythm without rigid pacing.</li>
-          <li>Manual, WPM, and Hybrid modes so you can pick the workflow that fits now.</li>
-          <li>Mirrored display support for tablets, monitors, or teleprompter glass.</li>
-          <li>Recording controls & OBS integration — stay in flow while managing takes.</li>
-          <li>Script formatting & validation with pacing cues/safety checks.</li>
-          <li>Ongoing updates included — improvements ship with your subscription.</li>
-        </ul>
-        <p><strong>What this subscription covers</strong></p>
-        <p>
-          This plan includes Anvil only. Other tools in the Podcaster's Forge ecosystem (script writing,
-          editing, publishing) are not included at this time and may become separate offers in the future.
-        </p>
-        <p><strong>Built for real voices</strong></p>
-        <p>
-          Anvil doesn’t try to sound like you. It doesn’t replace you. It helps you deliver — smoothly,
-          confidently, and naturally. If you record podcasts, videos, or long-form spoken content,
-          Anvil is built for the way you actually work.
-        </p>
-        <p><strong>Ready to get started?</strong></p>
-        <p>
-          Start with Anvil.
-        </p>
-      </div>
       </section>
 
       <section class="settings-panel" data-settings-panel="about" data-tab-content="about" hidden>

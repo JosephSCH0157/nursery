@@ -116,10 +116,12 @@ In `scrollMode='asr'`:
 - Cue-boundary bridge widening applies to same-line confirm/nudge flow only; full commit target resolution remains bounded by the normal commit clamp window.
 - When same-line cue bridge selects a forward target, pending commit must carry the same bounded bridge delta (`<=+3`) through clamp arbitration; it must not clamp back to `+1` and re-block on an intermediate cue-only line.
 - Pending commit cue-bridge bypass must be true bridge-only: intermediate skipped lines must all be cue/blank/note/speaker skippable, capped to a small span (`<=2` skipped lines), and target must be speakable.
+- Multi-line same-line promotions and cue-bridge fallbacks must use a stricter bridge proof than general cue detection: only blank lines, bracketed cue tags, note blocks, and speaker tags may be skipped. Bare cue-ish short text must not justify a `+2..+3` commit.
 - Multi-line cue-bridge commits must satisfy a stronger floor (`sim>=0.45`); low-floor (`~0.20`) bypass is not allowed for multi-line bridge jumps.
 - Bounded same-line final cue-bridge promotions may apply a small multi-jump floor epsilon (`<=0.08`) to prevent float-boundary stalls; this is limited to `final-forward-nudge` / `final-forward-fallback` / `permissive-final-advance` with valid cue-bridge pathing, and does not change the hard deny floor (`sim<0.30`).
 - Live armed ASR speech stalls may trigger `tp:asr:rescue`; driver may convert that into a bounded cue-bridge forward commit (`forceReason='stall-rescue'`) only when skipped lines are cue/meta/blank and the target speakable line is within the cue bridge cap (`+3`).
-- Live armed ASR cue-stall auto-rescue is bounded to conservative continuity: when commit progress stalls while transcript traffic continues, auto-stall rescue may only schedule direct content rescue (`+1` line) when both cursor and target are content lines; multi-line cue-bridge rescue remains explicit/manual (`tp:asr:rescue`) only.
+- Live armed ASR cue-stall auto-rescue must not synthesize forward progression on its own. Automatic stall probes may log/arm diagnostics, but only explicit/manual `tp:asr:rescue` may schedule a bounded forward commit, and only with strict cue-bridge proof.
+- Automatic stall rescue must defer while ASR manual-anchor adoption is pending so Kick/manual reposition can re-lock from local speech instead of being overridden by a later stall-rescue jump.
 - Stall rescue request latching is schedule-bound: `stallRescueRequested` may arm only when a bounded rescue is actually scheduled; blocked content-line auto-stall probes must clear/leave latch false.
 - Cue-bridge nudge/confirm into speakable content requires strong evidence (`strongSim` or large sim-gap or multi-event stability); low-sim nudges must not bridge content lines.
 - Add progress-based LOST_FORWARD recovery with staged forward ramping: track a no-progress streak per ingest (reset when cursor advances). At streak `>=4`, enter LOST_FORWARD stage 0 (`+10` forward window), then stage 1 (`+25`) and stage 2 (`+60`) if no progress continues; exit/reset immediately on the next forward commit.
@@ -242,6 +244,7 @@ In `scrollMode='hybrid'`:
     - in `scrollMode='asr'`, Kick is manual forward assist (advance to next ASR block via writer seek)
     - prefer writer seek when block mapping is available
     - otherwise perform a small pixel nudge fallback
+    - in `scrollMode='asr'`, Kick must also arm manual-anchor adoption around the assisted location so ASR waits for local evidence instead of staying pinned to the old cursor
   - Kick must be wired from typed bindings only (hotkeys + button).
   - Hotkey typing-target suppression may only block true typing surfaces (`input`, `textarea`, or contenteditable); actionable buttons (including `#recBtn`) must not suppress Kick.
   - Dev-only debug global is allowed; production global publish is forbidden.

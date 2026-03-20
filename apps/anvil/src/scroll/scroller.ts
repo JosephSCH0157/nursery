@@ -38,7 +38,7 @@ function readLineIndex(el: Element | null): number | null {
   return null;
 }
 
-function computeAnchorLineIndex(scroller: HTMLElement | null): number | null {
+export function computeAnchorLineIndex(scroller: HTMLElement | null): number | null {
   if (!scroller) return null;
   if (typeof document === 'undefined' || typeof window === 'undefined') return null;
   const rect = scroller.getBoundingClientRect();

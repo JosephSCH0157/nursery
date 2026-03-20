@@ -29,8 +29,8 @@ This is the "who owns the truth" table.
 | Script drafts + revisions | Hearth -> stored in Tongs | Text content, edit history |
 | Transcripts | Tongs (created by pipeline) | Used by Hammer/Quench |
 | Shorts suggestions + SEO | Hearth -> stored in Tongs | Candidates, titles, descriptions |
-| Media bytes (recordings/exports) V1 | Local mapped folder | Until cloud media is enabled |
-| Media bytes (future) | Tongs-backed cloud | Phase later (cost control) |
+| Media bytes (recordings/exports) V1 | Tongs-backed cloud with local mirror support | Local mirror supports local access, ingest, and inspection when configured |
+| Media bytes (future) | Tongs-backed cloud | Broader cloud-native media workflows and collaboration |
 | Edit instructions (non-destructive) | Hammer -> stored in Tongs | Timeline edits, placements |
 | Published metadata + schedule | Quench -> stored in Tongs | Platform targets, publish state |
 | Analytics | Ledger -> stored in Tongs | Pulls platform stats + outcomes |
@@ -76,7 +76,7 @@ Tongs provides:
 - permissions
 - versioning / events
 - edit locks (v1 single editor in Hammer)
-- pointers to local media (v1) and cloud media (future)
+- pointers to canonical cloud media plus optional local mirror state
 
 Tongs is the source of truth.
 
@@ -86,7 +86,7 @@ Inputs: script from Tongs, session metadata
 
 Outputs:
 
-- recordings (media bytes) -> local mapped folder (v1)
+- recordings (media bytes) -> Tongs-backed cloud, optionally mirrored locally
 - recording session metadata -> Tongs
 - optional calibration profiles (room/mic)
 - pointers (hash/paths/duration) -> Tongs
@@ -98,21 +98,21 @@ Anvil creates the raw capture + structured session info.
 Inputs:
 
 - metadata, transcript, assets, shorts packets from Tongs
-- recordings/exports bytes from mapped folder (v1)
+- recordings/exports bytes from cloud-backed storage, with local mirror support when available
 
 Outputs (to Tongs):
 
 - edit instructions (timeline cuts, ripple results, overlays)
 - audio settings (studio sound presets per episode / workspace)
 - approved shorts boundaries
-- export records (what was exported + local path pointer)
+- export records (what was exported + canonical storage registration, plus local mirror pointer when applicable)
 
 Hammer edits are instruction layers only (non-destructive).
 Media bytes remain local in v1.
 
 ### Quench (Publishing and distribution)
 
-Inputs: final cut definitions + assets + SEO from Tongs (and local exports in v1)
+Inputs: final cut definitions + assets + SEO from Tongs, with local mirror exports consumed when available
 
 Outputs (to Tongs):
 
@@ -122,7 +122,7 @@ Outputs (to Tongs):
 - final published URLs/IDs
 
 Quench is "push button distribution."
-In v1, it may consume local exports; later it can pull from cloud media.
+In v1, it reads canonical cloud-backed media state and may consume local mirror exports when available.
 
 ### Ledger (Analytics and growth)
 
@@ -145,10 +145,10 @@ Bar Stock spark
 -> Tongs
 -> Hearth writes title + script + shorts + assets
 -> Tongs
--> Anvil records media -> mapped folder
+-> Anvil records media -> canonical cloud target with optional local mirror
 -> Tongs (pointers + transcript)
 -> Hammer writes edit instructions -> Tongs
--> Mapped folder (exports)
+-> Cloud-backed exports with optional local mirror
 -> Quench schedules/uploads
 -> Ledger analytics
 
@@ -166,7 +166,7 @@ Hearth identifies short candidates + writes SEO
 Canonical statement:
 
 - Tongs stores the truth about the project (title, transcript, edits, metadata, pointers).
-- Mapped folder stores big files (recordings, exports) until cloud is enabled.
+- Cloud-backed media is canonical for recordings and exports; local mirrors support local access, inspection, and recovery when configured.
 
 Hammer and Quench must:
 
@@ -187,12 +187,11 @@ Hammer and Quench must:
 V1 locked:
 
 - Single-editor locking for Hammer
-- Local media bytes via mapped folder
+- Cloud-backed recordings and exports with optional local mirror support
 - Tongs as canonical metadata + instruction store
 
 VNext:
 
-- Cloud media bytes (recordings + exports)
 - Cross-machine "just works"
 - Collaborative editing
 - Remote recording pipeline integration (host/guest local tracks + upload)

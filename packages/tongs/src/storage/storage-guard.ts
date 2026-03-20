@@ -1,8 +1,8 @@
 import type { MountRole, MountTargetType } from "../types.js";
-import { isLocalOnlyRole } from "./storage-contract.js";
+import { isTargetEligibleForRole } from "../roles.js";
 
 export function assertRoleAllowed(role: MountRole, targetType: MountTargetType): void {
-  if (isLocalOnlyRole(role) && targetType === "tongs_cloud") {
-    throw new Error(`Mount role "${role}" is local-only and cannot target cloud storage.`);
+  if (!isTargetEligibleForRole(role, targetType)) {
+    throw new Error(`Mount role "${role}" cannot target ${targetType} storage.`);
   }
 }

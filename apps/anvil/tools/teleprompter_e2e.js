@@ -1366,7 +1366,7 @@ async function main() {
           notes.push('settingsBtn not found (skipped)');
         }
 
-        // Builder-path guard: ensure dynamic Pricing/About sections exist when builder is mounted
+        // Builder-path guard: ensure dynamic About section exists when builder is mounted
         try {
           const reopened = await robustClick('#settingsBtn', '[data-action="settings-open"]');
           if (reopened) {
@@ -1380,16 +1380,13 @@ async function main() {
                   if (!root) return { hasBuilder:false };
                   const dynSections = root.querySelectorAll('[data-tab-content]');
                   const hasBuilder = dynSections && dynSections.length > 0;
-                  const pricing = root.querySelector('[data-tab-content="pricing"]');
                   const about = root.querySelector('[data-tab-content="about"]');
                   const len = (el)=>{ try { return ((el && el.textContent) || '').trim().length; } catch { return 0; } };
                   // Collect About bullets (if any)
                   const bullets = about ? Array.from(about.querySelectorAll('ul li')).map(li => (li.textContent||'').trim()) : [];
                   return {
                     hasBuilder,
-                    hasPricing: !!pricing,
                     hasAbout: !!about,
-                    pricingLen: len(pricing),
                     aboutLen: len(about),
                     aboutBullets: bullets,
                     aboutBulletsCount: bullets.length
@@ -1397,10 +1394,6 @@ async function main() {
                 } catch { return { hasBuilder:false }; }
               });
               if (builderCheck && builderCheck.hasBuilder) {
-                if (!builderCheck.hasPricing || builderCheck.pricingLen < 8) {
-                  notes.push('assert: builder missing pricing content');
-                  try { smoke.ok = false; } catch {}
-                }
                 if (!builderCheck.hasAbout || builderCheck.aboutLen < 8) {
                   notes.push('assert: builder missing about content');
                   try { smoke.ok = false; } catch {}
@@ -1621,7 +1614,7 @@ async function main() {
         process.exit(1);
       }
 
-      // Settings tabs/content assertions: Pricing and About should render
+      // Settings tabs/content assertions: About should render
       try {
         let uiFail = false;
         // Open Settings overlay
@@ -1631,22 +1624,6 @@ async function main() {
         } else {
           const okOpen = await waitAttr('body', 'data-smoke-open', 'settings', 1500);
           if (!okOpen) notes.push('settings open not observed for tabs');
-
-          // Click Pricing tab and verify its card is visible and non-empty
-          const clickedPricing = await robustClick('[role="tab"][data-tab="pricing"]', '#settingsTabs [data-tab="pricing"]');
-          if (!clickedPricing) {
-            notes.push('pricing tab not found');
-            uiFail = true;
-          } else {
-            const pricingVisible = await page.evaluate(() => {
-              const el = document.querySelector('.settings-card[data-tab="pricing"]');
-              if (!el) return false;
-              const st = getComputedStyle(el);
-              const hasText = (el.textContent || '').trim().length > 10;
-              return !el.hasAttribute('hidden') && st.display !== 'none' && hasText;
-            });
-            if (!pricingVisible) { notes.push('pricing card not visible/content-empty'); uiFail = true; }
-          }
 
           // Click About tab and verify its card is visible and has version text
           const clickedAbout = await robustClick('[role="tab"][data-tab="about"]', '#settingsTabs [data-tab="about"]');

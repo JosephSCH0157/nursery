@@ -20,7 +20,7 @@
   "devDependencies": {
     "dotenv": "^16.6.1",
     "graphemer": "1.4.0",
-    "supabase": "^2.76.16",
+    "supabase": "^2.82.0",
     "typescript": "^5.9.3"
   },
   "volta": {
@@ -29,5 +29,10 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
     "postmark": "^4.0.7"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "supabase"
+    ]
   }
 }

@@ -13,17 +13,6 @@ import { createAppStore, type AppStore } from '../../state/app-store';
 import { speechStore } from '../../state/speech-store';
 import { wireTypographyPresets } from './typography-presets';
 import { wireUiScaleControls } from '../ui-scale';
-import {
-  getEntitlementsState,
-  isPaid,
-  refreshEntitlements,
-  setFreeEntitlements,
-  subscribeEntitlements,
-  type EntitlementsState,
-} from '../../forge/entitlements';
-import { hasSupabaseConfig, supabase } from '../../forge/supabaseClient';
-
-let entitlementsUnsub: (() => void) | null = null;
 
 function setSettingsHydrating(value: boolean) {
   try {
@@ -92,84 +81,6 @@ function logSettingsHydrationSnapshot(store: AppStore | null): void {
   } catch {}
 }
 
-function setBillingField(rootEl: HTMLElement, id: string, value: string): void {
-  const el = rootEl.querySelector(`#${id}`) as HTMLElement | null;
-  if (!el) return;
-  el.textContent = value;
-}
-
-function formatPeriodEnd(raw: string | null): string {
-  if (!raw) return 'none';
-  const dt = new Date(raw);
-  if (Number.isNaN(dt.getTime())) return raw;
-  return dt.toLocaleString();
-}
-
-function renderBillingStatus(rootEl: HTMLElement, state: EntitlementsState): void {
-  const summary = rootEl.querySelector('#billingStatusSummary') as HTMLElement | null;
-  if (!summary) return;
-
-  if (state.status === 'idle' || state.status === 'loading') {
-    summary.textContent = 'Billing: loading...';
-    setBillingField(rootEl, 'billingStatusPaid', '--');
-    setBillingField(rootEl, 'billingStatusTier', '--');
-    setBillingField(rootEl, 'billingStatusSubscription', '--');
-    setBillingField(rootEl, 'billingStatusPeriodEnd', '--');
-    setBillingField(rootEl, 'billingStatusCustomer', '--');
-    setBillingField(rootEl, 'billingStatusSubId', '--');
-    return;
-  }
-
-  if (state.status === 'error') {
-    summary.textContent = `Billing: error (${state.error})`;
-    setBillingField(rootEl, 'billingStatusPaid', 'false');
-    setBillingField(rootEl, 'billingStatusTier', 'unknown');
-    setBillingField(rootEl, 'billingStatusSubscription', 'unknown');
-    setBillingField(rootEl, 'billingStatusPeriodEnd', 'unknown');
-    setBillingField(rootEl, 'billingStatusCustomer', 'unknown');
-    setBillingField(rootEl, 'billingStatusSubId', 'unknown');
-    return;
-  }
-
-  const ent = state.ent;
-  const paid = isPaid(ent);
-  summary.textContent = paid ? 'Founders: active' : 'Founders: inactive';
-  setBillingField(rootEl, 'billingStatusPaid', String(paid));
-  setBillingField(rootEl, 'billingStatusTier', ent.tier || 'free');
-  setBillingField(rootEl, 'billingStatusSubscription', ent.subscription_status || 'none');
-  setBillingField(rootEl, 'billingStatusPeriodEnd', formatPeriodEnd(ent.current_period_end));
-  setBillingField(rootEl, 'billingStatusCustomer', ent.stripe_customer_id || 'none');
-  setBillingField(rootEl, 'billingStatusSubId', ent.stripe_subscription_id || 'none');
-}
-
-function wireBillingStatus(rootEl: HTMLElement): void {
-  const summary = rootEl.querySelector('#billingStatusSummary') as HTMLElement | null;
-  if (!summary) return;
-
-  try {
-    entitlementsUnsub?.();
-  } catch {
-    // ignore stale unsubscribe failures
-  }
-  entitlementsUnsub = null;
-
-  const render = (state: EntitlementsState) => {
-    renderBillingStatus(rootEl, state);
-  };
-
-  render(getEntitlementsState());
-  entitlementsUnsub = subscribeEntitlements(render);
-
-  const current = getEntitlementsState();
-  if (current.status === 'idle') {
-    if (hasSupabaseConfig) {
-      void refreshEntitlements(supabase);
-    } else {
-      setFreeEntitlements();
-    }
-  }
-}
-
 // Core mount function used internally
 export function mountSettings(rootEl: HTMLElement | null, store?: AppStore | null) {
   setSettingsHydrating(true);
@@ -206,7 +117,6 @@ export function mountSettings(rootEl: HTMLElement | null, store?: AppStore | nul
     try { wireAsrSettingsCard(rootEl, resolvedStore); } catch {}
     try { hydrateAsrSettingsCard(rootEl); } catch {}
     try { syncSettingsValues(resolvedStore); } catch {}
-    try { wireBillingStatus(rootEl); } catch {}
 
     // Inline link: Hybrid row → jump to ASR settings card
     try {

@@ -1,16 +1,30 @@
 import {
+  computeAnchorLineIndex,
   describeElement,
   getRuntimeScroller,
   resolveViewerRole,
 } from '../../scroll/scroller';
-import { getAsrBlockElements } from '../../scroll/asr-block-store';
-import { getScrollWriter, seekToBlockAnimated } from '../../scroll/scroll-writer';
+import { dispatchAsrManualAnchor } from '../asr/manual-anchor';
+import { getScrollWriter } from '../../scroll/scroll-writer';
 
 const DEFAULT_KICK_DELTA_PX = 120;
 
 export interface KickOptions {
   deltaPx?: number;
   reason?: string;
+}
+
+function isDevMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const w = window as any;
+    if (w.__TP_DEV || w.__TP_DEV1 || w.__tpDevMode) return true;
+    if (w.localStorage?.getItem('tp_dev_mode') === '1') return true;
+    const qs = new URLSearchParams(String(window.location?.search || ''));
+    return qs.has('dev') || qs.get('dev') === '1';
+  } catch {
+    return false;
+  }
 }
 
 function normalizeDeltaPx(rawDelta: number | undefined): number {
@@ -66,44 +80,68 @@ export function resolveKickScroller(): HTMLElement | null {
   return getResolvedScroller();
 }
 
-function parseLineIndexFromElement(lineEl: HTMLElement): number | null {
-  const raw =
-    lineEl.dataset.line ||
-    lineEl.dataset.lineIdx ||
-    lineEl.dataset.i ||
-    lineEl.dataset.index ||
-    lineEl.getAttribute('data-line-idx');
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : null;
+function getLineElementByIndex(scroller: HTMLElement | null, lineIndex: number): HTMLElement | null {
+  const idx = Math.max(0, Math.floor(lineIndex));
+  const selectors = [
+    `.line[data-line="${idx}"]`,
+    `.line[data-line-idx="${idx}"]`,
+    `.line[data-i="${idx}"]`,
+    `.line[data-index="${idx}"]`,
+    `.tp-line[data-line="${idx}"]`,
+    `.tp-line[data-line-idx="${idx}"]`,
+    `.tp-line[data-i="${idx}"]`,
+    `.tp-line[data-index="${idx}"]`,
+  ];
+  const roots: Array<ParentNode | null> = [
+    scroller,
+    document.getElementById('script'),
+    document,
+  ];
+  for (const root of roots) {
+    if (!root) continue;
+    for (const selector of selectors) {
+      try {
+        const found = root.querySelector<HTMLElement>(selector);
+        if (found) return found;
+      } catch {
+        // ignore selector errors
+      }
+    }
+  }
+  return null;
 }
 
-function getBlockLineRange(blockEl: HTMLElement): { start: number; end: number } | null {
-  const lineEls = Array.from(blockEl.querySelectorAll<HTMLElement>('.line'));
-  if (!lineEls.length) return null;
-  const indices = lineEls
-    .map((lineEl) => parseLineIndexFromElement(lineEl))
-    .filter((idx): idx is number => Number.isFinite(idx))
-    .sort((a, b) => a - b);
-  if (indices.length) {
-    return {
-      start: indices[0],
-      end: indices[indices.length - 1],
-    };
-  }
+function resolveLineTopWithinScroller(scroller: HTMLElement, lineEl: HTMLElement): number {
   try {
-    const allLines = Array.from(document.querySelectorAll<HTMLElement>('.line'));
-    const start = allLines.indexOf(lineEls[0]);
-    const end = allLines.indexOf(lineEls[lineEls.length - 1]);
-    if (start >= 0 && end >= 0) {
-      return {
-        start: Math.min(start, end),
-        end: Math.max(start, end),
-      };
-    }
+    const lineRect = lineEl.getBoundingClientRect();
+    const scrollerRect = scroller.getBoundingClientRect();
+    const rectTop = lineRect.top - scrollerRect.top + scroller.scrollTop;
+    if (Number.isFinite(rectTop)) return rectTop;
   } catch {
     // ignore
   }
-  return null;
+  return lineEl.offsetTop || 0;
+}
+
+function resolveLineTargetTop(scroller: HTMLElement, lineIndex: number): number | null {
+  const lineEl = getLineElementByIndex(scroller, lineIndex);
+  if (!lineEl) return null;
+  const lineHeight =
+    lineEl.getBoundingClientRect?.().height ||
+    lineEl.offsetHeight ||
+    lineEl.clientHeight ||
+    24;
+  const markerRatioRaw =
+    typeof (window as any).__TP_MARKER_PCT === 'number'
+      ? Number((window as any).__TP_MARKER_PCT)
+      : 0.4;
+  const markerRatio = Math.max(0.2, Math.min(0.8, markerRatioRaw));
+  const markerOffsetPx = scroller.clientHeight * markerRatio - lineHeight * 0.5;
+  const lineTop = resolveLineTopWithinScroller(scroller, lineEl);
+  const maxTop = Math.max(0, (scroller.scrollHeight || 0) - (scroller.clientHeight || 0));
+  const rawTop = lineTop - markerOffsetPx;
+  if (!Number.isFinite(rawTop)) return null;
+  return Math.max(0, Math.min(rawTop, maxTop));
 }
 
 function getCurrentLineIndex(): number | null {
@@ -120,73 +158,81 @@ function getCurrentLineIndex(): number | null {
   return null;
 }
 
-function elementTopRelativeToScroller(el: HTMLElement, scroller: HTMLElement): number {
-  try {
-    const rect = el.getBoundingClientRect();
-    const scrollerRect = scroller.getBoundingClientRect();
-    return rect.top - scrollerRect.top + (scroller.scrollTop || 0);
-  } catch {
-    return el.offsetTop || 0;
-  }
+function getVisibleAnchorLineIndex(scroller: HTMLElement | null): number | null {
+  const markerIndex = computeAnchorLineIndex(scroller);
+  if (!Number.isFinite(markerIndex as number)) return null;
+  return Math.max(0, Math.floor(markerIndex as number));
 }
 
-function resolveCurrentAsrBlockIdx(scroller: HTMLElement, blocks: HTMLElement[]): number | null {
-  const currentLine = getCurrentLineIndex();
-  if (Number.isFinite(currentLine as number)) {
-    for (let i = 0; i < blocks.length; i += 1) {
-      const range = getBlockLineRange(blocks[i]);
-      if (!range) continue;
-      if ((currentLine as number) >= range.start && (currentLine as number) <= range.end) {
-        return i;
-      }
-    }
+function resolveAsrKickBaseLineIndex(scroller: HTMLElement): number | null {
+  const anchorIndex = getVisibleAnchorLineIndex(scroller);
+  const currentIndex = getCurrentLineIndex();
+  if (anchorIndex == null) return currentIndex;
+  if (currentIndex != null && currentIndex !== anchorIndex && isDevMode()) {
+    try {
+      console.info('[kick:anchor-preferred]', {
+        anchorIndex,
+        currentIndex,
+        drift: currentIndex - anchorIndex,
+      });
+    } catch {}
   }
-  const scrollTop = readScrollTop(scroller);
-  let bestIdx = 0;
-  let bestTop = Number.NEGATIVE_INFINITY;
-  for (let i = 0; i < blocks.length; i += 1) {
-    const top = elementTopRelativeToScroller(blocks[i], scroller);
-    if (top <= scrollTop + 8 && top >= bestTop) {
-      bestTop = top;
-      bestIdx = i;
-    }
-  }
-  return bestIdx;
+  return anchorIndex;
 }
 
-function kickAsrForward(scroller: HTMLElement, deltaPx: number, reason: string): boolean {
-  const blocks = getAsrBlockElements();
+function resolveManualAnchorTargetIndex(
+  scroller: HTMLElement,
+  fallbackIndex: number | null = null,
+): number | null {
+  const markerIndex = getVisibleAnchorLineIndex(scroller);
+  if (markerIndex != null) return markerIndex;
+  if (Number.isFinite(fallbackIndex as number)) {
+    return Math.max(0, Math.floor(fallbackIndex as number));
+  }
+  return null;
+}
+
+type AsrKickResult = {
+  moved: boolean;
+  targetIndex: number | null;
+  targetBlockIdx: number | null;
+};
+
+function kickAsrForward(scroller: HTMLElement, deltaPx: number, reason: string): AsrKickResult {
   const from = readScrollTop(scroller);
-  if (blocks.length) {
-    const currentBlockIdx = resolveCurrentAsrBlockIdx(scroller, blocks);
-    const nextBlockIdx =
-      currentBlockIdx == null
-        ? 0
-        : Math.min(blocks.length - 1, Math.max(0, currentBlockIdx + 1));
-    if (currentBlockIdx == null || nextBlockIdx !== currentBlockIdx) {
-      try { seekToBlockAnimated(nextBlockIdx, `${reason}:asr`); } catch {}
-      if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(() => {
-          try {
-            const afterFrame = readScrollTop(scroller);
-            if (Math.abs(afterFrame - from) < 0.5) {
-              writeScrollTop(scroller, from + deltaPx);
-            }
-          } catch {
-            // ignore
-          }
-        });
-      } else {
-        const immediate = readScrollTop(scroller);
-        if (Math.abs(immediate - from) < 0.5) {
-          writeScrollTop(scroller, from + deltaPx);
-        }
+  const currentLine = resolveAsrKickBaseLineIndex(scroller);
+  const nextLineIndex =
+    Number.isFinite(currentLine as number) ? Math.max(0, Math.floor(currentLine as number) + 1) : null;
+  if (nextLineIndex != null) {
+    const targetTop = resolveLineTargetTop(scroller, nextLineIndex);
+    if (targetTop != null) {
+      try {
+        getScrollWriter().scrollTo(targetTop, { behavior: 'auto' });
+      } catch {
+        // ignore writer errors; direct write fallback below
       }
-      return true;
+      if (Math.abs(readScrollTop(scroller) - from) < 0.5) {
+        writeScrollTop(scroller, targetTop);
+      }
+      const moved = Math.abs(readScrollTop(scroller) - from) >= 0.5;
+      if (moved) {
+        return {
+          moved: true,
+          targetIndex: nextLineIndex,
+          targetBlockIdx: null,
+        };
+      }
     }
   }
   writeScrollTop(scroller, from + deltaPx);
-  return Math.abs(readScrollTop(scroller) - from) >= 0.5;
+  const moved = Math.abs(readScrollTop(scroller) - from) >= 0.5;
+  const fallbackTargetIndex =
+    Number.isFinite(currentLine as number) ? Math.max(0, Math.floor(currentLine as number) + 1) : null;
+  return {
+    moved,
+    targetIndex: moved ? resolveManualAnchorTargetIndex(scroller, fallbackTargetIndex) : null,
+    targetBlockIdx: null,
+  };
 }
 
 export function kick(options: KickOptions = {}): boolean {
@@ -200,8 +246,13 @@ export function kick(options: KickOptions = {}): boolean {
     const from = readScrollTop(scroller);
 
     let moved: boolean;
+    let manualAnchorTargetIndex: number | null = null;
+    let manualAnchorTargetBlockIdx: number | null = null;
     if (mode === 'asr') {
-      moved = kickAsrForward(scroller, deltaPx, reason);
+      const result = kickAsrForward(scroller, deltaPx, reason);
+      moved = result.moved;
+      manualAnchorTargetIndex = result.targetIndex;
+      manualAnchorTargetBlockIdx = result.targetBlockIdx;
     } else {
       try {
         getScrollWriter().scrollBy(deltaPx, { behavior: 'auto' });
@@ -218,8 +269,25 @@ export function kick(options: KickOptions = {}): boolean {
     const to = readScrollTop(scroller);
 
     try { scroller.dataset.tpLastWriter = reason; } catch {}
+    if (mode === 'asr' && moved && manualAnchorTargetIndex != null) {
+      const targetIndex = dispatchAsrManualAnchor({
+        targetIndex: manualAnchorTargetIndex,
+        targetBlockIdx: manualAnchorTargetBlockIdx,
+        source: 'kick',
+        reason,
+      });
+      if (isDevMode() && targetIndex != null) {
+        try {
+          console.info('[kick:manual-anchor]', {
+            reason,
+            targetIndex,
+            targetBlockIdx: manualAnchorTargetBlockIdx,
+          });
+        } catch {}
+      }
+    }
 
-    if (import.meta.env.DEV) {
+    if (isDevMode()) {
       try {
         console.info('[kick]', {
           reason,
@@ -235,7 +303,7 @@ export function kick(options: KickOptions = {}): boolean {
 
     return moved;
   } catch (error) {
-    if (import.meta.env.DEV) {
+    if (isDevMode()) {
       try {
         console.warn('[kick] error', {
           reason: options.reason || 'kick',

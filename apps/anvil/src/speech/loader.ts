@@ -5,8 +5,22 @@ export {};
 // Loader for speech recognizer/matcher. Attaches `window.__tpRecognizer` and `window.__tpMatcher`
 // factories to allow gradual adoption by the legacy runtime.
 ensureSpeechGlobals();
+
+function allowLegacySpeechLoaderInstall(): boolean {
+  try {
+    if (!(window as any).__TP_TS_PRIMARY__) return true;
+    if ((window as any).__tpAllowLegacySpeechOrchestrator === true) return true;
+    if ((window as any).__tpAllowLegacySpeechNamespace === true) return true;
+    const params = new URLSearchParams(location.search || '');
+    return params.get('legacySpeechOrchestrator') === '1' || params.get('legacySpeechNs') === '1';
+  } catch {
+    return false;
+  }
+}
+
 (async function () {
   if (!isSpeechBackendAllowed()) return;
+  if (!allowLegacySpeechLoaderInstall()) return;
 
   const isDevMode = (() => {
     try {

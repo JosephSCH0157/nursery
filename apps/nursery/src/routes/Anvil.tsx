@@ -10,8 +10,12 @@ import {
   validateAnvilHandoffTarget,
   type HandoffEpisodeSummary,
 } from "../lib/forge-handoff-validation";
+import anvilDevSourceUrl from "../../../anvil/teleprompter_pro.html?url";
+import "./Anvil.css";
 
-const ANVIL_FULL_PAGE_URL = "/anvil/teleprompter_pro.html";
+const ANVIL_FULL_PAGE_URL = import.meta.env.DEV
+  ? anvilDevSourceUrl
+  : "/anvil/teleprompter_pro.html";
 const TONGS_TOKEN_STORAGE_KEY = "forge_tongs_api_token_v1";
 
 export default function AnvilRoute() {
@@ -124,8 +128,6 @@ export default function AnvilRoute() {
     handoffValidationSeqRef.current = requestSeq;
 
     if (!hasRequestedHandoff) {
-      setHandoffError(null);
-      setHandoffValidating(false);
       bridgeTongsToken();
       window.location.replace(anvilHref);
       return;
@@ -190,9 +192,9 @@ export default function AnvilRoute() {
 
   if (waitingForWorkspaceResolution) {
     return (
-      <section style={{ padding: 24, display: "grid", gap: 8 }}>
-        <h2 style={{ margin: 0 }}>Resolving workspace access...</h2>
-        <p style={{ margin: 0 }}>Validating the requested Anvil workspace before opening the teleprompter.</p>
+      <section className="anvil-route-status">
+        <h2 className="anvil-route-status__title">Resolving workspace access...</h2>
+        <p className="anvil-route-status__copy">Validating the requested Anvil workspace before opening the teleprompter.</p>
       </section>
     );
   }
@@ -203,26 +205,26 @@ export default function AnvilRoute() {
 
   if (handoffValidating) {
     return (
-      <section style={{ padding: 24, display: "grid", gap: 8 }}>
-        <h2 style={{ margin: 0 }}>Validating Anvil handoff...</h2>
-        <p style={{ margin: 0 }}>Rechecking the requested workpiece and script against canonical workspace state.</p>
+      <section className="anvil-route-status">
+        <h2 className="anvil-route-status__title">Validating Anvil handoff...</h2>
+        <p className="anvil-route-status__copy">Rechecking the requested workpiece and script against canonical workspace state.</p>
       </section>
     );
   }
 
   if (handoffError) {
     return (
-      <section style={{ padding: 24, display: "grid", gap: 8 }}>
-        <h2 style={{ margin: 0 }}>Unable to open Anvil target</h2>
-        <p style={{ margin: 0 }}>{handoffError}</p>
+      <section className="anvil-route-status">
+        <h2 className="anvil-route-status__title">Unable to open Anvil target</h2>
+        <p className="anvil-route-status__copy">{handoffError}</p>
         <a href={anvilHomeHref}>Continue to Anvil home</a>
       </section>
     );
   }
 
   return (
-    <section style={{ padding: 24, display: "grid", gap: 8 }}>
-      <h2 style={{ margin: 0 }}>Opening Anvil...</h2>
+    <section className="anvil-route-status">
+      <h2 className="anvil-route-status__title">Opening Anvil...</h2>
       <a href={anvilHref}>Continue to Anvil</a>
     </section>
   );

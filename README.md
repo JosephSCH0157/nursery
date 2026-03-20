@@ -66,6 +66,22 @@ Run:
 pnpm check
 ```
 
+`pnpm check` includes live Supabase-backed smoke coverage. In GitHub Actions, `.github/workflows/pr-smoke.yml` always runs `smoke:core`, and only enables the provisioned live-smoke jobs when the required repository secrets exist.
+
+Required repo secrets for live smoke:
+
+- `NURSERY_SUPABASE_URL`
+- `NURSERY_SUPABASE_ANON_KEY`
+- `NURSERY_SUPABASE_SERVICE_ROLE_KEY`
+- `NURSERY_PLAYWRIGHT_EMAIL`
+- `NURSERY_PLAYWRIGHT_PASSWORD`
+- `NURSERY_HEARTH_PHASE4_WORKSPACE_ID`
+- `NURSERY_HEARTH_PHASE4_WORKPIECE_ID`
+
+Optional fallback for `smoke:team`:
+
+- `NURSERY_SUPABASE_ACCESS_TOKEN` may be used when `NURSERY_SUPABASE_SERVICE_ROLE_KEY` is not provided.
+
 ## Routes
 
 ### Public

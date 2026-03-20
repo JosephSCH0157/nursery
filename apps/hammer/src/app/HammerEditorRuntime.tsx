@@ -4,11 +4,16 @@ import { useLocation } from "react-router-dom";
 import HammerWorkspaceEditor from "../editor/HammerWorkspaceEditor";
 import { resolveHammerRouteSelection } from "./hammerNavigation";
 
-export default function HammerEditorRuntime(): JSX.Element {
+export interface HammerEditorRuntimeProps {
+  releasePrepHref?: string | null;
+}
+
+export default function HammerEditorRuntime(props: HammerEditorRuntimeProps): JSX.Element {
   const location = useLocation();
+  const allowStubScenario = import.meta.env.DEV;
   const routeSelection = useMemo(
-    () => resolveHammerRouteSelection(location.search, location.state),
-    [location.search, location.state],
+    () => resolveHammerRouteSelection(location.search, location.state, { allowStubScenario }),
+    [allowStubScenario, location.search, location.state],
   );
   const persistenceMode = routeSelection.scenario ? "disabled" : "canonical";
 
@@ -16,6 +21,7 @@ export default function HammerEditorRuntime(): JSX.Element {
     <HammerWorkspaceEditor
       launchContext={routeSelection.launchContext}
       persistenceMode={persistenceMode}
+      releasePrepHref={props.releasePrepHref}
       routeSearch={location.search}
     />
   );

@@ -7,7 +7,7 @@ Structure:
 - src/adapters  - adapters for external systems (OBS, recorders, storage)
 - src/features  - higher-level feature bundles (script viewer, scroll logic)
 
-This change only creates folders and placeholder loader. The existing legacy single-file app lives at the project root (e.g. `teleprompter_pro.js`).
+This layout now boots from the TypeScript entry (`src/index.ts` -> `dist/index.js`). The legacy single-file app still exists at the project root (for reference or explicit compatibility mode), but it is no longer part of the default Anvil boot path.
 
 Migration guidance:
 1. Identify pure logic functions in `teleprompter_pro.js` and move to `src/core`.
@@ -15,4 +15,4 @@ Migration guidance:
 3. Break adapters into separate files in `src/adapters`.
 4. Group related features into `src/features`.
 
-The provided `index.js` is a simple loader that preserves existing behavior by injecting the legacy scripts in order. After migration, replace the loader with ES module imports or a bundler entry.
+The provided `index.js` is now a compatibility shim only. By default it forwards to the canonical TypeScript entry; it only routes into the legacy runtime when explicitly requested with `?legacy=1` or the equivalent boot flag.

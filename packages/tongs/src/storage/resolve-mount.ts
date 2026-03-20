@@ -1,5 +1,6 @@
 import type { MirrorPolicy, MountRole, MountTargetType, WorkspaceMountRegistry } from "../types.js";
-import { DEFAULT_MIRROR_POLICY, isCloudCanonicalRole, isLocalOnlyRole } from "./storage-contract.js";
+import { getDefaultMountTarget } from "../roles.js";
+import { DEFAULT_MIRROR_POLICY } from "./storage-contract.js";
 import { assertRoleAllowed } from "./storage-guard.js";
 
 export type ResolvedMountTarget = {
@@ -22,9 +23,7 @@ export function resolveMount(
 ): ResolvedMount {
   const entry = registry?.mounts.find((mount) => mount.role === role);
 
-  let target: MountTargetType = entry?.target ?? "local";
-  if (isLocalOnlyRole(role)) target = "local";
-  if (isCloudCanonicalRole(role)) target = "tongs_cloud";
+  const target: MountTargetType = entry?.target ?? getDefaultMountTarget(role);
 
   assertRoleAllowed(role, target);
 
@@ -38,7 +37,7 @@ export function resolveMount(
           hint: entry?.local?.hint,
         };
 
-  if (!isCloudCanonicalRole(role)) {
+  if (target !== "tongs_cloud") {
     return { role, canonicalTarget };
   }
 

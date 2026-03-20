@@ -60,7 +60,9 @@ When `scrollMode='asr'`:
 - If watchdog selects a forward recovery candidate while interim buffer is still growing, treat that as forward-progress evidence: do not reject it as `interim_unstable`, and preserve watchdog floor through low-sim gating for that recovery attempt.
 - Commit-time clamp: before ASR commit finalization (writer/pixel), baseline cap is `+1` line; force-qualified bounded paths (cue-bridge/lost-forward/hold-anchor/watchdog-recovery) may raise only to their capped windows. Outside those capped paths, require strong confidence (`sim>=0.82`) for larger jumps; emit `ASR_CLAMP` dev log when clamp applies.
 - Cue-bridge low-sim bypass must be bridge-only: intermediate skipped lines must be skippable cue/meta/blank lines, capped to a small bridge (`<=2` skipped lines), and target must be speakable.
+- Multi-line same-line promotions and cue-bridge fallbacks must prove every skipped line is strictly bridge-only: blank, bracketed cue, note, or speaker-tag lines. Bare cue-word text is not sufficient to justify a `+2..+3` commit.
 - Cue-bridge progression for multi-line advancement requires an actual bridge (`>=1` skipped skippable line). Same-line final confirmation may plain-advance only `+1` to the adjacent speakable line when confidence is strong (`sim>=0.82`); otherwise plain advancement without a bridge is disallowed.
+- Automatic stall rescue is diagnostic-only for progression: `auto-stall` must not synthesize forward commits. Only explicit/manual rescue signals may schedule bounded stall-rescue commits, and those still require strict cue-bridge proof.
 - Final forward nudges/fallbacks that already carry a valid cue-bridge delta may raise commit clamp to that bounded bridge cap (`<=3`) so clamp cannot collapse the move to a cue-only line and immediately block commit.
 - If commit-time cue-safe resolution finds only cue/meta lines in the clamp window, retry with a bounded cue-bridge scan from cursor (`+3`) and commit to that speakable line when available; only then allow `cue_commit_blocked`.
 - Strong same-line final `+1` nudge may bypass short-line ambiguity HOLD only when lexical overlap with current line is high, with no bridge skip and adjacent speakable target only.
@@ -75,6 +77,7 @@ When `scrollMode='asr'`:
 - For bounded same-line final cue-bridge promotions, a small multi-jump floor epsilon (`<=0.08`) is allowed to avoid float-boundary stalls, only on `final-forward-nudge` / `final-forward-fallback` / `permissive-final-advance` with valid cue-bridge pathing. Hard deny floor (`sim<0.30`) remains unchanged.
 - During live armed `speech_stall`, runtime may emit `tp:asr:rescue`; driver may synthesize a bounded cue-bridge forward commit (`forceReason='stall-rescue'`) only when skipped lines are cue/meta/blank and a speakable target exists within bridge cap (`+3`).
 - Auto cue-stall rescue is bounded to conservative continuity: automatic stall rescue may schedule only a direct content step (`+1`) when both cursor and target are content lines; multi-line cue-bridge rescue is reserved for explicit/manual rescue signals.
+- Automatic stall rescue must defer while manual-anchor adoption is pending (for example after Kick/manual reposition) so recovery does not override the user-selected re-anchor location before local speech confirms it.
 - Rescue latch hygiene: `stallRescueRequested` should arm only when rescue scheduling succeeds; blocked content-line auto-stall checks must leave the latch false.
 - LOST_FORWARD may use bounded behind-marker catch-up when marker is ahead of cursor and forward content evidence exists: candidate window remains bounded (`<=+6`), per-commit cap defaults to `+1`, and `+2` is allowed only under strong evidence at progressive floor (`sim>=0.20`).
 - Same-line/behind low-sim handling includes a small relaxed threshold lane (floor-clamped) so stable same-line evidence can proceed without waiting for strict full-threshold confidence.
@@ -127,6 +130,7 @@ When `scrollMode='asr'`:
 - Kick is manual movement and never depends on motor/auto-intent.
 - Kick resolves scroller by viewer role (`main` vs `display`) before movement.
 - In `scrollMode='asr'`, Kick acts as manual forward assist (advance one ASR block when available).
+- In `scrollMode='asr'`, Kick must arm manual-anchor adoption near the assisted location so matcher truth can re-lock on local speech instead of remaining on the pre-kick cursor.
 - Kick prefers writer path; pixel nudge is fallback.
 - Hotkeys and buttons call typed kick entrypoints only.
 - Hotkey typing-target suppression may block only `input`, `textarea`, and contenteditable targets; it must not suppress Kick on actionable controls like `button`/`#recBtn`.

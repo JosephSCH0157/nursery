@@ -10,6 +10,7 @@ import {
   type AsrScrollDriver,
   type AsrScrollDriverStats,
 } from '../features/asr/asr-scroll-driver';
+import { isSessionRecording } from '../recording/recorderRegistry';
 import { getAsrBlockElements, getAsrBlockIndex } from '../scroll/asr-block-store';
 import {
   describeElement,
@@ -21,8 +22,11 @@ import {
   resolveActiveScroller,
 } from '../scroll/scroller';
 import { ensureSpeechGlobals, isSpeechBackendAllowed } from '../speech/backend-guard';
-import { matchBatch as runMatcherBatch, normTokens, type MatchConfig } from '../speech/matcher';
-import { stopAsrRuntime } from '../speech/runtime-control';
+import { createWhisperBridgeRecognizer } from '../speech/engines/whisper-bridge';
+import { prepareMatcherInput } from '../speech/matcher-input';
+import { getMatcherRuntimeState } from '../speech/matcher-runtime-state';
+import { matchBatch as runMatcherBatch, normTokens } from '../speech/matcher';
+import { resolveRuntimeSpeechEngine } from '../speech/runtime-engine-selection';
 import type { AppStore } from '../state/app-store';
 import { getSession, setSessionPhase } from '../state/session';
 import type { SpeakerSlot } from '../types/speaker-profiles';
@@ -163,6 +167,23 @@ type AsrStallAutoRestartPayload = {
   restarted: boolean;
 };
 
+type AsrRuntimeStatusPayload = {
+  reason: string;
+  requestedEngine: string;
+  persistedEngine: string;
+  speechStoreEngine: string;
+  appStoreEngine: string;
+  actualEngine: string | null;
+  fallbackActive: boolean;
+  fallbackReason: string | null;
+  recognizerAttached: boolean;
+  phase: string;
+  runKey: string | null;
+  state: string;
+  speechRunning: boolean;
+  speechRunningActual: boolean;
+};
+
 type PendingAsrScriptEndStop = {
   dedupeKey: string;
   runKey: string;
@@ -171,6 +192,24 @@ type PendingAsrScriptEndStop = {
   lastSpeakableLineIndex: number | null;
   armedAt: number;
   targetLineTokens: string[];
+};
+
+type AsrScriptEndConfirmationEvidence = {
+  source: 'route-line' | 'token-overlap';
+  matchedLine: number | null;
+  sharedAny: number;
+  sharedMeaningful: number;
+  overlapRatio: number;
+};
+
+type DeferredAsrScriptEndStop = {
+  pending: PendingAsrScriptEndStop;
+  evidence: AsrScriptEndConfirmationEvidence;
+  targetLine: number | null;
+  startedAt: number;
+  markerReachedAt: number | null;
+  completionDelayMs: number;
+  completionReason: 'marker-reached' | 'marker-timeout' | 'no-target';
 };
 
 declare global {
@@ -215,6 +254,7 @@ declare global {
     __tpSendToDisplay?: (payload: unknown) => void;
     __tpGetActiveRecognizer?: () => RecognizerLike | null;
     __tpHardResetSpeech?: (reason?: string) => void;
+    __tpStopSpeechBackend?: (reason?: string) => void;
     SpeechRecognition?: { new (): SpeechRecognition };
     webkitSpeechRecognition?: { new (): SpeechRecognition };
     getAutoRecordEnabled?: () => boolean;
@@ -225,6 +265,7 @@ declare global {
     __tpAsrLifecycleLast?: Record<string, unknown>;
     __tpAsrStallLast?: AsrStallPayload;
     __tpAsrStallAutoRestartLast?: AsrStallAutoRestartPayload;
+    __tpAsrRuntimeStatus?: AsrRuntimeStatusPayload;
   }
 }
 
@@ -265,6 +306,11 @@ let lastAsrStallClass: AsrStallClass | '' = '';
 let speechWatchdogTimer: number | null = null;
 let asrHeartbeatTimer: number | null = null;
 let activeRecognizer: RecognizerLike | null = null;
+let lastStartedSpeechEngine = 'webspeech';
+let lastRequestedSpeechEngine = 'whisper';
+let currentActualSpeechEngine = '';
+let currentFallbackReason = '';
+let currentAsrState = 'idle';
 let pendingManualRestartCount = 0;
 let lifecycleRestartTimer: number | null = null;
 let lastLifecycleRestartAt = 0;
@@ -282,6 +328,8 @@ let lastMatcherStallCommitCount = -1;
 let lastMatcherStallCommitStableSince = 0;
 let lastAsrScriptEndStopKey = '';
 let pendingAsrScriptEndStop: PendingAsrScriptEndStop | null = null;
+let deferredAsrScriptEndStop: DeferredAsrScriptEndStop | null = null;
+let deferredAsrScriptEndStopTimer: number | null = null;
 
 const WATCHDOG_INTERVAL_MS = 5000;
 const WATCHDOG_THRESHOLD_MS = 15000;
@@ -300,6 +348,12 @@ const HUD_SNAPSHOT_THROTTLE_MS = 120;
 const ASR_SCRIPT_END_CONFIRM_MAX_WAIT_MS = 15000;
 const ASR_SCRIPT_END_CONFIRM_MIN_SHARED_MEANINGFUL_TOKENS = 1;
 const ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS = 2;
+const ASR_SCRIPT_END_MARKER_WAIT_MAX_MS = 4000;
+const ASR_SCRIPT_END_MARKER_POLL_MS = 16;
+const ASR_SCRIPT_END_POSTROLL_MS = 500;
+const ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX = 12;
+const ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX = 48;
+const ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO = 0.35;
 const ASR_SCRIPT_END_STOPWORDS = new Set([
   'the',
   'and',
@@ -432,6 +486,17 @@ function isLegacySpeechNamespaceAllowed(): boolean {
   return false;
 }
 
+function isLegacySpeechOrchestratorAllowed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    if ((window as any).__tpAllowLegacySpeechOrchestrator === true) return true;
+    const params = new URLSearchParams(window.location.search || '');
+    if (params.get('legacySpeechOrchestrator') === '1') return true;
+    if (params.get('legacySpeechNs') === '1') return true;
+  } catch {}
+  return false;
+}
+
 function getTpSpeechStoreSnapshot(): any {
   try {
     const ns = getTpSpeechNamespace();
@@ -439,6 +504,39 @@ function getTpSpeechStoreSnapshot(): any {
   } catch {
     return latestSpeechStoreState;
   }
+}
+
+function emitAiActivity(detail: Record<string, unknown>): void {
+  try { (window as any).__tpAiActivity = detail; } catch {}
+  try { window.dispatchEvent(new CustomEvent('tp:ai:activity', { detail })); } catch {}
+}
+
+function emitAsrRuntimeStatus(reason: string): void {
+  if (typeof window === 'undefined') return;
+  const speechStoreState = getTpSpeechStoreSnapshot();
+  const appStoreEngine = String((window as any).__tpStore?.get?.('asr.engine') || '').trim().toLowerCase();
+  const requestedEngine = String(lastRequestedSpeechEngine || appStoreEngine || 'whisper').trim().toLowerCase() || 'whisper';
+  const actualEngine = currentActualSpeechEngine ? String(currentActualSpeechEngine).trim().toLowerCase() : null;
+  const payload: AsrRuntimeStatusPayload = {
+    reason,
+    requestedEngine,
+    persistedEngine: appStoreEngine || requestedEngine,
+    speechStoreEngine: String((speechStoreState as any)?.engine || '').trim().toLowerCase(),
+    appStoreEngine,
+    actualEngine,
+    fallbackActive: !!currentFallbackReason && actualEngine !== requestedEngine,
+    fallbackReason: currentFallbackReason || null,
+    recognizerAttached: !!activeRecognizer,
+    phase: String(getSession().phase || 'idle').toLowerCase(),
+    runKey: activeAsrRunKey || null,
+    state: currentAsrState,
+    speechRunning: !!running,
+    speechRunningActual: !!speechRunningActual,
+  };
+  try { window.__tpAsrRuntimeStatus = payload; } catch {}
+  try { window.__tpBus?.emit?.('tp:asr:runtime-status', payload); } catch {}
+  try { window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: payload })); } catch {}
+  try { document.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: payload })); } catch {}
 }
 
 function resolveAsrDriverRef(): any {
@@ -531,54 +629,50 @@ function clearPendingAsrScriptEnd(reason: string): void {
   pendingAsrScriptEndStop = null;
 }
 
-function finalizePendingAsrScriptEndStop(
+function clearDeferredAsrScriptEndStopTimer(): void {
+  if (deferredAsrScriptEndStopTimer == null) return;
+  try {
+    window.clearTimeout(deferredAsrScriptEndStopTimer);
+  } catch {}
+  deferredAsrScriptEndStopTimer = null;
+}
+
+function cancelDeferredAsrScriptEndStop(reason: string): void {
+  if (!deferredAsrScriptEndStop) return;
+  clearDeferredAsrScriptEndStopTimer();
+  if (isDevMode() && shouldLogTag('ASR:script-end-deferred-clear', 2, 250)) {
+    try {
+      console.info('[ASR] script-end deferred stop cleared', {
+        reason,
+        dedupeKey: deferredAsrScriptEndStop.pending.dedupeKey,
+      });
+    } catch {}
+  }
+  deferredAsrScriptEndStop = null;
+}
+
+function shouldSuppressAsrScriptEndAutoStop(session = getSession()): boolean {
+  if (session.recordOnLive) return true;
+  try {
+    if (isSessionRecording()) return true;
+  } catch {}
+  return false;
+}
+
+function suppressPendingAsrScriptEndStop(
   pending: PendingAsrScriptEndStop,
-  evidence: {
-    source: 'route-line' | 'token-overlap';
-    matchedLine: number | null;
-    sharedAny: number;
-    sharedMeaningful: number;
-    overlapRatio: number;
-  },
+  reason: string,
+  evidence: AsrScriptEndConfirmationEvidence,
 ): void {
   const session = getSession();
-  const mode = String(pending.mode || getScrollMode() || '').toLowerCase();
-  if (session.phase !== 'live' || !isAsrLikeMode(mode)) {
-    clearPendingAsrScriptEnd('session-not-live');
-    return;
-  }
   lastAsrScriptEndStopKey = pending.dedupeKey;
   pendingAsrScriptEndStop = null;
-  const stopIntent = {
-    source: 'asr-script-end',
-    reason: 'script-end',
-    mode,
-    phase: session.phase,
-  };
-  dispatchSessionIntent(false, stopIntent);
-  try { setSessionPhase('wrap'); } catch {}
-  try {
-    window.dispatchEvent(
-      new CustomEvent('tp:session:stop', {
-        detail: {
-          ...stopIntent,
-          intentSource: 'asr-script-end',
-          lineIndex: pending.lineIndex,
-          lastSpeakableLineIndex: pending.lastSpeakableLineIndex,
-          confirmSource: evidence.source,
-          confirmMatchedLine: evidence.matchedLine,
-          confirmSharedTokens: evidence.sharedAny,
-          confirmSharedMeaningfulTokens: evidence.sharedMeaningful,
-          confirmOverlapRatio: evidence.overlapRatio,
-        },
-      }),
-    );
-  } catch {}
-  emitHudSnapshot('script-end-stop', { force: true });
-  if (isDevMode() && shouldLogTag('ASR:script-end-stop', 2, 1000)) {
+  emitHudSnapshot('script-end-stop-suppressed', { force: true });
+  if (isDevMode() && shouldLogTag('ASR:script-end-stop-suppressed', 2, 1000)) {
     try {
-      console.info('[ASR] session stop at script end', {
-        mode,
+      console.info('[ASR] script-end auto-stop suppressed', {
+        reason,
+        mode: pending.mode,
         lineIndex: pending.lineIndex,
         lastSpeakableLineIndex: pending.lastSpeakableLineIndex,
         runKey: pending.runKey,
@@ -587,9 +681,244 @@ function finalizePendingAsrScriptEndStop(
         sharedTokens: evidence.sharedAny,
         sharedMeaningfulTokens: evidence.sharedMeaningful,
         overlapRatio: Number(evidence.overlapRatio.toFixed(3)),
+        sessionPhase: session.phase,
+        recordOnLive: session.recordOnLive,
+        recording: (() => {
+          try {
+            return isSessionRecording();
+          } catch {
+            return false;
+          }
+        })(),
       });
     } catch {}
   }
+}
+
+function getLineElementAtIndex(index: number, container?: ParentNode | null): HTMLElement | null {
+  const idx = Math.max(0, Math.floor(Number(index) || 0));
+  try {
+    const host = container || getScriptRoot() || getPrimaryScroller() || document;
+    return (
+      host.querySelector<HTMLElement>(`.line[data-line="${idx}"]`) ||
+      host.querySelector<HTMLElement>(`.line[data-line-idx="${idx}"]`) ||
+      host.querySelector<HTMLElement>(`.line[data-i="${idx}"]`) ||
+      host.querySelector<HTMLElement>(`.line[data-index="${idx}"]`) ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function probeDeferredAsrScriptEndMarker(targetLine: number): {
+  ready: boolean;
+  reached: boolean;
+  distancePx: number | null;
+  tolerancePx: number;
+  markerIdx: number;
+} {
+  try {
+    const viewer = getPrimaryScroller();
+    const root = getScriptRoot() || viewer;
+    const host = viewer || root;
+    const lineEl = getLineElementAtIndex(targetLine, root || viewer || document);
+    if (!host || !lineEl) {
+      return {
+        ready: false,
+        reached: false,
+        distancePx: null,
+        tolerancePx: ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX,
+        markerIdx: -1,
+      };
+    }
+    const { markerOffset } = getMarkerOffset(viewer, root);
+    const hostRect = host.getBoundingClientRect();
+    const lineRect = lineEl.getBoundingClientRect();
+    const lineHeight = lineRect.height || lineEl.offsetHeight || lineEl.clientHeight || 0;
+    const lineCenterY = lineRect.top + lineRect.height * 0.5;
+    const markerY = hostRect.top + markerOffset;
+    const tolerancePx = Math.max(
+      ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX,
+      Math.min(
+        ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX,
+        lineHeight > 0
+          ? lineHeight * ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO
+          : ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX,
+      ),
+    );
+    const distancePx = Math.abs(lineCenterY - markerY);
+    return {
+      ready: true,
+      reached: distancePx <= tolerancePx,
+      distancePx,
+      tolerancePx,
+      markerIdx: computeMarkerLineIndex(),
+    };
+  } catch {
+    return {
+      ready: false,
+      reached: false,
+      distancePx: null,
+      tolerancePx: ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX,
+      markerIdx: -1,
+    };
+  }
+}
+
+function scheduleDeferredAsrScriptEndStop(delayMs: number): void {
+  clearDeferredAsrScriptEndStopTimer();
+  deferredAsrScriptEndStopTimer = window.setTimeout(() => {
+    deferredAsrScriptEndStopTimer = null;
+    const deferred = deferredAsrScriptEndStop;
+    if (!deferred) return;
+    const session = getSession();
+    const mode = String(deferred.pending.mode || getScrollMode() || '').toLowerCase();
+    if (session.phase !== 'live' || !isAsrLikeMode(mode)) {
+      cancelDeferredAsrScriptEndStop('mode-or-phase-change');
+      return;
+    }
+    if (deferred.markerReachedAt != null) {
+      deferredAsrScriptEndStop = null;
+      const stopIntent = {
+        source: 'asr-script-end',
+        reason: 'script-end',
+        mode,
+        phase: session.phase,
+      };
+      dispatchSessionIntent(false, stopIntent);
+      try { setSessionPhase('wrap'); } catch {}
+      try {
+        window.dispatchEvent(
+          new CustomEvent('tp:session:stop', {
+            detail: {
+              ...stopIntent,
+              intentSource: 'asr-script-end',
+              lineIndex: deferred.pending.lineIndex,
+              lastSpeakableLineIndex: deferred.pending.lastSpeakableLineIndex,
+              confirmSource: deferred.evidence.source,
+              confirmMatchedLine: deferred.evidence.matchedLine,
+              confirmSharedTokens: deferred.evidence.sharedAny,
+              confirmSharedMeaningfulTokens: deferred.evidence.sharedMeaningful,
+              confirmOverlapRatio: deferred.evidence.overlapRatio,
+              markerWaitMs: deferred.markerReachedAt - deferred.startedAt,
+              postrollMs: deferred.completionDelayMs,
+              terminalHoldReason: deferred.completionReason,
+            },
+          }),
+        );
+      } catch {}
+      emitHudSnapshot('script-end-stop', { force: true });
+      if (isDevMode() && shouldLogTag('ASR:script-end-stop', 2, 1000)) {
+        try {
+          console.info('[ASR] session stop at script end', {
+            mode,
+            lineIndex: deferred.pending.lineIndex,
+            lastSpeakableLineIndex: deferred.pending.lastSpeakableLineIndex,
+            runKey: deferred.pending.runKey,
+            confirmSource: deferred.evidence.source,
+            confirmMatchedLine: deferred.evidence.matchedLine,
+            sharedTokens: deferred.evidence.sharedAny,
+            sharedMeaningfulTokens: deferred.evidence.sharedMeaningful,
+            overlapRatio: Number(deferred.evidence.overlapRatio.toFixed(3)),
+            markerWaitMs: deferred.markerReachedAt - deferred.startedAt,
+            postrollMs: deferred.completionDelayMs,
+            terminalHoldReason: deferred.completionReason,
+          });
+        } catch {}
+      }
+      return;
+    }
+    if (deferred.targetLine == null) {
+      deferred.markerReachedAt = Date.now();
+      deferred.completionDelayMs = ASR_SCRIPT_END_POSTROLL_MS;
+      deferred.completionReason = 'no-target';
+      scheduleDeferredAsrScriptEndStop(deferred.completionDelayMs);
+      return;
+    }
+    const probe = probeDeferredAsrScriptEndMarker(deferred.targetLine);
+    if (probe.reached) {
+      deferred.markerReachedAt = Date.now();
+      deferred.completionDelayMs = ASR_SCRIPT_END_POSTROLL_MS;
+      deferred.completionReason = 'marker-reached';
+      emitHudSnapshot('script-end-postroll', { force: true });
+      if (isDevMode() && shouldLogTag('ASR:script-end-marker-reached', 2, 250)) {
+        try {
+          console.info('[ASR] script-end marker reached', {
+            targetLine: deferred.targetLine,
+            markerIdx: probe.markerIdx,
+            distancePx: probe.distancePx == null ? null : Number(probe.distancePx.toFixed(1)),
+            tolerancePx: Number(probe.tolerancePx.toFixed(1)),
+            postrollMs: deferred.completionDelayMs,
+          });
+        } catch {}
+      }
+      scheduleDeferredAsrScriptEndStop(deferred.completionDelayMs);
+      return;
+    }
+    const waitMs = Date.now() - deferred.startedAt;
+    if (waitMs >= ASR_SCRIPT_END_MARKER_WAIT_MAX_MS) {
+      deferred.markerReachedAt = Date.now();
+      deferred.completionDelayMs = 0;
+      deferred.completionReason = 'marker-timeout';
+      if (isDevMode() && shouldLogTag('ASR:script-end-marker-timeout', 2, 500)) {
+        try {
+          console.info('[ASR] script-end marker wait timed out', {
+            targetLine: deferred.targetLine,
+            markerIdx: probe.markerIdx,
+            distancePx: probe.distancePx == null ? null : Number(probe.distancePx.toFixed(1)),
+            tolerancePx: Number(probe.tolerancePx.toFixed(1)),
+            waitedMs: waitMs,
+          });
+        } catch {}
+      }
+      scheduleDeferredAsrScriptEndStop(0);
+      return;
+    }
+    scheduleDeferredAsrScriptEndStop(ASR_SCRIPT_END_MARKER_POLL_MS);
+  }, Math.max(0, delayMs));
+}
+
+function finalizePendingAsrScriptEndStop(
+  pending: PendingAsrScriptEndStop,
+  evidence: AsrScriptEndConfirmationEvidence,
+): void {
+  const session = getSession();
+  const mode = String(pending.mode || getScrollMode() || '').toLowerCase();
+  if (session.phase !== 'live' || !isAsrLikeMode(mode)) {
+    clearPendingAsrScriptEnd('session-not-live');
+    return;
+  }
+  if (shouldSuppressAsrScriptEndAutoStop(session)) {
+    suppressPendingAsrScriptEndStop(pending, 'recording-active', evidence);
+    return;
+  }
+  lastAsrScriptEndStopKey = pending.dedupeKey;
+  pendingAsrScriptEndStop = null;
+  cancelDeferredAsrScriptEndStop('replaced');
+      deferredAsrScriptEndStop = {
+    pending,
+    evidence,
+    targetLine: pending.lastSpeakableLineIndex ?? pending.lineIndex,
+    startedAt: Date.now(),
+    markerReachedAt: null,
+    completionDelayMs: ASR_SCRIPT_END_POSTROLL_MS,
+    completionReason: 'marker-reached',
+  };
+  emitHudSnapshot('script-end-marker-wait', { force: true });
+  if (isDevMode() && shouldLogTag('ASR:script-end-marker-wait', 2, 250)) {
+    try {
+      console.info('[ASR] script-end waiting for terminal marker', {
+        mode,
+        lineIndex: pending.lineIndex,
+        lastSpeakableLineIndex: pending.lastSpeakableLineIndex,
+        runKey: pending.runKey,
+        targetLine: deferredAsrScriptEndStop.targetLine,
+        postrollMs: ASR_SCRIPT_END_POSTROLL_MS,
+      });
+    } catch {}
+  }
+  scheduleDeferredAsrScriptEndStop(0);
 }
 
 function maybeConfirmPendingAsrScriptEnd(
@@ -1225,6 +1554,7 @@ function setSpeechRunningActual(next: boolean, reason: string): void {
   if (speechRunningActual === normalized) return;
   speechRunningActual = normalized;
   emitHudSnapshot(`speech-running-actual:${reason}`, { force: true });
+  emitAsrRuntimeStatus(`speech-running:${reason}`);
 }
 
 function clearLifecycleRestartTimer(): void {
@@ -1376,6 +1706,7 @@ function setActiveRecognizer(instance: RecognizerLike | null): void {
     }
     maybeLogLiveArmedDetachedInvariant('setActiveRecognizer:null');
   }
+  emitAsrRuntimeStatus(`recognizer:${activeRecognizer ? 'attach' : 'detach'}`);
 }
 
 function clearRecognizerHandlers(instance: any): void {
@@ -1434,7 +1765,6 @@ function hardResetSpeechEngine(reason?: string): void {
   try { remember((window as any).recog); } catch {}
   try { remember((window as any).__tpRecognizer); } catch {}
 
-  try { stopAsrRuntime(); } catch {}
   try { getTpSpeechNamespace()?.stopRecognizer?.(); } catch {}
 
   for (const recognizer of candidates) {
@@ -1444,6 +1774,8 @@ function hardResetSpeechEngine(reason?: string): void {
   rec = null;
   setActiveRecognizer(null);
   running = false;
+  currentActualSpeechEngine = '';
+  currentFallbackReason = '';
   setSpeechRunningActual(false, 'hard-reset');
   asrBrainLogged = false;
   lastAsrBlockSyncAt = 0;
@@ -1503,6 +1835,7 @@ function requestRecognizerRestart(
 try {
   window.__tpGetActiveRecognizer = () => activeRecognizer;
   window.__tpHardResetSpeech = (reason?: string) => hardResetSpeechEngine(reason);
+  window.__tpStopSpeechBackend = (reason?: string) => stopSpeechBackendForSession(reason);
 } catch {}
 
 let fallbackTranscriptMatchSeq = 0;
@@ -1674,48 +2007,42 @@ function deriveDirectMatcherResult(
   speechStoreState?: any,
 ): Record<string, unknown> | null {
   if (typeof window === 'undefined') return null;
-  const spokenTokens = normTokens(String(transcript || ''));
-  if (!spokenTokens.length) return null;
+  const { matchTokens } = prepareMatcherInput(String(transcript || ''), normTokens);
+  if (!matchTokens.length) return null;
   const blockSnapshot = getAsrBlockSnapshot();
   if (!(blockSnapshot.ready && blockSnapshot.count > 0)) {
     return null;
   }
   const w = window as any;
-  const scriptWords: string[] = Array.isArray(w.scriptWords) ? w.scriptWords : [];
-  const paraIndex: Array<any> = Array.isArray(w.paraIndex) ? w.paraIndex : [];
-  const vParaIndex: string[] | null = Array.isArray(w.__vParaIndex) ? w.__vParaIndex : null;
+  const runtime = getMatcherRuntimeState({
+    currentIndex:
+      w.currentIndex ??
+      speechStoreState?.currentIdx ??
+      speechStoreState?.currentIndex ??
+      0,
+  });
+  if (!runtime) return null;
+  const { scriptWords, paraIndex, vParaIndex, cfg, currentIndex, viterbiState } = runtime;
   if (!scriptWords.length) {
     return null;
   }
   if (!paraIndex.length && !(Array.isArray(vParaIndex) && vParaIndex.length)) {
     return null;
   }
-  const currentIdxRaw =
-    w.currentIndex ??
-    speechStoreState?.currentIdx ??
-    speechStoreState?.currentIndex ??
-    0;
-  const currentIdx = Number.isFinite(Number(currentIdxRaw)) ? Math.max(0, Math.floor(Number(currentIdxRaw))) : 0;
-  const cfg: MatchConfig = {
-    MATCH_WINDOW_AHEAD: Number.isFinite(Number(w.MATCH_WINDOW_AHEAD)) ? Number(w.MATCH_WINDOW_AHEAD) : 240,
-    MATCH_WINDOW_BACK: Number.isFinite(Number(w.MATCH_WINDOW_BACK)) ? Number(w.MATCH_WINDOW_BACK) : 40,
-    SIM_THRESHOLD: Number.isFinite(Number(w.SIM_THRESHOLD)) ? Number(w.SIM_THRESHOLD) : 0.46,
-    MAX_JUMP_AHEAD_WORDS: Number.isFinite(Number(w.MAX_JUMP_AHEAD_WORDS)) ? Number(w.MAX_JUMP_AHEAD_WORDS) : 18,
-  };
   try {
     const raw = runMatcherBatch(
-      spokenTokens,
+      matchTokens,
       scriptWords,
       paraIndex,
       vParaIndex,
       cfg,
-      currentIdx,
-      w.__viterbiIPred ?? undefined,
+      currentIndex,
+      viterbiState ?? undefined,
     );
     const normalized = normalizeMatcherResult(raw);
     if (!normalized) return null;
     if (normalized.currentIdx == null) {
-      normalized.currentIdx = currentIdx;
+      normalized.currentIdx = currentIndex;
     }
     if (typeof normalized.reason !== 'string' || !normalized.reason) {
       normalized.reason = 'direct_matcher';
@@ -2067,12 +2394,14 @@ function _beginCountdownThen(sec: number, cb: () => Promise<void> | void, source
 }
 
 function emitAsrState(state: string, reason?: string): void {
+  currentAsrState = state || 'idle';
   const payload = { state, reason };
   try { window.__tpBus?.emit?.('tp:asr:state', payload); } catch {}
   try { window.dispatchEvent(new CustomEvent('tp:asr:state', { detail: payload })); } catch {}
   try { document.dispatchEvent(new CustomEvent('tp:asr:state', { detail: payload })); } catch {}
   emitHudSnapshot(`asr-state:${String(state || '').toLowerCase() || 'unknown'}`);
   emitAsrHeartbeat(`state:${String(state || '').toLowerCase() || 'unknown'}`, { force: true });
+  emitAsrRuntimeStatus(`state:${String(state || '').toLowerCase() || 'unknown'}`);
 }
 
 function shouldAutoRestartSpeech(): boolean {
@@ -2472,18 +2801,8 @@ function getLineSnapshot(index: number) {
 }
 
 function getLineTextAtIndex(index: number, container?: ParentNode | null): string {
-  const idx = Math.max(0, Math.floor(Number(index) || 0));
-  try {
-    const host = container || getScriptRoot() || getPrimaryScroller() || document;
-    const line =
-      host.querySelector<HTMLElement>(`.line[data-line="${idx}"]`) ||
-      host.querySelector<HTMLElement>(`.line[data-line-idx="${idx}"]`) ||
-      host.querySelector<HTMLElement>(`.line[data-i="${idx}"]`) ||
-      host.querySelector<HTMLElement>(`.line[data-index="${idx}"]`);
-    return String(line?.textContent || '').replace(/\s+/g, ' ').trim();
-  } catch {
-    return '';
-  }
+  const line = getLineElementAtIndex(index, container);
+  return String(line?.textContent || '').replace(/\s+/g, ' ').trim();
 }
 
 function nextSpeakableLineFrom(
@@ -2846,7 +3165,7 @@ function canAttachAsrBackend(): boolean {
     if (isSpeechBackendAllowed()) return true;
   } catch {}
   try {
-    if (window.__tpSpeechOrchestrator?.start) return true;
+    if (isLegacySpeechOrchestratorAllowed() && window.__tpSpeechOrchestrator?.start) return true;
   } catch {}
   if (isLegacySpeechNamespaceAllowed()) {
     try {
@@ -2954,6 +3273,7 @@ function beginAsrRunKey(mode: string, reason?: string): string {
   if (isDevMode() && shouldLogLevel(1)) {
     try { console.info('[ASR] run begin', { runKey: activeAsrRunKey, mode, reason }); } catch {}
   }
+  emitAsrRuntimeStatus(`run-begin:${String(reason || 'unspecified')}`);
   return activeAsrRunKey;
 }
 
@@ -2969,6 +3289,7 @@ function clearAsrRunKey(reason: string): void {
     try { window.__tpAsrLastEndedRunAt = Date.now(); } catch {}
     try { window.__tpAsrRunKey = null; } catch {}
   }
+  emitAsrRuntimeStatus(`run-clear:${reason}`);
 }
 
 function buildAsrSyncLogFingerprint(payload: Record<string, unknown>): string {
@@ -3262,6 +3583,7 @@ function ensureAsrDriverLifecycleHooks(): void {
       return;
     }
     clearPendingAsrScriptEnd('scroll-mode-exit-asr');
+    cancelDeferredAsrScriptEndStop('scroll-mode-exit-asr');
     if (!running) {
       detachAsrScrollDriver();
     }
@@ -3272,6 +3594,7 @@ function ensureAsrDriverLifecycleHooks(): void {
     const mode = getScrollMode();
     lastAsrScriptEndStopKey = '';
     clearPendingAsrScriptEnd('session-start');
+    cancelDeferredAsrScriptEndStop('session-start');
     asrSessionIntentActive = true;
     if (session.asrDesired || isAsrLikeMode(mode)) {
       attachAsrScrollDriver({ reason: 'session-start', mode, allowCreate: true });
@@ -3304,6 +3627,7 @@ function ensureAsrDriverLifecycleHooks(): void {
   const onSessionStop = () => {
     lastAsrScriptEndStopKey = '';
     clearPendingAsrScriptEnd('session-stop');
+    cancelDeferredAsrScriptEndStop('session-stop');
     asrSessionIntentActive = false;
     resetAsrInterimStabilizer();
     clearAsrRunKey('lifecycle-session-stop');
@@ -3314,6 +3638,7 @@ function ensureAsrDriverLifecycleHooks(): void {
     if (phase === 'idle' || phase === 'wrap') {
       lastAsrScriptEndStopKey = '';
       clearPendingAsrScriptEnd(`phase-${phase}`);
+      cancelDeferredAsrScriptEndStop(`phase-${phase}`);
       asrSessionIntentActive = false;
       resetAsrInterimStabilizer();
       clearAsrRunKey(`phase-${phase}`);
@@ -3546,7 +3871,15 @@ function enforceRecognizerInterimCapture(mode: string, recognizer: unknown): voi
 async function startBackendForSession(mode: string, reason?: string): Promise<boolean> {
   const speechNs = getTpSpeechNamespace();
   const allowLegacyNs = isLegacySpeechNamespaceAllowed();
+  const allowLegacyOrchestrator = isLegacySpeechOrchestratorAllowed();
   const speechStoreState = getTpSpeechStoreSnapshot();
+  const selectedEngine = resolveRuntimeSpeechEngine({
+    appStore: (window as any).__tpStore,
+  });
+  lastRequestedSpeechEngine = selectedEngine || 'whisper';
+  currentActualSpeechEngine = '';
+  currentFallbackReason = '';
+  emitAsrRuntimeStatus(`backend-select:${String(reason || 'unspecified')}`);
   if (isSettingsHydrating()) {
     try { console.debug('[ASR] startBackend blocked during settings hydration', { mode, reason }); } catch {}
     return false;
@@ -3554,13 +3887,16 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
   if (isDevMode()) {
     if (shouldLogLevel(2)) {
       const w = typeof window !== 'undefined' ? (window as any) : null;
-      const info = {
-        mode,
-        reason,
-        hasOrchestrator: !!w?.__tpSpeechOrchestrator?.start,
-        allowLegacyNamespace: allowLegacyNs,
+        const info = {
+          mode,
+          reason,
+          hasOrchestrator: allowLegacyOrchestrator && !!w?.__tpSpeechOrchestrator?.start,
+          allowLegacyNamespace: allowLegacyNs,
         hasRecognizerStart: allowLegacyNs && typeof speechNs?.startRecognizer === 'function',
         hasWebSpeech: !!(w?.SpeechRecognition || w?.webkitSpeechRecognition),
+        selectedEngine,
+        speechStoreEngine: (speechStoreState as any)?.engine,
+        appStoreEngine: w?.__tpStore?.get?.('asr.engine'),
         sessionPhase: (speechStoreState as any)?.sessionPhase,
         scrollMode: (speechStoreState as any)?.scrollMode,
         speechRunning: (speechStoreState as any)?.speechRunning,
@@ -3569,8 +3905,59 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
     }
   }
 
+  if (selectedEngine === 'whisper') {
+    try {
+      const whisperRecognizer = createWhisperBridgeRecognizer({
+        lang: typeof (speechStoreState as any)?.lang === 'string' ? (speechStoreState as any).lang : 'en-US',
+        interim: (speechStoreState as any)?.interim !== false,
+        endpointingMs: Number((speechStoreState as any)?.endpointingMs || 0),
+      });
+      await whisperRecognizer.start();
+      rec = whisperRecognizer as unknown as RecognizerLike;
+      try { whisperRecognizer.on('final', (t: unknown) => routeRecognizerTranscript(t, true)); } catch {}
+      try { whisperRecognizer.on('partial', (t: unknown) => routeRecognizerTranscript(t, false)); } catch {}
+      try { whisperRecognizer.on('error', (detail: unknown) => console.warn('[speech] whisper bridge error', detail)); } catch {}
+      try { window.__tpEmitSpeech = (t: unknown, final?: boolean) => routeRecognizerTranscript(t, !!final); } catch {}
+      setActiveRecognizer(rec);
+      if (!activeRecognizer) {
+        emitAsrState('idle', 'recognizer-not-attached:whisper');
+        setSpeechRunningActual(false, 'whisper-no-attach');
+        maybeLogLiveArmedDetachedInvariant('whisper-no-attach');
+        emitHudSnapshot('recognizer-attach-failed:whisper', { force: true });
+        return false;
+      }
+      lastStartedSpeechEngine = 'whisper';
+      currentActualSpeechEngine = 'whisper';
+      currentFallbackReason = '';
+      setSpeechRunningActual(true, 'whisper-start');
+      emitAsrRuntimeStatus('backend-attached:whisper');
+      emitAsrHeartbeat('recognizer-attached:whisper', { force: true });
+      return true;
+    } catch (error) {
+      try { console.warn('[ASR] whisper bridge failed to start', error); } catch {}
+      emitAiActivity({
+        active: false,
+        provider: 'browser',
+        engine: 'webspeech',
+        phase: 'off',
+        source: 'speech-loader-whisper-fallback',
+        timestamp: Date.now(),
+        message: 'Whisper bridge unavailable; using browser speech instead.',
+        requestsInFlight: 0,
+        queueDepth: 0,
+      });
+      currentActualSpeechEngine = 'webspeech';
+      currentFallbackReason = 'whisper-start-failed';
+      emitAsrRuntimeStatus('backend-fallback:whisper');
+      emitAsrState('idle', 'recognizer-start-failed:whisper');
+      setActiveRecognizer(null);
+      setSpeechRunningActual(false, 'whisper-start-failed');
+      rec = null;
+    }
+  }
+
   try {
-    if (window.__tpSpeechOrchestrator?.start) {
+    if (allowLegacyOrchestrator && window.__tpSpeechOrchestrator?.start) {
       const started = await window.__tpSpeechOrchestrator.start();
       rec = (started || null) as RecognizerLike | null;
       enforceRecognizerInterimCapture(mode, rec);
@@ -3591,7 +3978,10 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
         emitHudSnapshot('recognizer-attach-failed:orchestrator', { force: true });
         return false;
       }
+      lastStartedSpeechEngine = selectedEngine || 'webspeech';
+      currentActualSpeechEngine = selectedEngine === 'whisper' ? 'webspeech' : (selectedEngine || 'webspeech');
       setSpeechRunningActual(true, 'orchestrator-start');
+      emitAsrRuntimeStatus('backend-attached:orchestrator');
       emitAsrHeartbeat('recognizer-attached:orchestrator', { force: true });
       return true;
     }
@@ -3619,7 +4009,10 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
           emitHudSnapshot('recognizer-attach-failed:namespace', { force: true });
           return false;
         }
+        lastStartedSpeechEngine = selectedEngine || 'webspeech';
+        currentActualSpeechEngine = selectedEngine === 'whisper' ? 'webspeech' : (selectedEngine || 'webspeech');
         setSpeechRunningActual(true, 'namespace-start');
+        emitAsrRuntimeStatus('backend-attached:namespace');
         emitAsrHeartbeat('recognizer-attached:namespace', { force: true });
         return true;
       }
@@ -3667,7 +4060,10 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
     return false;
   }
   rec = { stop: () => { try { sr.stop(); } catch {} } };
+  lastStartedSpeechEngine = selectedEngine || 'webspeech';
+  currentActualSpeechEngine = selectedEngine === 'whisper' ? 'webspeech' : (selectedEngine || 'webspeech');
   setSpeechRunningActual(true, 'webspeech-start');
+  emitAsrRuntimeStatus('backend-attached:webspeech');
   emitAsrHeartbeat('recognizer-attached:webspeech', { force: true });
   try { window.__tpEmitSpeech = (t: unknown, final?: boolean) => routeRecognizerTranscript(t, !!final); } catch {}
   return true;
@@ -3821,7 +4217,10 @@ export async function startSpeechBackendForSession(info?: { reason?: string; mod
         });
         return false;
       }
-      try { await window.__tpMic?.requestMic?.(); } catch {}
+      const startedEngine = String(lastStartedSpeechEngine || (getTpSpeechStoreSnapshot() as any)?.engine || '').toLowerCase();
+      if (startedEngine !== 'whisper') {
+        try { await window.__tpMic?.requestMic?.(); } catch {}
+      }
       bootTrace('speech-loader:live-path:done', { mode, ok, runKey });
       return ok;
     } catch {
@@ -3849,23 +4248,27 @@ export function stopSpeechBackendForSession(reason?: string): void {
   resetAsrInterimStabilizer();
   clearAsrRunKey(`stop:${String(reason || 'unspecified')}`);
   if (!running && !rec) {
+    currentActualSpeechEngine = '';
+    currentFallbackReason = '';
     setSpeechRunningActual(false, 'stop-idle');
     detachAsrScrollDriver();
     emitAsrHeartbeat(`stop:${String(reason || 'unspecified')}`, { force: true });
+    emitAsrRuntimeStatus(`stop:${String(reason || 'unspecified')}:idle`);
     return;
   }
   running = false;
   detachAsrScrollDriver();
   asrBrainLogged = false;
-  try { stopAsrRuntime(); } catch {}
-  try { window.__tpMic?.releaseMic?.(); } catch {}
   try { rec?.abort?.(); } catch {}
   try { rec?.stop?.(); } catch {}
   try { stopAndAbortRecognizer((window as any).__tpRecognizer); } catch {}
   try { stopAndAbortRecognizer((window as any).recog); } catch {}
   try { getTpSpeechNamespace()?.stopRecognizer?.(); } catch {}
+  try { window.__tpMic?.releaseMic?.(); } catch {}
   setActiveRecognizer(null);
   rec = null;
+  currentActualSpeechEngine = '';
+  currentFallbackReason = '';
   setSpeechRunningActual(false, 'stop');
   try { document.body.classList.remove('listening'); } catch {}
   try { window.HUD?.bus?.emit?.('speech:toggle', false); } catch {}
@@ -3875,12 +4278,14 @@ export function stopSpeechBackendForSession(reason?: string): void {
   try { window.dispatchEvent(new CustomEvent('tp:speech-state', { detail: { running: false, reason } })); } catch {}
   emitHudSnapshot('speech-running:false', { force: true });
   emitAsrHeartbeat(`stop:${String(reason || 'unspecified')}`, { force: true });
+  emitAsrRuntimeStatus(`stop:${String(reason || 'unspecified')}`);
 }
 
 export function installSpeech(): void {
   ensureAsrDriverLifecycleHooks();
   startAsrHeartbeat();
   emitHudSnapshot('installSpeech:init', { force: true });
+  emitAsrRuntimeStatus('install');
   installAsrHudDev();
   
   // Session-first: recBtn only starts preroll/session

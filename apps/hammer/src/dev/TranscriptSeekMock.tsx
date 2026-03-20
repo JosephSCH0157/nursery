@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties, JSX, ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import type {
@@ -44,17 +44,91 @@ import type {
   TranscriptPlaybackRange,
   TranscriptSeekTarget,
 } from "../lib/transcriptPreview";
+import { buildHammerCaptionPreviewModel } from "../lib/hammerCaptionPreview";
+import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
+import { buildHammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
+import {
+  buildHammerPreparedReleasePackage,
+  compareHammerPreparedReleasePackageToCurrent,
+  type HammerPreparedReleasePackage,
+  type HammerPreparedReleasePackageComparison,
+} from "../lib/hammerPreparedReleasePackage";
+import {
+  loadHammerPreparedReleasePackage,
+  saveHammerPreparedReleasePackage,
+} from "../lib/hammerPreparedReleasePackageApi";
+import {
+  generateHammerSubtitleArtifact,
+  getHammerSubtitleArtifact,
+  setHammerSubtitleArtifact,
+} from "../lib/hammerSubtitleExports";
+import { buildHammerTextOutputsPackage } from "../lib/hammerTextOutputsPackage";
+import {
+  buildHammerReadableTranscriptGroups,
+  findHammerReadableTranscriptGroupByRowId,
+} from "../lib/hammerTranscriptReadability";
+import {
+  buildHammerProposedChanges,
+  type HammerProposedChange,
+  type HammerProposedChangeStatus,
+} from "../lib/hammerProposedChanges";
+import {
+  buildHammerPreviewVisualState,
+  loadHammerPreviewAssetDataUrl,
+} from "../lib/hammerVisualPreviewState";
 import {
   parseHammerEditPlanJson,
   resolveHammerLaunchContext,
 } from "../lib/launchContext";
 import type { ResolvedHammerLaunchContext } from "../lib/launchContext";
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
-import { resolvePreviewMediaSrc } from "../lib/previewSource";
-import { toMediaBadgeViewModel } from "../media/mediaBadgeViewModel";
+import {
+  buildHammerPreviewPlaybackSourceModel,
+  loadCanonicalAudioPolishPreviewUrl,
+  resolveAudioPolishPreviewSrc,
+  resolvePreviewMediaSrc,
+} from "../lib/previewSource";
+import {
+  applyHammerDerivedTextLayerToSegments,
+  applyHammerOutputDerivedTextLayerToSegments,
+  cloneHammerStructuredTranscript,
+  discardHammerDerivedTextLayer,
+  getHammerActiveDerivedTextLayer,
+  getHammerDerivedTextLayer,
+  getHammerOutputDerivedTextLayer,
+  listHammerDerivedTextLayers,
+  resolveHammerDerivedTextInspectionLayerId,
+  setHammerDerivedTextLayerActive,
+  setHammerDerivedTextLayerOutput,
+} from "../macros/hammerDerivedTranscriptLayers";
+import {
+  runHammerFillerCleanupMacro,
+  EXECUTABLE_FILLER_CLEANUP_RECIPE_REF,
+} from "../macros/hammerFillerCleanupMacro";
+import {
+  EXECUTABLE_RETAKE_TIGHTENING_RECIPE_REF,
+  runHammerRetakeTighteningMacro,
+} from "../macros/hammerRetakeTighteningMacro";
+import {
+  evaluateHammerMacroCatalogReadiness,
+  findHammerFinishingMacroRecipe,
+  summarizeHammerMacroReadiness,
+  type HammerFinishingMacroRecipe,
+  type HammerMacroReadinessStatus,
+} from "../macros/hammerMacroFramework";
 import { V1HammerMediaResolver } from "../media/resolveMedia";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
+import type { HammerPreparedNextStepActionId } from "../editor/hammerPreparedHandoff";
+import type {
+  HammerDerivedTextLayer,
+  HammerDerivedTextOperation,
+  HammerPersistedAudioPolish,
+  HammerPersistedStructuredTranscript,
+  HammerPersistedVisualPlacements,
+  HammerSubtitleFormat,
+} from "../persistence/hammerPersistenceContract";
+import { cloneHammerAudioPolish } from "../prep/hammerAudioPolish";
 import { resolveHammerDevLaunchContext } from "./hammerLaunchPresets";
 import { StagedEditsPanel } from "./StagedEditsPanel";
 import { getDevTranscriptSegments } from "./transcriptFixtures";
@@ -102,6 +176,11 @@ type TimelineClip = {
   linked_segment_id?: string | null;
   editable?: boolean;
   ripple_hint?: boolean;
+  status?: "placed" | "uncertain" | "approved";
+  badge_label?: string | null;
+  badge_tone?: "ripple" | "uncertain";
+  title_detail?: string | null;
+  placement_id?: string | null;
 };
 
 type TimelineTrack = {
@@ -126,6 +205,7 @@ type HammerProjectAsset = {
   usageHint: string;
   workpieceId: string;
   durationLabel: string | null;
+  placementId?: string | null;
 };
 
 type HammerPaneLayout = {
@@ -140,6 +220,30 @@ type HammerPaneResizeState = {
   handle: HammerPaneResizeHandle;
   startClientX: number;
   startLayout: HammerPaneLayout;
+};
+
+type HammerPreviewVisualDraft = {
+  x: number;
+  y: number;
+  scale: number;
+};
+
+type HammerVisualTimelineDragState = {
+  placementId: string;
+  changeId: string;
+  startClientX: number;
+  startSec: number;
+  endSec: number;
+};
+
+type HammerVisualPreviewDragState = {
+  kind: "move" | "resize";
+  placementId: string;
+  startClientX: number;
+  startClientY: number;
+  startDraft: HammerPreviewVisualDraft;
+  containerWidth: number;
+  containerHeight: number;
 };
 
 type HammerDevRecordingEntry = {
@@ -172,15 +276,27 @@ const HAMMER_DEV_TOOL_VERSION = "forge-v1.2.0/hammer-dev";
 const FALLBACK_DURATION_SEC = 32;
 const DEV_AUDIO_SAMPLE_RATE = 8_000;
 const DEV_RECORDINGS_FALLBACK_ROOT_ABS = "C:\\Users\\Iam11\\OneDrive\\Documents\\Podcasters Forge\\Recordings";
+const RAW_TRANSCRIPT_LAYER_SENTINEL = "__raw__";
 
 type TranscriptSeekMockProps = {
   launchContext?: HammerLaunchContext;
+  structuredTranscript?: HammerPersistedStructuredTranscript | null;
+  visualPlacements?: HammerPersistedVisualPlacements | null;
+  audioPolish?: HammerPersistedAudioPolish | null;
+  releasePrepHref?: string | null;
+  selectedMacroRecipeRef?: string | null;
+  lastMacroRunRef?: string | null;
+  prepHandoffAction?: {
+    id: Exclude<HammerPreparedNextStepActionId, "export_later">;
+    token: number;
+  } | null;
+  allowDevLaunchFallback?: boolean;
   onWorkspaceSnapshotChange?: (snapshot: HammerWorkspaceSnapshot) => void;
 };
 
 type WorkPanelView = "script" | "assets";
-type AssetPanelView = "video" | "images" | "music";
-type HammerToolId = "polish" | "audio" | "video" | "captions" | "details" | "export";
+type AssetPanelView = "transcript" | "video" | "images" | "music";
+type HammerToolId = "polish" | "audio" | "video" | "captions" | "details" | "finishing" | "export";
 type TimelineToolId = "select" | "hand" | "cut" | "marker" | "comment" | "text";
 
 const LEFT_PANEL_MIN_PX = 320;
@@ -200,14 +316,15 @@ const DEFAULT_PANE_LAYOUT: HammerPaneLayout = {
 };
 
 const WORK_PANEL_VIEWS: Array<{ id: WorkPanelView; label: string }> = [
-  { id: "script", label: "Script" },
+  { id: "script", label: "Transcript" },
   { id: "assets", label: "Assets" },
 ];
 
 const ASSET_PANEL_VIEWS: Array<{ id: AssetPanelView; label: string }> = [
+  { id: "transcript", label: "Transcript" },
   { id: "video", label: "Video" },
   { id: "images", label: "Images" },
-  { id: "music", label: "Music" },
+  { id: "music", label: "Audio" },
 ];
 
 const HAMMER_TOOL_ORDER: Array<{ id: HammerToolId; label: string; shortLabel: string }> = [
@@ -216,6 +333,7 @@ const HAMMER_TOOL_ORDER: Array<{ id: HammerToolId; label: string; shortLabel: st
   { id: "video", label: "Video", shortLabel: "V" },
   { id: "captions", label: "Captions", shortLabel: "C" },
   { id: "details", label: "Details", shortLabel: "D" },
+  { id: "finishing", label: "Finishing", shortLabel: "F" },
   { id: "export", label: "Export", shortLabel: "E" },
 ];
 
@@ -228,6 +346,15 @@ const TIMELINE_TOOL_ORDER: Array<{ id: TimelineToolId; label: string }> = [
   { id: "text", label: "Text" },
 ];
 
+const TIMELINE_ZOOM_OPTIONS = [
+  { id: "fit", label: "Fit", scale: 1 },
+  { id: "close", label: "Close", scale: 1.5 },
+  { id: "detail", label: "Detail", scale: 2.25 },
+  { id: "micro", label: "Micro", scale: 3.5 },
+] as const;
+
+type TimelineZoomId = (typeof TIMELINE_ZOOM_OPTIONS)[number]["id"];
+
 const FILLER_PATTERN = /\b(um|uh|you know|like|sort of|kind of|i mean)\b/i;
 const GAP_TIGHTENING_THRESHOLD_SEC = 0.35;
 const TIMELINE_RULER_DIVISIONS = 6;
@@ -237,9 +364,8 @@ type HammerPaneSectionProps = {
   subtitle?: string;
   action?: ReactNode;
   children: ReactNode;
-  sectionStyle?: CSSProperties;
-  bodyStyle?: CSSProperties;
   sectionClassName?: string;
+  bodyId?: string;
   bodyClassName?: string;
 };
 
@@ -254,6 +380,50 @@ type HammerWorkflowCardProps = {
 
 function cx(...tokens: Array<string | false | null | undefined>): string {
   return tokens.filter(Boolean).join(" ");
+}
+
+const CSS_UNITLESS_PROPERTIES = new Set([
+  "aspectRatio",
+  "fontWeight",
+  "lineHeight",
+  "opacity",
+  "order",
+  "zIndex",
+]);
+
+function toKebabCase(value: string): string {
+  return value.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
+}
+
+function serializeCssValue(property: string, value: string | number): string {
+  if (typeof value === "number" && !CSS_UNITLESS_PROPERTIES.has(property)) {
+    return `${value}px`;
+  }
+  return String(value);
+}
+
+function serializeCssRule(style: CSSProperties): string {
+  return Object.entries(style)
+    .flatMap(([property, value]) => {
+      if (value == null) return [];
+      return `${toKebabCase(property)}: ${serializeCssValue(property, value)};`;
+    })
+    .join(" ");
+}
+
+function useDynamicCssText(scopeId: string, cssText: string): void {
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+
+    const styleElement = document.createElement("style");
+    styleElement.setAttribute("data-hammer-transcript-seek-mock-dynamic", scopeId);
+    styleElement.textContent = cssText;
+    document.head.appendChild(styleElement);
+
+    return () => {
+      styleElement.remove();
+    };
+  }, [cssText, scopeId]);
 }
 
 function HammerWorkflowCard(props: HammerWorkflowCardProps): JSX.Element {
@@ -276,7 +446,7 @@ function HammerWorkflowCard(props: HammerWorkflowCardProps): JSX.Element {
 
 function HammerPaneSection(props: HammerPaneSectionProps): JSX.Element {
   return (
-    <section className={cx("hammer-pane-section", props.sectionClassName)} style={props.sectionStyle}>
+    <section className={cx("hammer-pane-section", props.sectionClassName)}>
       <header className="hammer-pane-section__header">
         <div className="hammer-pane-section__title-wrap">
           <h3 className="hammer-pane-section__title">{props.title}</h3>
@@ -286,7 +456,7 @@ function HammerPaneSection(props: HammerPaneSectionProps): JSX.Element {
         </div>
         {props.action ? <div>{props.action}</div> : null}
       </header>
-      <div className={cx("hammer-pane-section__body", props.bodyClassName)} style={props.bodyStyle}>
+      <div id={props.bodyId} className={cx("hammer-pane-section__body", props.bodyClassName)}>
         {props.children}
       </div>
     </section>
@@ -403,10 +573,6 @@ function isVideoMediaKind(kind: MediaKind | null | undefined): boolean {
   return kind === "recording_video" || kind === "export_video";
 }
 
-function isAudioMediaKind(kind: MediaKind | null | undefined): boolean {
-  return kind === "recording_audio" || kind === "export_audio" || kind === "asset_audio";
-}
-
 function formatInstructionEffects(row: TranscriptOverlayRow | null): string {
   if (!row) return "none";
   const effects: string[] = [];
@@ -426,6 +592,14 @@ function getEditPlanStatusBadgeClassName(status: EditPlanStatus): string {
   );
 }
 
+function getEditPlanFeedbackClassName(tone: "neutral" | "warning" | "success"): string {
+  return cx(
+    "hammer-edit-plan__feedback",
+    tone === "warning" && "is-warning",
+    tone === "success" && "is-success",
+  );
+}
+
 function getToggleButtonClassName(active: boolean): string {
   return cx("hammer-toggle-button", active && "is-active");
 }
@@ -438,6 +612,10 @@ function getPaneDividerClassName(active: boolean): string {
   return cx("hammer-editor-shell__divider", active && "is-active");
 }
 
+function getTimelineClipLayoutKey(trackId: string, clipId: string): string {
+  return `${trackId}::${clipId}`;
+}
+
 function getWorkflowStatusClassName(tone: HammerWorkflowTone): string {
   return cx(
     "hammer-workflow-status",
@@ -446,6 +624,168 @@ function getWorkflowStatusClassName(tone: HammerWorkflowTone): string {
     tone === "blocked" && "is-blocked",
     tone === "future" && "is-future",
   );
+}
+
+function getMacroReadinessTone(status: HammerMacroReadinessStatus): HammerWorkflowTone {
+  switch (status) {
+    case "ready":
+      return "active";
+    case "warning":
+      return "ready";
+    case "blocked":
+      return "blocked";
+    default:
+      return "future";
+  }
+}
+
+function formatMacroCategoryLabel(category: HammerFinishingMacroRecipe["category"]): string {
+  switch (category) {
+    case "audio_cleanup":
+      return "Audio cleanup";
+    case "speech_cleanup":
+      return "Speech cleanup";
+    case "visual_cleanup":
+      return "Visual cleanup";
+    case "structural_cleanup":
+      return "Structural cleanup";
+    default:
+      return category;
+  }
+}
+
+function isExecutableTranscriptMacroRef(
+  recipeRef: string | null | undefined,
+): recipeRef is typeof EXECUTABLE_FILLER_CLEANUP_RECIPE_REF | typeof EXECUTABLE_RETAKE_TIGHTENING_RECIPE_REF {
+  return recipeRef === EXECUTABLE_FILLER_CLEANUP_RECIPE_REF
+    || recipeRef === EXECUTABLE_RETAKE_TIGHTENING_RECIPE_REF;
+}
+
+function formatMacroExecutionLabel(recipeRef: string | null | undefined): string {
+  switch (recipeRef) {
+    case EXECUTABLE_FILLER_CLEANUP_RECIPE_REF:
+      return "Run Filler Cleanup";
+    case EXECUTABLE_RETAKE_TIGHTENING_RECIPE_REF:
+      return "Run Retake Tightening";
+    default:
+      return "Macro unavailable";
+  }
+}
+
+function formatDerivedLayerStateLabel(layer: HammerDerivedTextLayer | null): string {
+  if (!layer) {
+    return "raw transcript active";
+  }
+
+  switch (layer.status) {
+    case "active":
+      return layer.macro_kind === "retake_tightening"
+        ? "tightened layer active"
+        : "cleaned layer active";
+    case "review":
+      return "review layer ready";
+    default:
+      return "review layer discarded";
+  }
+}
+
+function formatDerivedLayerRemovalLabel(layer: HammerDerivedTextLayer): string {
+  switch (layer.macro_kind) {
+    case "retake_tightening":
+      return `${layer.summary.removal_count} retake trims`;
+    case "filler_cleanup":
+    default:
+      return `${layer.summary.removal_count} filler removals`;
+  }
+}
+
+function formatDerivedLayerOperationLabel(operation: HammerDerivedTextOperation): string {
+  switch (operation.kind) {
+    case "retake_fragment_removed":
+      return `removed restart ${operation.value}`;
+    case "filler_removed":
+    default:
+      return `removed filler ${operation.value}`;
+  }
+}
+
+function formatDerivedLayerEmptyState(layer: HammerDerivedTextLayer): string {
+  switch (layer.macro_kind) {
+    case "retake_tightening":
+      return "Hammer ran the retake-tightening pass, but it did not find any conservative transcript-side restarts to tighten.";
+    case "filler_cleanup":
+    default:
+      return "Hammer ran the filler cleanup pass, but it did not find any conservative removals to apply.";
+  }
+}
+
+function formatDerivedLayerProvenance(layer: HammerDerivedTextLayer): string {
+  const recipeName = findHammerFinishingMacroRecipe(layer.recipe_ref)?.name ?? layer.recipe_ref;
+  return `${recipeName} · ${layer.layer_id}`;
+}
+
+function formatDerivedLayerLifecycleStatus(layer: HammerDerivedTextLayer): string {
+  switch (layer.status) {
+    case "active":
+      return "Active";
+    case "review":
+      return "Review";
+    case "discarded":
+    default:
+      return "Discarded";
+  }
+}
+
+function formatDerivedLayerStateSummary(
+  activeLayer: HammerDerivedTextLayer | null,
+  reviewLayerCount: number,
+  totalLayerCount: number,
+): string {
+  if (activeLayer) {
+    return formatDerivedLayerStateLabel(activeLayer);
+  }
+  if (reviewLayerCount > 0) {
+    return `${reviewLayerCount} review layer${reviewLayerCount === 1 ? "" : "s"} ready`;
+  }
+  if (totalLayerCount > 0) {
+    return `${totalLayerCount} stored layer${totalLayerCount === 1 ? "" : "s"}`;
+  }
+  return "raw transcript active";
+}
+
+function formatDerivedLayerOutputSummary(layer: HammerDerivedTextLayer | null): string {
+  if (!layer) {
+    return "output uses raw transcript";
+  }
+  return `output uses ${layer.macro_kind === "retake_tightening" ? "tightened" : "cleaned"} layer`;
+}
+
+function formatDerivedLayerRecipeName(layer: HammerDerivedTextLayer | null): string {
+  if (!layer) {
+    return "Raw Transcript";
+  }
+  return findHammerFinishingMacroRecipe(layer.recipe_ref)?.name ?? layer.recipe_ref;
+}
+
+function formatTranscriptEditorViewLabel(layer: HammerDerivedTextLayer | null): string {
+  return layer ? `${formatDerivedLayerRecipeName(layer)} editor view` : "Raw Transcript editor view";
+}
+
+function formatTranscriptOutputLabel(layer: HammerDerivedTextLayer | null): string {
+  return layer ? `${formatDerivedLayerRecipeName(layer)} Output` : "Raw Transcript Output";
+}
+
+function formatSubtitleFormatLabel(format: HammerSubtitleFormat): string {
+  return format.toUpperCase();
+}
+
+function formatSubtitleArtifactSourceLabel(
+  recipeRef: string | null | undefined,
+): string {
+  if (!recipeRef) {
+    return "Raw Transcript Output";
+  }
+  return `${findHammerFinishingMacroRecipe(recipeRef)?.name ?? recipeRef} Output`;
 }
 
 function getTranscriptRowStageMarkerClassName(tone: TranscriptRowStageMarkerTone): string {
@@ -524,6 +864,8 @@ function getHammerToolHint(tool: HammerToolId): string {
       return "Captions stays transcript-linked so subtitle timing follows the edit instead of becoming a separate timing system.";
     case "details":
       return "Details carries project context, launch facts, and session-level metadata without turning Hammer into a settings maze.";
+    case "finishing":
+      return "Finishing is the opt-in macro lane for recipe selection, prerequisite truth, and future cleanup runs after prep.";
     case "export":
       return "Export is the delivery lane for the main cut and derivative outputs after the edit is locked.";
     default:
@@ -531,10 +873,69 @@ function getHammerToolHint(tool: HammerToolId): string {
   }
 }
 
+function getReleasePrepTone(
+  status: "ready" | "missing" | "stale" | "failed" | "unsupported" | "requires_future_ffmpeg",
+): HammerWorkflowTone {
+  switch (status) {
+    case "ready":
+      return "active";
+    case "missing":
+    case "stale":
+      return "ready";
+    case "failed":
+    case "unsupported":
+    case "requires_future_ffmpeg":
+      return "blocked";
+    default:
+      return "future";
+  }
+}
+
+function formatReleasePrepStatusLabel(
+  status: "ready" | "missing" | "stale" | "failed" | "unsupported" | "requires_future_ffmpeg",
+): string {
+  switch (status) {
+    case "requires_future_ffmpeg":
+      return "requires future ffmpeg";
+    default:
+      return status;
+  }
+}
+
+function getPreparedPackageStatusTone(status: "current" | "stale" | "partial" | "missing"): HammerWorkflowTone {
+  switch (status) {
+    case "current":
+      return "active";
+    case "stale":
+      return "blocked";
+    case "partial":
+      return "ready";
+    case "missing":
+    default:
+      return "future";
+  }
+}
+
+function formatPreparedPackageStatusLabel(status: "current" | "stale" | "partial" | "missing"): string {
+  switch (status) {
+    case "current":
+      return "Current";
+    case "stale":
+      return "Stale";
+    case "partial":
+      return "Partial";
+    case "missing":
+    default:
+      return "Missing";
+  }
+}
+
 function getTimelineTrackRoleLabel(trackId: string): string {
   switch (trackId) {
     case "video-main":
       return "primary picture";
+    case "visual-suggestions":
+      return "suggested image placements";
     case "video-pip":
       return "secondary picture";
     case "audio-dialogue":
@@ -552,6 +953,8 @@ function getTimelineTrackRoleLabel(trackId: string): string {
 
 function getTimelineTrackEmptyMessage(trackId: string, hasSelectedRow: boolean): string {
   switch (trackId) {
+    case "visual-suggestions":
+      return "No reviewable image suggestions are staged yet. Hammer will seed this lane when visual anchors can be aligned.";
     case "video-pip":
       return "No picture-in-picture clip is staged on this edit yet.";
     case "audio-bed":
@@ -636,6 +1039,26 @@ function formatOverlayRowLabel(row: TranscriptOverlayRow | null): string {
 function formatPlaybackRangeLabel(range: TranscriptPlaybackRange | null): string {
   if (!range) return "none";
   return range.row_id;
+}
+
+function formatVisualApprovalStateLabel(state: "suggested" | "approved" | null | undefined): string {
+  if (state === "approved") return "Approved";
+  return "Suggested";
+}
+
+function getReviewStateClassName(status: HammerProposedChangeStatus | string | null | undefined): string | null {
+  switch (status) {
+    case "suggested":
+      return "is-suggested";
+    case "approved":
+      return "is-approved";
+    case "rejected":
+      return "is-rejected";
+    case "modified":
+      return "is-modified";
+    default:
+      return null;
+  }
 }
 
 function getTranscriptRowStageMarkers(row: TranscriptOverlayRow): TranscriptRowStageMarker[] {
@@ -726,6 +1149,22 @@ function cloneEditInstructions(instructions: HammerEditInstruction[]): HammerEdi
 
 function cloneTranscriptSegments(segments: HammerTranscriptSegment[]): HammerTranscriptSegment[] {
   return segments.map((segment) => ({ ...segment }));
+}
+
+function cloneVisualPlacements(
+  placements: HammerPersistedVisualPlacements | null | undefined,
+): HammerPersistedVisualPlacements | null {
+  if (!placements) return null;
+  return {
+    ...placements,
+    source_refs: [...placements.source_refs],
+    uncertainty_flags: [...placements.uncertainty_flags],
+    placements: placements.placements.map((placement) => ({
+      ...placement,
+      matched_segment_ids: [...placement.matched_segment_ids],
+      uncertainty_flags: [...placement.uncertainty_flags],
+    })),
+  };
 }
 
 function createEditPlanSignature(
@@ -827,17 +1266,33 @@ export default function TranscriptSeekMock(
   props: TranscriptSeekMockProps,
 ): JSX.Element {
   const location = useLocation();
+  const dynamicStyleScopeIdRef = useRef(`hammer-transcript-seek-mock-${Math.random().toString(36).slice(2, 10)}`);
   const mediaElementRef = useRef<HTMLMediaElement | null>(null);
   const transcriptScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const transcriptRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const previewVisualAssetUrlsRef = useRef<Map<string, string>>(new Map());
   const transcriptRevealTimeoutRef = useRef<number | null>(null);
+  const lastHandledPrepHandoffTokenRef = useRef<number | null>(null);
   const suppressNextPreviewBoundaryActionRef = useRef(false);
   const paneResizeStateRef = useRef<HammerPaneResizeState | null>(null);
+  const visualTimelineDragStateRef = useRef<HammerVisualTimelineDragState | null>(null);
+  const visualPreviewDragStateRef = useRef<HammerVisualPreviewDragState | null>(null);
+  const monitorSurfaceRef = useRef<HTMLDivElement | null>(null);
   const resolver = useMemo(() => new V1HammerMediaResolver(), []);
   const launchContext = useMemo(
-    () => props.launchContext ?? resolveHammerDevLaunchContext(location.search),
-    [location.search, props.launchContext],
+    () => props.launchContext ?? (
+      props.allowDevLaunchFallback ? resolveHammerDevLaunchContext(location.search) : null
+    ),
+    [location.search, props.allowDevLaunchFallback, props.launchContext],
   );
+  if (!launchContext) {
+    return (
+      <section className="hammer-transcript-seek__missing-context">
+        <h2>Hammer needs a workpiece context.</h2>
+        <p>Open a real workpiece or use the dev harness to load a preset.</p>
+      </section>
+    );
+  }
   const launchContextSignature = useMemo(
     () => JSON.stringify(launchContext),
     [launchContext],
@@ -859,7 +1314,14 @@ export default function TranscriptSeekMock(
     ],
   );
   const transcriptLoad = resolvedLaunch.transcript;
-  const transcriptSegments = transcriptLoad.segments;
+  const rawTranscriptSegments = transcriptLoad.segments;
+  const [structuredTranscriptState, setStructuredTranscriptState] = useState<HammerPersistedStructuredTranscript | null>(
+    () => cloneHammerStructuredTranscript(props.structuredTranscript) ?? null,
+  );
+  const transcriptSegments = useMemo(
+    () => applyHammerDerivedTextLayerToSegments(rawTranscriptSegments, structuredTranscriptState),
+    [rawTranscriptSegments, structuredTranscriptState],
+  );
   const firstSegment = transcriptSegments[0] ?? null;
   const transcriptDurationSec = useMemo(
     () => transcriptSegments.reduce(
@@ -885,21 +1347,29 @@ export default function TranscriptSeekMock(
   const [selectedDevRecordingId, setSelectedDevRecordingId] = useState<string | null>(null);
   const [currentTimeSec, setCurrentTimeSec] = useState(0);
   const [durationSec, setDurationSec] = useState(FALLBACK_DURATION_SEC);
-  const [previewVideoAspectRatio, setPreviewVideoAspectRatio] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeOverlayRowId, setActiveOverlayRowId] = useState<string | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(
     firstSegment?.segment_id ?? null,
   );
   const [selectedOverlayRowId, setSelectedOverlayRowId] = useState<string | null>(null);
+  const [transcriptSelectionAnchorGroupId, setTranscriptSelectionAnchorGroupId] = useState<string | null>(null);
+  const [selectedTranscriptGroupIds, setSelectedTranscriptGroupIds] = useState<string[]>([]);
   const [revealedTranscriptRowId, setRevealedTranscriptRowId] = useState<string | null>(null);
   const [pendingTranscriptRevealRowId, setPendingTranscriptRevealRowId] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [previewVisualAssetUrls, setPreviewVisualAssetUrls] = useState<Map<string, string>>(() => new Map());
+  const [ignoredPreviewVisualAssetRefs, setIgnoredPreviewVisualAssetRefs] = useState<Set<string>>(() => new Set());
+  const [previewVisualLoadingRef, setPreviewVisualLoadingRef] = useState<string | null>(null);
+  const [previewVisualLoadError, setPreviewVisualLoadError] = useState<string | null>(null);
+  const [visualPlacementsState, setVisualPlacementsState] = useState(() => cloneVisualPlacements(props.visualPlacements));
+  const [previewVisualDrafts, setPreviewVisualDrafts] = useState<Record<string, HammerPreviewVisualDraft>>({});
   const [lastPreviewSkip, setLastPreviewSkip] = useState<PreviewSkipEvent | null>(null);
   const [editInstructions, setEditInstructions] = useState<HammerEditInstruction[]>(
     () => cloneEditInstructions(resolvedLaunch.initial_edit_plan?.instructions ?? []),
   );
   const [devAudioSrc, setDevAudioSrc] = useState<string | null>(null);
+  const [canonicalPolishedAudioSrc, setCanonicalPolishedAudioSrc] = useState<string | null>(null);
   const [preferDevAudioFallback, setPreferDevAudioFallback] = useState(false);
   const [previewMode, setPreviewMode] = useState<HammerPreviewMode>(
     () => resolvedLaunch.initial_preview_mode,
@@ -916,15 +1386,43 @@ export default function TranscriptSeekMock(
   const [editPlanFeedback, setEditPlanFeedback] = useState<string | null>(null);
   const [editPlanFeedbackTone, setEditPlanFeedbackTone] = useState<"neutral" | "success" | "warning">("neutral");
   const [activeWorkPanel, setActiveWorkPanel] = useState<WorkPanelView>("script");
-  const [activeAssetPanel, setActiveAssetPanel] = useState<AssetPanelView>("video");
+  const [activeAssetPanel, setActiveAssetPanel] = useState<AssetPanelView>("transcript");
   const [activeTool, setActiveTool] = useState<HammerToolId>("polish");
+  const [selectedMacroRecipeRef, setSelectedMacroRecipeRef] = useState<string | null>(
+    () => props.selectedMacroRecipeRef ?? null,
+  );
+  const [inspectedMacroRecipeRef, setInspectedMacroRecipeRef] = useState<string | null>(
+    () => props.selectedMacroRecipeRef ?? null,
+  );
+  const [inspectedDerivedLayerId, setInspectedDerivedLayerId] = useState<string | null>(
+    () => props.lastMacroRunRef ?? null,
+  );
+  const [lastMacroRunRef, setLastMacroRunRef] = useState<string | null>(
+    () => props.lastMacroRunRef ?? null,
+  );
+  const [selectedSubtitleFormat, setSelectedSubtitleFormat] = useState<HammerSubtitleFormat>(
+    () => props.structuredTranscript?.subtitle_outputs?.last_generated_format ?? "srt",
+  );
+  const [subtitleActionFeedback, setSubtitleActionFeedback] = useState<string | null>(null);
+  const [preparedReleasePackageState, setPreparedReleasePackageState] = useState<HammerPreparedReleasePackage | null>(null);
+  const [preparedReleasePackageLoading, setPreparedReleasePackageLoading] = useState(false);
+  const [preparedReleasePackageSaving, setPreparedReleasePackageSaving] = useState(false);
+  const [preparedReleasePackageFeedback, setPreparedReleasePackageFeedback] = useState<string | null>(null);
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
+  const [timelineZoomId, setTimelineZoomId] = useState<TimelineZoomId>("fit");
+  const [selectedProposedChangeId, setSelectedProposedChangeId] = useState<string | null>(null);
+  const [proposedChangeStatusOverrides, setProposedChangeStatusOverrides] = useState<Record<string, HammerProposedChangeStatus>>({});
+  const [autoAdvancePolishReview, setAutoAdvancePolishReview] = useState(true);
   const [showDebugPanels, setShowDebugPanels] = useState(false);
-  const [studioSoundPrepared, setStudioSoundPrepared] = useState(false);
-  const [noiseCleanupPrepared, setNoiseCleanupPrepared] = useState(false);
-  const [levelConsistencyPrepared, setLevelConsistencyPrepared] = useState(false);
+  const [isTranscriptControlsCollapsed, setIsTranscriptControlsCollapsed] = useState(false);
+  const [isPreviewMonitorCollapsed, setIsPreviewMonitorCollapsed] = useState(true);
   const [paneLayout, setPaneLayout] = useState<HammerPaneLayout>(DEFAULT_PANE_LAYOUT);
   const [activeResizeHandle, setActiveResizeHandle] = useState<HammerPaneResizeHandle | null>(null);
+  const [visualDragSessionToken, setVisualDragSessionToken] = useState(0);
+  const transcriptControlsPanelId = useId();
+  const previewMonitorPanelId = useId();
+  const proposedChangeCatalogRef = useRef<Map<string, HammerProposedChange>>(new Map());
+  const currentVisualPlacements = visualPlacementsState ?? null;
   const launchWorkspaceMapping = useMemo(
     () => resolvedLaunch.media.workspace_mapping ?? workspaceMapping,
     [resolvedLaunch.media.workspace_mapping, workspaceMapping],
@@ -974,23 +1472,49 @@ export default function TranscriptSeekMock(
   const activeMediaSourceLabel = activeDevRecording?.name ?? resolvedLaunch.media.source_label;
   const activeMediaKind = activeMediaRef?.kind ?? null;
   const activeMediaUsesDevTone = !activeDevMediaRef && resolvedLaunch.media.kind === "dev-tone";
+  const audioPolish = useMemo(
+    () => cloneHammerAudioPolish(props.audioPolish) ?? null,
+    [props.audioPolish],
+  );
   const activeMediaDisplayTitle = activeDevRecording?.name
     ?? activeMediaRef?.local_relpath?.split(/[\\/]/).pop()
     ?? resolvedLaunch.media.source_label;
   const activeMediaDetailLabel = activeDevRecording?.local_relpath
     ?? activeMediaRef?.local_relpath
     ?? resolvedLaunch.media.source_label;
+  const mediaPrepOutputsPackage = useMemo(
+    () => buildHammerMediaPrepOutputsPackage({
+      structuredTranscript: structuredTranscriptState,
+      visualPlacements: currentVisualPlacements,
+      audioPolish,
+      mediaRef: activeMediaRef,
+      mediaSourceLabel: activeMediaSourceLabel,
+    }),
+    [activeMediaRef, activeMediaSourceLabel, audioPolish, currentVisualPlacements, structuredTranscriptState],
+  );
+  const audioPolishFreshness = mediaPrepOutputsPackage.audio.polish.freshness;
+  const preferredPlayback = mediaPrepOutputsPackage.audio.preferred_playback;
+  const usePreparedAudioPlayback = preferredPlayback.kind === "polished";
+  const studioSoundPrepared = usePreparedAudioPlayback
+    && audioPolish?.status === "prepared"
+    && audioPolish.prepared_passes.includes("studio_sound");
+  const noiseCleanupPrepared = usePreparedAudioPlayback
+    && audioPolish?.status === "prepared"
+    && audioPolish.prepared_passes.includes("noise_cleanup");
+  const levelConsistencyPrepared = usePreparedAudioPlayback
+    && audioPolish?.status === "prepared"
+    && audioPolish.prepared_passes.includes("level_consistency");
   const transcriptStatusLabel = activeDevRecording
     ? activeDevRecording.transcript_sidecar_relpath
       ? "Transcript: sidecar detected"
-      : "Transcript: mock fallback"
+      : "Transcript: current transcript retained"
     : transcriptLoad.kind === "fixture"
-    ? "Transcript: mock fallback"
+    ? "Transcript: fixture transcript"
     : `Transcript: ${transcriptLoad.source_label}`;
   const transcriptStatusDetail = activeDevRecording
     ? activeDevRecording.transcript_sidecar_relpath
       ? "Sidecar found. Hammer is still using the current transcript until import is wired."
-      : "No transcript found. Hammer is keeping the current transcript as a mock fallback."
+      : "No transcript sidecar was found, so Hammer is keeping the current transcript loaded."
     : "Attach a recording below while Hammer keeps the current transcript stable.";
 
   useEffect(() => {
@@ -1194,12 +1718,7 @@ export default function TranscriptSeekMock(
     };
   }, [activeMediaRef, activeMediaRequiresResolution, activeMediaWorkspaceMapping, resolver]);
 
-  const badgeVm = useMemo(
-    () => (resolveResult ? toMediaBadgeViewModel(resolveResult, true) : null),
-    [resolveResult],
-  );
-
-  const resolvedMediaSrc = useMemo(
+  const linkedMediaSrc = useMemo(
     () => resolvePreviewMediaSrc({
       resolveResult,
       mediaRef: activeMediaRef,
@@ -1208,27 +1727,169 @@ export default function TranscriptSeekMock(
     }),
     [activeDevRecording?.playback_url, activeMediaRef, activeMediaWorkspaceMapping, resolveResult],
   );
+  const localPolishedMediaSrc = useMemo(
+    () => usePreparedAudioPlayback
+      ? resolveAudioPolishPreviewSrc(activeMediaWorkspaceMapping, audioPolish)
+      : null,
+    [activeMediaWorkspaceMapping, audioPolish, usePreparedAudioPlayback],
+  );
+  const polishedMediaSrc = localPolishedMediaSrc ?? canonicalPolishedAudioSrc;
+  const resolvedMediaSrc = polishedMediaSrc ?? linkedMediaSrc;
   const playbackSrc = useMemo(
     () => ((preferDevAudioFallback || !resolvedMediaSrc) ? devAudioSrc : resolvedMediaSrc),
     [devAudioSrc, preferDevAudioFallback, resolvedMediaSrc],
   );
-  const playbackSourceLabel = useMemo(() => {
-    if (!playbackSrc) return "none";
-    if (activeMediaUsesDevTone) return "dev-tone";
-    if (preferDevAudioFallback || !resolvedMediaSrc) return "dev-tone";
-    return activeMediaSourceLabel;
-  }, [activeMediaSourceLabel, activeMediaUsesDevTone, playbackSrc, preferDevAudioFallback, resolvedMediaSrc]);
+  const playbackSourceModel = useMemo(
+    () => buildHammerPreviewPlaybackSourceModel({
+      playbackSrc,
+      resolvedMediaSrc,
+      polishedMediaSrc,
+      preferDevAudioFallback,
+      activeMediaUsesDevTone,
+      activeMediaRequiresResolution,
+      activeDevRecordingName: activeDevRecording?.name ?? null,
+      activeMediaDisplayTitle,
+    }),
+    [
+      activeDevRecording?.name,
+      activeMediaDisplayTitle,
+      activeMediaRequiresResolution,
+      activeMediaUsesDevTone,
+      playbackSrc,
+      polishedMediaSrc,
+      preferDevAudioFallback,
+      resolvedMediaSrc,
+    ],
+  );
+  const playbackSourceKind = playbackSourceModel.sourceKind;
+  const playbackSourceLabel = playbackSourceModel.sourceLabel;
+  const previewSourceStatusLabel = playbackSourceModel.statusLabel;
+  const previewPlaybackTruthLabel = playbackSourceModel.truthLabel;
+  const previewSourceDisplayTitle = playbackSourceModel.displayTitle;
+  const previewSourceDisplayDetail = useMemo(
+    () => playbackSourceKind === "polished"
+      ? audioPolish?.output_local_relpath
+        ?? audioPolish?.output_workpiece_path
+        ?? activeMediaDetailLabel
+        ?? activeMediaSourceLabel
+      : activeMediaDetailLabel ?? activeMediaSourceLabel,
+    [
+      activeMediaDetailLabel,
+      activeMediaSourceLabel,
+      audioPolish?.output_local_relpath,
+      audioPolish?.output_workpiece_path,
+      playbackSourceKind,
+    ],
+  );
+  const playbackUsesPreparedAudio = playbackSourceKind === "polished";
+  const audioArtifactSummaryLabel = playbackUsesPreparedAudio
+    ? "current polished"
+    : playbackSourceKind === "fallback"
+    ? "fallback"
+    : audioPolishFreshness === "stale"
+    ? "stale/raw"
+    : audioPolish?.status ?? "not_started";
   const previewUsesResolvedMedia = Boolean(
     playbackSrc
     && resolvedMediaSrc
     && !preferDevAudioFallback
     && playbackSrc === resolvedMediaSrc,
   );
-  const showPreviewVideo = previewUsesResolvedMedia && isVideoMediaKind(activeMediaKind);
-  const showPreviewAudioPlayer = previewUsesResolvedMedia && isAudioMediaKind(activeMediaKind);
-  const previewMonitorAspectRatio = showPreviewVideo && previewVideoAspectRatio && previewVideoAspectRatio > 0
-    ? `${previewVideoAspectRatio}`
-    : "16 / 9";
+  const previewResolvedMediaKind = polishedMediaSrc
+    ? "recording_audio"
+    : activeMediaKind;
+  const showPreviewVideo = previewUsesResolvedMedia && isVideoMediaKind(previewResolvedMediaKind);
+  const previewMonitorAspectRatio = "16 / 9";
+  const macroReadiness = useMemo(
+    () => evaluateHammerMacroCatalogReadiness({
+      transcriptSegmentCount: transcriptSegments.length,
+      activeMediaKind,
+      playbackSourceAvailable: Boolean(playbackSrc),
+      audioPolish,
+      visualPlacements: currentVisualPlacements,
+    }),
+    [activeMediaKind, audioPolish, playbackSrc, currentVisualPlacements, transcriptSegments.length],
+  );
+  const macroReadinessSummary = useMemo(
+    () => summarizeHammerMacroReadiness(macroReadiness),
+    [macroReadiness],
+  );
+  const macroReadinessByRef = useMemo(
+    () => new Map(macroReadiness.map((entry) => [entry.recipe.ref, entry])),
+    [macroReadiness],
+  );
+  const effectiveMacroRecipeRef = inspectedMacroRecipeRef
+    ?? selectedMacroRecipeRef
+    ?? macroReadiness[0]?.recipe.ref
+    ?? null;
+  const selectedMacroReadiness = effectiveMacroRecipeRef
+    ? macroReadinessByRef.get(effectiveMacroRecipeRef)
+      ?? macroReadiness[0]
+      ?? null
+    : null;
+  const allDerivedLayers = useMemo(
+    () => listHammerDerivedTextLayers(structuredTranscriptState),
+    [structuredTranscriptState],
+  );
+  const activeDerivedLayer = useMemo(
+    () => getHammerActiveDerivedTextLayer(structuredTranscriptState),
+    [structuredTranscriptState],
+  );
+  const outputDerivedLayer = useMemo(
+    () => getHammerOutputDerivedTextLayer(structuredTranscriptState),
+    [structuredTranscriptState],
+  );
+  const outputTranscriptSegments = useMemo(
+    () => applyHammerOutputDerivedTextLayerToSegments(rawTranscriptSegments, structuredTranscriptState),
+    [rawTranscriptSegments, structuredTranscriptState],
+  );
+  const captionOutputPreview = useMemo(
+    () => buildHammerCaptionPreviewModel(rawTranscriptSegments, structuredTranscriptState),
+    [rawTranscriptSegments, structuredTranscriptState],
+  );
+  const textOutputsPackage = useMemo(
+    () => buildHammerTextOutputsPackage(structuredTranscriptState),
+    [structuredTranscriptState],
+  );
+  const srtSubtitleArtifact = useMemo(
+    () => getHammerSubtitleArtifact(structuredTranscriptState, "srt"),
+    [structuredTranscriptState],
+  );
+  const vttSubtitleArtifact = useMemo(
+    () => getHammerSubtitleArtifact(structuredTranscriptState, "vtt"),
+    [structuredTranscriptState],
+  );
+  const selectedSubtitleArtifact = useMemo(
+    () => getHammerSubtitleArtifact(structuredTranscriptState, selectedSubtitleFormat),
+    [selectedSubtitleFormat, structuredTranscriptState],
+  );
+  const selectedSubtitleFreshness = textOutputsPackage?.subtitles[selectedSubtitleFormat].freshness ?? "missing";
+  const effectiveInspectedDerivedLayerId = useMemo(
+    () => inspectedDerivedLayerId === RAW_TRANSCRIPT_LAYER_SENTINEL
+      ? null
+      : resolveHammerDerivedTextInspectionLayerId(
+        structuredTranscriptState,
+        inspectedDerivedLayerId,
+        lastMacroRunRef,
+      ),
+    [inspectedDerivedLayerId, lastMacroRunRef, structuredTranscriptState],
+  );
+  const inspectedDerivedLayer = useMemo(
+    () => inspectedDerivedLayerId === RAW_TRANSCRIPT_LAYER_SENTINEL
+      ? null
+      : getHammerDerivedTextLayer(structuredTranscriptState, effectiveInspectedDerivedLayerId),
+    [effectiveInspectedDerivedLayerId, inspectedDerivedLayerId, structuredTranscriptState],
+  );
+  const rawTranscriptLayerInspected = inspectedDerivedLayerId === RAW_TRANSCRIPT_LAYER_SENTINEL;
+  const reviewLayerCount = useMemo(
+    () => allDerivedLayers.filter((layer) => layer.status === "review").length,
+    [allDerivedLayers],
+  );
+  const macroExecutionAvailable = Boolean(structuredTranscriptState?.transcript_id);
+  const selectedMacroCanExecute = macroExecutionAvailable
+    && isExecutableTranscriptMacroRef(selectedMacroReadiness?.recipe.ref)
+    && selectedMacroReadiness.status !== "blocked";
+  const selectedMacroExecutionLabel = formatMacroExecutionLabel(selectedMacroReadiness?.recipe.ref ?? null);
 
   useEffect(() => {
     const blob = createDevAudioWavBlob(transcriptDurationSec);
@@ -1240,12 +1901,59 @@ export default function TranscriptSeekMock(
   }, [transcriptDurationSec]);
 
   useEffect(() => {
+    if (localPolishedMediaSrc) {
+      setCanonicalPolishedAudioSrc(null);
+      return;
+    }
+    if (!usePreparedAudioPlayback || audioPolish?.status !== "prepared" || !audioPolish.output_workpiece_path) {
+      setCanonicalPolishedAudioSrc(null);
+      return;
+    }
+
+    let active = true;
+    let objectUrl: string | null = null;
+    setCanonicalPolishedAudioSrc(null);
+
+    void loadCanonicalAudioPolishPreviewUrl({
+      workpieceId: resolvedLaunch.launch_context.workpiece_id,
+      workpiecePath: audioPolish.output_workpiece_path,
+      mimeType: audioPolish.output_mime_type,
+    })
+      .then((nextUrl) => {
+        if (!active) {
+          URL.revokeObjectURL(nextUrl);
+          return;
+        }
+        objectUrl = nextUrl;
+        setCanonicalPolishedAudioSrc(nextUrl);
+      })
+      .catch(() => {
+        if (active) {
+          setCanonicalPolishedAudioSrc(null);
+        }
+      });
+
+    return () => {
+      active = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [
+    audioPolish?.output_mime_type,
+    audioPolish?.output_workpiece_path,
+    audioPolish?.status,
+    localPolishedMediaSrc,
+    resolvedLaunch.launch_context.workpiece_id,
+    usePreparedAudioPlayback,
+  ]);
+
+  useEffect(() => {
     setCurrentTimeSec(0);
     setActiveOverlayRowId(null);
     setSelectedSegmentId(firstSegment?.segment_id ?? null);
     setSelectedOverlayRowId(null);
     setDurationSec(FALLBACK_DURATION_SEC);
-    setPreviewVideoAspectRatio(null);
     setIsPlaying(false);
     setPlaybackError(null);
     setLastPreviewSkip(null);
@@ -1260,11 +1968,32 @@ export default function TranscriptSeekMock(
     setEditPlanJsonDraft(buildInitialEditPlanJsonDraft(resolvedLaunch));
     setEditPlanFeedback(null);
     setEditPlanFeedbackTone("neutral");
-    setStudioSoundPrepared(false);
-    setNoiseCleanupPrepared(false);
-    setLevelConsistencyPrepared(false);
     setSelectedDevRecordingId(null);
+    setStructuredTranscriptState(cloneHammerStructuredTranscript(props.structuredTranscript) ?? null);
+    setSelectedMacroRecipeRef(props.selectedMacroRecipeRef ?? null);
+    setInspectedMacroRecipeRef(props.selectedMacroRecipeRef ?? null);
+    setInspectedDerivedLayerId(props.lastMacroRunRef ?? null);
+    setLastMacroRunRef(props.lastMacroRunRef ?? null);
+    setSelectedSubtitleFormat(props.structuredTranscript?.subtitle_outputs?.last_generated_format ?? "srt");
+    setSubtitleActionFeedback(null);
   }, [launchContextSignature, resolvedLaunch]);
+
+  useEffect(() => {
+    setStructuredTranscriptState(cloneHammerStructuredTranscript(props.structuredTranscript) ?? null);
+  }, [props.structuredTranscript]);
+
+  useEffect(() => {
+    setSelectedMacroRecipeRef(props.selectedMacroRecipeRef ?? null);
+    setInspectedMacroRecipeRef((current) => current ?? props.selectedMacroRecipeRef ?? null);
+  }, [props.selectedMacroRecipeRef]);
+
+  useEffect(() => {
+    setSelectedSubtitleFormat(structuredTranscriptState?.subtitle_outputs?.last_generated_format ?? "srt");
+  }, [structuredTranscriptState?.subtitle_outputs?.last_generated_format]);
+
+  useEffect(() => {
+    setLastMacroRunRef(props.lastMacroRunRef ?? null);
+  }, [props.lastMacroRunRef]);
 
   useEffect(() => {
     if (previewMode === "raw" || editInstructions.length === 0) {
@@ -1320,10 +2049,20 @@ export default function TranscriptSeekMock(
     () => buildTranscriptOverlayRows(transcriptSegments, previewInstructionIndex),
     [previewInstructionIndex, transcriptSegments],
   );
+  const readableTranscriptGroups = useMemo(
+    () => buildHammerReadableTranscriptGroups(overlayRows),
+    [overlayRows],
+  );
 
   const overlayRowById = useMemo(
     () => new Map(overlayRows.map((row) => [row.row_id, row])),
     [overlayRows],
+  );
+  const readableGroupByRowId = useMemo(
+    () => new Map(
+      readableTranscriptGroups.flatMap((group) => group.row_ids.map((rowId) => [rowId, group.group_id] as const)),
+    ),
+    [readableTranscriptGroups],
   );
   const overlayRowBySegmentId = useMemo(
     () => {
@@ -1350,6 +2089,15 @@ export default function TranscriptSeekMock(
     () => buildPlaybackRanges(overlayRows, segmentById, previewInstructionIndex),
     [overlayRows, previewInstructionIndex, segmentById],
   );
+  const activePreviewVisual = useMemo(
+    () => buildHammerPreviewVisualState({
+      visualPlacements: currentVisualPlacements,
+      timeSec: currentTimeSec,
+      resolvedAssetUrlsByRef: previewVisualAssetUrls,
+      ignoredAssetRefs: ignoredPreviewVisualAssetRefs,
+    }),
+    [currentTimeSec, currentVisualPlacements, ignoredPreviewVisualAssetRefs, previewVisualAssetUrls],
+  );
 
   const rawActivePlaybackRange = useMemo(
     () => findPlaybackRangeByTime(playbackRanges, currentTimeSec, "raw"),
@@ -1360,6 +2108,117 @@ export default function TranscriptSeekMock(
     () => findPlaybackRangeByTime(playbackRanges, currentTimeSec, "playable"),
     [currentTimeSec, playbackRanges],
   );
+  const activePreviewPlacementRecord = useMemo(
+    () => activePreviewVisual.kind === "image"
+      ? currentVisualPlacements?.placements.find((placement) => placement.entry_id === activePreviewVisual.entryId) ?? null
+      : null,
+    [activePreviewVisual, currentVisualPlacements],
+  );
+  const activePreviewPlacementDraft = activePreviewPlacementRecord
+    ? previewVisualDrafts[activePreviewPlacementRecord.placement_id] ?? {
+      x: activePreviewVisual.kind === "image" ? activePreviewVisual.placement.x : 0.5,
+      y: activePreviewVisual.kind === "image" ? activePreviewVisual.placement.y : 0.5,
+      scale: activePreviewVisual.kind === "image" ? activePreviewVisual.placement.scale : 1,
+    }
+    : null;
+  const showPreviewVisualFrame = Boolean(
+    activePreviewVisual.kind === "image"
+    && activePreviewPlacementRecord,
+  );
+
+  useEffect(() => {
+    previewVisualAssetUrlsRef.current = previewVisualAssetUrls;
+  }, [previewVisualAssetUrls]);
+
+  useEffect(() => {
+    return () => {
+      previewVisualAssetUrlsRef.current.forEach((url) => {
+        if (url.startsWith("blob:")) {
+          URL.revokeObjectURL(url);
+        }
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    previewVisualAssetUrls.forEach((url) => {
+      if (url.startsWith("blob:")) {
+        URL.revokeObjectURL(url);
+      }
+    });
+    setPreviewVisualAssetUrls(new Map());
+    setIgnoredPreviewVisualAssetRefs(new Set());
+    setPreviewVisualLoadingRef(null);
+    setPreviewVisualLoadError(null);
+  }, [resolvedLaunch.launch_context.workpiece_id]);
+
+  useEffect(() => {
+    setVisualPlacementsState(cloneVisualPlacements(props.visualPlacements));
+    setPreviewVisualDrafts({});
+  }, [props.visualPlacements, resolvedLaunch.launch_context.workpiece_id]);
+
+  useEffect(() => {
+    if (activePreviewVisual.kind !== "image") {
+      setPreviewVisualLoadingRef(null);
+      setPreviewVisualLoadError(null);
+      return;
+    }
+    if (!activePreviewVisual.imagePath || activePreviewVisual.imageUrl) {
+      setPreviewVisualLoadingRef(null);
+      setPreviewVisualLoadError(null);
+      return;
+    }
+
+    const assetRef = activePreviewVisual.imagePath;
+    if (previewVisualLoadingRef === assetRef) {
+      return;
+    }
+
+    let cancelled = false;
+    setPreviewVisualLoadingRef(assetRef);
+    setPreviewVisualLoadError(null);
+
+    void loadHammerPreviewAssetDataUrl({
+      workpieceId: resolvedLaunch.launch_context.workpiece_id,
+      path: activePreviewVisual.imagePath,
+    }).then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setPreviewVisualLoadError(result.error);
+        setIgnoredPreviewVisualAssetRefs((current) => {
+          const next = new Set(current);
+          next.add(assetRef);
+          return next;
+        });
+        setPreviewVisualLoadingRef(null);
+        return;
+      }
+      setPreviewVisualAssetUrls((current) => {
+        const next = new Map(current);
+        next.set(assetRef, result.dataUrl);
+        return next;
+      });
+      setPreviewVisualLoadingRef(null);
+    }).catch(() => {
+      if (cancelled) return;
+      setPreviewVisualLoadError("Preview image request failed before Hammer could decode it.");
+      setIgnoredPreviewVisualAssetRefs((current) => {
+        const next = new Set(current);
+        next.add(assetRef);
+        return next;
+      });
+      setPreviewVisualLoadingRef(null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activePreviewVisual.imagePath,
+    activePreviewVisual.imageUrl,
+    activePreviewVisual.kind,
+    resolvedLaunch.launch_context.workpiece_id,
+  ]);
 
   useEffect(() => {
     const nextActiveOverlayRowId = activePlayableRange?.row_id ?? null;
@@ -1449,6 +2308,99 @@ export default function TranscriptSeekMock(
       transcriptSourceId,
     ],
   );
+  const currentReleasePrepPackage = useMemo(
+    () => buildHammerReleasePrepPackage({
+      workspaceId: resolvedLaunch.launch_context.workspace_id,
+      workpieceId: resolvedLaunch.launch_context.workpiece_id,
+      prepStatus: structuredTranscriptState ? "prepared" : "idle",
+      alignmentStatus: structuredTranscriptState ? "aligned" : "not_started",
+      structuredTranscript: structuredTranscriptState,
+      visualPlacements: currentVisualPlacements,
+      audioPolish,
+      editorSession: {
+        schema_version: 1,
+        session_id: sessionId,
+        source_mode: sourceMode,
+        preview_mode: previewMode,
+        transcript_source_id: transcriptSourceId,
+        selected_segment_id: selectedSegmentId,
+        selected_overlay_row_id: selectedOverlayRowId,
+        media_ref: activeMediaRef ? { ...activeMediaRef } : null,
+        workspace_mapping: activeMediaWorkspaceMapping ? { ...activeMediaWorkspaceMapping } : null,
+        media_source_label: activeMediaSourceLabel,
+        last_opened_at: currentEditPlan.updated_at,
+      },
+    }),
+    [
+      activeMediaRef,
+      activeMediaSourceLabel,
+      activeMediaWorkspaceMapping,
+      audioPolish,
+      currentEditPlan.updated_at,
+      previewMode,
+      currentVisualPlacements,
+      resolvedLaunch.launch_context.workpiece_id,
+      resolvedLaunch.launch_context.workspace_id,
+      selectedOverlayRowId,
+      selectedSegmentId,
+      sessionId,
+      sourceMode,
+      structuredTranscriptState,
+      transcriptSourceId,
+    ],
+  );
+  const releasePrepBlockingStatuses = currentReleasePrepPackage.readiness.blocking_statuses;
+  const releasePrepSummaryLabel = releasePrepBlockingStatuses.length > 0
+    ? releasePrepBlockingStatuses.map((status) => formatReleasePrepStatusLabel(status)).join(" · ")
+    : "ready";
+  const preparedReleaseComparison = useMemo<HammerPreparedReleasePackageComparison>(
+    () => compareHammerPreparedReleasePackageToCurrent(
+      preparedReleasePackageState,
+      currentReleasePrepPackage,
+      {
+        timelineRevision: currentEditPlanSignature,
+      },
+    ),
+    [currentEditPlanSignature, currentReleasePrepPackage, preparedReleasePackageState],
+  );
+  const preparedReleaseActionLabel = preparedReleaseComparison.preparedStatus === "stale"
+    ? "Refresh Release Package"
+    : "Prepare Release Package";
+
+  useEffect(() => {
+    if (activeTool !== "export") {
+      setPreparedReleasePackageLoading(false);
+      setPreparedReleasePackageFeedback(null);
+      return;
+    }
+
+    let active = true;
+    setPreparedReleasePackageLoading(true);
+    setPreparedReleasePackageFeedback(null);
+
+    void loadHammerPreparedReleasePackage(resolvedLaunch.launch_context.workpiece_id)
+      .then((result) => {
+        if (!active) return;
+        if (!result.ok) {
+          setPreparedReleasePackageState(null);
+          setPreparedReleasePackageFeedback(result.error);
+          setPreparedReleasePackageLoading(false);
+          return;
+        }
+        setPreparedReleasePackageState(result.data ?? null);
+        setPreparedReleasePackageLoading(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        setPreparedReleasePackageState(null);
+        setPreparedReleasePackageFeedback("Hammer could not load the prepared release package.");
+        setPreparedReleasePackageLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [activeTool, resolvedLaunch.launch_context.workpiece_id]);
   const workspaceSnapshot = useMemo<HammerWorkspaceSnapshot>(
     () => ({
       workspaceId: resolvedLaunch.launch_context.workspace_id,
@@ -1459,39 +2411,43 @@ export default function TranscriptSeekMock(
       editPlanStatus,
       editPlanSignature: currentEditPlanSignature,
       transcriptSourceId,
-      transcriptSegments: cloneTranscriptSegments(transcriptSegments),
+      transcriptSegments: cloneTranscriptSegments(rawTranscriptSegments),
       selectedSegmentId,
       selectedOverlayRowId,
       mediaRef: activeMediaRef ? { ...activeMediaRef } : null,
       workspaceMapping: activeMediaWorkspaceMapping ? { ...activeMediaWorkspaceMapping } : null,
       mediaSourceLabel: activeMediaSourceLabel,
+      selectedMacroRecipeRef,
+      lastMacroRunRef,
+      structuredTranscript: cloneHammerStructuredTranscript(structuredTranscriptState),
       editPlan: {
         ...currentEditPlan,
         instructions: cloneEditInstructions(currentEditPlan.instructions),
       },
-      studioSoundPrepared,
-      noiseCleanupPrepared,
-      levelConsistencyPrepared,
+      visualPlacements: cloneVisualPlacements(currentVisualPlacements),
+      audioPolish,
     }),
     [
       activeMediaRef,
       activeMediaSourceLabel,
       activeMediaWorkspaceMapping,
+      audioPolish,
       currentEditPlan,
       currentEditPlanSignature,
       editPlanStatus,
-      levelConsistencyPrepared,
-      noiseCleanupPrepared,
       previewMode,
+      currentVisualPlacements,
+      rawTranscriptSegments,
       resolvedLaunch.launch_context.workpiece_id,
       resolvedLaunch.launch_context.workspace_id,
+      lastMacroRunRef,
+      selectedMacroRecipeRef,
       selectedOverlayRowId,
       selectedSegmentId,
       sessionId,
       sourceMode,
-      studioSoundPrepared,
-      transcriptSegments,
       transcriptSourceId,
+      structuredTranscriptState,
     ],
   );
 
@@ -1568,6 +2524,14 @@ export default function TranscriptSeekMock(
     ),
     [activeOverlayRowId, overlayRows],
   );
+  const selectedReadableTranscriptGroup = useMemo(
+    () => findHammerReadableTranscriptGroupByRowId(readableTranscriptGroups, selectedOverlayRowId),
+    [readableTranscriptGroups, selectedOverlayRowId],
+  );
+  const selectedTranscriptGroupIdSet = useMemo(
+    () => new Set(selectedTranscriptGroupIds),
+    [selectedTranscriptGroupIds],
+  );
   const playheadOverlayRow = useMemo(
     () => (
       activeOverlayRow
@@ -1576,6 +2540,10 @@ export default function TranscriptSeekMock(
         : null)
     ),
     [activeOverlayRow, overlayRowById, rawActivePlaybackRange?.row_id],
+  );
+  const playheadReadableTranscriptGroup = useMemo(
+    () => findHammerReadableTranscriptGroupByRowId(readableTranscriptGroups, playheadOverlayRow?.row_id),
+    [playheadOverlayRow?.row_id, readableTranscriptGroups],
   );
   const playheadSegment = useMemo(
     () => (playheadOverlayRow ? (segmentById.get(playheadOverlayRow.anchor_segment_id) ?? null) : null),
@@ -1731,8 +2699,12 @@ export default function TranscriptSeekMock(
     : null;
   const audioMonitoringStateLabel = !playbackSrc
     ? "Unavailable"
-    : preferDevAudioFallback || activeMediaUsesDevTone
+    : playbackSourceKind === "polished"
+    ? "Polished prep"
+    : playbackSourceKind === "fallback"
     ? "Fallback monitor"
+    : audioPolishFreshness === "stale"
+    ? "Raw source"
     : "Linked source";
   const selectedAudioStateLabel = !selectedSegment
     ? "No row selected"
@@ -1742,8 +2714,18 @@ export default function TranscriptSeekMock(
     ? "Muted in plan"
     : selectedSegmentTrimInstruction
     ? "Timing staged"
-    : studioSoundPrepared
-    ? "Ready for polish"
+    : !playbackSrc
+    ? "Unavailable"
+    : playbackSourceKind === "polished"
+    ? "Polished playback ready"
+    : playbackSourceKind === "fallback"
+    ? "Fallback monitoring"
+    : audioPolishFreshness === "stale"
+    ? "Raw playback active"
+    : audioPolish?.status === "failed"
+    ? "Raw playback fallback"
+    : audioPolish?.status === "preparing"
+    ? "Polishing"
     : "Monitoring";
   const audioPassCount = Number(studioSoundPrepared)
     + Number(noiseCleanupPrepared)
@@ -1778,16 +2760,32 @@ export default function TranscriptSeekMock(
   const audioSummaryItems = useMemo(() => {
     const items: string[] = [];
 
+    if (playbackSourceKind === "polished") {
+      items.push("Hammer is monitoring the current non-destructive baseline audio polish artifact.");
+    } else if (audioPolishFreshness === "stale") {
+      items.push(
+        playbackSourceKind === "fallback"
+          ? "Hammer found an older audio polish artifact that no longer matches the current source media, and preview is still on a fallback source until the current raw media resolves."
+          : "Hammer found an older audio polish artifact that no longer matches the current source media, so playback stays on the raw source.",
+      );
+    } else if (audioPolish?.status === "failed" && audioPolish.failure_reason) {
+      items.push(`Hammer fell back to the raw source for playback: ${audioPolish.failure_reason}`);
+    } else if (audioPolish?.status === "failed") {
+      items.push("Hammer fell back to the raw source for playback because audio polish was unavailable.");
+    } else if (audioPolish?.status === "preparing") {
+      items.push("Hammer is preparing a baseline audio polish artifact.");
+    }
+
     if (studioSoundPrepared) {
-      items.push("Studio Sound is staged for the spoken-audio pass.");
+      items.push("Studio Sound cleanup is included in the prepared playback path.");
     }
 
     if (noiseCleanupPrepared) {
-      items.push("Noise cleanup review is staged, but Hammer is still carrying pass state rather than a real reduction engine.");
+      items.push("Noise cleanup is included in the prepared playback path.");
     }
 
     if (levelConsistencyPrepared) {
-      items.push("Level consistency review is staged for project-wide dialogue balancing.");
+      items.push("Level consistency is included in the prepared playback path.");
     }
 
     if (muteInstructionCount > 0) {
@@ -1804,10 +2802,13 @@ export default function TranscriptSeekMock(
 
     return items;
   }, [
+    audioPolish,
+    audioPolishFreshness,
     levelConsistencyPrepared,
     muteInstructionCount,
     mutedDialogueDurationSec,
     noiseCleanupPrepared,
+    playbackSourceKind,
     preferDevAudioFallback,
     activeMediaUsesDevTone,
     selectedSegment,
@@ -1827,7 +2828,8 @@ export default function TranscriptSeekMock(
     if (!pendingTranscriptRevealRowId) return;
 
     const container = transcriptScrollContainerRef.current;
-    const rowElement = transcriptRowRefs.current.get(pendingTranscriptRevealRowId) ?? null;
+    const targetGroupId = readableGroupByRowId.get(pendingTranscriptRevealRowId) ?? pendingTranscriptRevealRowId;
+    const rowElement = transcriptRowRefs.current.get(targetGroupId) ?? null;
     if (!container || !rowElement) return;
 
     const boundedTop = resolveTranscriptRevealScrollTop(container, rowElement);
@@ -1846,7 +2848,7 @@ export default function TranscriptSeekMock(
       ));
     }, 900);
     setPendingTranscriptRevealRowId(null);
-  }, [overlayRows, pendingTranscriptRevealRowId]);
+  }, [pendingTranscriptRevealRowId, readableGroupByRowId]);
 
   function handlePlaybackLoadedMetadata(duration: number) {
     if (Number.isFinite(duration) && duration > 0) {
@@ -1856,11 +2858,6 @@ export default function TranscriptSeekMock(
 
   function handleVideoLoadedMetadata(video: HTMLVideoElement) {
     handlePlaybackLoadedMetadata(video.duration);
-    if (video.videoWidth > 0 && video.videoHeight > 0) {
-      setPreviewVideoAspectRatio(video.videoWidth / video.videoHeight);
-      return;
-    }
-    setPreviewVideoAspectRatio(null);
   }
 
   function handlePlaybackTimeUpdate(currentTime: number) {
@@ -1871,7 +2868,7 @@ export default function TranscriptSeekMock(
     setIsPlaying(false);
     if (resolvedMediaSrc && !preferDevAudioFallback && devAudioSrc) {
       setPreferDevAudioFallback(true);
-      setPlaybackError("Mapped media failed to load. Switched to dev-tone preview audio.");
+      setPlaybackError("Mapped media failed to load. Switched to fallback preview audio.");
       return;
     }
     setPlaybackError("Preview media failed to load.");
@@ -1925,6 +2922,70 @@ export default function TranscriptSeekMock(
       { suppressPreviewBoundaryOnce: true },
     );
     setLastPreviewSkip(null);
+  }
+
+  function selectTranscriptGroup(
+    groupId: string,
+    primaryRow: TranscriptOverlayRow,
+    options?: { extendSelection?: boolean; linkedReviewChange?: HammerProposedChange | null },
+  ) {
+    if (options?.extendSelection && transcriptSelectionAnchorGroupId) {
+      const anchorIndex = readableTranscriptGroups.findIndex((group) => group.group_id === transcriptSelectionAnchorGroupId);
+      const targetIndex = readableTranscriptGroups.findIndex((group) => group.group_id === groupId);
+      if (anchorIndex >= 0 && targetIndex >= 0) {
+        const [start, end] = anchorIndex <= targetIndex
+          ? [anchorIndex, targetIndex]
+          : [targetIndex, anchorIndex];
+        setSelectedTranscriptGroupIds(readableTranscriptGroups.slice(start, end + 1).map((group) => group.group_id));
+      } else {
+        setSelectedTranscriptGroupIds([groupId]);
+      }
+    } else {
+      setTranscriptSelectionAnchorGroupId(groupId);
+      setSelectedTranscriptGroupIds([groupId]);
+    }
+    if (options?.extendSelection) {
+      setSelectedProposedChangeId(null);
+    } else {
+      setSelectedProposedChangeId(options?.linkedReviewChange?.id ?? null);
+    }
+    selectTranscriptRow(primaryRow);
+  }
+
+  function syncTranscriptGroupSelectionForRowId(rowId: string | null) {
+    if (!rowId) {
+      setSelectedTranscriptGroupIds([]);
+      setTranscriptSelectionAnchorGroupId(null);
+      return;
+    }
+    const groupId = readableGroupByRowId.get(rowId) ?? null;
+    if (!groupId) {
+      setSelectedTranscriptGroupIds([]);
+      setTranscriptSelectionAnchorGroupId(null);
+      return;
+    }
+    setTranscriptSelectionAnchorGroupId(groupId);
+    setSelectedTranscriptGroupIds([groupId]);
+  }
+
+  function resolveTranscriptSelectionSegments(groupIds: string[]) {
+    return [...new Set(
+      readableTranscriptGroups
+        .filter((group) => groupIds.includes(group.group_id))
+        .flatMap((group) => group.source_segment_ids),
+    )];
+  }
+
+  function removeSelectedTranscriptGroups() {
+    const selectedSegments = resolveTranscriptSelectionSegments(selectedTranscriptGroupIds);
+    if (selectedSegments.length === 0) return;
+    selectedSegments.forEach((segmentId) => setDeleteInstructionApplied(segmentId, true));
+  }
+
+  function restoreSelectedTranscriptGroups() {
+    const selectedSegments = resolveTranscriptSelectionSegments(selectedTranscriptGroupIds);
+    if (selectedSegments.length === 0) return;
+    selectedSegments.forEach((segmentId) => setDeleteInstructionApplied(segmentId, false));
   }
 
   useEffect(() => {
@@ -1984,7 +3045,8 @@ export default function TranscriptSeekMock(
 
   function revealTranscriptRow(rowId: string): boolean {
     const container = transcriptScrollContainerRef.current;
-    const rowElement = transcriptRowRefs.current.get(rowId) ?? null;
+    const targetGroupId = readableGroupByRowId.get(rowId) ?? rowId;
+    const rowElement = transcriptRowRefs.current.get(targetGroupId) ?? null;
     if (!container || !rowElement) {
       return false;
     }
@@ -2026,8 +3088,25 @@ export default function TranscriptSeekMock(
   }
 
   function selectTimelineClip(clip: TimelineClip) {
+    if (clip.placement_id) {
+      const linkedChange = proposedChanges.find((change) => change.linkedAssetId === clip.placement_id) ?? null;
+      if (linkedChange) {
+        selectProposedChange(linkedChange);
+        return;
+      }
+    }
+    setSelectedProposedChangeId(null);
     if (clip.linked_row_id) {
       const linkedRow = overlayRowById.get(clip.linked_row_id) ?? null;
+      if (linkedRow) {
+        syncTranscriptGroupSelectionForRowId(linkedRow.row_id);
+        seekToRow(linkedRow);
+        return;
+      }
+    }
+
+    if (clip.linked_segment_id) {
+      const linkedRow = overlayRowBySegmentId.get(clip.linked_segment_id) ?? null;
       if (linkedRow) {
         seekToRow(linkedRow);
         return;
@@ -2035,6 +3114,234 @@ export default function TranscriptSeekMock(
     }
 
     seekTo(clip.start_sec, undefined, clip.linked_segment_id ?? undefined);
+  }
+
+  function selectProposedChange(change: HammerProposedChange) {
+    setSelectedProposedChangeId(change.id);
+    const linkedRowId = change.linkedRowIds[0] ?? null;
+    if (linkedRowId) {
+      const linkedRow = overlayRowById.get(linkedRowId) ?? null;
+      if (linkedRow) {
+        syncTranscriptGroupSelectionForRowId(linkedRow.row_id);
+        seekToRow(linkedRow);
+        return;
+      }
+    }
+    const linkedSegmentId = change.linkedSegmentIds[0] ?? null;
+    if (linkedSegmentId) {
+      const linkedRow = overlayRowBySegmentId.get(linkedSegmentId) ?? null;
+      if (linkedRow) {
+        syncTranscriptGroupSelectionForRowId(linkedRow.row_id);
+        seekToRow(linkedRow);
+        return;
+      }
+    }
+    setSelectedTranscriptGroupIds([]);
+    setTranscriptSelectionAnchorGroupId(null);
+    seekTo(Math.max(0, change.startSec - 1.5), undefined, linkedSegmentId ?? undefined);
+  }
+
+  function syncRowBackedProposedChange(change: HammerProposedChange, nextStatus: HammerProposedChangeStatus) {
+    const linkedRowId = change.linkedRowIds[0] ?? null;
+    if (!linkedRowId) return;
+    const linkedRow = overlayRowById.get(linkedRowId) ?? null;
+    if (!linkedRow) return;
+    const linkedSegment = segmentById.get(linkedRow.anchor_segment_id) ?? null;
+    const shouldApply = nextStatus !== "rejected";
+
+    switch (change.type) {
+      case "filler_removal":
+        if (linkedSegment && linkedRow.is_deleted !== shouldApply) {
+          toggleDeleteInstruction(linkedSegment.segment_id);
+        }
+        break;
+      case "silence_trim":
+        if (linkedSegment && linkedRow.is_trimmed !== shouldApply) {
+          toggleTrimInstruction(linkedSegment);
+        }
+        break;
+      case "retake_removal": {
+        if (!linkedSegment) break;
+        const linkedSegmentIndex = segmentIndexById.get(linkedSegment.segment_id) ?? -1;
+        const nextSegment = linkedSegmentIndex >= 0
+          ? transcriptSegments[linkedSegmentIndex + 1] ?? null
+          : null;
+        const isMerged = linkedRow.structure === "merge";
+        if (nextSegment && isMerged !== shouldApply) {
+          toggleMergeInstruction(linkedSegment, nextSegment);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  function setProposedChangeStatus(change: HammerProposedChange, nextStatus: HammerProposedChangeStatus) {
+    if (change.type === "visual_placement" && change.linkedAssetId) {
+      setVisualPlacementsState((current) => {
+        const next = cloneVisualPlacements(current ?? props.visualPlacements);
+        if (!next) return current;
+        next.placements = next.placements.map((placement) => (
+          placement.placement_id === change.linkedAssetId
+            ? {
+              ...placement,
+              ingest_state: nextStatus === "approved" ? "approved" : "suggested",
+            }
+            : placement
+        ));
+        return next;
+      });
+    }
+    syncRowBackedProposedChange(change, nextStatus);
+    setProposedChangeStatusOverrides((current) => ({
+      ...current,
+      [change.id]: nextStatus,
+    }));
+  }
+
+  function updateVisualPlacementTiming(
+    change: HammerProposedChange,
+    placementId: string,
+    nextDurationSec: number,
+  ) {
+    const clampedDuration = clamp(nextDurationSec, 0.5, Math.max(0.5, transcriptDurationSec));
+    setVisualPlacementsState((current) => {
+      const next = cloneVisualPlacements(current ?? props.visualPlacements);
+      if (!next) return current;
+      next.placements = next.placements.map((placement) => {
+        if (placement.placement_id !== placementId) return placement;
+        const safeStart = clamp(placement.start_sec, 0, Math.max(0, transcriptDurationSec - 0.5));
+        const safeEnd = clamp(safeStart + clampedDuration, safeStart + 0.5, transcriptDurationSec);
+        return {
+          ...placement,
+          start_sec: safeStart,
+          end_sec: safeEnd,
+        };
+      });
+      return next;
+    });
+    setProposedChangeStatusOverrides((current) => ({
+      ...current,
+      [change.id]: "modified",
+    }));
+  }
+
+  function updateVisualPlacementEnd(
+    changeId: string,
+    placementId: string,
+    nextEndSec: number,
+  ) {
+    setVisualPlacementsState((current) => {
+      const next = cloneVisualPlacements(current ?? props.visualPlacements);
+      if (!next) return current;
+      next.placements = next.placements.map((placement) => {
+        if (placement.placement_id !== placementId) return placement;
+        const safeEnd = clamp(nextEndSec, placement.start_sec + 0.5, transcriptDurationSec);
+        return {
+          ...placement,
+          end_sec: safeEnd,
+        };
+      });
+      return next;
+    });
+    setProposedChangeStatusOverrides((current) => ({
+      ...current,
+      [changeId]: "modified",
+    }));
+  }
+
+  function updatePreviewVisualDraft(placementId: string, patch: Partial<HammerPreviewVisualDraft>) {
+    setPreviewVisualDrafts((current) => {
+      const previous = current[placementId] ?? { x: 0.5, y: 0.5, scale: 1 };
+      const nextDraft: HammerPreviewVisualDraft = {
+        x: clamp(patch.x ?? previous.x, 0, 1),
+        y: clamp(patch.y ?? previous.y, 0, 1),
+        scale: clamp(patch.scale ?? previous.scale, 0.5, 2.5),
+      };
+      return {
+        ...current,
+        [placementId]: nextDraft,
+      };
+    });
+  }
+
+  function beginPreviewVisualDrag(kind: HammerVisualPreviewDragState["kind"], placementId: string, event: React.MouseEvent) {
+    const container = monitorSurfaceRef.current;
+    if (!container) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = container.getBoundingClientRect();
+    const startDraft = previewVisualDrafts[placementId] ?? { x: 0.5, y: 0.5, scale: 1 };
+    visualPreviewDragStateRef.current = {
+      kind,
+      placementId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startDraft,
+      containerWidth: Math.max(1, rect.width),
+      containerHeight: Math.max(1, rect.height),
+    };
+    setVisualDragSessionToken((current) => current + 1);
+  }
+
+  function beginTimelineVisualDurationDrag(changeId: string, placementId: string, clip: TimelineClip, event: React.MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    visualTimelineDragStateRef.current = {
+      placementId,
+      changeId,
+      startClientX: event.clientX,
+      startSec: clip.start_sec,
+      endSec: clip.end_sec,
+    };
+    setVisualDragSessionToken((current) => current + 1);
+  }
+
+  function reviewSelectedProposedChange() {
+    if (!selectedProposedChange) return;
+    selectProposedChange(selectedProposedChange);
+  }
+
+  function goToPreviousPolishChange() {
+    if (!previousPolishChange) return;
+    selectProposedChange(previousPolishChange);
+  }
+
+  function goToNextPolishChange() {
+    if (!nextPolishChange) return;
+    selectProposedChange(nextPolishChange);
+  }
+
+  function goToNextUnreviewedPolishChange() {
+    if (!nextUnreviewedPolishChange) return;
+    selectProposedChange(nextUnreviewedPolishChange);
+  }
+
+  function setPolishChangeStatusAndAdvance(
+    change: HammerProposedChange,
+    nextStatus: HammerProposedChangeStatus,
+  ) {
+    const shouldAutoAdvance = autoAdvancePolishReview
+      && (nextStatus === "approved" || nextStatus === "rejected");
+    setProposedChangeStatus(change, nextStatus);
+    if (!shouldAutoAdvance) return;
+
+    const currentIndex = polishProposedChanges.findIndex((candidate) => candidate.id === change.id);
+    const nextSuggested = (
+      currentIndex >= 0
+        ? polishProposedChanges.slice(currentIndex + 1).find((candidate) => (
+          candidate.id !== change.id && candidate.status === "suggested"
+        ))
+        : null
+    ) ?? polishProposedChanges.slice(0, Math.max(0, currentIndex)).find((candidate) => (
+      candidate.id !== change.id && candidate.status === "suggested"
+    )) ?? polishProposedChanges.find((candidate) => (
+      candidate.id !== change.id && candidate.status === "suggested"
+    )) ?? null;
+    if (nextSuggested) {
+      selectProposedChange(nextSuggested);
+    }
   }
 
   function resetPreview() {
@@ -2136,6 +3443,27 @@ export default function TranscriptSeekMock(
         created_at: new Date().toISOString(),
       };
       return [...prev, next];
+    });
+  }
+
+  function setDeleteInstructionApplied(segmentId: string, shouldApply: boolean) {
+    setEditInstructions((prev) => {
+      const existing = prev.find((instruction) => (
+        instruction.type === "delete"
+        && instruction.segment_id === segmentId
+      ));
+      if (shouldApply) {
+        if (existing) return prev;
+        const next: HammerDeleteInstruction = {
+          instruction_id: createInstructionId(),
+          segment_id: segmentId,
+          type: "delete",
+          created_at: new Date().toISOString(),
+        };
+        return [...prev, next];
+      }
+      if (!existing) return prev;
+      return prev.filter((instruction) => instruction.instruction_id !== existing.instruction_id);
     });
   }
 
@@ -2250,7 +3578,6 @@ export default function TranscriptSeekMock(
   ].join(" · ");
   const timelineFocusRow = activeOverlayRow ?? selectedOverlayRow;
   const timelineFocusLabel = timelineFocusRow ? formatOverlayRowLabel(timelineFocusRow) : "none";
-  const timelineToolHint = getTimelineToolHint(activeTimelineTool);
   const selectedRowHasTimelineEditCue = Boolean(
     selectedOverlayRow?.is_deleted
     || selectedOverlayRow?.is_trimmed
@@ -2270,45 +3597,297 @@ export default function TranscriptSeekMock(
     : selectedSegmentMergeInstruction
     ? "This row is merged into the next same-speaker line, reducing the visible boundary."
     : "No ripple or trim action is staged on the selected row yet.";
+  const doesClipMatchSelectedState = (clip: TimelineClip): boolean => (
+    (clip.linked_row_id != null && clip.linked_row_id === selectedOverlayRow?.row_id)
+    || (clip.linked_segment_id != null && clip.linked_segment_id === selectedSegment?.segment_id)
+  );
+  const doesClipMatchActiveState = (clip: TimelineClip): boolean => (
+    (clip.linked_row_id != null && clip.linked_row_id === activeOverlayRow?.row_id)
+    || (clip.linked_segment_id != null && clip.linked_segment_id === activeOverlayRow?.anchor_segment_id)
+  );
   const sourceModeLabel = formatSourceModeLabel(activeSourceMode);
   const resolvedDurationMs = resolveResult?.status === "ok" ? resolveResult.duration_ms ?? null : null;
   const primaryAssetDurationLabel = formatDurationMs(activeMediaRef?.duration_ms ?? resolvedDurationMs)
     ?? formatClock(transcriptDurationSec);
+  const visualSuggestionClips = useMemo<TimelineClip[]>(
+    () => (currentVisualPlacements?.placements ?? []).map((placement) => ({
+      id: placement.placement_id,
+      start_sec: placement.start_sec,
+      end_sec: placement.end_sec,
+      label: placement.label ?? placement.visual_mode ?? placement.entry_id,
+      tone: placement.status === "uncertain" ? "#f59e0b" : "#f97316",
+      linked_segment_id: placement.anchor_segment_id,
+      editable: false,
+      ripple_hint: false,
+      status: placement.ingest_state === "approved" ? "approved" : placement.status,
+      placement_id: placement.placement_id,
+      badge_label: placement.ingest_state === "approved"
+        ? "Approved"
+        : placement.status === "uncertain"
+        ? "Review"
+        : "Suggested",
+      badge_tone: placement.ingest_state === "approved" ? "ripple" : placement.status === "uncertain" ? "uncertain" : undefined,
+      title_detail: placement.uncertainty_flags.length > 0
+        ? placement.uncertainty_flags.join(", ")
+        : placement.visual_mode ?? null,
+    })),
+    [currentVisualPlacements],
+  );
+  const baseProposedChanges = useMemo(
+    () => buildHammerProposedChanges({
+      overlayRows,
+      visualSuggestionClips,
+    }),
+    [overlayRows, visualSuggestionClips],
+  );
+  useEffect(() => {
+    baseProposedChanges.forEach((change) => {
+      proposedChangeCatalogRef.current.set(change.id, change);
+    });
+  }, [baseProposedChanges]);
+  const proposedChanges = useMemo(() => {
+    const nextMap = new Map<string, HammerProposedChange>();
+    baseProposedChanges.forEach((change) => {
+      nextMap.set(change.id, {
+        ...change,
+        status: proposedChangeStatusOverrides[change.id] ?? change.status,
+      });
+    });
+    Object.entries(proposedChangeStatusOverrides).forEach(([changeId, status]) => {
+      if (nextMap.has(changeId)) return;
+      const previous = proposedChangeCatalogRef.current.get(changeId);
+      if (!previous) return;
+      nextMap.set(changeId, { ...previous, status });
+    });
+    return [...nextMap.values()].sort((left, right) => {
+      const leftSuggested = left.status === "suggested" ? 0 : 1;
+      const rightSuggested = right.status === "suggested" ? 0 : 1;
+      if (leftSuggested !== rightSuggested) return leftSuggested - rightSuggested;
+      return left.startSec - right.startSec;
+    });
+  }, [baseProposedChanges, proposedChangeStatusOverrides]);
+  const selectedProposedChange = useMemo(
+    () => proposedChanges.find((change) => change.id === selectedProposedChangeId) ?? null,
+    [proposedChanges, selectedProposedChangeId],
+  );
+  const suggestedProposedChanges = useMemo(
+    () => proposedChanges.filter((change) => change.status === "suggested"),
+    [proposedChanges],
+  );
+  const selectedProposedChangeIndex = selectedProposedChangeId == null
+    ? -1
+    : proposedChanges.findIndex((change) => change.id === selectedProposedChangeId);
+  const previousSuggestedChange = selectedProposedChangeIndex > 0
+    ? [...proposedChanges.slice(0, selectedProposedChangeIndex)].reverse().find((change) => change.status === "suggested") ?? null
+    : null;
+  const nextSuggestedChange = selectedProposedChangeIndex >= 0
+    ? proposedChanges.slice(selectedProposedChangeIndex + 1).find((change) => change.status === "suggested") ?? null
+    : suggestedProposedChanges[0] ?? null;
+  const proposedChangeStatusCounts = useMemo(() => ({
+    suggested: proposedChanges.filter((change) => change.status === "suggested").length,
+    approved: proposedChanges.filter((change) => change.status === "approved").length,
+    rejected: proposedChanges.filter((change) => change.status === "rejected").length,
+    modified: proposedChanges.filter((change) => change.status === "modified").length,
+  }), [proposedChanges]);
+  const polishProposedChanges = useMemo(
+    () => proposedChanges.filter((change) => (
+      change.type === "silence_trim"
+      || change.type === "filler_removal"
+      || change.type === "retake_removal"
+      || change.type === "chapter_inference"
+    )),
+    [proposedChanges],
+  );
+  const polishChangeStatusCounts = useMemo(() => ({
+    suggested: polishProposedChanges.filter((change) => change.status === "suggested").length,
+    approved: polishProposedChanges.filter((change) => change.status === "approved").length,
+    rejected: polishProposedChanges.filter((change) => change.status === "rejected").length,
+    modified: polishProposedChanges.filter((change) => change.status === "modified").length,
+  }), [polishProposedChanges]);
+  const selectedPolishChange = selectedProposedChange && polishProposedChanges.some((change) => change.id === selectedProposedChange.id)
+    ? selectedProposedChange
+    : null;
+  const polishReviewAnchorIndex = useMemo(() => {
+    if (selectedPolishChange) {
+      return polishProposedChanges.findIndex((change) => change.id === selectedPolishChange.id);
+    }
+
+    if (selectedOverlayRow) {
+      const linkedIndex = polishProposedChanges.findIndex((change) => change.linkedRowIds.includes(selectedOverlayRow.row_id));
+      if (linkedIndex >= 0) return linkedIndex;
+
+      const nearestForwardIndex = polishProposedChanges.findIndex((change) => change.startSec >= selectedOverlayRow.start_sec);
+      if (nearestForwardIndex >= 0) return nearestForwardIndex;
+
+      return polishProposedChanges.length > 0 ? polishProposedChanges.length - 1 : -1;
+    }
+
+    return -1;
+  }, [polishProposedChanges, selectedOverlayRow, selectedPolishChange]);
+  const previousPolishChange = polishReviewAnchorIndex > 0
+    ? polishProposedChanges[polishReviewAnchorIndex - 1] ?? null
+    : null;
+  const nextPolishChange = selectedPolishChange == null
+    ? (polishReviewAnchorIndex >= 0 ? polishProposedChanges[polishReviewAnchorIndex] ?? null : polishProposedChanges[0] ?? null)
+    : (polishReviewAnchorIndex >= 0 ? polishProposedChanges[polishReviewAnchorIndex + 1] ?? null : null);
+  const nextUnreviewedPolishChange = useMemo(() => {
+    const suggestedChanges = polishProposedChanges.filter((change) => change.status === "suggested");
+    if (suggestedChanges.length === 0) return null;
+    if (polishReviewAnchorIndex < 0) return suggestedChanges[0] ?? null;
+    const searchStartIndex = selectedPolishChange == null
+      ? polishReviewAnchorIndex
+      : polishReviewAnchorIndex + 1;
+    const nextAfterSelection = polishProposedChanges
+      .slice(searchStartIndex)
+      .find((change) => change.status === "suggested");
+    if (nextAfterSelection) return nextAfterSelection;
+    return polishProposedChanges.find((change) => change.status === "suggested") ?? null;
+  }, [polishProposedChanges, polishReviewAnchorIndex, selectedPolishChange]);
+  const polishRemainingCount = polishChangeStatusCounts.suggested;
+  const polishReviewProgressLabel = useMemo(() => [
+    `${polishProposedChanges.length} total`,
+    `${polishChangeStatusCounts.approved} approved`,
+    `${polishChangeStatusCounts.rejected} rejected`,
+    `${polishChangeStatusCounts.modified} modified`,
+    `${polishRemainingCount} remaining`,
+  ].join(" · "), [polishChangeStatusCounts, polishProposedChanges.length, polishRemainingCount]);
+  const isManualTranscriptRangeReview = selectedTranscriptGroupIds.length > 0 && selectedPolishChange == null;
+  const highlightedTranscriptRowIds = useMemo(
+    () => new Set(selectedPolishChange?.linkedRowIds ?? []),
+    [selectedPolishChange],
+  );
+  const selectedVisualPlacement = useMemo(
+    () => selectedProposedChange?.type === "visual_placement" && selectedProposedChange.linkedAssetId
+      ? currentVisualPlacements?.placements.find((placement) => placement.placement_id === selectedProposedChange.linkedAssetId) ?? null
+      : null,
+    [currentVisualPlacements, selectedProposedChange],
+  );
+  const selectedVisualDurationSec = selectedVisualPlacement
+    ? Math.max(0.1, selectedVisualPlacement.end_sec - selectedVisualPlacement.start_sec)
+    : null;
+  const selectedVisualPreviewDraft = selectedVisualPlacement
+    ? previewVisualDrafts[selectedVisualPlacement.placement_id] ?? null
+    : null;
+  useEffect(() => {
+    proposedChangeCatalogRef.current.clear();
+    setSelectedProposedChangeId(null);
+    setProposedChangeStatusOverrides({});
+    setTranscriptSelectionAnchorGroupId(null);
+    setSelectedTranscriptGroupIds([]);
+  }, [resolvedLaunch.launch_context.workpiece_id]);
+
+  useEffect(() => {
+    if (!props.prepHandoffAction) return;
+    if (lastHandledPrepHandoffTokenRef.current === props.prepHandoffAction.token) {
+      return;
+    }
+    lastHandledPrepHandoffTokenRef.current = props.prepHandoffAction.token;
+
+    switch (props.prepHandoffAction.id) {
+      case "review_transcript": {
+        setActiveTool("polish");
+        setActiveTimelineTool("select");
+        if (selectedOverlayRow) {
+          if (!revealTranscriptRow(selectedOverlayRow.row_id)) {
+            setPendingTranscriptRevealRowId(selectedOverlayRow.row_id);
+          }
+        } else {
+          const firstRow = overlayRows[0] ?? null;
+          if (firstRow) {
+            selectTranscriptRow(firstRow);
+          }
+        }
+        break;
+      }
+      case "review_visuals": {
+        setActiveTool("video");
+        setActiveTimelineTool("select");
+        const suggestedClip = visualSuggestionClips.find((clip) => clip.status === "uncertain")
+          ?? visualSuggestionClips[0]
+          ?? null;
+        if (suggestedClip) {
+          selectTimelineClip(suggestedClip);
+        }
+        break;
+      }
+      case "review_audio": {
+        setActiveTool("audio");
+        setActiveTimelineTool("select");
+        if (selectedOverlayRow) {
+          if (!revealTranscriptRow(selectedOverlayRow.row_id)) {
+            setPendingTranscriptRevealRowId(selectedOverlayRow.row_id);
+          }
+        } else {
+          const firstRow = overlayRows[0] ?? null;
+          if (firstRow) {
+            selectTranscriptRow(firstRow);
+          }
+        }
+        break;
+      }
+      case "review_macros": {
+        setActiveTool("finishing");
+        setActiveTimelineTool("select");
+        const nextMacro = macroReadiness.find((entry) => entry.status !== "blocked")
+          ?? macroReadiness[0]
+          ?? null;
+        if (nextMacro) {
+          setInspectedMacroRecipeRef(nextMacro.recipe.ref);
+        }
+        break;
+      }
+      case "begin_manual_editing": {
+        setActiveTool("polish");
+        setActiveTimelineTool("select");
+        break;
+      }
+      default:
+        break;
+    }
+  }, [
+    overlayRows,
+    macroReadiness,
+    props.prepHandoffAction,
+    selectedOverlayRow,
+    visualSuggestionClips,
+  ]);
 
   const projectAssets = useMemo(
     () => {
       const assets: Record<AssetPanelView, HammerProjectAsset[]> = {
+        transcript: [],
         video: [],
         images: [],
         music: [],
       };
 
-      const primaryAsset: HammerProjectAsset = {
-        id: activeMediaRef?.media_id ?? "media_dev_tone_preview",
-        title: activeDevRecording ? "Attached Dev Recording" : activeMediaRef?.media_id ? "Primary Source Media" : "Generated Preview Proxy",
-        kindLabel: activeMediaRef ? formatMediaKindLabel(activeMediaRef.kind) : "Preview Proxy",
-        sourceLabel: sourceModeLabel,
-        detail: activeMediaDetailLabel,
-        status: activeMediaUsesDevTone
-          ? "preview proxy"
-          : activeDevRecording
-          ? resolveResult?.status === "ok"
-            ? "attached"
+        const primaryAsset: HammerProjectAsset = {
+          id: activeMediaRef?.media_id ?? "media_dev_tone_preview",
+          title: activeDevRecording ? "Attached recording" : activeMediaRef?.media_id ? "Primary source media" : "Fallback preview source",
+          kindLabel: activeMediaRef ? formatMediaKindLabel(activeMediaRef.kind) : "Fallback source",
+          sourceLabel: sourceModeLabel,
+          detail: activeMediaDetailLabel,
+          status: activeMediaUsesDevTone
+            ? "fallback source"
+            : activeDevRecording
+            ? resolveResult?.status === "ok"
+              ? "attached"
             : resolveResult?.status === "unresolved"
             ? "needs relink"
             : "attaching"
           : resolveResult?.status === "ok"
           ? "linked"
-          : resolveResult?.status === "unresolved"
-          ? "needs relink"
-          : "launch-linked",
-        usageHint: activeMediaUsesDevTone
-          ? "This proxy keeps Hammer previewable in dev mode until a real workpiece media source is attached."
-          : activeDevRecording
-          ? "This local dev recording is attached as the current preview source while Hammer keeps the current transcript loaded."
-          : "This is the launch-linked source media backing the current edit and preview path.",
-        workpieceId: resolvedLaunch.launch_context.workpiece_id,
-        durationLabel: primaryAssetDurationLabel,
+            : resolveResult?.status === "unresolved"
+            ? "needs relink"
+            : "launch-linked",
+          usageHint: activeMediaUsesDevTone
+            ? "This fallback source keeps preview transport available until a real workpiece media source is resolved."
+            : activeDevRecording
+            ? "This local recording is attached as the current preview source while Hammer keeps the current transcript loaded."
+            : "This is the launch-linked source media backing the current edit and preview path.",
+          workpieceId: resolvedLaunch.launch_context.workpiece_id,
+          durationLabel: primaryAssetDurationLabel,
+          placementId: null,
       };
 
       if (!activeMediaRef || activeMediaRef.kind === "recording_video" || activeMediaRef.kind === "export_video" || activeMediaRef.kind === "recording_audio" || activeMediaRef.kind === "export_audio" || activeMediaUsesDevTone) {
@@ -2321,6 +3900,29 @@ export default function TranscriptSeekMock(
         assets.video.push(primaryAsset);
       }
 
+      const seenImageAssetIds = new Set<string>();
+      for (const placement of currentVisualPlacements?.placements ?? []) {
+        const imageAssetId = placement.asset_id ?? placement.asset_ref ?? placement.placement_id;
+        if (seenImageAssetIds.has(imageAssetId)) continue;
+        seenImageAssetIds.add(imageAssetId);
+        assets.images.push({
+          id: imageAssetId,
+          title: placement.label ?? placement.visual_mode ?? placement.entry_id,
+          kindLabel: "Anchored Image",
+          sourceLabel: "Tongs image-map",
+          detail: placement.anchor_text
+            ? `Anchored to: ${placement.anchor_text}`
+            : `Anchored image for ${placement.entry_id}.`,
+          status: formatVisualApprovalStateLabel(placement.ingest_state),
+          usageHint: placement.uncertainty_flags.includes("image_map_candidate_promoted")
+            ? "Hammer promoted this anchored image from the canonical image-map so it can be reviewed and placed immediately."
+            : "This anchored image came from the canonical Tongs image-map and is already staged on the timeline.",
+          workpieceId: resolvedLaunch.launch_context.workpiece_id,
+          durationLabel: formatClock(Math.max(0, placement.end_sec - placement.start_sec)),
+          placementId: placement.placement_id,
+        });
+      }
+
       return assets;
     },
     [
@@ -2329,80 +3931,44 @@ export default function TranscriptSeekMock(
       activeMediaRef,
       activeMediaUsesDevTone,
       primaryAssetDurationLabel,
+      currentVisualPlacements,
       resolveResult?.status,
       resolvedLaunch.launch_context.workpiece_id,
       sourceModeLabel,
     ],
   );
 
-  const activeAssetItems = projectAssets[activeAssetPanel];
+  const activeAssetItems = activeAssetPanel === "transcript" ? [] : projectAssets[activeAssetPanel];
   const activeAssetViewDefinition = ASSET_PANEL_VIEWS.find((panel) => panel.id === activeAssetPanel) ?? ASSET_PANEL_VIEWS[0];
   const linkedAssetCount = projectAssets.video.length + projectAssets.images.length + projectAssets.music.length;
   const activeAssetEmptyMessage = useMemo(() => {
     switch (activeAssetPanel) {
+      case "transcript":
+        return "No transcript is loaded for this workpiece yet.";
       case "video":
         return "No video media is linked to this workpiece yet.";
       case "images":
         return "No images are linked to this workpiece yet.";
       case "music":
-        return "No music assets are available for this edit yet.";
+        return "No audio assets are available for this edit yet.";
       default:
         return "No assets are linked to this workpiece yet.";
     }
   }, [activeAssetPanel]);
-  const previewSourceStatusLabel = useMemo(() => {
-    if (!playbackSrc) return "Preview source unavailable";
-    if (!activeMediaRequiresResolution) return "Generated preview tone ready";
-    if (preferDevAudioFallback || !resolvedMediaSrc) return "Running on dev-tone fallback";
-    return activeDevRecording ? "Dev recording connected" : "Mapped media connected";
-  }, [
-    activeDevRecording,
-    activeMediaRequiresResolution,
-    playbackSrc,
-    preferDevAudioFallback,
-    resolvedMediaSrc,
-  ]);
-  const previewSourceDetail = useMemo(() => {
-    if (resolving) {
-      return activeDevRecording
-        ? "Connecting the selected recording."
-        : "Resolving project media.";
-    }
-    if (resolveError) return resolveError;
-    if (resolveResult?.status === "unresolved") {
-      return `${resolveResult.user_message} Preview is using the fallback tone.`;
-    }
-    if (activeDevRecording) {
-      return activeDevRecording.transcript_sidecar_relpath
-        ? "Selected recording attached. Hammer is still using the current transcript."
-        : "Selected recording attached. Hammer is using the current transcript as a mock fallback.";
-    }
-    if (badgeVm?.tooltip) return badgeVm.tooltip;
-    return "Select a script row to verify timing and cuts.";
-  }, [activeDevRecording, badgeVm?.tooltip, resolveError, resolveResult, resolving]);
-  const previewPlaybackTruthLabel = useMemo(() => {
-    if (!playbackSrc) return "Unavailable";
-    if (activeMediaUsesDevTone) return "Dev fallback";
-    if (preferDevAudioFallback || !resolvedMediaSrc) return "Dev fallback";
-    return activeDevRecording ? "Attached media" : "Launch media";
-  }, [
-    activeDevRecording,
-    activeMediaUsesDevTone,
-    playbackSrc,
-    preferDevAudioFallback,
-    resolvedMediaSrc,
-  ]);
   const previewPlaybackTruthDetail = useMemo(() => {
     if (!playbackSrc) {
       return "Preview transport does not have a playable source yet.";
     }
-    if (activeMediaUsesDevTone) {
-      return "Preview is running on the generated dev fallback.";
-    }
-    if (preferDevAudioFallback || !resolvedMediaSrc) {
+    if (playbackSourceKind === "fallback") {
+      if (activeMediaUsesDevTone) {
+        return "Preview is running on the fallback tone.";
+      }
       return activeDevRecording
-        ? "The selected recording is attached, but transport is still on the dev fallback."
-        : "Launch media is not driving transport, so preview is still on the dev fallback.";
+        ? "The selected recording is attached, but transport is still on the fallback source."
+        : "Workspace media is not driving transport, so preview is still on the fallback source.";
+    }
+    if (playbackSourceKind === "polished") {
+      return "Transport is playing from the prepared audio polish artifact instead of the raw source media.";
     }
     return activeDevRecording
       ? "Transport is playing from the selected recording."
@@ -2410,18 +3976,17 @@ export default function TranscriptSeekMock(
   }, [
     activeDevRecording,
     activeMediaUsesDevTone,
+    playbackSourceKind,
     playbackSrc,
-    preferDevAudioFallback,
-    resolvedMediaSrc,
   ]);
   const previewTranscriptTruthLabel = useMemo(() => {
     if (activeDevRecording) {
       return activeDevRecording.transcript_sidecar_relpath
         ? "Sidecar detected"
-        : "Mock fallback";
+        : "Current transcript retained";
     }
     return transcriptLoad.kind === "fixture"
-      ? "Mock fallback"
+      ? "Fixture transcript"
       : "Current transcript";
   }, [activeDevRecording, transcriptLoad.kind]);
   const previewModeTruthLabel = sessionState.previewMode === "raw" ? "Raw preview" : "Edit-aware preview";
@@ -2432,27 +3997,29 @@ export default function TranscriptSeekMock(
     if (!playbackSrc) {
       return "Preview is offline right now.";
     }
-    if (activeMediaUsesDevTone) {
-      return "No media is attached, so preview is running on the dev fallback.";
-    }
-    if (preferDevAudioFallback || !resolvedMediaSrc) {
+    if (playbackSourceKind === "fallback") {
+      if (activeMediaUsesDevTone) {
+        return "No media is attached, so preview is running on the fallback tone.";
+      }
       return activeDevRecording
         ? activeDevRecording.transcript_sidecar_relpath
-          ? "Media is attached, playback is still on the dev fallback, and Hammer is holding the current transcript."
-          : "Media is attached, playback is still on the dev fallback, and Hammer is still using the mock transcript."
-        : "Launch media is attached, but preview is still on the dev fallback.";
+          ? "Media is attached, playback is still on the fallback source, and Hammer is holding the current transcript."
+          : "Media is attached, playback is still on the fallback source, and Hammer is still using the current transcript."
+        : "Workspace media is attached, but preview is still on the fallback source.";
+    }
+    if (playbackSourceKind === "polished") {
+      return "Prepared audio polish is driving preview while Hammer keeps the current transcript active.";
     }
     return activeDevRecording
       ? activeDevRecording.transcript_sidecar_relpath
         ? "Attached media is driving preview while Hammer keeps the current transcript active."
-        : "Attached media is driving preview while Hammer keeps the mock transcript active."
+        : "Attached media is driving preview while Hammer keeps the current transcript active."
       : "Launch media is driving preview.";
   }, [
     activeDevRecording,
     activeMediaUsesDevTone,
+    playbackSourceKind,
     playbackSrc,
-    preferDevAudioFallback,
-    resolvedMediaSrc,
   ]);
   const selectionSummaryTitle = selectedSegment ? "Primary segment" : "No active selection";
   const selectionSummaryCountLabel = selectedSegment ? "1 segment selected" : "No segment selected";
@@ -2461,197 +4028,383 @@ export default function TranscriptSeekMock(
     : selectedSegment
     ? selectedSegment.segment_id
     : "none";
+  const reviewQueueContent = (
+    <HammerPaneSection
+      title="Review Queue"
+      subtitle="Review machine changes in context."
+      action={(
+        <div className="hammer-action-row">
+          <button
+            type="button"
+            className="hammer-button-xs"
+            onClick={() => {
+              if (previousSuggestedChange) selectProposedChange(previousSuggestedChange);
+            }}
+            disabled={!previousSuggestedChange}
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            className="hammer-button-xs"
+            onClick={() => {
+              if (nextSuggestedChange) selectProposedChange(nextSuggestedChange);
+            }}
+            disabled={!nextSuggestedChange}
+          >
+            Next
+          </button>
+        </div>
+      )}
+      sectionClassName="hammer-pane-section--overflow-hidden"
+      bodyClassName="hammer-pane-section__body--scroll"
+    >
+      <div className="hammer-meta-strip">
+        <span className="hammer-pill">{proposedChangeStatusCounts.suggested} suggested</span>
+        <span className="hammer-pill">{proposedChangeStatusCounts.approved} approved</span>
+        <span className="hammer-pill">{proposedChangeStatusCounts.modified} modified</span>
+        <span className="hammer-pill">{proposedChangeStatusCounts.rejected} rejected</span>
+      </div>
+      <div className="hammer-proposed-change-list">
+        {proposedChanges.length > 0 ? proposedChanges.map((change) => (
+          <button
+            key={change.id}
+            type="button"
+            onClick={() => selectProposedChange(change)}
+            className={cx("hammer-proposed-change-row", selectedProposedChange?.id === change.id && "is-selected")}
+          >
+            <div className="hammer-proposed-change-row__head">
+              <strong className="hammer-copy-strong">{change.label}</strong>
+              <span className="hammer-pill">{change.status}</span>
+            </div>
+            <div className="hammer-copy-sm hammer-copy-muted">
+              {formatClock(change.startSec)}-{formatClock(change.endSec)} · {change.reason}
+            </div>
+          </button>
+        )) : (
+          <div className="hammer-copy-sm hammer-copy-muted">No proposed changes detected yet.</div>
+        )}
+      </div>
+    </HammerPaneSection>
+  );
+  const selectedProposedChangeInspector = selectedProposedChange ? (
+    <HammerPaneSection
+      title={selectedProposedChange.label}
+      subtitle={selectedProposedChange.reason}
+      action={(
+        <div className="hammer-action-row">
+          <span className="hammer-pill">{selectedProposedChange.status}</span>
+          <span className="hammer-pill">
+            {formatClock(selectedProposedChange.startSec)}-{formatClock(selectedProposedChange.endSec)}
+          </span>
+        </div>
+      )}
+    >
+      <div className="hammer-meta-strip">
+        <span className="hammer-pill">confidence {selectedProposedChange.confidence ?? "n/a"}</span>
+        <span className="hammer-pill">{selectedProposedChange.type.replaceAll("_", " ")}</span>
+      </div>
+      {selectedProposedChange.linkedAssetId ? (
+        <div className="hammer-copy-sm hammer-copy-muted hammer-mono">
+          asset {selectedProposedChange.linkedAssetId}
+        </div>
+      ) : null}
+      {selectedVisualPlacement ? (
+        <div className="hammer-visual-adjustments">
+          <div className="hammer-inspector-grid">
+            <label className="hammer-field">
+              <span className="hammer-label">Display length (sec)</span>
+              <input
+                type="number"
+                min={0.5}
+                max={Math.max(0.5, transcriptDurationSec)}
+                step={0.1}
+                value={selectedVisualDurationSec?.toFixed(1) ?? "0.5"}
+                onChange={(event) => {
+                  const nextValue = Number(event.target.value);
+                  if (!Number.isFinite(nextValue)) return;
+                  updateVisualPlacementTiming(selectedProposedChange, selectedVisualPlacement.placement_id, nextValue);
+                }}
+                className="hammer-field__input"
+              />
+            </label>
+            <div className="hammer-stack-4">
+              <span className="hammer-label">Approval</span>
+              <div className="hammer-meta-strip">
+                <span className="hammer-pill">{formatVisualApprovalStateLabel(selectedVisualPlacement.ingest_state)}</span>
+                <span className="hammer-pill">{formatClock(selectedVisualPlacement.start_sec)}-{formatClock(selectedVisualPlacement.end_sec)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="hammer-visual-adjustments__sliders">
+            <label className="hammer-field">
+              <span className="hammer-label">Preview X</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={selectedVisualPreviewDraft?.x ?? 0.5}
+                onChange={(event) => {
+                  updatePreviewVisualDraft(selectedVisualPlacement.placement_id, { x: Number(event.target.value) });
+                  setProposedChangeStatusOverrides((current) => ({
+                    ...current,
+                    [selectedProposedChange.id]: "modified",
+                  }));
+                }}
+                className="hammer-field__slider"
+              />
+            </label>
+            <label className="hammer-field">
+              <span className="hammer-label">Preview Y</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={selectedVisualPreviewDraft?.y ?? 0.5}
+                onChange={(event) => {
+                  updatePreviewVisualDraft(selectedVisualPlacement.placement_id, { y: Number(event.target.value) });
+                  setProposedChangeStatusOverrides((current) => ({
+                    ...current,
+                    [selectedProposedChange.id]: "modified",
+                  }));
+                }}
+                className="hammer-field__slider"
+              />
+            </label>
+            <label className="hammer-field">
+              <span className="hammer-label">Preview scale</span>
+              <input
+                type="range"
+                min={0.5}
+                max={2.5}
+                step={0.05}
+                value={selectedVisualPreviewDraft?.scale ?? 1}
+                onChange={(event) => {
+                  updatePreviewVisualDraft(selectedVisualPlacement.placement_id, { scale: Number(event.target.value) });
+                  setProposedChangeStatusOverrides((current) => ({
+                    ...current,
+                    [selectedProposedChange.id]: "modified",
+                  }));
+                }}
+                className="hammer-field__slider"
+              />
+            </label>
+          </div>
+          <div className="hammer-copy-sm hammer-copy-muted">
+            Preview position and scale are live runtime tweaks for now. Canonical composition persistence needs a dedicated Hammer visual composition artifact.
+          </div>
+        </div>
+      ) : null}
+      <div className="hammer-action-row">
+        <button type="button" className="hammer-button-xs" onClick={reviewSelectedProposedChange}>
+          Review
+        </button>
+        <button
+          type="button"
+          className="hammer-button-xs"
+          onClick={() => (
+            selectedProposedChange && polishProposedChanges.some((change) => change.id === selectedProposedChange.id)
+              ? setPolishChangeStatusAndAdvance(selectedProposedChange, "approved")
+              : setProposedChangeStatus(selectedProposedChange, "approved")
+          )}
+        >
+          Approve
+        </button>
+        <button
+          type="button"
+          className="hammer-button-xs"
+          onClick={() => (
+            selectedProposedChange && polishProposedChanges.some((change) => change.id === selectedProposedChange.id)
+              ? setPolishChangeStatusAndAdvance(selectedProposedChange, "rejected")
+              : setProposedChangeStatus(selectedProposedChange, "rejected")
+          )}
+        >
+          Reject
+        </button>
+        <button
+          type="button"
+          className="hammer-button-xs"
+          onClick={() => setProposedChangeStatus(selectedProposedChange, "suggested")}
+        >
+          Restore
+        </button>
+      </div>
+    </HammerPaneSection>
+  ) : (
+    <HammerPaneSection
+      title="Selected Change"
+      subtitle="Select a proposed change from the queue or timeline."
+    >
+      <div className="hammer-copy-sm hammer-copy-muted">
+        Pick a change to preview it in context and decide from one place.
+      </div>
+    </HammerPaneSection>
+  );
+  void selectionSummaryTitle;
+  void selectionSummaryCountLabel;
+  void selectionSummaryScopeLabel;
+  void reviewQueueContent;
+  void selectedProposedChangeInspector;
 
   const toolPanelContent = useMemo((): JSX.Element => {
     switch (activeTool) {
       case "polish":
         return (
           <div className="hammer-stack-10">
-            <div className="hammer-meta-strip">
-              <span className="hammer-pill">{selectedOverlayRow ? selectedOverlayRow.row_id : "select a row"}</span>
-              <span className={getEditPlanStatusBadgeClassName(sessionState.editPlanStatus)}>
-                {sessionState.editPlanStatus}
-              </span>
-              <span className="hammer-pill">{editInstructions.length} plan actions</span>
-              <span className="hammer-pill">{previewSourceStatusLabel}</span>
-            </div>
-            <div className="hammer-copy-md">
-              Polish is the first pass. It stays focused on spoken-content cleanup and enhancement, not on marketplace features or random utilities.
-            </div>
-
-            <div className="hammer-polish-focus">
-              <div className="hammer-polish-focus__head">
-                <strong className="hammer-copy-strong">Current Focus</strong>
-                <span className="hammer-pill">{selectedRowEffects}</span>
+            <div className="hammer-review-momentum">
+              <div className="hammer-stack-4">
+                <strong className="hammer-copy-strong">Review Momentum</strong>
+                <div className="hammer-copy-sm hammer-copy-muted">{polishReviewProgressLabel}</div>
               </div>
-              {selectedOverlayRow && selectedSegment ? (
-                <div className="hammer-stack-6">
-                  <div className="hammer-copy-md">
-                    {formatOverlayRowLabel(selectedOverlayRow)}
-                  </div>
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    {selectedSegment.text}
-                  </div>
-                  <div className="hammer-meta-strip">
-                    <span className="hammer-pill">duration {formatGapLabel(selectedDurationSec)}</span>
-                    <span className="hammer-pill">before gap {formatGapLabel(selectedGapBeforeSec)}</span>
-                    <span className="hammer-pill">after gap {formatGapLabel(selectedGapAfterSec)}</span>
-                  </div>
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    {selectedRowPreviewStatus}
-                  </div>
-                </div>
-              ) : (
-                <div className="hammer-copy-sm hammer-copy-muted">
-                  Select a transcript line in the left Script panel to drive filler cleanup, pacing trims, and retake review.
-                </div>
-              )}
-            </div>
-
-            <div className="hammer-workflow-grid">
-              <HammerWorkflowCard
-                title="Filler Cleanup"
-                tone={selectedSegmentDeleteInstruction ? "active" : selectedSegment ? "ready" : "blocked"}
-                statusLabel={selectedSegmentDeleteInstruction ? "Cut staged" : selectedSegment ? "Ready" : "Select a row"}
-                description="Review the selected transcript line and stage a spoken-content cut when it reads like filler, drift, or unnecessary repetition."
-                meta={(
-                  <div className="hammer-stack-6">
-                    <div className="hammer-meta-strip">
-                      <span className="hammer-pill">auto hits {fillerCandidateCount}</span>
-                      <span className="hammer-pill">{selectedSegmentLooksLikeFiller ? "likely filler" : "manual review"}</span>
-                    </div>
-                    <div className="hammer-copy-sm hammer-copy-muted">
-                      {selectedSegment
-                        ? selectedSegmentLooksLikeFiller
-                          ? "The selected line matches the current filler-phrase heuristic."
-                          : "No filler phrase was auto-detected here, but you can still stage a manual cleanup cut."
-                        : "Select a transcript row to stage or restore a filler cut."}
-                    </div>
-                  </div>
-                )}
-                actions={(
-                  <button
-                    type="button"
-                    className="hammer-button-xs"
-                    onClick={() => {
-                      if (!selectedSegment) return;
-                      toggleDeleteInstruction(selectedSegment.segment_id);
-                    }}
-                    disabled={!selectedSegment}
-                  >
-                    {selectedSegmentDeleteInstruction ? "Restore selected line" : "Cut selected line"}
-                  </button>
-                )}
-              />
-
-              <HammerWorkflowCard
-                title="Gap Tightening"
-                tone={selectedSegmentTrimInstruction ? "active" : selectedSegment ? "ready" : "blocked"}
-                statusLabel={selectedSegmentTrimInstruction ? "Trim staged" : selectedSegment ? "Ready" : "Select a row"}
-                description="Use transcript selection to tighten pacing around the current line and stage non-destructive trim instructions in the edit plan."
-                meta={(
-                  <div className="hammer-stack-6">
-                    <div className="hammer-meta-strip">
-                      <span className="hammer-pill">before {formatGapLabel(selectedGapBeforeSec)}</span>
-                      <span className="hammer-pill">after {formatGapLabel(selectedGapAfterSec)}</span>
-                      <span className="hammer-pill">{hasSelectedGapOpportunity ? "gap candidate" : "manual tighten"}</span>
-                    </div>
-                    <div className="hammer-copy-sm hammer-copy-muted">
-                      {selectedSegment
-                        ? hasSelectedGapOpportunity
-                          ? "The selected line has surrounding slack that can be tightened."
-                          : "No large transcript gap is detected here, but you can still stage a pacing trim."
-                        : "Select a transcript row to stage or restore timing trims."}
-                    </div>
-                  </div>
-                )}
-                actions={(
-                  <button
-                    type="button"
-                    className="hammer-button-xs"
-                    onClick={() => {
-                      if (!selectedSegment) return;
-                      toggleTrimInstruction(selectedSegment);
-                    }}
-                    disabled={!selectedSegment}
-                  >
-                    {selectedSegmentTrimInstruction ? "Undo timing trim" : "Tighten selected line"}
-                  </button>
-                )}
-              />
-
-              <HammerWorkflowCard
-                title="Retake Cleanup"
-                tone={selectedSegmentMergeInstruction ? "active" : canMergeSelected ? "ready" : "blocked"}
-                statusLabel={selectedSegmentMergeInstruction ? "Merge staged" : canMergeSelected ? "Ready" : "Unavailable"}
-                description="Clean up back-to-back same-speaker takes by merging the selected line into its continuation when the transcript supports it."
-                meta={(
-                  <div className="hammer-stack-6">
-                    <div className="hammer-meta-strip">
-                      <span className="hammer-pill">continuations {sameSpeakerContinuationCount}</span>
-                      <span className="hammer-pill">
-                        {selectedNextSegment ? `next ${selectedNextSegment.speaker}` : "end of transcript"}
-                      </span>
-                    </div>
-                    <div className="hammer-copy-sm hammer-copy-muted">
-                      {selectedSegmentMergeInstruction
-                        ? "This merge is already staged in the current edit plan."
-                        : canMergeSelected
-                        ? `The next line (${selectedNextSegment?.segment_id}) continues the same speaker and can be merged.`
-                        : "Select a row with a same-speaker continuation to stage retake cleanup."}
-                    </div>
-                  </div>
-                )}
-                actions={(
-                  <button
-                    type="button"
-                    className="hammer-button-xs"
-                    onClick={() => {
-                      if (!selectedSegment) return;
-                      toggleMergeInstruction(selectedSegment, selectedNextSegment);
-                    }}
-                    disabled={!selectedSegment || (!selectedSegmentMergeInstruction && !canMergeSelected)}
-                  >
-                    {selectedSegmentMergeInstruction ? "Undo merge" : "Merge with next line"}
-                  </button>
-                )}
-              />
-            </div>
-
-            <div className="hammer-polish-output">
-              <div className="hammer-polish-output__head">
-                <strong className="hammer-copy-strong">Polish Output</strong>
-                <span className="hammer-pill">{currentEditPlan.edit_plan_id}</span>
+              <div className="hammer-action-row">
+                <button
+                  type="button"
+                  className="hammer-button-xs"
+                  onClick={goToPreviousPolishChange}
+                  disabled={!previousPolishChange}
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  className="hammer-button-xs"
+                  onClick={goToNextPolishChange}
+                  disabled={!nextPolishChange}
+                >
+                  Next
+                </button>
+                <button
+                  type="button"
+                  className="hammer-button-xs"
+                  onClick={goToNextUnreviewedPolishChange}
+                  disabled={!nextUnreviewedPolishChange}
+                >
+                  Next unreviewed
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAutoAdvancePolishReview((current) => !current)}
+                  className={getToggleButtonClassName(autoAdvancePolishReview)}
+                >
+                  Auto-advance {autoAdvancePolishReview ? "on" : "off"}
+                </button>
               </div>
-              <div className="hammer-inspector-grid">
-                <div>
-                  <div className="hammer-label">cuts</div>
-                  <div>{deleteInstructionCount}</div>
-                </div>
-                <div>
-                  <div className="hammer-label">trims</div>
-                  <div>{trimInstructionCount}</div>
-                </div>
-                <div>
-                  <div className="hammer-label">merges</div>
-                  <div>{mergeInstructionCount}</div>
-                </div>
-              </div>
-              {polishSummaryItems.length > 0 ? (
-                <ul className="hammer-polish-output__list">
-                  {polishSummaryItems.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="hammer-copy-sm hammer-copy-muted">
-                  No polish actions are staged yet. Select a row and start the first cleanup pass.
-                </div>
-              )}
+            </div>
+            <div className="hammer-copy-sm hammer-copy-muted">
+              Review spoken-content changes here. The transcript highlights the affected words as you move through the report.
+            </div>
+            {isManualTranscriptRangeReview ? (
               <div className="hammer-copy-sm hammer-copy-muted">
-                Current preview: {selectedRowPreviewStatus}
+                Manual transcript range is active. Review navigation will resume item-based review and clear the range.
               </div>
+            ) : null}
+            <div className="hammer-proposed-change-list">
+              {polishProposedChanges.length > 0 ? polishProposedChanges.map((change) => (
+                <button
+                  key={change.id}
+                  type="button"
+                  onClick={() => selectProposedChange(change)}
+                  className={cx(
+                    "hammer-proposed-change-row",
+                    getReviewStateClassName(change.status),
+                    selectedPolishChange?.id === change.id && "is-selected",
+                  )}
+                >
+                  <div className="hammer-proposed-change-row__head">
+                    <strong className="hammer-copy-strong">{change.label}</strong>
+                    <span className="hammer-pill">{change.status}</span>
+                  </div>
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {formatClock(change.startSec)}-{formatClock(change.endSec)} · {change.reason}
+                  </div>
+                </button>
+              )) : (
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  No spoken-content polish changes are queued yet.
+                </div>
+              )}
             </div>
+            {selectedPolishChange ? (
+              <div className="hammer-visual-adjustments">
+                <div className="hammer-stack-6">
+                  <div className="hammer-meta-strip">
+                    <span className="hammer-pill">{selectedPolishChange.status}</span>
+                    <span className="hammer-pill">
+                      {formatClock(selectedPolishChange.startSec)}-{formatClock(selectedPolishChange.endSec)}
+                    </span>
+                  </div>
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {selectedPolishChange.reason}
+                  </div>
+                  {selectedPolishChange.linkedRowIds.length > 0 ? (
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      transcript rows {selectedPolishChange.linkedRowIds.join(", ")}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="hammer-action-row">
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={reviewSelectedProposedChange}
+                  >
+                    Review
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={() => setPolishChangeStatusAndAdvance(selectedPolishChange, "approved")}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={() => setPolishChangeStatusAndAdvance(selectedPolishChange, "rejected")}
+                  >
+                    Reject
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={() => setProposedChangeStatus(selectedPolishChange, "suggested")}
+                  >
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={goToPreviousPolishChange}
+                    disabled={!previousPolishChange}
+                  >
+                    Prev
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={goToNextPolishChange}
+                    disabled={!nextPolishChange}
+                  >
+                    Next
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={goToNextUnreviewedPolishChange}
+                    disabled={!nextUnreviewedPolishChange}
+                  >
+                    Next unreviewed
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="hammer-copy-sm hammer-copy-muted">
+                Select a polish change to preview it in context and decide from one place.
+              </div>
+            )}
           </div>
         );
       case "audio":
@@ -2766,38 +4519,54 @@ export default function TranscriptSeekMock(
               <HammerWorkflowCard
                 title="Studio Sound"
                 tone={studioSoundPrepared ? "active" : playbackSrc ? "ready" : "blocked"}
-                statusLabel={studioSoundPrepared ? "Prepared" : playbackSrc ? "Ready" : "Unavailable"}
-                description="Prepare dialogue enhancement for the final spoken-audio pass without changing the transcript edit plan."
+                statusLabel={studioSoundPrepared
+                  ? "Prepared"
+                  : audioPolishFreshness === "stale"
+                  ? "Stale polish"
+                  : audioPolish?.status === "failed"
+                  ? "Raw fallback"
+                  : playbackSrc
+                  ? "Pending"
+                  : "Unavailable"}
+                description="Baseline speech polish runs automatically when Hammer can produce a supported non-destructive cleanup artifact."
                 meta={(
                   <div className="hammer-stack-6">
                     <div className="hammer-meta-strip">
                       <span className="hammer-pill">{playbackSourceLabel}</span>
-                      <span className="hammer-pill">{studioSoundPrepared ? "queued for export" : "not queued"}</span>
+                      <span className="hammer-pill">{studioSoundPrepared
+                        ? "prepared artifact"
+                        : audioPolishFreshness === "stale" || audioPolish?.status === "failed"
+                        ? "raw source retained"
+                        : "prep-managed"}</span>
                     </div>
                     <div className="hammer-copy-sm hammer-copy-muted">
-                      {playbackSrc
-                        ? "Keep Studio Sound visible here so spoken-audio finishing has a clear handoff out of editorial cleanup."
-                        : "Resolve a playback source before queuing the spoken-audio finishing pass."}
+                      {studioSoundPrepared
+                        ? "Hammer is already preferring the polished playback artifact here. The raw source remains intact underneath."
+                        : audioPolishFreshness === "stale"
+                        ? "Hammer found a previously prepared studio-sound artifact for different source media, so it is keeping playback on the current raw source until prep reruns."
+                        : audioPolish?.status === "failed"
+                        ? audioPolish.failure_reason ?? "Hammer kept the raw source because audio polish was not supported for this media."
+                        : playbackSrc
+                        ? "Hammer will use a baseline studio-sound pass here once the prep artifact is available."
+                        : "Resolve a playback source before Hammer can monitor spoken-audio finishing."}
                     </div>
                   </div>
-                )}
-                actions={(
-                  <button
-                    type="button"
-                    className="hammer-button-xs"
-                    onClick={() => setStudioSoundPrepared((current) => !current)}
-                    disabled={!playbackSrc}
-                  >
-                    {studioSoundPrepared ? "Remove from pass" : "Prepare audio pass"}
-                  </button>
                 )}
               />
 
               <HammerWorkflowCard
                 title="Noise Cleanup"
                 tone={noiseCleanupPrepared ? "active" : playbackSrc ? "ready" : "blocked"}
-                statusLabel={noiseCleanupPrepared ? "Review staged" : playbackSrc ? "Stage only" : "Unavailable"}
-                description="Stage a spoken-audio cleanup review for hiss, room tone, and handling noise before final finishing."
+                statusLabel={noiseCleanupPrepared
+                  ? "Prepared"
+                  : audioPolishFreshness === "stale"
+                  ? "Stale polish"
+                  : audioPolish?.status === "failed"
+                  ? "Skipped"
+                  : playbackSrc
+                  ? "Pending"
+                  : "Unavailable"}
+                description="Noise cleanup stays part of the restrained prep chain instead of becoming a manual staging toggle."
                 meta={(
                   <div className="hammer-stack-6">
                     <div className="hammer-meta-strip">
@@ -2805,29 +4574,33 @@ export default function TranscriptSeekMock(
                       <span className="hammer-pill">{playbackSourceLabel}</span>
                     </div>
                     <div className="hammer-copy-sm hammer-copy-muted">
-                      {playbackSrc
-                        ? "The pass state is real, but the cleanup engine is not wired yet. Keep the workflow visible without pretending the DSP exists."
+                      {noiseCleanupPrepared
+                        ? "The prepared playback path already includes a light cleanup pass for hiss and room tone."
+                        : audioPolishFreshness === "stale"
+                        ? "Hammer found cleanup from an older source, so it is monitoring the current raw path instead."
+                        : audioPolish?.status === "failed"
+                        ? "Hammer did not run cleanup for this source and is monitoring the raw path instead."
+                        : playbackSrc
+                        ? "Hammer will include cleanup automatically for directly supported audio sources."
                         : "Audio cleanup stays unavailable until Hammer has a monitorable source."}
                     </div>
                   </div>
-                )}
-                actions={(
-                  <button
-                    type="button"
-                    className="hammer-button-xs"
-                    onClick={() => setNoiseCleanupPrepared((current) => !current)}
-                    disabled={!playbackSrc}
-                  >
-                    {noiseCleanupPrepared ? "Remove cleanup review" : "Stage cleanup review"}
-                  </button>
                 )}
               />
 
               <HammerWorkflowCard
                 title="Level Consistency"
                 tone={levelConsistencyPrepared ? "active" : playbackSrc ? "ready" : "blocked"}
-                statusLabel={levelConsistencyPrepared ? "Pass staged" : playbackSrc ? "Ready" : "Unavailable"}
-                description="Prepare a dialogue-level consistency pass so spoken-word energy stays stable across the episode."
+                statusLabel={levelConsistencyPrepared
+                  ? "Prepared"
+                  : audioPolishFreshness === "stale"
+                  ? "Stale polish"
+                  : audioPolish?.status === "failed"
+                  ? "Skipped"
+                  : playbackSrc
+                  ? "Pending"
+                  : "Unavailable"}
+                description="Dialogue leveling is part of the baseline prep artifact when Hammer can produce a supported polished source."
                 meta={(
                   <div className="hammer-stack-6">
                     <div className="hammer-meta-strip">
@@ -2836,35 +4609,31 @@ export default function TranscriptSeekMock(
                       <span className="hammer-pill">project {formatClock(projectDialogueDurationSec)}</span>
                     </div>
                     <div className="hammer-copy-sm hammer-copy-muted">
-                      {playbackSrc
-                        ? "Use this to stage the project-wide leveling pass before export. It remains non-destructive for now."
+                      {levelConsistencyPrepared
+                        ? "The prepared playback path is already balancing dialogue levels without touching the raw media."
+                        : audioPolishFreshness === "stale"
+                        ? "Hammer found an older leveling artifact, so it left playback on the current raw source instead of trusting stale prep."
+                        : audioPolish?.status === "failed"
+                        ? "Hammer skipped level consistency here and left playback on the raw source."
+                        : playbackSrc
+                        ? "Hammer will balance dialogue levels automatically for supported audio sources."
                         : "Resolve project audio first so consistency review has something real to monitor."}
                     </div>
                   </div>
                 )}
-                actions={(
-                  <button
-                    type="button"
-                    className="hammer-button-xs"
-                    onClick={() => setLevelConsistencyPrepared((current) => !current)}
-                    disabled={!playbackSrc}
-                  >
-                    {levelConsistencyPrepared ? "Remove consistency pass" : "Stage consistency pass"}
-                  </button>
-                )}
               />
 
-              <HammerWorkflowCard
-                title="Music Bed"
-                tone="future"
-                statusLabel="Future"
-                description="Music bed shaping belongs in Audio once Hammer starts placing scoped bed clips instead of only showing the bed lane on the timeline."
-                meta={(
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    Keep the slot visible so Audio reads as the home for spoken audio first, bed work second.
-                  </div>
-                )}
-              />
+                <HammerWorkflowCard
+                  title="Music Bed"
+                  tone="future"
+                  statusLabel="Unavailable"
+                  description="Music bed shaping is not available in this Hammer build."
+                  meta={(
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      Audio remains transcript-first until Hammer owns scoped bed placement.
+                    </div>
+                  )}
+                />
             </div>
 
             <div className="hammer-audio-output">
@@ -2918,56 +4687,334 @@ export default function TranscriptSeekMock(
       case "video":
         return (
           <div className="hammer-stack-10">
-            <div className="hammer-meta-strip">
-              <span className="hammer-pill">main video</span>
-              <span className="hammer-pill">picture-in-picture</span>
-              <span className="hammer-pill">visual cleanup</span>
-            </div>
-            <div className="hammer-copy-md">
-              Video stays focused on framing and visual cleanup tied to the current project media.
-            </div>
-            <div className="hammer-copy-sm hammer-copy-muted">
-              source: {activeMediaSourceLabel} · media kind {activeMediaKind ? formatMediaKindLabel(activeMediaKind) : resolvedLaunch.launch_context.media.kind}
-            </div>
-            <div className="hammer-workflow-grid">
-              <HammerWorkflowCard
-                title="Blur Background"
-                tone={blurBackgroundBlocked ? "blocked" : "future"}
-                statusLabel={blurBackgroundBlocked ? "Unavailable" : "Future"}
-                description="Background cleanup belongs in Video once Hammer owns the visual polish path for the current media."
-                meta={(
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    {blurBackgroundBlocked
-                      ? "This launch is using preview-tone or non-video media, so background blur is intentionally unavailable."
-                      : "Mapped video is present, but the blur engine is not wired into Hammer yet."}
-                  </div>
-                )}
-              />
-
-              <HammerWorkflowCard
-                title="Eye Contact"
-                tone="future"
-                statusLabel="Future"
-                description="Eye contact correction belongs in Video once Hammer owns the visual adjustment pipeline."
-                meta={(
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    Keep the slot visible, but do not fake the feature before the video engine exists.
-                  </div>
-                )}
-              />
-            </div>
+            {selectedVisualPlacement && selectedProposedChange?.type === "visual_placement" ? (
+              <div className="hammer-visual-adjustments">
+                <div className="hammer-meta-strip">
+                  <span className="hammer-pill">{formatVisualApprovalStateLabel(selectedVisualPlacement.ingest_state)}</span>
+                  <span className="hammer-pill">
+                    {formatClock(selectedVisualPlacement.start_sec)}-{formatClock(selectedVisualPlacement.end_sec)}
+                  </span>
+                </div>
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  Drag in the preview to move or resize this visual. Drag the clip edge in the timeline to change how long it stays on screen.
+                </div>
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  source: {activeMediaSourceLabel} · media kind {activeMediaKind ? formatMediaKindLabel(activeMediaKind) : resolvedLaunch.launch_context.media.kind}
+                </div>
+              </div>
+            ) : (
+              <div className="hammer-copy-sm hammer-copy-muted">
+                Select a visual placement while Video is active to adjust it on the preview canvas or timeline.
+              </div>
+            )}
           </div>
         );
       case "captions":
         return (
           <div className="hammer-stack-10">
             <div className="hammer-meta-strip">
-              <span className="hammer-pill">{transcriptSegments.length} transcript segments</span>
-              <span className="hammer-pill">{overlayRows.length} caption rows</span>
+              <span className="hammer-pill">{captionOutputPreview.segment_count} output segments</span>
+              <span className="hammer-pill">{captionOutputPreview.chunk_count} preview rows</span>
+              <span className="hammer-pill">{formatTranscriptOutputLabel(outputDerivedLayer)}</span>
+              <span className="hammer-pill">
+                {captionOutputPreview.approximate_timing ? "approximate chunk timing" : "turn-aligned timing"}
+              </span>
+              <span className="hammer-pill">
+                SRT {srtSubtitleArtifact ? "generated" : "not generated"}
+              </span>
+              <span className="hammer-pill">
+                VTT {vttSubtitleArtifact ? "generated" : "not generated"}
+              </span>
             </div>
             <div className="hammer-copy-md">
-              Captions follow the transcript and timeline together. This panel owns subtitle timing and caption track preparation.
+              Caption preview follows the transcript layer selected for outputs. It stays distinct from the active editor view so you can inspect downstream text choices before subtitle/export generation exists.
             </div>
+            <div className="hammer-inspector-grid">
+              <div>
+                <div className="hammer-label">canonical truth</div>
+                <div>Raw transcript</div>
+              </div>
+              <div>
+                <div className="hammer-label">active editor view</div>
+                <div>{formatTranscriptEditorViewLabel(activeDerivedLayer)}</div>
+              </div>
+              <div>
+                <div className="hammer-label">output source</div>
+                <div>{formatTranscriptOutputLabel(outputDerivedLayer)}</div>
+              </div>
+              <div>
+                <div className="hammer-label">output layer ref</div>
+                <div className="hammer-mono">{structuredTranscriptState?.derived_text_layers?.output_layer_id ?? "raw"}</div>
+              </div>
+              <div>
+                <div className="hammer-label">preview rows</div>
+                <div>
+                  {captionOutputPreview.chunk_count}
+                  {" · "}
+                  {captionOutputPreview.segment_count} segments
+                </div>
+              </div>
+              <div>
+                <div className="hammer-label">timing basis</div>
+                <div>
+                  {captionOutputPreview.approximate_timing
+                    ? "Approximate turn splitting for preview"
+                    : "Exact transcript-turn timing"}
+                </div>
+              </div>
+              <div>
+                <div className="hammer-label">selected export format</div>
+                <div>{formatSubtitleFormatLabel(selectedSubtitleFormat)}</div>
+              </div>
+              <div>
+                <div className="hammer-label">generated artifact</div>
+                <div>
+                  {selectedSubtitleArtifact
+                    ? selectedSubtitleFreshness
+                    : "not generated"}
+                </div>
+              </div>
+            </div>
+            <div className="hammer-copy-sm hammer-copy-muted">
+              {captionOutputPreview.approximate_timing
+                ? "Hammer is splitting longer transcript turns into smaller caption rows for readability. Timing remains approximate until subtitle/export generation is wired."
+                : "This preview is currently aligned to transcript turns. Subtitle/export generation is not wired yet."}
+            </div>
+            {(activeDerivedLayer?.layer_id ?? null) !== (outputDerivedLayer?.layer_id ?? null) ? (
+              <div className="hammer-copy-sm hammer-copy-muted">
+                Editor view is {formatTranscriptEditorViewLabel(activeDerivedLayer)} while outputs will use {formatTranscriptOutputLabel(outputDerivedLayer)}.
+              </div>
+            ) : null}
+            <div className="hammer-caption-output">
+              {textOutputsPackage ? (
+                <div className="hammer-caption-output__artifact">
+                  <div className="hammer-caption-output__head">
+                    <div className="hammer-stack-4">
+                      <strong className="hammer-copy-strong">Text Outputs Package</strong>
+                      <div className="hammer-copy-sm hammer-copy-muted">
+                        Deterministic downstream text handoff assembled from persisted Hammer state.
+                      </div>
+                    </div>
+                    <div className="hammer-meta-strip">
+                      <span className="hammer-pill">{textOutputsPackage.output_selection.source_kind}</span>
+                      <span className="hammer-pill">SRT {textOutputsPackage.subtitles.srt.freshness}</span>
+                      <span className="hammer-pill">VTT {textOutputsPackage.subtitles.vtt.freshness}</span>
+                    </div>
+                  </div>
+                  <div className="hammer-inspector-grid">
+                    <div>
+                      <div className="hammer-label">transcript source</div>
+                      <div className="hammer-mono">{textOutputsPackage.transcript_source.transcript_id}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">output layer</div>
+                      <div className="hammer-mono">{textOutputsPackage.output_selection.layer_id ?? "raw"}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">output recipe</div>
+                      <div>{formatSubtitleArtifactSourceLabel(textOutputsPackage.output_selection.recipe_ref)}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">resolved output</div>
+                      <div>
+                        {textOutputsPackage.resolved_output.segment_count} segments
+                        {" · "}
+                        {textOutputsPackage.resolved_output.caption_preview_row_count} caption rows
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              <div className="hammer-caption-output__toolbar">
+                <div className="hammer-inline-list-wide">
+                  {(["srt", "vtt"] as HammerSubtitleFormat[]).map((format) => (
+                    <button
+                      key={format}
+                      type="button"
+                      className={cx(
+                        "hammer-button-xs",
+                        selectedSubtitleFormat === format && "is-selected",
+                      )}
+                      onClick={() => {
+                        setSelectedSubtitleFormat(format);
+                        setSubtitleActionFeedback(null);
+                      }}
+                    >
+                      {formatSubtitleFormatLabel(format)}
+                    </button>
+                  ))}
+                </div>
+                <div className="hammer-action-row">
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!structuredTranscriptState}
+                    onClick={() => {
+                      if (!structuredTranscriptState) return;
+                      const artifact = generateHammerSubtitleArtifact({
+                        rawSegments: rawTranscriptSegments,
+                        transcript: structuredTranscriptState,
+                        format: "srt",
+                      });
+                      setStructuredTranscriptState(setHammerSubtitleArtifact(structuredTranscriptState, artifact));
+                      setSelectedSubtitleFormat("srt");
+                      setSubtitleActionFeedback(`Generated SRT from ${formatTranscriptOutputLabel(outputDerivedLayer)}.`);
+                    }}
+                  >
+                    Generate SRT
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!structuredTranscriptState}
+                    onClick={() => {
+                      if (!structuredTranscriptState) return;
+                      const artifact = generateHammerSubtitleArtifact({
+                        rawSegments: rawTranscriptSegments,
+                        transcript: structuredTranscriptState,
+                        format: "vtt",
+                      });
+                      setStructuredTranscriptState(setHammerSubtitleArtifact(structuredTranscriptState, artifact));
+                      setSelectedSubtitleFormat("vtt");
+                      setSubtitleActionFeedback(`Generated VTT from ${formatTranscriptOutputLabel(outputDerivedLayer)}.`);
+                    }}
+                  >
+                    Generate VTT
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!selectedSubtitleArtifact?.content}
+                    onClick={() => {
+                      if (!selectedSubtitleArtifact?.content) return;
+                      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+                        setSubtitleActionFeedback("Clipboard access is unavailable in this environment.");
+                        return;
+                      }
+                      void navigator.clipboard.writeText(selectedSubtitleArtifact.content)
+                        .then(() => {
+                          setSubtitleActionFeedback(`Copied ${formatSubtitleFormatLabel(selectedSubtitleFormat)} subtitle text.`);
+                        })
+                        .catch(() => {
+                          setSubtitleActionFeedback("Hammer could not copy subtitle text.");
+                        });
+                    }}
+                  >
+                    Copy {formatSubtitleFormatLabel(selectedSubtitleFormat)}
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!selectedSubtitleArtifact?.content}
+                    onClick={() => {
+                      if (!selectedSubtitleArtifact?.content || typeof document === "undefined") return;
+                      const mimeType = selectedSubtitleFormat === "srt"
+                        ? "application/x-subrip;charset=utf-8"
+                        : "text/vtt;charset=utf-8";
+                      const blob = new Blob([selectedSubtitleArtifact.content], { type: mimeType });
+                      const url = URL.createObjectURL(blob);
+                      const anchor = document.createElement("a");
+                      anchor.href = url;
+                      anchor.download = `${resolvedLaunch.launch_context.workpiece_id}.${selectedSubtitleFormat}`;
+                      document.body.appendChild(anchor);
+                      anchor.click();
+                      anchor.remove();
+                      URL.revokeObjectURL(url);
+                      setSubtitleActionFeedback(`Downloaded ${formatSubtitleFormatLabel(selectedSubtitleFormat)} subtitle text.`);
+                    }}
+                  >
+                    Download {formatSubtitleFormatLabel(selectedSubtitleFormat)}
+                  </button>
+                </div>
+              </div>
+
+              <div className="hammer-caption-output__artifact">
+                <div className="hammer-caption-output__head">
+                  <div className="hammer-stack-4">
+                    <strong className="hammer-copy-strong">
+                      {formatSubtitleFormatLabel(selectedSubtitleFormat)} subtitle output
+                    </strong>
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      {selectedSubtitleArtifact
+                        ? `${selectedSubtitleFreshness === "current" ? "Current" : "Stale"} artifact generated from ${formatSubtitleArtifactSourceLabel(selectedSubtitleArtifact.source_recipe_ref)}`
+                        : `No ${formatSubtitleFormatLabel(selectedSubtitleFormat)} artifact generated yet.`}
+                    </div>
+                  </div>
+                  {selectedSubtitleArtifact ? (
+                    <div className="hammer-meta-strip">
+                      <span className="hammer-pill">{selectedSubtitleArtifact.entry_count} cues</span>
+                      <span className="hammer-pill">
+                        {selectedSubtitleArtifact.approximate_timing ? "approximate timing" : "turn timing"}
+                      </span>
+                      <span className="hammer-pill">
+                        {selectedSubtitleFreshness}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+
+                {selectedSubtitleArtifact ? (
+                  <div className="hammer-inspector-grid">
+                    <div>
+                      <div className="hammer-label">generated at</div>
+                      <div>{formatDateTimeLabel(selectedSubtitleArtifact.generated_at) ?? selectedSubtitleArtifact.generated_at}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">source layer</div>
+                      <div className="hammer-mono">{selectedSubtitleArtifact.source_layer_id ?? "raw"}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">source transcript</div>
+                      <div className="hammer-mono">{selectedSubtitleArtifact.source_transcript_id}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">source label</div>
+                      <div>{formatSubtitleArtifactSourceLabel(selectedSubtitleArtifact.source_recipe_ref)}</div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {subtitleActionFeedback ? (
+                  <div className="hammer-copy-sm hammer-copy-muted">{subtitleActionFeedback}</div>
+                ) : null}
+
+                {selectedSubtitleArtifact ? (
+                  <pre className="hammer-caption-output__content">{selectedSubtitleArtifact.content}</pre>
+                ) : (
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    Generate {formatSubtitleFormatLabel(selectedSubtitleFormat)} to produce a deterministic subtitle artifact from {formatTranscriptOutputLabel(outputDerivedLayer)}.
+                  </div>
+                )}
+              </div>
+            </div>
+            {captionOutputPreview.chunks.length > 0 ? (
+              <div className="hammer-caption-preview">
+                {captionOutputPreview.chunks.map((chunk) => (
+                  <article key={chunk.chunk_id} className="hammer-caption-preview__chunk">
+                    <div className="hammer-caption-preview__head">
+                      <div className="hammer-stack-4">
+                        <strong className="hammer-copy-strong">{chunk.speaker}</strong>
+                        <div className="hammer-copy-sm hammer-copy-muted">
+                          {formatClock(chunk.start_sec)}
+                          {" - "}
+                          {formatClock(chunk.end_sec)}
+                        </div>
+                      </div>
+                      <div className="hammer-meta-strip">
+                        <span className="hammer-pill">{chunk.word_count} words</span>
+                        <span className="hammer-pill">{chunk.segment_ids.length} source seg</span>
+                        {chunk.approximate_timing ? <span className="hammer-pill">approximate</span> : null}
+                      </div>
+                    </div>
+                    <div className="hammer-caption-preview__text">{chunk.text}</div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="hammer-copy-sm hammer-copy-muted">
+                No transcript text is available yet for caption preview.
+              </div>
+            )}
           </div>
         );
       case "details":
@@ -2991,9 +5038,483 @@ export default function TranscriptSeekMock(
                 <div>{sessionState.previewMode}</div>
               </div>
             </div>
+            <div className="hammer-workflow-card">
+              <div className="hammer-workflow-card__header">
+                <div className="hammer-stack-4">
+                  <strong className="hammer-copy-strong">Media Prep Package</strong>
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    Deterministic downstream summary of visual placements and audio-prep truth.
+                  </div>
+                </div>
+                <div className="hammer-meta-strip">
+                  <span className="hammer-pill">visuals {mediaPrepOutputsPackage.visuals.freshness}</span>
+                  <span className="hammer-pill">audio {mediaPrepOutputsPackage.audio.polish.freshness}</span>
+                  <span className="hammer-pill">{mediaPrepOutputsPackage.audio.preferred_playback.kind}</span>
+                </div>
+              </div>
+              <div className="hammer-inspector-grid">
+                <div>
+                  <div className="hammer-label">visual placements</div>
+                  <div>
+                    {mediaPrepOutputsPackage.visuals.status}
+                    {" · "}
+                    {mediaPrepOutputsPackage.visuals.placement_count} placements
+                  </div>
+                </div>
+                <div>
+                  <div className="hammer-label">visual uncertainty</div>
+                  <div>
+                    {mediaPrepOutputsPackage.visuals.uncertain_placement_count} uncertain
+                    {" · "}
+                    {mediaPrepOutputsPackage.visuals.uncertainty_flags.length} flags
+                  </div>
+                </div>
+                <div>
+                  <div className="hammer-label">audio polish</div>
+                  <div>
+                    {mediaPrepOutputsPackage.audio.polish.status}
+                    {" · "}
+                    {mediaPrepOutputsPackage.audio.polish.freshness}
+                  </div>
+                </div>
+                <div>
+                  <div className="hammer-label">preferred playback</div>
+                  <div>
+                    {mediaPrepOutputsPackage.audio.preferred_playback.kind}
+                    {" · "}
+                    {mediaPrepOutputsPackage.audio.preferred_playback.reason}
+                  </div>
+                </div>
+                <div>
+                  <div className="hammer-label">raw source</div>
+                  <div className="hammer-mono">
+                    {mediaPrepOutputsPackage.audio.raw_source.local_relpath
+                      ?? mediaPrepOutputsPackage.audio.raw_source.cloud_uri
+                      ?? "none"}
+                  </div>
+                </div>
+                <div>
+                  <div className="hammer-label">polish artifact</div>
+                  <div className="hammer-mono">
+                    {mediaPrepOutputsPackage.audio.polish.output_local_relpath ?? "none"}
+                  </div>
+                </div>
+              </div>
+            </div>
             <div className="hammer-copy-md hammer-copy-dim">
               Details carries project-level editing context and source metadata. Debug surfaces stay hidden unless you explicitly open them.
             </div>
+          </div>
+        );
+      case "finishing":
+        return (
+          <div className="hammer-stack-10">
+            <div className="hammer-meta-strip">
+              <span className="hammer-pill">{macroReadinessSummary.ready} ready</span>
+              <span className="hammer-pill">{macroReadinessSummary.warning} needs review</span>
+              <span className="hammer-pill">{macroReadinessSummary.blocked} blocked</span>
+              <span className="hammer-pill">{selectedMacroRecipeRef ? "selection saved" : "selection not saved"}</span>
+              <span className="hammer-pill">{allDerivedLayers.length} derived layer{allDerivedLayers.length === 1 ? "" : "s"}</span>
+              <span className="hammer-pill">
+                {formatDerivedLayerStateSummary(activeDerivedLayer, reviewLayerCount, allDerivedLayers.length)}
+              </span>
+              <span className="hammer-pill">{formatDerivedLayerOutputSummary(outputDerivedLayer)}</span>
+            </div>
+            <div className="hammer-copy-md">
+              Finishing macros stay opt-in and post-prep. Hammer shows what each recipe would do, what it needs, and can generate transcript-side review layers without touching the raw transcript or media timing.
+            </div>
+
+            <div className="hammer-finishing-recipes">
+              {macroReadiness.map((entry) => {
+                const isSelected = entry.recipe.ref === effectiveMacroRecipeRef;
+                const isSaved = entry.recipe.ref === selectedMacroRecipeRef;
+                return (
+                  <button
+                    key={entry.recipe.ref}
+                    type="button"
+                    className={cx(
+                      "hammer-finishing-recipe",
+                      isSelected && "is-selected",
+                      isSaved && "is-saved",
+                    )}
+                    onClick={() => {
+                      setInspectedMacroRecipeRef(entry.recipe.ref);
+                      setSelectedMacroRecipeRef(entry.recipe.ref);
+                    }}
+                    title={`${entry.recipe.name} · ${entry.status_label}`}
+                  >
+                    <div className="hammer-finishing-recipe__head">
+                      <div className="hammer-stack-4">
+                        <strong className="hammer-copy-strong">{entry.recipe.name}</strong>
+                        <div className="hammer-copy-sm hammer-copy-muted">
+                          {formatMacroCategoryLabel(entry.recipe.category)}
+                        </div>
+                      </div>
+                      <span className={getWorkflowStatusClassName(getMacroReadinessTone(entry.status))}>
+                        {entry.status_label}
+                      </span>
+                    </div>
+                    <div className="hammer-copy-sm hammer-copy-muted">{entry.recipe.description}</div>
+                    <div className="hammer-meta-strip">
+                      <span className="hammer-pill">{entry.recipe.intended_actions.length} planned moves</span>
+                      <span className="hammer-pill">
+                        {entry.requirement_results.filter((result) => result.satisfied).length}
+                        {" / "}
+                        {entry.requirement_results.length}
+                        {" ready"}
+                      </span>
+                      {isSaved ? <span className="hammer-pill">saved</span> : null}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {selectedMacroReadiness ? (
+              <div className="hammer-finishing-detail">
+                <div className="hammer-finishing-detail__head">
+                  <div className="hammer-stack-4">
+                    <strong className="hammer-copy-strong">{selectedMacroReadiness.recipe.name}</strong>
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      {formatMacroCategoryLabel(selectedMacroReadiness.recipe.category)}
+                      {" · "}
+                      recipe {selectedMacroReadiness.recipe.version}
+                    </div>
+                  </div>
+                  <span className={getWorkflowStatusClassName(getMacroReadinessTone(selectedMacroReadiness.status))}>
+                    {selectedMacroReadiness.status_label}
+                  </span>
+                </div>
+
+                <div className="hammer-copy-md">{selectedMacroReadiness.recipe.description}</div>
+
+                <div className="hammer-inspector-grid">
+                  <div>
+                    <div className="hammer-label">saved selection</div>
+                    <div>{selectedMacroRecipeRef === selectedMacroReadiness.recipe.ref ? "yes" : "not yet"}</div>
+                  </div>
+                  <div>
+                    <div className="hammer-label">artifact summary</div>
+                    <div>
+                      transcript {transcriptSegments.length > 0 ? "ready" : "missing"}
+                      {" · "}
+                      audio {audioArtifactSummaryLabel}
+                      {" · "}
+                      media {activeMediaKind ? formatMediaKindLabel(activeMediaKind) : "none"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="hammer-label">visual context</div>
+                    <div>{currentVisualPlacements?.placements.length ?? 0} suggestions</div>
+                  </div>
+                  <div>
+                    <div className="hammer-label">last run ref</div>
+                    <div className="hammer-mono">{lastMacroRunRef ?? "none"}</div>
+                  </div>
+                  <div>
+                    <div className="hammer-label">active derived layer</div>
+                    <div className="hammer-mono">{structuredTranscriptState?.derived_text_layers?.active_layer_id ?? "none"}</div>
+                  </div>
+                  <div>
+                    <div className="hammer-label">output transcript layer</div>
+                    <div className="hammer-mono">{structuredTranscriptState?.derived_text_layers?.output_layer_id ?? "raw"}</div>
+                  </div>
+                  <div>
+                    <div className="hammer-label">layer inventory</div>
+                    <div>
+                      {allDerivedLayers.length} total
+                      {" · "}
+                      {reviewLayerCount} review
+                    </div>
+                  </div>
+                  <div>
+                    <div className="hammer-label">output transcript view</div>
+                    <div>
+                      {outputTranscriptSegments.length} segments
+                      {" · "}
+                      {formatDerivedLayerOutputSummary(outputDerivedLayer)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  {selectedMacroReadiness.detail}
+                  {" "}
+                  {selectedMacroReadiness.dry_run_summary}
+                </div>
+
+                <div className="hammer-stack-6">
+                  <strong className="hammer-copy-strong">Planned actions</strong>
+                  <ul className="hammer-finishing-action-list">
+                    {selectedMacroReadiness.recipe.intended_actions.map((action) => (
+                      <li key={action}>{action}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="hammer-stack-6">
+                  <strong className="hammer-copy-strong">Prerequisites</strong>
+                  <div className="hammer-finishing-checklist">
+                    {selectedMacroReadiness.requirement_results.map((result) => (
+                      <div
+                        key={`${selectedMacroReadiness.recipe.ref}:${result.kind}`}
+                        className={cx(
+                          "hammer-finishing-check",
+                          result.satisfied ? "is-ready" : "is-missing",
+                        )}
+                      >
+                        <div className="hammer-finishing-check__head">
+                          <div className="hammer-stack-4">
+                            <strong className="hammer-copy-strong">{result.label}</strong>
+                            <div className="hammer-copy-sm hammer-copy-muted">
+                              {result.importance === "required" ? "Required" : "Recommended"}
+                            </div>
+                          </div>
+                          <span className={getWorkflowStatusClassName(
+                            result.satisfied ? "active" : result.importance === "required" ? "blocked" : "ready",
+                          )}>
+                            {result.satisfied ? "Ready" : "Missing"}
+                          </span>
+                        </div>
+                        <div className="hammer-copy-sm hammer-copy-muted">{result.detail}</div>
+                        <div className="hammer-copy-sm hammer-copy-muted">{result.resolution}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="hammer-stack-6">
+                  <strong className="hammer-copy-strong">Derived Transcript Layers</strong>
+                  <div className="hammer-derived-layer-list">
+                    <button
+                      type="button"
+                      className={cx(
+                        "hammer-finishing-recipe",
+                        rawTranscriptLayerInspected && "is-selected",
+                        !activeDerivedLayer && "is-active-layer",
+                        !outputDerivedLayer && "is-output-layer",
+                      )}
+                      onClick={() => {
+                        setInspectedDerivedLayerId(RAW_TRANSCRIPT_LAYER_SENTINEL);
+                      }}
+                    >
+                      <div className="hammer-finishing-recipe__head">
+                        <div className="hammer-stack-4">
+                          <strong className="hammer-copy-strong">Raw Transcript</strong>
+                          <div className="hammer-copy-sm hammer-copy-muted">
+                            Canonical transcript truth
+                          </div>
+                        </div>
+                        <span className={getWorkflowStatusClassName(!activeDerivedLayer ? "active" : "ready")}>
+                          {!activeDerivedLayer ? "Active" : "Raw"}
+                        </span>
+                      </div>
+                      <div className="hammer-copy-sm hammer-copy-muted">
+                        Raw transcript segments remain unchanged beneath every derived review layer.
+                      </div>
+                      <div className="hammer-meta-strip">
+                        {!outputDerivedLayer ? <span className="hammer-pill">output selected</span> : null}
+                      </div>
+                    </button>
+
+                    {allDerivedLayers.map((layer) => {
+                      const isInspected = inspectedDerivedLayer?.layer_id === layer.layer_id && !rawTranscriptLayerInspected;
+                      const recipe = findHammerFinishingMacroRecipe(layer.recipe_ref);
+                      return (
+                        <button
+                          key={layer.layer_id}
+                          type="button"
+                          className={cx(
+                            "hammer-finishing-recipe",
+                            isInspected && "is-selected",
+                            layer.status === "active" && "is-active-layer",
+                            outputDerivedLayer?.layer_id === layer.layer_id && "is-output-layer",
+                          )}
+                          onClick={() => {
+                            setInspectedDerivedLayerId(layer.layer_id);
+                            setInspectedMacroRecipeRef(layer.recipe_ref);
+                          }}
+                          title={formatDerivedLayerProvenance(layer)}
+                        >
+                          <div className="hammer-finishing-recipe__head">
+                            <div className="hammer-stack-4">
+                              <strong className="hammer-copy-strong">
+                                {recipe?.name ?? layer.recipe_ref}
+                              </strong>
+                              <div className="hammer-copy-sm hammer-copy-muted">
+                                {formatDerivedLayerProvenance(layer)}
+                              </div>
+                            </div>
+                            <span className={getWorkflowStatusClassName(
+                              layer.status === "active"
+                                ? "active"
+                                : layer.status === "review"
+                                ? "ready"
+                                : "blocked",
+                            )}>
+                              {formatDerivedLayerLifecycleStatus(layer)}
+                            </span>
+                          </div>
+                          <div className="hammer-copy-sm hammer-copy-muted">
+                            based on {layer.based_on_transcript_id}
+                            {formatDateTimeLabel(layer.created_at) ? ` · ${formatDateTimeLabel(layer.created_at)}` : ""}
+                          </div>
+                          <div className="hammer-meta-strip">
+                            <span className="hammer-pill">{layer.summary.changed_segment_count} changed</span>
+                            <span className="hammer-pill">{formatDerivedLayerRemovalLabel(layer)}</span>
+                            {outputDerivedLayer?.layer_id === layer.layer_id ? (
+                              <span className="hammer-pill">output selected</span>
+                            ) : null}
+                            <span className="hammer-pill">{layer.layer_id}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="hammer-action-row">
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!selectedMacroCanExecute}
+                    onClick={() => {
+                      if (!structuredTranscriptState || !selectedMacroCanExecute) return;
+                      const run = selectedMacroReadiness.recipe.ref === EXECUTABLE_FILLER_CLEANUP_RECIPE_REF
+                        ? runHammerFillerCleanupMacro(structuredTranscriptState)
+                        : selectedMacroReadiness.recipe.ref === EXECUTABLE_RETAKE_TIGHTENING_RECIPE_REF
+                        ? runHammerRetakeTighteningMacro(structuredTranscriptState)
+                        : null;
+                      if (!run) return;
+                      setSelectedMacroRecipeRef(selectedMacroReadiness.recipe.ref);
+                      setInspectedMacroRecipeRef(selectedMacroReadiness.recipe.ref);
+                      setStructuredTranscriptState(run.transcript);
+                      setInspectedDerivedLayerId(run.layer_id);
+                      setLastMacroRunRef(run.layer_id);
+                    }}
+                  >
+                    {selectedMacroExecutionLabel}
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!inspectedDerivedLayer || inspectedDerivedLayer.status === "discarded"}
+                    onClick={() => {
+                      if (!structuredTranscriptState || !inspectedDerivedLayer) return;
+                      setStructuredTranscriptState(
+                        setHammerDerivedTextLayerActive(structuredTranscriptState, inspectedDerivedLayer.layer_id),
+                      );
+                    }}
+                  >
+                    Accept Selected Layer
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!activeDerivedLayer}
+                    onClick={() => {
+                      if (!structuredTranscriptState) return;
+                      setStructuredTranscriptState(setHammerDerivedTextLayerActive(structuredTranscriptState, null));
+                    }}
+                  >
+                    Return to Raw Transcript
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!inspectedDerivedLayer || inspectedDerivedLayer.status === "discarded"}
+                    onClick={() => {
+                      if (!structuredTranscriptState || !inspectedDerivedLayer) return;
+                      setStructuredTranscriptState(
+                        setHammerDerivedTextLayerOutput(structuredTranscriptState, inspectedDerivedLayer.layer_id),
+                      );
+                    }}
+                  >
+                    Use Selected Layer for Outputs
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!outputDerivedLayer}
+                    onClick={() => {
+                      if (!structuredTranscriptState) return;
+                      setStructuredTranscriptState(setHammerDerivedTextLayerOutput(structuredTranscriptState, null));
+                    }}
+                  >
+                    Use Raw for Outputs
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!inspectedDerivedLayer}
+                    onClick={() => {
+                      if (!structuredTranscriptState || !inspectedDerivedLayer) return;
+                      setStructuredTranscriptState(
+                        discardHammerDerivedTextLayer(structuredTranscriptState, inspectedDerivedLayer.layer_id),
+                      );
+                    }}
+                  >
+                    Discard Selected Layer
+                  </button>
+                  <span className="hammer-copy-sm hammer-copy-muted">
+                    {selectedMacroCanExecute
+                      ? `${selectedMacroExecutionLabel} creates a derived review layer only. Raw transcript truth and media timing remain unchanged.`
+                      : !macroExecutionAvailable
+                      ? "Macro execution requires the canonical structured transcript artifact."
+                      : "This recipe remains framework-only for now."}
+                  </span>
+                </div>
+
+                {rawTranscriptLayerInspected ? (
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    Raw transcript is selected. Choose any derived layer above to inspect its proposed changes, or keep raw active.
+                  </div>
+                ) : inspectedDerivedLayer ? (
+                  <div className="hammer-stack-6">
+                    <strong className="hammer-copy-strong">Layer Review</strong>
+                    <div className="hammer-meta-strip">
+                      <span className="hammer-pill">{formatDerivedLayerProvenance(inspectedDerivedLayer)}</span>
+                      <span className="hammer-pill">{inspectedDerivedLayer.summary.changed_segment_count} changed</span>
+                      <span className="hammer-pill">{formatDerivedLayerRemovalLabel(inspectedDerivedLayer)}</span>
+                      <span className="hammer-pill">{formatDerivedLayerLifecycleStatus(inspectedDerivedLayer)}</span>
+                      {outputDerivedLayer?.layer_id === inspectedDerivedLayer.layer_id ? (
+                        <span className="hammer-pill">used for outputs</span>
+                      ) : null}
+                    </div>
+                    {inspectedDerivedLayer.changes.length > 0 ? (
+                      <div className="hammer-finishing-diff-list">
+                        {inspectedDerivedLayer.changes.map((change) => (
+                          <article key={`${inspectedDerivedLayer.layer_id}:${change.segment_id}`} className="hammer-finishing-diff">
+                            <div className="hammer-finishing-diff__head">
+                              <strong className="hammer-copy-strong">{change.segment_id}</strong>
+                              <div className="hammer-meta-strip">
+                                {change.operations.map((operation, index) => (
+                                  <span key={`${change.segment_id}:${operation.start}:${index}`} className="hammer-pill">
+                                    {formatDerivedLayerOperationLabel(operation)}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="hammer-finishing-diff__row">
+                              <span className="hammer-label">Before</span>
+                              <div className="hammer-copy-sm">{change.original_text}</div>
+                            </div>
+                            <div className="hammer-finishing-diff__row">
+                              <span className="hammer-label">After</span>
+                              <div className="hammer-copy-sm hammer-copy-success">{change.cleaned_text}</div>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="hammer-copy-sm hammer-copy-muted">
+                        {formatDerivedLayerEmptyState(inspectedDerivedLayer)}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         );
       case "export":
@@ -3004,14 +5525,262 @@ export default function TranscriptSeekMock(
                 {sessionState.editPlanStatus}
               </span>
               <span className="hammer-pill">main edit</span>
-              <span className="hammer-pill">shorts</span>
+              <span className="hammer-pill">release prep {currentReleasePrepPackage.readiness.fully_prepared ? "ready" : "attention"}</span>
+              <span className="hammer-pill">{releasePrepSummaryLabel}</span>
+              <span className={getWorkflowStatusClassName(getPreparedPackageStatusTone(preparedReleaseComparison.preparedStatus))}>
+                {formatPreparedPackageStatusLabel(preparedReleaseComparison.preparedStatus)}
+              </span>
             </div>
             <div className="hammer-copy-md">
-              Export is the final delivery stage inside Hammer. Render/output controls belong here, separate from the editing work panels.
+              Export now distinguishes live editor truth from the last prepared release receipt. Prepare seals the current transcript, subtitle, and media fingerprints into canonical release-prep state so Tongs can open against that package first.
             </div>
-            <div className="hammer-copy-sm hammer-copy-muted">
-              current plan {currentEditPlan.edit_plan_id} · instructions {editInstructions.length}
+            <div className="hammer-workflow-grid">
+              <HammerWorkflowCard
+                title="Current Editor Truth"
+                tone={getReleasePrepTone(releasePrepBlockingStatuses.length > 0 ? releasePrepBlockingStatuses[0] ?? "missing" : "ready")}
+                statusLabel={releasePrepBlockingStatuses.length > 0 ? releasePrepSummaryLabel : "ready"}
+                description="What Hammer would hand off if you sealed the release package right now."
+                meta={(
+                  <div className="hammer-inspector-grid">
+                    <div>
+                      <div className="hammer-label">plan</div>
+                      <div className="hammer-mono">{currentEditPlan.edit_plan_id}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">instructions</div>
+                      <div>{editInstructions.length}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">output source</div>
+                      <div>{textOutputsPackage ? formatTranscriptOutputLabel(outputDerivedLayer) : "raw transcript"}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">blocking states</div>
+                      <div>{releasePrepBlockingStatuses.length > 0 ? releasePrepSummaryLabel : "none"}</div>
+                    </div>
+                  </div>
+                )}
+              />
+              <HammerWorkflowCard
+                title="Last Prepared Package"
+                tone={getPreparedPackageStatusTone(preparedReleaseComparison.preparedStatus)}
+                statusLabel={formatPreparedPackageStatusLabel(preparedReleaseComparison.preparedStatus)}
+                description="Canonical prepared release receipt persisted for this workpiece."
+                meta={(
+                  <div className="hammer-inspector-grid">
+                    <div>
+                      <div className="hammer-label">prepared at</div>
+                      <div>{preparedReleasePackageState ? formatDateTimeLabel(preparedReleasePackageState.preparedAt) ?? preparedReleasePackageState.preparedAt : "none"}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">timeline revision</div>
+                      <div className="hammer-mono">{preparedReleasePackageState?.provenance.timelineRevision ?? "none"}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">status</div>
+                      <div>{preparedReleasePackageState?.overallStatus ?? "missing"}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">stale reasons</div>
+                      <div>{preparedReleaseComparison.staleReasons.length > 0 ? preparedReleaseComparison.staleReasons.join(", ") : "none"}</div>
+                    </div>
+                  </div>
+                )}
+              />
             </div>
+            <div className="hammer-workflow-grid">
+              <HammerWorkflowCard
+                title="Transcript Output"
+                tone={getReleasePrepTone(currentReleasePrepPackage.readiness.transcript_output)}
+                statusLabel={formatReleasePrepStatusLabel(currentReleasePrepPackage.readiness.transcript_output)}
+                description="Resolved downstream transcript text assembled from the current raw or derived output layer."
+                meta={(
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {currentReleasePrepPackage.text_outputs
+                      ? `${currentReleasePrepPackage.text_outputs.resolved_output.segment_count} segments · ${currentReleasePrepPackage.text_outputs.output_selection.source_kind} output`
+                      : "No release transcript output is available yet."}
+                  </div>
+                )}
+              />
+              <HammerWorkflowCard
+                title="SRT"
+                tone={getReleasePrepTone(currentReleasePrepPackage.readiness.subtitles.srt)}
+                statusLabel={formatReleasePrepStatusLabel(currentReleasePrepPackage.readiness.subtitles.srt)}
+                description="Subtitle artifact for downstream packaging and review."
+                meta={(
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {textOutputsPackage?.subtitles.srt.artifact
+                      ? `${textOutputsPackage.subtitles.srt.artifact.entry_count} entries`
+                      : "Generate or refresh SRT from the current output layer."}
+                  </div>
+                )}
+              />
+              <HammerWorkflowCard
+                title="VTT"
+                tone={getReleasePrepTone(currentReleasePrepPackage.readiness.subtitles.vtt)}
+                statusLabel={formatReleasePrepStatusLabel(currentReleasePrepPackage.readiness.subtitles.vtt)}
+                description="Web subtitle artifact for downstream release consumers."
+                meta={(
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {textOutputsPackage?.subtitles.vtt.artifact
+                      ? `${textOutputsPackage.subtitles.vtt.artifact.entry_count} entries`
+                      : "Generate or refresh VTT from the current output layer."}
+                  </div>
+                )}
+              />
+              <HammerWorkflowCard
+                title="Media Prep"
+                tone={getReleasePrepTone(currentReleasePrepPackage.readiness.audio_polish === "ready"
+                  ? currentReleasePrepPackage.readiness.visuals
+                  : currentReleasePrepPackage.readiness.audio_polish)}
+                statusLabel={`visuals ${formatReleasePrepStatusLabel(currentReleasePrepPackage.readiness.visuals)} · audio ${formatReleasePrepStatusLabel(currentReleasePrepPackage.readiness.audio_polish)}`}
+                description="Visual placements and audio prep stay visible here so release handoff reflects real prep truth."
+                meta={(
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {currentReleasePrepPackage.media_prep_outputs.visuals.placement_count} visual suggestions
+                    {" · "}
+                    playback {currentReleasePrepPackage.media_prep_outputs.audio.preferred_playback.kind}
+                  </div>
+                )}
+              />
+            </div>
+            <div className="hammer-action-row">
+              <button
+                type="button"
+                className="hammer-button-xs"
+                disabled={preparedReleasePackageSaving}
+                onClick={() => {
+                  void (async () => {
+                    setPreparedReleasePackageSaving(true);
+                    setPreparedReleasePackageFeedback(null);
+
+                    let nextTranscript = structuredTranscriptState;
+                    if (nextTranscript) {
+                      const generatedAt = new Date().toISOString();
+                      for (const format of ["srt", "vtt"] as HammerSubtitleFormat[]) {
+                        const artifact = generateHammerSubtitleArtifact({
+                          rawSegments: rawTranscriptSegments,
+                          transcript: nextTranscript,
+                          format,
+                          generatedAt,
+                        });
+                        nextTranscript = setHammerSubtitleArtifact(nextTranscript, artifact);
+                      }
+                      setStructuredTranscriptState(nextTranscript);
+                      setSelectedSubtitleFormat("srt");
+                      setSubtitleActionFeedback(`Generated current SRT and VTT from ${formatTranscriptOutputLabel(outputDerivedLayer)}.`);
+                    }
+
+                    const nextReleasePrepPackage = buildHammerReleasePrepPackage({
+                      workspaceId: resolvedLaunch.launch_context.workspace_id,
+                      workpieceId: resolvedLaunch.launch_context.workpiece_id,
+                      prepStatus: nextTranscript ? "prepared" : "idle",
+                      alignmentStatus: nextTranscript ? "aligned" : "not_started",
+                      structuredTranscript: nextTranscript,
+                      visualPlacements: currentVisualPlacements,
+                      audioPolish,
+                      editorSession: {
+                        schema_version: 1,
+                        session_id: sessionId,
+                        source_mode: sourceMode,
+                        preview_mode: previewMode,
+                        transcript_source_id: transcriptSourceId,
+                        selected_segment_id: selectedSegmentId,
+                        selected_overlay_row_id: selectedOverlayRowId,
+                        media_ref: activeMediaRef ? { ...activeMediaRef } : null,
+                        workspace_mapping: activeMediaWorkspaceMapping ? { ...activeMediaWorkspaceMapping } : null,
+                        media_source_label: activeMediaSourceLabel,
+                        last_opened_at: currentEditPlan.updated_at,
+                      },
+                    });
+                    const nextPreparedPackage = buildHammerPreparedReleasePackage({
+                      current: nextReleasePrepPackage,
+                      timelineRevision: currentEditPlanSignature,
+                    });
+                    const saveResult = await saveHammerPreparedReleasePackage({
+                      workpieceId: resolvedLaunch.launch_context.workpiece_id,
+                      pkg: nextPreparedPackage,
+                      subtitles: {
+                        srt: nextTranscript?.subtitle_outputs?.srt?.content ?? null,
+                        vtt: nextTranscript?.subtitle_outputs?.vtt?.content ?? null,
+                      },
+                    });
+
+                    if (!saveResult.ok) {
+                      setPreparedReleasePackageFeedback(saveResult.error);
+                      setPreparedReleasePackageSaving(false);
+                      return;
+                    }
+
+                    setPreparedReleasePackageState(saveResult.data ?? nextPreparedPackage);
+                    setPreparedReleasePackageFeedback(`${preparedReleaseActionLabel} saved.`);
+                    setPreparedReleasePackageSaving(false);
+                  })();
+                }}
+              >
+                {preparedReleasePackageSaving ? "Saving Release Package..." : preparedReleaseActionLabel}
+              </button>
+              <button
+                type="button"
+                className="hammer-button-xs"
+                disabled={!structuredTranscriptState}
+                onClick={() => {
+                  if (!structuredTranscriptState) return;
+                  const generatedAt = new Date().toISOString();
+                  let nextTranscript = structuredTranscriptState;
+                  for (const format of ["srt", "vtt"] as HammerSubtitleFormat[]) {
+                    const artifact = generateHammerSubtitleArtifact({
+                      rawSegments: rawTranscriptSegments,
+                      transcript: nextTranscript,
+                      format,
+                      generatedAt,
+                    });
+                    nextTranscript = setHammerSubtitleArtifact(nextTranscript, artifact);
+                  }
+                  setStructuredTranscriptState(nextTranscript);
+                  setSelectedSubtitleFormat("srt");
+                  setSubtitleActionFeedback(`Generated current SRT and VTT from ${formatTranscriptOutputLabel(outputDerivedLayer)}.`);
+                }}
+              >
+                Generate Current Subtitles
+              </button>
+              <button
+                type="button"
+                className="hammer-button-xs"
+                disabled={!textOutputsPackage?.resolved_output.full_text}
+                onClick={() => {
+                  const fullText = textOutputsPackage?.resolved_output.full_text ?? "";
+                  if (!fullText) return;
+                  if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+                    setSubtitleActionFeedback("Clipboard access is unavailable in this environment.");
+                    return;
+                  }
+                  void navigator.clipboard.writeText(fullText)
+                    .then(() => {
+                      setSubtitleActionFeedback(`Copied ${formatTranscriptOutputLabel(outputDerivedLayer)} text output.`);
+                    })
+                    .catch(() => {
+                      setSubtitleActionFeedback("Hammer could not copy output transcript text.");
+                    });
+                }}
+              >
+                Copy Output Text
+              </button>
+              {props.releasePrepHref ? (
+                <a href={props.releasePrepHref} className="hammer-button-xs">
+                  Open Tongs Release Prep
+                </a>
+              ) : null}
+            </div>
+            {preparedReleasePackageLoading ? (
+              <div className="hammer-copy-sm hammer-copy-muted">Loading prepared release package...</div>
+            ) : null}
+            {preparedReleasePackageFeedback ? (
+              <div className="hammer-copy-sm hammer-copy-muted">{preparedReleasePackageFeedback}</div>
+            ) : null}
+            {subtitleActionFeedback ? (
+              <div className="hammer-copy-sm hammer-copy-muted">{subtitleActionFeedback}</div>
+            ) : null}
           </div>
         );
       default:
@@ -3019,9 +5788,11 @@ export default function TranscriptSeekMock(
     }
   }, [
     activeTool,
+    audioPolish,
     audioMonitoringStateLabel,
     audioPassCount,
     audioSummaryItems,
+    captionOutputPreview,
     dialogueCoveragePercent,
     currentEditPlan.edit_plan_id,
     blurBackgroundBlocked,
@@ -3041,6 +5812,8 @@ export default function TranscriptSeekMock(
     mutedDialogueDurationSec,
     noiseCleanupPrepared,
     overlayRows.length,
+    outputDerivedLayer,
+    outputTranscriptSegments.length,
     playbackSourceLabel,
     playbackSrc,
     polishSummaryItems,
@@ -3050,13 +5823,30 @@ export default function TranscriptSeekMock(
     activeMediaKind,
     activeMediaSourceLabel,
     activeSourceMode,
+    activeDerivedLayer,
+    allDerivedLayers,
+    effectiveMacroRecipeRef,
+    lastMacroRunRef,
+    macroReadiness,
+    macroReadinessSummary,
+    macroExecutionAvailable,
+    mediaPrepOutputsPackage,
+    currentVisualPlacements,
+    rawTranscriptLayerInspected,
     resolvedLaunch.launch_context.workpiece_id,
     resolvedLaunch.launch_context.workspace_id,
+    reviewLayerCount,
     sameSpeakerContinuationCount,
+    selectedMacroExecutionLabel,
+    selectedMacroCanExecute,
+    selectedMacroReadiness,
+    selectedMacroRecipeRef,
     selectedDurationSec,
     selectedAudioStateLabel,
     selectedGapAfterSec,
     selectedGapBeforeSec,
+    selectedSubtitleArtifact,
+    selectedSubtitleFormat,
     selectedNextSegment,
     selectedOverlayRow,
     selectedRowHasTimelineEditCue,
@@ -3070,9 +5860,15 @@ export default function TranscriptSeekMock(
     selectedSegmentTrimInstruction,
     sessionState.editPlanStatus,
     sessionState.previewMode,
+    srtSubtitleArtifact,
     studioSoundPrepared,
+    structuredTranscriptState,
+    textOutputsPackage,
+    subtitleActionFeedback,
     trimInstructionCount,
     transcriptSegments.length,
+    inspectedDerivedLayer,
+    vttSubtitleArtifact,
   ]);
 
   const detailsDebugContent = activeTool === "details" && showDebugPanels ? (
@@ -3264,15 +6060,7 @@ export default function TranscriptSeekMock(
           Round-trip this JSON to restore overlay rows and preview semantics.
         </div>
         {editPlanFeedback ? (
-          <div
-            style={{
-              color: editPlanFeedbackTone === "warning"
-                ? "#fde68a"
-                : editPlanFeedbackTone === "success"
-                ? "#a7f3d0"
-                : "#c8d6ea",
-            }}
-          >
+          <div className={getEditPlanFeedbackClassName(editPlanFeedbackTone)}>
             {editPlanFeedback}
           </div>
         ) : null}
@@ -3286,8 +6074,8 @@ export default function TranscriptSeekMock(
           onNavigateToInstruction={inspectStagedInstruction}
         />
 
-        <div style={{ display: "grid", gap: 8 }}>
-          <strong style={{ color: "#dbe8ff" }}>Edit Plan JSON</strong>
+        <div className="hammer-edit-plan__json">
+          <strong className="hammer-edit-plan__json-title">Edit Plan JSON</strong>
           <textarea
             data-testid="edit-plan-json"
             value={editPlanJsonDraft}
@@ -3298,18 +6086,7 @@ export default function TranscriptSeekMock(
             }}
             spellCheck={false}
             placeholder="Export the current edit plan, clear edits, then paste or reload the JSON here."
-            style={{
-              width: "100%",
-              minHeight: 180,
-              resize: "vertical",
-              borderRadius: 10,
-              border: "1px solid rgba(148, 163, 184, 0.26)",
-              background: "rgba(2, 6, 23, 0.65)",
-              color: "#dbe8ff",
-              padding: 10,
-              fontSize: 12,
-            }}
-            className="hammer-mono"
+            className="hammer-edit-plan__textarea hammer-mono"
           />
         </div>
       </div>
@@ -3338,6 +6115,7 @@ export default function TranscriptSeekMock(
 
       return [
         { id: "video-main", label: "Main Video", clips: primaryClips },
+        { id: "visual-suggestions", label: "Image Suggestions", clips: visualSuggestionClips },
         { id: "video-pip", label: "Picture-in-Picture", clips: [] },
         {
           id: "audio-dialogue",
@@ -3385,262 +6163,587 @@ export default function TranscriptSeekMock(
         },
       ];
     },
-    [effectiveDurationSec, overlayRows, selectedOverlayRow, selectedSegmentMuteInstruction],
+    [effectiveDurationSec, overlayRows, selectedOverlayRow, selectedSegmentMuteInstruction, visualSuggestionClips],
   );
 
   const playheadPercent = clamp((currentTimeSec / effectiveDurationSec) * 100, 0, 100);
   const activeToolDefinition = HAMMER_TOOL_ORDER.find((tool) => tool.id === activeTool) ?? HAMMER_TOOL_ORDER[0];
   const activeToolHint = getHammerToolHint(activeTool);
   const activeTimelineToolDefinition = TIMELINE_TOOL_ORDER.find((tool) => tool.id === activeTimelineTool) ?? TIMELINE_TOOL_ORDER[0];
-  const timelineRulerTicks = useMemo(
-    () => buildTimelineRulerTicks(effectiveDurationSec),
-    [effectiveDurationSec],
-  );
+  const activeTimelineZoom = TIMELINE_ZOOM_OPTIONS.find((option) => option.id === timelineZoomId) ?? TIMELINE_ZOOM_OPTIONS[0];
   const upperPaneMinWidth = paneLayout.left_px
     + paneLayout.center_px
     + paneLayout.right_px
     + TOOL_STRIP_WIDTH_PX
     + (PANE_DIVIDER_WIDTH_PX * 2);
+  const timelineRulerTicks = useMemo(
+    () => buildTimelineRulerTicks(effectiveDurationSec),
+    [effectiveDurationSec],
+  );
+  const timelineCanvasWidthPx = useMemo(
+    () => Math.max(
+      Math.round((upperPaneMinWidth - 220) * activeTimelineZoom.scale),
+      Math.round(effectiveDurationSec * 28 * activeTimelineZoom.scale),
+      640,
+    ),
+    [activeTimelineZoom.scale, effectiveDurationSec, upperPaneMinWidth],
+  );
+  useEffect(() => {
+    const hasTimelineDrag = Boolean(visualTimelineDragStateRef.current);
+    const hasPreviewDrag = Boolean(visualPreviewDragStateRef.current);
+    if (!hasTimelineDrag && !hasPreviewDrag) return;
 
-  return (
-    <section className="hammer-editor-shell">
-      <div className="hammer-editor-shell__upper-wrap">
-        <div
-          className="hammer-editor-shell__upper"
-          style={{
-            gridTemplateColumns: [
-              `${paneLayout.left_px}px`,
-              `${PANE_DIVIDER_WIDTH_PX}px`,
-              `minmax(${paneLayout.center_px}px, 1fr)`,
-              `${PANE_DIVIDER_WIDTH_PX}px`,
-              `${paneLayout.right_px}px`,
-              `${TOOL_STRIP_WIDTH_PX}px`,
-            ].join(" "),
-            minWidth: upperPaneMinWidth,
-          }}
-        >
-          <div
-            className="hammer-pane hammer-pane--left"
-            style={{ gridTemplateRows: activeWorkPanel === "script" ? "auto minmax(0, 1fr)" : "minmax(0, 1fr)" }}
-          >
-        {activeWorkPanel === "script" ? (
-        <>
-        <HammerPaneSection
-          title="Script"
-          subtitle="Select a line to seek preview and stage spoken-content edits."
-          action={(
-            <div className="hammer-tab-row">
-              {WORK_PANEL_VIEWS.map((panel) => (
-                <button
-                  key={panel.id}
-                  type="button"
-                  onClick={() => setActiveWorkPanel(panel.id)}
-                  className={getToggleButtonClassName(activeWorkPanel === panel.id)}
-                  aria-pressed={activeWorkPanel === panel.id}
-                >
-                  {panel.label}
-                </button>
-              ))}
-            </div>
-          )}
-        >
-          <div className="hammer-meta-strip">
-            <span className="hammer-pill">{overlayRows.length} lines</span>
-            <span className="hammer-pill">{selectedOverlayRow ? "line selected" : "select a line"}</span>
-            <span className="hammer-pill">{activeOverlayRow ? "preview locked" : "ready to preview"}</span>
+    const onMouseMove = (event: MouseEvent) => {
+      const previewDrag = visualPreviewDragStateRef.current;
+      if (previewDrag) {
+        if (previewDrag.kind === "move") {
+          const deltaX = (event.clientX - previewDrag.startClientX) / previewDrag.containerWidth;
+          const deltaY = (event.clientY - previewDrag.startClientY) / previewDrag.containerHeight;
+          updatePreviewVisualDraft(previewDrag.placementId, {
+            x: previewDrag.startDraft.x + deltaX,
+            y: previewDrag.startDraft.y + deltaY,
+          });
+        } else {
+          const deltaX = (event.clientX - previewDrag.startClientX) / previewDrag.containerWidth;
+          const deltaY = (event.clientY - previewDrag.startClientY) / previewDrag.containerHeight;
+          updatePreviewVisualDraft(previewDrag.placementId, {
+            scale: previewDrag.startDraft.scale + deltaX - (deltaY * 0.35),
+          });
+        }
+      }
+
+      const timelineDrag = visualTimelineDragStateRef.current;
+      if (timelineDrag) {
+        const deltaX = event.clientX - timelineDrag.startClientX;
+        const deltaSec = (deltaX / Math.max(1, timelineCanvasWidthPx)) * effectiveDurationSec;
+        updateVisualPlacementEnd(
+          timelineDrag.changeId,
+          timelineDrag.placementId,
+          timelineDrag.endSec + deltaSec,
+        );
+      }
+    };
+
+    const onMouseUp = () => {
+      visualPreviewDragStateRef.current = null;
+      visualTimelineDragStateRef.current = null;
+    };
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = visualPreviewDragStateRef.current?.kind === "move" ? "grabbing" : "ew-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [effectiveDurationSec, timelineCanvasWidthPx, visualDragSessionToken]);
+  const dynamicStyles = useMemo(() => {
+    const rules: string[] = [];
+    const addRule = (suffix: string, style: CSSProperties): string => {
+      const className = `${dynamicStyleScopeIdRef.current}__${suffix}`;
+      rules.push(`.${className} { ${serializeCssRule(style)} }`);
+      return className;
+    };
+
+    const upperLayoutClassName = addRule("upper-layout", {
+      gridTemplateColumns: [
+        `${paneLayout.left_px}px`,
+        `${PANE_DIVIDER_WIDTH_PX}px`,
+        `minmax(${paneLayout.center_px}px, 1fr)`,
+        `${PANE_DIVIDER_WIDTH_PX}px`,
+        `${paneLayout.right_px}px`,
+        `${TOOL_STRIP_WIDTH_PX}px`,
+      ].join(" "),
+      minWidth: upperPaneMinWidth,
+    });
+    const monitorSurfaceClassName = addRule("monitor-surface", {
+      aspectRatio: previewMonitorAspectRatio,
+    });
+    const previewMediaClassName = activePreviewPlacementDraft
+      ? addRule("preview-media", {
+        objectPosition: `${Math.round(activePreviewPlacementDraft.x * 100)}% ${Math.round(activePreviewPlacementDraft.y * 100)}%`,
+        transform: `scale(${activePreviewPlacementDraft.scale})`,
+      })
+      : "";
+    const previewFrameClassName = activePreviewPlacementDraft
+      ? addRule("preview-frame", {
+        left: `${clamp(activePreviewPlacementDraft.x * 100, 18, 82)}%`,
+        top: `${clamp(activePreviewPlacementDraft.y * 100, 18, 82)}%`,
+        width: `${clamp(26 * activePreviewPlacementDraft.scale, 18, 72)}%`,
+        height: `${clamp(34 * activePreviewPlacementDraft.scale, 18, 78)}%`,
+        transform: "translate(-50%, -50%)",
+      })
+      : "";
+    const progressFillClassName = addRule("progress-fill", {
+      width: `${progressPercent}%`,
+    });
+    const playheadClassName = addRule("playhead", {
+      left: `${playheadPercent}%`,
+    });
+    const timelineCanvasClassName = addRule("timeline-canvas", {
+      width: `${timelineCanvasWidthPx}px`,
+      minWidth: `${timelineCanvasWidthPx}px`,
+    });
+    const rulerTickClassNames = timelineRulerTicks.map((tick, index) => addRule(
+      `ruler-tick-${index}`,
+      { left: `${tick.positionPercent}%` },
+    ));
+    const clipLayoutClassNames = new Map<string, string>();
+    const proposedChangeLayoutClassNames = new Map<string, string>();
+
+    timelineTracks.forEach((track, trackIndex) => {
+      track.clips.forEach((clip, clipIndex) => {
+        const left = clamp((clip.start_sec / effectiveDurationSec) * 100, 0, 100);
+        const width = clamp(((clip.end_sec - clip.start_sec) / effectiveDurationSec) * 100, 1.2, 100);
+        const className = addRule(
+          `clip-${trackIndex}-${clipIndex}`,
+          {
+            left: `${left}%`,
+            width: `${width}%`,
+          },
+        );
+        clipLayoutClassNames.set(getTimelineClipLayoutKey(track.id, clip.id), className);
+      });
+    });
+    proposedChanges.forEach((change, index) => {
+      const left = clamp((change.startSec / effectiveDurationSec) * 100, 0, 100);
+      const width = clamp(((change.endSec - change.startSec) / effectiveDurationSec) * 100, 0.8, 100);
+      proposedChangeLayoutClassNames.set(change.id, addRule(
+        `change-${index}`,
+        {
+          left: `${left}%`,
+          width: `${width}%`,
+        },
+      ));
+    });
+
+    return {
+      clipLayoutClassNames,
+      cssText: rules.join("\n"),
+      monitorSurfaceClassName,
+      playheadClassName,
+      previewFrameClassName,
+      previewMediaClassName,
+      progressFillClassName,
+      proposedChangeLayoutClassNames,
+      rulerTickClassNames,
+      timelineCanvasClassName,
+      upperLayoutClassName,
+    };
+  }, [
+    effectiveDurationSec,
+    activePreviewPlacementDraft,
+    paneLayout.center_px,
+    paneLayout.left_px,
+    paneLayout.right_px,
+    playheadPercent,
+    previewMonitorAspectRatio,
+    progressPercent,
+    proposedChanges,
+    timelineCanvasWidthPx,
+    timelineRulerTicks,
+    timelineTracks,
+    upperPaneMinWidth,
+  ]);
+
+  useDynamicCssText(dynamicStyleScopeIdRef.current, dynamicStyles.cssText);
+  const timelineWorkspaceContent = (
+    <HammerPaneSection
+      title="Timeline"
+      action={(
+        <div className="hammer-action-row">
+          <div className="hammer-tab-row">
+            {TIMELINE_TOOL_ORDER.map((tool) => (
+              <button
+                key={tool.id}
+                type="button"
+                onClick={() => setActiveTimelineTool(tool.id)}
+                className={getToggleButtonClassName(activeTimelineTool === tool.id)}
+              >
+                {tool.label}
+              </button>
+            ))}
           </div>
-          {selectedSegment ? (
-            <div className="hammer-script-panel__selection">
-              <div className="hammer-stack-4">
-                <div className="hammer-copy-sm hammer-copy-strong">
-                {selectedSegment.segment_id} · {selectedSegment.speaker}
-                </div>
-                <div className="hammer-copy-sm hammer-copy-muted">{selectedSegment.text}</div>
-              </div>
-              <div className="hammer-action-row">
-                <button
-                  type="button"
-                  disabled={!selectedSegment}
-                  className="hammer-button-xs"
-                  onClick={() => {
-                    if (!selectedSegment) return;
-                    toggleDeleteInstruction(selectedSegment.segment_id);
-                  }}
-                >
-                  {selectedSegmentDeleteInstruction ? "Restore" : "Delete"}
-                </button>
-                <button
-                  type="button"
-                  disabled={!selectedSegment}
-                  className="hammer-button-xs"
-                  onClick={() => {
-                    if (!selectedSegment) return;
-                    toggleMuteInstruction(selectedSegment.segment_id);
-                  }}
-                >
-                  {selectedSegmentMuteInstruction ? "Unmute" : "Mute"}
-                </button>
-                <button
-                  type="button"
-                  disabled={!selectedSegment}
-                  className="hammer-button-xs"
-                  onClick={() => {
-                    if (!selectedSegment) return;
-                    toggleTrimInstruction(selectedSegment);
-                  }}
-                >
-                  {selectedSegmentTrimInstruction ? "Undo trim" : "Trim"}
-                </button>
-                <button
-                  type="button"
-                  disabled={!selectedSegment}
-                  className="hammer-button-xs"
-                  onClick={() => {
-                    if (!selectedSegment) return;
-                    toggleSplitInstruction(selectedSegment);
-                  }}
-                >
-                  {selectedSegmentSplitInstruction ? "Undo split" : "Split"}
-                </button>
-                <button
-                  type="button"
-                  disabled={!selectedSegment || (!selectedSegmentMergeInstruction && !canMergeSelected)}
-                  className="hammer-button-xs"
-                  onClick={() => {
-                    if (!selectedSegment) return;
-                    toggleMergeInstruction(selectedSegment, selectedNextSegment);
-                  }}
-                >
-                  {selectedSegmentMergeInstruction ? "Undo merge" : "Merge with next"}
-                </button>
-              </div>
-              {!canMergeSelected && selectedNextSegment ? (
-                <div className="hammer-copy-sm hammer-copy-muted">
-                  Merge is disabled because the next speaker does not match.
-                </div>
-              ) : null}
-              {transcriptLoad.error ? (
-                <div className="hammer-copy-sm hammer-copy-warning">
-                  {transcriptLoad.error}
-                </div>
-              ) : null}
+          <div className="hammer-tab-row">
+            {TIMELINE_ZOOM_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setTimelineZoomId(option.id)}
+                className={getToggleButtonClassName(timelineZoomId === option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      sectionClassName="hammer-center-timeline-panel hammer-pane-section--overflow-hidden"
+      bodyClassName="hammer-pane-section__body--scroll"
+    >
+      <div className="hammer-meta-strip">
+        <span className="hammer-pill">mode {activeTimelineToolDefinition.label}</span>
+        <span className="hammer-pill">tracks {timelineTracks.length}</span>
+        <span className="hammer-pill">playhead {formatClock(currentTimeSec)}</span>
+        <span className="hammer-pill">focus {timelineFocusLabel}</span>
+        <span className="hammer-pill">zoom {activeTimelineZoom.label}</span>
+      </div>
+      <div className="hammer-timeline-focus-strip">
+        <span className={cx("hammer-pill", activeOverlayRow && "hammer-pill--playing")}>
+          active {activeOverlayRow ? activeOverlayRow.row_id : "none"}
+        </span>
+        <span className="hammer-pill">selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}</span>
+        <span className="hammer-pill" title={getTimelineToolHint(activeTimelineTool)}>
+          tool {activeTimelineToolDefinition.label}
+        </span>
+        <span className="hammer-pill">ripple {timelineRippleLabel}</span>
+        <span className="hammer-pill">
+          edit {selectedRowHasTimelineEditCue ? selectedRowEffects : "none"}
+        </span>
+      </div>
+      <div className="hammer-timeline-ruler">
+        <div className="hammer-timeline-ruler__label">Time</div>
+        <div className={cx("hammer-timeline-ruler__track", dynamicStyles.timelineCanvasClassName)}>
+          {timelineRulerTicks.map((tick, index) => (
+            <div
+              key={tick.id}
+              className={cx("hammer-timeline-ruler__tick", dynamicStyles.rulerTickClassNames[index])}
+            >
+              <span className="hammer-timeline-ruler__tick-label">{tick.label}</span>
             </div>
-          ) : (
-            <div className="hammer-script-panel__selection">
-              <div className="hammer-copy-sm hammer-copy-muted">
-              Select a transcript row to inspect it and apply segment-level edits.
-              </div>
-              {transcriptLoad.error ? (
-                <div className="hammer-copy-sm hammer-copy-warning">
-                  {transcriptLoad.error}
-                </div>
-              ) : null}
-            </div>
-          )}
-        </HammerPaneSection>
+          ))}
+          <div
+            aria-hidden="true"
+            className={cx(
+              "hammer-track-viewport__playhead",
+              "hammer-track-viewport__playhead--ruler",
+              dynamicStyles.playheadClassName,
+            )}
+          />
+        </div>
+      </div>
+      <div className="hammer-timeline-track-list">
+        {timelineTracks.map((track) => (
+          <div key={track.id} className="hammer-timeline-track">
+            {(() => {
+              const trackHasSelectedClip = track.clips.some((clip) => doesClipMatchSelectedState(clip));
+              const trackHasActiveClip = track.clips.some((clip) => doesClipMatchActiveState(clip));
+              const clipCount = track.clips.length;
+              const editableClipCount = track.clips.filter((clip) => clip.editable).length;
+              const uncertainClipCount = track.clips.filter((clip) => clip.status === "uncertain").length;
+              const trackProposedChanges = proposedChanges.filter((change) => change.linkedTrackId === track.id);
+              const trackStateLabel = trackHasSelectedClip
+                ? "selected row"
+                : trackHasActiveClip
+                ? "active playback"
+                : clipCount === 0
+                ? "empty"
+                : uncertainClipCount > 0
+                ? `${clipCount} clips · ${uncertainClipCount} needs review`
+                : `${clipCount} linked clips`;
 
-        <HammerPaneSection
-          title="Transcript"
-          subtitle="Click a line to seek preview. Transcript editing and preview navigation stay on the same project state."
-          action={(
+              return (
+                <>
+                  <div className="hammer-timeline-track__label">
+                    <div className="hammer-inline-list-wide">
+                      <strong className="hammer-timeline-track__title">{track.label}</strong>
+                      <span className="hammer-pill">{clipCount} clips</span>
+                    </div>
+                    <span className="hammer-timeline-track__meta">
+                      {getTimelineTrackRoleLabel(track.id)}
+                      {" · "}
+                      {trackStateLabel}
+                      {editableClipCount > 0 ? ` · ${editableClipCount} editable` : ""}
+                    </span>
+                  </div>
+                  <div className={cx(
+                    "hammer-track-viewport",
+                    dynamicStyles.timelineCanvasClassName,
+                    trackHasSelectedClip && "is-selected",
+                    trackHasActiveClip && "is-active",
+                  )}>
+                    <div className="hammer-track-viewport__backdrop" />
+                    {trackProposedChanges.map((change) => (
+                      <button
+                        key={change.id}
+                        type="button"
+                        onClick={() => selectProposedChange(change)}
+                        title={`${change.label} · ${formatClock(change.startSec)}-${formatClock(change.endSec)} · ${change.reason}`}
+                        className={cx(
+                          "hammer-timeline-change",
+                          dynamicStyles.proposedChangeLayoutClassNames.get(change.id),
+                          change.status === "suggested" && "is-suggested",
+                          change.status === "approved" && "is-approved",
+                          change.status === "rejected" && "is-rejected",
+                          change.status === "modified" && "is-modified",
+                          selectedProposedChange?.id === change.id && "is-selected",
+                        )}
+                      >
+                        <span className="hammer-timeline-change__label">{change.label}</span>
+                      </button>
+                    ))}
+                    {track.clips.length === 0 ? (
+                      <div className="hammer-track-viewport__empty">
+                        {getTimelineTrackEmptyMessage(track.id, Boolean(selectedOverlayRow))}
+                      </div>
+                    ) : track.clips.map((clip) => {
+                      const isSelected = doesClipMatchSelectedState(clip);
+                      const isActive = doesClipMatchActiveState(clip)
+                        || (currentTimeSec >= clip.start_sec && currentTimeSec <= clip.end_sec && !clip.linked_row_id);
+                      const showTrimHandles = activeTimelineTool === "cut" && clip.editable && (isSelected || isActive);
+                      const showRippleCue = (activeTimelineTool === "cut" || activeTimelineTool === "select")
+                        && clip.ripple_hint
+                        && (isSelected || isActive);
+                      const linkedVisualChange = track.id === "visual-suggestions" && clip.placement_id
+                        ? proposedChanges.find((change) => change.linkedAssetId === clip.placement_id) ?? null
+                        : null;
+                      return (
+                        <button
+                          key={clip.id}
+                          type="button"
+                          title={[
+                            clip.label,
+                            `${formatClock(clip.start_sec)}-${formatClock(clip.end_sec)}`,
+                            clip.title_detail,
+                          ].filter(Boolean).join(" · ")}
+                          onClick={() => selectTimelineClip(clip)}
+                          className={cx(
+                            "hammer-timeline-clip",
+                            dynamicStyles.clipLayoutClassNames.get(getTimelineClipLayoutKey(track.id, clip.id)),
+                            clip.editable && "is-editable",
+                            isSelected && "is-selected",
+                            isActive && "is-active",
+                            showTrimHandles && "has-trim-handles",
+                            clip.status === "uncertain" && "is-uncertain",
+                            clip.tone === "#dc2626" && "hammer-timeline-clip--red",
+                            clip.tone === "#0ea5e9" && "hammer-timeline-clip--cyan",
+                            clip.tone === "#818cf8" && "hammer-timeline-clip--indigo",
+                            clip.tone === "#60a5fa" && "hammer-timeline-clip--blue",
+                            clip.tone === "#34d399" && "hammer-timeline-clip--green",
+                            clip.tone === "#f59e0b" && "hammer-timeline-clip--amber",
+                            clip.tone === "#f472b6" && "hammer-timeline-clip--pink",
+                            clip.tone === "#c084fc" && "hammer-timeline-clip--violet",
+                            clip.tone === "#f97316" && "hammer-timeline-clip--orange",
+                          )}
+                        >
+                          {showTrimHandles ? (
+                            <>
+                              <span className="hammer-timeline-clip__trim-handle hammer-timeline-clip__trim-handle--start" />
+                              <span className="hammer-timeline-clip__trim-handle hammer-timeline-clip__trim-handle--end" />
+                            </>
+                          ) : null}
+                          {clip.label}
+                          {linkedVisualChange && clip.placement_id ? (
+                            <span
+                              className="hammer-timeline-clip__duration-handle"
+                              role="presentation"
+                              title="Drag to change display length"
+                              onMouseDown={(event) => beginTimelineVisualDurationDrag(
+                                linkedVisualChange.id,
+                                clip.placement_id!,
+                                clip,
+                                event,
+                              )}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }}
+                            />
+                          ) : null}
+                          {showRippleCue ? (
+                            <span className="hammer-timeline-clip__ripple-cue">Ripple</span>
+                          ) : null}
+                          {clip.badge_label && clip.badge_tone === "uncertain" ? (
+                            <span className="hammer-timeline-clip__uncertainty-cue">{clip.badge_label}</span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                    <div
+                      aria-hidden="true"
+                      className={cx("hammer-track-viewport__playhead", dynamicStyles.playheadClassName)}
+                    />
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        ))}
+      </div>
+    </HammerPaneSection>
+  );
+
+  const transcriptWorkspaceContent = (
+    <div className="hammer-transcript-workspace">
+      <HammerPaneSection
+        title="Transcript"
+        subtitle="Readable transcript for navigation and spoken-content editing."
+        action={(
+          <div className="hammer-action-row">
+            <span className="hammer-pill">{overlayRows.length} lines</span>
             <span className="hammer-pill">
-              at playhead {playheadOverlayRow ? formatOverlayRowLabel(playheadOverlayRow) : "none"}
+              at playhead {playheadReadableTranscriptGroup ? playheadReadableTranscriptGroup.speaker : "none"}
             </span>
-          )}
-          sectionStyle={{ minHeight: 0, overflow: "hidden", gridTemplateRows: "auto minmax(0, 1fr)" }}
-          bodyStyle={{ minHeight: 0, overflow: "hidden", gridTemplateRows: "minmax(0, 1fr)" }}
-        >
+            <button
+              type="button"
+              className="hammer-button-xs"
+              onClick={() => setIsTranscriptControlsCollapsed((current) => !current)}
+              aria-controls={transcriptControlsPanelId}
+            >
+              {isTranscriptControlsCollapsed ? "Show tools" : "Hide tools"}
+            </button>
+          </div>
+        )}
+        sectionClassName="hammer-transcript-panel hammer-pane-section--rows hammer-pane-section--overflow-hidden"
+        bodyClassName="hammer-pane-section__body--rows hammer-pane-section__body--overflow-hidden"
+      >
+        <div className="hammer-transcript-workspace__body">
+          {!isTranscriptControlsCollapsed ? (
+            <div className="hammer-transcript-tools-strip" id={transcriptControlsPanelId}>
+              {selectedSegment ? (
+                <>
+                  <div className="hammer-copy-sm hammer-copy-strong">
+                    {selectedSegment?.segment_id} · {selectedSegment?.speaker}
+                  </div>
+                  <div className="hammer-action-row">
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleDeleteInstruction(selectedSegment.segment_id);
+                      }}
+                    >
+                      {selectedSegmentDeleteInstruction ? "Restore" : "Delete"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleMuteInstruction(selectedSegment.segment_id);
+                      }}
+                    >
+                      {selectedSegmentMuteInstruction ? "Unmute" : "Mute"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleTrimInstruction(selectedSegment);
+                      }}
+                    >
+                      {selectedSegmentTrimInstruction ? "Undo trim" : "Trim"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleSplitInstruction(selectedSegment);
+                      }}
+                    >
+                      {selectedSegmentSplitInstruction ? "Undo split" : "Split"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment || (!selectedSegmentMergeInstruction && !canMergeSelected)}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleMergeInstruction(selectedSegment, selectedNextSegment);
+                      }}
+                    >
+                    {selectedSegmentMergeInstruction ? "Undo merge" : "Merge with next"}
+                  </button>
+                  </div>
+                  {!canMergeSelected && selectedNextSegment ? (
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      Merge is disabled because the next speaker does not match.
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  Select a transcript row to inspect it and apply segment-level edits.
+                </div>
+              )}
+              {transcriptLoad.error ? (
+                <div className="hammer-copy-sm hammer-copy-warning">{transcriptLoad.error}</div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div
             ref={transcriptScrollContainerRef}
             data-testid="transcript-scroll-container"
             className="hammer-script-panel__list"
           >
-          {overlayRows.length > 0 ? (
-            overlayRows.map((row) => {
-              const anchorSegment = segmentById.get(row.anchor_segment_id) ?? null;
-              if (!anchorSegment) return null;
+            {readableTranscriptGroups.length > 0 ? (
+              readableTranscriptGroups.map((group) => {
+                const primaryRow = overlayRowById.get(group.row_ids[0] ?? "") ?? null;
+                if (!primaryRow) return null;
 
-              const rowPlaybackRange = playbackRanges.find((range) => range.row_id === row.row_id) ?? null;
-              const rowStageMarkers = getTranscriptRowStageMarkers(row);
-              const isSelected = row.row_id === selectedOverlayRowId;
-              const isAtPlayhead = row.row_id === playheadOverlayRow?.row_id;
-              const borderColor = row.is_deleted
-                ? "rgba(239, 68, 68, 0.62)"
-                : row.is_muted
-                ? "rgba(245, 158, 11, 0.56)"
-                : row.structure === "merge"
-                ? "rgba(56, 189, 248, 0.52)"
-                : row.structure === "split"
-                ? "rgba(129, 140, 248, 0.54)"
-                : isSelected
-                ? "rgba(96, 165, 250, 0.72)"
-                : "rgba(148, 163, 184, 0.22)";
-              const background = row.is_deleted
-                ? "rgba(239, 68, 68, 0.12)"
-                : row.is_muted
-                ? "rgba(180, 83, 9, 0.15)"
-                : row.structure === "merge"
-                ? "rgba(8, 145, 178, 0.14)"
-                : row.structure === "split"
-                ? "rgba(99, 102, 241, 0.14)"
-                : isSelected
-                ? "rgba(59, 130, 246, 0.2)"
-                : "rgba(2, 6, 23, 0.42)";
-              const boxShadow = isAtPlayhead
-                ? isSelected
-                  ? "inset 3px 0 0 rgba(45, 212, 191, 0.88), 0 0 0 1px rgba(96, 165, 250, 0.12)"
-                  : "inset 3px 0 0 rgba(45, 212, 191, 0.88), 0 0 0 1px rgba(45, 212, 191, 0.14)"
-                : "none";
-
-              return (
-                <div
-                  key={row.row_id}
-                  ref={(element) => {
-                    if (element) {
-                      transcriptRowRefs.current.set(row.row_id, element);
-                    } else {
-                      transcriptRowRefs.current.delete(row.row_id);
-                    }
-                  }}
-                  className={cx(
-                    "hammer-script-row",
-                    revealedTranscriptRowId === row.row_id && "is-revealed",
-                  )}
-                  data-overlay-row-id={row.row_id}
-                  data-playhead={isAtPlayhead ? "true" : "false"}
-                  data-deleted={row.is_deleted ? "true" : "false"}
-                  data-muted={row.is_muted ? "true" : "false"}
-                  data-playable-start={rowPlaybackRange?.playable_start_sec ?? ""}
-                  data-playable-end={rowPlaybackRange?.playable_end_sec ?? ""}
-                  style={{
-                    border: `1px solid ${borderColor}`,
-                    borderRadius: 10,
-                    background,
-                    padding: "8px 10px",
-                    display: "grid",
-                    gap: 8,
-                    opacity: row.is_deleted ? 0.86 : 1,
-                    boxShadow,
-                    transition: "border-color 140ms ease, background 140ms ease, box-shadow 140ms ease",
-                  }}
-                >
+                const groupRows = group.row_ids
+                  .map((rowId) => overlayRowById.get(rowId) ?? null)
+                  .filter((row): row is TranscriptOverlayRow => Boolean(row));
+                const groupPlaybackRange = playbackRanges.find((range) => range.row_id === primaryRow.row_id) ?? null;
+                const groupStageMarkers = [...new Map(
+                  groupRows.flatMap((row) => getTranscriptRowStageMarkers(row)).map((marker) => [marker.id, marker] as const),
+                ).values()];
+                const isSelected = Boolean(selectedReadableTranscriptGroup && selectedReadableTranscriptGroup.group_id === group.group_id);
+                const isAtPlayhead = Boolean(playheadReadableTranscriptGroup && playheadReadableTranscriptGroup.group_id === group.group_id);
+                return (
+                  <div
+                    key={group.group_id}
+                    ref={(element) => {
+                      if (element) {
+                        transcriptRowRefs.current.set(group.group_id, element);
+                      } else {
+                        transcriptRowRefs.current.delete(group.group_id);
+                      }
+                    }}
+                    className={cx(
+                      "hammer-script-row",
+                      revealedTranscriptRowId && group.row_ids.includes(revealedTranscriptRowId) && "is-revealed",
+                    )}
+                    data-selected={isSelected ? "true" : "false"}
+                    data-overlay-row-id={primaryRow.row_id}
+                    data-playhead={isAtPlayhead ? "true" : "false"}
+                    data-deleted={groupRows.every((row) => row.is_deleted) ? "true" : "false"}
+                    data-muted={groupRows.some((row) => row.is_muted) ? "true" : "false"}
+                    data-structure={primaryRow.structure}
+                    data-playable-start={groupPlaybackRange?.playable_start_sec ?? ""}
+                    data-playable-end={groupPlaybackRange?.playable_end_sec ?? ""}
+                  >
                     <button
                       type="button"
-                      onClick={() => selectTranscriptRow(row)}
+                      onClick={() => selectTranscriptRow(primaryRow)}
                       aria-current={isAtPlayhead ? "true" : undefined}
                       className="hammer-script-row__button"
                     >
                       <div className="hammer-script-row__meta">
                         <span className="hammer-copy-sm hammer-copy-muted">
-                          {formatClock(row.start_sec)}-{formatClock(row.end_sec)} {row.speaker}
+                          {formatClock(group.start_sec)}-{formatClock(group.end_sec)} {group.speaker}
                         </span>
                         {isAtPlayhead ? (
                           <span className="hammer-script-row__playhead">At playhead</span>
                         ) : null}
                       </div>
-                      {rowStageMarkers.length > 0 ? (
+                      {groupStageMarkers.length > 0 ? (
                         <div className="hammer-script-row__status-list">
-                          {rowStageMarkers.map((marker) => (
+                          {groupStageMarkers.map((marker) => (
                             <span
                               key={marker.id}
                               className={getTranscriptRowStageMarkerClassName(marker.tone)}
@@ -3652,22 +6755,392 @@ export default function TranscriptSeekMock(
                       ) : null}
 
                       <div className="hammer-script-blocks">
-                        {row.blocks.map((block) => (
-                          <div key={block.block_id} className="hammer-script-block">
-                            <div className="hammer-label">
-                              {block.label ? `${block.label} · ` : ""}
-                              {formatClock(block.start_sec)}-{formatClock(block.end_sec)}
-                            </div>
-                            <div
-                              className="hammer-copy-md"
-                              style={{ textDecoration: row.is_deleted ? "line-through" : "none" }}
-                            >
-                              {block.text}
-                            </div>
+                        <div className="hammer-script-block">
+                          <div className="hammer-label">
+                            {group.row_count} readable block{group.row_count === 1 ? "" : "s"} · {group.source_segment_ids.length} source chunk{group.source_segment_ids.length === 1 ? "" : "s"}
                           </div>
-                        ))}
+                          <div
+                            className={cx(
+                              "hammer-copy-md",
+                              "hammer-script-block__text",
+                              groupRows.every((row) => row.is_deleted) && "is-deleted",
+                            )}
+                          >
+                            {group.text}
+                          </div>
+                        </div>
                       </div>
                     </button>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="hammer-copy-md hammer-copy-dim">
+                No transcript segments loaded.
+              </div>
+            )}
+          </div>
+        </div>
+      </HammerPaneSection>
+    </div>
+  );
+
+  return (
+    <section className="hammer-editor-shell">
+      <div className="hammer-editor-shell__upper-wrap">
+        <div className={cx("hammer-editor-shell__upper", dynamicStyles.upperLayoutClassName)}>
+          <div
+            className="hammer-pane hammer-pane--left is-assets-view"
+          >
+            <div className="hammer-pane__scroll">
+        {false ? (
+        <>
+        <HammerPaneSection
+          title="Transcript Controls"
+          subtitle="Select a transcript line to seek preview and stage spoken-content edits."
+          bodyId={transcriptControlsPanelId}
+          action={(
+            <div className="hammer-action-row">
+              <div className="hammer-tab-row">
+                {WORK_PANEL_VIEWS.map((panel) => (
+                  <button
+                    key={panel.id}
+                    type="button"
+                    onClick={() => setActiveWorkPanel(panel.id)}
+                    className={getToggleButtonClassName(activeWorkPanel === panel.id)}
+                  >
+                    {panel.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="hammer-button-xs"
+                onClick={() => setIsTranscriptControlsCollapsed((current) => !current)}
+                aria-controls={transcriptControlsPanelId}
+              >
+                {isTranscriptControlsCollapsed ? "Expand" : "Collapse"}
+              </button>
+            </div>
+          )}
+        >
+          {isTranscriptControlsCollapsed ? (
+            <div className="hammer-preview-panel__collapsed">
+              <div className="hammer-copy-sm hammer-copy-muted">
+                Transcript controls collapsed.
+              </div>
+              <div className="hammer-meta-strip">
+                <span className="hammer-pill">{overlayRows.length} lines</span>
+                <span className="hammer-pill">{selectedOverlayRow ? "line selected" : "select a line"}</span>
+                <span className="hammer-pill">{activeOverlayRow ? "preview locked" : "ready to preview"}</span>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="hammer-meta-strip">
+                <span className="hammer-pill">{overlayRows.length} lines</span>
+                <span className="hammer-pill">{selectedOverlayRow ? "line selected" : "select a line"}</span>
+                <span className="hammer-pill">{activeOverlayRow ? "preview locked" : "ready to preview"}</span>
+              </div>
+              {selectedSegment ? (
+                <div className="hammer-script-panel__selection">
+                  <div className="hammer-stack-4">
+                    <div className="hammer-copy-sm hammer-copy-strong">
+                    {selectedSegment?.segment_id} · {selectedSegment?.speaker}
+                    </div>
+                    <div className="hammer-copy-sm hammer-copy-muted">{selectedSegment?.text}</div>
+                  </div>
+                  <div className="hammer-action-row">
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleDeleteInstruction(selectedSegment.segment_id);
+                      }}
+                    >
+                      {selectedSegmentDeleteInstruction ? "Restore" : "Delete"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleMuteInstruction(selectedSegment.segment_id);
+                      }}
+                    >
+                      {selectedSegmentMuteInstruction ? "Unmute" : "Mute"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleTrimInstruction(selectedSegment);
+                      }}
+                    >
+                      {selectedSegmentTrimInstruction ? "Undo trim" : "Trim"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleSplitInstruction(selectedSegment);
+                      }}
+                    >
+                      {selectedSegmentSplitInstruction ? "Undo split" : "Split"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment || (!selectedSegmentMergeInstruction && !canMergeSelected)}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleMergeInstruction(selectedSegment, selectedNextSegment);
+                      }}
+                    >
+                      {selectedSegmentMergeInstruction ? "Undo merge" : "Merge with next"}
+                    </button>
+                  </div>
+                  {!canMergeSelected && selectedNextSegment ? (
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      Merge is disabled because the next speaker does not match.
+                    </div>
+                  ) : null}
+                  {transcriptLoad.error ? (
+                    <div className="hammer-copy-sm hammer-copy-warning">
+                      {transcriptLoad.error}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="hammer-script-panel__selection">
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                  Select a transcript row to inspect it and apply segment-level edits.
+                  </div>
+                  {transcriptLoad.error ? (
+                    <div className="hammer-copy-sm hammer-copy-warning">
+                      {transcriptLoad.error}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </>
+          )}
+        </HammerPaneSection>
+
+        <HammerPaneSection
+          title="Transcript"
+          subtitle="Readable transcript groups are for review only. Machine transcript chunks remain the seek, cue, and subtitle truth."
+          action={(
+            <span className="hammer-pill">
+              at playhead {playheadReadableTranscriptGroup?.speaker ?? "none"}
+            </span>
+          )}
+          sectionClassName="hammer-pane-section--rows hammer-pane-section--overflow-hidden"
+          bodyClassName="hammer-pane-section__body--rows hammer-pane-section__body--overflow-hidden"
+        >
+          <div
+            ref={transcriptScrollContainerRef}
+            data-testid="transcript-scroll-container"
+            className="hammer-script-panel__list"
+          >
+          {readableTranscriptGroups.length > 0 ? (
+            readableTranscriptGroups.map((group) => {
+              const primaryRow = overlayRowById.get(group.row_ids[0] ?? "") ?? null;
+              if (!primaryRow) return null;
+
+              const groupRows = group.row_ids
+                .map((rowId) => overlayRowById.get(rowId) ?? null)
+                .filter((row): row is TranscriptOverlayRow => Boolean(row));
+              const groupPlaybackRange = playbackRanges.find((range) => range.row_id === primaryRow.row_id) ?? null;
+              const groupStageMarkers = [...new Map(
+                groupRows.flatMap((row) => getTranscriptRowStageMarkers(row)).map((marker) => [marker.id, marker] as const),
+              ).values()];
+              const isSelected = Boolean(selectedReadableTranscriptGroup && selectedReadableTranscriptGroup.group_id === group.group_id);
+              const isAtPlayhead = Boolean(playheadReadableTranscriptGroup && playheadReadableTranscriptGroup.group_id === group.group_id);
+              const isReviewHighlighted = group.row_ids.some((rowId) => highlightedTranscriptRowIds.has(rowId));
+              const reviewHighlightStatus = isReviewHighlighted ? selectedPolishChange?.status ?? "suggested" : undefined;
+              const isTranscriptRangeSelected = selectedTranscriptGroupIdSet.has(group.group_id);
+              const linkedPolishChange = polishProposedChanges.find((change) => (
+                change.linkedRowIds.some((rowId) => group.row_ids.includes(rowId))
+              )) ?? null;
+              const isReviewSelected = isReviewHighlighted && selectedPolishChange != null;
+              const isManualRangeSelected = isTranscriptRangeSelected && !isReviewSelected;
+              const transcriptSelectionMode = isManualRangeSelected
+                ? "manual-range"
+                : isReviewSelected
+                ? "review-change"
+                : isSelected
+                ? "focused-row"
+                : "none";
+              const selectedRangeSegments = isTranscriptRangeSelected
+                ? resolveTranscriptSelectionSegments(selectedTranscriptGroupIds)
+                : [];
+              const selectedRangeDeleted = selectedRangeSegments.length > 0 && selectedRangeSegments.every((segmentId) => {
+                const row = overlayRowBySegmentId.get(segmentId) ?? null;
+                return row?.is_deleted ?? false;
+              });
+              return (
+                <div
+                  key={group.group_id}
+                  ref={(element) => {
+                    if (element) {
+                      transcriptRowRefs.current.set(group.group_id, element);
+                    } else {
+                      transcriptRowRefs.current.delete(group.group_id);
+                    }
+                  }}
+                  className={cx(
+                    "hammer-script-row",
+                    isManualRangeSelected && "is-selection-range",
+                    isReviewSelected && "is-review-selected",
+                    revealedTranscriptRowId && group.row_ids.includes(revealedTranscriptRowId) && "is-revealed",
+                  )}
+                  data-selected={isSelected ? "true" : "false"}
+                  data-review-highlight={isReviewHighlighted ? "true" : "false"}
+                  data-review-status={reviewHighlightStatus ?? ""}
+                  data-selection-mode={transcriptSelectionMode}
+                  data-overlay-row-id={primaryRow.row_id}
+                  data-playhead={isAtPlayhead ? "true" : "false"}
+                  data-deleted={groupRows.every((row) => row.is_deleted) ? "true" : "false"}
+                  data-muted={groupRows.some((row) => row.is_muted) ? "true" : "false"}
+                  data-structure={primaryRow.structure}
+                  data-playable-start={groupPlaybackRange?.playable_start_sec ?? ""}
+                  data-playable-end={groupPlaybackRange?.playable_end_sec ?? ""}
+                >
+                    <button
+                      type="button"
+                      onClick={(event) => selectTranscriptGroup(
+                        group.group_id,
+                        primaryRow,
+                        { extendSelection: event.shiftKey, linkedReviewChange: event.shiftKey ? null : linkedPolishChange },
+                      )}
+                      aria-current={isAtPlayhead ? "true" : undefined}
+                      className="hammer-script-row__button"
+                    >
+                      <div className="hammer-script-row__meta">
+                        <span className="hammer-copy-sm hammer-copy-muted">
+                          {formatClock(group.start_sec)}-{formatClock(group.end_sec)} {group.speaker}
+                        </span>
+                        {isAtPlayhead ? (
+                          <span className="hammer-script-row__playhead">At playhead</span>
+                        ) : null}
+                      </div>
+                      {groupStageMarkers.length > 0 ? (
+                        <div className="hammer-script-row__status-list">
+                          {groupStageMarkers.map((marker) => (
+                            <span
+                              key={marker.id}
+                              className={getTranscriptRowStageMarkerClassName(marker.tone)}
+                            >
+                              {marker.label}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      <div className="hammer-script-blocks">
+                        <div className="hammer-script-block">
+                          <div className="hammer-label">
+                            {group.row_count} readable block{group.row_count === 1 ? "" : "s"} · {group.source_segment_ids.length} source chunk{group.source_segment_ids.length === 1 ? "" : "s"}
+                          </div>
+                          <div
+                            className={cx(
+                              "hammer-copy-md",
+                              "hammer-script-block__text",
+                              groupRows.every((row) => row.is_deleted) && "is-deleted",
+                            )}
+                          >
+                            {group.text}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                    {(isReviewHighlighted && selectedPolishChange) || isTranscriptRangeSelected ? (
+                      <div className="hammer-script-row__actions">
+                        {isReviewHighlighted && selectedPolishChange ? (
+                          <>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={reviewSelectedProposedChange}
+                            >
+                              Review
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={() => setPolishChangeStatusAndAdvance(selectedPolishChange, "approved")}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={() => setPolishChangeStatusAndAdvance(selectedPolishChange, "rejected")}
+                            >
+                              Reject
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={() => setProposedChangeStatus(selectedPolishChange, "suggested")}
+                            >
+                              Restore
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={goToPreviousPolishChange}
+                              disabled={!previousPolishChange}
+                            >
+                              Prev
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={goToNextPolishChange}
+                              disabled={!nextPolishChange}
+                            >
+                              Next
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={goToNextUnreviewedPolishChange}
+                              disabled={!nextUnreviewedPolishChange}
+                            >
+                              Next unreviewed
+                            </button>
+                          </>
+                        ) : null}
+                        {isTranscriptRangeSelected ? (
+                          selectedRangeDeleted ? (
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={restoreSelectedTranscriptGroups}
+                            >
+                              Restore selection
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={removeSelectedTranscriptGroups}
+                            >
+                              Remove selection
+                            </button>
+                          )
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })
@@ -3680,113 +7153,161 @@ export default function TranscriptSeekMock(
         </HammerPaneSection>
         </>
         ) : (
-          <HammerPaneSection
-            title="Assets"
-            subtitle="Assets stays limited to project-linked video, images, and music already attached to this workpiece."
-            action={(
+          <>
+            <HammerPaneSection
+              title="Source Browser"
+              subtitle="Transcript stays semantic and editable. Video, images, and audio stay as linked source material."
+              action={(
+                <span className="hammer-pane-badge">Source rail</span>
+              )}
+              sectionClassName="hammer-pane-section--overflow-hidden"
+              bodyClassName="hammer-pane-section__body--scroll"
+            >
               <div className="hammer-tab-row">
-                {WORK_PANEL_VIEWS.map((panel) => (
+                {ASSET_PANEL_VIEWS.map((panel) => (
                   <button
                     key={panel.id}
                     type="button"
-                    onClick={() => setActiveWorkPanel(panel.id)}
-                    className={getToggleButtonClassName(activeWorkPanel === panel.id)}
-                    aria-pressed={activeWorkPanel === panel.id}
+                    onClick={() => setActiveAssetPanel(panel.id)}
+                    className={getToggleButtonClassName(activeAssetPanel === panel.id)}
                   >
                     {panel.label}
                   </button>
                 ))}
               </div>
-            )}
-            sectionStyle={{ minHeight: 0, overflow: "hidden" }}
-            bodyStyle={{ minHeight: 0, overflow: "auto" }}
-          >
-            <div className="hammer-tab-row">
-              {ASSET_PANEL_VIEWS.map((panel) => (
-                <button
-                  key={panel.id}
-                  type="button"
-                  onClick={() => setActiveAssetPanel(panel.id)}
-                  className={getToggleButtonClassName(activeAssetPanel === panel.id)}
-                  aria-pressed={activeAssetPanel === panel.id}
-                >
-                  {panel.label}
-                </button>
-              ))}
-            </div>
-            <div className="hammer-meta-strip">
-              <span className="hammer-pill">{projectAssets.video.length} video</span>
-              <span className="hammer-pill">{projectAssets.images.length} images</span>
-              <span className="hammer-pill">{projectAssets.music.length} music</span>
-              <span className="hammer-pill">{linkedAssetCount} linked</span>
-            </div>
-            <div className="hammer-assets-context">
-              <div className="hammer-assets-context__head">
-                <strong className="hammer-copy-strong">{activeAssetViewDefinition.label} Collection</strong>
-                <span className="hammer-pill">{sourceModeLabel}</span>
+              <div className="hammer-meta-strip">
+                <span className="hammer-pane-badge">{overlayRows.length} transcript lines</span>
+                <span className="hammer-pane-badge">{projectAssets.video.length} video</span>
+                <span className="hammer-pane-badge">{projectAssets.images.length} images</span>
+                <span className="hammer-pane-badge">{projectAssets.music.length} audio</span>
+                <span className="hammer-pane-badge">{linkedAssetCount} linked</span>
               </div>
-              <div className="hammer-inspector-grid">
-                <div>
-                  <div className="hammer-label">workpiece</div>
-                  <div className="hammer-mono">{resolvedLaunch.launch_context.workpiece_id}</div>
-                </div>
-                <div>
-                  <div className="hammer-label">source mode</div>
-                  <div>{sourceModeLabel}</div>
-                </div>
-                <div>
-                  <div className="hammer-label">media source</div>
-                  <div>{activeMediaSourceLabel}</div>
-                </div>
-                <div>
-                  <div className="hammer-label">collection</div>
-                  <div>{activeAssetViewDefinition.label}</div>
-                </div>
-              </div>
-            </div>
-            {activeAssetItems.length > 0 ? (
-              activeAssetItems.map((asset) => (
-                <div key={asset.id} className="hammer-asset-card">
-                  <div className="hammer-asset-card__header">
-                    <div className="hammer-stack-4">
-                      <strong className="hammer-copy-strong">{asset.title}</strong>
-                      <div className="hammer-copy-sm hammer-copy-muted">{asset.usageHint}</div>
-                    </div>
-                    <div className="hammer-inline-list">
-                      <span className="hammer-pill">{asset.kindLabel}</span>
-                      <span className="hammer-pill">{asset.status}</span>
-                    </div>
+            </HammerPaneSection>
+            {activeAssetPanel === "transcript" ? (
+              transcriptWorkspaceContent
+            ) : (
+              <HammerPaneSection
+                title={activeAssetViewDefinition.label}
+                subtitle={`${activeAssetViewDefinition.label} sources linked to this workpiece.`}
+                action={(
+                  <span className="hammer-pane-badge">{sourceModeLabel}</span>
+                )}
+                sectionClassName="hammer-pane-section--overflow-hidden"
+                bodyClassName="hammer-pane-section__body--scroll"
+              >
+                <div className="hammer-assets-context">
+                  <div className="hammer-assets-context__head">
+                    <strong className="hammer-copy-strong">{activeAssetViewDefinition.label} Collection</strong>
+                    <span className="hammer-pane-badge">{sourceModeLabel}</span>
                   </div>
-                  <div className="hammer-asset-card__meta-grid">
-                    <div>
-                      <div className="hammer-label">source</div>
-                      <div>{asset.sourceLabel}</div>
-                    </div>
-                    <div>
-                      <div className="hammer-label">duration</div>
-                      <div>{asset.durationLabel ?? "n/a"}</div>
-                    </div>
+                  <div className="hammer-inspector-grid">
                     <div>
                       <div className="hammer-label">workpiece</div>
-                      <div className="hammer-mono">{asset.workpieceId}</div>
+                      <div className="hammer-mono">{resolvedLaunch.launch_context.workpiece_id}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">source mode</div>
+                      <div>{sourceModeLabel}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">media source</div>
+                      <div>{activeMediaSourceLabel}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">collection</div>
+                      <div>{activeAssetViewDefinition.label}</div>
                     </div>
                   </div>
-                  <div className="hammer-copy-sm hammer-copy-muted hammer-mono">{asset.id}</div>
-                  <div className="hammer-copy-sm">{asset.detail}</div>
                 </div>
-              ))
-            ) : (
-              <div className="hammer-assets-empty-state">
-                <div className="hammer-copy-md hammer-copy-dim">
-                  {activeAssetEmptyMessage}
-                </div>
-                <div className="hammer-copy-sm hammer-copy-muted">
-                  When this workpiece gains {activeAssetPanel} assets through its launch context or Tongs-linked media, they will appear here.
-                </div>
-              </div>
+                {activeAssetItems.length > 0 ? (
+                  activeAssetItems.map((asset) => {
+                    const assetChange = asset.placementId
+                      ? proposedChanges.find((change) => change.linkedAssetId === asset.placementId) ?? null
+                      : null;
+                    return (
+                      <div
+                        key={asset.id}
+                        className={cx(
+                          "hammer-asset-card",
+                          assetChange && getReviewStateClassName(assetChange.status),
+                          asset.placementId && selectedProposedChange?.linkedAssetId === asset.placementId && "is-selected",
+                        )}
+                      >
+                        <div className="hammer-asset-card__header">
+                          <div className="hammer-stack-4">
+                            <strong className="hammer-copy-strong">{asset.title}</strong>
+                            <div className="hammer-copy-sm hammer-copy-muted">{asset.usageHint}</div>
+                          </div>
+                          <div className="hammer-inline-list">
+                            <span className="hammer-pane-badge">{asset.kindLabel}</span>
+                            <span className="hammer-pane-badge">{asset.status}</span>
+                          </div>
+                        </div>
+                        <div className="hammer-asset-card__meta-grid">
+                          <div>
+                            <div className="hammer-label">source</div>
+                            <div>{asset.sourceLabel}</div>
+                          </div>
+                          <div>
+                            <div className="hammer-label">duration</div>
+                            <div>{asset.durationLabel ?? "n/a"}</div>
+                          </div>
+                          <div>
+                            <div className="hammer-label">workpiece</div>
+                            <div className="hammer-mono">{asset.workpieceId}</div>
+                          </div>
+                        </div>
+                        <div className="hammer-copy-sm hammer-copy-muted hammer-mono">{asset.id}</div>
+                        <div className="hammer-copy-sm">{asset.detail}</div>
+                        {assetChange ? (
+                          <div className="hammer-action-row">
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={() => selectProposedChange(assetChange)}
+                            >
+                              Review
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={() => {
+                                selectProposedChange(assetChange);
+                                setProposedChangeStatus(assetChange, "approved");
+                              }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={() => {
+                                selectProposedChange(assetChange);
+                                setProposedChangeStatus(assetChange, "rejected");
+                              }}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="hammer-assets-empty-state">
+                    <div className="hammer-copy-md hammer-copy-dim">
+                      {activeAssetEmptyMessage}
+                    </div>
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      When this workpiece gains {activeAssetViewDefinition.label.toLowerCase()} sources through its launch context or Tongs-linked media, they will appear here.
+                    </div>
+                  </div>
+                )}
+              </HammerPaneSection>
             )}
-          </HammerPaneSection>
+          </>
         )}
+            </div>
       </div>
 
       <button
@@ -3800,20 +7321,303 @@ export default function TranscriptSeekMock(
         className={getPaneDividerClassName(activeResizeHandle === "left-center")}
       />
 
-      <div
-        className="hammer-pane hammer-pane--center"
-        style={{ gridTemplateRows: "minmax(0, 1fr)" }}
-      >
+      <div className="hammer-pane hammer-pane--center">
+        <div className="hammer-center-stack">
+        <div className="hammer-preview-surface-shell">
+          <div className="hammer-monitor">
+            <div className="hammer-monitor__chrome">
+              <div className="hammer-copy-sm hammer-copy-strong">Preview Surface</div>
+              <div className="hammer-meta-strip">
+                <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
+                  {isPlaying ? "Playing" : "Paused"}
+                </span>
+                <span className="hammer-pill">{sessionState.previewMode} preview</span>
+                <span className="hammer-pill">
+                  {activePreviewVisual.kind === "image"
+                    ? `${formatVisualApprovalStateLabel(activePreviewVisual.ingestState)} visual`
+                    : "No active visual"}
+                </span>
+              </div>
+            </div>
+
+            <div
+              className={cx(
+                "hammer-monitor__surface",
+                dynamicStyles.monitorSurfaceClassName,
+                activePreviewVisual.kind === "image" && activePreviewVisual.imageUrl && "has-media",
+              )}
+              ref={monitorSurfaceRef}
+            >
+              {activePreviewVisual.kind === "image" && activePreviewVisual.imageUrl ? (
+                <>
+                  <img
+                    src={activePreviewVisual.imageUrl}
+                    alt=""
+                    className={["hammer-monitor__media", dynamicStyles.previewMediaClassName].filter(Boolean).join(" ")}
+                    data-testid="hammer-visual-preview-image"
+                  />
+                  {showPreviewVisualFrame && activePreviewPlacementRecord ? (
+                    <div
+                      className={[
+                        "hammer-monitor__selection-frame",
+                        dynamicStyles.previewFrameClassName,
+                      ].filter(Boolean).join(" ")}
+                      onMouseDown={(event) => beginPreviewVisualDrag(
+                        "move",
+                        activePreviewPlacementRecord.placement_id,
+                        event,
+                      )}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (selectedProposedChange) {
+                          selectProposedChange(selectedProposedChange);
+                        }
+                      }}
+                    >
+                      <span className="hammer-monitor__selection-label">Selected visual</span>
+                      <span
+                        className="hammer-monitor__selection-handle"
+                        role="presentation"
+                        title="Drag to resize selected visual"
+                        onMouseDown={(event) => beginPreviewVisualDrag(
+                          "resize",
+                          activePreviewPlacementRecord.placement_id,
+                          event,
+                        )}
+                      />
+                    </div>
+                  ) : null}
+                </>
+              ) : activePreviewVisual.kind === "image" ? (
+                <div className="hammer-monitor__center">
+                  <div className="hammer-monitor__eyebrow">Loading Visual</div>
+                  <h4 className="hammer-monitor__title">{activePreviewVisual.entryId}</h4>
+                  <div className="hammer-monitor__hint">
+                    Hammer is resolving the active mapped image from canonical Tongs assets.
+                  </div>
+                  <div className="hammer-copy-sm hammer-copy-muted hammer-mono">
+                    {activePreviewVisual.imagePath ?? activePreviewVisual.imageAssetId}
+                  </div>
+                  {previewVisualLoadError ? (
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      {previewVisualLoadError}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="hammer-monitor__center">
+                  <div className="hammer-monitor__eyebrow">Preview</div>
+                  <h4 className="hammer-monitor__title">No active visual</h4>
+                  <div className="hammer-meta-strip">
+                    <span className="hammer-pill">
+                      {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+                    </span>
+                    <span className="hammer-pill">
+                      selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}
+                    </span>
+                    {lastPreviewSkip ? (
+                      <span className="hammer-pill">skip {lastPreviewSkip.reason}</span>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {!resolving && !resolveError && playbackSrc ? (
+            showPreviewVideo ? (
+              <video
+                ref={(node) => {
+                  mediaElementRef.current = node;
+                }}
+                src={playbackSrc}
+                className="hammer-audio-hidden"
+                preload="metadata"
+                data-testid="hammer-video-player"
+                onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
+                onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onEnded={() => setIsPlaying(false)}
+                onError={handlePlaybackFailure}
+              />
+            ) : (
+              <audio
+                ref={(node) => {
+                  mediaElementRef.current = node;
+                }}
+                src={playbackSrc}
+                className="hammer-audio-hidden"
+                preload="metadata"
+                data-testid="hammer-audio-player"
+                onLoadedMetadata={(event) => handlePlaybackLoadedMetadata(event.currentTarget.duration)}
+                onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onEnded={() => setIsPlaying(false)}
+                onError={handlePlaybackFailure}
+              />
+            )
+          ) : null}
+
+          {playbackError ? (
+            <div className="hammer-preview-feedback hammer-copy-sm hammer-copy-error">{playbackError}</div>
+          ) : null}
+
+          <div className="hammer-preview-transport">
+            <div className="hammer-preview-transport__head">
+              <strong className="hammer-copy-strong">Transport</strong>
+              <div className="hammer-meta-strip">
+                <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
+                  {isPlaying ? "playing" : "paused"}
+                </span>
+                <span className="hammer-pill">{sessionState.previewMode}</span>
+              </div>
+            </div>
+
+            <div className="hammer-action-row">
+              <button
+                type="button"
+                onClick={stepToPreviousSegment}
+                disabled={!previousSegmentRow}
+                className="hammer-button-xs"
+                title="Previous segment (Alt+Up)"
+              >
+                Prev segment
+              </button>
+              <button
+                type="button"
+                onClick={() => seekToResolvedTarget(previousPlayableTarget)}
+                disabled={previousPlayableTarget.timeSec == null}
+                className="hammer-button-xs"
+              >
+                Prev playable
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void onTogglePlayback();
+                }}
+                disabled={!canControlPlayback}
+                className="hammer-button-xs"
+              >
+                {isPlaying ? "Pause" : "Play"}
+              </button>
+              <button
+                type="button"
+                onClick={() => seekToResolvedTarget(nextPlayableTarget)}
+                disabled={nextPlayableTarget.timeSec == null}
+                className="hammer-button-xs"
+              >
+                Next playable
+              </button>
+              <button
+                type="button"
+                onClick={stepToNextSegment}
+                disabled={!nextSegmentRow}
+                className="hammer-button-xs"
+                title="Next segment (Alt+Down)"
+              >
+                Next segment
+              </button>
+              <button
+                type="button"
+                onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
+                disabled={jumpToActiveTarget.timeSec == null}
+                className="hammer-button-xs"
+              >
+                Jump to active
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewMode((current) => (current === "raw" ? "edit-aware" : "raw"))}
+                className="hammer-button-xs"
+              >
+                {sessionState.previewMode === "raw" ? "Edit-aware" : "Raw"}
+              </button>
+              <button
+                type="button"
+                onClick={resetPreview}
+                className="hammer-button-xs"
+              >
+                Reset
+              </button>
+            </div>
+
+            <div className="hammer-copy-sm hammer-copy-muted">
+              Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+              {" · "}
+              Playback: {previewPlaybackTruthLabel}
+              {" · "}
+              Transcript: {previewTranscriptTruthLabel}
+              {" · "}
+              Skip: {lastPreviewSkip?.reason ?? "none"}
+            </div>
+
+            <div className="hammer-stack-6">
+              <div className="hammer-progress-track">
+                <div
+                  aria-hidden="true"
+                  className={cx("hammer-progress-fill", dynamicStyles.progressFillClassName)}
+                />
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={effectiveDurationSec}
+                step={0.1}
+                value={currentTimeSec}
+                onChange={(event) => seekTo(Number(event.target.value))}
+                aria-label="Playback playhead"
+                disabled={!canControlPlayback}
+              />
+            </div>
+          </div>
+        </div>
+
+        {showDebugPanels ? (isPreviewMonitorCollapsed ? (
+          <div
+            id={previewMonitorPanelId}
+            className="hammer-preview-monitor-strip"
+          >
+            <div className="hammer-action-row">
+              <button
+                type="button"
+                className="hammer-button-xs"
+                onClick={() => setIsPreviewMonitorCollapsed(false)}
+                aria-controls={previewMonitorPanelId}
+              >
+                Expand monitor
+              </button>
+              <span className="hammer-pill">{playbackSourceLabel}</span>
+              <span className="hammer-pill">{previewSourceStatusLabel}</span>
+              <span className="hammer-pill">
+                {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+              </span>
+              <span className="hammer-pill">{previewPlaybackTruthLabel}</span>
+            </div>
+          </div>
+        ) : (
         <HammerPaneSection
           title="Preview Monitor"
-          subtitle="Verify playback, timing, and pacing."
+          subtitle="Status strip"
+          bodyId={previewMonitorPanelId}
           action={(
             <div className="hammer-action-row">
-              <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
-                {isPlaying ? "Playing" : "Paused"}
-              </span>
-              <span className="hammer-pill">{sessionState.previewMode} preview</span>
+              <button
+                type="button"
+                className="hammer-button-xs"
+                onClick={() => setIsPreviewMonitorCollapsed(true)}
+                aria-controls={previewMonitorPanelId}
+              >
+                Collapse
+              </button>
+              <span className="hammer-pill">{playbackSourceLabel}</span>
               <span className="hammer-pill">{previewSourceStatusLabel}</span>
+              <span className="hammer-pill">
+                {selectedOverlayRow ? selectedOverlayRow.row_id : "no row selected"}
+              </span>
             </div>
           )}
           sectionClassName="hammer-preview-panel"
@@ -3829,32 +7633,32 @@ export default function TranscriptSeekMock(
                     <div className="hammer-copy-sm hammer-copy-muted">{activeMediaDetailLabel}</div>
                   </div>
                   <div className="hammer-action-row">
-                    <span className="hammer-pill">
-                      {activeDevRecording
-                        ? "Dev recording attached"
-                        : activeMediaUsesDevTone
-                        ? "Preview proxy active"
-                        : "Launch media active"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setDevRecordingsRefreshToken((current) => current + 1)}
-                      disabled={devRecordingsLoading}
-                      className="hammer-button-xs"
-                    >
-                      {devRecordingsLoading ? "Scanning..." : "Refresh recordings"}
-                    </button>
-                    {activeDevRecording ? (
+                      <span className="hammer-pill">
+                        {activeDevRecording
+                          ? "Attached recording"
+                          : activeMediaUsesDevTone
+                          ? "Fallback source active"
+                          : "Workspace media active"}
+                      </span>
                       <button
                         type="button"
-                        onClick={() => setSelectedDevRecordingId(null)}
+                        onClick={() => setDevRecordingsRefreshToken((current) => current + 1)}
+                        disabled={devRecordingsLoading}
                         className="hammer-button-xs"
                       >
-                        Use launch media
+                        {devRecordingsLoading ? "Scanning..." : "Refresh media"}
                       </button>
-                    ) : null}
+                      {activeDevRecording ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDevRecordingId(null)}
+                          className="hammer-button-xs"
+                        >
+                          Use workspace media
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
 
                 <div className="hammer-dev-media-loader__context">
                   <div className="hammer-stack-4">
@@ -3862,11 +7666,11 @@ export default function TranscriptSeekMock(
                     <div className="hammer-copy-sm hammer-copy-muted">{transcriptStatusDetail}</div>
                   </div>
                   <div className="hammer-stack-4">
-                    <div className="hammer-label">
-                      {devRecordingsRootMapping?.local_root_abs === launchWorkspaceMapping?.local_root_abs
-                        ? "Mapped folder"
-                        : "Dev folder"}
-                    </div>
+                      <div className="hammer-label">
+                        {devRecordingsRootMapping?.local_root_abs === launchWorkspaceMapping?.local_root_abs
+                          ? "Workspace folder"
+                          : "Local folder"}
+                      </div>
                     <div className="hammer-copy-sm hammer-copy-muted hammer-mono">
                       {devRecordingsDirectoryAbs ?? devRecordingsRootMapping?.local_root_abs ?? "Unavailable"}
                     </div>
@@ -3907,12 +7711,12 @@ export default function TranscriptSeekMock(
                               <span>{formatByteSize(recording.byte_size)}</span>
                               {modifiedLabel ? <span>{modifiedLabel}</span> : null}
                             </div>
-                            <div className="hammer-dev-media-loader__item-status">
-                              {recording.transcript_sidecar_relpath
-                                ? "Transcript sidecar detected"
-                                : "Transcript: mock fallback"}
+                              <div className="hammer-dev-media-loader__item-status">
+                                {recording.transcript_sidecar_relpath
+                                  ? "Transcript sidecar detected"
+                                  : "Current transcript retained"}
+                              </div>
                             </div>
-                          </div>
                           <span className="hammer-pill">
                             {isActive ? "Attached" : "Load recording"}
                           </span>
@@ -3940,8 +7744,8 @@ export default function TranscriptSeekMock(
                   <div className="hammer-preview-truth-grid">
                     <div className="hammer-preview-truth-item">
                       <div className="hammer-label">Preview source</div>
-                      <div className="hammer-copy-md hammer-copy-strong">{activeMediaDisplayTitle}</div>
-                      <div className="hammer-copy-sm hammer-copy-muted">{activeMediaDetailLabel}</div>
+                      <div className="hammer-copy-md hammer-copy-strong">{previewSourceDisplayTitle}</div>
+                      <div className="hammer-copy-sm hammer-copy-muted">{previewSourceDisplayDetail}</div>
                     </div>
 
                     <div className="hammer-preview-truth-item">
@@ -3967,256 +7771,29 @@ export default function TranscriptSeekMock(
                       <div className="hammer-copy-md hammer-copy-strong">{playheadSegmentTitle}</div>
                       <div className="hammer-copy-sm hammer-copy-muted">{playheadSegmentDetail}</div>
                     </div>
+
+                    <div className="hammer-preview-truth-item">
+                      <div className="hammer-label">Visual preview</div>
+                      <div className="hammer-copy-md hammer-copy-strong">
+                        {activePreviewVisual.kind === "image"
+                          ? `${formatVisualApprovalStateLabel(activePreviewVisual.ingestState)} image`
+                          : "No active visual"}
+                      </div>
+                      <div className="hammer-copy-sm hammer-copy-muted">
+                        {activePreviewVisual.kind === "image"
+                          ? `Cue-driven preview is drawing from ${activePreviewVisual.entryId}.`
+                          : "The preview frame stays clean until a usable mapped image becomes active."}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="hammer-monitor">
-              <div className="hammer-monitor__chrome">
-                <div className="hammer-stack-4">
-                  <div className="hammer-label">Preview Source</div>
-                  <div className="hammer-copy-sm hammer-copy-strong">{activeMediaDisplayTitle}</div>
-                  <div className="hammer-copy-sm hammer-copy-muted">{previewSourceDetail}</div>
-                </div>
-                <div className="hammer-meta-strip">
-                  <span className="hammer-pill">{playbackSourceLabel}</span>
-                  <span className="hammer-pill">
-                    {selectedOverlayRow ? selectedOverlayRow.row_id : "no row selected"}
-                  </span>
-                </div>
-              </div>
-
-              <div
-                className={cx("hammer-monitor__surface", (showPreviewVideo || showPreviewAudioPlayer) && "has-media")}
-                style={{ aspectRatio: previewMonitorAspectRatio }}
-              >
-                {showPreviewVideo ? (
-                  <video
-                    ref={(node) => {
-                      mediaElementRef.current = node;
-                    }}
-                    src={playbackSrc ?? undefined}
-                    controls
-                    preload="metadata"
-                    className="hammer-monitor__media"
-                    data-testid="hammer-video-player"
-                    onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
-                    onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
-                    onPlay={() => setIsPlaying(true)}
-                    onPause={() => setIsPlaying(false)}
-                    onEnded={() => setIsPlaying(false)}
-                    onError={handlePlaybackFailure}
-                  />
-                ) : showPreviewAudioPlayer ? (
-                  <div className="hammer-monitor__center">
-                    <div className="hammer-monitor__eyebrow">Audio Preview</div>
-                    <h4 className="hammer-monitor__title">{activeMediaDisplayTitle}</h4>
-                    <div className="hammer-monitor__hint">{previewSourceDetail}</div>
-                    <audio
-                      ref={(node) => {
-                        mediaElementRef.current = node;
-                      }}
-                      src={playbackSrc ?? undefined}
-                      controls
-                      preload="metadata"
-                      className="hammer-monitor__audio"
-                      data-testid="hammer-audio-player"
-                      onLoadedMetadata={(event) => handlePlaybackLoadedMetadata(event.currentTarget.duration)}
-                      onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
-                      onPlay={() => setIsPlaying(true)}
-                      onPause={() => setIsPlaying(false)}
-                      onEnded={() => setIsPlaying(false)}
-                      onError={handlePlaybackFailure}
-                    />
-                  </div>
-                ) : (
-                  <div className="hammer-monitor__center">
-                    {resolving ? (
-                      <>
-                        <div className="hammer-monitor__eyebrow">Connecting Preview</div>
-                        <h4 className="hammer-monitor__title">Resolving project media</h4>
-                        <div className="hammer-monitor__hint">{previewSourceDetail}</div>
-                      </>
-                    ) : resolveError ? (
-                      <>
-                        <div className="hammer-monitor__eyebrow">Preview Warning</div>
-                        <h4 className="hammer-monitor__title">Preview source needs attention</h4>
-                        <div className="hammer-monitor__hint">{previewSourceDetail}</div>
-                      </>
-                    ) : !playbackSrc ? (
-                      <>
-                        <div className="hammer-monitor__eyebrow">Preview Offline</div>
-                        <h4 className="hammer-monitor__title">No playback source available</h4>
-                        <div className="hammer-monitor__hint">
-                          Add or resolve project media to use the preview monitor.
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="hammer-monitor__eyebrow">Preview Source</div>
-                        <h4 className="hammer-monitor__title">{activeMediaDisplayTitle}</h4>
-                        <div className="hammer-monitor__hint">{previewSourceDetail}</div>
-                        <div className="hammer-meta-strip">
-                          <span className="hammer-pill">
-                            {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
-                          </span>
-                          <span className="hammer-pill">
-                            selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}
-                          </span>
-                          {lastPreviewSkip ? (
-                            <span className="hammer-pill">skip {lastPreviewSkip.reason}</span>
-                          ) : null}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {!resolving && !resolveError && playbackSrc && !showPreviewVideo && !showPreviewAudioPlayer ? (
-              <>
-                <audio
-                  ref={(node) => {
-                    mediaElementRef.current = node;
-                  }}
-                  src={playbackSrc}
-                  className="hammer-audio-hidden"
-                  preload="metadata"
-                  data-testid="hammer-audio-player"
-                  onLoadedMetadata={(event) => handlePlaybackLoadedMetadata(event.currentTarget.duration)}
-                  onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
-                  onEnded={() => setIsPlaying(false)}
-                  onError={handlePlaybackFailure}
-                />
-              </>
-            ) : null}
-
-            {playbackError ? (
-              <div className="hammer-preview-feedback hammer-copy-sm hammer-copy-error">{playbackError}</div>
-            ) : null}
-
-            <div className="hammer-preview-transport">
-              <div className="hammer-preview-transport__head">
-                <div className="hammer-stack-4">
-                  <strong className="hammer-copy-strong">Transport</strong>
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    Playback, seek, and preview-mode controls stay with the monitor instead of the transcript pane.
-                  </div>
-                </div>
-                <div className="hammer-meta-strip">
-                  <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
-                    {isPlaying ? "playing" : "paused"}
-                  </span>
-                  <span className="hammer-pill">{sessionState.previewMode}</span>
-                </div>
-              </div>
-
-              <div className="hammer-action-row">
-                <button
-                  type="button"
-                  onClick={stepToPreviousSegment}
-                  disabled={!previousSegmentRow}
-                  className="hammer-button-xs"
-                  title="Previous segment (Alt+Up)"
-                >
-                  Prev segment
-                </button>
-                <button
-                  type="button"
-                  onClick={() => seekToResolvedTarget(previousPlayableTarget)}
-                  disabled={previousPlayableTarget.timeSec == null}
-                  className="hammer-button-xs"
-                >
-                  Prev playable
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void onTogglePlayback();
-                  }}
-                  disabled={!canControlPlayback}
-                  className="hammer-button-xs"
-                >
-                  {isPlaying ? "Pause" : "Play"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => seekToResolvedTarget(nextPlayableTarget)}
-                  disabled={nextPlayableTarget.timeSec == null}
-                  className="hammer-button-xs"
-                >
-                  Next playable
-                </button>
-                <button
-                  type="button"
-                  onClick={stepToNextSegment}
-                  disabled={!nextSegmentRow}
-                  className="hammer-button-xs"
-                  title="Next segment (Alt+Down)"
-                >
-                  Next segment
-                </button>
-                <button
-                  type="button"
-                  onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
-                  disabled={jumpToActiveTarget.timeSec == null}
-                  className="hammer-button-xs"
-                >
-                  Jump to active
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPreviewMode((current) => (current === "raw" ? "edit-aware" : "raw"))}
-                  className="hammer-button-xs"
-                >
-                  {sessionState.previewMode === "raw" ? "Edit-aware" : "Raw"}
-                </button>
-                <button
-                  type="button"
-                  onClick={resetPreview}
-                  className="hammer-button-xs"
-                >
-                  Reset
-                </button>
-              </div>
-
-              <div className="hammer-copy-md">
-                Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
-                {" · "}
-                Playback: {previewPlaybackTruthLabel}
-                {" · "}
-                Transcript: {previewTranscriptTruthLabel}
-                {" · "}
-                Skip: {lastPreviewSkip?.reason ?? "none"}
-              </div>
-
-              <div className="hammer-stack-6">
-                <div className="hammer-progress-track">
-                  <div
-                    className="hammer-progress-fill"
-                    style={{
-                      width: `${progressPercent}%`,
-                    }}
-                  />
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={effectiveDurationSec}
-                  step={0.1}
-                  value={currentTimeSec}
-                  onChange={(event) => seekTo(Number(event.target.value))}
-                  aria-label="Playback playhead"
-                  disabled={!canControlPlayback}
-                />
-              </div>
-            </div>
           </div>
         </HammerPaneSection>
+        )) : null}
+        </div>
       </div>
 
       <button
@@ -4230,41 +7807,32 @@ export default function TranscriptSeekMock(
         className={getPaneDividerClassName(activeResizeHandle === "center-right")}
       />
 
-      <div
-        className="hammer-pane hammer-pane--right"
-        style={{ gridTemplateRows: "minmax(0, 1fr)", overflow: "hidden" }}
-      >
+      <div className="hammer-pane hammer-pane--right">
+        <div className="hammer-pane__scroll">
         <HammerPaneSection
           title={activeToolDefinition.label}
           subtitle={activeToolHint}
           action={(
             <div className="hammer-action-row">
-              <span className="hammer-pill">{selectionSummaryCountLabel}</span>
-              <span className="hammer-pill">{selectionSummaryTitle}</span>
-              {selectedSegment ? (
-                <span className="hammer-pill">scope {selectionSummaryScopeLabel}</span>
-              ) : null}
-              <span className={getEditPlanStatusBadgeClassName(sessionState.editPlanStatus)}>
-                {sessionState.editPlanStatus}
-              </span>
+              <span className="hammer-pill">{activeToolDefinition.label}</span>
               {activeTool === "details" ? (
                 <button
                   type="button"
                   onClick={() => setShowDebugPanels((current) => !current)}
                   className={getToggleButtonClassName(showDebugPanels)}
-                  aria-pressed={showDebugPanels}
                 >
                   {showDebugPanels ? "Hide Debug" : "Show Debug"}
                 </button>
               ) : null}
             </div>
           )}
-          sectionStyle={{ minHeight: 0, overflow: "hidden", gridTemplateRows: "auto minmax(0, 1fr)" }}
-          bodyStyle={{ minHeight: 0, overflow: "auto" }}
+          sectionClassName="hammer-pane-section--rows hammer-pane-section--overflow-hidden"
+          bodyClassName="hammer-pane-section__body--scroll"
         >
           {toolPanelContent}
           {detailsDebugContent}
         </HammerPaneSection>
+        </div>
       </div>
 
       <div className="hammer-pane hammer-pane--tool-strip">
@@ -4272,9 +7840,9 @@ export default function TranscriptSeekMock(
           <strong className="hammer-tool-strip__title">
             Tools
           </strong>
-          <span className="hammer-tool-strip__caption">
-            Fixed workflow strip
-          </span>
+            <span className="hammer-tool-strip__caption">
+              Available controls
+            </span>
         </div>
         {HAMMER_TOOL_ORDER.map((tool) => (
           <button
@@ -4282,192 +7850,18 @@ export default function TranscriptSeekMock(
             type="button"
             onClick={() => setActiveTool(tool.id)}
             className={getToolStripButtonClassName(activeTool === tool.id)}
-            aria-pressed={activeTool === tool.id}
             title={`${tool.label} workspace`}
           >
-            <strong style={{ fontSize: 18, lineHeight: 1 }}>{tool.shortLabel}</strong>
-            <span style={{ fontSize: 11 }}>{tool.label}</span>
+            <strong className="hammer-tool-button__short-label">{tool.shortLabel}</strong>
+            <span className="hammer-tool-button__label">{tool.label}</span>
           </button>
         ))}
       </div>
         </div>
       </div>
 
-      <div className="hammer-pane hammer-pane--timeline">
-        <HammerPaneSection
-          title="Timeline"
-          subtitle="Hammer stays transcript-first, but the bottom timeline remains a real multi-track editing surface for placement, layering, and track-aware work."
-          action={(
-            <div className="hammer-tab-row">
-              {TIMELINE_TOOL_ORDER.map((tool) => (
-                <button
-                  key={tool.id}
-                  type="button"
-                  onClick={() => setActiveTimelineTool(tool.id)}
-                  className={getToggleButtonClassName(activeTimelineTool === tool.id)}
-                  aria-pressed={activeTimelineTool === tool.id}
-                >
-                  {tool.label}
-                </button>
-              ))}
-            </div>
-          )}
-          sectionStyle={{ minHeight: 0, overflow: "hidden" }}
-          bodyStyle={{ minHeight: 0, overflow: "auto" }}
-        >
-          <div className="hammer-meta-strip">
-            <span className="hammer-pill">mode {activeTimelineToolDefinition.label}</span>
-            <span className="hammer-pill">tracks {timelineTracks.length}</span>
-            <span className="hammer-pill">playhead {formatClock(currentTimeSec)}</span>
-            <span className="hammer-pill">focus {timelineFocusLabel}</span>
-          </div>
-          <div className="hammer-timeline-status">
-            <div className="hammer-timeline-status__head">
-              <div className="hammer-stack-4">
-                <strong className="hammer-copy-strong">Timeline Focus</strong>
-                <div className="hammer-copy-sm hammer-copy-muted">{timelineToolHint}</div>
-              </div>
-              <div className="hammer-meta-strip">
-                <span className={cx("hammer-pill", activeOverlayRow && "hammer-pill--playing")}>
-                  active {activeOverlayRow ? activeOverlayRow.row_id : "none"}
-                </span>
-                <span className="hammer-pill">selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}</span>
-              </div>
-            </div>
-            <div className="hammer-inspector-grid">
-              <div>
-                <div className="hammer-label">current transcript row</div>
-                <div>{timelineFocusLabel}</div>
-              </div>
-              <div>
-                <div className="hammer-label">tool feedback</div>
-                <div>{activeTimelineToolDefinition.label}</div>
-              </div>
-              <div>
-                <div className="hammer-label">trim / ripple cue</div>
-                <div>{timelineRippleLabel}</div>
-              </div>
-              <div>
-                <div className="hammer-label">edit state</div>
-                <div>{selectedRowHasTimelineEditCue ? selectedRowEffects : "no staged clip edit"}</div>
-              </div>
-            </div>
-          </div>
-          <div className="hammer-timeline-ruler">
-            <div className="hammer-timeline-ruler__label">Time</div>
-            <div className="hammer-timeline-ruler__track">
-              {timelineRulerTicks.map((tick) => (
-                <div
-                  key={tick.id}
-                  className="hammer-timeline-ruler__tick"
-                  style={{ left: `${tick.positionPercent}%` }}
-                >
-                  <span className="hammer-timeline-ruler__tick-label">{tick.label}</span>
-                </div>
-              ))}
-              <div
-                aria-hidden="true"
-                className="hammer-track-viewport__playhead hammer-track-viewport__playhead--ruler"
-                style={{ left: `${playheadPercent}%` }}
-              />
-            </div>
-          </div>
-          <div className="hammer-timeline-track-list">
-            {timelineTracks.map((track) => (
-              <div key={track.id} className="hammer-timeline-track">
-                {(() => {
-                  const trackHasSelectedClip = track.clips.some((clip) => clip.linked_row_id === selectedOverlayRow?.row_id);
-                  const trackHasActiveClip = track.clips.some((clip) => clip.linked_row_id === activeOverlayRow?.row_id);
-                  const clipCount = track.clips.length;
-                  const editableClipCount = track.clips.filter((clip) => clip.editable).length;
-                  const trackStateLabel = trackHasSelectedClip
-                    ? "selected row"
-                    : trackHasActiveClip
-                    ? "active playback"
-                    : clipCount === 0
-                    ? "empty"
-                    : `${clipCount} linked clips`;
-
-                  return (
-                    <>
-                <div className="hammer-timeline-track__label">
-                  <div className="hammer-inline-list-wide">
-                    <strong className="hammer-timeline-track__title">{track.label}</strong>
-                    <span className="hammer-pill">{clipCount} clips</span>
-                  </div>
-                  <span className="hammer-timeline-track__meta">
-                    {getTimelineTrackRoleLabel(track.id)}
-                    {" · "}
-                    {trackStateLabel}
-                    {editableClipCount > 0 ? ` · ${editableClipCount} editable` : ""}
-                  </span>
-                </div>
-                <div className={cx(
-                  "hammer-track-viewport",
-                  trackHasSelectedClip && "is-selected",
-                  trackHasActiveClip && "is-active",
-                )}>
-                  <div className="hammer-track-viewport__backdrop" />
-                  {track.clips.length === 0 ? (
-                    <div className="hammer-track-viewport__empty">
-                      {getTimelineTrackEmptyMessage(track.id, Boolean(selectedOverlayRow))}
-                    </div>
-                  ) : track.clips.map((clip) => {
-                    const left = clamp((clip.start_sec / effectiveDurationSec) * 100, 0, 100);
-                    const width = clamp(((clip.end_sec - clip.start_sec) / effectiveDurationSec) * 100, 1.2, 100);
-                    const isSelected = clip.linked_row_id === selectedOverlayRow?.row_id;
-                    const isActive = clip.linked_row_id === activeOverlayRow?.row_id
-                      || (currentTimeSec >= clip.start_sec && currentTimeSec <= clip.end_sec && !clip.linked_row_id);
-                    const showTrimHandles = activeTimelineTool === "cut" && clip.editable && (isSelected || isActive);
-                    const showRippleCue = (activeTimelineTool === "cut" || activeTimelineTool === "select")
-                      && clip.ripple_hint
-                      && (isSelected || isActive);
-                    return (
-                      <button
-                        key={clip.id}
-                        type="button"
-                        title={`${clip.label} · ${formatClock(clip.start_sec)}-${formatClock(clip.end_sec)}`}
-                        onClick={() => selectTimelineClip(clip)}
-                        aria-pressed={isSelected}
-                        className={cx(
-                          "hammer-timeline-clip",
-                          clip.editable && "is-editable",
-                          isSelected && "is-selected",
-                          isActive && "is-active",
-                          showTrimHandles && "has-trim-handles",
-                        )}
-                        style={{
-                          left: `${left}%`,
-                          width: `${width}%`,
-                          background: clip.tone,
-                        }}
-                      >
-                        {showTrimHandles ? (
-                          <>
-                            <span className="hammer-timeline-clip__trim-handle hammer-timeline-clip__trim-handle--start" />
-                            <span className="hammer-timeline-clip__trim-handle hammer-timeline-clip__trim-handle--end" />
-                          </>
-                        ) : null}
-                        {clip.label}
-                        {showRippleCue ? (
-                          <span className="hammer-timeline-clip__ripple-cue">Ripple</span>
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                  <div
-                    aria-hidden="true"
-                    className="hammer-track-viewport__playhead"
-                    style={{ left: `${playheadPercent}%` }}
-                  />
-                </div>
-                    </>
-                  );
-                })()}
-              </div>
-            ))}
-          </div>
-        </HammerPaneSection>
+      <div className="hammer-editor-shell__edit-band">
+        {timelineWorkspaceContent}
       </div>
     </section>
   );

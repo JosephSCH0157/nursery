@@ -34,7 +34,57 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          anvil_paid: boolean | null
+          asr_calibration_profiles: Json | null
+          asr_settings: Json | null
+          current_period_end: string | null
+          display_name: string | null
+          settings: Json | null
+          settings_rev: number | null
+          settings_updated_at: string | null
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+          subscription_status: string | null
+          tier: string | null
+          user_id: string
+          asr_updated_at: string | null
+        }
+        Insert: {
+          anvil_paid?: boolean | null
+          asr_calibration_profiles?: Json | null
+          asr_settings?: Json | null
+          current_period_end?: string | null
+          display_name?: string | null
+          settings?: Json | null
+          settings_rev?: number | null
+          settings_updated_at?: string | null
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          subscription_status?: string | null
+          tier?: string | null
+          user_id: string
+          asr_updated_at?: string | null
+        }
+        Update: {
+          anvil_paid?: boolean | null
+          asr_calibration_profiles?: Json | null
+          asr_settings?: Json | null
+          current_period_end?: string | null
+          display_name?: string | null
+          settings?: Json | null
+          settings_rev?: number | null
+          settings_updated_at?: string | null
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          subscription_status?: string | null
+          tier?: string | null
+          user_id?: string
+          asr_updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -227,6 +277,285 @@ export type Database = {
           },
           {
             foreignKeyName: "calendar_event_assignments_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bellows_sessions: {
+        Row: {
+          acting_authority_state: string
+          acting_host_participant_id: string | null
+          archived_at: string | null
+          broadcast_state: string
+          calendar_event_id: string | null
+          co_host_participant_ids: string[]
+          created_at: string
+          ended_at: string | null
+          host_participant_id: string | null
+          host_user_id: string
+          id: string
+          integrity_flags: string[]
+          latest_checkpoint_id: string | null
+          lifecycle_state: string
+          mode: string
+          outcome: string | null
+          recording_session_id: string | null
+          recording_state: string
+          seal_state: string
+          sealed_at: string | null
+          session_type: string
+          snapshot_schema_version: number
+          started_at: string | null
+          title: string
+          updated_at: string
+          upload_state: string
+          workspace_id: string
+        }
+        Insert: {
+          acting_authority_state: string
+          acting_host_participant_id?: string | null
+          archived_at?: string | null
+          broadcast_state: string
+          calendar_event_id?: string | null
+          co_host_participant_ids?: string[]
+          created_at?: string
+          ended_at?: string | null
+          host_participant_id?: string | null
+          host_user_id: string
+          id: string
+          integrity_flags?: string[]
+          latest_checkpoint_id?: string | null
+          lifecycle_state: string
+          mode: string
+          outcome?: string | null
+          recording_session_id?: string | null
+          recording_state: string
+          seal_state: string
+          sealed_at?: string | null
+          session_type: string
+          snapshot_schema_version?: number
+          started_at?: string | null
+          title: string
+          updated_at?: string
+          upload_state: string
+          workspace_id: string
+        }
+        Update: {
+          acting_authority_state?: string
+          acting_host_participant_id?: string | null
+          archived_at?: string | null
+          broadcast_state?: string
+          calendar_event_id?: string | null
+          co_host_participant_ids?: string[]
+          created_at?: string
+          ended_at?: string | null
+          host_participant_id?: string | null
+          host_user_id?: string
+          id?: string
+          integrity_flags?: string[]
+          latest_checkpoint_id?: string | null
+          lifecycle_state?: string
+          mode?: string
+          outcome?: string | null
+          recording_session_id?: string | null
+          recording_state?: string
+          seal_state?: string
+          sealed_at?: string | null
+          session_type?: string
+          snapshot_schema_version?: number
+          started_at?: string | null
+          title?: string
+          updated_at?: string
+          upload_state?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bellows_sessions_calendar_event_id_fkey"
+            columns: ["calendar_event_id"]
+            isOneToOne: false
+            referencedRelation: "calendar_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_sessions_recording_session_id_fkey"
+            columns: ["recording_session_id"]
+            isOneToOne: false
+            referencedRelation: "recording_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_sessions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bellows_session_checkpoints: {
+        Row: {
+          acting_authority_state: string
+          acting_host_participant_id: string | null
+          actor_id: string | null
+          actor_type: string | null
+          broadcast_state: string
+          checkpoint_kind: string
+          co_host_participant_ids: string[]
+          delta: Json | null
+          effect_type: string | null
+          event_count: number
+          follow_up_action_source: string | null
+          follow_up_action_type: string | null
+          host_participant_id: string | null
+          id: string
+          integrity_flags: string[]
+          lifecycle_state: string
+          occurred_at: string | null
+          offset_ms: number | null
+          outcome: string | null
+          recorded_at: string
+          recording_state: string
+          seal_state: string
+          sequence_no: number
+          session_id: string
+          session_snapshot: Json
+          snapshot_schema_version: number
+          trigger_action_source: string
+          trigger_action_type: string
+          upload_state: string
+        }
+        Insert: {
+          acting_authority_state: string
+          acting_host_participant_id?: string | null
+          actor_id?: string | null
+          actor_type?: string | null
+          broadcast_state: string
+          checkpoint_kind: string
+          co_host_participant_ids?: string[]
+          delta?: Json | null
+          effect_type?: string | null
+          event_count?: number
+          follow_up_action_source?: string | null
+          follow_up_action_type?: string | null
+          host_participant_id?: string | null
+          id?: string
+          integrity_flags?: string[]
+          lifecycle_state: string
+          occurred_at?: string | null
+          offset_ms?: number | null
+          outcome?: string | null
+          recorded_at?: string
+          recording_state: string
+          seal_state: string
+          sequence_no: number
+          session_id: string
+          session_snapshot: Json
+          snapshot_schema_version?: number
+          trigger_action_source: string
+          trigger_action_type: string
+          upload_state: string
+        }
+        Update: {
+          acting_authority_state?: string
+          acting_host_participant_id?: string | null
+          actor_id?: string | null
+          actor_type?: string | null
+          broadcast_state?: string
+          checkpoint_kind?: string
+          co_host_participant_ids?: string[]
+          delta?: Json | null
+          effect_type?: string | null
+          event_count?: number
+          follow_up_action_source?: string | null
+          follow_up_action_type?: string | null
+          host_participant_id?: string | null
+          id?: string
+          integrity_flags?: string[]
+          lifecycle_state?: string
+          occurred_at?: string | null
+          offset_ms?: number | null
+          outcome?: string | null
+          recorded_at?: string
+          recording_state?: string
+          seal_state?: string
+          sequence_no?: number
+          session_id?: string
+          session_snapshot?: Json
+          snapshot_schema_version?: number
+          trigger_action_source?: string
+          trigger_action_type?: string
+          upload_state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bellows_session_checkpoints_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bellows_session_join_links: {
+        Row: {
+          created_at: string
+          created_by_user_id: string
+          expires_at: string
+          id: string
+          last_used_at: string | null
+          max_uses: number
+          revoked_at: string | null
+          role_code: string
+          session_id: string
+          token_hash: string
+          updated_at: string
+          use_count: number
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by_user_id: string
+          expires_at: string
+          id?: string
+          last_used_at?: string | null
+          max_uses?: number
+          revoked_at?: string | null
+          role_code: string
+          session_id: string
+          token_hash: string
+          updated_at?: string
+          use_count?: number
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by_user_id?: string
+          expires_at?: string
+          id?: string
+          last_used_at?: string | null
+          max_uses?: number
+          revoked_at?: string | null
+          role_code?: string
+          session_id?: string
+          token_hash?: string
+          updated_at?: string
+          use_count?: number
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bellows_session_join_links_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_session_join_links_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -870,7 +1199,128 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      append_bellows_session_checkpoint: {
+        Args: {
+          p_acting_authority_state?: string | null
+          p_acting_host_participant_id?: string | null
+          p_actor_id?: string | null
+          p_actor_type?: string | null
+          p_archived_at?: string | null
+          p_broadcast_state?: string | null
+          p_checkpoint_kind: string
+          p_co_host_participant_ids?: string[] | null
+          p_delta?: Json | null
+          p_effect_type?: string | null
+          p_ended_at?: string | null
+          p_event_count?: number | null
+          p_follow_up_action_source?: string | null
+          p_follow_up_action_type?: string | null
+          p_host_participant_id?: string | null
+          p_integrity_flags?: string[] | null
+          p_lifecycle_state?: string | null
+          p_occurred_at?: string | null
+          p_offset_ms?: number | null
+          p_outcome?: string | null
+          p_recording_state?: string | null
+          p_seal_state?: string | null
+          p_sealed_at?: string | null
+          p_session_id: string
+          p_session_snapshot?: Json | null
+          p_snapshot_schema_version?: number | null
+          p_started_at?: string | null
+          p_trigger_action_source: string
+          p_trigger_action_type: string
+          p_upload_state?: string | null
+        }
+        Returns: Database["tongs"]["Tables"]["bellows_session_checkpoints"]["Row"]
+      }
+      create_bellows_join_link: {
+        Args: {
+          p_created_by_user_id?: string | null
+          p_expires_hours?: number | null
+          p_max_uses?: number | null
+          p_role_code?: string | null
+          p_session_id: string
+        }
+        Returns: {
+          created_at: string
+          expires_at: string
+          join_link_id: string
+          last_used_at: string | null
+          max_uses: number
+          revoked_at: string | null
+          role_code: string
+          session_id: string
+          token: string
+          use_count: number
+          workspace_id: string
+        }[]
+      }
+      create_bellows_session_header: {
+        Args: {
+          p_acting_authority_state: string
+          p_acting_host_participant_id?: string | null
+          p_archived_at?: string | null
+          p_broadcast_state?: string
+          p_calendar_event_id?: string | null
+          p_co_host_participant_ids?: string[]
+          p_ended_at?: string | null
+          p_host_participant_id?: string | null
+          p_host_user_id: string
+          p_integrity_flags?: string[]
+          p_lifecycle_state?: string
+          p_mode: string
+          p_outcome?: string | null
+          p_recording_session_id?: string | null
+          p_recording_state?: string
+          p_seal_state?: string
+          p_sealed_at?: string | null
+          p_session_id: string
+          p_session_type: string
+          p_snapshot_schema_version?: number
+          p_started_at?: string | null
+          p_title: string
+          p_upload_state?: string
+          p_workspace_id: string
+        }
+        Returns: Database["tongs"]["Tables"]["bellows_sessions"]["Row"]
+      }
+      mark_bellows_session_latest_checkpoint: {
+        Args: {
+          p_checkpoint_id: string
+          p_session_id: string
+        }
+        Returns: Database["tongs"]["Tables"]["bellows_sessions"]["Row"]
+      }
+      resolve_bellows_join_link: {
+        Args: {
+          p_session_id: string
+          p_token: string
+        }
+        Returns: {
+          expires_at: string
+          host_user_id: string
+          join_link_id: string
+          last_used_at: string | null
+          lifecycle_state: string
+          max_uses: number
+          resolved_at: string
+          role_code: string
+          session_id: string
+          title: string
+          use_count: number
+          workspace_id: string
+        }[]
+      }
+      revoke_bellows_join_link: {
+        Args: {
+          p_join_link_id: string
+        }
+        Returns: {
+          join_link_id: string
+          revoked: boolean
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

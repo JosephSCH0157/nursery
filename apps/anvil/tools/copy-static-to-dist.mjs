@@ -33,7 +33,6 @@ const STATIC_PATHS = [
   'display.html',
   'hud_popout.html',
   'login.html',
-  'account.html',
   'reset.html',
   'robots.txt',
   'ads.txt',
@@ -55,6 +54,9 @@ const SPEECH_STUBS = [
 ];
 
 removeStale(path.join(DIST, 'beta'));
+removeStale(path.join(DIST, 'account.html'));
+removeStale(path.join(DIST, 'forge', 'account.js'));
+removeStale(path.join(DIST, 'forge', 'account.js.map'));
 
 for (const rel of STATIC_PATHS) {
   copy(path.join(ROOT, rel), path.join(DIST, rel));

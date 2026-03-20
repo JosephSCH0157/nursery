@@ -5,7 +5,18 @@ import {
   type GenerateImageInput,
   type ImageProvider,
 } from "./providers/image-provider.js";
+import {
+  buildHearthVisualStylePromptLines,
+  normalizeHearthVisualStyle,
+} from "./hearth-visual-styles.js";
+import type { HearthVisualStyleValue } from "./hearth-visual-styles.js";
 import type { RecordingSessionDTO, RecordingSessionItemDTO } from "./types.js";
+import { ALL_MOUNT_ROLES, type MountRole } from "./storage/storage-contract.js";
+import {
+  resolveWorkspaceCloudListingPrefixes,
+  resolveWorkspaceCloudReadCandidates,
+  resolveWorkspaceCloudWriteTarget,
+} from "./storage/cloud-prefix.js";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
@@ -19,6 +30,7 @@ const BOOTSTRAP_WORKPIECE_PATHS = new Set([
   "script/session.json",
   "script/script.sources.json",
   "hearth/drafts.v1.json",
+  "hearth/chat.v1.json",
   "hearth/revisions.v1.json",
 ]);
 const BOOTSTRAP_WORKSPACE_PATHS = new Set(["sources/index.json"]);
@@ -29,10 +41,7 @@ const READY_SCRIPT_PATH_CANDIDATES = [
   "scripts/script.source.md",
 ] as const;
 const READY_SCRIPT_PATH_SET = new Set<string>(READY_SCRIPT_PATH_CANDIDATES as readonly string[]);
-const RECORDING_PATH_PREFIXES = [
-  "recordings/",
-  "assets/recordings/",
-] as const;
+const TAKE_KEPT_EVENT = "take_kept";
 const CONTENT_CATEGORY_EVENT = "hearth.content_category.set.v1";
 const CONTENT_CATEGORY_VALUES = [
   "evergreen",
@@ -55,7 +64,9 @@ const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
   owner: 40,
 };
 const THUMBNAIL_ASSET_PREFIX = "assets/thumbnails";
-const THUMBNAIL_DEFAULT_STYLE_HINT = "Clean, high-contrast YouTube thumbnail composition.";
+const THUMBNAIL_ASSET_KIND = "thumbnail_image" as const;
+const THUMBNAIL_ASSET_SCHEMA = "forge.thumbnail-image.v1" as const;
+const THUMBNAIL_EDITORIAL_BASE_HINT = "Clean, high-contrast YouTube thumbnail composition.";
 const IMAGE_MAP_ASSET_PATH = "assets/image-map/image-map.v1.json";
 const IMAGE_MAP_ASSET_KIND = "image_map_json" as const;
 const IMAGE_MAP_ASSET_SCHEMA = "forge.image-map.v1" as const;
@@ -78,10 +89,12 @@ const IMAGE_MAP_VISUAL_MODE_VALUES = [
   "object_detail",
 ] as const;
 const IMAGE_MAP_VISUAL_MODE_SET = new Set<string>(IMAGE_MAP_VISUAL_MODE_VALUES);
-const HAMMER_PREP_STATUS_VALUES = ["not_started", "preparing", "prepared", "needs_review"] as const;
+const HAMMER_PREP_STATUS_VALUES = ["idle", "preparing", "prepared", "prep_failed"] as const;
 const HAMMER_PREP_STATUS_SET = new Set<string>(HAMMER_PREP_STATUS_VALUES);
 const HAMMER_ALIGNMENT_STATUS_VALUES = ["not_started", "pending", "aligned", "needs_review"] as const;
 const HAMMER_ALIGNMENT_STATUS_SET = new Set<string>(HAMMER_ALIGNMENT_STATUS_VALUES);
+const STORAGE_LIST_MAX_DEPTH = 3;
+const STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY = 80;
 const HAMMER_ARTIFACT_PATHS = {
   editor_session: "hammer/session/editor-state.v1.json",
   structured_transcript: "hammer/transcript/structured.v1.json",
@@ -271,11 +284,33 @@ export type ReadBinaryFileResult =
   | { found: true; bytes_base64: string; content_type: string }
   | { found: false };
 
+type ReadBinaryFileBytesResult =
+  | { found: true; bytes: Uint8Array; content_type: string }
+  | { found: false };
+
 export type AppendEventRequest = {
   event_name: string;
   payload?: Json;
   correlation_id?: string;
   written_by: WrittenBy;
+};
+
+export type WorkpieceTakeReceipt = {
+  event_id: number;
+  created_at: string;
+  file_path: string | null;
+  recording_session_id: string | null;
+  anvil_capture_session_id: string | null;
+  content_type: string | null;
+  bytes: number | null;
+  duration_ms: number | null;
+  original_name: string | null;
+};
+
+export type WorkpieceRecordingTruth = {
+  workpiece_id: string;
+  recorded: boolean;
+  latest_kept_take: WorkpieceTakeReceipt | null;
 };
 
 export type RecordingSessionStatus = (typeof RECORDING_SESSION_STATUS_VALUES)[number];
@@ -414,7 +449,7 @@ export type EpisodeThumbnailConceptRecord = {
   id: string;
   label: string;
   prompt_text: string;
-  style_preset: string | null;
+  style_preset: HearthVisualStyleValue | null;
 };
 
 export type EpisodeImageMapScriptAnchorRecord = {
@@ -444,6 +479,7 @@ export type EpisodeImageMapEntryRecord = {
   description: string;
   visual_intent: string;
   prompt_basis: string;
+  style_preset: HearthVisualStyleValue | null;
   intent: string;
   source_type: string;
   beat_order: number;
@@ -467,6 +503,7 @@ export type EpisodePackageRecord = {
     versions: ThumbnailVersionRecord[];
     primary_version_id: string | null;
   };
+  launch_variants: JsonValue[];
   image_map: {
     entries: EpisodeImageMapEntryRecord[];
   };
@@ -657,6 +694,67 @@ export type ListWorkspaceEpisodesOptions = {
   userAccessToken?: string | null;
 };
 
+export type WorkspaceStorageTreeNode = {
+  name: string;
+  kind: "directory" | "file";
+  path: string;
+  bytes?: number | null;
+  updated_at?: string | null;
+  children?: WorkspaceStorageTreeNode[];
+  note?: string;
+};
+
+export type WorkspaceStorageListing = {
+  source: {
+    kind: "cloud_canonical";
+    bucket: string;
+    workspace_id: string;
+    role: MountRole;
+    prefix: string | null;
+    root_path: string;
+  };
+  nodes: WorkspaceStorageTreeNode[];
+};
+
+export type WorkpieceStorageListing = {
+  source: {
+    kind: "cloud_workpiece";
+    bucket: string;
+    workspace_id: string;
+    workpiece_id: string;
+    prefix: string | null;
+    root_path: string;
+  };
+  nodes: WorkspaceStorageTreeNode[];
+};
+
+export type WorkspaceCanonicalRecordingListing = {
+  source: {
+    kind: "cloud_workpiece_recordings";
+    bucket: string;
+    workspace_id: string;
+    root_path: string;
+  };
+  nodes: WorkspaceStorageTreeNode[];
+};
+
+export type ListWorkspaceStorageOptions = {
+  prefix?: string | null;
+  depth?: number;
+  userAccessToken?: string | null;
+};
+
+export type ListWorkpieceStorageOptions = {
+  prefix?: string | null;
+  depth?: number;
+  userAccessToken?: string | null;
+};
+
+export type ListWorkspaceCanonicalRecordingsOptions = {
+  includeArchived?: boolean;
+  userAccessToken?: string | null;
+};
+
 export type ArchiveWorkpieceRequest = {
   workspace_id: string;
   reason?: string | null;
@@ -706,6 +804,7 @@ export type TongsCommitApiOptions = {
   supabaseServiceRoleKey: string;
   bucket?: string;
   apiToken?: string;
+  openAiImageApiKey?: string;
   openAiApiKey?: string;
   openAiImageModel?: string;
 };
@@ -785,6 +884,19 @@ export type TongsCommitApiService = {
     workspaceId: string,
     options?: ListWorkspaceEpisodesOptions,
   ): Promise<WorkspaceEpisodeSummary[]>;
+  listWorkspaceStorage(
+    workspaceId: string,
+    role: MountRole,
+    options?: ListWorkspaceStorageOptions,
+  ): Promise<WorkspaceStorageListing>;
+  listWorkpieceStorage(
+    workpieceId: string,
+    options?: ListWorkpieceStorageOptions,
+  ): Promise<WorkpieceStorageListing>;
+  listWorkspaceCanonicalRecordings(
+    workspaceId: string,
+    options?: ListWorkspaceCanonicalRecordingsOptions,
+  ): Promise<WorkspaceCanonicalRecordingListing>;
   archiveWorkpiece(
     workpieceId: string,
     input: ArchiveWorkpieceRequest,
@@ -822,6 +934,7 @@ export type TongsCommitApiService = {
     input: SaveWorkpieceImageMapRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<WorkpieceImageMapResponseData>;
+  getWorkpieceRecordingTruth(workpieceId: string): Promise<WorkpieceRecordingTruth>;
   appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow>;
   readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult>;
   readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult>;
@@ -982,6 +1095,86 @@ function normalizeRelativePath(input: unknown): string {
   }
 
   return segments.join("/");
+}
+
+function normalizeOptionalRelativePath(input: unknown): string | null {
+  if (input == null) return null;
+  if (typeof input !== "string") {
+    throw new HttpError(400, "invalid_path", "path must be a string");
+  }
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  return normalizeRelativePath(trimmed);
+}
+
+const MOUNT_ROLE_SET = new Set<MountRole>(ALL_MOUNT_ROLES);
+
+function normalizeMountRole(input: unknown, field = "role"): MountRole {
+  if (typeof input !== "string") {
+    throw new HttpError(400, "invalid_mount_role", `${field} must be a string`);
+  }
+  const trimmed = input.trim();
+  if (!MOUNT_ROLE_SET.has(trimmed as MountRole)) {
+    throw new HttpError(400, "invalid_mount_role", `${field} must be one of ${ALL_MOUNT_ROLES.join(", ")}`);
+  }
+  return trimmed as MountRole;
+}
+
+function normalizeStorageListDepth(input: unknown): number {
+  if (input == null || input === "") return STORAGE_LIST_MAX_DEPTH;
+  if (typeof input !== "string") {
+    throw new HttpError(400, "invalid_depth", "depth must be a string query parameter");
+  }
+
+  const value = Number.parseInt(input, 10);
+  if (!Number.isFinite(value) || String(value) !== input.trim()) {
+    throw new HttpError(400, "invalid_depth", "depth must be an integer");
+  }
+  if (value < 0 || value > STORAGE_LIST_MAX_DEPTH) {
+    throw new HttpError(400, "invalid_depth", `depth must be between 0 and ${STORAGE_LIST_MAX_DEPTH}`);
+  }
+  return value;
+}
+
+function joinRelativePath(basePath: string, childName: string): string {
+  if (!basePath) return childName;
+  return `${basePath}/${childName}`;
+}
+
+function compareWorkspaceStorageNodes(left: WorkspaceStorageTreeNode, right: WorkspaceStorageTreeNode): number {
+  if (left.kind !== right.kind) return left.kind === "directory" ? -1 : 1;
+  return left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
+}
+
+function compareIsoTimestampDescending(left: string | null | undefined, right: string | null | undefined): number {
+  const leftTs = left ? Date.parse(left) : Number.NaN;
+  const rightTs = right ? Date.parse(right) : Number.NaN;
+  const leftOk = Number.isFinite(leftTs);
+  const rightOk = Number.isFinite(rightTs);
+  if (leftOk && rightOk) {
+    if (leftTs === rightTs) return 0;
+    return leftTs > rightTs ? -1 : 1;
+  }
+  if (leftOk) return -1;
+  if (rightOk) return 1;
+  return 0;
+}
+
+function inferWorkspaceStorageNodeKind(entry: Record<string, unknown>): "directory" | "file" {
+  if (typeof entry.id === "string" && entry.id.trim()) return "file";
+  const metadata = entry.metadata;
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    const size = (metadata as Record<string, unknown>).size;
+    if (typeof size === "number" && Number.isFinite(size)) return "file";
+  }
+  return "directory";
+}
+
+function readWorkspaceStorageBytes(entry: Record<string, unknown>): number | null | undefined {
+  const metadata = entry.metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return undefined;
+  const size = (metadata as Record<string, unknown>).size;
+  return typeof size === "number" && Number.isFinite(size) ? size : undefined;
 }
 
 function extensionOf(path: string): string {
@@ -1160,10 +1353,6 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 
 function buildStorageKey(workpieceId: string, path: string): string {
   return `workpieces/${workpieceId}/${path}`;
-}
-
-function buildWorkspaceStorageKey(workspaceId: string, path: string): string {
-  return `workspaces/${workspaceId}/${path}`;
 }
 
 function buildManifestFileEntry(
@@ -1468,11 +1657,33 @@ async function uploadStorageObject(
 
   if (error) {
     logStorageError("upload", bucket, key, error);
+    if (isStorageObjectTooLargeError(error)) {
+      throw new HttpError(413, "storage_object_too_large", "File exceeds the configured Storage object size limit", {
+        bucket,
+        key,
+        reason: error.message,
+      });
+    }
     throw new HttpError(502, "storage_write_failed", "Unable to write file to Storage", {
       key,
       reason: error.message,
     });
   }
+}
+
+function isStorageObjectTooLargeError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as Record<string, unknown>;
+  const status = typeof record.status === "number" ? record.status : null;
+  const statusCode =
+    typeof record.statusCode === "string"
+      ? record.statusCode.trim()
+      : typeof record.statusCode === "number"
+      ? String(record.statusCode)
+      : null;
+  const message = typeof record.message === "string" ? record.message.toLowerCase() : "";
+  if (status === 413 || statusCode === "413") return true;
+  return message.includes("maximum allowed size");
 }
 
 function shouldDebugStorage(): boolean {
@@ -1612,6 +1823,18 @@ async function downloadStorageObject(
   if (!data) return null;
   const ab = await data.arrayBuffer();
   return new Uint8Array(ab);
+}
+
+async function downloadStorageObjectFromCandidates(
+  supabase: SupabaseClient<Database>,
+  bucket: string,
+  keys: readonly string[],
+): Promise<Uint8Array | null> {
+  for (const key of keys) {
+    const bytes = await downloadStorageObject(supabase, bucket, key);
+    if (bytes) return bytes;
+  }
+  return null;
 }
 
 function canonicalizeJsonlLine(input: unknown): Uint8Array {
@@ -1761,6 +1984,17 @@ function normalizeIsoTimestamp(input: unknown, field: string): string {
   const date = new Date(input);
   if (Number.isNaN(date.valueOf())) {
     throw new HttpError(400, "invalid_timestamp", `${field} must be a valid timestamp`);
+  }
+  return date.toISOString();
+}
+
+function normalizeComparableIsoTimestampOrNull(input: unknown): string | null {
+  if (typeof input !== "string" || !input.trim()) {
+    return null;
+  }
+  const date = new Date(input);
+  if (Number.isNaN(date.valueOf())) {
+    return input.trim();
   }
   return date.toISOString();
 }
@@ -2377,6 +2611,7 @@ function normalizeEpisodeImageMapEntry(
     description,
     visual_intent: readStringField(value, "visual_intent") ?? description,
     prompt_basis: readStringField(value, "prompt_basis") ?? description,
+    style_preset: normalizeHearthVisualStyle(value.style_preset ?? null),
     intent: normalizeImageMapIntent(value.intent),
     source_type: normalizeImageMapSourceType(value.source_type),
     beat_order: typeof value.beat_order === "number" ? Math.max(1, Math.trunc(value.beat_order)) : index + 1,
@@ -2499,12 +2734,13 @@ function buildImageMapAssetDocument(
 function buildImageMapCandidateAssetPath(args: {
   workpieceId: string;
   entryId: string;
+  assetId: string;
   variantLabel: string;
   mimeType: string;
 }): string {
   const extension = args.mimeType.toLowerCase().includes("jpeg") ? "jpg" : "png";
   const variantSlug = args.variantLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "candidate";
-  return `${IMAGE_MAP_CANDIDATE_ASSET_PREFIX}/${args.workpieceId}/${args.entryId}/${variantSlug}.${extension}`;
+  return `${IMAGE_MAP_CANDIDATE_ASSET_PREFIX}/${args.workpieceId}/${args.entryId}/${args.assetId}-${variantSlug}.${extension}`;
 }
 
 function inferImageMapVisualMode(entry: EpisodeImageMapEntryRecord, contextText: string): string {
@@ -2569,6 +2805,7 @@ function buildImageMapCandidatePrompt(args: {
     `You are generating a still image candidate for a scripted visual beat.`,
     `Visual intent: ${args.entry.visual_intent || args.entry.description}`,
     `Prompt basis: ${args.entry.prompt_basis || args.entry.description}`,
+    ...buildHearthVisualStylePromptLines(args.entry.style_preset),
     `Visual mode: ${args.visualMode}.`,
     contextLines.join("\n"),
     modeInstruction,
@@ -2595,6 +2832,7 @@ function buildImageMapCandidateAssetMetadata(args: {
     variant_label: args.variantLabel,
     beat_order: args.entry.beat_order,
     paragraph_beat_order: args.entry.paragraph_beat_order,
+    style_preset: args.entry.style_preset,
     prompt: args.prompt,
     revised_prompt: args.revisedPrompt,
     visual_intent: args.entry.visual_intent,
@@ -2602,6 +2840,29 @@ function buildImageMapCandidateAssetMetadata(args: {
     script_anchor: args.entry.script_anchor as unknown as Json,
     aspect: args.aspect,
     size: args.size,
+  } as Json;
+}
+
+function buildThumbnailAssetMetadata(args: {
+  conceptId: string;
+  conceptLabel: string;
+  conceptPrompt: string;
+  stylePreset: string | null;
+  aspect: string | null;
+  size: string | null;
+  finalPrompt: string;
+  revisedPrompt: string | null;
+}): Json {
+  return {
+    schema: THUMBNAIL_ASSET_SCHEMA,
+    concept_id: args.conceptId,
+    concept_label: args.conceptLabel,
+    concept_prompt: args.conceptPrompt,
+    style_preset: args.stylePreset,
+    aspect: args.aspect,
+    size: args.size,
+    prompt: args.finalPrompt,
+    revised_prompt: args.revisedPrompt,
   } as Json;
 }
 
@@ -2736,7 +2997,7 @@ function normalizeThumbnailConcept(value: unknown): EpisodeThumbnailConceptRecor
     id,
     label,
     prompt_text: promptText,
-    style_preset: readStringField(row, "style_preset"),
+    style_preset: normalizeHearthVisualStyle(readStringField(row, "style_preset")),
   };
 }
 
@@ -2816,6 +3077,11 @@ function normalizeEpisodePackageRecord(metadata: Record<string, unknown>): Episo
   )
     ? (episodeRoot.image_map as Record<string, unknown>)
     : {};
+  const launchVariants = Array.isArray(episodeRoot.launch_variants)
+    ? episodeRoot.launch_variants as JsonValue[]
+    : Array.isArray(metadata.launch_variants)
+      ? metadata.launch_variants as JsonValue[]
+      : [];
 
   const concepts = Array.isArray(thumbnailRoot.concepts)
     ? thumbnailRoot.concepts.map((entry) => normalizeThumbnailConcept(entry)).filter(Boolean) as EpisodeThumbnailConceptRecord[]
@@ -2845,6 +3111,7 @@ function normalizeEpisodePackageRecord(metadata: Record<string, unknown>): Episo
       versions,
       primary_version_id: readStringField(thumbnailRoot, "primary_version_id"),
     },
+    launch_variants: launchVariants,
     image_map: {
       entries: normalizeEpisodeImageMapEntries(imageMapRoot.entries),
     },
@@ -2865,6 +3132,7 @@ function mirrorEpisodePackageToMetadata(
     thumbnail_concepts: episodePackage.thumbnail.concepts,
     thumbnail_versions: episodePackage.thumbnail.versions,
     primary_thumbnail_version_id: episodePackage.thumbnail.primary_version_id,
+    launch_variants: episodePackage.launch_variants,
     image_map_entries: episodePackage.image_map.entries,
   };
 }
@@ -3012,10 +3280,6 @@ function readyScriptMetaKey(workpieceId: string, scriptPath: string): string {
   return `${workpieceId}:${scriptPath}`;
 }
 
-function isRecordingPath(path: string): boolean {
-  return RECORDING_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
-}
-
 function normalizeContentCategory(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
@@ -3026,6 +3290,105 @@ function readContentCategoryFromEventPayload(payload: Json): string | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const row = payload as Record<string, unknown>;
   return normalizeContentCategory(row.content_category);
+}
+
+function readNullableString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readNullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readTakeReceiptFromEvent(row: Pick<WorkpieceEventRow, "id" | "created_at" | "payload">): WorkpieceTakeReceipt {
+  const payload = row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
+    ? row.payload as Record<string, unknown>
+    : {};
+  return {
+    event_id: row.id,
+    created_at: row.created_at,
+    file_path: readNullableString(payload.file_path ?? payload.path),
+    recording_session_id: readNullableString(payload.recording_session_id),
+    anvil_capture_session_id: readNullableString(payload.anvil_capture_session_id),
+    content_type: readNullableString(payload.content_type),
+    bytes: readNullableNumber(payload.bytes),
+    duration_ms: readNullableNumber(payload.duration_ms),
+    original_name: readNullableString(payload.original_name),
+  };
+}
+
+function pushCanonicalRecordingPathNode(
+  nodes: WorkspaceStorageTreeNode[],
+  parentPath: string,
+  relativePath: string,
+  receipt: WorkpieceTakeReceipt,
+): void {
+  const segments = relativePath.split("/").filter(Boolean);
+  if (!segments.length) return;
+
+  const [head, ...tail] = segments;
+  const path = joinRelativePath(parentPath, head);
+
+  if (tail.length === 0) {
+    nodes.push({
+      name: head,
+      kind: "file",
+      path,
+      bytes: receipt.bytes,
+      updated_at: receipt.created_at,
+      ...(receipt.original_name && receipt.original_name !== head
+        ? { note: `Original name: ${receipt.original_name}` }
+        : {}),
+    });
+    return;
+  }
+
+  let directoryNode = nodes.find((node) => node.kind === "directory" && node.path === path);
+  if (!directoryNode) {
+    directoryNode = {
+      name: head,
+      kind: "directory",
+      path,
+      children: [],
+    };
+    nodes.push(directoryNode);
+  }
+  if (!directoryNode.children) {
+    directoryNode.children = [];
+  }
+  pushCanonicalRecordingPathNode(directoryNode.children, path, tail.join("/"), receipt);
+  directoryNode.children.sort(compareWorkspaceStorageNodes);
+}
+
+function buildCanonicalRecordingWorkpieceNode(
+  episode: Pick<EpisodeRow, "id" | "label">,
+  receipt: WorkpieceTakeReceipt,
+): WorkspaceStorageTreeNode {
+  const workpieceRootPath = `workpieces/${episode.id}`;
+  const children: WorkspaceStorageTreeNode[] = [];
+  const normalizedRecordingPath = normalizeOptionalRelativePath(receipt.file_path);
+
+  if (normalizedRecordingPath) {
+    pushCanonicalRecordingPathNode(children, workpieceRootPath, normalizedRecordingPath, receipt);
+  } else {
+    children.push({
+      name: receipt.original_name ?? "Kept take path unavailable",
+      kind: "file",
+      path: joinRelativePath(workpieceRootPath, "__path_unavailable__"),
+      bytes: receipt.bytes,
+      updated_at: receipt.created_at,
+      note: "Kept take event is missing a canonical file path.",
+    });
+  }
+
+  children.sort(compareWorkspaceStorageNodes);
+  return {
+    name: episode.label?.trim() || episode.id,
+    kind: "directory",
+    path: workpieceRootPath,
+    note: episode.id,
+    children,
+  };
 }
 
 function toRecordingSessionItemDTO(row: RecordingSessionItemRow): RecordingSessionItemDTO {
@@ -3654,7 +4017,9 @@ export class TongsCommitService {
     return {
       metadata,
       episodePackage,
-      metadataUpdatedAt: metadataRead.found ? metadataRead.file_row?.updated_at ?? null : null,
+      metadataUpdatedAt: metadataRead.found
+        ? normalizeComparableIsoTimestampOrNull(metadataRead.file_row?.updated_at)
+        : null,
     };
   }
 
@@ -3675,6 +4040,56 @@ export class TongsCommitService {
 
     if (error) {
       throw new HttpError(502, "db_read_failed", "Failed to read current image map asset", {
+        reason: error.message,
+      });
+    }
+
+    return data?.[0] ?? null;
+  }
+
+  private async getLatestImageMapAsset(
+    workspaceId: string,
+    workpieceId: string,
+  ): Promise<AssetRow | null> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .eq("asset_kind", IMAGE_MAP_ASSET_KIND)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to read latest image map asset", {
+        reason: error.message,
+      });
+    }
+
+    return data?.[0] ?? null;
+  }
+
+  private async getImageMapAssetByStorageLocation(
+    workspaceId: string,
+    workpieceId: string,
+    storageBucket: string,
+    storageKey: string,
+  ): Promise<AssetRow | null> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .eq("asset_kind", IMAGE_MAP_ASSET_KIND)
+      .eq("storage_bucket", storageBucket)
+      .eq("storage_key", storageKey)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to read image map asset by storage location", {
         reason: error.message,
       });
     }
@@ -3796,6 +4211,44 @@ export class TongsCommitService {
     }
 
     return data;
+  }
+
+  private async updateImageMapAssetRow(
+    assetId: string,
+    patch: Database["tongs"]["Tables"]["assets"]["Update"],
+    errorMessage: string,
+  ): Promise<AssetRow> {
+    const { error } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .update({
+        ...patch,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", assetId);
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", errorMessage, {
+        reason: error.message,
+      });
+    }
+
+    const { data, error: readError } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .select("*")
+      .eq("id", assetId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const row = data?.[0] ?? null;
+    if (readError || !row) {
+      throw new HttpError(502, "db_read_failed", "Failed to reload updated image map asset", {
+        reason: readError?.message ?? "missing_asset_row",
+      });
+    }
+
+    return row;
   }
 
   private buildWorkpieceImageMapResponse(args: {
@@ -4125,7 +4578,7 @@ export class TongsCommitService {
       edit_plan_signature: typeof input.edit_plan_signature === "undefined"
         ? existingState?.edit_plan_signature ?? null
         : input.edit_plan_signature,
-      prep_status: input.prep_status ?? existingState?.prep_status ?? "not_started",
+      prep_status: input.prep_status ?? existingState?.prep_status ?? "idle",
       alignment_status: input.alignment_status ?? existingState?.alignment_status ?? "not_started",
       macro_recipe_ref: typeof input.macro_recipe_ref === "undefined"
         ? existingState?.macro_recipe_ref ?? null
@@ -4476,6 +4929,7 @@ export class TongsCommitService {
           versions: [] as JsonValue[],
           primary_version_id: null,
         },
+        launch_variants: [] as JsonValue[],
         image_map: {
           entries: [] as JsonValue[],
         },
@@ -4487,6 +4941,7 @@ export class TongsCommitService {
       thumbnail_concepts: [] as JsonValue[],
       thumbnail_versions: [] as JsonValue[],
       primary_thumbnail_version_id: null,
+      launch_variants: [] as JsonValue[],
       image_map_entries: [] as JsonValue[],
       image_beat_sheet: {
         entries: [] as JsonValue[],
@@ -4815,7 +5270,7 @@ export class TongsCommitService {
   }
 
   async commitWorkspaceFile(workspaceId: string, input: CommitFileRequest): Promise<CommitWorkspaceFileResponse> {
-    await this.getWorkspaceOrThrow(workspaceId);
+    const workspace = await this.getWorkspaceOrThrow(workspaceId);
     const path = normalizeRelativePath(input.path);
     if (extensionOf(path) !== ".json") {
       throw new HttpError(400, "invalid_path", "Workspace commit-file currently supports JSON paths only");
@@ -4827,7 +5282,10 @@ export class TongsCommitService {
       throw new HttpError(400, "invalid_payload", "workspace commit-file does not support jsonl_append");
     }
 
-    const storageKey = buildWorkspaceStorageKey(workspaceId, path);
+    const storageKey = resolveWorkspaceCloudWriteTarget({
+      workspaceId,
+      legacyOwnerUserId: workspace.created_by,
+    }, path).key;
     const bytes = canonicalizeReplaceBytes(path, contentType, input);
     const hash = await sha256Hex(bytes);
 
@@ -5031,7 +5489,11 @@ export class TongsCommitService {
     if (!conceptPrompt) {
       throw new HttpError(400, "missing_prompt", "Unable to resolve prompt for thumbnail generation");
     }
-    const stylePreset = (input.preset ?? requestedConcept?.style_preset ?? null)?.trim() || null;
+    const stylePreset = normalizeHearthVisualStyle(input.preset ?? requestedConcept?.style_preset ?? null);
+
+    if (requestedConcept) {
+      requestedConcept.style_preset = stylePreset;
+    }
 
     if (!conceptById.has(conceptId)) {
       episodePackage.thumbnail.concepts.push({
@@ -5044,8 +5506,8 @@ export class TongsCommitService {
 
     const finalPrompt = [
       conceptPrompt,
-      stylePreset ? `Style preset: ${stylePreset}` : null,
-      THUMBNAIL_DEFAULT_STYLE_HINT,
+      ...buildHearthVisualStylePromptLines(stylePreset),
+      THUMBNAIL_EDITORIAL_BASE_HINT,
     ].filter(Boolean).join("\n\n");
 
     const imageResult = await this.imageProvider.generateImage({
@@ -5084,7 +5546,7 @@ export class TongsCommitService {
       correlation_id: requestId,
     });
 
-    const assetInsert: Database["tongs"]["Tables"]["assets"]["Insert"] = {
+    const assetRow = await this.insertAssetRow({
       id: assetId,
       workspace_id: workspace.id,
       workpiece_id: workpieceId,
@@ -5098,20 +5560,20 @@ export class TongsCommitService {
       request_id: requestId,
       prompt: finalPrompt,
       created_by: userId,
-    };
-
-    const { data: assetRow, error: assetError } = await this.supabase
-      .schema("tongs")
-      .from("assets")
-      .insert(assetInsert)
-      .select("*")
-      .single();
-
-    if (assetError || !assetRow) {
-      throw new HttpError(502, "db_write_failed", "Failed to register generated thumbnail asset", {
-        reason: assetError?.message,
-      });
-    }
+      asset_kind: THUMBNAIL_ASSET_KIND,
+      status: "ready",
+      metadata_json: buildThumbnailAssetMetadata({
+        conceptId,
+        conceptLabel,
+        conceptPrompt,
+        stylePreset,
+        aspect: input.aspect ?? "16:9",
+        size: input.size ?? null,
+        finalPrompt,
+        revisedPrompt: imageResult.revisedPrompt ?? null,
+      }),
+      supersedes_asset_id: null,
+    }, "Failed to register generated thumbnail asset");
 
     const version: ThumbnailVersionRecord = {
       id: versionId,
@@ -5620,8 +6082,15 @@ export class TongsCommitService {
   }
 
   async readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult> {
-    const storageKey = buildWorkspaceStorageKey(workspaceId, path);
-    const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+    const workspace = await this.getWorkspaceOrThrow(workspaceId);
+    const bytes = await downloadStorageObjectFromCandidates(
+      this.supabase,
+      this.bucket,
+      resolveWorkspaceCloudReadCandidates({
+        workspaceId,
+        legacyOwnerUserId: workspace.created_by,
+      }, path),
+    );
     if (!bytes) return { found: false };
     const parsed = parseJsonText(textDecoder.decode(bytes), path);
     return { found: true, data: parsed, file_row: null };
@@ -5637,7 +6106,7 @@ export class TongsCommitService {
     return { found: true, text, file_row: fileRow };
   }
 
-  async readWorkpieceBinary(workpieceId: string, path: string): Promise<ReadBinaryFileResult> {
+  private async readWorkpieceBinaryBytes(workpieceId: string, path: string): Promise<ReadBinaryFileBytesResult> {
     await this.getCradleOrThrow(workpieceId);
     const storageKey = buildStorageKey(workpieceId, path);
     const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
@@ -5660,17 +6129,233 @@ export class TongsCommitService {
     const contentType = fileRow?.content_type?.trim() || normalizeContentType(undefined, path);
     return {
       found: true,
-      bytes_base64: encodeBase64(bytes),
+      bytes,
       content_type: contentType,
     };
   }
 
+  async readWorkpieceBinary(workpieceId: string, path: string): Promise<ReadBinaryFileResult> {
+    const result = await this.readWorkpieceBinaryBytes(workpieceId, path);
+    if (!result.found) return result;
+
+    return {
+      found: true,
+      bytes_base64: encodeBase64(result.bytes),
+      content_type: result.content_type,
+    };
+  }
+
   async readWorkspaceText(workspaceId: string, path: string): Promise<ReadTextFileResult> {
-    const storageKey = buildWorkspaceStorageKey(workspaceId, path);
-    const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+    const workspace = await this.getWorkspaceOrThrow(workspaceId);
+    const bytes = await downloadStorageObjectFromCandidates(
+      this.supabase,
+      this.bucket,
+      resolveWorkspaceCloudReadCandidates({
+        workspaceId,
+        legacyOwnerUserId: workspace.created_by,
+      }, path),
+    );
     if (!bytes) return { found: false };
     const text = normalizeLf(stripBom(textDecoder.decode(bytes)));
     return { found: true, text, file_row: null };
+  }
+
+  private async listStoragePrefix(
+    storagePrefix: string,
+    depth: number,
+    scopeLabel: "workspace" | "workpiece",
+  ): Promise<WorkspaceStorageTreeNode[]> {
+    const { data, error } = await this.supabase.storage.from(this.bucket).list(storagePrefix, {
+      limit: STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY + 1,
+      sortBy: { column: "name", order: "asc" },
+    });
+
+    if (error) {
+      throw new HttpError(502, "storage_list_failed", `Failed to list ${scopeLabel} storage root`, {
+        reason: error.message,
+        bucket: this.bucket,
+        key: storagePrefix,
+      });
+    }
+
+    const rows = Array.isArray(data) ? data as unknown as Array<Record<string, unknown>> : [];
+    const truncated = rows.length > STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY;
+    const visibleRows = truncated ? rows.slice(0, STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY) : rows;
+    const nodes: WorkspaceStorageTreeNode[] = [];
+
+    for (const row of visibleRows) {
+      const name = typeof row.name === "string" ? row.name.trim() : "";
+      if (!name) continue;
+
+      const path = joinRelativePath(storagePrefix, name);
+      const kind = inferWorkspaceStorageNodeKind(row);
+      const node: WorkspaceStorageTreeNode = {
+        name,
+        kind,
+        path,
+        updated_at: typeof row.updated_at === "string" ? row.updated_at : null,
+      };
+
+      if (kind === "directory") {
+        if (depth > 0) {
+          node.children = await this.listStoragePrefix(path, depth - 1, scopeLabel);
+        } else {
+          node.note = `Nested listing stops after depth ${STORAGE_LIST_MAX_DEPTH}.`;
+        }
+      } else {
+        node.bytes = readWorkspaceStorageBytes(row);
+      }
+
+      nodes.push(node);
+    }
+
+    if (truncated) {
+      nodes.push({
+        name: "+ more items",
+        kind: "file",
+        path: joinRelativePath(storagePrefix, "__truncated__"),
+        note: `Directory listing truncated after ${STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY} entries.`,
+      });
+    }
+
+    nodes.sort(compareWorkspaceStorageNodes);
+    return nodes;
+  }
+
+  async listWorkspaceStorage(
+    workspaceId: string,
+    role: MountRole,
+    options?: ListWorkspaceStorageOptions,
+  ): Promise<WorkspaceStorageListing> {
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    const workspace = await this.getWorkspaceOrThrow(workspaceId);
+
+    const prefix = normalizeOptionalRelativePath(options?.prefix ?? null);
+    const depth = typeof options?.depth === "number" ? options.depth : STORAGE_LIST_MAX_DEPTH;
+    const candidatePrefixes = resolveWorkspaceCloudListingPrefixes({
+      workspaceId,
+      legacyOwnerUserId: workspace.created_by,
+    }, role, prefix);
+
+    let rootPath = candidatePrefixes[0] ?? null;
+    let nodes: WorkspaceStorageTreeNode[] = [];
+
+    for (const candidatePrefix of candidatePrefixes) {
+      const candidateNodes = await this.listStoragePrefix(candidatePrefix, depth, "workspace");
+      rootPath = candidatePrefix;
+      nodes = candidateNodes;
+      if (candidateNodes.length > 0) {
+        break;
+      }
+    }
+
+    if (!rootPath) {
+      throw new HttpError(500, "storage_prefix_resolution_failed", "Unable to resolve workspace cloud storage prefix", {
+        workspace_id: workspaceId,
+        role,
+      });
+    }
+
+    return {
+      source: {
+        kind: "cloud_canonical",
+        bucket: this.bucket,
+        workspace_id: workspaceId,
+        role,
+        prefix,
+        root_path: rootPath,
+      },
+      nodes,
+    };
+  }
+
+  async listWorkpieceStorage(
+    workpieceId: string,
+    options?: ListWorkpieceStorageOptions,
+  ): Promise<WorkpieceStorageListing> {
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    await this.assertWorkspaceRoleFromAccessToken(cradle.workspace_id, "viewer", options?.userAccessToken);
+
+    const prefix = normalizeOptionalRelativePath(options?.prefix ?? null);
+    const depth = typeof options?.depth === "number" ? options.depth : STORAGE_LIST_MAX_DEPTH;
+    const rootPath = prefix ? buildStorageKey(workpieceId, prefix) : `workpieces/${workpieceId}`;
+    const nodes = await this.listStoragePrefix(rootPath, depth, "workpiece");
+
+    return {
+      source: {
+        kind: "cloud_workpiece",
+        bucket: this.bucket,
+        workspace_id: cradle.workspace_id,
+        workpiece_id: workpieceId,
+        prefix,
+        root_path: rootPath,
+      },
+      nodes,
+    };
+  }
+
+  async listWorkspaceCanonicalRecordings(
+    workspaceId: string,
+    options?: ListWorkspaceCanonicalRecordingsOptions,
+  ): Promise<WorkspaceCanonicalRecordingListing> {
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    await this.getWorkspaceOrThrow(workspaceId);
+
+    let query = this.supabase
+      .schema("tongs")
+      .from("episodes")
+      .select("id,workspace_id,label,updated_at,archived_at")
+      .eq("workspace_id", workspaceId);
+
+    if (!options?.includeArchived) {
+      query = query.is("archived_at", null);
+    }
+
+    const { data, error } = await query
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(5000);
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list workspace episodes for canonical recordings", {
+        reason: error.message,
+      });
+    }
+
+    const episodes = Array.isArray(data) ? data : [];
+    const keptTakeByWorkpiece = await this.listLatestKeptTakeByWorkpieceIds(
+      episodes.map((episode) => episode.id),
+    );
+    const nodes: WorkspaceStorageTreeNode[] = [];
+
+    for (const episode of episodes.sort((left, right) => {
+      const leftReceipt = keptTakeByWorkpiece.get(left.id) ?? null;
+      const rightReceipt = keptTakeByWorkpiece.get(right.id) ?? null;
+      const byTakeTime = compareIsoTimestampDescending(
+        leftReceipt?.created_at ?? null,
+        rightReceipt?.created_at ?? null,
+      );
+      if (byTakeTime !== 0) return byTakeTime;
+      const byEpisodeTime = compareIsoTimestampDescending(left.updated_at, right.updated_at);
+      if (byEpisodeTime !== 0) return byEpisodeTime;
+      return (left.label || left.id).localeCompare((right.label || right.id), undefined, {
+        sensitivity: "base",
+      });
+    })) {
+      const receipt = keptTakeByWorkpiece.get(episode.id);
+      if (!receipt) continue;
+      nodes.push(buildCanonicalRecordingWorkpieceNode(episode, receipt));
+    }
+
+    return {
+      source: {
+        kind: "cloud_workpiece_recordings",
+        bucket: this.bucket,
+        workspace_id: workspaceId,
+        root_path: "workpieces/{workpiece_id}/recordings",
+      },
+      nodes,
+    };
   }
 
   async listWorkspaceEpisodes(
@@ -5950,8 +6635,8 @@ export class TongsCommitService {
 
     const current = await this.readWorkpieceImageMapState(workpieceId, input.workspace_id);
     if (typeof input.expected_metadata_updated_at !== "undefined") {
-      const expected = input.expected_metadata_updated_at ?? null;
-      const currentMetadataUpdatedAt = current.metadataUpdatedAt ?? null;
+      const expected = normalizeComparableIsoTimestampOrNull(input.expected_metadata_updated_at);
+      const currentMetadataUpdatedAt = normalizeComparableIsoTimestampOrNull(current.metadataUpdatedAt);
       if (currentMetadataUpdatedAt !== expected) {
         throw new HttpError(409, "image_map_conflict", "Image map changed since last load.", {
           expected_metadata_updated_at: expected,
@@ -6051,6 +6736,7 @@ export class TongsCommitService {
         const assetPath = buildImageMapCandidateAssetPath({
           workpieceId,
           entryId: entry.id,
+          assetId,
           variantLabel: output.variantLabel,
           mimeType: output.image.mimeType,
         });
@@ -6187,9 +6873,11 @@ export class TongsCommitService {
 
     const current = await this.readWorkpieceImageMapState(workpieceId, input.workspace_id);
     const currentReadyAsset = await this.getCurrentReadyImageMapAsset(input.workspace_id, workpieceId);
+    const latestImageMapAsset = currentReadyAsset
+      ?? await this.getLatestImageMapAsset(input.workspace_id, workpieceId);
     if (typeof input.expected_metadata_updated_at !== "undefined") {
-      const expected = input.expected_metadata_updated_at ?? null;
-      const currentMetadataUpdatedAt = current.metadataUpdatedAt ?? null;
+      const expected = normalizeComparableIsoTimestampOrNull(input.expected_metadata_updated_at);
+      const currentMetadataUpdatedAt = normalizeComparableIsoTimestampOrNull(current.metadataUpdatedAt);
       if (currentMetadataUpdatedAt !== expected) {
         throw new HttpError(409, "image_map_conflict", "Image map changed since last load.", {
           expected_metadata_updated_at: expected,
@@ -6259,13 +6947,11 @@ export class TongsCommitService {
       correlation_id: randomUuid(),
     });
 
-    if (currentReadyAsset) {
-      await this.supersedeImageMapAsset(currentReadyAsset.id);
-    }
-
-    const assetRow = await this.insertImageMapAssetRow({
-      workspace_id: input.workspace_id,
-      workpiece_id: workpieceId,
+    const assetMetadata = {
+      schema: IMAGE_MAP_ASSET_SCHEMA,
+      entry_count: input.entries.length,
+    } as Json;
+    const assetPatch: Database["tongs"]["Tables"]["assets"]["Update"] = {
       path: IMAGE_MAP_ASSET_PATH,
       mime_type: "application/json",
       bytes: assetCommit.bytes,
@@ -6275,23 +6961,102 @@ export class TongsCommitService {
       provider_request_id: null,
       request_id: assetCommit.event.correlation_id ?? assetCommit.event.id.toString(),
       prompt: null,
-      created_by: auth.userId,
       asset_kind: IMAGE_MAP_ASSET_KIND,
       status: "ready",
-      metadata_json: {
-        schema: IMAGE_MAP_ASSET_SCHEMA,
-        entry_count: input.entries.length,
-      } as Json,
-      supersedes_asset_id: currentReadyAsset?.id ?? null,
-    });
+      metadata_json: assetMetadata,
+    };
+    const assetAtCommittedLocation = await this.getImageMapAssetByStorageLocation(
+      input.workspace_id,
+      workpieceId,
+      assetCommit.file_row.storage_bucket,
+      assetCommit.storage_key,
+    );
+    const reusableImageMapAsset = assetAtCommittedLocation ?? currentReadyAsset ?? latestImageMapAsset;
+
+    if (
+      currentReadyAsset
+      && reusableImageMapAsset
+      && currentReadyAsset.id !== reusableImageMapAsset.id
+    ) {
+      await this.supersedeImageMapAsset(currentReadyAsset.id);
+    }
+
+    const assetRow = reusableImageMapAsset
+      ? await this.updateImageMapAssetRow(
+        reusableImageMapAsset.id,
+        assetPatch,
+        currentReadyAsset
+          ? "Failed to refresh current image map asset"
+          : "Failed to recover current image map asset",
+      )
+      : await this.insertImageMapAssetRow({
+        workspace_id: input.workspace_id,
+        workpiece_id: workpieceId,
+        path: IMAGE_MAP_ASSET_PATH,
+        mime_type: "application/json",
+        bytes: assetCommit.bytes,
+        storage_bucket: assetCommit.file_row.storage_bucket,
+        storage_key: assetCommit.storage_key,
+        provider: "hearth",
+        provider_request_id: null,
+        request_id: assetCommit.event.correlation_id ?? assetCommit.event.id.toString(),
+        prompt: null,
+        created_by: auth.userId,
+        asset_kind: IMAGE_MAP_ASSET_KIND,
+        status: "ready",
+        metadata_json: assetMetadata,
+        supersedes_asset_id: null,
+      });
 
     return this.buildWorkpieceImageMapResponse({
       workpieceId,
       workspaceId: input.workspace_id,
       entries: nextEpisodePackage.image_map.entries,
-      metadataUpdatedAt: metadataCommit.file_row.updated_at ?? current.metadata.updated_at ?? null,
+      metadataUpdatedAt: normalizeComparableIsoTimestampOrNull(
+        metadataCommit.file_row.updated_at ?? current.metadata.updated_at ?? null,
+      ),
       assetRow,
     });
+  }
+
+  private async listLatestKeptTakeByWorkpieceIds(
+    workpieceIds: readonly string[],
+  ): Promise<Map<string, WorkpieceTakeReceipt>> {
+    const next = new Map<string, WorkpieceTakeReceipt>();
+    if (!workpieceIds.length) return next;
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_events")
+      .select("workpiece_id,event_name,payload,created_at,id")
+      .in("workpiece_id", [...workpieceIds])
+      .eq("event_name", TAKE_KEPT_EVENT)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(5000);
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list kept-take events", {
+        reason: error.message,
+      });
+    }
+
+    for (const row of data ?? []) {
+      if (next.has(row.workpiece_id)) continue;
+      next.set(row.workpiece_id, readTakeReceiptFromEvent(row));
+    }
+
+    return next;
+  }
+
+  async getWorkpieceRecordingTruth(workpieceId: string): Promise<WorkpieceRecordingTruth> {
+    await this.getCradleOrThrow(workpieceId);
+    const keptTakeByWorkpiece = await this.listLatestKeptTakeByWorkpieceIds([workpieceId]);
+    return {
+      workpiece_id: workpieceId,
+      recorded: keptTakeByWorkpiece.has(workpieceId),
+      latest_kept_take: keptTakeByWorkpiece.get(workpieceId) ?? null,
+    };
   }
 
   async listWorkspaceReadyScripts(
@@ -6564,30 +7329,11 @@ export class TongsCommitService {
 
     const recordedWorkpieceIds = new Set<string>();
     if (options?.unrecordedOnly) {
-      const candidateIds = Array.from(readyPathsByWorkpiece.keys());
-      if (candidateIds.length) {
-        for (const prefix of RECORDING_PATH_PREFIXES) {
-          const { data: recordings, error: recordingsError } = await this.supabase
-            .schema("tongs")
-            .from("workpiece_files")
-            .select("workpiece_id,path")
-            .in("workpiece_id", candidateIds)
-            .like("path", `${prefix}%`)
-            .limit(5000);
-
-          if (recordingsError) {
-            throw new HttpError(502, "db_read_failed", "Failed to list workspace recording files", {
-              reason: recordingsError.message,
-            });
-          }
-
-          for (const row of recordings ?? []) {
-            const path = row.path;
-            if (isRecordingPath(path)) {
-              recordedWorkpieceIds.add(row.workpiece_id);
-            }
-          }
-        }
+      const keptTakeByWorkpiece = await this.listLatestKeptTakeByWorkpieceIds(
+        Array.from(readyPathsByWorkpiece.keys()),
+      );
+      for (const workpieceId of keptTakeByWorkpiece.keys()) {
+        recordedWorkpieceIds.add(workpieceId);
       }
     }
 
@@ -6742,9 +7488,9 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
     },
   });
 
-  const openAiApiKey = options.openAiApiKey?.trim();
-  const imageProvider = openAiApiKey
-    ? new OpenAiImageProvider(openAiApiKey, options.openAiImageModel?.trim() || "gpt-image-1")
+  const openAiImageApiKey = options.openAiImageApiKey?.trim() || options.openAiApiKey?.trim();
+  const imageProvider = openAiImageApiKey
+    ? new OpenAiImageProvider(openAiImageApiKey, options.openAiImageModel?.trim() || "gpt-image-1")
     : null;
 
   return new TongsCommitService(supabase, bucket, imageProvider);
@@ -6894,6 +7640,47 @@ export function createTongsCommitApiHandlerWithService(
         const includeArchived = parseBooleanQueryFlag(url.searchParams.get("include_archived"));
         const result = await service.listWorkspaceEpisodes(workspaceId, { userAccessToken, includeArchived });
         return jsonResponse(200, { ok: true, data: { episodes: result } });
+      }
+
+      if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "storage") {
+        requireMethod(request, "GET");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const role = normalizeMountRole(decodeURIComponent(parts[4]), "role");
+        const prefix = normalizeOptionalRelativePath(url.searchParams.get("prefix"));
+        const depth = normalizeStorageListDepth(url.searchParams.get("depth"));
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const listing = await service.listWorkspaceStorage(workspaceId, role, {
+          prefix,
+          depth,
+          userAccessToken,
+        });
+        return jsonResponse(200, { ok: true, data: { listing } });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "canonical-recordings") {
+        requireMethod(request, "GET");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const includeArchived = parseBooleanQueryFlag(url.searchParams.get("include_archived"));
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const listing = await service.listWorkspaceCanonicalRecordings(workspaceId, {
+          includeArchived,
+          userAccessToken,
+        });
+        return jsonResponse(200, { ok: true, data: { listing } });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "storage") {
+        requireMethod(request, "GET");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const prefix = normalizeOptionalRelativePath(url.searchParams.get("prefix"));
+        const depth = normalizeStorageListDepth(url.searchParams.get("depth"));
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const listing = await service.listWorkpieceStorage(workpieceId, {
+          prefix,
+          depth,
+          userAccessToken,
+        });
+        return jsonResponse(200, { ok: true, data: { listing } });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "archive") {
@@ -7223,6 +8010,38 @@ export function createTongsCommitApiHandlerWithService(
         const path = normalizeRelativePath(url.searchParams.get("path"));
         const encoding = (url.searchParams.get("encoding") ?? "").trim().toLowerCase();
 
+        if (encoding === "binary") {
+          const binaryCapableService = service as TongsCommitApiService & {
+            readWorkpieceBinaryBytes?: (workpieceId: string, path: string) => Promise<ReadBinaryFileBytesResult>;
+          };
+          const result = typeof binaryCapableService.readWorkpieceBinaryBytes === "function"
+            ? await binaryCapableService.readWorkpieceBinaryBytes(workpieceId, path)
+            : await service.readWorkpieceBinary(workpieceId, path).then((binaryResult) => (
+              binaryResult.found
+                ? {
+                  found: true as const,
+                  bytes: decodeBase64(binaryResult.bytes_base64),
+                  content_type: binaryResult.content_type,
+                }
+                : { found: false as const }
+            ));
+          if (!result.found) {
+            return jsonResponse(404, {
+              ok: true,
+              exists: false,
+            });
+          }
+          const responseBytes = new Uint8Array(result.bytes);
+          return new Response(responseBytes.buffer, {
+            status: 200,
+            headers: {
+              "content-type": result.content_type,
+              "content-length": String(result.bytes.byteLength),
+              "cache-control": "no-store",
+            },
+          });
+        }
+
         if (encoding === "base64") {
           const result = await service.readWorkpieceBinary(workpieceId, path);
           if (!result.found) {
@@ -7311,6 +8130,13 @@ export function createTongsCommitApiHandlerWithService(
         const payload = normalizeAppendEventRequest(body);
         const result = await service.appendEvent(workpieceId, payload);
         return jsonResponse(201, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "recording-truth") {
+        requireMethod(request, "GET");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const result = await service.getWorkpieceRecordingTruth(workpieceId);
+        return jsonResponse(200, { ok: true, data: { truth: result } });
       }
 
       throw new HttpError(404, "not_found", "Endpoint not found");

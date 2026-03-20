@@ -27,9 +27,10 @@
     "test:playwright:hearth-phase5-slice1": "pnpm preflight:hearth-phase4 && playwright test -c playwright.config.ts playwright/hearth.phase5.image-map.spec.ts"
   },
   "dependencies": {
+    "@forge/bellows": "workspace:*",
     "@forge/hearth": "workspace:*",
-    "@forge/ui-mobile": "workspace:*",
     "@forge/tongs": "workspace:*",
+    "@forge/ui-mobile": "workspace:*",
     "@supabase/supabase-js": "^2.98.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -48,7 +49,7 @@
     "playwright": "^1.58.2",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
-    "typescript-eslint": "^8.56.1",
+    "typescript-eslint": "^8.57.0",
     "vite": "^7.2.4"
   }
 }

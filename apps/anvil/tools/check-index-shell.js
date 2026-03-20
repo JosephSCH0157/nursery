@@ -6,7 +6,7 @@ const path = require('path');
 function run() {
   const root = path.resolve(__dirname, '..');
   try {
-    const cmd = 'rg -n "index\\.html" src hud features index-hooks';
+    const cmd = 'rg -n "index\\.html" src';
     const opts = { cwd: root, stdio: 'pipe' };
     const out = execSync(cmd, opts).toString().trim();
     if (!out) {

@@ -720,17 +720,21 @@ export function bindStaticDom() {
       const body = document.getElementById('speakersBody');
       if (btn && body && !btn.dataset.wired) {
         btn.dataset.wired = '1';
-        const KEY = 'tp_speakers_visible';
+        const KEY = 'tp_speakers_visible_v2';
         const apply = (vis) => {
           try {
-            body.style.display = vis ? '' : 'none';
+            body.hidden = !vis;
             btn.textContent = vis ? 'Hide' : 'Show';
             btn.setAttribute('aria-expanded', vis ? 'true' : 'false');
             try { localStorage.setItem(KEY, vis ? '1' : '0'); } catch {}
           } catch {}
         };
         // initial
-        let vis = true; try { vis = (localStorage.getItem(KEY) !== '0'); } catch {}
+        let vis = true;
+        try {
+          const stored = localStorage.getItem(KEY);
+          vis = stored === '1';
+        } catch {}
         apply(vis);
         btn.addEventListener('click', () => apply(!(body.style.display === '' || body.style.display === 'block' || body.style.display === null)));
       }

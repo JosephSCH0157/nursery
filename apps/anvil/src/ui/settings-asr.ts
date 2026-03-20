@@ -151,6 +151,9 @@ function readAsrPatchFromCard(card: HTMLElement): Partial<SpeechState> {
 }
 
 function persistAsrPatch(patch: Partial<SpeechState>): void {
+  if (Object.prototype.hasOwnProperty.call(patch, 'engine')) {
+    patch.engineExplicit = true;
+  }
   setAsrSettings(patch);
 }
 

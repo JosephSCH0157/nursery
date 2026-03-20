@@ -1,0 +1,23 @@
+.route-fallback {
+  min-height: 32vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 24px;
+}
+
+.route-fallback__content {
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+
+.route-fallback__title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.route-fallback__copy {
+  margin: 0;
+  opacity: 0.72;
+}

@@ -3,6 +3,7 @@
 
 import { computeAnchorLineIndex } from '../scroll/scroll-helpers';
 import { getScrollWriter } from '../scroll/scroll-writer';
+import { dispatchAsrManualAnchor } from '../features/asr/manual-anchor';
 import {
   applyCanonicalScrollTop,
   getFallbackScroller,
@@ -44,6 +45,8 @@ declare global {
     __tpHud?: { log?: AnyFn };
     __tpHudRecorderBtn?: HTMLElement | null;
     __tpTextStats?: any;
+    __tpAiActivity?: any;
+    __tpAsrRuntimeStatus?: any;
     __tpFeatureInit?: Record<string, any>;
     __tp?: any;
     __tpInit?: Record<string, any>;
@@ -691,11 +694,11 @@ function installObsChip() {
       if (!chip) {
         chip = document.createElement('span');
         chip.id = 'obsChip';
-        chip.className = 'chip';
+        chip.className = 'chip obs-pill-compact';
         // Create structured content: label + optional test icon
         const label = document.createElement('span');
         label.className = 'obs-chip-label';
-        label.textContent = 'OBS: disconnected';
+        label.textContent = 'OBS';
         const icon = document.createElement('i');
         icon.className = 'obs-test-icon';
         icon.setAttribute('aria-hidden','true');
@@ -709,13 +712,15 @@ function installObsChip() {
       const render = ({ status = 'disconnected', recording = false, scene } = {}) => {
         try {
           const s = String(status||'disconnected');
-          labelEl.textContent = `OBS: ${s}${recording ? ' | REC' : ''}${scene ? ` | ${scene}` : ''}`;
+          const detail = `OBS: ${s}${recording ? ' | REC' : ''}${scene ? ` | ${scene}` : ''}`;
+          labelEl.textContent = 'OBS';
+          chip.dataset.sessionText = detail;
+          chip.title = detail;
+          chip.setAttribute('aria-label', detail);
           // reset state classes and apply new one(s)
-          const base = ['chip'];
+          const base = ['chip', 'obs-pill-compact'];
           if (s === 'identified' || s === 'open') base.push('obs-connected');
-          else if (s === 'connecting') base.push('obs-reconnecting');
-          else if (s === 'error') base.push('obs-error');
-          if (recording) base.push('chip-live');
+          else base.push('obs-error');
           chip.className = base.join(' ');
         } catch {}
       };
@@ -736,6 +741,164 @@ function installObsChip() {
           hideTimer = setTimeout(() => { try { iconEl.classList.remove('show'); } catch {} }, 2500);
         } catch {}
       });
+    } catch {}
+  });
+}
+
+function installAiActivityChip() {
+  once('ai-activity-chip', () => {
+    try {
+      const topbar = document.querySelector('.topbar') || document.body;
+      let chip = document.getElementById('aiChip');
+      if (!chip) {
+        chip = document.createElement('span');
+        chip.id = 'aiChip';
+        chip.className = 'chip topbar-secondary-status';
+        chip.setAttribute('role', 'status');
+        chip.setAttribute('aria-live', 'polite');
+        chip.setAttribute('aria-atomic', 'true');
+        topbar && topbar.appendChild(chip);
+      }
+
+      const capitalize = (value) => {
+        const normalized = String(value || '').trim();
+        return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : '';
+      };
+
+      const readSpeechState = () => {
+        try {
+          const store = (window as any).__tpSpeech?.store;
+          if (store && typeof store.getState === 'function') return store.getState();
+          if (store && typeof store.get === 'function') return store.get();
+        } catch {}
+        try {
+          const store = (window as any).__tpStore;
+          if (store && typeof store.get === 'function') {
+            return { engine: store.get('asr.engine') };
+          }
+        } catch {}
+        return null;
+      };
+
+      const readSelectedEngine = () => {
+        const state = readSpeechState();
+        return String((state as any)?.engine || (state as any)?.['asr.engine'] || '').trim().toLowerCase();
+      };
+
+      const subscribeSpeechState = (fn) => {
+        try {
+          const store = (window as any).__tpSpeech?.store;
+          if (store && typeof store.subscribe === 'function') {
+            if (typeof store.getState === 'function') {
+              return store.subscribe(() => fn());
+            }
+            if (typeof store.get === 'function') {
+              return store.subscribe(() => fn());
+            }
+            return store.subscribe(() => fn());
+          }
+        } catch {}
+        return () => {};
+      };
+
+      let lastDetail = (window as any).__tpAiActivity || { phase: 'off' };
+
+      const render = (detail = {}, runtime = (window as any).__tpAsrRuntimeStatus || {}) => {
+        try {
+          const phase = String(detail?.phase || 'off').toLowerCase();
+          const selectedEngine = readSelectedEngine();
+          const requestedEngineRaw = String(runtime?.requestedEngine || selectedEngine || 'whisper').trim();
+          const actualEngineRaw = String(runtime?.actualEngine || detail?.engine || requestedEngineRaw).trim();
+          const effectiveEngineRaw = actualEngineRaw || requestedEngineRaw || 'whisper';
+          const effectiveEngine = effectiveEngineRaw.toLowerCase();
+          const providerDefault = effectiveEngine === 'whisper' ? 'openai' : 'browser';
+          const provider = capitalize(detail?.provider || providerDefault) || (providerDefault === 'browser' ? 'Browser' : 'OpenAI');
+          const engine = capitalize(effectiveEngineRaw || (providerDefault === 'browser' ? 'webspeech' : 'whisper'))
+            || (providerDefault === 'browser' ? 'Webspeech' : 'Whisper');
+          const model = String(detail?.model || '').trim();
+          const requestedEngine = capitalize(requestedEngineRaw);
+          const fallbackReason = String(runtime?.fallbackReason || '').trim();
+          const message = String(detail?.message || fallbackReason).trim();
+          const requestsInFlight = Number(detail?.requestsInFlight || 0);
+          const queueDepth = Number(detail?.queueDepth || 0);
+
+          let text = 'AI: off';
+          let sessionText = 'AI: off';
+          let state = 'off';
+          let title = 'AI is not active.';
+
+          if (phase === 'transcribing') {
+            text = 'AI: transcribing';
+            sessionText = `AI: ${provider} ${engine} transcribing`;
+            state = 'busy';
+            title = `${provider} ${engine} is actively transcribing mic audio${model ? ` (${model})` : ''}.`;
+            if (requestsInFlight > 0 || queueDepth > 0) {
+              title += ` In flight: ${requestsInFlight}. Queued: ${queueDepth}.`;
+            }
+          } else if (phase === 'ready') {
+            text = 'AI: active';
+            sessionText = `AI: ${provider} ${engine} active`;
+            state = 'on';
+            title = `${provider} ${engine} is active for this speech session${model ? ` (${model})` : ''}.`;
+          } else if (phase === 'error') {
+            text = 'AI: error';
+            sessionText = `AI: ${provider} ${engine} error`;
+            state = 'error';
+            title = message
+              ? `${provider} ${engine} reported an error: ${message}`
+              : `${provider} ${engine} reported an error.`;
+          } else if (runtime?.fallbackActive) {
+            text = 'AI: browser';
+            sessionText = `AI: ${provider} ${engine} fallback`;
+            state = 'browser';
+            title = message
+              ? `${requestedEngine || 'Whisper'} fell back to ${engine}: ${message}`
+              : `${requestedEngine || 'Whisper'} fell back to ${engine}.`;
+          } else if (effectiveEngine === 'whisper') {
+            text = 'AI: standby';
+            sessionText = `AI: ${provider} ${engine} standby`;
+            state = 'standby';
+            title = message
+              ? message
+              : `${provider} ${engine} is selected and will activate when speech starts${model ? ` (${model})` : ''}.`;
+          } else {
+            text = 'AI: browser';
+            sessionText = 'AI: browser speech';
+            state = 'browser';
+            title = message || 'Browser speech recognition is selected. AI transcription is not active.';
+          }
+
+          chip.textContent = text;
+          chip.dataset.state = state;
+          chip.dataset.sessionText = sessionText;
+          chip.title = title;
+          chip.setAttribute('aria-label', sessionText);
+        } catch {}
+      };
+
+      render(lastDetail);
+      const unsubscribeSpeechState = subscribeSpeechState(() => {
+        try {
+          const phase = String(lastDetail?.phase || 'off').toLowerCase();
+          if (phase === 'transcribing' || phase === 'ready' || phase === 'error') {
+            render(lastDetail);
+            return;
+          }
+          render({ phase: 'off' });
+        } catch {}
+      });
+      window.addEventListener('tp:ai:activity', (event) => {
+        try {
+          lastDetail = (event && event.detail) || { phase: 'off' };
+          render(lastDetail);
+        } catch {}
+      });
+      window.addEventListener('tp:asr:runtime-status', (event) => {
+        try {
+          render(lastDetail, (event && event.detail) || {});
+        } catch {}
+      });
+      try { window.addEventListener('beforeunload', () => { try { unsubscribeSpeechState?.(); } catch {} }, { once: true }); } catch {}
     } catch {}
   });
 }
@@ -1094,6 +1257,7 @@ export function bindStaticDom() {
   wireLoadSample();
     installSpeakerIndex();
     installDbMeter();
+    installAiActivityChip();
     installObsChip();
   initSelfChecksChip();
     initStepControls(document);
@@ -1205,15 +1369,16 @@ export function bindStaticDom() {
           setActiveLine(line);
           if (mode === 'asr' || mode === 'hybrid') {
             const prevIndex = Number.isFinite(index as number) ? Math.max(0, Math.floor(index as number)) : null;
-            if (mode === 'asr' && prevIndex != null) {
-              try {
-                const driver = (window as any).__tpAsrScrollDriver;
-                if (typeof driver?.setLastLineIndex === 'function') {
-                  driver.setLastLineIndex(prevIndex);
-                }
-              } catch {}
-            } else if (mode === 'hybrid' && prevIndex != null) {
-              try { (window as any).currentIndex = prevIndex; } catch {}
+          if (mode === 'asr' && prevIndex != null) {
+            try {
+              dispatchAsrManualAnchor({
+                targetIndex: prevIndex,
+                source: 'catchup',
+                reason: 'catchup',
+              });
+            } catch {}
+          } else if (mode === 'hybrid' && prevIndex != null) {
+            try { (window as any).currentIndex = prevIndex; } catch {}
             }
             const verify = () => {
               const nextIndex = getAsrAnchorIndex();
@@ -1265,19 +1430,22 @@ export function bindStaticDom() {
       const body = document.getElementById('speakersBody');
       if (btn && body && !btn.dataset.wired) {
         btn.dataset.wired = '1';
-        const KEY = 'tp_speakers_visible';
+        const KEY = 'tp_speakers_visible_v2';
         let vis = true;
         const apply = (next: boolean) => {
           try {
             vis = !!next;
-            body.style.display = vis ? '' : 'none';
+            body.hidden = !vis;
             btn.textContent = vis ? 'Hide' : 'Show';
             btn.setAttribute('aria-expanded', vis ? 'true' : 'false');
             try { localStorage.setItem(KEY, vis ? '1' : '0'); } catch {}
           } catch {}
         };
         // initial
-        try { vis = (localStorage.getItem(KEY) !== '0'); } catch {}
+        try {
+          const stored = localStorage.getItem(KEY);
+          vis = stored === '1';
+        } catch {}
         apply(vis);
         btn.addEventListener('click', () => apply(!vis));
       }

@@ -1,12 +1,22 @@
 begin;
 
--- Live project drift left an old owner_id-based workspace model in place.
--- Canonical repo schema uses created_by + org_id and provisions workspace access
--- through tongs.workspace_members.
-
-update tongs.workspaces
-set created_by = coalesce(created_by, owner_id)
-where created_by is null;
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'tongs'
+      and table_name = 'workspaces'
+      and column_name = 'owner_id'
+  ) then
+    execute $sql$
+      update tongs.workspaces
+      set created_by = coalesce(created_by, owner_id)
+      where created_by is null
+    $sql$;
+  end if;
+end
+$$;
 
 update tongs.workspace_members wm
 set created_by = coalesce(wm.created_by, wm.user_id, w.created_by)

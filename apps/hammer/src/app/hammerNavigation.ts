@@ -11,6 +11,10 @@ export type HammerRouteState = {
   hammerStubLaunchId?: HammerStubLaunchScenarioId;
 };
 
+export type ResolveHammerRouteSelectionOptions = {
+  allowStubScenario?: boolean;
+};
+
 function isHammerLaunchContext(value: unknown): value is HammerLaunchContext {
   if (!value || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
@@ -49,13 +53,17 @@ export function buildHammerEditorHref(
 export function resolveHammerRouteSelection(
   search: string,
   state: unknown,
+  options?: ResolveHammerRouteSelectionOptions,
 ): { launchContext?: HammerLaunchContext; scenario: HammerStubLaunchScenario | null } {
+  const allowStubScenario = options?.allowStubScenario ?? true;
   const routeState = (state ?? null) as HammerRouteState | null;
-  const scenarioIdFromState = routeState?.hammerStubLaunchId ?? null;
-  const scenarioId = scenarioIdFromState ?? readHammerStubLaunchScenarioId(search);
+  const scenarioIdFromState = allowStubScenario ? routeState?.hammerStubLaunchId ?? null : null;
+  const scenarioId = allowStubScenario
+    ? scenarioIdFromState ?? readHammerStubLaunchScenarioId(search)
+    : null;
   const scenario = scenarioId ? getHammerStubLaunchScenario(scenarioId) : null;
 
-  if (isHammerLaunchContext(routeState?.hammerLaunchContext)) {
+  if (isHammerLaunchContext(routeState?.hammerLaunchContext) && (allowStubScenario || !routeState?.hammerStubLaunchId)) {
     return {
       launchContext: routeState.hammerLaunchContext,
       scenario,

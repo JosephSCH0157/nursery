@@ -1,29 +1,191 @@
-import { buildHammerEditorHref, buildHammerRouteState } from "./hammerNavigation";
-import { listHammerStubLaunchScenarios } from "../dev/hammerStubLaunches";
-import { useMemo, useState } from "react";
-import type { CSSProperties, JSX } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import type { JSX } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import {
+  buildHammerCanonicalEditorHref,
+  loadHammerWorkspaceProjects,
+  resolveHammerRouteWorkpieceId,
+  type HammerRuntimeProjectCard,
+} from "./hammerRuntimeData";
+import HammerWorkspaceSelection from "./HammerWorkspaceSelection";
+import type { HammerShellWorkspaceOption, HammerWorkspaceResolutionState } from "./hammerShellContext";
 import "./HammerProjectLibrary.css";
 
-export default function HammerProjectLibrary(): JSX.Element {
+type HammerProjectLibraryProps = {
+  workspaceId: string | null;
+  workspaces: HammerShellWorkspaceOption[];
+  loadingWorkspaces: boolean;
+  workspaceError: string | null;
+  workspaceResolutionState: HammerWorkspaceResolutionState;
+  onSelectWorkspace: (workspaceId: string | null) => void;
+  onRefreshWorkspaces: () => Promise<void>;
+};
+
+function formatDateTimeLabel(value: string | null): string {
+  if (!value) return "Unavailable";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unavailable";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function getReadinessClassName(project: HammerRuntimeProjectCard): string {
+  return `hammer-project-library__status hammer-project-library__status--${project.readiness.tone}`;
+}
+
+function pickDefaultProject(
+  projects: HammerRuntimeProjectCard[],
+  preferredWorkpieceId: string | null,
+  currentWorkpieceId: string | null,
+): string | null {
+  if (preferredWorkpieceId && projects.some((project) => project.workpieceId === preferredWorkpieceId)) {
+    return preferredWorkpieceId;
+  }
+  if (currentWorkpieceId && projects.some((project) => project.workpieceId === currentWorkpieceId)) {
+    return currentWorkpieceId;
+  }
+  return projects.find((project) => project.isEditReady)?.workpieceId
+    ?? projects[0]?.workpieceId
+    ?? null;
+}
+
+export default function HammerProjectLibrary(props: HammerProjectLibraryProps): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
-  const scenarios = useMemo(() => listHammerStubLaunchScenarios(), []);
-  const [selectedScenarioId, setSelectedScenarioId] = useState(
-    () => scenarios[0]?.id ?? "clean-workpiece",
+  const routeWorkpieceId = useMemo(
+    () => resolveHammerRouteWorkpieceId(location.search),
+    [location.search],
+  );
+  const [projects, setProjects] = useState<HammerRuntimeProjectCard[]>([]);
+  const [selectedWorkpieceId, setSelectedWorkpieceId] = useState<string | null>(routeWorkpieceId);
+  const [loading, setLoading] = useState(Boolean(props.workspaceId));
+  const [error, setError] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
+
+  useEffect(() => {
+    if (!routeWorkpieceId) return;
+    setSelectedWorkpieceId(routeWorkpieceId);
+  }, [routeWorkpieceId]);
+
+  useEffect(() => {
+    if (!props.workspaceId) {
+      setProjects([]);
+      setSelectedWorkpieceId(routeWorkpieceId);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    let active = true;
+    setLoading(true);
+    setError(null);
+
+    void loadHammerWorkspaceProjects(props.workspaceId)
+      .then((nextProjects) => {
+        if (!active) return;
+        setProjects(nextProjects);
+        setSelectedWorkpieceId((current) => pickDefaultProject(nextProjects, routeWorkpieceId, current));
+        setLoading(false);
+      })
+      .catch((loadError) => {
+        if (!active) return;
+        setProjects([]);
+        setSelectedWorkpieceId(routeWorkpieceId);
+        setLoading(false);
+        setError(loadError instanceof Error && loadError.message.trim()
+          ? loadError.message
+          : "Hammer could not load projects for this workspace.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [props.workspaceId, routeWorkpieceId, refreshToken]);
+
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.workpieceId === selectedWorkpieceId) ?? null,
+    [projects, selectedWorkpieceId],
+  );
+  const readyProjects = useMemo(
+    () => projects.filter((project) => project.isEditReady),
+    [projects],
+  );
+  const pendingProjects = useMemo(
+    () => projects.filter((project) => !project.isEditReady),
+    [projects],
   );
 
-  const selectedScenario = useMemo(
-    () => scenarios.find((scenario) => scenario.id === selectedScenarioId) ?? scenarios[0],
-    [scenarios, selectedScenarioId],
-  );
+  const devLaunchHref = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    if (props.workspaceId) {
+      params.set("workspace_id", props.workspaceId);
+    }
+    const nextSearch = params.toString();
+    return nextSearch ? `/app/hammer/dev/launch?${nextSearch}` : "/app/hammer/dev/launch";
+  }, [location.search, props.workspaceId]);
 
-  function openScenario(scenarioId: string) {
-    const scenario = scenarios.find((item) => item.id === scenarioId);
-    if (!scenario) return;
-    navigate(buildHammerEditorHref(location.search, scenario), {
-      state: buildHammerRouteState(scenario),
-    });
+  function openProject(project: HammerRuntimeProjectCard | null) {
+    if (!project) return;
+    navigate(buildHammerCanonicalEditorHref(location.search, {
+      workspaceId: project.workspaceId,
+      workpieceId: project.workpieceId,
+    }));
+  }
+
+  function renderProjectGrid(items: HammerRuntimeProjectCard[]): JSX.Element {
+    return (
+      <div className="hammer-project-library__grid">
+        {items.map((project) => {
+          const isSelected = project.workpieceId === (routeWorkpieceId ?? selectedWorkpieceId);
+          return (
+            <button
+              key={project.workpieceId}
+              type="button"
+              className={`hammer-project-library__card${isSelected ? " is-selected" : ""}`}
+              onClick={() => {
+                setSelectedWorkpieceId(project.workpieceId);
+                openProject(project);
+              }}
+              onFocus={() => setSelectedWorkpieceId(project.workpieceId)}
+            >
+              <div className="hammer-project-library__card-body">
+                <div className="hammer-project-library__card-topline">
+                  <span className={getReadinessClassName(project)}>
+                    {project.readiness.statusLabel}
+                  </span>
+                  <span className="hammer-project-library__card-updated">
+                    Updated {formatDateTimeLabel(project.updatedAt)}
+                  </span>
+                </div>
+                <div className="hammer-project-library__card-title">{project.label}</div>
+                <div className="hammer-project-library__card-id">
+                  {project.workpieceId}
+                </div>
+                <div className="hammer-project-library__card-meta">
+                  <div>
+                    <div className="hammer-project-library__label">Created</div>
+                    <div>{formatDateTimeLabel(project.createdAt)}</div>
+                  </div>
+                  <div>
+                    <div className="hammer-project-library__label">Workspace</div>
+                    <div>{project.workspaceId}</div>
+                  </div>
+                </div>
+                <div className="hammer-project-library__indicator-row">
+                  {project.readiness.indicators.map((indicator) => (
+                    <span key={indicator} className="hammer-project-library__indicator">
+                      {indicator}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
   }
 
   return (
@@ -35,65 +197,116 @@ export default function HammerProjectLibrary(): JSX.Element {
           </div>
           <h2 className="hammer-project-library__title">Project Library</h2>
           <div className="hammer-project-library__summary">
-            Open a Hammer project first, then move into the editor. This screen stays minimal on purpose:
-            project selection, project creation, and nothing that turns Hammer into a marketplace or toybox.
+            Hammer reads live workpieces from Tongs and opens saved editor state without synthetic launch scaffolding.
           </div>
         </div>
         <div className="hammer-project-library__actions">
           <button
             type="button"
-            className="hammer-project-library__button hammer-project-library__button--primary"
-            onClick={() => openScenario("clean-workpiece")}
+            className="hammer-project-library__button hammer-project-library__button--secondary"
+            onClick={() => {
+              if (!props.workspaceId) {
+                void props.onRefreshWorkspaces();
+                return;
+              }
+              setRefreshToken((current) => current + 1);
+            }}
+            disabled={loading || props.loadingWorkspaces}
           >
-            New Project
+            {loading || props.loadingWorkspaces
+              ? "Refreshing..."
+              : props.workspaceId
+              ? "Refresh"
+              : "Refresh workspaces"}
           </button>
           <button
             type="button"
-            className="hammer-project-library__button hammer-project-library__button--secondary"
-            onClick={() => {
-              if (!selectedScenario) return;
-              openScenario(selectedScenario.id);
-            }}
-            disabled={!selectedScenario}
+            className="hammer-project-library__button hammer-project-library__button--primary"
+            onClick={() => openProject(selectedProject)}
+            disabled={!selectedProject}
           >
             Open Project
           </button>
+          {import.meta.env.DEV ? (
+            <Link to={devLaunchHref} className="hammer-project-library__dev-link">
+              Dev scenarios
+            </Link>
+          ) : null}
         </div>
       </header>
 
-      <section className="hammer-project-library__section">
-        <div className="hammer-project-library__section-title">Project Library</div>
-        <div className="hammer-project-library__grid">
-          {scenarios.map((scenario) => {
-            const isSelected = scenario.id === selectedScenario?.id;
-            return (
-              <button
-                key={scenario.id}
-                type="button"
-                className={`hammer-project-library__card${isSelected ? " is-selected" : ""}`}
-                onClick={() => {
-                  setSelectedScenarioId(scenario.id);
-                  openScenario(scenario.id);
-                }}
-                onFocus={() => setSelectedScenarioId(scenario.id)}
-              >
-                <div
-                  className="hammer-project-library__poster"
-                  style={{ background: scenario.poster_tint } satisfies CSSProperties}
-                >
-                  {scenario.poster_label}
-                </div>
-                <div className="hammer-project-library__card-body">
-                  <div className="hammer-project-library__card-title">{scenario.title}</div>
-                  <div className="hammer-project-library__card-summary">
-                    {scenario.summary}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+      {props.workspaceResolutionState !== "ready" ? (
+        <HammerWorkspaceSelection
+          title={props.workspaceResolutionState === "resolving"
+            ? "Resolving workspace context"
+            : "Choose a workspace to open Hammer"}
+          summary={props.workspaceResolutionState === "resolving"
+            ? "Hammer is resolving workspace truth from the current route and workpiece."
+            : "Hammer establishes its own workspace context when no upstream handoff is present."}
+          workspaces={props.workspaces}
+          selectedWorkspaceId={props.workspaceId}
+          loading={props.loadingWorkspaces}
+          error={props.workspaceError}
+          onSelectWorkspace={(workspaceId) => props.onSelectWorkspace(workspaceId)}
+          onRefresh={() => {
+            void props.onRefreshWorkspaces();
+          }}
+          emptyMessage="No workspaces are available yet. Sign in or refresh to load a real Hammer library."
+        />
+      ) : error ? (
+        <section className="hammer-project-library__empty-state hammer-project-library__empty-state--error">
+          <h3>Project library unavailable.</h3>
+          <p>{error}</p>
+        </section>
+      ) : loading ? (
+        <section className="hammer-project-library__empty-state">
+          <h3>Loading projects...</h3>
+          <p>Hammer is reading workpieces and persisted editor state from Tongs.</p>
+        </section>
+      ) : projects.length === 0 ? (
+        <section className="hammer-project-library__empty-state">
+          <h3>No projects found in this workspace.</h3>
+          <p>Hammer will list real workpieces here as soon as this workspace has any.</p>
+        </section>
+      ) : (
+        <div className="hammer-project-library__sections">
+          <section className="hammer-project-library__section">
+            <div className="hammer-project-library__section-head">
+              <div className="hammer-project-library__section-title">Edit-Ready</div>
+              <div className="hammer-project-library__section-summary">
+                {readyProjects.length} workpiece{readyProjects.length === 1 ? "" : "s"} with recordings or Hammer-editable state.
+              </div>
+            </div>
+            {readyProjects.length > 0 ? (
+              renderProjectGrid(readyProjects)
+            ) : (
+              <div className="hammer-project-library__subempty-state">
+                Nothing is above the ready line yet.
+              </div>
+            )}
+          </section>
+
+          <div className="hammer-project-library__ready-line" aria-hidden="true">
+            <span className="hammer-project-library__ready-line-label">Ready Line</span>
+          </div>
+
+          <section className="hammer-project-library__section">
+            <div className="hammer-project-library__section-head">
+              <div className="hammer-project-library__section-title">Not Yet Edit-Ready</div>
+              <div className="hammer-project-library__section-summary">
+                {pendingProjects.length} workspace item{pendingProjects.length === 1 ? "" : "s"} without recordings or Hammer-editable state.
+              </div>
+            </div>
+            {pendingProjects.length > 0 ? (
+              renderProjectGrid(pendingProjects)
+            ) : (
+              <div className="hammer-project-library__subempty-state">
+                Everything in this workspace is already above the ready line.
+              </div>
+            )}
+          </section>
         </div>
-      </section>
+      )}
     </section>
   );
 }
