@@ -15,6 +15,13 @@ export type BellowsLocalMediaReadinessState = {
   readonly hasPreview: boolean;
 };
 
+type BellowsLocalMediaRequestState = {
+  readonly readiness: BellowsParticipantReadiness;
+  readonly stream: MediaStream | null;
+  readonly deviceMessage: string;
+  readonly deviceError: string | null;
+};
+
 function stopStream(stream: MediaStream | null): void {
   if (!stream) return;
   stream.getTracks().forEach((track) => track.stop());
@@ -156,46 +163,71 @@ export function useBellowsLocalMediaReadiness(
   readonly retryToken: number;
   retry(): void;
 } {
+  const disabledRequestState: BellowsLocalMediaRequestState = {
+    readiness: {
+      microphone: "unknown",
+      camera: "unknown",
+      overall: "unknown",
+    },
+    stream: null,
+    deviceMessage: "Bellows is waiting to check local devices.",
+    deviceError: null,
+  };
+  const pendingRequestState: BellowsLocalMediaRequestState = {
+    readiness: {
+      microphone: "pending",
+      camera: "pending",
+      overall: "pending",
+    },
+    stream: null,
+    deviceMessage: "Bellows is checking local devices.",
+    deviceError: null,
+  };
   const [retryToken, setRetryToken] = useState(0);
-  const [stream, setStream] = useState<MediaStream | null>(null);
-  const [readiness, setReadiness] = useState<BellowsParticipantReadiness>({
-    microphone: enabled ? "pending" : "unknown",
-    camera: enabled ? "pending" : "unknown",
-    overall: enabled ? "pending" : "unknown",
+  const [requestState, setRequestState] = useState<BellowsLocalMediaRequestState>(
+    enabled ? pendingRequestState : disabledRequestState,
+  );
+  const [audioSample, setAudioSample] = useState<{
+    readonly audioLevelPct: number;
+    readonly audioActivity: BellowsAudioActivityState;
+  }>({
+    audioLevelPct: 0,
+    audioActivity: "unknown",
   });
-  const [deviceMessage, setDeviceMessage] = useState("Bellows is waiting to check local devices.");
-  const [deviceError, setDeviceError] = useState<string | null>(null);
-  const [audioLevelPct, setAudioLevelPct] = useState(0);
-  const [audioActivity, setAudioActivity] = useState<BellowsAudioActivityState>("unknown");
+
+  const effectiveRequestState = enabled
+    ? (requestState.readiness.overall === "unknown" ? pendingRequestState : requestState)
+    : disabledRequestState;
+  const stream = effectiveRequestState.stream;
+  const readiness = effectiveRequestState.readiness;
+  const deviceMessage = effectiveRequestState.deviceMessage;
+  const deviceError = effectiveRequestState.deviceError;
+  const audioTracks = stream?.getAudioTracks() ?? [];
+  const audioLevelPct = audioTracks.length > 0 ? audioSample.audioLevelPct : 0;
+  const audioActivity = audioTracks.length > 0
+    ? audioSample.audioActivity
+    : readiness.microphone === "ready"
+    ? "silent"
+    : "unknown";
 
   useEffect(() => {
     if (!enabled) {
-      setReadiness({
-        microphone: "unknown",
-        camera: "unknown",
-        overall: "unknown",
-      });
-      setDeviceMessage("Bellows is waiting to check local devices.");
-      setDeviceError(null);
-      setAudioLevelPct(0);
-      setAudioActivity("unknown");
-      setStream((current) => {
+      setRequestState((current) => {
         stopStream(current);
-        return null;
+        return disabledRequestState;
+      });
+      setAudioSample({
+        audioLevelPct: 0,
+        audioActivity: "unknown",
       });
       return;
     }
 
     let active = true;
-    setReadiness({
-      microphone: "pending",
-      camera: "pending",
-      overall: "pending",
+    setAudioSample({
+      audioLevelPct: 0,
+      audioActivity: "unknown",
     });
-    setDeviceMessage("Bellows is checking local devices.");
-    setDeviceError(null);
-    setAudioLevelPct(0);
-    setAudioActivity("unknown");
 
     void requestLocalMedia()
       .then((result) => {
@@ -204,30 +236,34 @@ export function useBellowsLocalMediaReadiness(
           return;
         }
 
-        setStream((current) => {
-          stopStream(current);
-          return result.stream;
+        setRequestState((current) => {
+          stopStream(current.stream);
+          return {
+            readiness: result.readiness,
+            stream: result.stream,
+            deviceMessage: describeDeviceMessage(result.readiness),
+            deviceError: result.deviceError,
+          };
         });
-        setReadiness(result.readiness);
-        setDeviceMessage(describeDeviceMessage(result.readiness));
-        setDeviceError(result.deviceError);
       })
       .catch((error) => {
         if (!active) return;
         const message = error instanceof Error && error.message.trim()
           ? error.message
           : "Bellows could not access local media devices.";
-        setStream((current) => {
-          stopStream(current);
-          return null;
+        setRequestState((current) => {
+          stopStream(current.stream);
+          return {
+            readiness: {
+              microphone: "blocked",
+              camera: "blocked",
+              overall: "blocked",
+            },
+            stream: null,
+            deviceMessage: "Bellows could not get microphone or camera ready.",
+            deviceError: message,
+          };
         });
-        setReadiness({
-          microphone: "blocked",
-          camera: "blocked",
-          overall: "blocked",
-        });
-        setDeviceMessage("Bellows could not get microphone or camera ready.");
-        setDeviceError(message);
       });
 
     return () => {
@@ -236,18 +272,13 @@ export function useBellowsLocalMediaReadiness(
   }, [enabled, retryToken]);
 
   useEffect(() => {
-    const audioTracks = stream?.getAudioTracks() ?? [];
     if (audioTracks.length === 0) {
-      setAudioLevelPct(0);
-      setAudioActivity(readiness.microphone === "ready" ? "silent" : "unknown");
       return;
     }
 
     const AudioContextCtor = window.AudioContext
       || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextCtor) {
-      setAudioLevelPct(0);
-      setAudioActivity("unknown");
       return;
     }
 
@@ -270,8 +301,10 @@ export function useBellowsLocalMediaReadiness(
       }
       const rms = Math.sqrt(sum / samples.length);
       const nextLevel = Math.max(0, Math.min(100, Math.round(rms * 220)));
-      setAudioLevelPct(nextLevel);
-      setAudioActivity(nextLevel >= 8 ? "active" : "silent");
+      setAudioSample({
+        audioLevelPct: nextLevel,
+        audioActivity: nextLevel >= 8 ? "active" : "silent",
+      });
       frameId = window.requestAnimationFrame(tick);
     };
 

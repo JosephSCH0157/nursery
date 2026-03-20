@@ -1,4 +1,4 @@
-import type { User } from "@supabase/supabase-js";
+import type { RealtimeChannel, User } from "@supabase/supabase-js";
 import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -1178,7 +1178,7 @@ export default function BellowsStandalone() {
   const [joinLinkUrls, setJoinLinkUrls] = useState<Record<string, string>>({});
   const [hostPresenceConnected, setHostPresenceConnected] = useState(false);
   const hostPreviewRef = useRef<HTMLVideoElement | null>(null);
-  const hostPresenceChannelRef = useRef<any>(null);
+  const hostPresenceChannelRef = useRef<RealtimeChannel | null>(null);
   const hostPresenceJoinedAtRef = useRef<string | null>(null);
   const publishedHostPresenceRef = useRef<string>("");
   const publishedHostSessionSignalRef = useRef<string>("");
@@ -1458,8 +1458,9 @@ export default function BellowsStandalone() {
         setSnapshot(null);
         setBootstrapError(getErrorMessage(error, "Bellows could not load persisted runtime truth."));
       } finally {
-        if (!active) return;
-        setLoadingRuntime(false);
+        if (active) {
+          setLoadingRuntime(false);
+        }
       }
     })();
 
@@ -1623,7 +1624,7 @@ export default function BellowsStandalone() {
           key: currentHostParticipantId,
         },
       },
-    }) as any;
+    });
     hostPresenceChannelRef.current = channel;
 
     const syncPresence = () => {

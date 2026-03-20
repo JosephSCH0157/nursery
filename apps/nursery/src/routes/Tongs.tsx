@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useLocation } from "react-router-dom";
 import TongsCalendar from "./TongsCalendar";
 import TongsReleasePrep from "./TongsReleasePrep";
@@ -65,55 +65,51 @@ function ModeButton({
 
 export default function TongsRoute() {
   const location = useLocation();
-  const [mode, setMode] = useState<TongsMode>(() => readModeFromSearch(location.search) ?? readStoredMode());
+  const routeMode = readModeFromSearch(location.search);
+  const [mode, setMode] = useState<TongsMode>(() => routeMode ?? readStoredMode());
+  const activeMode = routeMode ?? mode;
 
   const setModeAndPersist = (nextMode: TongsMode) => {
     setMode(nextMode);
     writeStoredMode(nextMode);
   };
 
-  useEffect(() => {
-    const routeMode = readModeFromSearch(location.search);
-    if (!routeMode || routeMode === mode) return;
-    setModeAndPersist(routeMode);
-  }, [location.search, mode]);
-
   return (
     <div className="tongs-page">
       <div className="tongs-mode-row">
         <ModeButton
-          active={mode === "sessions"}
+          active={activeMode === "sessions"}
           label="Recording Sessions"
           onClick={() => setModeAndPersist("sessions")}
         />
         <ModeButton
-          active={mode === "calendar"}
+          active={activeMode === "calendar"}
           label="Calendar"
           onClick={() => setModeAndPersist("calendar")}
         />
         <ModeButton
-          active={mode === "team"}
+          active={activeMode === "team"}
           label="Team"
           onClick={() => setModeAndPersist("team")}
         />
         <ModeButton
-          active={mode === "storage"}
+          active={activeMode === "storage"}
           label="Storage"
           onClick={() => setModeAndPersist("storage")}
         />
         <ModeButton
-          active={mode === "release"}
+          active={activeMode === "release"}
           label="Release Prep"
           onClick={() => setModeAndPersist("release")}
         />
       </div>
-      {mode === "calendar"
+      {activeMode === "calendar"
         ? <TongsCalendar />
-        : mode === "team"
+        : activeMode === "team"
         ? <TongsTeam />
-        : mode === "storage"
+        : activeMode === "storage"
         ? <TongsStorage />
-        : mode === "release"
+        : activeMode === "release"
         ? <TongsReleasePrep />
         : <TongsRecordingSessions />}
     </div>

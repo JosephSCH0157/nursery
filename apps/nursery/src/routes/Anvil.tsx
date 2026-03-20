@@ -128,8 +128,6 @@ export default function AnvilRoute() {
     handoffValidationSeqRef.current = requestSeq;
 
     if (!hasRequestedHandoff) {
-      setHandoffError(null);
-      setHandoffValidating(false);
       bridgeTongsToken();
       window.location.replace(anvilHref);
       return;

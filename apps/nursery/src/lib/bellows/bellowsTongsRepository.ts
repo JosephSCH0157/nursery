@@ -192,12 +192,11 @@ export interface NurseryBellowsTongsSessionRepository
   ): Promise<BellowsTongsRehydrationBundle | null>;
 }
 
-export interface NurseryBellowsTongsJoinLinkRepository
-  extends BellowsTongsJoinLinkRepository {}
+export type NurseryBellowsTongsJoinLinkRepository = BellowsTongsJoinLinkRepository;
 
-export interface NurseryBellowsTongsRepository
-  extends NurseryBellowsTongsSessionRepository,
-    NurseryBellowsTongsJoinLinkRepository {}
+export type NurseryBellowsTongsRepository =
+  & NurseryBellowsTongsSessionRepository
+  & NurseryBellowsTongsJoinLinkRepository;
 
 function asParticipantId(value: string | null): ParticipantId | null {
   return value ? value as ParticipantId : null;
@@ -711,8 +710,8 @@ class SupabaseBellowsTongsRepository
     return this.appendRecoveryCheckpoint(input);
   }
 
-  private get tongs(): any {
-    return this.client.schema("tongs") as any;
+  private get tongs(): ReturnType<SupabaseClient<Database>["schema"]> {
+    return this.client.schema("tongs");
   }
 
   private async resolveLatestCheckpoint(

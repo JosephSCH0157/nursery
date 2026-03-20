@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { User } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
+import type { Database } from "@forge/tongs";
 import { Link, useLocation, useOutletContext } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import type { AppShellContext } from "./AppShell";
@@ -37,7 +38,7 @@ type ForgeProfile = {
 };
 
 type ProfilesTableClient = {
-  from: (relation: "profiles") => any;
+  from: SupabaseClient<Database>["from"];
 };
 
 function normalizeString(value: unknown): string {

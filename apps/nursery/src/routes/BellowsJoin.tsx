@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import type {
   BellowsDeviceReadinessState,
@@ -23,6 +24,7 @@ import "./BellowsJoin.css";
 
 const BELLOWS_JOIN_CONTINUATION_KEY = "forge_bellows_join_continuation_v1";
 const inflightJoinContinuations = new Map<string, Promise<JoinResolution | null>>();
+type BellowsPresenceChannel = RealtimeChannel;
 
 type JoinPhase =
   | "resolving"
@@ -259,10 +261,14 @@ function countPresenceEntries(value: unknown): number {
 }
 
 async function publishPresence(
-  channel: any,
+  channel: BellowsPresenceChannel,
   payload: ReturnType<typeof buildBellowsGuestPresencePayload>,
 ): Promise<void> {
   await channel.track(payload);
+}
+
+function deferStateUpdate(update: () => void): void {
+  queueMicrotask(update);
 }
 
 function buildStatusTone(
@@ -425,7 +431,7 @@ export default function BellowsJoin() {
   const [hostSignal, setHostSignal] = useState<BellowsHostSessionSignal | null>(null);
 
   const previewRef = useRef<HTMLVideoElement | null>(null);
-  const channelRef = useRef<any>(null);
+  const channelRef = useRef<BellowsPresenceChannel | null>(null);
   const joinedAtRef = useRef<string | null>(null);
   const publishedPresenceRef = useRef<string>("");
 
@@ -458,22 +464,26 @@ export default function BellowsJoin() {
 
   useEffect(() => {
     if (!sessionId) {
-      setResolvedLink(null);
-      setGuestKey(null);
-      setHostSignal(null);
-      setPhase("error");
-      setErrorMessage("Bellows could not find a session id in this join route.");
-      setStatusMessage("Join link is missing its session id.");
+      deferStateUpdate(() => {
+        setResolvedLink(null);
+        setGuestKey(null);
+        setHostSignal(null);
+        setPhase("error");
+        setErrorMessage("Bellows could not find a session id in this join route.");
+        setStatusMessage("Join link is missing its session id.");
+      });
       return;
     }
 
     if (!token) {
-      setResolvedLink(null);
-      setGuestKey(null);
-      setHostSignal(null);
-      setPhase("error");
-      setErrorMessage("Bellows join links require a token query parameter.");
-      setStatusMessage("Join link is missing its access token.");
+      deferStateUpdate(() => {
+        setResolvedLink(null);
+        setGuestKey(null);
+        setHostSignal(null);
+        setPhase("error");
+        setErrorMessage("Bellows join links require a token query parameter.");
+        setStatusMessage("Join link is missing its access token.");
+      });
       return;
     }
 
@@ -528,8 +538,10 @@ export default function BellowsJoin() {
       channelRef.current = null;
       joinedAtRef.current = null;
       publishedPresenceRef.current = "";
-      setPresenceConnected(false);
-      setHostSignal(null);
+      deferStateUpdate(() => {
+        setPresenceConnected(false);
+        setHostSignal(null);
+      });
       return;
     }
 
@@ -543,7 +555,7 @@ export default function BellowsJoin() {
           key: guestKey,
         },
       },
-    }) as any;
+    });
 
     channelRef.current = channel;
 
@@ -676,29 +688,36 @@ export default function BellowsJoin() {
       return;
     }
 
-    if (localMedia.readiness.overall === "ready") {
-      if (hasGuestAdvancingHostSignal(hostSignal)) {
-        setPhase("signaled");
-        setStatusMessage(hostSignal?.detail ?? "Bellows received a live host session signal.");
-        return;
-      }
+    const nextPhase = localMedia.readiness.overall === "ready"
+      ? hasGuestAdvancingHostSignal(hostSignal)
+        ? "signaled"
+        : "waiting"
+      : "permissions";
+    const nextStatusMessage = nextPhase === "signaled"
+      ? hostSignal?.detail ?? "Bellows received a live host session signal."
+      : nextPhase === "waiting"
+      ? "Waiting for host. Bellows sees your camera, microphone, and preview."
+      : buildPermissionStatusMessage({
+        readiness: localMedia.readiness,
+        hostSignal,
+      });
 
-      setPhase("waiting");
-      setStatusMessage("Waiting for host. Bellows sees your camera, microphone, and preview.");
+    if (phase === nextPhase && statusMessage === nextStatusMessage) {
       return;
     }
 
-    setPhase("permissions");
-    setStatusMessage(buildPermissionStatusMessage({
-      readiness: localMedia.readiness,
-      hostSignal,
-    }));
+    deferStateUpdate(() => {
+      setPhase(nextPhase);
+      setStatusMessage(nextStatusMessage);
+    });
   }, [
     guestKey,
     hostSignal,
     localMedia.readiness,
+    phase,
     presenceConnected,
     resolvedLink,
+    statusMessage,
   ]);
 
   return (

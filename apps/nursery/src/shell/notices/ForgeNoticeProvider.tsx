@@ -82,7 +82,7 @@ export default function ForgeNoticeProvider({ children }: ForgeNoticeProviderPro
   const navigate = useNavigate();
   const [toasts, setToasts] = useState<ForgeNoticeToast[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() =>
-    readDesktopNotificationPermission(),
+    canUseDesktopNotifications() ? readDesktopNotificationPermission() : "denied",
   );
   const [notificationPromptOpen, setNotificationPromptOpen] = useState(false);
   const historyRef = useRef<ForgeNoticeToast[]>([]);
@@ -112,14 +112,6 @@ export default function ForgeNoticeProvider({ children }: ForgeNoticeProviderPro
       notificationPromptDismissedRef.current = true;
       setNotificationPromptOpen(false);
     }
-  }, []);
-
-  useEffect(() => {
-    if (!canUseDesktopNotifications()) {
-      setNotificationPromptOpen(false);
-      return;
-    }
-    setNotificationPermission(readDesktopNotificationPermission());
   }, []);
 
   useEffect(() => {
