@@ -33,12 +33,8 @@ export const supabase: SupabaseClient<Database> =
     auth: sharedAuthOptions,
   });
 
-export const tongsSupabase: SupabaseClient<Database> =
-  existingTongs ??
-  createClient<Database>(url, anon, {
-    db: { schema: "tongs" },
-    auth: sharedAuthOptions,
-  });
+const resolvedTongsClient = existingTongs ?? supabase.schema("tongs");
+export const tongsSupabase: SupabaseClient<Database> = resolvedTongsClient;
 
 globalStore[GLOBAL_KEY] = supabase as SupabaseClient<Database>;
-globalStore[TONGS_GLOBAL_KEY] = tongsSupabase as SupabaseClient<Database>;
+globalStore[TONGS_GLOBAL_KEY] = resolvedTongsClient as SupabaseClient<Database>;
