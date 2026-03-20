@@ -7,6 +7,7 @@
     "build": "pnpm --filter @forge/ui-mobile build && pnpm -r --filter=!@forge/ui-mobile build",
     "lint": "pnpm --filter nursery lint && pnpm --filter @forge/tongs lint",
     "types": "pnpm --filter @forge/ui-mobile typecheck && pnpm --filter nursery typecheck && pnpm --filter @forge/tongs typecheck",
+    "supabase:types": "supabase gen types typescript --project-id wtvdjndyxegudufrompx --schema public > apps/nursery/src/lib/supabase/database.types.ts",
     "gate": "pnpm check",
     "check": "pnpm smoke && pnpm lint && pnpm types",
     "smoke:core": "pnpm --filter @forge/ui-mobile test:contract && node scripts/smoke.mjs",
