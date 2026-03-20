@@ -1,20 +1,86 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.25.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { findStripeCatalogAiPackById } from "../_shared/stripe-catalog.ts";
+import { findStripeCatalogAiPackById, findStripeCatalogPriceById } from "../_shared/stripe-catalog.ts";
 import {
+  buildForgeCheckoutMetadata,
   parseForgePurchaseMetadata,
   type ForgePurchaseMetadata,
 } from "../_shared/forge-billing-metadata.ts";
 
 type SupabaseAdminClient = ReturnType<typeof createClient>;
 
+type TongsRpcClient = {
+  rpc: (
+    fn: string,
+    args?: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+};
+
+type TongsTableClient = {
+  from: SupabaseAdminClient["from"];
+};
+
+type BillingCustomerUpsertParams = {
+  userId: string;
+  customerId: string;
+  email?: string | null;
+  customerName?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+type BillingOneTimePurchaseUpsertParams = {
+  userId: string;
+  customerId: string;
+  eventId: string;
+  sessionId: string;
+  purchaseType: "ai_credits";
+  itemId: string;
+  status: string;
+  paymentIntentId?: string | null;
+  amountTotal?: number | null;
+  currency?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+type BillingSubscriptionUpsertParams = {
+  userId: string;
+  customerId: string;
+  subscriptionId: string;
+  purchaseType: "subscription" | "cloud_storage";
+  itemId: string;
+  interval: "monthly" | "quarterly";
+  status: string;
+  priceId?: string | null;
+  currentPeriodStart?: string | null;
+  currentPeriodEnd?: string | null;
+  cancelAtPeriodEnd?: boolean;
+  canceledAt?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+type BillingEventRecordParams = {
+  event: Stripe.Event;
+  userId?: string | null;
+  customerId?: string | null;
+  subscriptionId?: string | null;
+  sessionId?: string | null;
+};
+
+type RecurringPurchaseMetadata = ForgePurchaseMetadata & {
+  purchaseType: "subscription" | "cloud_storage";
+  interval: "monthly" | "quarterly";
+};
+
 type CheckoutFulfillmentContext = ForgePurchaseMetadata & {
   customerId: string;
+  customerEmail: string | null;
+  customerName: string | null;
   eventId: string;
   sessionId: string;
   sessionMode: string | null;
   subscriptionId: string | null;
+  paymentIntentId: string | null;
   amountTotal: number | null;
   currency: string | null;
 };
@@ -31,11 +97,16 @@ function normalizeString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function normalizeLowerString(value: unknown): string | null {
+  const normalized = normalizeString(value);
+  return normalized ? normalized.toLowerCase() : null;
+}
+
 function normalizeCustomerId(
   customer: string | Stripe.Customer | Stripe.DeletedCustomer | null,
 ): string | null {
   if (!customer) return null;
-  if (typeof customer === "string") return customer;
+  if (typeof customer === "string") return normalizeString(customer);
   return normalizeString(customer.id);
 }
 
@@ -47,14 +118,55 @@ function normalizeSubscriptionId(
   return normalizeString(subscription.id);
 }
 
-function normalizePeriodEndIso(value: unknown): string | null {
+function normalizePaymentIntentId(
+  paymentIntent: string | Stripe.PaymentIntent | null,
+): string | null {
+  if (!paymentIntent) return null;
+  if (typeof paymentIntent === "string") return normalizeString(paymentIntent);
+  return normalizeString(paymentIntent.id);
+}
+
+function normalizeUnixTimestampIso(value: unknown): string | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return new Date(value * 1000).toISOString();
 }
 
-function hasPaidAccess(status: string | null | undefined): boolean {
-  if (!status) return false;
-  return status === "active" || status === "trialing";
+function readMetadataUserId(
+  metadata: Record<string, unknown> | Stripe.Metadata | null | undefined,
+): string | null {
+  return normalizeString(metadata?.supabase_user_id)
+    ?? normalizeString(metadata?.forge_user_id);
+}
+
+function getTongsRpcClient(supabase: SupabaseAdminClient): TongsRpcClient {
+  return supabase.schema("tongs") as unknown as TongsRpcClient;
+}
+
+function getTongsTableClient(supabase: SupabaseAdminClient): TongsTableClient {
+  return supabase.schema("tongs") as unknown as TongsTableClient;
+}
+
+function buildBillingEventPayload(event: Stripe.Event): Record<string, unknown> {
+  return JSON.parse(JSON.stringify({
+    id: event.id,
+    type: event.type,
+    api_version: event.api_version ?? null,
+    created: event.created ?? null,
+    livemode: event.livemode ?? null,
+    request: event.request ?? null,
+    data: event.data ?? null,
+  })) as Record<string, unknown>;
+}
+
+function mergeMetadataWithResolvedUserId(
+  metadata: Record<string, unknown> | Stripe.Metadata | null | undefined,
+  userId: string,
+): Record<string, unknown> {
+  return {
+    ...(metadata ?? {}),
+    supabase_user_id: userId,
+    forge_user_id: userId,
+  };
 }
 
 function resolveAiPackTokens(itemId: string): number | null {
@@ -103,88 +215,264 @@ function logSubscriptionLifecycleBranch(args: {
   });
 }
 
-function parseCheckoutFulfillmentContext(
-  event: Stripe.Event,
-  session: Stripe.Checkout.Session,
-): CheckoutFulfillmentContext {
-  const customerId = normalizeCustomerId(session.customer ?? null);
-  if (!customerId) {
-    throw new Error("checkout.session.completed missing customer");
+async function fetchStripeCustomerContext(
+  customerId: string,
+): Promise<{ userId: string | null; email: string | null; customerName: string | null }> {
+  const customer = await stripe.customers.retrieve(customerId);
+  if (typeof customer === "string" || customer.deleted) {
+    return { userId: null, email: null, customerName: null };
   }
 
-  const parsed = parseForgePurchaseMetadata({
-    metadata: session.metadata,
-    mode: normalizeString(session.mode),
-    allowLegacyFallback: true,
-  });
-
   return {
-    ...parsed,
-    customerId,
-    eventId: event.id,
-    sessionId: session.id,
-    sessionMode: normalizeString(session.mode),
-    subscriptionId: normalizeSubscriptionId(session.subscription ?? null),
-    amountTotal: typeof session.amount_total === "number"
-      ? session.amount_total
-      : null,
-    currency: normalizeString(session.currency),
+    userId: readMetadataUserId(customer.metadata),
+    email: normalizeString(customer.email),
+    customerName: normalizeString(customer.name),
   };
 }
 
-async function requireProfileByCustomerId(
+async function resolveUserIdByCustomerId(
   supabase: SupabaseAdminClient,
   customerId: string,
-): Promise<string> {
-  const { data, error } = await supabase
+): Promise<string | null> {
+  const tongs = getTongsTableClient(supabase);
+
+  const { data: billingCustomer, error: billingCustomerError } = await tongs
+    .from("billing_customers")
+    .select("user_id")
+    .eq("stripe_customer_id", customerId)
+    .maybeSingle();
+
+  if (billingCustomerError) {
+    throw new Error(
+      `billing_customers lookup failed for stripe_customer_id=${customerId}: ${billingCustomerError.message}`,
+    );
+  }
+
+  if (billingCustomer?.user_id) {
+    return billingCustomer.user_id;
+  }
+
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("user_id")
     .eq("stripe_customer_id", customerId)
     .maybeSingle();
 
-  if (error) {
+  if (profileError) {
     throw new Error(
-      `Profile lookup failed for stripe_customer_id=${customerId}: ${error.message}`,
+      `profiles lookup failed for stripe_customer_id=${customerId}: ${profileError.message}`,
     );
   }
 
-  if (!data?.user_id) {
-    throw new Error(`No profile found for stripe_customer_id=${customerId}`);
+  if (profile?.user_id) {
+    return profile.user_id;
   }
 
-  return data.user_id;
+  const stripeCustomer = await fetchStripeCustomerContext(customerId);
+  return stripeCustomer.userId;
 }
 
-async function updateProfileByUserId(
-  supabase: SupabaseAdminClient,
-  userId: string,
-  patch: Record<string, unknown>,
-): Promise<void> {
-  const { data, error } = await supabase
-    .from("profiles")
-    .update(patch)
-    .eq("user_id", userId)
-    .select("user_id")
-    .maybeSingle();
+function parsePurchaseMetadataWithResolvedUserId(args: {
+  metadata: Record<string, unknown> | Stripe.Metadata | null | undefined;
+  mode: string | null;
+  userId: string;
+}): ForgePurchaseMetadata {
+  return parseForgePurchaseMetadata({
+    metadata: mergeMetadataWithResolvedUserId(args.metadata, args.userId),
+    mode: args.mode,
+    allowLegacyFallback: true,
+  });
+}
 
-  if (error) {
+function toRecurringPurchaseMetadata(
+  metadata: ForgePurchaseMetadata,
+): RecurringPurchaseMetadata {
+  if (metadata.purchaseType === "ai_credits" || metadata.interval === "one_time") {
     throw new Error(
-      `Profile update failed for supabase_user_id=${userId}: ${error.message}`,
+      `Expected recurring billing metadata, received purchase_type=${metadata.purchaseType} interval=${metadata.interval}`,
+    );
+  }
+  return metadata as RecurringPurchaseMetadata;
+}
+
+function tryBuildSubscriptionMetadataFromCatalog(
+  subscription: Stripe.Subscription,
+  userId: string,
+): ForgePurchaseMetadata | null {
+  const priceId = normalizeString(subscription.items.data[0]?.price?.id);
+  if (!priceId) return null;
+
+  const catalogPrice = findStripeCatalogPriceById(priceId);
+  if (!catalogPrice) return null;
+
+  return parsePurchaseMetadataWithResolvedUserId({
+    metadata: buildForgeCheckoutMetadata({
+      userId,
+      catalogPrice,
+    }),
+    mode: "subscription",
+    userId,
+  });
+}
+
+async function resolveSubscriptionMetadata(
+  supabase: SupabaseAdminClient,
+  subscription: Stripe.Subscription,
+): Promise<ForgePurchaseMetadata> {
+  const customerId = normalizeCustomerId(subscription.customer);
+  if (!customerId) {
+    throw new Error("customer.subscription event missing customer");
+  }
+
+  const metadataUserId = readMetadataUserId(subscription.metadata);
+  const resolvedUserId = metadataUserId
+    ?? await resolveUserIdByCustomerId(supabase, customerId);
+
+  if (!resolvedUserId) {
+    throw new Error(
+      `Unable to resolve Forge user for stripe_subscription_id=${subscription.id}`,
     );
   }
 
-  if (!data?.user_id) {
-    throw new Error(`No profile found for supabase_user_id=${userId}`);
+  try {
+    return parsePurchaseMetadataWithResolvedUserId({
+      metadata: subscription.metadata,
+      mode: "subscription",
+      userId: resolvedUserId,
+    });
+  } catch (error) {
+    const catalogDerived = tryBuildSubscriptionMetadataFromCatalog(
+      subscription,
+      resolvedUserId,
+    );
+    if (catalogDerived) {
+      return catalogDerived;
+    }
+    throw error;
   }
 }
 
-async function linkStripeCustomerToUser(
+async function parseCheckoutFulfillmentContext(
   supabase: SupabaseAdminClient,
-  userId: string,
-  customerId: string,
+  event: Stripe.Event,
+  session: Stripe.Checkout.Session,
+): Promise<CheckoutFulfillmentContext> {
+  const customerId = normalizeCustomerId(session.customer ?? null);
+  if (!customerId) {
+    throw new Error("checkout.session.completed missing customer");
+  }
+
+  const resolvedUserId = readMetadataUserId(session.metadata)
+    ?? normalizeString(session.client_reference_id)
+    ?? await resolveUserIdByCustomerId(supabase, customerId);
+
+  if (!resolvedUserId) {
+    throw new Error(
+      `Unable to resolve Forge user for checkout.session.completed customer=${customerId}`,
+    );
+  }
+
+  const parsed = parsePurchaseMetadataWithResolvedUserId({
+    metadata: session.metadata,
+    mode: normalizeString(session.mode),
+    userId: resolvedUserId,
+  });
+
+  return {
+    ...parsed,
+    customerId,
+    customerEmail: normalizeString(session.customer_details?.email),
+    customerName: normalizeString(session.customer_details?.name),
+    eventId: event.id,
+    sessionId: session.id,
+    sessionMode: normalizeString(session.mode),
+    subscriptionId: normalizeSubscriptionId(session.subscription ?? null),
+    paymentIntentId: normalizePaymentIntentId(session.payment_intent ?? null),
+    amountTotal: typeof session.amount_total === "number"
+      ? session.amount_total
+      : null,
+    currency: normalizeLowerString(session.currency),
+  };
+}
+
+async function runTongsRpc(
+  supabase: SupabaseAdminClient,
+  fn: string,
+  args: Record<string, unknown>,
 ): Promise<void> {
-  await updateProfileByUserId(supabase, userId, {
-    stripe_customer_id: customerId,
+  const rpcClient = getTongsRpcClient(supabase);
+  const { error } = await rpcClient.rpc(fn, args);
+  if (error) {
+    throw new Error(`${fn} failed: ${error.message ?? "unknown error"}`);
+  }
+}
+
+async function upsertBillingCustomerRecord(
+  supabase: SupabaseAdminClient,
+  params: BillingCustomerUpsertParams,
+): Promise<void> {
+  await runTongsRpc(supabase, "upsert_billing_customer", {
+    p_user_id: params.userId,
+    p_stripe_customer_id: params.customerId,
+    p_email: params.email ?? null,
+    p_customer_name: params.customerName ?? null,
+    p_metadata: params.metadata ?? {},
+  });
+}
+
+async function upsertBillingOneTimePurchaseRecord(
+  supabase: SupabaseAdminClient,
+  params: BillingOneTimePurchaseUpsertParams,
+): Promise<void> {
+  await runTongsRpc(supabase, "upsert_billing_one_time_purchase", {
+    p_user_id: params.userId,
+    p_stripe_customer_id: params.customerId,
+    p_stripe_event_id: params.eventId,
+    p_stripe_session_id: params.sessionId,
+    p_purchase_type: params.purchaseType,
+    p_item_id: params.itemId,
+    p_status: params.status,
+    p_payment_intent_id: params.paymentIntentId ?? null,
+    p_amount_total: params.amountTotal ?? null,
+    p_currency: params.currency ?? null,
+    p_metadata: params.metadata ?? {},
+  });
+}
+
+async function upsertBillingSubscriptionRecord(
+  supabase: SupabaseAdminClient,
+  params: BillingSubscriptionUpsertParams,
+): Promise<void> {
+  await runTongsRpc(supabase, "upsert_billing_subscription", {
+    p_user_id: params.userId,
+    p_stripe_customer_id: params.customerId,
+    p_stripe_subscription_id: params.subscriptionId,
+    p_purchase_type: params.purchaseType,
+    p_item_id: params.itemId,
+    p_interval: params.interval,
+    p_status: params.status,
+    p_price_id: params.priceId ?? null,
+    p_current_period_start: params.currentPeriodStart ?? null,
+    p_current_period_end: params.currentPeriodEnd ?? null,
+    p_cancel_at_period_end: params.cancelAtPeriodEnd ?? false,
+    p_canceled_at: params.canceledAt ?? null,
+    p_metadata: params.metadata ?? {},
+  });
+}
+
+async function recordBillingEventRecord(
+  supabase: SupabaseAdminClient,
+  params: BillingEventRecordParams,
+): Promise<void> {
+  await runTongsRpc(supabase, "record_billing_event", {
+    p_stripe_event_id: params.event.id,
+    p_event_type: params.event.type,
+    p_user_id: params.userId ?? null,
+    p_stripe_customer_id: params.customerId ?? null,
+    p_stripe_subscription_id: params.subscriptionId ?? null,
+    p_stripe_session_id: params.sessionId ?? null,
+    p_livemode: params.event.livemode,
+    p_payload: buildBillingEventPayload(params.event),
   });
 }
 
@@ -200,14 +488,7 @@ async function grantAiCredits(
     currency: string | null;
   },
 ): Promise<void> {
-  const rpcClient = supabase.schema("tongs") as unknown as {
-    rpc: (
-      fn: string,
-      args?: Record<string, unknown>,
-    ) => Promise<{ data: unknown; error: { message?: string } | null }>;
-  };
-
-  const { error } = await rpcClient.rpc("grant_ai_credits", {
+  await runTongsRpc(supabase, "grant_ai_credits", {
     p_user_id: params.userId,
     p_pack_id: params.itemId,
     p_tokens: params.tokens,
@@ -216,69 +497,79 @@ async function grantAiCredits(
     p_amount_total: params.amountTotal,
     p_currency: params.currency,
   });
-
-  if (error) {
-    throw new Error(`grant_ai_credits failed: ${error.message ?? "unknown error"}`);
-  }
 }
 
-async function syncProfileFromSubscription(
+async function upsertCanonicalSubscriptionFromStripe(
   supabase: SupabaseAdminClient,
-  subscription: Stripe.Subscription,
-  userIdHint: string | null,
+  params: {
+    event: Stripe.Event;
+    subscription: Stripe.Subscription;
+    metadata: RecurringPurchaseMetadata;
+    customerEmail?: string | null;
+    customerName?: string | null;
+  },
 ): Promise<void> {
-  const customerId = normalizeCustomerId(subscription.customer);
+  const customerId = normalizeCustomerId(params.subscription.customer);
   if (!customerId) {
     throw new Error("customer.subscription event missing customer");
   }
 
-  const subscriptionId = normalizeSubscriptionId(subscription);
-  const periodEnd = normalizePeriodEndIso(subscription.current_period_end);
-  const status = normalizeString(subscription.status);
-  const paid = hasPaidAccess(status);
-  const metadataUserId = normalizeString(subscription.metadata?.supabase_user_id);
-  const userId = userIdHint || metadataUserId || await requireProfileByCustomerId(
-    supabase,
-    customerId,
-  );
+  const subscriptionId = normalizeSubscriptionId(params.subscription);
+  if (!subscriptionId) {
+    throw new Error("customer.subscription event missing subscription id");
+  }
 
-  await updateProfileByUserId(supabase, userId, {
-    stripe_customer_id: customerId,
-    stripe_subscription_id: subscriptionId,
-    subscription_status: status,
-    current_period_end: periodEnd,
-    anvil_paid: paid,
+  const stripeCustomer = (!params.customerEmail || !params.customerName)
+    ? await fetchStripeCustomerContext(customerId)
+    : null;
+
+  await upsertBillingCustomerRecord(supabase, {
+    userId: params.metadata.supabaseUserId,
+    customerId,
+    email: params.customerEmail ?? stripeCustomer?.email ?? null,
+    customerName: params.customerName ?? stripeCustomer?.customerName ?? null,
+    metadata: {
+      source: "stripe_webhook",
+      event_type: params.event.type,
+      forge_purchase_type: params.metadata.purchaseType,
+      forge_item_id: params.metadata.itemId,
+      forge_interval: params.metadata.interval,
+      metadata_source: params.metadata.source,
+    },
   });
-}
 
-async function clearProfileSubscription(
-  supabase: SupabaseAdminClient,
-  subscription: Stripe.Subscription,
-  userIdHint: string | null,
-): Promise<void> {
-  const customerId = normalizeCustomerId(subscription.customer);
-  if (!customerId) {
-    throw new Error("customer.subscription event missing customer");
-  }
-
-  const metadataUserId = normalizeString(subscription.metadata?.supabase_user_id);
-  const userId = userIdHint || metadataUserId || await requireProfileByCustomerId(
-    supabase,
+  await upsertBillingSubscriptionRecord(supabase, {
+    userId: params.metadata.supabaseUserId,
     customerId,
-  );
+    subscriptionId,
+    purchaseType: params.metadata.purchaseType,
+    itemId: params.metadata.itemId,
+    interval: params.metadata.interval,
+    status: normalizeLowerString(params.subscription.status) ?? "unknown",
+    priceId: normalizeString(params.subscription.items.data[0]?.price?.id),
+    currentPeriodStart: normalizeUnixTimestampIso(params.subscription.current_period_start),
+    currentPeriodEnd: normalizeUnixTimestampIso(params.subscription.current_period_end),
+    cancelAtPeriodEnd: params.subscription.cancel_at_period_end ?? false,
+    canceledAt: normalizeUnixTimestampIso(params.subscription.canceled_at),
+    metadata: {
+      source: "stripe_webhook",
+      event_type: params.event.type,
+      metadata_source: params.metadata.source,
+    },
+  });
 
-  await updateProfileByUserId(supabase, userId, {
-    stripe_customer_id: customerId,
-    stripe_subscription_id: null,
-    subscription_status: "canceled",
-    current_period_end: null,
-    anvil_paid: false,
+  await recordBillingEventRecord(supabase, {
+    event: params.event,
+    userId: params.metadata.supabaseUserId,
+    customerId,
+    subscriptionId,
   });
 }
 
 async function fulfillAiCreditsCheckout(
   supabase: SupabaseAdminClient,
   context: CheckoutFulfillmentContext,
+  event: Stripe.Event,
 ): Promise<void> {
   logCheckoutFulfillmentBranch("ai_credits", context);
 
@@ -286,6 +577,21 @@ async function fulfillAiCreditsCheckout(
   if (!tokens) {
     throw new Error(`Unsupported AI credits forge_item_id: ${context.itemId}`);
   }
+
+  await upsertBillingCustomerRecord(supabase, {
+    userId: context.supabaseUserId,
+    customerId: context.customerId,
+    email: context.customerEmail,
+    customerName: context.customerName,
+    metadata: {
+      source: "stripe_webhook",
+      event_type: event.type,
+      forge_purchase_type: context.purchaseType,
+      forge_item_id: context.itemId,
+      forge_interval: context.interval,
+      metadata_source: context.source,
+    },
+  });
 
   await grantAiCredits(supabase, {
     userId: context.supabaseUserId,
@@ -296,34 +602,73 @@ async function fulfillAiCreditsCheckout(
     amountTotal: context.amountTotal,
     currency: context.currency,
   });
+
+  await upsertBillingOneTimePurchaseRecord(supabase, {
+    userId: context.supabaseUserId,
+    customerId: context.customerId,
+    eventId: context.eventId,
+    sessionId: context.sessionId,
+    purchaseType: "ai_credits",
+    itemId: context.itemId,
+    status: "paid",
+    paymentIntentId: context.paymentIntentId,
+    amountTotal: context.amountTotal,
+    currency: context.currency,
+    metadata: {
+      source: "stripe_webhook",
+      event_type: event.type,
+      metadata_source: context.source,
+    },
+  });
+
+  await recordBillingEventRecord(supabase, {
+    event,
+    userId: context.supabaseUserId,
+    customerId: context.customerId,
+    sessionId: context.sessionId,
+  });
 }
 
 async function fulfillSubscriptionCheckout(
   supabase: SupabaseAdminClient,
   context: CheckoutFulfillmentContext,
+  event: Stripe.Event,
 ): Promise<void> {
   logCheckoutFulfillmentBranch("subscription", context);
 
   if (!context.subscriptionId) {
-    // Stripe retries are safe here because this branch only overwrites profile linkage.
     return;
   }
 
   const subscription = await stripe.subscriptions.retrieve(context.subscriptionId);
-  await syncProfileFromSubscription(
-    supabase,
+  await upsertCanonicalSubscriptionFromStripe(supabase, {
+    event,
     subscription,
-    context.supabaseUserId,
-  );
+    metadata: toRecurringPurchaseMetadata(context),
+    customerEmail: context.customerEmail,
+    customerName: context.customerName,
+  });
 }
 
 async function fulfillCloudStorageCheckout(
-  _supabase: SupabaseAdminClient,
+  supabase: SupabaseAdminClient,
   context: CheckoutFulfillmentContext,
+  event: Stripe.Event,
 ): Promise<void> {
   logCheckoutFulfillmentBranch("cloud_storage", context);
-  // TODO: Persist recurring cloud storage entitlements once the canonical
-  // storage billing schema exists. Do not overload profile subscription fields.
+
+  if (!context.subscriptionId) {
+    return;
+  }
+
+  const subscription = await stripe.subscriptions.retrieve(context.subscriptionId);
+  await upsertCanonicalSubscriptionFromStripe(supabase, {
+    event,
+    subscription,
+    metadata: toRecurringPurchaseMetadata(context),
+    customerEmail: context.customerEmail,
+    customerName: context.customerName,
+  });
 }
 
 async function fulfillCompletedCheckout(
@@ -331,22 +676,17 @@ async function fulfillCompletedCheckout(
   event: Stripe.Event,
   session: Stripe.Checkout.Session,
 ): Promise<void> {
-  const context = parseCheckoutFulfillmentContext(event, session);
-  await linkStripeCustomerToUser(
-    supabase,
-    context.supabaseUserId,
-    context.customerId,
-  );
+  const context = await parseCheckoutFulfillmentContext(supabase, event, session);
 
   switch (context.purchaseType) {
     case "subscription":
-      await fulfillSubscriptionCheckout(supabase, context);
+      await fulfillSubscriptionCheckout(supabase, context, event);
       return;
     case "ai_credits":
-      await fulfillAiCreditsCheckout(supabase, context);
+      await fulfillAiCreditsCheckout(supabase, context, event);
       return;
     case "cloud_storage":
-      await fulfillCloudStorageCheckout(supabase, context);
+      await fulfillCloudStorageCheckout(supabase, context, event);
       return;
   }
 }
@@ -361,11 +701,7 @@ async function handleRecurringSubscriptionUpsert(
     throw new Error("customer.subscription event missing customer");
   }
 
-  const metadata = parseForgePurchaseMetadata({
-    metadata: subscription.metadata,
-    mode: "subscription",
-    allowLegacyFallback: true,
-  });
+  const metadata = await resolveSubscriptionMetadata(supabase, subscription);
 
   logSubscriptionLifecycleBranch({
     eventId: event.id,
@@ -378,23 +714,17 @@ async function handleRecurringSubscriptionUpsert(
     source: metadata.source,
   });
 
-  switch (metadata.purchaseType) {
-    case "subscription":
-      await syncProfileFromSubscription(
-        supabase,
-        subscription,
-        metadata.supabaseUserId,
-      );
-      return;
-    case "cloud_storage":
-      // TODO: Persist recurring cloud storage entitlements once the canonical
-      // storage billing schema exists. Do not overload profile subscription fields.
-      return;
-    case "ai_credits":
-      throw new Error(
-        "Recurring subscription lifecycle received unsupported purchase_type=ai_credits",
-      );
+  if (metadata.purchaseType === "ai_credits") {
+    throw new Error(
+      "Recurring subscription lifecycle received unsupported purchase_type=ai_credits",
+    );
   }
+
+  await upsertCanonicalSubscriptionFromStripe(supabase, {
+    event,
+    subscription,
+    metadata: toRecurringPurchaseMetadata(metadata),
+  });
 }
 
 async function handleRecurringSubscriptionDelete(
@@ -407,11 +737,7 @@ async function handleRecurringSubscriptionDelete(
     throw new Error("customer.subscription event missing customer");
   }
 
-  const metadata = parseForgePurchaseMetadata({
-    metadata: subscription.metadata,
-    mode: "subscription",
-    allowLegacyFallback: true,
-  });
+  const metadata = await resolveSubscriptionMetadata(supabase, subscription);
 
   logSubscriptionLifecycleBranch({
     eventId: event.id,
@@ -424,23 +750,50 @@ async function handleRecurringSubscriptionDelete(
     source: metadata.source,
   });
 
-  switch (metadata.purchaseType) {
-    case "subscription":
-      await clearProfileSubscription(
-        supabase,
-        subscription,
-        metadata.supabaseUserId,
-      );
-      return;
-    case "cloud_storage":
-      // TODO: Revoke recurring cloud storage entitlements once the canonical
-      // storage billing schema exists. Do not overload profile subscription fields.
-      return;
-    case "ai_credits":
-      throw new Error(
-        "Subscription deletion received unsupported purchase_type=ai_credits",
-      );
+  if (metadata.purchaseType === "ai_credits") {
+    throw new Error(
+      "Subscription deletion received unsupported purchase_type=ai_credits",
+    );
   }
+
+  await upsertCanonicalSubscriptionFromStripe(supabase, {
+    event,
+    subscription,
+    metadata: toRecurringPurchaseMetadata(metadata),
+  });
+}
+
+async function handleInvoiceLifecycleEvent(
+  supabase: SupabaseAdminClient,
+  event: Stripe.Event,
+  invoice: Stripe.Invoice,
+): Promise<void> {
+  const customerId = normalizeCustomerId(invoice.customer ?? null);
+  if (!customerId) {
+    throw new Error(`${event.type} missing customer`);
+  }
+
+  const subscriptionId = normalizeSubscriptionId(invoice.subscription ?? null);
+  const userId = await resolveUserIdByCustomerId(supabase, customerId);
+
+  if (subscriptionId) {
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const metadata = await resolveSubscriptionMetadata(supabase, subscription);
+    await upsertCanonicalSubscriptionFromStripe(supabase, {
+      event,
+      subscription,
+      metadata: toRecurringPurchaseMetadata(metadata),
+    });
+    return;
+  }
+
+  await recordBillingEventRecord(supabase, {
+    event,
+    userId,
+    customerId,
+    subscriptionId: null,
+    sessionId: null,
+  });
 }
 
 serve(async (req) => {
@@ -483,6 +836,13 @@ serve(async (req) => {
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
         await handleRecurringSubscriptionDelete(supabase, event, subscription);
+        break;
+      }
+
+      case "invoice.paid":
+      case "invoice.payment_failed": {
+        const invoice = event.data.object as Stripe.Invoice;
+        await handleInvoiceLifecycleEvent(supabase, event, invoice);
         break;
       }
 

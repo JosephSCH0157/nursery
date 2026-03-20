@@ -107,6 +107,11 @@ serve(async (req) => {
 
   try {
     let stripeCustomerId: string | null = null;
+    const forgeCustomerMetadata = {
+      supabase_user_id: user.id,
+      forge_user_id: user.id,
+      forge_product: "podcasters_forge",
+    };
 
     const { data: profileRow, error: profileError } = await supabaseAdmin
       .from("profiles")
@@ -130,10 +135,7 @@ serve(async (req) => {
     if (!stripeCustomerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? undefined,
-        metadata: {
-          supabase_user_id: user.id,
-          forge_product: "podcasters_forge",
-        },
+        metadata: forgeCustomerMetadata,
       });
 
       stripeCustomerId = customer.id;
@@ -148,6 +150,11 @@ serve(async (req) => {
           `Failed to store stripe_customer_id: ${updateError.message}`,
         );
       }
+    } else {
+      await stripe.customers.update(stripeCustomerId, {
+        email: user.email ?? undefined,
+        metadata: forgeCustomerMetadata,
+      });
     }
 
     const price = await stripe.prices.retrieve(priceId);

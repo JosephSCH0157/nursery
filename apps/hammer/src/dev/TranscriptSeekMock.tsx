@@ -6792,6 +6792,7 @@ export default function TranscriptSeekMock(
           <div
             className="hammer-pane hammer-pane--left is-assets-view"
           >
+            <div className="hammer-pane__scroll">
         {false ? (
         <>
         <HammerPaneSection
@@ -7306,6 +7307,7 @@ export default function TranscriptSeekMock(
             )}
           </>
         )}
+            </div>
       </div>
 
       <button
@@ -7806,6 +7808,7 @@ export default function TranscriptSeekMock(
       />
 
       <div className="hammer-pane hammer-pane--right">
+        <div className="hammer-pane__scroll">
         <HammerPaneSection
           title={activeToolDefinition.label}
           subtitle={activeToolHint}
@@ -7829,6 +7832,7 @@ export default function TranscriptSeekMock(
           {toolPanelContent}
           {detailsDebugContent}
         </HammerPaneSection>
+        </div>
       </div>
 
       <div className="hammer-pane hammer-pane--tool-strip">

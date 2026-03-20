@@ -21,6 +21,7 @@
 
 .hammer-editor-shell__upper-wrap {
   min-height: 0;
+  height: 100%;
   max-height: min(52vh, 600px);
   overflow: hidden;
   flex: 0 0 auto;
@@ -31,7 +32,7 @@
   gap: 0;
   align-items: stretch;
   min-height: 0;
-  height: auto;
+  height: 100%;
 }
 
 .hammer-editor-shell__edit-band {
@@ -51,6 +52,7 @@
   align-content: start;
   min-height: 0;
   min-width: 0;
+  height: 100%;
   overflow: hidden;
   padding: 6px;
   gap: var(--hammer-gap-sm);
@@ -60,10 +62,18 @@
 .hammer-pane--right {
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  overflow-x: hidden;
   align-self: stretch;
   min-height: 0;
+}
+
+.hammer-pane__scroll {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--hammer-gap-sm);
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .hammer-pane--center {
@@ -78,21 +88,21 @@
   gap: 10px;
 }
 
-.hammer-pane--left > .hammer-pane-section:first-child {
+.hammer-pane__scroll > .hammer-pane-section:first-child {
   flex: 0 0 auto;
   width: 100%;
 }
 
-.hammer-pane--left > .hammer-pane-section:last-child,
-.hammer-pane--left > .hammer-transcript-workspace,
-.hammer-pane--right > .hammer-pane-section {
+.hammer-pane__scroll > .hammer-pane-section:last-child,
+.hammer-pane__scroll > .hammer-transcript-workspace,
+.hammer-pane__scroll > .hammer-pane-section {
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
 }
 
-.hammer-pane--left > .hammer-pane-section:last-child,
-.hammer-pane--right > .hammer-pane-section {
+.hammer-pane__scroll > .hammer-pane-section:last-child,
+.hammer-pane__scroll > .hammer-pane-section {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
 }
