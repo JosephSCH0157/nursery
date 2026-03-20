@@ -438,13 +438,15 @@ export default function TongsStorage() {
 
   useEffect(() => {
     if (!workpieceId) {
-      setWorkpieceTreeState({
-        status: "unavailable",
-        source: null,
-        nodes: [],
-        message: routeContext.hasInvalidWorkpieceId
-          ? "Route contains an invalid workpiece_id. Provide a valid workpiece UUID to inspect canonical workpiece storage."
-          : "No workpiece is selected in the current route. Add workpiece_id to inspect canonical workpiece storage.",
+      queueMicrotask(() => {
+        setWorkpieceTreeState({
+          status: "unavailable",
+          source: null,
+          nodes: [],
+          message: routeContext.hasInvalidWorkpieceId
+            ? "Route contains an invalid workpiece_id. Provide a valid workpiece UUID to inspect canonical workpiece storage."
+            : "No workpiece is selected in the current route. Add workpiece_id to inspect canonical workpiece storage.",
+        });
       });
       return;
     }
@@ -456,11 +458,13 @@ export default function TongsStorage() {
     };
 
     let cancelled = false;
-    setWorkpieceTreeState({
-      status: "loading",
-      source: workpieceSource,
-      nodes: [],
-      message: "Loading canonical workpiece listing...",
+    queueMicrotask(() => {
+      setWorkpieceTreeState({
+        status: "loading",
+        source: workpieceSource,
+        nodes: [],
+        message: "Loading canonical workpiece listing...",
+      });
     });
 
     void (async () => {

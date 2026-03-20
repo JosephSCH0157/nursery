@@ -131,15 +131,19 @@ export default function QuenchRoute() {
   const [boardUpdatedAt, setBoardUpdatedAt] = useState<string | null>(null);
 
   useEffect(() => {
-    setReleaseCases(listQuenchMockReleaseCases({ workspaceId: shell.workspaceId }));
+    queueMicrotask(() => {
+      setReleaseCases(listQuenchMockReleaseCases({ workspaceId: shell.workspaceId }));
+    });
   }, [shell.workspaceId]);
 
   useEffect(() => {
     if (!releaseCases.length) return;
     const nextCase = releaseCases.find((entry) => entry.case_id === selectedCaseId) ?? releaseCases[0];
-    setSelectedCaseId(nextCase.case_id);
-    setSelectedPlatforms([...nextCase.default_platforms]);
-    setPublishOptions(clonePublishOptions(nextCase.default_publish_options));
+    queueMicrotask(() => {
+      setSelectedCaseId(nextCase.case_id);
+      setSelectedPlatforms([...nextCase.default_platforms]);
+      setPublishOptions(clonePublishOptions(nextCase.default_publish_options));
+    });
   }, [releaseCases, selectedCaseId]);
 
   const selectedCase = releaseCases.find((entry) => entry.case_id === selectedCaseId) ?? null;
