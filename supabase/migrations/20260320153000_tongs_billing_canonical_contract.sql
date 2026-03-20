@@ -384,7 +384,6 @@ begin
     ai_credit_balance = excluded.ai_credit_balance,
     updated_at = now();
 
-  perform tongs.sync_legacy_profile_from_account_balance(p_user_id);
 end;
 $$;
 
