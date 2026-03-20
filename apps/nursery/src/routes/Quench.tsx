@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import {
   type AdapterPublishResult,
@@ -113,10 +113,13 @@ type ResolvedAssetCard = {
 
 export default function QuenchRoute() {
   const shell = useOutletContext<AppShellContext>();
-  const [releaseCases, setReleaseCases] = useState<QuenchMockReleaseCase[]>(() =>
-    listQuenchMockReleaseCases({ workspaceId: shell.workspaceId }),
+  const releaseCases = useMemo<QuenchMockReleaseCase[]>(
+    () => listQuenchMockReleaseCases({ workspaceId: shell.workspaceId }),
+    [shell.workspaceId],
   );
-  const [selectedCaseId, setSelectedCaseId] = useState<string>(releaseCases[0]?.case_id ?? "");
+  const [selectedCaseId, setSelectedCaseId] = useState<string>(() =>
+    listQuenchMockReleaseCases({ workspaceId: shell.workspaceId })[0]?.case_id ?? "",
+  );
   const [selectedPlatforms, setSelectedPlatforms] = useState<QuenchPlatform[]>(
     releaseCases[0]?.default_platforms ?? [],
   );
@@ -130,23 +133,19 @@ export default function QuenchRoute() {
   const [publishResults, setPublishResults] = useState<Partial<Record<QuenchPlatform, AdapterPublishResult>>>({});
   const [boardUpdatedAt, setBoardUpdatedAt] = useState<string | null>(null);
 
-  useEffect(() => {
-    queueMicrotask(() => {
-      setReleaseCases(listQuenchMockReleaseCases({ workspaceId: shell.workspaceId }));
-    });
-  }, [shell.workspaceId]);
+  const applySelectedCaseDefaults = useCallback((nextCase: QuenchMockReleaseCase) => {
+    setSelectedCaseId(nextCase.case_id);
+    setSelectedPlatforms([...nextCase.default_platforms]);
+    setPublishOptions(clonePublishOptions(nextCase.default_publish_options));
+  }, []);
 
   useEffect(() => {
     if (!releaseCases.length) return;
     const nextCase = releaseCases.find((entry) => entry.case_id === selectedCaseId) ?? releaseCases[0];
-    queueMicrotask(() => {
-      setSelectedCaseId(nextCase.case_id);
-      setSelectedPlatforms([...nextCase.default_platforms]);
-      setPublishOptions(clonePublishOptions(nextCase.default_publish_options));
-    });
-  }, [releaseCases, selectedCaseId]);
+    applySelectedCaseDefaults(nextCase);
+  }, [applySelectedCaseDefaults, releaseCases, selectedCaseId]);
 
-  const selectedCase = releaseCases.find((entry) => entry.case_id === selectedCaseId) ?? null;
+  const selectedCase = releaseCases.find((entry) => entry.case_id === selectedCaseId) ?? releaseCases[0] ?? null;
   const readiness = selectedCase
     ? validateReleasePacketReadiness(selectedCase.packet, resolvedAssets, selectedPlatforms)
     : null;
@@ -328,7 +327,7 @@ export default function QuenchRoute() {
                   key={entry.case_id}
                   type="button"
                   className={`quench-console__case${isSelected ? " is-selected" : ""}`}
-                  onClick={() => setSelectedCaseId(entry.case_id)}
+                  onClick={() => applySelectedCaseDefaults(entry)}
                 >
                   <div className="quench-console__case-top">
                     <strong>{entry.label}</strong>

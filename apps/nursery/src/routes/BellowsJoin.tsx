@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import type {
@@ -267,10 +267,6 @@ async function publishPresence(
   await channel.track(payload);
 }
 
-function deferStateUpdate(update: () => void): void {
-  queueMicrotask(update);
-}
-
 function buildStatusTone(
   phase: JoinPhase,
   readiness: BellowsParticipantReadiness,
@@ -449,6 +445,37 @@ export default function BellowsJoin() {
     statusMessage,
     hostSignal,
   });
+  const applyJoinErrorState = useCallback((nextErrorMessage: string, nextStatusMessage: string) => {
+    setResolvedLink(null);
+    setGuestKey(null);
+    setHostSignal(null);
+    setPhase("error");
+    setErrorMessage(nextErrorMessage);
+    setStatusMessage(nextStatusMessage);
+  }, []);
+  const resetJoinResolutionState = useCallback(() => {
+    setResolvedLink(null);
+    setGuestKey(null);
+    setPresenceCount(0);
+    setPresenceConnected(false);
+    setHostSignal(null);
+    setPhase("resolving");
+    setErrorMessage(null);
+    setUsedCache(false);
+    setStatusMessage("Validating Bellows join link...");
+  }, []);
+  const clearPresenceConnectionState = useCallback(() => {
+    setPresenceConnected(false);
+    setHostSignal(null);
+  }, []);
+  const applyConnectingStatus = useCallback((nextStatusMessage: string) => {
+    setPhase("connecting");
+    setStatusMessage(nextStatusMessage);
+  }, []);
+  const applyPhaseStatus = useCallback((nextPhase: JoinPhase, nextStatusMessage: string) => {
+    setPhase(nextPhase);
+    setStatusMessage(nextStatusMessage);
+  }, []);
 
   useEffect(() => {
     const node = previewRef.current;
@@ -464,41 +491,23 @@ export default function BellowsJoin() {
 
   useEffect(() => {
     if (!sessionId) {
-      deferStateUpdate(() => {
-        setResolvedLink(null);
-        setGuestKey(null);
-        setHostSignal(null);
-        setPhase("error");
-        setErrorMessage("Bellows could not find a session id in this join route.");
-        setStatusMessage("Join link is missing its session id.");
-      });
+      applyJoinErrorState(
+        "Bellows could not find a session id in this join route.",
+        "Join link is missing its session id.",
+      );
       return;
     }
 
     if (!token) {
-      deferStateUpdate(() => {
-        setResolvedLink(null);
-        setGuestKey(null);
-        setHostSignal(null);
-        setPhase("error");
-        setErrorMessage("Bellows join links require a token query parameter.");
-        setStatusMessage("Join link is missing its access token.");
-      });
+      applyJoinErrorState(
+        "Bellows join links require a token query parameter.",
+        "Join link is missing its access token.",
+      );
       return;
     }
 
     let active = true;
-    deferStateUpdate(() => {
-      setResolvedLink(null);
-      setGuestKey(null);
-      setPresenceCount(0);
-      setPresenceConnected(false);
-      setHostSignal(null);
-      setPhase("resolving");
-      setErrorMessage(null);
-      setUsedCache(false);
-      setStatusMessage("Validating Bellows join link...");
-    });
+    resetJoinResolutionState();
 
     void resolveJoinContinuation(repository, sessionId, token)
       .then((result) => {
@@ -533,17 +542,14 @@ export default function BellowsJoin() {
     return () => {
       active = false;
     };
-  }, [repository, sessionId, token]);
+  }, [applyJoinErrorState, repository, resetJoinResolutionState, sessionId, token]);
 
   useEffect(() => {
     if (!resolvedLink || !guestKey) {
       channelRef.current = null;
       joinedAtRef.current = null;
       publishedPresenceRef.current = "";
-      deferStateUpdate(() => {
-        setPresenceConnected(false);
-        setHostSignal(null);
-      });
+      clearPresenceConnectionState();
       return;
     }
 
@@ -580,14 +586,11 @@ export default function BellowsJoin() {
       setHostSignal(nextSignal);
     });
 
-    deferStateUpdate(() => {
-      setPhase("connecting");
-      setStatusMessage(
-        usedCache
-          ? "Rejoining the Bellows session channel from this tab."
-          : "Connecting to the Bellows session channel.",
-      );
-    });
+    applyConnectingStatus(
+      usedCache
+        ? "Rejoining the Bellows session channel from this tab."
+        : "Connecting to the Bellows session channel.",
+    );
 
     channel.subscribe((status: string) => {
       if (!active) return;
@@ -630,14 +633,13 @@ export default function BellowsJoin() {
 
     return () => {
       active = false;
-      setPresenceConnected(false);
-      setHostSignal(null);
+      clearPresenceConnectionState();
       channelRef.current = null;
       joinedAtRef.current = null;
       publishedPresenceRef.current = "";
       void channel.unsubscribe();
     };
-  }, [guestKey, guestLabel, resolvedLink, usedCache]);
+  }, [applyConnectingStatus, clearPresenceConnectionState, guestKey, guestLabel, resolvedLink, usedCache]);
 
   useEffect(() => {
     if (!resolvedLink || !guestKey || !presenceConnected || !channelRef.current || !joinedAtRef.current) {
@@ -710,11 +712,9 @@ export default function BellowsJoin() {
       return;
     }
 
-    deferStateUpdate(() => {
-      setPhase(nextPhase);
-      setStatusMessage(nextStatusMessage);
-    });
+    applyPhaseStatus(nextPhase, nextStatusMessage);
   }, [
+    applyPhaseStatus,
     guestKey,
     hostSignal,
     localMedia.readiness,

@@ -185,10 +185,7 @@ type BellowsJoinLinkRevokeResultRow = {
   join_link_id: string;
 };
 
-type BellowsTongsSchemaClient = Pick<
-  SupabaseClient<Database, "tongs", "tongs">,
-  "rpc" | "from"
->;
+type BellowsTongsSchemaClient = SupabaseClient<Database, "tongs", "tongs">;
 
 export interface NurseryBellowsTongsSessionRepository
   extends BellowsTongsSessionRepository {
@@ -720,7 +717,7 @@ class SupabaseBellowsTongsRepository
   }
 
   private get tongs(): BellowsTongsSchemaClient {
-    return this.client.schema("tongs") as unknown as BellowsTongsSchemaClient;
+    return this.client;
   }
 
   private async resolveLatestCheckpoint(

@@ -11,7 +11,7 @@ const AUTH_STORAGE_KEY = "forge-auth";
 
 const GLOBAL_KEY = "__forge_supabase_client__";
 const TONGS_GLOBAL_KEY = "__forge_supabase_tongs_client__";
-type TongsSupabaseClient = SupabaseClient<Database, "tongs", "tongs">;
+export type TongsSupabaseClient = SupabaseClient<Database, "tongs", "tongs">;
 
 const globalStore = globalThis as typeof globalThis & {
   [GLOBAL_KEY]?: SupabaseClient<Database>;

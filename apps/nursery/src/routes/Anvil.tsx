@@ -26,12 +26,10 @@ export default function AnvilRoute() {
   const handoffValidationSeqRef = useRef(0);
   const [handoffError, setHandoffError] = useState<string | null>(null);
   const [handoffValidating, setHandoffValidating] = useState(false);
-  const scheduleHandoffState = (validating: boolean, error: string | null) => {
-    queueMicrotask(() => {
-      setHandoffValidating(validating);
-      setHandoffError(error);
-    });
-  };
+  const applyHandoffState = useCallback((validating: boolean, error: string | null) => {
+    setHandoffValidating(validating);
+    setHandoffError(error);
+  }, []);
   const requestedWorkspaceId = context.workspaceId;
   const requestedWorkspaceKnown = useMemo(
     () => !!requestedWorkspaceId && shell.workspaces.some((workspace) => workspace.id === requestedWorkspaceId),
@@ -140,21 +138,21 @@ export default function AnvilRoute() {
     }
 
     if (context.hasInvalidWorkpieceId) {
-      scheduleHandoffState(false, "The requested workpiece context is invalid. Reopen Anvil from Hearth.");
+      applyHandoffState(false, "The requested workpiece context is invalid. Reopen Anvil from Hearth.");
       return;
     }
 
     if (handoff.hasInvalidScriptPath) {
-      scheduleHandoffState(false, "The requested script path is invalid. Reopen the script from Hearth.");
+      applyHandoffState(false, "The requested script path is invalid. Reopen the script from Hearth.");
       return;
     }
 
     if (!context.workpieceId) {
-      scheduleHandoffState(false, "Open in Anvil requires a valid workpiece reference. Reopen the target from Hearth.");
+      applyHandoffState(false, "Open in Anvil requires a valid workpiece reference. Reopen the target from Hearth.");
       return;
     }
 
-    scheduleHandoffState(true, null);
+    applyHandoffState(true, null);
 
     void validateAnvilHandoffTarget({
       workspaceId: resolvedWorkspaceId,
@@ -180,6 +178,7 @@ export default function AnvilRoute() {
     });
   }, [
     anvilHref,
+    applyHandoffState,
     bridgeTongsToken,
     context.hasInvalidWorkpieceId,
     context.workpieceId,
