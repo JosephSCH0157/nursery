@@ -157,35 +157,37 @@ async function requestLocalMedia(): Promise<{
   }
 }
 
+const DISABLED_BELLOWS_LOCAL_MEDIA_REQUEST_STATE: BellowsLocalMediaRequestState = {
+  readiness: {
+    microphone: "unknown",
+    camera: "unknown",
+    overall: "unknown",
+  },
+  stream: null,
+  deviceMessage: "Bellows is waiting to check local devices.",
+  deviceError: null,
+};
+
+const PENDING_BELLOWS_LOCAL_MEDIA_REQUEST_STATE: BellowsLocalMediaRequestState = {
+  readiness: {
+    microphone: "pending",
+    camera: "pending",
+    overall: "pending",
+  },
+  stream: null,
+  deviceMessage: "Bellows is checking local devices.",
+  deviceError: null,
+};
+
 export function useBellowsLocalMediaReadiness(
   enabled: boolean,
 ): BellowsLocalMediaReadinessState & {
   readonly retryToken: number;
   retry(): void;
 } {
-  const disabledRequestState: BellowsLocalMediaRequestState = {
-    readiness: {
-      microphone: "unknown",
-      camera: "unknown",
-      overall: "unknown",
-    },
-    stream: null,
-    deviceMessage: "Bellows is waiting to check local devices.",
-    deviceError: null,
-  };
-  const pendingRequestState: BellowsLocalMediaRequestState = {
-    readiness: {
-      microphone: "pending",
-      camera: "pending",
-      overall: "pending",
-    },
-    stream: null,
-    deviceMessage: "Bellows is checking local devices.",
-    deviceError: null,
-  };
   const [retryToken, setRetryToken] = useState(0);
   const [requestState, setRequestState] = useState<BellowsLocalMediaRequestState>(
-    enabled ? pendingRequestState : disabledRequestState,
+    enabled ? PENDING_BELLOWS_LOCAL_MEDIA_REQUEST_STATE : DISABLED_BELLOWS_LOCAL_MEDIA_REQUEST_STATE,
   );
   const [audioSample, setAudioSample] = useState<{
     readonly audioLevelPct: number;
@@ -196,8 +198,8 @@ export function useBellowsLocalMediaReadiness(
   });
 
   const effectiveRequestState = enabled
-    ? (requestState.readiness.overall === "unknown" ? pendingRequestState : requestState)
-    : disabledRequestState;
+    ? (requestState.readiness.overall === "unknown" ? PENDING_BELLOWS_LOCAL_MEDIA_REQUEST_STATE : requestState)
+    : DISABLED_BELLOWS_LOCAL_MEDIA_REQUEST_STATE;
   const stream = effectiveRequestState.stream;
   const readiness = effectiveRequestState.readiness;
   const deviceMessage = effectiveRequestState.deviceMessage;
@@ -212,21 +214,25 @@ export function useBellowsLocalMediaReadiness(
 
   useEffect(() => {
     if (!enabled) {
-      setRequestState((current) => {
-        stopStream(current.stream);
-        return disabledRequestState;
-      });
-      setAudioSample({
-        audioLevelPct: 0,
-        audioActivity: "unknown",
+      queueMicrotask(() => {
+        setRequestState((current) => {
+          stopStream(current.stream);
+          return DISABLED_BELLOWS_LOCAL_MEDIA_REQUEST_STATE;
+        });
+        setAudioSample({
+          audioLevelPct: 0,
+          audioActivity: "unknown",
+        });
       });
       return;
     }
 
     let active = true;
-    setAudioSample({
-      audioLevelPct: 0,
-      audioActivity: "unknown",
+    queueMicrotask(() => {
+      setAudioSample({
+        audioLevelPct: 0,
+        audioActivity: "unknown",
+      });
     });
 
     void requestLocalMedia()
@@ -322,7 +328,7 @@ export function useBellowsLocalMediaReadiness(
         // ignore cleanup failures
       });
     };
-  }, [readiness.microphone, stream]);
+  }, [audioTracks, readiness.microphone, stream]);
 
   useEffect(() => {
     return () => {

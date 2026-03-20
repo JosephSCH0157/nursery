@@ -26,6 +26,12 @@ export default function AnvilRoute() {
   const handoffValidationSeqRef = useRef(0);
   const [handoffError, setHandoffError] = useState<string | null>(null);
   const [handoffValidating, setHandoffValidating] = useState(false);
+  const scheduleHandoffState = (validating: boolean, error: string | null) => {
+    queueMicrotask(() => {
+      setHandoffValidating(validating);
+      setHandoffError(error);
+    });
+  };
   const requestedWorkspaceId = context.workspaceId;
   const requestedWorkspaceKnown = useMemo(
     () => !!requestedWorkspaceId && shell.workspaces.some((workspace) => workspace.id === requestedWorkspaceId),
@@ -134,25 +140,21 @@ export default function AnvilRoute() {
     }
 
     if (context.hasInvalidWorkpieceId) {
-      setHandoffValidating(false);
-      setHandoffError("The requested workpiece context is invalid. Reopen Anvil from Hearth.");
+      scheduleHandoffState(false, "The requested workpiece context is invalid. Reopen Anvil from Hearth.");
       return;
     }
 
     if (handoff.hasInvalidScriptPath) {
-      setHandoffValidating(false);
-      setHandoffError("The requested script path is invalid. Reopen the script from Hearth.");
+      scheduleHandoffState(false, "The requested script path is invalid. Reopen the script from Hearth.");
       return;
     }
 
     if (!context.workpieceId) {
-      setHandoffValidating(false);
-      setHandoffError("Open in Anvil requires a valid workpiece reference. Reopen the target from Hearth.");
+      scheduleHandoffState(false, "Open in Anvil requires a valid workpiece reference. Reopen the target from Hearth.");
       return;
     }
 
-    setHandoffValidating(true);
-    setHandoffError(null);
+    scheduleHandoffState(true, null);
 
     void validateAnvilHandoffTarget({
       workspaceId: resolvedWorkspaceId,

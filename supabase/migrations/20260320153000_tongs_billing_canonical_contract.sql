@@ -205,6 +205,10 @@ begin
       using errcode = '22023';
   end if;
 
+  if pg_catalog.to_regclass('public.profiles') is null then
+    return;
+  end if;
+
   insert into public.profiles (user_id)
   values (p_user_id)
   on conflict (user_id) do nothing;
@@ -794,22 +798,29 @@ begin
 end;
 $$;
 
-insert into tongs.billing_customers (
-  user_id,
-  stripe_customer_id,
-  metadata_json
-)
-select
-  p.user_id,
-  btrim(p.stripe_customer_id),
-  jsonb_build_object('source', 'public.profiles_backfill')
-from public.profiles p
-where nullif(btrim(coalesce(p.stripe_customer_id, '')), '') is not null
-on conflict (stripe_customer_id) do update
-set
-  user_id = excluded.user_id,
-  metadata_json = tongs.billing_customers.metadata_json || excluded.metadata_json,
-  updated_at = now();
+do $$
+begin
+  if pg_catalog.to_regclass('public.profiles') is not null then
+    insert into tongs.billing_customers (
+      user_id,
+      stripe_customer_id,
+      metadata_json
+    )
+    select
+      p.user_id,
+      btrim(p.stripe_customer_id),
+      jsonb_build_object('source', 'public.profiles_backfill')
+    from public.profiles p
+    where p.user_id is not null
+      and nullif(btrim(coalesce(p.stripe_customer_id, '')), '') is not null
+    on conflict (stripe_customer_id) do update
+    set
+      user_id = excluded.user_id,
+      metadata_json = tongs.billing_customers.metadata_json || excluded.metadata_json,
+      updated_at = now();
+  end if;
+end;
+$$;
 
 do $$
 declare

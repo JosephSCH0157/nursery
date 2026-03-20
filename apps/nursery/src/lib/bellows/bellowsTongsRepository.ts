@@ -185,13 +185,10 @@ type BellowsJoinLinkRevokeResultRow = {
   join_link_id: string;
 };
 
-type BellowsTongsSchemaClient = {
-  rpc(functionName: string, args?: Record<string, unknown>): any;
-  from(relation: string): {
-    select(columns: string): any;
-    update(values: Record<string, unknown>): any;
-  };
-};
+type BellowsTongsSchemaClient = Pick<
+  SupabaseClient<Database>,
+  "rpc" | "from"
+>;
 
 export interface NurseryBellowsTongsSessionRepository
   extends BellowsTongsSessionRepository {
