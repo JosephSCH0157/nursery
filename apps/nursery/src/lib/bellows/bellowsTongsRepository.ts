@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Json, SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
 import {
   BELLOWS_TONGS_CHECKPOINT_TABLE,
@@ -186,7 +186,7 @@ type BellowsJoinLinkRevokeResultRow = {
 };
 
 type BellowsTongsSchemaClient = Pick<
-  SupabaseClient<Database>,
+  SupabaseClient<Database, "tongs", "tongs">,
   "rpc" | "from"
 >;
 
@@ -329,7 +329,7 @@ function mapCheckpointRow(row: BellowsCheckpointRow): BellowsTongsRecoveryCheckp
       asStringArray(row.integrity_flags) as BellowsTongsRecoveryCheckpointRecord["integrityFlags"],
     eventCount: row.event_count,
     snapshotSchemaVersion: row.snapshot_schema_version,
-    sessionSnapshot: row.session_snapshot,
+    sessionSnapshot: row.session_snapshot as BellowsSession,
     delta: asObject(row.delta),
     recordedAt: row.recorded_at,
   };
@@ -398,9 +398,9 @@ function isSupportedCheckpoint(
 
 class SupabaseBellowsTongsRepository
   implements NurseryBellowsTongsRepository {
-  private readonly client: SupabaseClient<Database>;
+  private readonly client: SupabaseClient<Database, "tongs", "tongs">;
 
-  public constructor(client: SupabaseClient<Database>) {
+  public constructor(client: SupabaseClient<Database, "tongs", "tongs">) {
     this.client = client;
   }
 
@@ -510,7 +510,7 @@ class SupabaseBellowsTongsRepository
       p_co_host_participant_ids: [...input.session.authorityState.coHostParticipantIds],
       p_integrity_flags: [...input.session.integrityFlags],
       p_event_count: input.session.events.length,
-      p_session_snapshot: input.session,
+      p_session_snapshot: input.session as unknown as Json,
       p_delta: input.delta ?? null,
       p_started_at: timestamps.startedAt,
       p_ended_at: timestamps.endedAt,
@@ -810,19 +810,19 @@ class SupabaseBellowsTongsRepository
 }
 
 export function createBellowsTongsSessionRepository(
-  client: SupabaseClient<Database>,
+  client: SupabaseClient<Database, "tongs", "tongs">,
 ): NurseryBellowsTongsSessionRepository {
   return new SupabaseBellowsTongsRepository(client);
 }
 
 export function createBellowsTongsJoinLinkRepository(
-  client: SupabaseClient<Database>,
+  client: SupabaseClient<Database, "tongs", "tongs">,
 ): NurseryBellowsTongsJoinLinkRepository {
   return new SupabaseBellowsTongsRepository(client);
 }
 
 export function createBellowsTongsRepository(
-  client: SupabaseClient<Database>,
+  client: SupabaseClient<Database, "tongs", "tongs">,
 ): NurseryBellowsTongsRepository {
   return new SupabaseBellowsTongsRepository(client);
 }

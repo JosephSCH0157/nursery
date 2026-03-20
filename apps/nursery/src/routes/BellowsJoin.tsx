@@ -19,7 +19,7 @@ import {
   parseBellowsHostSessionSignal,
 } from "../lib/bellows/bellowsSessionPresence";
 import { useBellowsLocalMediaReadiness } from "../lib/bellows/useBellowsLocalMediaReadiness";
-import { supabase } from "../lib/supabase";
+import { supabase, tongsSupabase } from "../lib/supabase";
 import "./BellowsJoin.css";
 
 const BELLOWS_JOIN_CONTINUATION_KEY = "forge_bellows_join_continuation_v1";
@@ -409,7 +409,7 @@ function buildStatusDetail(args: {
 
 export default function BellowsJoin() {
   const repository = useMemo(
-    () => createBellowsTongsJoinLinkRepository(supabase),
+    () => createBellowsTongsJoinLinkRepository(tongsSupabase),
     [],
   );
   const location = useLocation();

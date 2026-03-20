@@ -51,7 +51,7 @@ import {
   type BellowsParticipantPresencePayload,
 } from "../lib/bellows/bellowsSessionPresence";
 import { useBellowsLocalMediaReadiness } from "../lib/bellows/useBellowsLocalMediaReadiness";
-import { supabase } from "../lib/supabase";
+import { supabase, tongsSupabase } from "../lib/supabase";
 import "./BellowsStandalone.css";
 
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
@@ -1130,7 +1130,7 @@ function formatDispatchSummary(
 
 export default function BellowsStandalone() {
   const repository = useMemo<NurseryBellowsTongsRepository>(
-    () => createBellowsTongsRepository(supabase),
+    () => createBellowsTongsRepository(tongsSupabase),
     [],
   );
   const location = useLocation();
