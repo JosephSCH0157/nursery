@@ -34,7 +34,10 @@ type AiPack = {
 
 type StoragePack = {
   level: StorageLevel;
-  label: string;
+  sizeLabel: string;
+  priceLabel: string;
+  description: string;
+  featured?: boolean;
   priceId: string;
 };
 
@@ -113,6 +116,7 @@ type TongsBillingClient = TongsRpcClient & TongsAccountBalanceTableClient;
 
 // Canonical Account & Billing reads must stay on the tongs schema.
 const tongsBillingDb = tongsSupabase as unknown as TongsBillingClient;
+const BASE_PLAN_STORAGE_BYTES = 500 * 1024 * 1024 * 1024;
 
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -127,6 +131,19 @@ function readWindowConfig(key: string): string {
   return normalizeString(globalWindow[key]);
 }
 
+function isLocalRuntimeHost(): boolean {
+  if (typeof window === "undefined") return false;
+  const host = normalizeLowerString(window.location.hostname);
+  return host === "localhost"
+    || host === "127.0.0.1"
+    || host === "::1"
+    || host.endsWith(".local");
+}
+
+function allowLiveStripeInLocalRuntime(metaEnv: Record<string, unknown>): boolean {
+  return normalizeLowerString(metaEnv.VITE_STRIPE_ALLOW_LIVE_IN_LOCAL) === "true";
+}
+
 function getConfiguredStripeMode(): StripeCatalogMode {
   const meta = (typeof import.meta !== "undefined" ? import.meta : {}) as ImportMeta & {
     env?: Record<string, unknown>;
@@ -135,6 +152,11 @@ function getConfiguredStripeMode(): StripeCatalogMode {
   const configured = normalizeLowerString(
     readWindowConfig("__forgeStripeMode") || metaEnv.VITE_STRIPE_MODE,
   );
+  const allowLiveInLocalRuntime = allowLiveStripeInLocalRuntime(metaEnv);
+
+  if (isLocalRuntimeHost() && configured === "live" && !allowLiveInLocalRuntime) {
+    return "test";
+  }
 
   if (configured === "test") return "test";
   if (configured === "live") return "live";
@@ -186,6 +208,13 @@ function getConfiguredStoragePriceId(level: StorageLevel): string {
     env?: Record<string, unknown>;
   };
   const metaEnv = meta.env ?? {};
+  const forceTestCatalogPrice = isLocalRuntimeHost() && !allowLiveStripeInLocalRuntime(metaEnv);
+
+  // In local development, do not allow live storage price overrides by default.
+  if (forceTestCatalogPrice) {
+    return STRIPE_CATALOG.storage[level].testPriceId;
+  }
+
   const envKey = level === "50gb"
     ? metaEnv.VITE_STRIPE_STORAGE_PRICE_ID_50GB
     : level === "100gb"
@@ -227,9 +256,28 @@ function getConfiguredAiPacks(): AiPack[] {
 
 function getConfiguredStoragePacks(): StoragePack[] {
   return [
-    { level: "50gb", label: "50 GB", priceId: getConfiguredStoragePriceId("50gb") },
-    { level: "100gb", label: "100 GB", priceId: getConfiguredStoragePriceId("100gb") },
-    { level: "1tb", label: "1 TB", priceId: getConfiguredStoragePriceId("1tb") },
+    {
+      level: "50gb",
+      sizeLabel: "+250 GB",
+      priceLabel: "$9/month",
+      description: "Starter boost",
+      priceId: getConfiguredStoragePriceId("50gb"),
+    },
+    {
+      level: "100gb",
+      sizeLabel: "+1 TB",
+      priceLabel: "$24/month",
+      description: "Most popular",
+      featured: true,
+      priceId: getConfiguredStoragePriceId("100gb"),
+    },
+    {
+      level: "1tb",
+      sizeLabel: "+5 TB",
+      priceLabel: "$79/month",
+      description: "Studio-scale storage",
+      priceId: getConfiguredStoragePriceId("1tb"),
+    },
   ];
 }
 
@@ -725,17 +773,19 @@ export default function SubscriptionsRoute() {
     ? "No recurring billing"
     : "--";
   const planPeriodEnd = accountOverview?.planCurrentPeriodEnd || profile?.current_period_end || null;
-  const storageTierLabel = formatStorageLabel(accountOverview?.storageItemId);
+  const activeStoragePack = storagePacks.find((pack) => pack.level === accountOverview?.storageItemId) ?? null;
+  const storageTierLabel = activeStoragePack?.sizeLabel || formatStorageLabel(accountOverview?.storageItemId);
   const storageStatusLabel = accountOverview?.storageStatus
     ? formatStatusLabel(accountOverview.storageStatus)
     : accountOverview?.storageItemId
     ? "Pending"
     : "No storage add-on";
-  const storageBytesEntitled = accountOverview?.storageBytesEntitled ?? 0;
+  const storageAddonBytesEntitled = accountOverview?.storageBytesEntitled ?? 0;
+  const storageTotalBytesEntitled = BASE_PLAN_STORAGE_BYTES + storageAddonBytesEntitled;
   const storageBytesUsed: number | null = null;
   const storageBytesRemaining = storageBytesUsed == null
     ? null
-    : Math.max(0, storageBytesEntitled - storageBytesUsed);
+    : Math.max(0, storageTotalBytesEntitled - storageBytesUsed);
   const aiBalance = accountOverview?.aiCreditBalance ?? aiSnapshot?.tokenBalance ?? null;
   const avatarUrl = buildAvatarUrl(user);
   const avatarInitials = buildInitials(displayName, user?.email);
@@ -970,28 +1020,36 @@ export default function SubscriptionsRoute() {
             <article className="subscriptions-card subscriptions-card--wide">
               <h3>Storage</h3>
               <p className="subscriptions-card__copy">
-                Review your storage tier and upgrade it here. One storage tier is active at a time.
+                Only one storage add-on can be active at a time. Total storage equals base plan storage plus your selected add-on.
               </p>
 
               <dl className="subscriptions-facts subscriptions-facts--compact">
                 <div>
-                  <dt>Current storage tier</dt>
+                  <dt>Total storage entitlement</dt>
+                  <dd>{accountOverviewLoading ? "Loading..." : formatByteCount(storageTotalBytesEntitled)}</dd>
+                </div>
+                <div>
+                  <dt>Base plan storage</dt>
+                  <dd>{formatByteCount(BASE_PLAN_STORAGE_BYTES)} included</dd>
+                </div>
+                <div>
+                  <dt>Storage add-on</dt>
                   <dd>{accountOverviewLoading ? "Loading..." : storageTierLabel}</dd>
                 </div>
                 <div>
-                  <dt>Plan status</dt>
+                  <dt>Add-on status</dt>
                   <dd>{accountOverviewLoading ? "Loading..." : storageStatusLabel}</dd>
                 </div>
                 <div>
-                  <dt>storage_bytes_used</dt>
+                  <dt>Add-on entitlement</dt>
+                  <dd>{accountOverviewLoading ? "Loading..." : formatByteCount(storageAddonBytesEntitled)}</dd>
+                </div>
+                <div>
+                  <dt>Storage used</dt>
                   <dd>{storageBytesUsed == null ? "Not yet surfaced" : formatByteCount(storageBytesUsed)}</dd>
                 </div>
                 <div>
-                  <dt>storage_bytes_entitled</dt>
-                  <dd>{accountOverviewLoading ? "Loading..." : formatByteCount(storageBytesEntitled)}</dd>
-                </div>
-                <div>
-                  <dt>storage_bytes_remaining</dt>
+                  <dt>Storage remaining</dt>
                   <dd>{storageBytesRemaining == null ? "Not yet surfaced" : formatByteCount(storageBytesRemaining)}</dd>
                 </div>
                 <div>
@@ -1000,26 +1058,44 @@ export default function SubscriptionsRoute() {
                 </div>
               </dl>
 
-              <div className="subscriptions-pack-row">
+              <div className="subscriptions-storage-ladder">
                 {storagePacks.map((pack) => {
                   const isCurrentTier = accountOverview?.storageItemId === pack.level
                     && billingStatusEntitlesAccess(accountOverview?.storageStatus);
-                  const label = isCurrentTier
-                    ? `Current: ${pack.label}`
+                  const actionLabel = isCurrentTier
+                    ? "Active"
                     : accountOverview?.storageItemId
-                    ? `Upgrade to ${pack.label}`
-                    : `Buy ${pack.label}`;
+                    ? "Change add-on"
+                    : "Add storage";
 
                   return (
-                    <button
+                    <article
                       key={pack.level}
-                      type="button"
-                      className="subscriptions-button"
-                      disabled={!pack.priceId || pendingStorageLevel !== null || isCurrentTier}
-                      onClick={() => void handleStorageCheckout(pack)}
+                      className={`subscriptions-storage-tier${pack.featured ? " subscriptions-storage-tier--featured" : ""}`}
                     >
-                      {pendingStorageLevel === pack.level ? "Redirecting..." : label}
-                    </button>
+                      <div className="subscriptions-storage-tier__header">
+                        <div>
+                          <strong>{pack.sizeLabel}</strong>
+                          <p>{pack.description}</p>
+                        </div>
+                        {isCurrentTier ? (
+                          <span className="subscriptions-storage-tier__badge">Active</span>
+                        ) : pack.featured ? (
+                          <span className="subscriptions-storage-tier__badge subscriptions-storage-tier__badge--popular">
+                            Most popular
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="subscriptions-storage-tier__price">{pack.priceLabel}</div>
+                      <button
+                        type="button"
+                        className={`subscriptions-button${pack.featured ? " subscriptions-button--featured" : ""}`}
+                        disabled={!pack.priceId || pendingStorageLevel !== null || isCurrentTier}
+                        onClick={() => void handleStorageCheckout(pack)}
+                      >
+                        {pendingStorageLevel === pack.level ? "Redirecting..." : actionLabel}
+                      </button>
+                    </article>
                   );
                 })}
               </div>

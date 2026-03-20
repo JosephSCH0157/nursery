@@ -1,6 +1,6 @@
 import type { RealtimeChannel, User } from "@supabase/supabase-js";
 import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import type {
   BellowsDeviceReadinessState,
