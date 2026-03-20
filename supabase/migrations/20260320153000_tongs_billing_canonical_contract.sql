@@ -3,6 +3,15 @@
 
 begin;
 
+create or replace function tongs.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  NEW.updated_at := now();
+  return NEW;
+end;
+$$;
 create table if not exists tongs.billing_customers (
   user_id uuid primary key references auth.users(id) on delete cascade,
   stripe_customer_id text not null unique,
