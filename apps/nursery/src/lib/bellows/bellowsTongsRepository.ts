@@ -185,6 +185,14 @@ type BellowsJoinLinkRevokeResultRow = {
   join_link_id: string;
 };
 
+type BellowsTongsSchemaClient = {
+  rpc(functionName: string, args?: Record<string, unknown>): any;
+  from(relation: string): {
+    select(columns: string): any;
+    update(values: Record<string, unknown>): any;
+  };
+};
+
 export interface NurseryBellowsTongsSessionRepository
   extends BellowsTongsSessionRepository {
   loadMostRecentOpenSession(
@@ -393,7 +401,11 @@ function isSupportedCheckpoint(
 
 class SupabaseBellowsTongsRepository
   implements NurseryBellowsTongsRepository {
-  public constructor(private readonly client: SupabaseClient<Database>) {}
+  private readonly client: SupabaseClient<Database>;
+
+  public constructor(client: SupabaseClient<Database>) {
+    this.client = client;
+  }
 
   public async createSessionHeader(
     input: BellowsCreateTongsSessionHeaderInput,
@@ -710,8 +722,8 @@ class SupabaseBellowsTongsRepository
     return this.appendRecoveryCheckpoint(input);
   }
 
-  private get tongs(): ReturnType<SupabaseClient<Database>["schema"]> {
-    return this.client.schema("tongs");
+  private get tongs(): BellowsTongsSchemaClient {
+    return this.client.schema("tongs") as unknown as BellowsTongsSchemaClient;
   }
 
   private async resolveLatestCheckpoint(

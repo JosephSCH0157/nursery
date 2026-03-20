@@ -1478,6 +1478,10 @@ export default function BellowsStandalone() {
   ]);
 
   const session = snapshot?.session ?? null;
+  const studioShellObservations = snapshot?.studioShellObservations ?? [];
+  const persistenceObservations = snapshot?.persistenceObservations ?? [];
+  const dispatchLog = snapshot?.dispatchLog ?? [];
+  const persistenceSnapshots = snapshot?.persistenceSnapshots ?? [];
   const currentHostParticipantId = runtimeShell?.hostParticipantId ?? null;
   const currentHostRoleCode = session
     ? resolveParticipantRoleCode(session, currentHostParticipantId)
@@ -2749,9 +2753,9 @@ export default function BellowsStandalone() {
               </div>
             </div>
             <ul className="bellows-standalone__log">
-              {snapshot.studioShellObservations.length === 0 ? (
+              {studioShellObservations.length === 0 ? (
                 <li className="bellows-standalone__log-empty">No studio reports yet.</li>
-              ) : snapshot.studioShellObservations.map((observation, index) => {
+              ) : studioShellObservations.map((observation, index) => {
                 const report = formatStudioShellReport(observation);
                 return (
                   <li key={`${observation.effectType}-${index}`} className="bellows-standalone__log-item">
@@ -2773,9 +2777,9 @@ export default function BellowsStandalone() {
               </div>
             </div>
             <ul className="bellows-standalone__log">
-              {snapshot.persistenceObservations.length === 0 ? (
+              {persistenceObservations.length === 0 ? (
                 <li className="bellows-standalone__log-empty">No recovery reports yet.</li>
-              ) : snapshot.persistenceObservations.map((observation, index) => {
+              ) : persistenceObservations.map((observation, index) => {
                 const report = formatPersistenceReport(observation);
                 return (
                   <li key={`${observation.effectType}-${index}`} className="bellows-standalone__log-item">
@@ -2797,9 +2801,9 @@ export default function BellowsStandalone() {
               </div>
             </div>
             <ul className="bellows-standalone__log bellows-standalone__log--dispatch">
-              {snapshot.dispatchLog.length === 0 ? (
+              {dispatchLog.length === 0 ? (
                 <li className="bellows-standalone__log-empty">No timeline entries yet.</li>
-              ) : snapshot.dispatchLog.map((record, index) => {
+              ) : dispatchLog.map((record, index) => {
                 const report = formatDispatchReport(record);
                 return (
                   <li key={`${record.actionType}-${index}`} className="bellows-standalone__log-item">
@@ -2829,9 +2833,9 @@ export default function BellowsStandalone() {
               <div>
                 <h3>Persistence snapshots</h3>
                 <ul className="bellows-standalone__snapshot-list">
-                  {snapshot.persistenceSnapshots.length === 0 ? (
+                  {persistenceSnapshots.length === 0 ? (
                     <li>No snapshots recorded yet.</li>
-                  ) : snapshot.persistenceSnapshots.map((entry, index) => (
+                  ) : persistenceSnapshots.map((entry, index) => (
                     <li key={`${entry.lifecycle}-${index}`}>
                       <strong>{entry.lifecycle}</strong>
                       <span>{entry.uploadState}</span>

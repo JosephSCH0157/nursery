@@ -213,7 +213,7 @@ export function useBellowsLocalMediaReadiness(
   useEffect(() => {
     if (!enabled) {
       setRequestState((current) => {
-        stopStream(current);
+        stopStream(current.stream);
         return disabledRequestState;
       });
       setAudioSample({

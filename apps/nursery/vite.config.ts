@@ -1,4 +1,5 @@
 import { defineConfig, type Connect } from "vite";
+import type { ServerResponse } from "node:http";
 import react from "@vitejs/plugin-react";
 import { resolve, join, dirname, isAbsolute, extname, sep } from "path";
 import fs from "node:fs";
@@ -87,7 +88,7 @@ function resolveInside(rootDir: string, relativePath: string): string | null {
 function createAnvilSourceMiddleware() {
   return async (
     req: Connect.IncomingMessage,
-    res: Connect.ServerResponse,
+    res: ServerResponse,
     next: Connect.NextFunction,
   ) => {
     const relativePath = normalizeAnvilAssetPath(req.url);

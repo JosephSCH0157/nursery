@@ -255,7 +255,7 @@ async function resolveJoinContinuation(
 function countPresenceEntries(value: unknown): number {
   if (!value || typeof value !== "object") return 0;
 
-  return Object.values(value as Record<string, unknown>).reduce((count, entry) => {
+  return Object.values(value as Record<string, unknown>).reduce<number>((count, entry) => {
     return count + (Array.isArray(entry) ? entry.length : 0);
   }, 0);
 }
