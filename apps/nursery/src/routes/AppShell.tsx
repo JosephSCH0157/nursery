@@ -945,7 +945,7 @@ export default function AppShell() {
   const navExtraItems = useMemo(
     () => [
       { id: "ai-controls", label: "AI Controls", actionId: FORGE_NAV_ACTION_AI_CONTROLS },
-      { id: "forge-subscriptions", label: "Forge Billing", to: "/app/subscriptions" },
+      { id: "forge-subscriptions", label: "Account & Billing", to: "/app/subscriptions" },
     ],
     [],
   );

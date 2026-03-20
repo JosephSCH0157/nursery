@@ -77,6 +77,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="bar-stock/*" element={withRouteFallback(<BarstockRoute />, "Loading Barstock...")} />
             <Route path="calendar" element={<Placeholder name="Calendar" />} />
             <Route path="subscriptions" element={<SubscriptionsRoute />} />
+            <Route path="account" element={<SubscriptionsRoute />} />
             <Route path="mobile-demo" element={<MobilePrimitivesDemo />} />
             <Route path="settings" element={withRouteFallback(<SettingsLayout />, "Loading Settings...")}>
               <Route index element={withRouteFallback(<SettingsHome />, "Loading Settings...")} />

@@ -55,6 +55,46 @@
   color: rgba(230, 237, 247, 0.78);
 }
 
+.subscriptions-account-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.subscriptions-account-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.subscriptions-account-meta strong {
+  font-size: 1rem;
+}
+
+.subscriptions-account-meta span {
+  color: rgba(230, 237, 247, 0.72);
+}
+
+.subscriptions-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  object-fit: cover;
+  background: rgba(30, 41, 59, 0.8);
+}
+
+.subscriptions-avatar--fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #dbeafe;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(59, 130, 246, 0.42), rgba(15, 23, 42, 0.92));
+}
+
 .subscriptions-facts {
   display: grid;
   gap: 12px;
@@ -106,6 +146,18 @@
   cursor: pointer;
 }
 
+.subscriptions-button--secondary {
+  border-color: rgba(96, 165, 250, 0.35);
+  background: rgba(37, 99, 235, 0.12);
+  color: #dbeafe;
+}
+
+.subscriptions-button--ghost {
+  border-color: rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.36);
+  color: rgba(230, 237, 247, 0.8);
+}
+
 .subscriptions-button:hover,
 .subscriptions-link-button:hover {
   filter: brightness(1.06);
@@ -119,6 +171,14 @@
 .subscriptions-status {
   margin: 12px 0 0;
   font-size: 0.92rem;
+}
+
+.subscriptions-status--banner {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.72);
 }
 
 .subscriptions-status--success {

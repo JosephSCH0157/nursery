@@ -13,6 +13,13 @@ type CreateCheckoutSessionBody = {
 
 type StripeMetadata = Record<string, string>;
 
+type TongsRpcClient = {
+  rpc: (
+    fn: string,
+    args?: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+};
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -112,6 +119,9 @@ serve(async (req) => {
 
   try {
     let stripeCustomerId: string | null = null;
+    const customerName = typeof user.user_metadata?.full_name === "string"
+      ? user.user_metadata.full_name.trim()
+      : "";
     const forgeCustomerMetadata: StripeMetadata = {
       supabase_user_id: user.id,
       forge_user_id: user.id,
@@ -142,6 +152,7 @@ serve(async (req) => {
     if (!stripeCustomerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? undefined,
+        name: customerName || undefined,
         metadata: forgeCustomerMetadata,
       });
 
@@ -158,8 +169,27 @@ serve(async (req) => {
     } else {
       await stripe.customers.update(stripeCustomerId, {
         email: user.email ?? undefined,
+        name: customerName || undefined,
         metadata: forgeCustomerMetadata,
       });
+    }
+
+    const tongsRpc = supabaseAdmin.schema("tongs") as unknown as TongsRpcClient;
+    const { error: billingCustomerError } = await tongsRpc.rpc(
+      "upsert_billing_customer",
+      {
+        p_user_id: user.id,
+        p_stripe_customer_id: stripeCustomerId,
+        p_email: user.email ?? null,
+        p_customer_name: customerName || null,
+        p_metadata: forgeCustomerMetadata,
+      },
+    );
+
+    if (billingCustomerError) {
+      throw new Error(
+        `upsert_billing_customer failed: ${billingCustomerError.message}`,
+      );
     }
 
     const price = await stripe.prices.retrieve(priceId);
