@@ -479,6 +479,16 @@ serve(async (req) => {
   const stripeProductId = typeof price.product === "string"
     ? price.product.trim()
     : null;
+  logStage("stripe_price_resolved", {
+    userId: user.id,
+    priceId,
+    catalogKind: catalogPrice.kind,
+    forgeItemId: chosenItemId,
+    storageLevel,
+    stripeProductId,
+    isRecurringPrice: Boolean(price.recurring),
+    recurringInterval: price.recurring?.interval ?? null,
+  });
   const matchesCatalogProduct = stripeProductId === catalogPrice.liveProductId
     || stripeProductId === catalogPrice.testProductId;
 

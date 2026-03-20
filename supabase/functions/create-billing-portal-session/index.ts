@@ -133,20 +133,29 @@ serve(async (req) => {
 
     stripeCustomerId = normalizeString(billingCustomerRow?.stripe_customer_id);
 
-    const { data: profileRow, error: profileError } = await supabaseAdmin
-      .from("profiles")
-      .select("stripe_customer_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (profileError) {
-      throw new Error(
-        `Failed to read profiles.stripe_customer_id: ${profileError.message}`,
-      );
-    }
-
     if (!stripeCustomerId) {
-      stripeCustomerId = normalizeString(profileRow?.stripe_customer_id);
+      try {
+        const { data: profileRow, error: profileError } = await supabaseAdmin
+          .from("profiles")
+          .select("stripe_customer_id")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (profileError) {
+          console.warn(
+            "[create-billing-portal-session]",
+            `legacy_profile_lookup_failed user_id=${user.id} error=${profileError.message}`,
+          );
+        } else {
+          stripeCustomerId = normalizeString(profileRow?.stripe_customer_id);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(
+          "[create-billing-portal-session]",
+          `legacy_profile_lookup_exception user_id=${user.id} error=${message}`,
+        );
+      }
     }
 
     const customerName = normalizeString(user.user_metadata?.full_name);
@@ -171,14 +180,23 @@ serve(async (req) => {
       });
     }
 
-    const { error: profileUpdateError } = await supabaseAdmin
-      .from("profiles")
-      .update({ stripe_customer_id: stripeCustomerId })
-      .eq("user_id", user.id);
+    try {
+      const { error: profileUpdateError } = await supabaseAdmin
+        .from("profiles")
+        .update({ stripe_customer_id: stripeCustomerId })
+        .eq("user_id", user.id);
 
-    if (profileUpdateError) {
-      throw new Error(
-        `Failed to store profiles.stripe_customer_id: ${profileUpdateError.message}`,
+      if (profileUpdateError) {
+        console.warn(
+          "[create-billing-portal-session]",
+          `legacy_profile_write_failed user_id=${user.id} error=${profileUpdateError.message}`,
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        "[create-billing-portal-session]",
+        `legacy_profile_write_exception user_id=${user.id} error=${message}`,
       );
     }
 
