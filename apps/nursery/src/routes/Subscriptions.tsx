@@ -3,7 +3,7 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
 import { Link, useLocation, useOutletContext } from "react-router-dom";
 import { STRIPE_CATALOG } from "../../../../supabase/functions/_shared/stripe-catalog.ts";
-import { supabase } from "../lib/supabase";
+import { supabase, tongsSupabase } from "../lib/supabase";
 import type { AppShellContext } from "./AppShell";
 import "./Subscriptions.css";
 
@@ -108,6 +108,11 @@ type TongsAccountBalanceTableClient = {
     };
   };
 };
+
+type TongsBillingClient = TongsRpcClient & TongsAccountBalanceTableClient;
+
+// Canonical Account & Billing reads must stay on the tongs schema.
+const tongsBillingDb = tongsSupabase as unknown as TongsBillingClient;
 
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -431,9 +436,7 @@ async function ensureUserProfile(user: User): Promise<ForgeProfile> {
 }
 
 async function fetchCanonicalAccountOverview(userId: string): Promise<AccountBillingOverview | null> {
-  const tongsClient = supabase.schema("tongs") as unknown as TongsAccountBalanceTableClient;
-
-  const { data, error } = await tongsClient
+  const { data, error } = await tongsBillingDb
     .from("account_balances")
     .select([
       "stripe_customer_id",
@@ -475,9 +478,7 @@ async function fetchCanonicalAccountOverview(userId: string): Promise<AccountBil
 }
 
 async function fetchAiCreditsSnapshot(): Promise<AiCreditsSnapshot> {
-  const tongsClient = supabase.schema("tongs") as unknown as TongsRpcClient;
-
-  const { data, error } = await tongsClient.rpc("get_my_ai_credits");
+  const { data, error } = await tongsBillingDb.rpc("get_my_ai_credits");
   if (error) {
     throw new Error(error.message || "Failed to load AI credits state.");
   }
