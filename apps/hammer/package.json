@@ -15,7 +15,9 @@
     "test:media-truth": "tsx tests/mediaTruth.test.ts",
     "test:preview": "tsx tests/transcriptPreview.test.ts",
     "test:launch-context": "tsx tests/launchContext.test.ts",
-    "test:workspace-timeline": "tsx tests/hammerWorkspaceTimeline.test.ts"
+    "test:workspace-timeline": "tsx tests/hammerWorkspaceTimeline.test.ts",
+    "test:workspace-transcript": "tsx tests/hammerWorkspaceTranscript.test.ts",
+    "test:workspace-authority": "tsx tests/hammerWorkspaceAuthority.test.ts"
   },
   "dependencies": {
     "react": "^19.2.0",

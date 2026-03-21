@@ -25,6 +25,12 @@ import {
   type HammerWorkspaceFocusOverride,
   type HammerWorkspaceToolId,
 } from "./hammerWorkspaceTimeline";
+import {
+  resolveTranscriptDurationSec,
+  syncEditableTranscriptSegments,
+  updateTranscriptSegmentSpeaker,
+  updateTranscriptSegmentText,
+} from "./hammerWorkspaceTranscript";
 import "./HammerWorkspaceShell.css";
 
 const TOOLBAR_WIDTH_PX = 72;
@@ -166,20 +172,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   const selectedSegment = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId) ?? null;
   const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
-  const transcriptDurationSec = Math.max(
-    editableTranscriptSegments.reduce((maxEndSec, segment) => Math.max(maxEndSec, segment.end_sec), 0),
-    32,
-  );
+  const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
 
   useEffect(() => {
-    setEditableTranscriptSegments(transcriptSegments);
-    setSelectedSegmentId((current) => {
-      if (!transcriptSegments.length) return null;
-      if (current && transcriptSegments.some((segment) => segment.segment_id === current)) {
-        return current;
-      }
-      return transcriptSegments[0]?.segment_id ?? null;
-    });
+    const synced = syncEditableTranscriptSegments(transcriptSegments, selectedSegmentId);
+    setEditableTranscriptSegments(synced.segments);
+    setSelectedSegmentId(synced.selectedSegmentId);
   }, [transcriptSegments, transcriptSourceId]);
 
   function updateSegmentTiming(
@@ -336,11 +334,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             onFocus={() => setFocusOverride("source-focus")}
                             onChange={(event) => {
                               setFocusOverride("source-focus");
-                              setEditableTranscriptSegments((current) => current.map((segment) => (
-                                segment.segment_id === selectedSegment.segment_id
-                                  ? { ...segment, speaker: event.target.value }
-                                  : segment
-                              )));
+                              setEditableTranscriptSegments((current) => updateTranscriptSegmentSpeaker(
+                                current,
+                                selectedSegment.segment_id,
+                                event.target.value,
+                              ));
                             }}
                           />
                         </label>
@@ -351,11 +349,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             onFocus={() => setFocusOverride("source-focus")}
                             onChange={(event) => {
                               setFocusOverride("source-focus");
-                              setEditableTranscriptSegments((current) => current.map((segment) => (
-                                segment.segment_id === selectedSegment.segment_id
-                                  ? { ...segment, text: event.target.value }
-                                  : segment
-                              )));
+                              setEditableTranscriptSegments((current) => updateTranscriptSegmentText(
+                                current,
+                                selectedSegment.segment_id,
+                                event.target.value,
+                              ));
                             }}
                           />
                         </label>
