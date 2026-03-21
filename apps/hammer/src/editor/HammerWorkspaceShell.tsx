@@ -15,14 +15,13 @@ import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import "./HammerWorkspaceShell.css";
 
 const TOOLBAR_WIDTH_PX = 72;
-const LEFT_BAY_WIDTH_PX = 360;
-const PREVIEW_BAY_WIDTH_PX = 520;
-const RIGHT_BAY_WIDTH_PX = 360;
-const TIMELINE_DOCK_HEIGHT_PX = 320;
+const PREVIEW_BAY_MAX_WIDTH_PX = 520;
+const TIMELINE_DOCK_BASELINE_HEIGHT_PX = 320;
+const TIMELINE_DOCK_TIME_FOCUS_HEIGHT_PX = 420;
 
 type HammerToolId = "polish" | "audio" | "video" | "captions" | "details" | "finishing" | "export";
 type HammerSourceTabId = "transcript" | "images" | "assets" | "broll";
-type HammerWorkspaceFocusMode = "balanced" | "source-focus" | "tool-focus";
+type HammerWorkspaceFocusMode = "balanced" | "source-focus" | "tool-focus" | "time-focus";
 
 type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
@@ -248,14 +247,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         "hammer-workspace-shell",
         workspaceFocusMode === "source-focus" ? "is-source-focus" : "",
         workspaceFocusMode === "tool-focus" ? "is-tool-focus" : "",
+        workspaceFocusMode === "time-focus" ? "is-time-focus" : "",
         workspaceFocusMode === "balanced" ? "is-balanced" : "",
       ].filter(Boolean).join(" ")}
       style={{
         ["--hammer-shell-toolbar-width" as string]: `${TOOLBAR_WIDTH_PX}px`,
-        ["--hammer-shell-left-width" as string]: `${LEFT_BAY_WIDTH_PX}px`,
-        ["--hammer-shell-preview-width" as string]: `${PREVIEW_BAY_WIDTH_PX}px`,
-        ["--hammer-shell-right-width" as string]: `${RIGHT_BAY_WIDTH_PX}px`,
-        ["--hammer-shell-timeline-height" as string]: `${TIMELINE_DOCK_HEIGHT_PX}px`,
+        ["--hammer-shell-preview-width" as string]: `${PREVIEW_BAY_MAX_WIDTH_PX}px`,
+        ["--hammer-shell-timeline-height" as string]: `${TIMELINE_DOCK_BASELINE_HEIGHT_PX}px`,
+        ["--hammer-shell-timeline-time-focus-height" as string]: `${TIMELINE_DOCK_TIME_FOCUS_HEIGHT_PX}px`,
       }}
     >
       <div className="hammer-workspace-shell__main">
@@ -340,14 +339,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         </div>
 
         <section className="hammer-timeline-dock">
-          <header className="hammer-bay-head">
-            <strong>Timeline Dock</strong>
-            <div className="hammer-timeline-tools">
-              <button type="button" onClick={() => setFocusOverride("auto")}>Auto</button>
-              <button type="button" onClick={() => setFocusOverride("source-focus")}>Source</button>
-              <button type="button" onClick={() => setFocusOverride("tool-focus")}>Tool</button>
-            </div>
-          </header>
+            <header className="hammer-bay-head">
+              <strong>Timeline Dock</strong>
+              <div className="hammer-timeline-tools">
+                <button type="button" onClick={() => setFocusOverride("auto")}>Auto</button>
+                <button type="button" onClick={() => setFocusOverride("source-focus")}>Source</button>
+                <button type="button" onClick={() => setFocusOverride("tool-focus")}>Tool</button>
+                <button type="button" onClick={() => setFocusOverride("time-focus")}>Time</button>
+              </div>
+            </header>
           <div className="hammer-bay-body hammer-timeline-dock__body">
             <input
               type="range"
@@ -355,7 +355,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               max={transcriptDurationSec}
               step={0.1}
               value={playheadSec}
-              onChange={(event) => setPlayheadSec(Number(event.target.value))}
+              onChange={(event) => {
+                setPlayheadSec(Number(event.target.value));
+                if (focusOverride === "auto") {
+                  setFocusOverride("time-focus");
+                }
+              }}
               aria-label="Timeline playhead"
             />
             <div className="hammer-timeline-track-scroll">

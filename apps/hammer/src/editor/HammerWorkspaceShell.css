@@ -1,15 +1,17 @@
 .hammer-workspace-shell {
   --hammer-shell-toolbar-width: 72px;
-  --hammer-shell-left-width: 360px;
-  --hammer-shell-preview-width: 520px;
-  --hammer-shell-right-width: 360px;
+  --hammer-shell-left-min-width: 320px;
+  --hammer-shell-right-min-width: 300px;
+  --hammer-shell-preview-min-width: 420px;
   --hammer-shell-timeline-height: 320px;
+  --hammer-shell-timeline-time-focus-height: 420px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--hammer-shell-toolbar-width);
   gap: 8px;
   width: 100%;
   height: 100%;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -23,7 +25,10 @@
 
 .hammer-workspace-shell__top {
   display: grid;
-  grid-template-columns: var(--hammer-shell-left-width) minmax(420px, var(--hammer-shell-preview-width)) var(--hammer-shell-right-width);
+  grid-template-columns:
+    minmax(var(--hammer-shell-left-min-width), 1fr)
+    minmax(var(--hammer-shell-preview-min-width), var(--hammer-shell-preview-width))
+    minmax(var(--hammer-shell-right-min-width), 1fr);
   min-height: 0;
   gap: 8px;
   overflow: hidden;
@@ -197,14 +202,44 @@
   font-size: 12px;
 }
 
-.hammer-workspace-shell.is-source-focus {
-  --hammer-shell-left-width: 420px;
-  --hammer-shell-right-width: 300px;
+.hammer-workspace-shell.is-source-focus .hammer-workspace-shell__top {
+  grid-template-columns:
+    minmax(380px, 1.3fr)
+    minmax(var(--hammer-shell-preview-min-width), var(--hammer-shell-preview-width))
+    minmax(280px, 0.8fr);
 }
 
-.hammer-workspace-shell.is-tool-focus {
-  --hammer-shell-left-width: 300px;
-  --hammer-shell-right-width: 420px;
+.hammer-workspace-shell.is-tool-focus .hammer-workspace-shell__top {
+  grid-template-columns:
+    minmax(280px, 0.8fr)
+    minmax(var(--hammer-shell-preview-min-width), var(--hammer-shell-preview-width))
+    minmax(380px, 1.3fr);
+}
+
+.hammer-workspace-shell.is-time-focus {
+  --hammer-shell-timeline-height: var(--hammer-shell-timeline-time-focus-height);
+}
+
+@media (max-width: 1500px) {
+  .hammer-workspace-shell {
+    --hammer-shell-left-min-width: 280px;
+    --hammer-shell-right-min-width: 260px;
+    --hammer-shell-preview-min-width: 360px;
+  }
+
+  .hammer-workspace-shell.is-source-focus .hammer-workspace-shell__top {
+    grid-template-columns:
+      minmax(320px, 1.2fr)
+      minmax(var(--hammer-shell-preview-min-width), var(--hammer-shell-preview-width))
+      minmax(240px, 0.8fr);
+  }
+
+  .hammer-workspace-shell.is-tool-focus .hammer-workspace-shell__top {
+    grid-template-columns:
+      minmax(240px, 0.8fr)
+      minmax(var(--hammer-shell-preview-min-width), var(--hammer-shell-preview-width))
+      minmax(320px, 1.2fr);
+  }
 }
 
 .hammer-workspace-shell__missing-context {
