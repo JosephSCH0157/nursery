@@ -6463,7 +6463,7 @@ export default function TranscriptSeekMock(
         </span>
         <span className="hammer-pill">ripple {timelineRippleLabel}</span>
         <span className="hammer-pill">
-          edit {selectedRowHasTimelineEditCue ? selectedRowEffects : "none"}
+          staged {selectedRowHasTimelineEditCue ? selectedRowEffects : "none"}
         </span>
       </div>
       <div className="hammer-timeline-ruler">
@@ -7214,10 +7214,10 @@ export default function TranscriptSeekMock(
         ) : (
           <>
             <HammerPaneSection
-              title="Source Browser"
-              subtitle="Transcript stays semantic and editable. Video, images, and audio stay as linked source material."
+              title="Source Library"
+              subtitle="Transcript stays editable while video, images, and audio remain linked source material."
               action={(
-                <span className="hammer-pane-badge">Source rail</span>
+                <span className="hammer-pane-badge">Support panel</span>
               )}
               sectionClassName="hammer-pane-section--overflow-hidden"
               bodyClassName="hammer-pane-section__body--scroll"
@@ -7235,11 +7235,11 @@ export default function TranscriptSeekMock(
                 ))}
               </div>
               <div className="hammer-meta-strip">
-                <span className="hammer-pane-badge">{overlayRows.length} transcript lines</span>
+                <span className="hammer-pane-badge">{overlayRows.length} lines</span>
                 <span className="hammer-pane-badge">{projectAssets.video.length} video</span>
                 <span className="hammer-pane-badge">{projectAssets.images.length} images</span>
                 <span className="hammer-pane-badge">{projectAssets.music.length} audio</span>
-                <span className="hammer-pane-badge">{linkedAssetCount} linked</span>
+                <span className="hammer-pane-badge">{linkedAssetCount} links</span>
               </div>
             </HammerPaneSection>
             {activeAssetPanel === "transcript" ? (
@@ -7400,7 +7400,7 @@ export default function TranscriptSeekMock(
         <div className="hammer-preview-surface-shell">
           <div className="hammer-monitor">
             <div className="hammer-monitor__chrome">
-              <div className="hammer-copy-sm hammer-copy-strong">Preview Surface</div>
+              <div className="hammer-copy-sm hammer-copy-strong">Main Preview</div>
               <div className="hammer-meta-strip">
                 <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
                   {isPlaying ? "Playing" : "Paused"}
@@ -7482,7 +7482,7 @@ export default function TranscriptSeekMock(
               ) : (
                 <div className="hammer-monitor__center">
                   <div className="hammer-monitor__eyebrow">Preview</div>
-                  <h4 className="hammer-monitor__title">No active visual</h4>
+                  <h4 className="hammer-monitor__title">No visual selected</h4>
                   <div className="hammer-meta-strip">
                     <span className="hammer-pill">
                       {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
@@ -7550,73 +7550,79 @@ export default function TranscriptSeekMock(
               </div>
             </div>
 
-            <div className="hammer-action-row">
-              <button
-                type="button"
-                onClick={stepToPreviousSegment}
-                disabled={!previousSegmentRow}
-                className="hammer-button-xs"
-                title="Previous segment (Alt+Up)"
-              >
-                Prev segment
-              </button>
-              <button
-                type="button"
-                onClick={() => seekToResolvedTarget(previousPlayableTarget)}
-                disabled={previousPlayableTarget.timeSec == null}
-                className="hammer-button-xs"
-              >
-                Prev playable
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void onTogglePlayback();
-                }}
-                disabled={!canControlPlayback}
-                className="hammer-button-xs"
-              >
-                {isPlaying ? "Pause" : "Play"}
-              </button>
-              <button
-                type="button"
-                onClick={() => seekToResolvedTarget(nextPlayableTarget)}
-                disabled={nextPlayableTarget.timeSec == null}
-                className="hammer-button-xs"
-              >
-                Next playable
-              </button>
-              <button
-                type="button"
-                onClick={stepToNextSegment}
-                disabled={!nextSegmentRow}
-                className="hammer-button-xs"
-                title="Next segment (Alt+Down)"
-              >
-                Next segment
-              </button>
-              <button
-                type="button"
-                onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
-                disabled={jumpToActiveTarget.timeSec == null}
-                className="hammer-button-xs"
-              >
-                Jump to active
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewMode((current) => (current === "raw" ? "edit-aware" : "raw"))}
-                className="hammer-button-xs"
-              >
-                {sessionState.previewMode === "raw" ? "Edit-aware" : "Raw"}
-              </button>
-              <button
-                type="button"
-                onClick={resetPreview}
-                className="hammer-button-xs"
-              >
-                Reset
-              </button>
+            <div className="hammer-action-row hammer-action-row--transport">
+              <div className="hammer-action-cluster" aria-label="Line navigation">
+                <button
+                  type="button"
+                  onClick={stepToPreviousSegment}
+                  disabled={!previousSegmentRow}
+                  className="hammer-button-xs"
+                  title="Previous segment (Alt+Up)"
+                >
+                  Prev line
+                </button>
+                <button
+                  type="button"
+                  onClick={stepToNextSegment}
+                  disabled={!nextSegmentRow}
+                  className="hammer-button-xs"
+                  title="Next segment (Alt+Down)"
+                >
+                  Next line
+                </button>
+              </div>
+              <div className="hammer-action-cluster" aria-label="Playback controls">
+                <button
+                  type="button"
+                  onClick={() => seekToResolvedTarget(previousPlayableTarget)}
+                  disabled={previousPlayableTarget.timeSec == null}
+                  className="hammer-button-xs"
+                >
+                  Prev cue
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void onTogglePlayback();
+                  }}
+                  disabled={!canControlPlayback}
+                  className="hammer-button-xs"
+                >
+                  {isPlaying ? "Pause" : "Play"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => seekToResolvedTarget(nextPlayableTarget)}
+                  disabled={nextPlayableTarget.timeSec == null}
+                  className="hammer-button-xs"
+                >
+                  Next cue
+                </button>
+                <button
+                  type="button"
+                  onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
+                  disabled={jumpToActiveTarget.timeSec == null}
+                  className="hammer-button-xs"
+                >
+                  Jump to focus
+                </button>
+              </div>
+              <div className="hammer-action-cluster" aria-label="Preview mode controls">
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode((current) => (current === "raw" ? "edit-aware" : "raw"))}
+                  className="hammer-button-xs"
+                >
+                  {sessionState.previewMode === "raw" ? "Edit-aware" : "Raw"}
+                </button>
+                <button
+                  type="button"
+                  onClick={resetPreview}
+                  className="hammer-button-xs"
+                >
+                  Reset
+                </button>
+              </div>
             </div>
 
             <div className="hammer-copy-sm hammer-copy-muted">
@@ -7888,7 +7894,7 @@ export default function TranscriptSeekMock(
           subtitle={activeToolHint}
           action={(
             <div className="hammer-action-row">
-              <span className="hammer-pill">{activeToolDefinition.label}</span>
+              <span className="hammer-pill">active {activeToolDefinition.label}</span>
               {activeTool === "details" ? (
                 <button
                   type="button"
@@ -7915,7 +7921,7 @@ export default function TranscriptSeekMock(
             Tools
           </strong>
             <span className="hammer-tool-strip__caption">
-              Available controls
+              Editing modes
             </span>
         </div>
         {HAMMER_TOOL_ORDER.map((tool) => (
