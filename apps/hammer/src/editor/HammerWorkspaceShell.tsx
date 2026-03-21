@@ -12,6 +12,19 @@ import type {
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
 import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
+import {
+  moveSegmentTiming,
+  resolveFocusAfterPlayheadChange,
+  resolvePreviewLabel,
+  resolvePlayheadSegment,
+  resolveWorkspaceFocusMode,
+  roundToTenth,
+  trimSegmentEndTiming,
+  trimSegmentStartTiming,
+  updateSegmentInTimeline,
+  type HammerWorkspaceFocusOverride,
+  type HammerWorkspaceToolId,
+} from "./hammerWorkspaceTimeline";
 import "./HammerWorkspaceShell.css";
 
 const TOOLBAR_WIDTH_PX = 72;
@@ -19,9 +32,8 @@ const PREVIEW_BAY_MAX_WIDTH_PX = 460;
 const TIMELINE_DOCK_BASELINE_HEIGHT_PX = 376;
 const TIMELINE_DOCK_TIME_FOCUS_HEIGHT_PX = 504;
 
-type HammerToolId = "polish" | "audio" | "video" | "captions" | "details" | "finishing" | "export";
+type HammerToolId = HammerWorkspaceToolId;
 type HammerSourceTabId = "transcript" | "images" | "assets" | "broll";
-type HammerWorkspaceFocusMode = "balanced" | "source-focus" | "tool-focus" | "time-focus";
 
 type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
@@ -54,22 +66,6 @@ const TOOL_ORDER: Array<{ id: HammerToolId; shortLabel: string; label: string }>
   { id: "finishing", shortLabel: "F", label: "Finishing" },
   { id: "export", shortLabel: "E", label: "Export" },
 ];
-
-function resolveWorkspaceFocusMode(activeTool: HammerToolId): HammerWorkspaceFocusMode {
-  switch (activeTool) {
-    case "polish":
-      return "source-focus";
-    case "audio":
-    case "video":
-    case "captions":
-    case "finishing":
-    case "export":
-      return "tool-focus";
-    case "details":
-    default:
-      return "balanced";
-  }
-}
 
 function readTranscriptSegments(
   launchContext: HammerLaunchContext,
@@ -121,10 +117,6 @@ function createFallbackEditPlan(
   };
 }
 
-function roundToTenth(value: number): number {
-  return Math.round(value * 10) / 10;
-}
-
 export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): JSX.Element {
   if (!props.launchContext) {
     return (
@@ -150,7 +142,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   );
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(transcriptSegments[0]?.segment_id ?? null);
   const [playheadSec, setPlayheadSec] = useState(0);
-  const [focusOverride, setFocusOverride] = useState<HammerWorkspaceFocusMode | "auto">("auto");
+  const [focusOverride, setFocusOverride] = useState<HammerWorkspaceFocusOverride>("auto");
   const [polishStrength, setPolishStrength] = useState(60);
   const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
   const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
@@ -173,9 +165,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : launchContext.media.label ?? mediaRef?.local_relpath ?? null;
 
   const selectedSegment = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId) ?? null;
-  const playheadSegment = editableTranscriptSegments.find((segment) => (
-    playheadSec >= segment.start_sec && playheadSec < segment.end_sec
-  )) ?? null;
+  const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
   const transcriptDurationSec = Math.max(
     editableTranscriptSegments.reduce((maxEndSec, segment) => Math.max(maxEndSec, segment.end_sec), 0),
     32,
@@ -196,49 +186,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     segmentId: string,
     updater: (segment: HammerTranscriptSegment) => HammerTranscriptSegment,
   ): void {
-    setEditableTranscriptSegments((current) => current.map((segment) => (
-      segment.segment_id === segmentId ? updater(segment) : segment
-    )));
+    setEditableTranscriptSegments((current) => updateSegmentInTimeline(current, segmentId, updater));
   }
 
   function moveSegment(segmentId: string, deltaSec: number): void {
-    updateSegmentTiming(segmentId, (segment) => {
-      const nextStart = Math.max(0, roundToTenth(segment.start_sec + deltaSec));
-      const duration = Math.max(0.1, roundToTenth(segment.end_sec - segment.start_sec));
-      const nextEnd = roundToTenth(nextStart + duration);
-      return {
-        ...segment,
-        start_sec: nextStart,
-        end_sec: nextEnd,
-      };
-    });
+    updateSegmentTiming(segmentId, (segment) => moveSegmentTiming(segment, deltaSec));
     setPlayheadSec((current) => Math.max(0, roundToTenth(current + deltaSec)));
   }
 
   function trimSegmentStart(segmentId: string, deltaSec: number): void {
-    updateSegmentTiming(segmentId, (segment) => {
-      const currentDuration = Math.max(0.1, roundToTenth(segment.end_sec - segment.start_sec));
-      const nextStart = Math.max(0, roundToTenth(segment.start_sec + deltaSec));
-      const maxStart = roundToTenth(segment.end_sec - 0.1);
-      const clampedStart = Math.min(nextStart, maxStart);
-      return {
-        ...segment,
-        start_sec: clampedStart,
-        end_sec: roundToTenth(clampedStart + currentDuration),
-      };
-    });
+    updateSegmentTiming(segmentId, (segment) => trimSegmentStartTiming(segment, deltaSec));
     setPlayheadSec((current) => Math.max(0, roundToTenth(current + deltaSec)));
   }
 
   function trimSegmentEnd(segmentId: string, deltaSec: number): void {
-    updateSegmentTiming(segmentId, (segment) => {
-      const nextEnd = roundToTenth(segment.end_sec + deltaSec);
-      const minEnd = roundToTenth(segment.start_sec + 0.1);
-      return {
-        ...segment,
-        end_sec: Math.max(minEnd, nextEnd),
-      };
-    });
+    updateSegmentTiming(segmentId, (segment) => trimSegmentEndTiming(segment, deltaSec));
   }
 
   useEffect(() => {
@@ -431,10 +393,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               <div className="hammer-preview-surface">
                 {playheadSegment ? (
                   <div className="hammer-preview-surface__label">
-                    {playheadSegment.speaker}: {playheadSegment.text}
+                    {resolvePreviewLabel(playheadSegment, playheadSec)}
                   </div>
                 ) : (
-                  <div className="hammer-preview-surface__label">Timeline gap at {playheadSec.toFixed(1)}s</div>
+                  <div className="hammer-preview-surface__label">{resolvePreviewLabel(playheadSegment, playheadSec)}</div>
                 )}
               </div>
               <div className="hammer-preview-meta">
@@ -643,9 +605,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               value={playheadSec}
               onChange={(event) => {
                 setPlayheadSec(Number(event.target.value));
-                if (focusOverride === "auto") {
-                  setFocusOverride("time-focus");
-                }
+                setFocusOverride(resolveFocusAfterPlayheadChange(focusOverride));
               }}
               aria-label="Timeline playhead"
             />
