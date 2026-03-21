@@ -637,7 +637,12 @@ export default function HammerStandalone() {
         </div>
       </header>
 
-      <main className="hammer-standalone__main">
+      <main
+        className={[
+          "hammer-standalone__main",
+          isEditorRoute ? "hammer-standalone__main--editor" : "",
+        ].filter(Boolean).join(" ")}
+      >
         <Outlet
           context={{
             workspaceId,
