@@ -11,9 +11,9 @@
   --hammer-chip-height: 28px;
   --hammer-strip-height: 48px;
   --hammer-patch-bay-width: 72px;
-  --hammer-left-bay-width: 360px;
-  --hammer-preview-width: 520px;
-  --hammer-right-bay-width: 360px;
+  --hammer-left-bay-track: minmax(320px, 1fr);
+  --hammer-preview-track: minmax(420px, 520px);
+  --hammer-right-bay-track: minmax(300px, 1fr);
   display: block;
   height: 100%;
   min-height: 0;
@@ -47,12 +47,12 @@
 .hammer-editor-shell__upper {
   display: grid;
   gap: var(--hammer-gap-sm);
-  grid-template-columns: var(--hammer-left-bay-width) var(--hammer-preview-width) var(--hammer-right-bay-width);
-  justify-content: start;
+  grid-template-columns: var(--hammer-left-bay-track) var(--hammer-preview-track) var(--hammer-right-bay-track);
+  justify-content: stretch;
   align-items: stretch;
   min-height: 0;
   height: 100%;
-  overflow: auto hidden;
+  overflow: hidden;
   overscroll-behavior: contain;
   transition: grid-template-columns 160ms ease;
 }
@@ -88,16 +88,18 @@
 }
 
 .hammer-left-workspace {
-  min-width: var(--hammer-left-bay-width);
+  min-width: 0;
 }
 
 .hammer-preview-workspace {
-  min-width: var(--hammer-preview-width);
-  max-width: var(--hammer-preview-width);
+  min-width: 420px;
+  max-width: 520px;
+  width: 100%;
+  justify-self: center;
 }
 
 .hammer-tool-workspace {
-  min-width: var(--hammer-right-bay-width);
+  min-width: 0;
 }
 
 .hammer-pane--left,
@@ -1716,22 +1718,22 @@
   background: #0f172a;
 }
 
-.hammer-editor-shell--source-focus {
-  --hammer-left-bay-width: 430px;
-  --hammer-right-bay-width: 290px;
+.hammer-editor-shell.is-source-focus {
+  --hammer-left-bay-track: minmax(380px, 1.2fr);
+  --hammer-right-bay-track: minmax(300px, 0.8fr);
 }
 
-.hammer-editor-shell--source-focus .hammer-pane--left {
+.hammer-editor-shell.is-source-focus .hammer-pane--left {
   border-color: rgba(245, 158, 11, 0.26);
   box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.1);
 }
 
-.hammer-editor-shell--tool-focus {
-  --hammer-left-bay-width: 290px;
-  --hammer-right-bay-width: 430px;
+.hammer-editor-shell.is-tool-focus {
+  --hammer-left-bay-track: minmax(300px, 0.8fr);
+  --hammer-right-bay-track: minmax(380px, 1.2fr);
 }
 
-.hammer-editor-shell--tool-focus .hammer-pane--right {
+.hammer-editor-shell.is-tool-focus .hammer-pane--right {
   border-color: rgba(245, 158, 11, 0.3);
   box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.12);
 }

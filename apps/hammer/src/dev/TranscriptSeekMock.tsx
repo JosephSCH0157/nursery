@@ -210,20 +210,6 @@ type HammerProjectAsset = {
   thumbnailUrl?: string | null;
 };
 
-type HammerPaneLayout = {
-  left_px: number;
-  center_px: number;
-  right_px: number;
-};
-
-type HammerPaneResizeHandle = "left-center" | "center-right";
-
-type HammerPaneResizeState = {
-  handle: HammerPaneResizeHandle;
-  startClientX: number;
-  startLayout: HammerPaneLayout;
-};
-
 type HammerPreviewVisualDraft = {
   x: number;
   y: number;
@@ -303,20 +289,11 @@ type TimelineToolId = "select" | "hand" | "cut" | "marker" | "comment" | "text";
 type HammerWorkspaceFocusMode = "balanced" | "source-focus" | "tool-focus";
 type HammerWorkspaceFocusOverride = "auto" | Exclude<HammerWorkspaceFocusMode, "balanced">;
 
-const LEFT_PANEL_MIN_PX = 320;
-const LEFT_PANEL_MAX_PX = 540;
-const CENTER_PANEL_MIN_PX = 360;
-const CENTER_PANEL_MAX_PX = 760;
-const RIGHT_PANEL_MIN_PX = 300;
-const RIGHT_PANEL_MAX_PX = 520;
-const PANE_DIVIDER_WIDTH_PX = 10;
-const SESSION_PANE_LAYOUT_VERSION = "v1";
 const TRANSCRIPT_REVEAL_TOP_PADDING_PX = 18;
-const DEFAULT_PANE_LAYOUT: HammerPaneLayout = {
-  left_px: 380,
-  center_px: 440,
-  right_px: 360,
-};
+const LEFT_PANEL_BASE_PX = 360;
+const PREVIEW_PANEL_BASE_PX = 520;
+const RIGHT_PANEL_BASE_PX = 360;
+const FOCUS_PANEL_SHIFT_PX = 70;
 
 const WORK_PANEL_VIEWS: Array<{ id: WorkPanelView; label: string }> = [
   { id: "script", label: "Transcript" },
@@ -979,52 +956,6 @@ function buildTimelineRulerTicks(durationSec: number): TimelineRulerTick[] {
   });
 }
 
-function clampPaneLayout(layout: HammerPaneLayout): HammerPaneLayout {
-  return {
-    left_px: clamp(layout.left_px, LEFT_PANEL_MIN_PX, LEFT_PANEL_MAX_PX),
-    center_px: clamp(layout.center_px, CENTER_PANEL_MIN_PX, CENTER_PANEL_MAX_PX),
-    right_px: clamp(layout.right_px, RIGHT_PANEL_MIN_PX, RIGHT_PANEL_MAX_PX),
-  };
-}
-
-function readSessionPaneLayout(storageKey: string): HammerPaneLayout | null {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const raw = window.sessionStorage.getItem(storageKey);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<HammerPaneLayout> | null;
-    if (!parsed) return null;
-    if (
-      typeof parsed.left_px !== "number"
-      || typeof parsed.center_px !== "number"
-      || typeof parsed.right_px !== "number"
-    ) {
-      return null;
-    }
-    return clampPaneLayout({
-      left_px: parsed.left_px,
-      center_px: parsed.center_px,
-      right_px: parsed.right_px,
-    });
-  } catch {
-    return null;
-  }
-}
-
-function writeSessionPaneLayout(
-  storageKey: string,
-  layout: HammerPaneLayout,
-): void {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.sessionStorage.setItem(storageKey, JSON.stringify(clampPaneLayout(layout)));
-  } catch {
-    // Session-level pane caching is convenience-only. Ignore storage failures.
-  }
-}
-
 function formatOverlayRowLabel(row: TranscriptOverlayRow | null): string {
   if (!row) return "none";
   const primaryBlock = row.blocks[0] ?? null;
@@ -1308,7 +1239,6 @@ export default function TranscriptSeekMock(
   const transcriptRevealTimeoutRef = useRef<number | null>(null);
   const lastHandledPrepHandoffTokenRef = useRef<number | null>(null);
   const suppressNextPreviewBoundaryActionRef = useRef(false);
-  const paneResizeStateRef = useRef<HammerPaneResizeState | null>(null);
   const visualTimelineDragStateRef = useRef<HammerVisualTimelineDragState | null>(null);
   const visualPreviewDragStateRef = useRef<HammerVisualPreviewDragState | null>(null);
   const monitorSurfaceRef = useRef<HTMLDivElement | null>(null);
@@ -1334,18 +1264,6 @@ export default function TranscriptSeekMock(
   const resolvedLaunch = useMemo(
     () => resolveHammerLaunchContext(launchContext, { getFixtureSegments: getDevTranscriptSegments }),
     [launchContext],
-  );
-  const paneLayoutStorageKey = useMemo(
-    () => [
-      "hammer-pane-layout",
-      SESSION_PANE_LAYOUT_VERSION,
-      resolvedLaunch.launch_context.workspace_id,
-      resolvedLaunch.launch_context.workpiece_id,
-    ].join(":"),
-    [
-      resolvedLaunch.launch_context.workpiece_id,
-      resolvedLaunch.launch_context.workspace_id,
-    ],
   );
   const transcriptLoad = resolvedLaunch.transcript;
   const rawTranscriptSegments = transcriptLoad.segments;
@@ -1452,8 +1370,6 @@ export default function TranscriptSeekMock(
   const [showDebugPanels, setShowDebugPanels] = useState(false);
   const [isTranscriptControlsCollapsed, setIsTranscriptControlsCollapsed] = useState(false);
   const [isPreviewMonitorCollapsed, setIsPreviewMonitorCollapsed] = useState(true);
-  const [paneLayout, setPaneLayout] = useState<HammerPaneLayout>(DEFAULT_PANE_LAYOUT);
-  const [activeResizeHandle, setActiveResizeHandle] = useState<HammerPaneResizeHandle | null>(null);
   const [visualDragSessionToken, setVisualDragSessionToken] = useState(0);
   const transcriptControlsPanelId = useId();
   const previewMonitorPanelId = useId();
@@ -1552,78 +1468,6 @@ export default function TranscriptSeekMock(
       ? "Sidecar found. Hammer is still using the current transcript until import is wired."
       : "No transcript sidecar was found, so Hammer is keeping the current transcript loaded."
     : "Attach a recording below while Hammer keeps the current transcript stable.";
-
-  useEffect(() => {
-    const persistedLayout = readSessionPaneLayout(paneLayoutStorageKey);
-    setPaneLayout(persistedLayout ?? DEFAULT_PANE_LAYOUT);
-  }, [paneLayoutStorageKey]);
-
-  useEffect(() => {
-    writeSessionPaneLayout(paneLayoutStorageKey, paneLayout);
-  }, [paneLayout, paneLayoutStorageKey]);
-
-  useEffect(() => {
-    if (!activeResizeHandle) return;
-
-    const onMouseMove = (event: MouseEvent) => {
-      const resizeState = paneResizeStateRef.current;
-      if (!resizeState) return;
-
-      const delta = event.clientX - resizeState.startClientX;
-
-      if (resizeState.handle === "left-center") {
-        const lowerBound = Math.max(
-          LEFT_PANEL_MIN_PX - resizeState.startLayout.left_px,
-          resizeState.startLayout.center_px - CENTER_PANEL_MAX_PX,
-        );
-        const upperBound = Math.min(
-          LEFT_PANEL_MAX_PX - resizeState.startLayout.left_px,
-          resizeState.startLayout.center_px - CENTER_PANEL_MIN_PX,
-        );
-        const boundedDelta = clamp(delta, lowerBound, upperBound);
-        setPaneLayout(clampPaneLayout({
-          ...resizeState.startLayout,
-          left_px: resizeState.startLayout.left_px + boundedDelta,
-          center_px: resizeState.startLayout.center_px - boundedDelta,
-        }));
-        return;
-      }
-
-      const lowerBound = Math.max(
-        CENTER_PANEL_MIN_PX - resizeState.startLayout.center_px,
-        resizeState.startLayout.right_px - RIGHT_PANEL_MAX_PX,
-      );
-      const upperBound = Math.min(
-        CENTER_PANEL_MAX_PX - resizeState.startLayout.center_px,
-        resizeState.startLayout.right_px - RIGHT_PANEL_MIN_PX,
-      );
-      const boundedDelta = clamp(delta, lowerBound, upperBound);
-      setPaneLayout(clampPaneLayout({
-        ...resizeState.startLayout,
-        center_px: resizeState.startLayout.center_px + boundedDelta,
-        right_px: resizeState.startLayout.right_px - boundedDelta,
-      }));
-    };
-
-    const onMouseUp = () => {
-      paneResizeStateRef.current = null;
-      setActiveResizeHandle(null);
-    };
-
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-
-    return () => {
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-  }, [activeResizeHandle]);
 
   useEffect(() => {
     let active = true;
@@ -6277,27 +6121,15 @@ export default function TranscriptSeekMock(
     () => TIMELINE_ZOOM_OPTIONS.filter((option) => option.id === "detail" || option.id === "micro"),
     [],
   );
-  const emphasizedPaneLayout = useMemo<HammerPaneLayout>(() => {
-    if (workspaceFocusMode === "source-focus") {
-      return {
-        left_px: clamp(paneLayout.left_px + 90, LEFT_PANEL_MIN_PX, LEFT_PANEL_MAX_PX),
-        center_px: paneLayout.center_px,
-        right_px: clamp(paneLayout.right_px - 90, RIGHT_PANEL_MIN_PX, RIGHT_PANEL_MAX_PX),
-      };
-    }
-    if (workspaceFocusMode === "tool-focus") {
-      return {
-        left_px: clamp(paneLayout.left_px - 90, LEFT_PANEL_MIN_PX, LEFT_PANEL_MAX_PX),
-        center_px: paneLayout.center_px,
-        right_px: clamp(paneLayout.right_px + 90, RIGHT_PANEL_MIN_PX, RIGHT_PANEL_MAX_PX),
-      };
-    }
-    return paneLayout;
-  }, [paneLayout, workspaceFocusMode]);
-  const upperPaneMinWidth = emphasizedPaneLayout.left_px
-    + emphasizedPaneLayout.center_px
-    + emphasizedPaneLayout.right_px
-    + (PANE_DIVIDER_WIDTH_PX * 2);
+  const sourceFocusLeftWidth = LEFT_PANEL_BASE_PX + FOCUS_PANEL_SHIFT_PX;
+  const sourceFocusRightWidth = RIGHT_PANEL_BASE_PX - FOCUS_PANEL_SHIFT_PX;
+  const toolFocusLeftWidth = LEFT_PANEL_BASE_PX - FOCUS_PANEL_SHIFT_PX;
+  const toolFocusRightWidth = RIGHT_PANEL_BASE_PX + FOCUS_PANEL_SHIFT_PX;
+  const upperPaneMinWidth = workspaceFocusMode === "source-focus"
+    ? sourceFocusLeftWidth + PREVIEW_PANEL_BASE_PX + sourceFocusRightWidth
+    : workspaceFocusMode === "tool-focus"
+    ? toolFocusLeftWidth + PREVIEW_PANEL_BASE_PX + toolFocusRightWidth
+    : LEFT_PANEL_BASE_PX + PREVIEW_PANEL_BASE_PX + RIGHT_PANEL_BASE_PX;
   const timelineRulerTicks = useMemo(
     () => buildTimelineRulerTicks(effectiveDurationSec),
     [effectiveDurationSec],
@@ -6373,16 +6205,6 @@ export default function TranscriptSeekMock(
       return className;
     };
 
-    const upperLayoutClassName = addRule("upper-layout", {
-      gridTemplateColumns: [
-        `${emphasizedPaneLayout.left_px}px`,
-        `${PANE_DIVIDER_WIDTH_PX}px`,
-        `minmax(${emphasizedPaneLayout.center_px}px, 1fr)`,
-        `${PANE_DIVIDER_WIDTH_PX}px`,
-        `${emphasizedPaneLayout.right_px}px`,
-      ].join(" "),
-      minWidth: upperPaneMinWidth,
-    });
     const monitorSurfaceClassName = addRule("monitor-surface", {
       aspectRatio: previewMonitorAspectRatio,
     });
@@ -6455,14 +6277,10 @@ export default function TranscriptSeekMock(
       proposedChangeLayoutClassNames,
       rulerTickClassNames,
       timelineCanvasClassName,
-      upperLayoutClassName,
     };
   }, [
     effectiveDurationSec,
     activePreviewPlacementDraft,
-    emphasizedPaneLayout.center_px,
-    emphasizedPaneLayout.left_px,
-    emphasizedPaneLayout.right_px,
     playheadPercent,
     previewMonitorAspectRatio,
     progressPercent,
@@ -6991,7 +6809,15 @@ export default function TranscriptSeekMock(
   );
 
   return (
-    <section className={cx("hammer-editor-shell", "hammer-workspace-editor-shell", `hammer-editor-shell--${workspaceFocusMode}`)}>
+    <section
+      className={cx(
+        "hammer-editor-shell",
+        "hammer-workspace-editor-shell",
+        workspaceFocusMode === "source-focus" && "is-source-focus",
+        workspaceFocusMode === "tool-focus" && "is-tool-focus",
+        workspaceFocusMode === "balanced" && "is-balanced",
+      )}
+    >
       <div className="hammer-editor-shell__workspace-grid">
         <div className="hammer-editor-shell__main-workspace">
           <div className="hammer-editor-shell__upper-wrap">
