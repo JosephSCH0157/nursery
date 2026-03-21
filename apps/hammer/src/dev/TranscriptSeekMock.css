@@ -10,35 +10,55 @@
   --hammer-radius-md: 12px;
   --hammer-chip-height: 28px;
   --hammer-strip-height: 48px;
-  display: grid;
-  grid-template-rows: minmax(300px, min(42vh, 500px)) minmax(380px, 1fr);
-  gap: var(--hammer-gap-sm);
-  min-height: calc(100dvh - 108px);
-  height: calc(100dvh - 108px);
+  --hammer-patch-bay-width: 72px;
+  --hammer-left-bay-width: 360px;
+  --hammer-preview-width: 520px;
+  --hammer-right-bay-width: 360px;
+  display: block;
+  height: 100%;
+  min-height: 0;
   align-items: stretch;
+  overflow: hidden;
+}
+
+.hammer-editor-shell__workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--hammer-patch-bay-width);
+  gap: var(--hammer-gap-sm);
+  height: 100%;
+  min-height: 0;
+}
+
+.hammer-editor-shell__main-workspace {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 320px;
+  gap: var(--hammer-gap-sm);
+  min-height: 0;
   overflow: hidden;
 }
 
 .hammer-editor-shell__upper-wrap {
   min-height: 0;
   height: 100%;
-  max-height: min(42vh, 500px);
   overflow: hidden;
-  flex: 0 0 auto;
 }
 
 .hammer-editor-shell__upper {
   display: grid;
-  gap: 0;
+  gap: var(--hammer-gap-sm);
+  grid-template-columns: var(--hammer-left-bay-width) var(--hammer-preview-width) var(--hammer-right-bay-width);
+  justify-content: start;
   align-items: stretch;
   min-height: 0;
   height: 100%;
-  transition: grid-template-columns 180ms ease;
+  overflow: auto hidden;
+  overscroll-behavior: contain;
+  transition: grid-template-columns 160ms ease;
 }
 
 .hammer-editor-shell__edit-band {
   min-height: 0;
-  min-block-size: 380px;
+  min-block-size: 300px;
   display: flex;
   flex-direction: column;
   gap: var(--hammer-gap-sm);
@@ -64,6 +84,19 @@
 .hammer-pane--tool-strip {
   border-color: rgba(148, 163, 184, 0.2);
   background: rgba(2, 6, 23, 0.58);
+}
+
+.hammer-left-workspace {
+  min-width: var(--hammer-left-bay-width);
+}
+
+.hammer-preview-workspace {
+  min-width: var(--hammer-preview-width);
+  max-width: var(--hammer-preview-width);
+}
+
+.hammer-tool-workspace {
+  min-width: var(--hammer-right-bay-width);
 }
 
 .hammer-pane--left,
@@ -146,6 +179,14 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  width: var(--hammer-patch-bay-width);
+  min-width: var(--hammer-patch-bay-width);
+  max-width: var(--hammer-patch-bay-width);
+}
+
+.hammer-patch-bay {
+  grid-row: 1 / -1;
+  align-self: stretch;
 }
 
 .hammer-pane-section {
@@ -1674,28 +1715,24 @@
   background: #0f172a;
 }
 
-.hammer-editor-shell--transcript-focus .hammer-pane--left {
+.hammer-editor-shell--source-focus {
+  --hammer-left-bay-width: 430px;
+  --hammer-right-bay-width: 290px;
+}
+
+.hammer-editor-shell--source-focus .hammer-pane--left {
   border-color: rgba(245, 158, 11, 0.26);
   box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.1);
 }
 
-.hammer-editor-shell--transcript-focus .hammer-monitor__surface {
-  height: clamp(82px, 10vh, 124px);
-  min-height: clamp(82px, 10vh, 124px);
-  max-height: clamp(82px, 10vh, 124px);
-  padding: clamp(5px, 0.8vw, 8px);
+.hammer-editor-shell--tool-focus {
+  --hammer-left-bay-width: 290px;
+  --hammer-right-bay-width: 430px;
 }
 
-.hammer-editor-shell--preview-focus .hammer-pane--center {
+.hammer-editor-shell--tool-focus .hammer-pane--right {
   border-color: rgba(245, 158, 11, 0.3);
   box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.12);
-}
-
-.hammer-editor-shell--preview-focus .hammer-monitor__surface {
-  height: clamp(118px, 15vh, 182px);
-  min-height: clamp(118px, 15vh, 182px);
-  max-height: clamp(118px, 15vh, 182px);
-  padding: clamp(7px, 1.1vw, 11px);
 }
 
 .hammer-monitor__center {

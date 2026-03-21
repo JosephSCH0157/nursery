@@ -300,7 +300,7 @@ type WorkPanelView = "script" | "assets";
 type AssetPanelView = "transcript" | "video" | "images" | "music";
 type HammerToolId = "polish" | "audio" | "video" | "captions" | "details" | "finishing" | "export";
 type TimelineToolId = "select" | "hand" | "cut" | "marker" | "comment" | "text";
-type HammerWorkspaceFocusMode = "balanced" | "transcript-focus" | "preview-focus";
+type HammerWorkspaceFocusMode = "balanced" | "source-focus" | "tool-focus";
 type HammerWorkspaceFocusOverride = "auto" | Exclude<HammerWorkspaceFocusMode, "balanced">;
 
 const LEFT_PANEL_MIN_PX = 320;
@@ -310,7 +310,6 @@ const CENTER_PANEL_MAX_PX = 760;
 const RIGHT_PANEL_MIN_PX = 300;
 const RIGHT_PANEL_MAX_PX = 520;
 const PANE_DIVIDER_WIDTH_PX = 10;
-const TOOL_STRIP_WIDTH_PX = 72;
 const SESSION_PANE_LAYOUT_VERSION = "v1";
 const TRANSCRIPT_REVEAL_TOP_PADDING_PX = 18;
 const DEFAULT_PANE_LAYOUT: HammerPaneLayout = {
@@ -610,10 +609,6 @@ function getToggleButtonClassName(active: boolean): string {
 
 function getToolStripButtonClassName(active: boolean): string {
   return cx("hammer-tool-button", active && "is-active");
-}
-
-function getPaneDividerClassName(active: boolean): string {
-  return cx("hammer-editor-shell__divider", active && "is-active");
 }
 
 function getTimelineClipLayoutKey(trackId: string, clipId: string): string {
@@ -1052,15 +1047,15 @@ function formatVisualApprovalStateLabel(state: "suggested" | "approved" | null |
 
 function resolveHammerWorkspaceFocusMode(tool: HammerToolId): HammerWorkspaceFocusMode {
   switch (tool) {
-    case "audio":
-    case "finishing":
-      return "transcript-focus";
     case "polish":
+      return "source-focus";
+    case "audio":
     case "video":
     case "captions":
-      return "preview-focus";
-    case "details":
+    case "finishing":
     case "export":
+      return "tool-focus";
+    case "details":
     default:
       return "balanced";
   }
@@ -3452,15 +3447,6 @@ export default function TranscriptSeekMock(
       `Edit plan loaded from ${nextPlan.source_transcript_id}. Applying it to ${transcriptSourceId}.`,
     );
     setEditPlanFeedbackTone("warning");
-  }
-
-  function beginPaneResize(handle: HammerPaneResizeHandle, clientX: number) {
-    paneResizeStateRef.current = {
-      handle,
-      startClientX: clientX,
-      startLayout: paneLayout,
-    };
-    setActiveResizeHandle(handle);
   }
 
   function removeInstruction(instructionId: string) {
@@ -6292,18 +6278,18 @@ export default function TranscriptSeekMock(
     [],
   );
   const emphasizedPaneLayout = useMemo<HammerPaneLayout>(() => {
-    if (workspaceFocusMode === "transcript-focus") {
+    if (workspaceFocusMode === "source-focus") {
       return {
-        left_px: clamp(paneLayout.left_px + 110, LEFT_PANEL_MIN_PX, LEFT_PANEL_MAX_PX),
-        center_px: clamp(paneLayout.center_px - 110, CENTER_PANEL_MIN_PX, CENTER_PANEL_MAX_PX),
-        right_px: paneLayout.right_px,
+        left_px: clamp(paneLayout.left_px + 90, LEFT_PANEL_MIN_PX, LEFT_PANEL_MAX_PX),
+        center_px: paneLayout.center_px,
+        right_px: clamp(paneLayout.right_px - 90, RIGHT_PANEL_MIN_PX, RIGHT_PANEL_MAX_PX),
       };
     }
-    if (workspaceFocusMode === "preview-focus") {
+    if (workspaceFocusMode === "tool-focus") {
       return {
-        left_px: clamp(paneLayout.left_px - 95, LEFT_PANEL_MIN_PX, LEFT_PANEL_MAX_PX),
-        center_px: clamp(paneLayout.center_px + 95, CENTER_PANEL_MIN_PX, CENTER_PANEL_MAX_PX),
-        right_px: paneLayout.right_px,
+        left_px: clamp(paneLayout.left_px - 90, LEFT_PANEL_MIN_PX, LEFT_PANEL_MAX_PX),
+        center_px: paneLayout.center_px,
+        right_px: clamp(paneLayout.right_px + 90, RIGHT_PANEL_MIN_PX, RIGHT_PANEL_MAX_PX),
       };
     }
     return paneLayout;
@@ -6311,7 +6297,6 @@ export default function TranscriptSeekMock(
   const upperPaneMinWidth = emphasizedPaneLayout.left_px
     + emphasizedPaneLayout.center_px
     + emphasizedPaneLayout.right_px
-    + TOOL_STRIP_WIDTH_PX
     + (PANE_DIVIDER_WIDTH_PX * 2);
   const timelineRulerTicks = useMemo(
     () => buildTimelineRulerTicks(effectiveDurationSec),
@@ -6395,7 +6380,6 @@ export default function TranscriptSeekMock(
         `minmax(${emphasizedPaneLayout.center_px}px, 1fr)`,
         `${PANE_DIVIDER_WIDTH_PX}px`,
         `${emphasizedPaneLayout.right_px}px`,
-        `${TOOL_STRIP_WIDTH_PX}px`,
       ].join(" "),
       minWidth: upperPaneMinWidth,
     });
@@ -6584,21 +6568,21 @@ export default function TranscriptSeekMock(
               </button>
               <button
                 type="button"
-                onClick={() => setWorkspaceFocusOverride("transcript-focus")}
-                className={cx("hammer-timeline-control-button", workspaceFocusOverride === "transcript-focus" && "is-active")}
-                title="Pin transcript focus"
+                onClick={() => setWorkspaceFocusOverride("source-focus")}
+                className={cx("hammer-timeline-control-button", workspaceFocusOverride === "source-focus" && "is-active")}
+                title="Pin source workspace focus"
               >
-                <span className="hammer-timeline-control-button__icon">T</span>
-                <span>Text Focus</span>
+                <span className="hammer-timeline-control-button__icon">S</span>
+                <span>Source Focus</span>
               </button>
               <button
                 type="button"
-                onClick={() => setWorkspaceFocusOverride("preview-focus")}
-                className={cx("hammer-timeline-control-button", workspaceFocusOverride === "preview-focus" && "is-active")}
-                title="Pin visual focus"
+                onClick={() => setWorkspaceFocusOverride("tool-focus")}
+                className={cx("hammer-timeline-control-button", workspaceFocusOverride === "tool-focus" && "is-active")}
+                title="Pin tool workspace focus"
               >
-                <span className="hammer-timeline-control-button__icon">V</span>
-                <span>Visual Focus</span>
+                <span className="hammer-timeline-control-button__icon">T</span>
+                <span>Tool Focus</span>
               </button>
             </div>
           </div>
@@ -7007,11 +6991,13 @@ export default function TranscriptSeekMock(
   );
 
   return (
-    <section className={cx("hammer-editor-shell", `hammer-editor-shell--${workspaceFocusMode}`)}>
-      <div className="hammer-editor-shell__upper-wrap">
-        <div className={cx("hammer-editor-shell__upper", dynamicStyles.upperLayoutClassName)}>
+    <section className={cx("hammer-editor-shell", "hammer-workspace-editor-shell", `hammer-editor-shell--${workspaceFocusMode}`)}>
+      <div className="hammer-editor-shell__workspace-grid">
+        <div className="hammer-editor-shell__main-workspace">
+          <div className="hammer-editor-shell__upper-wrap">
+            <div className={cx("hammer-editor-shell__upper", "hammer-top-workspace")}>
           <div
-            className="hammer-pane hammer-pane--left is-assets-view"
+            className="hammer-pane hammer-pane--left hammer-left-workspace is-assets-view"
           >
             <div className="hammer-pane__scroll">
         {false ? (
@@ -7546,18 +7532,7 @@ export default function TranscriptSeekMock(
             </div>
       </div>
 
-      <button
-        type="button"
-        aria-label="Resize left and center Hammer panes"
-        title="Drag to resize the left and center panes"
-        onMouseDown={(event) => {
-          event.preventDefault();
-          beginPaneResize("left-center", event.clientX);
-        }}
-        className={getPaneDividerClassName(activeResizeHandle === "left-center")}
-      />
-
-      <div className="hammer-pane hammer-pane--center">
+      <div className="hammer-pane hammer-pane--center hammer-preview-workspace">
         <div className="hammer-center-stack">
         <div className="hammer-preview-surface-shell">
           <div className="hammer-monitor">
@@ -8038,18 +8013,7 @@ export default function TranscriptSeekMock(
         </div>
       </div>
 
-      <button
-        type="button"
-        aria-label="Resize center and right Hammer panes"
-        title="Drag to resize the center and right panes"
-        onMouseDown={(event) => {
-          event.preventDefault();
-          beginPaneResize("center-right", event.clientX);
-        }}
-        className={getPaneDividerClassName(activeResizeHandle === "center-right")}
-      />
-
-      <div className="hammer-pane hammer-pane--right">
+      <div className="hammer-pane hammer-pane--right hammer-tool-workspace">
         <div className="hammer-pane__scroll">
         <HammerPaneSection
           title={activeToolDefinition.label}
@@ -8077,33 +8041,36 @@ export default function TranscriptSeekMock(
         </div>
       </div>
 
-      <div className="hammer-pane hammer-pane--tool-strip">
-        <div className="hammer-tool-strip__head">
-          <strong className="hammer-tool-strip__title">
-            Tools
-          </strong>
-            <span className="hammer-tool-strip__caption">
-              Editing modes
-            </span>
-        </div>
-        {HAMMER_TOOL_ORDER.map((tool) => (
-          <button
-            key={tool.id}
-            type="button"
-            onClick={() => setActiveTool(tool.id)}
-            className={getToolStripButtonClassName(activeTool === tool.id)}
-            title={`${tool.label} workspace`}
-          >
-            <strong className="hammer-tool-button__short-label">{tool.shortLabel}</strong>
-            <span className="hammer-tool-button__label">{tool.label}</span>
-          </button>
-        ))}
-      </div>
-        </div>
-      </div>
+            </div>
+          </div>
 
-      <div className="hammer-editor-shell__edit-band">
-        {timelineWorkspaceContent}
+          <div className="hammer-editor-shell__edit-band hammer-timeline-workspace">
+            {timelineWorkspaceContent}
+          </div>
+        </div>
+
+        <div className="hammer-pane hammer-pane--tool-strip hammer-patch-bay">
+          <div className="hammer-tool-strip__head">
+            <strong className="hammer-tool-strip__title">
+              Tools
+            </strong>
+              <span className="hammer-tool-strip__caption">
+                Editing modes
+              </span>
+          </div>
+          {HAMMER_TOOL_ORDER.map((tool) => (
+            <button
+              key={tool.id}
+              type="button"
+              onClick={() => setActiveTool(tool.id)}
+              className={getToolStripButtonClassName(activeTool === tool.id)}
+              title={`${tool.label} workspace`}
+            >
+              <strong className="hammer-tool-button__short-label">{tool.shortLabel}</strong>
+              <span className="hammer-tool-button__label">{tool.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
     </section>
   );
