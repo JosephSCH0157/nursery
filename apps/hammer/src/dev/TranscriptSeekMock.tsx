@@ -199,6 +199,7 @@ type HammerProjectAsset = {
   id: string;
   title: string;
   kindLabel: string;
+  kind: "image" | "video" | "audio" | "other";
   sourceLabel: string;
   detail: string;
   status: string;
@@ -206,6 +207,7 @@ type HammerProjectAsset = {
   workpieceId: string;
   durationLabel: string | null;
   placementId?: string | null;
+  thumbnailUrl?: string | null;
 };
 
 type HammerPaneLayout = {
@@ -1411,6 +1413,7 @@ export default function TranscriptSeekMock(
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
   const [timelineZoomId, setTimelineZoomId] = useState<TimelineZoomId>("fit");
   const [selectedProposedChangeId, setSelectedProposedChangeId] = useState<string | null>(null);
+  const [assetThumbnailUrlsById, setAssetThumbnailUrlsById] = useState<Record<string, string>>({});
   const [proposedChangeStatusOverrides, setProposedChangeStatusOverrides] = useState<Record<string, HammerProposedChangeStatus>>({});
   const [autoAdvancePolishReview, setAutoAdvancePolishReview] = useState(true);
   const [showDebugPanels, setShowDebugPanels] = useState(false);
@@ -3865,6 +3868,13 @@ export default function TranscriptSeekMock(
           id: activeMediaRef?.media_id ?? "media_dev_tone_preview",
           title: activeDevRecording ? "Attached recording" : activeMediaRef?.media_id ? "Primary source media" : "Fallback preview source",
           kindLabel: activeMediaRef ? formatMediaKindLabel(activeMediaRef.kind) : "Fallback source",
+          kind: activeMediaRef?.kind === "asset_image" || activeMediaRef?.kind === "asset_broll"
+            ? "image"
+            : activeMediaRef?.kind === "asset_audio" || activeMediaRef?.kind === "recording_audio" || activeMediaRef?.kind === "export_audio"
+            ? "audio"
+            : activeMediaRef?.kind === "recording_video" || activeMediaRef?.kind === "export_video"
+            ? "video"
+            : "other",
           sourceLabel: sourceModeLabel,
           detail: activeMediaDetailLabel,
           status: activeMediaUsesDevTone
@@ -3888,6 +3898,7 @@ export default function TranscriptSeekMock(
           workpieceId: resolvedLaunch.launch_context.workpiece_id,
           durationLabel: primaryAssetDurationLabel,
           placementId: null,
+          thumbnailUrl: null,
       };
 
       if (!activeMediaRef || activeMediaRef.kind === "recording_video" || activeMediaRef.kind === "export_video" || activeMediaRef.kind === "recording_audio" || activeMediaRef.kind === "export_audio" || activeMediaUsesDevTone) {
@@ -3909,6 +3920,7 @@ export default function TranscriptSeekMock(
           id: imageAssetId,
           title: placement.label ?? placement.visual_mode ?? placement.entry_id,
           kindLabel: "Anchored Image",
+          kind: "image",
           sourceLabel: "Tongs image-map",
           detail: placement.anchor_text
             ? `Anchored to: ${placement.anchor_text}`
@@ -3920,6 +3932,7 @@ export default function TranscriptSeekMock(
           workpieceId: resolvedLaunch.launch_context.workpiece_id,
           durationLabel: formatClock(Math.max(0, placement.end_sec - placement.start_sec)),
           placementId: placement.placement_id,
+          thumbnailUrl: assetThumbnailUrlsById[imageAssetId] ?? null,
         });
       }
 
@@ -3935,8 +3948,54 @@ export default function TranscriptSeekMock(
       resolveResult?.status,
       resolvedLaunch.launch_context.workpiece_id,
       sourceModeLabel,
+      assetThumbnailUrlsById,
     ],
   );
+
+  useEffect(() => {
+    const placements = currentVisualPlacements?.placements ?? [];
+    const pending = placements
+      .map((placement) => {
+        const assetId = placement.asset_id ?? placement.asset_ref ?? placement.placement_id;
+        const path = placement.asset_path ?? placement.storage_key ?? null;
+        if (!path || assetThumbnailUrlsById[assetId]) {
+          return null;
+        }
+        return { assetId, path };
+      })
+      .filter((entry): entry is { assetId: string; path: string } => Boolean(entry));
+
+    if (pending.length === 0) return;
+
+    let isActive = true;
+    void Promise.all(
+      pending.map(async (entry) => {
+        const result = await loadHammerPreviewAssetDataUrl({
+          workpieceId: resolvedLaunch.launch_context.workpiece_id,
+          path: entry.path,
+        });
+        return result.ok ? { assetId: entry.assetId, dataUrl: result.dataUrl } : null;
+      }),
+    ).then((results) => {
+      if (!isActive) return;
+      const updates = results.filter((entry): entry is { assetId: string; dataUrl: string } => Boolean(entry));
+      if (updates.length === 0) return;
+      setAssetThumbnailUrlsById((current) => {
+        const next = { ...current };
+        let changed = false;
+        for (const update of updates) {
+          if (next[update.assetId] === update.dataUrl) continue;
+          next[update.assetId] = update.dataUrl;
+          changed = true;
+        }
+        return changed ? next : current;
+      });
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [assetThumbnailUrlsById, currentVisualPlacements, resolvedLaunch.launch_context.workpiece_id]);
 
   const activeAssetItems = activeAssetPanel === "transcript" ? [] : projectAssets[activeAssetPanel];
   const activeAssetViewDefinition = ASSET_PANEL_VIEWS.find((panel) => panel.id === activeAssetPanel) ?? ASSET_PANEL_VIEWS[0];
@@ -7233,6 +7292,21 @@ export default function TranscriptSeekMock(
                           asset.placementId && selectedProposedChange?.linkedAssetId === asset.placementId && "is-selected",
                         )}
                       >
+                        <div className={cx("hammer-asset-card__thumb", `is-${asset.kind}`)}>
+                          {asset.thumbnailUrl ? (
+                            <img src={asset.thumbnailUrl} alt="" className="hammer-asset-card__thumb-image" />
+                          ) : (
+                            <span className="hammer-asset-card__thumb-fallback">
+                              {asset.kind === "image"
+                                ? "Image"
+                                : asset.kind === "video"
+                                ? "Video"
+                                : asset.kind === "audio"
+                                ? "Audio"
+                                : "Asset"}
+                            </span>
+                          )}
+                        </div>
                         <div className="hammer-asset-card__header">
                           <div className="hammer-stack-4">
                             <strong className="hammer-copy-strong">{asset.title}</strong>

@@ -726,7 +726,43 @@
   background: rgba(2, 6, 23, 0.42);
   padding: 10px 12px;
   display: grid;
-  gap: 6px;
+  gap: 8px;
+}
+
+.hammer-asset-card__thumb {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  height: 84px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.62), rgba(2, 6, 23, 0.88));
+}
+
+.hammer-asset-card__thumb.is-image {
+  border-color: rgba(56, 189, 248, 0.34);
+}
+
+.hammer-asset-card__thumb.is-video {
+  border-color: rgba(96, 165, 250, 0.34);
+}
+
+.hammer-asset-card__thumb.is-audio {
+  border-color: rgba(52, 211, 153, 0.32);
+}
+
+.hammer-asset-card__thumb-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.hammer-asset-card__thumb-fallback {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(219, 232, 255, 0.86);
 }
 
 .hammer-asset-card.is-selected {
