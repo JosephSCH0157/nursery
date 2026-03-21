@@ -141,6 +141,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   const [selectedSourceTab, setSelectedSourceTab] = useState<HammerSourceTabId>("transcript");
   const [activeTool, setActiveTool] = useState<HammerToolId>("polish");
+  const [editableTranscriptSegments, setEditableTranscriptSegments] = useState<HammerTranscriptSegment[]>(
+    () => transcriptSegments,
+  );
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(transcriptSegments[0]?.segment_id ?? null);
   const [playheadSec, setPlayheadSec] = useState(0);
   const [focusOverride, setFocusOverride] = useState<HammerWorkspaceFocusMode | "auto">("auto");
@@ -154,11 +157,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     ? "Dev tone"
     : launchContext.media.label ?? mediaRef?.local_relpath ?? null;
 
-  const selectedSegment = transcriptSegments.find((segment) => segment.segment_id === selectedSegmentId) ?? null;
+  const selectedSegment = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId) ?? null;
   const transcriptDurationSec = Math.max(
-    transcriptSegments.reduce((maxEndSec, segment) => Math.max(maxEndSec, segment.end_sec), 0),
+    editableTranscriptSegments.reduce((maxEndSec, segment) => Math.max(maxEndSec, segment.end_sec), 0),
     32,
   );
+
+  useEffect(() => {
+    setEditableTranscriptSegments(transcriptSegments);
+    setSelectedSegmentId((current) => {
+      if (!transcriptSegments.length) return null;
+      if (current && transcriptSegments.some((segment) => segment.segment_id === current)) {
+        return current;
+      }
+      return transcriptSegments[0]?.segment_id ?? null;
+    });
+  }, [transcriptSegments, transcriptSourceId]);
 
   useEffect(() => {
     if (!props.prepHandoffAction) return;
@@ -209,7 +223,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       editPlanStatus: "clean",
       editPlanSignature: createSemanticEditPlanSignature(transcriptSourceId, previewMode, editPlan.instructions),
       transcriptSourceId: transcriptSourceId,
-      transcriptSegments,
+      transcriptSegments: editableTranscriptSegments,
       selectedSegmentId,
       selectedOverlayRowId: selectedSegmentId,
       mediaRef,
@@ -236,7 +250,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     props.structuredTranscript,
     props.visualPlacements,
     selectedSegmentId,
-    transcriptSegments,
+    editableTranscriptSegments,
     transcriptSourceId,
     workspaceMapping,
   ]);
@@ -277,20 +291,64 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             </header>
             <div className="hammer-bay-body">
               {selectedSourceTab === "transcript" ? (
-                transcriptSegments.length > 0 ? transcriptSegments.map((segment) => (
-                  <button
-                    key={segment.segment_id}
-                    type="button"
-                    className={segment.segment_id === selectedSegmentId ? "hammer-transcript-row is-active" : "hammer-transcript-row"}
-                    onClick={() => {
-                      setSelectedSegmentId(segment.segment_id);
-                      setPlayheadSec(segment.start_sec);
-                    }}
-                  >
-                    <span>{segment.speaker}</span>
-                    <span>{segment.text}</span>
-                  </button>
-                )) : <div className="hammer-empty-state">Transcript is not loaded yet.</div>
+                editableTranscriptSegments.length > 0 ? (
+                  <>
+                    {selectedSegment ? (
+                      <section className="hammer-transcript-editor" aria-label="Selected transcript segment editor">
+                        <div className="hammer-transcript-editor__meta">
+                          <span>{selectedSegment.start_sec.toFixed(1)}s - {selectedSegment.end_sec.toFixed(1)}s</span>
+                          <span>{selectedSegment.segment_id}</span>
+                        </div>
+                        <label className="hammer-transcript-editor__field">
+                          <span>Speaker</span>
+                          <input
+                            type="text"
+                            value={selectedSegment.speaker}
+                            onFocus={() => setFocusOverride("source-focus")}
+                            onChange={(event) => {
+                              setFocusOverride("source-focus");
+                              setEditableTranscriptSegments((current) => current.map((segment) => (
+                                segment.segment_id === selectedSegment.segment_id
+                                  ? { ...segment, speaker: event.target.value }
+                                  : segment
+                              )));
+                            }}
+                          />
+                        </label>
+                        <label className="hammer-transcript-editor__field">
+                          <span>Text</span>
+                          <textarea
+                            value={selectedSegment.text}
+                            onFocus={() => setFocusOverride("source-focus")}
+                            onChange={(event) => {
+                              setFocusOverride("source-focus");
+                              setEditableTranscriptSegments((current) => current.map((segment) => (
+                                segment.segment_id === selectedSegment.segment_id
+                                  ? { ...segment, text: event.target.value }
+                                  : segment
+                              )));
+                            }}
+                          />
+                        </label>
+                      </section>
+                    ) : null}
+                    {editableTranscriptSegments.map((segment) => (
+                      <button
+                        key={segment.segment_id}
+                        type="button"
+                        className={segment.segment_id === selectedSegmentId ? "hammer-transcript-row is-active" : "hammer-transcript-row"}
+                        onClick={() => {
+                          setFocusOverride("source-focus");
+                          setSelectedSegmentId(segment.segment_id);
+                          setPlayheadSec(segment.start_sec);
+                        }}
+                      >
+                        <span>{segment.speaker}</span>
+                        <span>{segment.text}</span>
+                      </button>
+                    ))}
+                  </>
+                ) : <div className="hammer-empty-state">Transcript is not loaded yet.</div>
               ) : (
                 <div className="hammer-empty-state">{selectedSourceTab} panel is ready for content transplant.</div>
               )}
@@ -364,7 +422,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               aria-label="Timeline playhead"
             />
             <div className="hammer-timeline-track-scroll">
-              {transcriptSegments.length > 0 ? transcriptSegments.map((segment) => (
+              {editableTranscriptSegments.length > 0 ? editableTranscriptSegments.map((segment) => (
                 <div key={segment.segment_id} className="hammer-timeline-row">
                   <span>{segment.speaker}</span>
                   <span>{segment.start_sec.toFixed(1)} - {segment.end_sec.toFixed(1)}</span>

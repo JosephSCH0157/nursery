@@ -1,3 +1,32 @@
+/*
+Hammer CDL Geometry Contract (v1)
+
+This file is the sole production authority for Hammer editor shell geometry.
+
+Core rules:
+- Toolbar is fixed infrastructure on the far right and never collapses.
+- Tool Rack sits immediately adjacent to the toolbar.
+- Preview is intentionally bounded and must not dominate the workspace.
+- Timeline is the primary editing surface and remains visible in all states.
+- Source Desk, Preview, Tool Rack, Toolbar, and Timeline remain visible under CDL.
+- CDL states only reweight space; they do not hide core regions.
+
+Baseline targets:
+- Toolbar: fixed width.
+- Preview: bounded max width by breakpoint.
+- Timeline: fixed baseline dock height with stronger time-focus height.
+- Focus states: balanced, source-focus, tool-focus, time-focus.
+
+Breakpoint intent:
+- <=1600: preserve readability without early collapse.
+- <=1440: compress gracefully while keeping source/tool usable.
+- <=1280: tighter preview cap with controlled min-width reductions.
+
+Guardrails:
+- Do not move shell geometry ownership out of HammerWorkspaceShell*.
+- Do not reintroduce horizontal workspace scrolling as fallback behavior.
+- Do not hide source/tool/timeline regions during normal editing.
+*/
 .hammer-workspace-shell {
   --hammer-shell-toolbar-width: 72px;
   --hammer-shell-left-min-width: 360px;
@@ -150,6 +179,45 @@
 .hammer-transcript-row.is-active {
   border-color: rgba(96, 165, 250, 0.7);
   box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.24);
+}
+
+.hammer-transcript-editor {
+  border: 1px solid rgba(96, 165, 250, 0.32);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.74);
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.hammer-transcript-editor__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #93c5fd;
+  font-size: 11px;
+}
+
+.hammer-transcript-editor__field {
+  display: grid;
+  gap: 4px;
+  color: #cbd5e1;
+  font-size: 11px;
+}
+
+.hammer-transcript-editor__field input,
+.hammer-transcript-editor__field textarea {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.72);
+  color: #e2e8f0;
+  padding: 6px 8px;
+  font: inherit;
+}
+
+.hammer-transcript-editor__field textarea {
+  min-height: 68px;
+  resize: vertical;
 }
 
 .hammer-preview-bay__body {
