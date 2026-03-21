@@ -147,6 +147,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(transcriptSegments[0]?.segment_id ?? null);
   const [playheadSec, setPlayheadSec] = useState(0);
   const [focusOverride, setFocusOverride] = useState<HammerWorkspaceFocusMode | "auto">("auto");
+  const [polishStrength, setPolishStrength] = useState(60);
+  const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
+  const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
+  const [videoSnapMode, setVideoSnapMode] = useState<"timeline" | "segment">("timeline");
+  const [captionStyle, setCaptionStyle] = useState<"sentence" | "title" | "upper">("sentence");
+  const [detailTag, setDetailTag] = useState("main-edit");
+  const [finishingChecklist, setFinishingChecklist] = useState({
+    transcriptReviewed: false,
+    visualsReviewed: false,
+    audioReviewed: false,
+  });
   const lastHandledHandoffTokenRef = useRef<number | null>(null);
 
   const previewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
@@ -383,13 +394,174 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               <span>{TOOL_ORDER.find((tool) => tool.id === activeTool)?.label}</span>
             </header>
             <div className="hammer-bay-body">
-              <div className="hammer-empty-state">Active tool controls render here.</div>
+              {activeTool === "polish" ? (
+                <section className="hammer-tool-card">
+                  <header className="hammer-tool-card__head">Transcript Polish</header>
+                  <label className="hammer-tool-field">
+                    <span>Cleanup Strength: {polishStrength}%</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={polishStrength}
+                      onChange={(event) => {
+                        setFocusOverride("tool-focus");
+                        setPolishStrength(Number(event.target.value));
+                      }}
+                    />
+                  </label>
+                  <div className="hammer-tool-hint">Applies cleanup suggestions without altering original media.</div>
+                </section>
+              ) : null}
+
+              {activeTool === "audio" ? (
+                <section className="hammer-tool-card">
+                  <header className="hammer-tool-card__head">Audio Adjustments</header>
+                  <label className="hammer-tool-check">
+                    <input
+                      type="checkbox"
+                      checked={audioLevelingEnabled}
+                      onChange={(event) => {
+                        setFocusOverride("tool-focus");
+                        setAudioLevelingEnabled(event.target.checked);
+                      }}
+                    />
+                    <span>Level dialogue track</span>
+                  </label>
+                  <label className="hammer-tool-check">
+                    <input
+                      type="checkbox"
+                      checked={audioNoiseReductionEnabled}
+                      onChange={(event) => {
+                        setFocusOverride("tool-focus");
+                        setAudioNoiseReductionEnabled(event.target.checked);
+                      }}
+                    />
+                    <span>Reduce background noise</span>
+                  </label>
+                  <div className="hammer-tool-hint">Current prep status: {props.audioPolish?.status ?? "not_started"}</div>
+                </section>
+              ) : null}
+
+              {activeTool === "video" ? (
+                <section className="hammer-tool-card">
+                  <header className="hammer-tool-card__head">Visual Placement</header>
+                  <label className="hammer-tool-field">
+                    <span>Snap Mode</span>
+                    <select
+                      value={videoSnapMode}
+                      onChange={(event) => {
+                        setFocusOverride("tool-focus");
+                        setVideoSnapMode(event.target.value as "timeline" | "segment");
+                      }}
+                    >
+                      <option value="timeline">Timeline grid</option>
+                      <option value="segment">Segment boundaries</option>
+                    </select>
+                  </label>
+                  <div className="hammer-tool-hint">Placed visuals: {props.visualPlacements?.placements.length ?? 0}</div>
+                </section>
+              ) : null}
+
+              {activeTool === "captions" ? (
+                <section className="hammer-tool-card">
+                  <header className="hammer-tool-card__head">Caption Output</header>
+                  <label className="hammer-tool-field">
+                    <span>Caption Style</span>
+                    <select
+                      value={captionStyle}
+                      onChange={(event) => {
+                        setFocusOverride("tool-focus");
+                        setCaptionStyle(event.target.value as "sentence" | "title" | "upper");
+                      }}
+                    >
+                      <option value="sentence">Sentence case</option>
+                      <option value="title">Title case</option>
+                      <option value="upper">UPPERCASE</option>
+                    </select>
+                  </label>
+                </section>
+              ) : null}
+
+              {activeTool === "details" ? (
+                <section className="hammer-tool-card">
+                  <header className="hammer-tool-card__head">Edit Metadata</header>
+                  <label className="hammer-tool-field">
+                    <span>Tag</span>
+                    <input
+                      type="text"
+                      value={detailTag}
+                      onChange={(event) => {
+                        setFocusOverride("tool-focus");
+                        setDetailTag(event.target.value);
+                      }}
+                    />
+                  </label>
+                </section>
+              ) : null}
+
+              {activeTool === "finishing" ? (
+                <section className="hammer-tool-card">
+                  <header className="hammer-tool-card__head">Finishing Checklist</header>
+                  <label className="hammer-tool-check">
+                    <input
+                      type="checkbox"
+                      checked={finishingChecklist.transcriptReviewed}
+                      onChange={(event) => {
+                        setFocusOverride("tool-focus");
+                        setFinishingChecklist((current) => ({
+                          ...current,
+                          transcriptReviewed: event.target.checked,
+                        }));
+                      }}
+                    />
+                    <span>Transcript reviewed</span>
+                  </label>
+                  <label className="hammer-tool-check">
+                    <input
+                      type="checkbox"
+                      checked={finishingChecklist.visualsReviewed}
+                      onChange={(event) => {
+                        setFocusOverride("tool-focus");
+                        setFinishingChecklist((current) => ({
+                          ...current,
+                          visualsReviewed: event.target.checked,
+                        }));
+                      }}
+                    />
+                    <span>Visuals reviewed</span>
+                  </label>
+                  <label className="hammer-tool-check">
+                    <input
+                      type="checkbox"
+                      checked={finishingChecklist.audioReviewed}
+                      onChange={(event) => {
+                        setFocusOverride("tool-focus");
+                        setFinishingChecklist((current) => ({
+                          ...current,
+                          audioReviewed: event.target.checked,
+                        }));
+                      }}
+                    />
+                    <span>Audio reviewed</span>
+                  </label>
+                </section>
+              ) : null}
+
+              {activeTool === "export" ? (
+                <section className="hammer-tool-card">
+                  <header className="hammer-tool-card__head">Quench Handoff</header>
+                  <div className="hammer-tool-hint">
+                    {props.releasePrepHref ? "Handoff path available." : "Handoff path unavailable."}
+                  </div>
+                </section>
+              ) : null}
+
               <div className="hammer-tool-state-grid">
-                <div>Audio polish: {props.audioPolish?.status ?? "not_started"}</div>
-                <div>Visual placements: {props.visualPlacements?.placements.length ?? 0}</div>
+                <div>Workspace mode: {workspaceFocusMode}</div>
                 <div>Macro: {props.selectedMacroRecipeRef ?? "none"}</div>
                 <div>Last run: {props.lastMacroRunRef ?? "none"}</div>
-                <div>Workspace mode: {workspaceFocusMode}</div>
                 <div>Release prep: {props.releasePrepHref ? "available" : "unavailable"}</div>
               </div>
             </div>
