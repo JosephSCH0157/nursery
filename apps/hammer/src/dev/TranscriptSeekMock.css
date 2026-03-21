@@ -11,7 +11,7 @@
   --hammer-chip-height: 28px;
   --hammer-strip-height: 48px;
   display: grid;
-  grid-template-rows: minmax(280px, min(52vh, 600px)) minmax(300px, 1fr);
+  grid-template-rows: minmax(220px, min(38vh, 420px)) minmax(380px, 1fr);
   gap: var(--hammer-gap-sm);
   min-height: calc(100dvh - 108px);
   height: calc(100dvh - 108px);
@@ -22,7 +22,7 @@
 .hammer-editor-shell__upper-wrap {
   min-height: 0;
   height: 100%;
-  max-height: min(52vh, 600px);
+  max-height: min(38vh, 420px);
   overflow: hidden;
   flex: 0 0 auto;
 }
@@ -37,7 +37,7 @@
 
 .hammer-editor-shell__edit-band {
   min-height: 0;
-  min-block-size: 300px;
+  min-block-size: 380px;
   display: flex;
   flex-direction: column;
   gap: var(--hammer-gap-sm);
@@ -306,6 +306,90 @@
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 10px;
   background: rgba(2, 6, 23, 0.34);
+}
+
+.hammer-timeline-controls {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hammer-timeline-controls__group {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.5), rgba(2, 6, 23, 0.5));
+  padding: 6px;
+  display: grid;
+  gap: 6px;
+}
+
+.hammer-timeline-controls__label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(203, 213, 225, 0.68);
+}
+
+.hammer-timeline-controls__buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hammer-timeline-control-button {
+  border-radius: 9px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  background: rgba(15, 23, 42, 0.56);
+  color: rgba(219, 232, 255, 0.74);
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  opacity: 0.78;
+  transition: opacity 120ms ease, border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.hammer-timeline-control-button:hover:not(:disabled) {
+  opacity: 0.94;
+  border-color: rgba(148, 163, 184, 0.42);
+}
+
+.hammer-timeline-control-button.is-active {
+  opacity: 1;
+  border-color: rgba(245, 158, 11, 0.56);
+  background: linear-gradient(180deg, rgba(180, 83, 9, 0.24), rgba(120, 53, 15, 0.24));
+  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.28), 0 0 12px rgba(245, 158, 11, 0.18);
+  color: #ffedd5;
+}
+
+.hammer-timeline-control-button__icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  background: rgba(2, 6, 23, 0.72);
+  color: rgba(226, 232, 240, 0.94);
+  display: inline-grid;
+  place-items: center;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.hammer-timeline-control-button.is-active .hammer-timeline-control-button__icon {
+  border-color: rgba(251, 191, 36, 0.52);
+  color: #fde68a;
+  background: rgba(120, 53, 15, 0.72);
+}
+
+.hammer-timeline-control-button:disabled {
+  opacity: 0.36;
+  cursor: not-allowed;
 }
 
 .hammer-inspector-grid {
@@ -1537,7 +1621,7 @@
 
 .hammer-monitor {
   border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 16px;
+  border-radius: 12px;
   overflow: hidden;
   background: rgba(3, 7, 18, 0.92);
   display: grid;
@@ -1551,7 +1635,7 @@
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 6px 8px;
+  padding: 4px 6px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(15, 23, 42, 0.82);
 }
@@ -1563,10 +1647,10 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  height: clamp(180px, 24vh, 300px);
-  min-height: clamp(180px, 24vh, 300px);
-  max-height: clamp(180px, 24vh, 300px);
-  padding: clamp(10px, 2vw, 18px);
+  height: clamp(130px, 17vh, 210px);
+  min-height: clamp(130px, 17vh, 210px);
+  max-height: clamp(130px, 17vh, 210px);
+  padding: clamp(8px, 1.4vw, 12px);
   background:
     radial-gradient(circle at top, rgba(59, 130, 246, 0.18), transparent 45%),
     linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.96));
@@ -1667,7 +1751,7 @@
 .hammer-preview-surface-shell {
   display: flex;
   flex-direction: column;
-  gap: var(--hammer-gap-sm);
+  gap: var(--hammer-gap-xs);
   flex: 0 0 auto;
   min-height: 0;
   width: 100%;
@@ -1678,10 +1762,10 @@
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: var(--hammer-radius-sm);
   background: rgba(15, 23, 42, 0.42);
-  padding: 4px 8px;
-  min-height: 44px;
+  padding: 3px 6px;
+  min-height: 34px;
   display: grid;
-  gap: 4px;
+  gap: 3px;
   width: 100%;
   justify-self: stretch;
   flex: 0 0 auto;
@@ -1967,7 +2051,7 @@
   grid-template-rows: auto minmax(0, 1fr);
   flex: 1 1 auto;
   min-height: 0;
-  min-height: 320px;
+  min-height: 420px;
   align-self: stretch;
   overflow: hidden;
 }
@@ -1975,7 +2059,7 @@
 .hammer-center-timeline-panel .hammer-pane-section__body {
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr);
-  gap: 6px;
+  gap: 8px;
   min-height: 0;
   overflow: hidden;
 }
@@ -2011,7 +2095,7 @@
 
 .hammer-timeline-ruler__track {
   position: relative;
-  min-height: 24px;
+  min-height: 30px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.18);
   margin-bottom: 2px;
   justify-self: start;
@@ -2040,7 +2124,7 @@
 
 .hammer-timeline-track-list {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   min-height: 0;
   align-content: start;
   overflow: auto;
@@ -2063,7 +2147,7 @@
 
 .hammer-track-viewport {
   position: relative;
-  min-height: 44px;
+  min-height: 56px;
   border-radius: var(--hammer-radius-sm);
   border: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(2, 6, 23, 0.68);

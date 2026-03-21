@@ -325,7 +325,7 @@ const WORK_PANEL_VIEWS: Array<{ id: WorkPanelView; label: string }> = [
 const ASSET_PANEL_VIEWS: Array<{ id: AssetPanelView; label: string }> = [
   { id: "transcript", label: "Transcript" },
   { id: "video", label: "Video" },
-  { id: "images", label: "Images" },
+  { id: "images", label: "Stills" },
   { id: "music", label: "Audio" },
 ];
 
@@ -341,8 +341,8 @@ const HAMMER_TOOL_ORDER: Array<{ id: HammerToolId; label: string; shortLabel: st
 
 const TIMELINE_TOOL_ORDER: Array<{ id: TimelineToolId; label: string }> = [
   { id: "select", label: "Select" },
-  { id: "hand", label: "Hand / Move" },
-  { id: "cut", label: "Cut / Split" },
+  { id: "hand", label: "Move" },
+  { id: "cut", label: "Cut Mode" },
   { id: "marker", label: "Marker" },
   { id: "comment", label: "Comment" },
   { id: "text", label: "Text" },
@@ -935,15 +935,15 @@ function formatPreparedPackageStatusLabel(status: "current" | "stale" | "partial
 function getTimelineTrackRoleLabel(trackId: string): string {
   switch (trackId) {
     case "video-main":
-      return "primary picture";
+      return "main track";
     case "visual-suggestions":
-      return "suggested image placements";
+      return "overlay track";
     case "video-pip":
-      return "secondary picture";
+      return "inset track";
     case "audio-dialogue":
-      return "spoken audio";
+      return "dialogue track";
     case "audio-bed":
-      return "music / ambience";
+      return "bed track";
     case "text":
       return "titles / overlays";
     case "captions":
@@ -956,9 +956,9 @@ function getTimelineTrackRoleLabel(trackId: string): string {
 function getTimelineTrackEmptyMessage(trackId: string, hasSelectedRow: boolean): string {
   switch (trackId) {
     case "visual-suggestions":
-      return "No reviewable image suggestions are staged yet. Hammer will seed this lane when visual anchors can be aligned.";
+      return "No overlays are staged yet. Hammer will seed this lane when visual anchors are ready.";
     case "video-pip":
-      return "No picture-in-picture clip is staged on this edit yet.";
+      return "No inset clip is staged on this edit yet.";
     case "audio-bed":
       return "No music bed is staged yet. Audio work will place bed clips here.";
     case "text":
@@ -1046,6 +1046,25 @@ function formatPlaybackRangeLabel(range: TranscriptPlaybackRange | null): string
 function formatVisualApprovalStateLabel(state: "suggested" | "approved" | null | undefined): string {
   if (state === "approved") return "Approved";
   return "Suggested";
+}
+
+function getTimelineToolIcon(tool: TimelineToolId): string {
+  switch (tool) {
+    case "select":
+      return "S";
+    case "hand":
+      return "H";
+    case "cut":
+      return "C";
+    case "marker":
+      return "M";
+    case "comment":
+      return "N";
+    case "text":
+      return "T";
+    default:
+      return "?";
+  }
 }
 
 function getReviewStateClassName(status: HammerProposedChangeStatus | string | null | undefined): string | null {
@@ -4080,7 +4099,7 @@ export default function TranscriptSeekMock(
     playbackSourceKind,
     playbackSrc,
   ]);
-  const selectionSummaryTitle = selectedSegment ? "Primary segment" : "No active selection";
+  const selectionSummaryTitle = selectedSegment ? "Active Clip" : "No active selection";
   const selectionSummaryCountLabel = selectedSegment ? "1 segment selected" : "No segment selected";
   const selectionSummaryScopeLabel = selectedOverlayRow
     ? formatOverlayRowLabel(selectedOverlayRow)
@@ -6230,6 +6249,22 @@ export default function TranscriptSeekMock(
   const activeToolHint = getHammerToolHint(activeTool);
   const activeTimelineToolDefinition = TIMELINE_TOOL_ORDER.find((tool) => tool.id === activeTimelineTool) ?? TIMELINE_TOOL_ORDER[0];
   const activeTimelineZoom = TIMELINE_ZOOM_OPTIONS.find((option) => option.id === timelineZoomId) ?? TIMELINE_ZOOM_OPTIONS[0];
+  const timelinePointerTools = useMemo(
+    () => TIMELINE_TOOL_ORDER.filter((tool) => tool.id === "select" || tool.id === "hand"),
+    [],
+  );
+  const timelineEditTools = useMemo(
+    () => TIMELINE_TOOL_ORDER.filter((tool) => tool.id === "cut" || tool.id === "marker" || tool.id === "comment" || tool.id === "text"),
+    [],
+  );
+  const timelineNavigationZoomOptions = useMemo(
+    () => TIMELINE_ZOOM_OPTIONS.filter((option) => option.id === "fit" || option.id === "close"),
+    [],
+  );
+  const timelineViewZoomOptions = useMemo(
+    () => TIMELINE_ZOOM_OPTIONS.filter((option) => option.id === "detail" || option.id === "micro"),
+    [],
+  );
   const upperPaneMinWidth = paneLayout.left_px
     + paneLayout.center_px
     + paneLayout.right_px
@@ -6416,30 +6451,81 @@ export default function TranscriptSeekMock(
     <HammerPaneSection
       title="Timeline"
       action={(
-        <div className="hammer-action-row">
-          <div className="hammer-tab-row">
-            {TIMELINE_TOOL_ORDER.map((tool) => (
-              <button
-                key={tool.id}
-                type="button"
-                onClick={() => setActiveTimelineTool(tool.id)}
-                className={getToggleButtonClassName(activeTimelineTool === tool.id)}
-              >
-                {tool.label}
-              </button>
-            ))}
+        <div className="hammer-timeline-controls">
+          <div className="hammer-timeline-controls__group">
+            <div className="hammer-timeline-controls__label">Pointer</div>
+            <div className="hammer-timeline-controls__buttons">
+              {timelinePointerTools.map((tool) => (
+                <button
+                  key={tool.id}
+                  type="button"
+                  onClick={() => setActiveTimelineTool(tool.id)}
+                  className={cx("hammer-timeline-control-button", activeTimelineTool === tool.id && "is-active")}
+                  title={getTimelineToolHint(tool.id)}
+                >
+                  <span className="hammer-timeline-control-button__icon">{getTimelineToolIcon(tool.id)}</span>
+                  <span>{tool.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="hammer-tab-row">
-            {TIMELINE_ZOOM_OPTIONS.map((option) => (
+          <div className="hammer-timeline-controls__group">
+            <div className="hammer-timeline-controls__label">Edit</div>
+            <div className="hammer-timeline-controls__buttons">
+              {timelineEditTools.map((tool) => (
+                <button
+                  key={tool.id}
+                  type="button"
+                  onClick={() => setActiveTimelineTool(tool.id)}
+                  className={cx("hammer-timeline-control-button", activeTimelineTool === tool.id && "is-active")}
+                  title={getTimelineToolHint(tool.id)}
+                >
+                  <span className="hammer-timeline-control-button__icon">{getTimelineToolIcon(tool.id)}</span>
+                  <span>{tool.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="hammer-timeline-controls__group">
+            <div className="hammer-timeline-controls__label">Navigation</div>
+            <div className="hammer-timeline-controls__buttons">
+              {timelineNavigationZoomOptions.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setTimelineZoomId(option.id)}
+                  className={cx("hammer-timeline-control-button", timelineZoomId === option.id && "is-active")}
+                >
+                  <span className="hammer-timeline-control-button__icon">Z</span>
+                  <span>{option.label}</span>
+                </button>
+              ))}
               <button
-                key={option.id}
                 type="button"
-                onClick={() => setTimelineZoomId(option.id)}
-                className={getToggleButtonClassName(timelineZoomId === option.id)}
+                onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
+                disabled={jumpToActiveTarget.timeSec == null}
+                className="hammer-timeline-control-button"
               >
-                {option.label}
+                <span className="hammer-timeline-control-button__icon">J</span>
+                <span>Jump</span>
               </button>
-            ))}
+            </div>
+          </div>
+          <div className="hammer-timeline-controls__group">
+            <div className="hammer-timeline-controls__label">View</div>
+            <div className="hammer-timeline-controls__buttons">
+              {timelineViewZoomOptions.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setTimelineZoomId(option.id)}
+                  className={cx("hammer-timeline-control-button", timelineZoomId === option.id && "is-active")}
+                >
+                  <span className="hammer-timeline-control-button__icon">V</span>
+                  <span>{option.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -7214,7 +7300,7 @@ export default function TranscriptSeekMock(
         ) : (
           <>
             <HammerPaneSection
-              title="Source Library"
+              title="Source Bin"
               subtitle="Transcript stays editable while video, images, and audio remain linked source material."
               action={(
                 <span className="hammer-pane-badge">Support panel</span>
