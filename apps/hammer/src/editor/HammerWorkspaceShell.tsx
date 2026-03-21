@@ -121,6 +121,10 @@ function createFallbackEditPlan(
   };
 }
 
+function roundToTenth(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
 export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): JSX.Element {
   if (!props.launchContext) {
     return (
@@ -169,6 +173,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : launchContext.media.label ?? mediaRef?.local_relpath ?? null;
 
   const selectedSegment = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId) ?? null;
+  const playheadSegment = editableTranscriptSegments.find((segment) => (
+    playheadSec >= segment.start_sec && playheadSec < segment.end_sec
+  )) ?? null;
   const transcriptDurationSec = Math.max(
     editableTranscriptSegments.reduce((maxEndSec, segment) => Math.max(maxEndSec, segment.end_sec), 0),
     32,
@@ -184,6 +191,55 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return transcriptSegments[0]?.segment_id ?? null;
     });
   }, [transcriptSegments, transcriptSourceId]);
+
+  function updateSegmentTiming(
+    segmentId: string,
+    updater: (segment: HammerTranscriptSegment) => HammerTranscriptSegment,
+  ): void {
+    setEditableTranscriptSegments((current) => current.map((segment) => (
+      segment.segment_id === segmentId ? updater(segment) : segment
+    )));
+  }
+
+  function moveSegment(segmentId: string, deltaSec: number): void {
+    updateSegmentTiming(segmentId, (segment) => {
+      const nextStart = Math.max(0, roundToTenth(segment.start_sec + deltaSec));
+      const duration = Math.max(0.1, roundToTenth(segment.end_sec - segment.start_sec));
+      const nextEnd = roundToTenth(nextStart + duration);
+      return {
+        ...segment,
+        start_sec: nextStart,
+        end_sec: nextEnd,
+      };
+    });
+    setPlayheadSec((current) => Math.max(0, roundToTenth(current + deltaSec)));
+  }
+
+  function trimSegmentStart(segmentId: string, deltaSec: number): void {
+    updateSegmentTiming(segmentId, (segment) => {
+      const currentDuration = Math.max(0.1, roundToTenth(segment.end_sec - segment.start_sec));
+      const nextStart = Math.max(0, roundToTenth(segment.start_sec + deltaSec));
+      const maxStart = roundToTenth(segment.end_sec - 0.1);
+      const clampedStart = Math.min(nextStart, maxStart);
+      return {
+        ...segment,
+        start_sec: clampedStart,
+        end_sec: roundToTenth(clampedStart + currentDuration),
+      };
+    });
+    setPlayheadSec((current) => Math.max(0, roundToTenth(current + deltaSec)));
+  }
+
+  function trimSegmentEnd(segmentId: string, deltaSec: number): void {
+    updateSegmentTiming(segmentId, (segment) => {
+      const nextEnd = roundToTenth(segment.end_sec + deltaSec);
+      const minEnd = roundToTenth(segment.start_sec + 0.1);
+      return {
+        ...segment,
+        end_sec: Math.max(minEnd, nextEnd),
+      };
+    });
+  }
 
   useEffect(() => {
     if (!props.prepHandoffAction) return;
@@ -373,12 +429,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             </header>
             <div className="hammer-bay-body hammer-preview-bay__body">
               <div className="hammer-preview-surface">
-                {selectedSegment ? (
+                {playheadSegment ? (
                   <div className="hammer-preview-surface__label">
-                    {selectedSegment.speaker}: {selectedSegment.text}
+                    {playheadSegment.speaker}: {playheadSegment.text}
                   </div>
                 ) : (
-                  <div className="hammer-preview-surface__label">Select a transcript row to preview.</div>
+                  <div className="hammer-preview-surface__label">Timeline gap at {playheadSec.toFixed(1)}s</div>
                 )}
               </div>
               <div className="hammer-preview-meta">
@@ -593,12 +649,85 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               }}
               aria-label="Timeline playhead"
             />
+            {selectedSegment ? (
+              <section className="hammer-timeline-editor" aria-label="Timeline segment editor">
+                <div className="hammer-timeline-editor__meta">
+                  <span>{selectedSegment.speaker}</span>
+                  <span>{selectedSegment.start_sec.toFixed(1)}s - {selectedSegment.end_sec.toFixed(1)}s</span>
+                </div>
+                <div className="hammer-timeline-editor__controls">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusOverride("time-focus");
+                      moveSegment(selectedSegment.segment_id, -0.5);
+                    }}
+                  >
+                    Move -0.5s
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusOverride("time-focus");
+                      moveSegment(selectedSegment.segment_id, 0.5);
+                    }}
+                  >
+                    Move +0.5s
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusOverride("time-focus");
+                      trimSegmentStart(selectedSegment.segment_id, -0.1);
+                    }}
+                  >
+                    Trim In -0.1s
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusOverride("time-focus");
+                      trimSegmentStart(selectedSegment.segment_id, 0.1);
+                    }}
+                  >
+                    Trim In +0.1s
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusOverride("time-focus");
+                      trimSegmentEnd(selectedSegment.segment_id, -0.1);
+                    }}
+                  >
+                    Trim Out -0.1s
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusOverride("time-focus");
+                      trimSegmentEnd(selectedSegment.segment_id, 0.1);
+                    }}
+                  >
+                    Trim Out +0.1s
+                  </button>
+                </div>
+              </section>
+            ) : null}
             <div className="hammer-timeline-track-scroll">
               {editableTranscriptSegments.length > 0 ? editableTranscriptSegments.map((segment) => (
-                <div key={segment.segment_id} className="hammer-timeline-row">
+                <button
+                  key={segment.segment_id}
+                  type="button"
+                  className={segment.segment_id === selectedSegmentId ? "hammer-timeline-row is-active" : "hammer-timeline-row"}
+                  onClick={() => {
+                    setFocusOverride("time-focus");
+                    setSelectedSegmentId(segment.segment_id);
+                    setPlayheadSec(segment.start_sec);
+                  }}
+                >
                   <span>{segment.speaker}</span>
                   <span>{segment.start_sec.toFixed(1)} - {segment.end_sec.toFixed(1)}</span>
-                </div>
+                </button>
               )) : (
                 <div className="hammer-empty-state">Timeline content transplant pending.</div>
               )}
