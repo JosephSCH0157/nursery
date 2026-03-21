@@ -220,6 +220,129 @@ Guardrails:
   resize: vertical;
 }
 
+.hammer-source-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #93c5fd;
+  font-size: 11px;
+  padding: 2px 2px 4px;
+  align-items: center;
+}
+
+.hammer-source-status {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: #93c5fd;
+  background: rgba(15, 23, 42, 0.52);
+}
+
+.hammer-source-status--error {
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fecaca;
+}
+
+.hammer-source-upload-button {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.72);
+  color: #cbd5e1;
+  padding: 5px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.hammer-source-upload-button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.hammer-source-upload-input {
+  display: none;
+}
+
+.hammer-source-card {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.62);
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.hammer-source-card__thumb {
+  width: 100%;
+  max-height: 120px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(2, 6, 23, 0.72);
+}
+
+.hammer-source-card__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #dbeafe;
+  font-size: 12px;
+}
+
+.hammer-source-card__head span {
+  text-transform: lowercase;
+  color: #cbd5e1;
+}
+
+.hammer-source-card__head span.is-warning {
+  color: #fbbf24;
+}
+
+.hammer-source-card__head span.is-ready {
+  color: #86efac;
+}
+
+.hammer-source-card__meta {
+  display: grid;
+  gap: 3px;
+  color: #cbd5e1;
+  font-size: 11px;
+}
+
+.hammer-source-card__path {
+  color: #93c5fd;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.hammer-source-card__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.hammer-source-card__actions button {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.72);
+  color: #cbd5e1;
+  padding: 5px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.hammer-source-card__actions button:hover {
+  border-color: rgba(96, 165, 250, 0.62);
+}
+
+.hammer-source-select {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.72);
+  color: #e2e8f0;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
 .hammer-preview-bay__body {
   overflow: hidden;
   grid-template-rows: minmax(0, 1fr) auto;
@@ -242,8 +365,7 @@ Guardrails:
 }
 
 .hammer-preview-meta,
-.hammer-tool-state-grid,
-.hammer-timeline-row {
+.hammer-tool-state-grid {
   display: grid;
   gap: 4px;
   color: #cbd5e1;
@@ -321,21 +443,105 @@ Guardrails:
   gap: 4px;
 }
 
-.hammer-timeline-row {
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1fr);
-  align-items: center;
-  padding: 4px 6px;
-  border-radius: 8px;
-  background: rgba(15, 23, 42, 0.46);
-  color: #dbeafe;
-  text-align: left;
-  cursor: pointer;
+.hammer-timeline-board {
+  display: grid;
+  gap: 8px;
+  min-width: 780px;
 }
 
-.hammer-timeline-row.is-active {
-  border-color: rgba(96, 165, 250, 0.7);
-  background: rgba(30, 64, 175, 0.22);
+.hammer-timeline-ruler {
+  position: relative;
+  height: 26px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.5);
+  overflow: hidden;
+}
+
+.hammer-timeline-ruler__tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(148, 163, 184, 0.28);
+}
+
+.hammer-timeline-ruler__tick span {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.hammer-timeline-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.7);
+}
+
+.hammer-timeline-lane {
+  display: grid;
+  grid-template-columns: 94px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.hammer-timeline-lane__label {
+  font-size: 11px;
+  color: #93c5fd;
+}
+
+.hammer-timeline-lane__track {
+  position: relative;
+  height: 38px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px) 0 0 / 10% 100%,
+    rgba(15, 23, 42, 0.42);
+  overflow: hidden;
+}
+
+.hammer-timeline-block {
+  position: absolute;
+  top: 6px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  color: #dbeafe;
+  font-size: 10px;
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  text-align: left;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(30, 41, 59, 0.74);
+}
+
+.hammer-timeline-block--dialogue {
+  border-color: rgba(14, 165, 233, 0.58);
+  background: rgba(2, 132, 199, 0.26);
+}
+
+.hammer-timeline-block--image {
+  border-color: rgba(34, 197, 94, 0.58);
+  background: rgba(22, 163, 74, 0.24);
+}
+
+.hammer-timeline-block--broll {
+  border-color: rgba(249, 115, 22, 0.58);
+  background: rgba(234, 88, 12, 0.24);
+}
+
+.hammer-timeline-block.is-active {
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.72);
 }
 
 .hammer-timeline-editor {

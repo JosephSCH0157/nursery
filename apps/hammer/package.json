@@ -17,7 +17,8 @@
     "test:launch-context": "tsx tests/launchContext.test.ts",
     "test:workspace-timeline": "tsx tests/hammerWorkspaceTimeline.test.ts",
     "test:workspace-transcript": "tsx tests/hammerWorkspaceTranscript.test.ts",
-    "test:workspace-authority": "tsx tests/hammerWorkspaceAuthority.test.ts"
+    "test:workspace-authority": "tsx tests/hammerWorkspaceAuthority.test.ts",
+    "test:workspace-core": "pnpm run test:workspace-timeline && pnpm run test:workspace-transcript && pnpm run test:workspace-authority"
   },
   "dependencies": {
     "react": "^19.2.0",

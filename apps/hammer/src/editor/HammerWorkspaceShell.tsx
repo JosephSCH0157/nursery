@@ -31,6 +31,15 @@ import {
   updateTranscriptSegmentSpeaker,
   updateTranscriptSegmentText,
 } from "./hammerWorkspaceTranscript";
+import {
+  listWorkpieceStoredMedia,
+  loadIntroOutroSelection,
+  loadWorkpieceMediaPreviewUrl,
+  saveIntroOutroSelection,
+  uploadWorkpieceMediaFile,
+  type HammerIntroOutroSelection,
+  type HammerStoredMediaFile,
+} from "../lib/hammerSourceDeskMediaApi";
 import "./HammerWorkspaceShell.css";
 
 const TOOLBAR_WIDTH_PX = 72;
@@ -39,7 +48,7 @@ const TIMELINE_DOCK_BASELINE_HEIGHT_PX = 376;
 const TIMELINE_DOCK_TIME_FOCUS_HEIGHT_PX = 504;
 
 type HammerToolId = HammerWorkspaceToolId;
-type HammerSourceTabId = "transcript" | "images" | "assets" | "broll";
+type HammerSourceTabId = "transcript" | "images" | "assets" | "broll" | "introoutro";
 
 type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
@@ -61,6 +70,7 @@ const SOURCE_TABS: Array<{ id: HammerSourceTabId; label: string }> = [
   { id: "images", label: "Images" },
   { id: "assets", label: "Assets" },
   { id: "broll", label: "B-roll" },
+  { id: "introoutro", label: "Intro/Outro" },
 ];
 
 const TOOL_ORDER: Array<{ id: HammerToolId; shortLabel: string; label: string }> = [
@@ -72,6 +82,41 @@ const TOOL_ORDER: Array<{ id: HammerToolId; shortLabel: string; label: string }>
   { id: "finishing", shortLabel: "F", label: "Finishing" },
   { id: "export", shortLabel: "E", label: "Export" },
 ];
+
+type HammerSourceImageItem = {
+  id: string;
+  label: string;
+  anchorSegmentId: string;
+  startSec: number;
+  endSec: number;
+  status: "placed" | "uncertain";
+  confidence: number | null;
+  visualMode: string | null;
+  assetPath: string | null;
+};
+
+type HammerSourceAssetKind = "image" | "broll" | "audio" | "other";
+
+type HammerSourceAssetItem = {
+  id: string;
+  label: string;
+  kind: HammerSourceAssetKind;
+  assetPath: string | null;
+  visualMode: string | null;
+  usageCount: number;
+  firstStartSec: number;
+  lastEndSec: number;
+};
+
+type HammerTimelineLaneBlock = {
+  id: string;
+  label: string;
+  startSec: number;
+  endSec: number;
+  selected: boolean;
+  tone: "dialogue" | "image" | "broll";
+  onSelect: () => void;
+};
 
 function readTranscriptSegments(
   launchContext: HammerLaunchContext,
@@ -123,6 +168,32 @@ function createFallbackEditPlan(
   };
 }
 
+function deriveAssetKind(args: {
+  visualMode: string | null;
+  assetPath: string | null;
+}): HammerSourceAssetKind {
+  const mode = (args.visualMode ?? "").toLowerCase();
+  const path = (args.assetPath ?? "").toLowerCase();
+  if (mode.includes("broll") || path.includes("broll")) return "broll";
+  if (path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".png") || path.endsWith(".webp") || path.endsWith(".gif")) {
+    return "image";
+  }
+  if (path.endsWith(".mp4") || path.endsWith(".mov") || path.endsWith(".m4v") || path.endsWith(".webm")) {
+    return "broll";
+  }
+  if (path.endsWith(".wav") || path.endsWith(".mp3") || path.endsWith(".aac") || path.endsWith(".m4a")) {
+    return "audio";
+  }
+  return "other";
+}
+
+function formatBytes(bytes: number | null): string {
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return "size unknown";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): JSX.Element {
   if (!props.launchContext) {
     return (
@@ -160,6 +231,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     visualsReviewed: false,
     audioReviewed: false,
   });
+  const [storedMediaFiles, setStoredMediaFiles] = useState<HammerStoredMediaFile[]>([]);
+  const [sourceDeskLoading, setSourceDeskLoading] = useState(false);
+  const [sourceDeskError, setSourceDeskError] = useState<string | null>(null);
+  const [uploadingCategory, setUploadingCategory] = useState<"images" | "broll" | "introoutro" | null>(null);
+  const [introOutroSelection, setIntroOutroSelection] = useState<HammerIntroOutroSelection>({
+    intro_path: null,
+    outro_path: null,
+    updated_at: new Date().toISOString(),
+  });
+  const [savingIntroOutro, setSavingIntroOutro] = useState(false);
+  const [sourceDeskPreviewUrls, setSourceDeskPreviewUrls] = useState<Record<string, string>>({});
+  const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
   const lastHandledHandoffTokenRef = useRef<number | null>(null);
 
   const previewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
@@ -173,12 +258,270 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const selectedSegment = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId) ?? null;
   const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
   const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
+  const sourceImageItems = useMemo<HammerSourceImageItem[]>(() => (
+    (props.visualPlacements?.placements ?? []).map((placement) => ({
+      id: placement.placement_id,
+      label: placement.label ?? placement.asset_ref ?? placement.asset_path ?? placement.entry_id,
+      anchorSegmentId: placement.anchor_segment_id,
+      startSec: placement.start_sec,
+      endSec: placement.end_sec,
+      status: placement.status,
+      confidence: placement.confidence,
+      visualMode: placement.visual_mode,
+      assetPath: placement.asset_path,
+    }))
+  ), [props.visualPlacements?.placements]);
+  const sourceAssetItems = useMemo<HammerSourceAssetItem[]>(() => {
+    const byId = new Map<string, HammerSourceAssetItem>();
+    for (const placement of props.visualPlacements?.placements ?? []) {
+      const assetId = placement.asset_id ?? placement.asset_ref ?? placement.asset_path ?? placement.placement_id;
+      const existing = byId.get(assetId);
+      const nextKind = deriveAssetKind({
+        visualMode: placement.visual_mode,
+        assetPath: placement.asset_path,
+      });
+      if (!existing) {
+        byId.set(assetId, {
+          id: assetId,
+          label: placement.label ?? placement.asset_ref ?? placement.asset_path ?? assetId,
+          kind: nextKind,
+          assetPath: placement.asset_path,
+          visualMode: placement.visual_mode,
+          usageCount: 1,
+          firstStartSec: placement.start_sec,
+          lastEndSec: placement.end_sec,
+        });
+        continue;
+      }
+
+      byId.set(assetId, {
+        ...existing,
+        usageCount: existing.usageCount + 1,
+        firstStartSec: Math.min(existing.firstStartSec, placement.start_sec),
+        lastEndSec: Math.max(existing.lastEndSec, placement.end_sec),
+      });
+    }
+
+    if (mediaRef) {
+      const mediaPath = mediaRef.local_relpath ?? null;
+      const mediaKind: HammerSourceAssetKind = mediaRef.kind === "recording_audio" ? "audio" : "other";
+      const existing = byId.get(mediaRef.media_id);
+      if (!existing) {
+        byId.set(mediaRef.media_id, {
+          id: mediaRef.media_id,
+          label: mediaPath ?? mediaRef.media_id,
+          kind: mediaKind,
+          assetPath: mediaPath,
+          visualMode: null,
+          usageCount: 1,
+          firstStartSec: 0,
+          lastEndSec: transcriptDurationSec,
+        });
+      }
+    }
+
+    for (const file of storedMediaFiles) {
+      if (byId.has(file.path)) continue;
+      byId.set(file.path, {
+        id: file.path,
+        label: file.name,
+        kind: file.kind,
+        assetPath: file.path,
+        visualMode: "stored",
+        usageCount: 0,
+        firstStartSec: 0,
+        lastEndSec: transcriptDurationSec,
+      });
+    }
+
+    return [...byId.values()].sort((a, b) => a.firstStartSec - b.firstStartSec);
+  }, [mediaRef, props.visualPlacements?.placements, storedMediaFiles, transcriptDurationSec]);
+  const sourceBrollItems = useMemo(
+    () => sourceAssetItems.filter((item) => item.kind === "broll"),
+    [sourceAssetItems],
+  );
+  const sourceImageLibraryItems = useMemo(
+    () => storedMediaFiles.filter((file) => file.kind === "image"),
+    [storedMediaFiles],
+  );
+  const introOutroCandidateItems = useMemo(
+    () => storedMediaFiles.filter((file) => file.kind === "broll" || file.kind === "audio" || file.kind === "other"),
+    [storedMediaFiles],
+  );
+  const timelineDurationSec = Math.max(transcriptDurationSec, 1);
+  const timelineTicks = useMemo(() => {
+    const tickCount = 10;
+    return Array.from({ length: tickCount + 1 }).map((_, index) => {
+      const ratio = index / tickCount;
+      return {
+        ratio,
+        timeSec: ratio * timelineDurationSec,
+      };
+    });
+  }, [timelineDurationSec]);
+  const dialogueLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
+    editableTranscriptSegments.map((segment) => ({
+      id: `dialogue:${segment.segment_id}`,
+      label: segment.speaker,
+      startSec: segment.start_sec,
+      endSec: segment.end_sec,
+      selected: segment.segment_id === selectedSegmentId,
+      tone: "dialogue",
+      onSelect: () => {
+        setFocusOverride("time-focus");
+        setSelectedSegmentId(segment.segment_id);
+        setPlayheadSec(segment.start_sec);
+      },
+    }))
+  ), [editableTranscriptSegments, selectedSegmentId]);
+  const imageLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
+    sourceImageItems.map((item) => ({
+      id: `image:${item.id}`,
+      label: item.label,
+      startSec: item.startSec,
+      endSec: item.endSec,
+      selected: item.anchorSegmentId === selectedSegmentId,
+      tone: "image",
+      onSelect: () => {
+        setFocusOverride("time-focus");
+        setSelectedSegmentId(item.anchorSegmentId);
+        setPlayheadSec(item.startSec);
+      },
+    }))
+  ), [sourceImageItems, selectedSegmentId]);
+  const brollLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
+    sourceBrollItems
+      .filter((item) => item.usageCount > 0)
+      .map((item) => ({
+        id: `broll:${item.id}`,
+        label: item.label,
+        startSec: item.firstStartSec,
+        endSec: item.lastEndSec,
+        selected: false,
+        tone: "broll",
+        onSelect: () => {
+          setFocusOverride("time-focus");
+          setPlayheadSec(item.firstStartSec);
+        },
+      }))
+  ), [sourceBrollItems]);
+  const sourceDeskPreviewPaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const item of sourceImageLibraryItems) {
+      paths.add(item.path);
+    }
+    for (const item of sourceImageItems) {
+      if (item.assetPath) paths.add(item.assetPath);
+    }
+    for (const item of sourceBrollItems) {
+      if (item.assetPath) paths.add(item.assetPath);
+    }
+    return [...paths];
+  }, [sourceBrollItems, sourceImageItems, sourceImageLibraryItems]);
 
   useEffect(() => {
     const synced = syncEditableTranscriptSegments(transcriptSegments, selectedSegmentId);
     setEditableTranscriptSegments(synced.segments);
     setSelectedSegmentId(synced.selectedSegmentId);
   }, [transcriptSegments, transcriptSourceId]);
+
+  async function refreshSourceDeskMedia(): Promise<void> {
+    setSourceDeskLoading(true);
+    setSourceDeskError(null);
+    try {
+      const [mediaFiles, selection] = await Promise.all([
+        listWorkpieceStoredMedia(launchContext.workpiece_id),
+        loadIntroOutroSelection(launchContext.workpiece_id),
+      ]);
+      setStoredMediaFiles(mediaFiles);
+      setIntroOutroSelection(selection ?? {
+        intro_path: null,
+        outro_path: null,
+        updated_at: new Date().toISOString(),
+      });
+    } catch (error) {
+      setSourceDeskError(error instanceof Error ? error.message : "Hammer could not load Source Desk media.");
+    } finally {
+      setSourceDeskLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshSourceDeskMedia();
+    // launchContext workpiece is the canonical scope boundary for stored media.
+  }, [launchContext.workpiece_id]);
+
+  useEffect(() => {
+    let active = true;
+    const nextUrls: Record<string, string> = {};
+
+    void Promise.all(sourceDeskPreviewPaths.map(async (path) => {
+      try {
+        const url = await loadWorkpieceMediaPreviewUrl({
+          workpieceId: launchContext.workpiece_id,
+          path,
+        });
+        nextUrls[path] = url;
+      } catch {
+        // Keep missing previews non-blocking; cards still render metadata/actions.
+      }
+    })).then(() => {
+      if (!active) {
+        for (const url of Object.values(nextUrls)) URL.revokeObjectURL(url);
+        return;
+      }
+      setSourceDeskPreviewUrls((previous) => {
+        for (const url of Object.values(previous)) URL.revokeObjectURL(url);
+        return nextUrls;
+      });
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [launchContext.workpiece_id, sourceDeskPreviewPaths]);
+
+  useEffect(() => () => {
+    for (const url of Object.values(sourceDeskPreviewUrls)) URL.revokeObjectURL(url);
+  }, [sourceDeskPreviewUrls]);
+
+  async function handleSourceDeskUpload(
+    category: "images" | "broll" | "introoutro",
+    fileList: FileList | null,
+  ): Promise<void> {
+    const file = fileList?.[0] ?? null;
+    if (!file) return;
+    setUploadingCategory(category);
+    setSourceDeskError(null);
+    try {
+      await uploadWorkpieceMediaFile({
+        workpieceId: launchContext.workpiece_id,
+        file,
+        category,
+      });
+      await refreshSourceDeskMedia();
+    } catch (error) {
+      setSourceDeskError(error instanceof Error ? error.message : "Hammer could not upload the selected file.");
+    } finally {
+      setUploadingCategory(null);
+    }
+  }
+
+  async function persistIntroOutroSelection(next: HammerIntroOutroSelection): Promise<void> {
+    setSavingIntroOutro(true);
+    setSourceDeskError(null);
+    try {
+      await saveIntroOutroSelection({
+        workpieceId: launchContext.workpiece_id,
+        selection: next,
+      });
+      setIntroOutroSelection(next);
+    } catch (error) {
+      setSourceDeskError(error instanceof Error ? error.message : "Hammer could not save intro/outro selection.");
+    } finally {
+      setSavingIntroOutro(false);
+    }
+  }
 
   function updateSegmentTiming(
     segmentId: string,
@@ -317,6 +660,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               </div>
             </header>
             <div className="hammer-bay-body">
+              {sourceDeskLoading ? (
+                <div className="hammer-source-status">Loading stored Source Desk media...</div>
+              ) : null}
+              {sourceDeskError ? (
+                <div className="hammer-source-status hammer-source-status--error">{sourceDeskError}</div>
+              ) : null}
+
               {selectedSourceTab === "transcript" ? (
                 editableTranscriptSegments.length > 0 ? (
                   <>
@@ -376,9 +726,322 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     ))}
                   </>
                 ) : <div className="hammer-empty-state">Transcript is not loaded yet.</div>
-              ) : (
-                <div className="hammer-empty-state">{selectedSourceTab} panel is ready for content transplant.</div>
-              )}
+              ) : null}
+
+              {selectedSourceTab === "images" ? (
+                sourceImageItems.length > 0 || sourceImageLibraryItems.length > 0 ? (
+                  <>
+                    <div className="hammer-source-summary">
+                      <span>{sourceImageItems.length} placements</span>
+                      <span>{sourceImageItems.filter((item) => item.status === "uncertain").length} uncertain</span>
+                    </div>
+                    <div className="hammer-source-summary">
+                      <span>{sourceImageLibraryItems.length} stored images</span>
+                      <button
+                        type="button"
+                        className="hammer-source-upload-button"
+                        onClick={() => imageUploadInputRef.current?.click()}
+                        disabled={uploadingCategory != null}
+                      >
+                        {uploadingCategory === "images" ? "Uploading..." : "Upload Image"}
+                      </button>
+                    </div>
+                    <input
+                      ref={imageUploadInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hammer-source-upload-input"
+                      onChange={(event) => {
+                        void handleSourceDeskUpload("images", event.currentTarget.files);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                    {sourceImageItems.map((item) => (
+                      <article key={item.id} className="hammer-source-card">
+                        {item.assetPath && sourceDeskPreviewUrls[item.assetPath] ? (
+                          <img
+                            className="hammer-source-card__thumb"
+                            src={sourceDeskPreviewUrls[item.assetPath]}
+                            alt={item.label}
+                          />
+                        ) : null}
+                        <header className="hammer-source-card__head">
+                          <strong>{item.label}</strong>
+                          <span className={item.status === "uncertain" ? "is-warning" : "is-ready"}>{item.status}</span>
+                        </header>
+                        <div className="hammer-source-card__meta">
+                          <span>{item.startSec.toFixed(1)}s - {item.endSec.toFixed(1)}s</span>
+                          <span>{item.visualMode ?? "visual"}</span>
+                          <span>{item.confidence != null ? `${Math.round(item.confidence * 100)}% match` : "match n/a"}</span>
+                        </div>
+                        <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFocusOverride("time-focus");
+                              setSelectedSegmentId(item.anchorSegmentId);
+                              setPlayheadSec(item.startSec);
+                            }}
+                          >
+                            Jump to timeline
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                    {sourceImageLibraryItems.map((file) => (
+                      <article key={file.path} className="hammer-source-card">
+                        {sourceDeskPreviewUrls[file.path] ? (
+                          <img
+                            className="hammer-source-card__thumb"
+                            src={sourceDeskPreviewUrls[file.path]}
+                            alt={file.name}
+                          />
+                        ) : null}
+                        <header className="hammer-source-card__head">
+                          <strong>{file.name}</strong>
+                          <span>stored</span>
+                        </header>
+                        <div className="hammer-source-card__meta">
+                          <span>{formatBytes(file.bytes)}</span>
+                          <span>{file.updatedAt ?? "updated time unavailable"}</span>
+                        </div>
+                        <div className="hammer-source-card__path">{file.path}</div>
+                      </article>
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    <div className="hammer-source-summary">
+                      <span>No image placements are available yet.</span>
+                      <button
+                        type="button"
+                        className="hammer-source-upload-button"
+                        onClick={() => imageUploadInputRef.current?.click()}
+                        disabled={uploadingCategory != null}
+                      >
+                        {uploadingCategory === "images" ? "Uploading..." : "Upload Image"}
+                      </button>
+                    </div>
+                    <input
+                      ref={imageUploadInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hammer-source-upload-input"
+                      onChange={(event) => {
+                        void handleSourceDeskUpload("images", event.currentTarget.files);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </>
+                )
+              ) : null}
+
+              {selectedSourceTab === "assets" ? (
+                sourceAssetItems.length > 0 ? (
+                  <>
+                    <div className="hammer-source-summary">
+                      <span>{sourceAssetItems.length} assets linked</span>
+                      <span>{workspaceMapping ? "workspace mapped" : "mapping unavailable"}</span>
+                    </div>
+                    {sourceAssetItems.map((item) => (
+                      <article key={item.id} className="hammer-source-card">
+                        <header className="hammer-source-card__head">
+                          <strong>{item.label}</strong>
+                          <span>{item.kind}</span>
+                        </header>
+                        <div className="hammer-source-card__meta">
+                          <span>Uses: {item.usageCount}</span>
+                          <span>{item.firstStartSec.toFixed(1)}s - {item.lastEndSec.toFixed(1)}s</span>
+                          <span>{item.visualMode ?? "mode n/a"}</span>
+                        </div>
+                        <div className="hammer-source-card__path">{item.assetPath ?? "asset path unavailable"}</div>
+                        <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFocusOverride("time-focus");
+                              setPlayheadSec(item.firstStartSec);
+                            }}
+                          >
+                            Reveal in timeline
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </>
+                ) : <div className="hammer-empty-state">No linked assets found for this workpiece.</div>
+              ) : null}
+
+              {selectedSourceTab === "broll" ? (
+                sourceBrollItems.length > 0 ? (
+                  <>
+                    <div className="hammer-source-summary">
+                      <span>{sourceBrollItems.length} b-roll assets</span>
+                      <button
+                        type="button"
+                        className="hammer-source-upload-button"
+                        onClick={() => brollUploadInputRef.current?.click()}
+                        disabled={uploadingCategory != null}
+                      >
+                        {uploadingCategory === "broll" ? "Uploading..." : "Upload B-roll"}
+                      </button>
+                    </div>
+                    <input
+                      ref={brollUploadInputRef}
+                      type="file"
+                      accept="video/*"
+                      className="hammer-source-upload-input"
+                      onChange={(event) => {
+                        void handleSourceDeskUpload("broll", event.currentTarget.files);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                    {sourceBrollItems.map((item) => (
+                      <article key={item.id} className="hammer-source-card">
+                        {item.assetPath && sourceDeskPreviewUrls[item.assetPath] ? (
+                          <video
+                            className="hammer-source-card__thumb"
+                            src={sourceDeskPreviewUrls[item.assetPath]}
+                            muted
+                            preload="metadata"
+                          />
+                        ) : null}
+                        <header className="hammer-source-card__head">
+                          <strong>{item.label}</strong>
+                          <span>b-roll</span>
+                        </header>
+                        <div className="hammer-source-card__meta">
+                          <span>{item.firstStartSec.toFixed(1)}s - {item.lastEndSec.toFixed(1)}s</span>
+                          <span>Uses: {item.usageCount}</span>
+                          <span>{item.visualMode ?? "mode n/a"}</span>
+                        </div>
+                        <div className="hammer-source-card__path">{item.assetPath ?? "asset path unavailable"}</div>
+                        <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFocusOverride("time-focus");
+                              setPlayheadSec(item.firstStartSec);
+                            }}
+                          >
+                            Cue b-roll window
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    <div className="hammer-source-summary">
+                      <span>No b-roll assets are currently linked.</span>
+                      <button
+                        type="button"
+                        className="hammer-source-upload-button"
+                        onClick={() => brollUploadInputRef.current?.click()}
+                        disabled={uploadingCategory != null}
+                      >
+                        {uploadingCategory === "broll" ? "Uploading..." : "Upload B-roll"}
+                      </button>
+                    </div>
+                    <input
+                      ref={brollUploadInputRef}
+                      type="file"
+                      accept="video/*"
+                      className="hammer-source-upload-input"
+                      onChange={(event) => {
+                        void handleSourceDeskUpload("broll", event.currentTarget.files);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </>
+                )
+              ) : null}
+
+              {selectedSourceTab === "introoutro" ? (
+                <>
+                  <div className="hammer-source-summary">
+                    <span>Choose project intro and outro media</span>
+                    <button
+                      type="button"
+                      className="hammer-source-upload-button"
+                      onClick={() => introOutroUploadInputRef.current?.click()}
+                      disabled={uploadingCategory != null}
+                    >
+                      {uploadingCategory === "introoutro" ? "Uploading..." : "Upload Intro/Outro"}
+                    </button>
+                  </div>
+                  <input
+                    ref={introOutroUploadInputRef}
+                    type="file"
+                    accept="video/*,audio/*"
+                    className="hammer-source-upload-input"
+                    onChange={(event) => {
+                      void handleSourceDeskUpload("introoutro", event.currentTarget.files);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+
+                  <section className="hammer-source-card">
+                    <header className="hammer-source-card__head">
+                      <strong>Project Intro</strong>
+                      <span>{introOutroSelection.intro_path ? "selected" : "not set"}</span>
+                    </header>
+                    <select
+                      className="hammer-source-select"
+                      value={introOutroSelection.intro_path ?? ""}
+                      onChange={(event) => {
+                        const next: HammerIntroOutroSelection = {
+                          ...introOutroSelection,
+                          intro_path: event.target.value || null,
+                          updated_at: new Date().toISOString(),
+                        };
+                        void persistIntroOutroSelection(next);
+                      }}
+                      disabled={savingIntroOutro}
+                    >
+                      <option value="">No intro</option>
+                      {introOutroCandidateItems.map((item) => (
+                        <option key={`intro-${item.path}`} value={item.path}>
+                          {item.name} ({item.kind})
+                        </option>
+                      ))}
+                    </select>
+                    <div className="hammer-source-card__path">{introOutroSelection.intro_path ?? "No intro selected"}</div>
+                  </section>
+
+                  <section className="hammer-source-card">
+                    <header className="hammer-source-card__head">
+                      <strong>Project Outro</strong>
+                      <span>{introOutroSelection.outro_path ? "selected" : "not set"}</span>
+                    </header>
+                    <select
+                      className="hammer-source-select"
+                      value={introOutroSelection.outro_path ?? ""}
+                      onChange={(event) => {
+                        const next: HammerIntroOutroSelection = {
+                          ...introOutroSelection,
+                          outro_path: event.target.value || null,
+                          updated_at: new Date().toISOString(),
+                        };
+                        void persistIntroOutroSelection(next);
+                      }}
+                      disabled={savingIntroOutro}
+                    >
+                      <option value="">No outro</option>
+                      {introOutroCandidateItems.map((item) => (
+                        <option key={`outro-${item.path}`} value={item.path}>
+                          {item.name} ({item.kind})
+                        </option>
+                      ))}
+                    </select>
+                    <div className="hammer-source-card__path">{introOutroSelection.outro_path ?? "No outro selected"}</div>
+                  </section>
+                  <div className="hammer-source-summary">
+                    <span>Saved to Tongs workpiece storage</span>
+                    <span>{savingIntroOutro ? "Saving..." : `Updated ${introOutroSelection.updated_at}`}</span>
+                  </div>
+                </>
+              ) : null}
             </div>
           </section>
 
@@ -672,21 +1335,88 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               </section>
             ) : null}
             <div className="hammer-timeline-track-scroll">
-              {editableTranscriptSegments.length > 0 ? editableTranscriptSegments.map((segment) => (
-                <button
-                  key={segment.segment_id}
-                  type="button"
-                  className={segment.segment_id === selectedSegmentId ? "hammer-timeline-row is-active" : "hammer-timeline-row"}
-                  onClick={() => {
-                    setFocusOverride("time-focus");
-                    setSelectedSegmentId(segment.segment_id);
-                    setPlayheadSec(segment.start_sec);
-                  }}
-                >
-                  <span>{segment.speaker}</span>
-                  <span>{segment.start_sec.toFixed(1)} - {segment.end_sec.toFixed(1)}</span>
-                </button>
-              )) : (
+              {editableTranscriptSegments.length > 0 ? (
+                <section className="hammer-timeline-board" aria-label="Track-based timeline">
+                  <div className="hammer-timeline-ruler">
+                    {timelineTicks.map((tick) => (
+                      <div
+                        key={`tick-${tick.ratio}`}
+                        className="hammer-timeline-ruler__tick"
+                        style={{ left: `${tick.ratio * 100}%` }}
+                      >
+                        <span>{tick.timeSec.toFixed(0)}s</span>
+                      </div>
+                    ))}
+                    <div
+                      className="hammer-timeline-playhead"
+                      style={{ left: `${Math.min(100, (playheadSec / timelineDurationSec) * 100)}%` }}
+                    />
+                  </div>
+
+                  <div className="hammer-timeline-lane">
+                    <div className="hammer-timeline-lane__label">Dialogue</div>
+                    <div className="hammer-timeline-lane__track">
+                      {dialogueLaneBlocks.map((block) => (
+                        <button
+                          key={block.id}
+                          type="button"
+                          className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}`}
+                          style={{
+                            left: `${(block.startSec / timelineDurationSec) * 100}%`,
+                            width: `${Math.max(1.4, ((block.endSec - block.startSec) / timelineDurationSec) * 100)}%`,
+                          }}
+                          onClick={block.onSelect}
+                          title={`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}
+                        >
+                          <span>{block.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="hammer-timeline-lane">
+                    <div className="hammer-timeline-lane__label">Images</div>
+                    <div className="hammer-timeline-lane__track">
+                      {imageLaneBlocks.map((block) => (
+                        <button
+                          key={block.id}
+                          type="button"
+                          className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}`}
+                          style={{
+                            left: `${(block.startSec / timelineDurationSec) * 100}%`,
+                            width: `${Math.max(1.4, ((block.endSec - block.startSec) / timelineDurationSec) * 100)}%`,
+                          }}
+                          onClick={block.onSelect}
+                          title={`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}
+                        >
+                          <span>{block.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="hammer-timeline-lane">
+                    <div className="hammer-timeline-lane__label">B-roll</div>
+                    <div className="hammer-timeline-lane__track">
+                      {brollLaneBlocks.map((block) => (
+                        <button
+                          key={block.id}
+                          type="button"
+                          className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}`}
+                          style={{
+                            left: `${(block.startSec / timelineDurationSec) * 100}%`,
+                            width: `${Math.max(1.4, ((block.endSec - block.startSec) / timelineDurationSec) * 100)}%`,
+                          }}
+                          onClick={block.onSelect}
+                          title={`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}
+                        >
+                          <span>{block.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              ) : (
                 <div className="hammer-empty-state">Timeline content transplant pending.</div>
               )}
             </div>
