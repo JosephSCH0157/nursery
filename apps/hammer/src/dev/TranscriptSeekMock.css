@@ -33,6 +33,7 @@
   align-items: stretch;
   min-height: 0;
   height: 100%;
+  transition: grid-template-columns 180ms ease;
 }
 
 .hammer-editor-shell__edit-band {
@@ -71,6 +72,11 @@
   flex-direction: column;
   align-self: stretch;
   min-height: 0;
+}
+
+.hammer-pane--left,
+.hammer-pane--center {
+  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
 }
 
 .hammer-pane__scroll {
@@ -1654,11 +1660,36 @@
   background:
     radial-gradient(circle at top, rgba(59, 130, 246, 0.18), transparent 45%),
     linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.96));
+  transition: height 180ms ease, min-height 180ms ease, max-height 180ms ease, padding 180ms ease;
 }
 
 .hammer-monitor__surface.has-media {
   padding: 6px;
   background: #0f172a;
+}
+
+.hammer-editor-shell--transcript-focus .hammer-pane--left {
+  border-color: rgba(245, 158, 11, 0.26);
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.1);
+}
+
+.hammer-editor-shell--transcript-focus .hammer-monitor__surface {
+  height: clamp(82px, 10vh, 124px);
+  min-height: clamp(82px, 10vh, 124px);
+  max-height: clamp(82px, 10vh, 124px);
+  padding: clamp(5px, 0.8vw, 8px);
+}
+
+.hammer-editor-shell--preview-focus .hammer-pane--center {
+  border-color: rgba(245, 158, 11, 0.3);
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.12);
+}
+
+.hammer-editor-shell--preview-focus .hammer-monitor__surface {
+  height: clamp(118px, 15vh, 182px);
+  min-height: clamp(118px, 15vh, 182px);
+  max-height: clamp(118px, 15vh, 182px);
+  padding: clamp(7px, 1.1vw, 11px);
 }
 
 .hammer-monitor__center {

@@ -300,6 +300,8 @@ type WorkPanelView = "script" | "assets";
 type AssetPanelView = "transcript" | "video" | "images" | "music";
 type HammerToolId = "polish" | "audio" | "video" | "captions" | "details" | "finishing" | "export";
 type TimelineToolId = "select" | "hand" | "cut" | "marker" | "comment" | "text";
+type HammerWorkspaceFocusMode = "balanced" | "transcript-focus" | "preview-focus";
+type HammerWorkspaceFocusOverride = "auto" | Exclude<HammerWorkspaceFocusMode, "balanced">;
 
 const LEFT_PANEL_MIN_PX = 320;
 const LEFT_PANEL_MAX_PX = 540;
@@ -1048,6 +1050,22 @@ function formatVisualApprovalStateLabel(state: "suggested" | "approved" | null |
   return "Suggested";
 }
 
+function resolveHammerWorkspaceFocusMode(tool: HammerToolId): HammerWorkspaceFocusMode {
+  switch (tool) {
+    case "audio":
+    case "finishing":
+      return "transcript-focus";
+    case "polish":
+    case "video":
+    case "captions":
+      return "preview-focus";
+    case "details":
+    case "export":
+    default:
+      return "balanced";
+  }
+}
+
 function getTimelineToolIcon(tool: TimelineToolId): string {
   switch (tool) {
     case "select":
@@ -1431,6 +1449,7 @@ export default function TranscriptSeekMock(
   const [preparedReleasePackageFeedback, setPreparedReleasePackageFeedback] = useState<string | null>(null);
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
   const [timelineZoomId, setTimelineZoomId] = useState<TimelineZoomId>("fit");
+  const [workspaceFocusOverride, setWorkspaceFocusOverride] = useState<HammerWorkspaceFocusOverride>("auto");
   const [selectedProposedChangeId, setSelectedProposedChangeId] = useState<string | null>(null);
   const [assetThumbnailUrlsById, setAssetThumbnailUrlsById] = useState<Record<string, string>>({});
   const [proposedChangeStatusOverrides, setProposedChangeStatusOverrides] = useState<Record<string, HammerProposedChangeStatus>>({});
@@ -6247,6 +6266,13 @@ export default function TranscriptSeekMock(
   const playheadPercent = clamp((currentTimeSec / effectiveDurationSec) * 100, 0, 100);
   const activeToolDefinition = HAMMER_TOOL_ORDER.find((tool) => tool.id === activeTool) ?? HAMMER_TOOL_ORDER[0];
   const activeToolHint = getHammerToolHint(activeTool);
+  const autoWorkspaceFocusMode = useMemo(
+    () => resolveHammerWorkspaceFocusMode(activeTool),
+    [activeTool],
+  );
+  const workspaceFocusMode = workspaceFocusOverride === "auto"
+    ? autoWorkspaceFocusMode
+    : workspaceFocusOverride;
   const activeTimelineToolDefinition = TIMELINE_TOOL_ORDER.find((tool) => tool.id === activeTimelineTool) ?? TIMELINE_TOOL_ORDER[0];
   const activeTimelineZoom = TIMELINE_ZOOM_OPTIONS.find((option) => option.id === timelineZoomId) ?? TIMELINE_ZOOM_OPTIONS[0];
   const timelinePointerTools = useMemo(
@@ -6265,9 +6291,26 @@ export default function TranscriptSeekMock(
     () => TIMELINE_ZOOM_OPTIONS.filter((option) => option.id === "detail" || option.id === "micro"),
     [],
   );
-  const upperPaneMinWidth = paneLayout.left_px
-    + paneLayout.center_px
-    + paneLayout.right_px
+  const emphasizedPaneLayout = useMemo<HammerPaneLayout>(() => {
+    if (workspaceFocusMode === "transcript-focus") {
+      return {
+        left_px: clamp(paneLayout.left_px + 110, LEFT_PANEL_MIN_PX, LEFT_PANEL_MAX_PX),
+        center_px: clamp(paneLayout.center_px - 110, CENTER_PANEL_MIN_PX, CENTER_PANEL_MAX_PX),
+        right_px: paneLayout.right_px,
+      };
+    }
+    if (workspaceFocusMode === "preview-focus") {
+      return {
+        left_px: clamp(paneLayout.left_px - 95, LEFT_PANEL_MIN_PX, LEFT_PANEL_MAX_PX),
+        center_px: clamp(paneLayout.center_px + 95, CENTER_PANEL_MIN_PX, CENTER_PANEL_MAX_PX),
+        right_px: paneLayout.right_px,
+      };
+    }
+    return paneLayout;
+  }, [paneLayout, workspaceFocusMode]);
+  const upperPaneMinWidth = emphasizedPaneLayout.left_px
+    + emphasizedPaneLayout.center_px
+    + emphasizedPaneLayout.right_px
     + TOOL_STRIP_WIDTH_PX
     + (PANE_DIVIDER_WIDTH_PX * 2);
   const timelineRulerTicks = useMemo(
@@ -6347,11 +6390,11 @@ export default function TranscriptSeekMock(
 
     const upperLayoutClassName = addRule("upper-layout", {
       gridTemplateColumns: [
-        `${paneLayout.left_px}px`,
+        `${emphasizedPaneLayout.left_px}px`,
         `${PANE_DIVIDER_WIDTH_PX}px`,
-        `minmax(${paneLayout.center_px}px, 1fr)`,
+        `minmax(${emphasizedPaneLayout.center_px}px, 1fr)`,
         `${PANE_DIVIDER_WIDTH_PX}px`,
-        `${paneLayout.right_px}px`,
+        `${emphasizedPaneLayout.right_px}px`,
         `${TOOL_STRIP_WIDTH_PX}px`,
       ].join(" "),
       minWidth: upperPaneMinWidth,
@@ -6433,9 +6476,9 @@ export default function TranscriptSeekMock(
   }, [
     effectiveDurationSec,
     activePreviewPlacementDraft,
-    paneLayout.center_px,
-    paneLayout.left_px,
-    paneLayout.right_px,
+    emphasizedPaneLayout.center_px,
+    emphasizedPaneLayout.left_px,
+    emphasizedPaneLayout.right_px,
     playheadPercent,
     previewMonitorAspectRatio,
     progressPercent,
@@ -6527,6 +6570,38 @@ export default function TranscriptSeekMock(
               ))}
             </div>
           </div>
+          <div className="hammer-timeline-controls__group">
+            <div className="hammer-timeline-controls__label">Workspace</div>
+            <div className="hammer-timeline-controls__buttons">
+              <button
+                type="button"
+                onClick={() => setWorkspaceFocusOverride("auto")}
+                className={cx("hammer-timeline-control-button", workspaceFocusOverride === "auto" && "is-active")}
+                title={`Auto follows tool mode (${workspaceFocusMode})`}
+              >
+                <span className="hammer-timeline-control-button__icon">A</span>
+                <span>Auto</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setWorkspaceFocusOverride("transcript-focus")}
+                className={cx("hammer-timeline-control-button", workspaceFocusOverride === "transcript-focus" && "is-active")}
+                title="Pin transcript focus"
+              >
+                <span className="hammer-timeline-control-button__icon">T</span>
+                <span>Text Focus</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setWorkspaceFocusOverride("preview-focus")}
+                className={cx("hammer-timeline-control-button", workspaceFocusOverride === "preview-focus" && "is-active")}
+                title="Pin visual focus"
+              >
+                <span className="hammer-timeline-control-button__icon">V</span>
+                <span>Visual Focus</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
       sectionClassName="hammer-center-timeline-panel hammer-pane-section--overflow-hidden"
@@ -6538,6 +6613,7 @@ export default function TranscriptSeekMock(
         <span className="hammer-pill">playhead {formatClock(currentTimeSec)}</span>
         <span className="hammer-pill">focus {timelineFocusLabel}</span>
         <span className="hammer-pill">zoom {activeTimelineZoom.label}</span>
+        <span className="hammer-pill">workspace {workspaceFocusMode}</span>
       </div>
       <div className="hammer-timeline-focus-strip">
         <span className={cx("hammer-pill", activeOverlayRow && "hammer-pill--playing")}>
@@ -6931,7 +7007,7 @@ export default function TranscriptSeekMock(
   );
 
   return (
-    <section className="hammer-editor-shell">
+    <section className={cx("hammer-editor-shell", `hammer-editor-shell--${workspaceFocusMode}`)}>
       <div className="hammer-editor-shell__upper-wrap">
         <div className={cx("hammer-editor-shell__upper", dynamicStyles.upperLayoutClassName)}>
           <div
