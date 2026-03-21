@@ -114,6 +114,17 @@ Selects the active tool displayed in the Tool Rack.
 
 It does not host tool content itself.
 
+### Terminology Clarification
+
+`Patch Bay` and `Toolbar` refer to the same element.
+
+- It is a fixed far-right rail and not part of the adaptive top-workspace panel sizing.
+- It spans the full editor height.
+- It only routes tool selection.
+- It never hosts full tool controls.
+- The timeline ends at its left edge.
+- It must remain fixed and must not be centered or clipped.
+
 ## 7. Bottom - Timeline Control Board
 
 Spans the width of the workspace except the patch bay.

@@ -1,7 +1,7 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
-import TranscriptSeekMock from "../dev/TranscriptSeekMock";
+import HammerWorkspaceShell from "./HammerWorkspaceShell";
 import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import "./HammerWorkspaceEditor.css";
 import {
@@ -870,18 +870,17 @@ export default function HammerWorkspaceEditor(
     <div className="hammer-prep-shell hammer-workspace-editor-host">
       {shouldRenderEditor ? (
         <div className="hammer-prep-shell__editor">
-            <TranscriptSeekMock
-              launchContext={effectiveLaunchContext}
-              structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
-              visualPlacements={visualPlacementData}
-              audioPolish={audioPolishData}
-              releasePrepHref={props.releasePrepHref}
-              selectedMacroRecipeRef={loadedPersistenceSnapshot?.macro_hooks.recipe_ref ?? null}
-              lastMacroRunRef={loadedPersistenceSnapshot?.macro_hooks.last_run_ref ?? null}
-              prepHandoffAction={preparedActionIntent}
-              allowDevLaunchFallback={props.allowDevLaunchFallback}
-              onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
-            />
+          <HammerWorkspaceShell
+            launchContext={effectiveLaunchContext}
+            structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
+            visualPlacements={visualPlacementData}
+            audioPolish={audioPolishData}
+            releasePrepHref={props.releasePrepHref}
+            selectedMacroRecipeRef={loadedPersistenceSnapshot?.macro_hooks.recipe_ref ?? null}
+            lastMacroRunRef={loadedPersistenceSnapshot?.macro_hooks.last_run_ref ?? null}
+            prepHandoffAction={preparedActionIntent}
+            onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
+          />
         </div>
       ) : null}
 

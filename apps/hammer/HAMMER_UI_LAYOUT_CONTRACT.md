@@ -164,6 +164,17 @@ Forbidden:
 - modalizing core tool selection
 - making patch bay responsive by disappearance
 
+### Terminology Clarification
+
+`Patch Bay` and `Toolbar` refer to the same UI element.
+
+- It is a fixed far-right rail, outside top-workspace adaptive sizing.
+- It spans the full editor height under top chrome.
+- It never hosts tool controls.
+- It only selects which tool appears in the right tool bay.
+- The timeline stops at the patch bay's left edge.
+- It must not be centered, clipped, or included in panel focus resizing.
+
 ## 7. Left Work Bay Contract
 
 The left work bay is the source desk.
