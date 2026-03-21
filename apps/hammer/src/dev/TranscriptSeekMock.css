@@ -11,7 +11,7 @@
   --hammer-chip-height: 28px;
   --hammer-strip-height: 48px;
   display: grid;
-  grid-template-rows: minmax(220px, min(38vh, 420px)) minmax(380px, 1fr);
+  grid-template-rows: minmax(300px, min(42vh, 500px)) minmax(380px, 1fr);
   gap: var(--hammer-gap-sm);
   min-height: calc(100dvh - 108px);
   height: calc(100dvh - 108px);
@@ -22,7 +22,7 @@
 .hammer-editor-shell__upper-wrap {
   min-height: 0;
   height: 100%;
-  max-height: min(38vh, 420px);
+  max-height: min(42vh, 500px);
   overflow: hidden;
   flex: 0 0 auto;
 }
@@ -1621,7 +1621,7 @@
 
 .hammer-monitor {
   border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
   background: rgba(3, 7, 18, 0.92);
   display: grid;
@@ -1635,7 +1635,7 @@
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 4px 6px;
+  padding: 3px 6px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(15, 23, 42, 0.82);
 }
@@ -1647,17 +1647,17 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  height: clamp(130px, 17vh, 210px);
-  min-height: clamp(130px, 17vh, 210px);
-  max-height: clamp(130px, 17vh, 210px);
-  padding: clamp(8px, 1.4vw, 12px);
+  height: clamp(96px, 12vh, 150px);
+  min-height: clamp(96px, 12vh, 150px);
+  max-height: clamp(96px, 12vh, 150px);
+  padding: clamp(6px, 1vw, 10px);
   background:
     radial-gradient(circle at top, rgba(59, 130, 246, 0.18), transparent 45%),
     linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.96));
 }
 
 .hammer-monitor__surface.has-media {
-  padding: 10px;
+  padding: 6px;
   background: #0f172a;
 }
 
@@ -1751,7 +1751,7 @@
 .hammer-preview-surface-shell {
   display: flex;
   flex-direction: column;
-  gap: var(--hammer-gap-xs);
+  gap: 4px;
   flex: 0 0 auto;
   min-height: 0;
   width: 100%;
@@ -1762,10 +1762,10 @@
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: var(--hammer-radius-sm);
   background: rgba(15, 23, 42, 0.42);
-  padding: 3px 6px;
-  min-height: 34px;
+  padding: 2px 5px;
+  min-height: 30px;
   display: grid;
-  gap: 3px;
+  gap: 2px;
   width: 100%;
   justify-self: stretch;
   flex: 0 0 auto;
@@ -1775,7 +1775,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--hammer-gap-sm);
+  gap: 6px;
   flex-wrap: wrap;
 }
 
@@ -2051,7 +2051,7 @@
   grid-template-rows: auto minmax(0, 1fr);
   flex: 1 1 auto;
   min-height: 0;
-  min-height: 420px;
+  min-height: 400px;
   align-self: stretch;
   overflow: hidden;
 }
@@ -2059,7 +2059,7 @@
 .hammer-center-timeline-panel .hammer-pane-section__body {
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr);
-  gap: 8px;
+  gap: 6px;
   min-height: 0;
   overflow: hidden;
 }
