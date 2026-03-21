@@ -2,8 +2,10 @@ import { HAMMER_RUNTIME_WRITTEN_BY } from "../prep/hammerPrep";
 import { tongsFetch } from "./tongsFetch";
 
 const INTRO_OUTRO_SELECTION_PATH = "hammer/session/intro-outro.v1.json";
+const SOURCE_DESK_UPLOAD_BASE_PATH = "assets/uploads";
 
 export type HammerStoredMediaKind = "image" | "broll" | "audio" | "other";
+export type HammerSourceDeskUploadCategory = "images" | "broll" | "introoutro";
 
 export type HammerStoredMediaFile = {
   path: string;
@@ -26,6 +28,8 @@ type StorageNode = {
   updated_at?: string | null;
   children?: StorageNode[];
 };
+
+type TongsFetcher = typeof tongsFetch;
 
 function readJsonObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -109,10 +113,55 @@ function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-");
 }
 
+function normalizeMimeType(file: File): string {
+  const value = file.type.trim().toLowerCase();
+  if (value) return value;
+  const filename = file.name.toLowerCase();
+  if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) return "image/jpeg";
+  if (filename.endsWith(".png")) return "image/png";
+  if (filename.endsWith(".webp")) return "image/webp";
+  if (filename.endsWith(".gif")) return "image/gif";
+  if (filename.endsWith(".mp4")) return "video/mp4";
+  if (filename.endsWith(".mov")) return "video/quicktime";
+  if (filename.endsWith(".webm")) return "video/webm";
+  if (filename.endsWith(".wav")) return "audio/wav";
+  if (filename.endsWith(".mp3")) return "audio/mpeg";
+  if (filename.endsWith(".m4a")) return "audio/mp4";
+  if (filename.endsWith(".aac")) return "audio/aac";
+  return "application/octet-stream";
+}
+
+export function buildSourceDeskUploadPath(args: {
+  category: HammerSourceDeskUploadCategory;
+  filename: string;
+  timestampMs?: number;
+}): string {
+  const safeName = sanitizeFilename(args.filename || "upload.bin");
+  const stamp = Number.isFinite(args.timestampMs) ? Math.trunc(args.timestampMs ?? Date.now()) : Date.now();
+  return `${SOURCE_DESK_UPLOAD_BASE_PATH}/${args.category}/${stamp}-${safeName}`;
+}
+
+export function isAcceptedSourceDeskMediaUpload(args: {
+  category: HammerSourceDeskUploadCategory;
+  mimeType: string;
+  filename: string;
+}): boolean {
+  const mimeType = args.mimeType.trim().toLowerCase();
+  const filename = args.filename.trim().toLowerCase();
+  const isImage = mimeType.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp)$/.test(filename);
+  const isVideo = mimeType.startsWith("video/") || /\.(mp4|mov|m4v|webm)$/.test(filename);
+  const isAudio = mimeType.startsWith("audio/") || /\.(wav|mp3|m4a|aac)$/.test(filename);
+
+  if (args.category === "images") return isImage;
+  if (args.category === "broll") return isVideo;
+  return isVideo || isAudio;
+}
+
 export async function listWorkpieceStoredMedia(
   workpieceId: string,
+  fetcher: TongsFetcher = tongsFetch,
 ): Promise<HammerStoredMediaFile[]> {
-  const response = await tongsFetch(
+  const response = await fetcher(
     `/tongs/workpieces/${encodeURIComponent(workpieceId)}/storage`,
     {
       method: "GET",
@@ -134,18 +183,32 @@ export async function listWorkpieceStoredMedia(
 export async function uploadWorkpieceMediaFile(args: {
   workpieceId: string;
   file: File;
-  category: "images" | "broll" | "introoutro";
+  category: HammerSourceDeskUploadCategory;
+  timestampMs?: number;
+  fetcher?: TongsFetcher;
 }): Promise<{ path: string }> {
-  const safeName = sanitizeFilename(args.file.name || "upload.bin");
-  const path = `assets/uploads/${args.category}/${Date.now()}-${safeName}`;
+  const mimeType = normalizeMimeType(args.file);
+  if (!isAcceptedSourceDeskMediaUpload({
+    category: args.category,
+    mimeType,
+    filename: args.file.name,
+  })) {
+    throw new Error(`Hammer rejected unsupported ${args.category} media type.`);
+  }
+
+  const path = buildSourceDeskUploadPath({
+    category: args.category,
+    filename: args.file.name || "upload.bin",
+    timestampMs: args.timestampMs,
+  });
   const bytes = new Uint8Array(await args.file.arrayBuffer());
-  const response = await tongsFetch(
+  const response = await (args.fetcher ?? tongsFetch)(
     `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`,
     {
       method: "POST",
       json: {
         path,
-        content_type: args.file.type || "application/octet-stream",
+        content_type: mimeType,
         written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
         bytes_base64: toBase64(bytes),
       },
@@ -163,8 +226,9 @@ export async function uploadWorkpieceMediaFile(args: {
 
 export async function loadIntroOutroSelection(
   workpieceId: string,
+  fetcher: TongsFetcher = tongsFetch,
 ): Promise<HammerIntroOutroSelection | null> {
-  const response = await tongsFetch(
+  const response = await fetcher(
     `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(INTRO_OUTRO_SELECTION_PATH)}`,
     {
       method: "GET",
@@ -189,8 +253,9 @@ export async function loadIntroOutroSelection(
 export async function saveIntroOutroSelection(args: {
   workpieceId: string;
   selection: HammerIntroOutroSelection;
+  fetcher?: TongsFetcher;
 }): Promise<void> {
-  const response = await tongsFetch(
+  const response = await (args.fetcher ?? tongsFetch)(
     `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`,
     {
       method: "POST",
@@ -215,12 +280,13 @@ export async function loadWorkpieceMediaPreviewUrl(args: {
   workpieceId: string;
   path: string;
   mimeType?: string | null;
+  fetcher?: TongsFetcher;
 }): Promise<string> {
   const params = new URLSearchParams({
     path: args.path,
     encoding: "binary",
   });
-  const response = await tongsFetch(
+  const response = await (args.fetcher ?? tongsFetch)(
     `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?${params.toString()}`,
     {
       method: "GET",
