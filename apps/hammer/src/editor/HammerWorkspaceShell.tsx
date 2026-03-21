@@ -15,9 +15,9 @@ import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import "./HammerWorkspaceShell.css";
 
 const TOOLBAR_WIDTH_PX = 72;
-const PREVIEW_BAY_MAX_WIDTH_PX = 520;
-const TIMELINE_DOCK_BASELINE_HEIGHT_PX = 320;
-const TIMELINE_DOCK_TIME_FOCUS_HEIGHT_PX = 420;
+const PREVIEW_BAY_MAX_WIDTH_PX = 480;
+const TIMELINE_DOCK_BASELINE_HEIGHT_PX = 368;
+const TIMELINE_DOCK_TIME_FOCUS_HEIGHT_PX = 492;
 
 type HammerToolId = "polish" | "audio" | "video" | "captions" | "details" | "finishing" | "export";
 type HammerSourceTabId = "transcript" | "images" | "assets" | "broll";
