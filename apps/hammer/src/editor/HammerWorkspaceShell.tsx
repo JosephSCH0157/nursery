@@ -118,6 +118,13 @@ type HammerTimelineLaneBlock = {
   onSelect: () => void;
 };
 
+type HammerTimelineLaneView = {
+  id: string;
+  label: string;
+  tone: "dialogue" | "music" | "broll" | "stills";
+  blocks: HammerTimelineLaneBlock[];
+};
+
 function readTranscriptSegments(
   launchContext: HammerLaunchContext,
   structuredTranscript: HammerPersistedStructuredTranscript | null,
@@ -197,6 +204,38 @@ function formatBytes(bytes: number | null): string {
 function isSourceDeskAuthMessage(message: string | null): boolean {
   if (!message) return false;
   return /(auth|session|token|sign[ -]?in|unauthorized|forbidden)/i.test(message);
+}
+
+function resolveLaneGaps(blocks: HammerTimelineLaneBlock[], durationSec: number): Array<{ id: string; startSec: number; endSec: number }> {
+  const sorted = [...blocks]
+    .map((block) => ({
+      startSec: Math.max(0, Math.min(durationSec, block.startSec)),
+      endSec: Math.max(0, Math.min(durationSec, block.endSec)),
+    }))
+    .filter((block) => block.endSec > block.startSec)
+    .sort((a, b) => a.startSec - b.startSec);
+
+  const gaps: Array<{ id: string; startSec: number; endSec: number }> = [];
+  let cursor = 0;
+  for (let index = 0; index < sorted.length; index += 1) {
+    const block = sorted[index];
+    if (block.startSec > cursor) {
+      gaps.push({
+        id: `gap-${index}-${cursor.toFixed(2)}-${block.startSec.toFixed(2)}`,
+        startSec: cursor,
+        endSec: block.startSec,
+      });
+    }
+    cursor = Math.max(cursor, block.endSec);
+  }
+  if (cursor < durationSec) {
+    gaps.push({
+      id: `gap-tail-${cursor.toFixed(2)}-${durationSec.toFixed(2)}`,
+      startSec: cursor,
+      endSec: durationSec,
+    });
+  }
+  return gaps;
 }
 
 export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): JSX.Element {
@@ -364,6 +403,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       };
     });
   }, [timelineDurationSec]);
+  const timelineMinorTicks = useMemo(() => {
+    const tickCount = 50;
+    return Array.from({ length: tickCount + 1 })
+      .map((_, index) => ({
+        ratio: index / tickCount,
+        isMajor: index % 5 === 0,
+      }))
+      .filter((tick) => !tick.isMajor);
+  }, []);
   const dialogueLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
     editableTranscriptSegments.map((segment) => ({
       id: `dialogue:${segment.segment_id}`,
@@ -410,6 +458,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         },
       }))
   ), [sourceBrollItems]);
+  const timelineLanes = useMemo<HammerTimelineLaneView[]>(() => ([
+    { id: "dialogue", label: "Dialogue", tone: "dialogue", blocks: dialogueLaneBlocks },
+    { id: "music", label: "Music", tone: "music", blocks: [] },
+    { id: "broll", label: "B-roll", tone: "broll", blocks: brollLaneBlocks },
+    { id: "stills", label: "Stills", tone: "stills", blocks: imageLaneBlocks },
+  ]), [brollLaneBlocks, dialogueLaneBlocks, imageLaneBlocks]);
+  const laneGapsById = useMemo(() => {
+    const byLane = new Map<string, Array<{ id: string; startSec: number; endSec: number }>>();
+    for (const lane of timelineLanes) {
+      byLane.set(lane.id, resolveLaneGaps(lane.blocks, timelineDurationSec));
+    }
+    return byLane;
+  }, [timelineDurationSec, timelineLanes]);
+  const playheadRatioPercent = Math.min(100, (playheadSec / timelineDurationSec) * 100);
   const sourceDeskPreviewPaths = useMemo(() => {
     const paths = new Set<string>();
     for (const item of sourceImageLibraryItems) {
@@ -1378,6 +1440,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               {editableTranscriptSegments.length > 0 ? (
                 <section className="hammer-timeline-board" aria-label="Track-based timeline">
                   <div className="hammer-timeline-ruler">
+                    {timelineMinorTicks.map((tick) => (
+                      <div
+                        key={`minor-tick-${tick.ratio}`}
+                        className="hammer-timeline-ruler__tick hammer-timeline-ruler__tick--minor"
+                        style={{ left: `${tick.ratio * 100}%` }}
+                      />
+                    ))}
                     {timelineTicks.map((tick) => (
                       <div
                         key={`tick-${tick.ratio}`}
@@ -1388,73 +1457,56 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       </div>
                     ))}
                     <div
+                      className="hammer-timeline-ruler__time-readout"
+                      style={{ left: `${playheadRatioPercent}%` }}
+                    >
+                      {playheadSec.toFixed(1)}s
+                    </div>
+                    <div
                       className="hammer-timeline-playhead"
-                      style={{ left: `${Math.min(100, (playheadSec / timelineDurationSec) * 100)}%` }}
+                      style={{ left: `${playheadRatioPercent}%` }}
                     />
                   </div>
 
-                  <div className="hammer-timeline-lane">
-                    <div className="hammer-timeline-lane__label">Dialogue</div>
-                    <div className="hammer-timeline-lane__track">
-                      {dialogueLaneBlocks.map((block) => (
-                        <button
-                          key={block.id}
-                          type="button"
-                          className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}`}
-                          style={{
-                            left: `${(block.startSec / timelineDurationSec) * 100}%`,
-                            width: `${Math.max(1.4, ((block.endSec - block.startSec) / timelineDurationSec) * 100)}%`,
-                          }}
-                          onClick={block.onSelect}
-                          title={`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}
-                        >
-                          <span>{block.label}</span>
-                        </button>
-                      ))}
+                  {timelineLanes.map((lane) => (
+                    <div key={lane.id} className={`hammer-timeline-lane hammer-timeline-lane--${lane.tone}`}>
+                      <div className="hammer-timeline-lane__label">
+                        <strong>{lane.label}</strong>
+                        <span>{lane.blocks.length} clips</span>
+                      </div>
+                      <div className={`hammer-timeline-lane__track hammer-timeline-lane__track--${lane.tone}`}>
+                        {(laneGapsById.get(lane.id) ?? []).map((gap) => (
+                          <div
+                            key={gap.id}
+                            className="hammer-timeline-gap"
+                            style={{
+                              left: `${(gap.startSec / timelineDurationSec) * 100}%`,
+                              width: `${Math.max(0.8, ((gap.endSec - gap.startSec) / timelineDurationSec) * 100)}%`,
+                            }}
+                          />
+                        ))}
+                        <div
+                          className="hammer-timeline-lane__playhead"
+                          style={{ left: `${playheadRatioPercent}%` }}
+                        />
+                        {lane.blocks.map((block) => (
+                          <button
+                            key={block.id}
+                            type="button"
+                            className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}`}
+                            style={{
+                              left: `${(block.startSec / timelineDurationSec) * 100}%`,
+                              width: `${Math.max(1.4, ((block.endSec - block.startSec) / timelineDurationSec) * 100)}%`,
+                            }}
+                            onClick={block.onSelect}
+                            title={`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}
+                          >
+                            <span>{block.label}</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="hammer-timeline-lane">
-                    <div className="hammer-timeline-lane__label">Images</div>
-                    <div className="hammer-timeline-lane__track">
-                      {imageLaneBlocks.map((block) => (
-                        <button
-                          key={block.id}
-                          type="button"
-                          className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}`}
-                          style={{
-                            left: `${(block.startSec / timelineDurationSec) * 100}%`,
-                            width: `${Math.max(1.4, ((block.endSec - block.startSec) / timelineDurationSec) * 100)}%`,
-                          }}
-                          onClick={block.onSelect}
-                          title={`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}
-                        >
-                          <span>{block.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="hammer-timeline-lane">
-                    <div className="hammer-timeline-lane__label">B-roll</div>
-                    <div className="hammer-timeline-lane__track">
-                      {brollLaneBlocks.map((block) => (
-                        <button
-                          key={block.id}
-                          type="button"
-                          className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}`}
-                          style={{
-                            left: `${(block.startSec / timelineDurationSec) * 100}%`,
-                            width: `${Math.max(1.4, ((block.endSec - block.startSec) / timelineDurationSec) * 100)}%`,
-                          }}
-                          onClick={block.onSelect}
-                          title={`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}
-                        >
-                          <span>{block.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  ))}
                 </section>
               ) : (
                 <div className="hammer-empty-state">Timeline content transplant pending.</div>
