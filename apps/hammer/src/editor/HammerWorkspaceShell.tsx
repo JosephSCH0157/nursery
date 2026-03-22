@@ -40,6 +40,18 @@ import {
   type HammerIntroOutroSelection,
   type HammerStoredMediaFile,
 } from "../lib/hammerSourceDeskMediaApi";
+import { preserveTranscriptMetadata } from "../prep/hammerPrep";
+import { buildHammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
+import {
+  buildHammerPreparedReleasePackage,
+  compareHammerPreparedReleasePackageToCurrent,
+  type HammerPreparedReleasePackage,
+  type HammerPreparedReleaseOverallStatus,
+} from "../lib/hammerPreparedReleasePackage";
+import {
+  loadHammerPreparedReleasePackage,
+  saveHammerPreparedReleasePackage,
+} from "../lib/hammerPreparedReleasePackageApi";
 import "./HammerWorkspaceShell.css";
 
 const TOOLBAR_WIDTH_PX = 72;
@@ -125,6 +137,14 @@ type HammerTimelineLaneView = {
   blocks: HammerTimelineLaneBlock[];
 };
 
+type HammerReleasePrepSaveState = {
+  preparedAt: string;
+  overallStatus: HammerPreparedReleaseOverallStatus;
+  subtitleArtifactCount: number;
+};
+
+type HammerExportTruthState = "never_prepared" | "current" | "stale";
+
 function readTranscriptSegments(
   launchContext: HammerLaunchContext,
   structuredTranscript: HammerPersistedStructuredTranscript | null,
@@ -204,6 +224,12 @@ function formatBytes(bytes: number | null): string {
 function isSourceDeskAuthMessage(message: string | null): boolean {
   if (!message) return false;
   return /(auth|session|token|sign[ -]?in|unauthorized|forbidden)/i.test(message);
+}
+
+function toErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
 }
 
 function resolveLaneGaps(blocks: HammerTimelineLaneBlock[], durationSec: number): Array<{ id: string; startSec: number; endSec: number }> {
@@ -286,6 +312,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   });
   const [savingIntroOutro, setSavingIntroOutro] = useState(false);
   const [sourceDeskPreviewUrls, setSourceDeskPreviewUrls] = useState<Record<string, string>>({});
+  const [releasePrepSaving, setReleasePrepSaving] = useState(false);
+  const [releasePrepLoading, setReleasePrepLoading] = useState(false);
+  const [releasePrepError, setReleasePrepError] = useState<string | null>(null);
+  const [releasePrepSaved, setReleasePrepSaved] = useState<HammerReleasePrepSaveState | null>(null);
+  const [loadedPreparedPackage, setLoadedPreparedPackage] = useState<HammerPreparedReleasePackage | null>(null);
   const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
   const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -528,6 +559,35 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   useEffect(() => {
     let active = true;
+    setReleasePrepLoading(true);
+    setReleasePrepError(null);
+    setLoadedPreparedPackage(null);
+    setReleasePrepSaved(null);
+
+    void loadHammerPreparedReleasePackage(launchContext.workpiece_id)
+      .then((result) => {
+        if (!active) return;
+        if (!result.ok) {
+          setReleasePrepError(result.error);
+          setReleasePrepLoading(false);
+          return;
+        }
+        setLoadedPreparedPackage(result.exists ? (result.data ?? null) : null);
+        setReleasePrepLoading(false);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setReleasePrepError(toErrorMessage(error, "Hammer could not load prepared release package state."));
+        setReleasePrepLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [launchContext.workpiece_id]);
+
+  useEffect(() => {
+    let active = true;
     const nextUrls: Record<string, string> = {};
 
     void Promise.all(sourceDeskPreviewPaths.map(async (path) => {
@@ -617,6 +677,141 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   function trimSegmentEnd(segmentId: string, deltaSec: number): void {
     updateSegmentTiming(segmentId, (segment) => trimSegmentEndTiming(segment, deltaSec));
+  }
+
+  const exportBasis = useMemo(() => {
+    const transcriptForRelease = preserveTranscriptMetadata(
+      editableTranscriptSegments,
+      props.structuredTranscript ?? null,
+      mediaRef,
+      transcriptSourceId,
+    );
+    const editPlan = launchContext.edit_plan
+      ? {
+        ...launchContext.edit_plan,
+        instructions: launchContext.edit_plan.instructions.map((instruction) => ({ ...instruction })),
+      }
+      : createFallbackEditPlan(launchContext, transcriptSourceId, previewMode);
+    const timelineRevision = createSemanticEditPlanSignature(
+      transcriptSourceId,
+      previewMode,
+      editPlan.instructions,
+    );
+    const currentReleasePackage = buildHammerReleasePrepPackage({
+      workspaceId: launchContext.workspace_id,
+      workpieceId: launchContext.workpiece_id,
+      prepStatus: transcriptForRelease.segments.length > 0 ? "prepared" : "idle",
+      alignmentStatus: transcriptForRelease.segments.length > 0 ? "aligned" : "not_started",
+      structuredTranscript: transcriptForRelease,
+      visualPlacements: props.visualPlacements ?? null,
+      audioPolish: props.audioPolish ?? null,
+      editorSession: {
+        schema_version: 1,
+        session_id: launchContext.session_id ?? editPlan.session_id ?? `${launchContext.workpiece_id}:session`,
+        source_mode: launchContext.source_mode,
+        preview_mode: previewMode,
+        transcript_source_id: transcriptSourceId,
+        selected_segment_id: selectedSegmentId,
+        selected_overlay_row_id: selectedSegmentId,
+        media_ref: mediaRef ? { ...mediaRef } : null,
+        workspace_mapping: workspaceMapping ? { ...workspaceMapping } : null,
+        media_source_label: mediaSourceLabel,
+        last_opened_at: new Date().toISOString(),
+      },
+    });
+
+    return {
+      transcriptForRelease,
+      currentReleasePackage,
+      timelineRevision,
+      subtitles: {
+        srt: currentReleasePackage.text_outputs?.subtitles.srt.artifact?.content ?? null,
+        vtt: currentReleasePackage.text_outputs?.subtitles.vtt.artifact?.content ?? null,
+      },
+    };
+  }, [
+    editableTranscriptSegments,
+    launchContext,
+    mediaRef,
+    mediaSourceLabel,
+    previewMode,
+    props.audioPolish,
+    props.structuredTranscript,
+    props.visualPlacements,
+    selectedSegmentId,
+    transcriptSourceId,
+    workspaceMapping,
+  ]);
+
+  const releasePrepComparison = useMemo(
+    () => compareHammerPreparedReleasePackageToCurrent(
+      loadedPreparedPackage,
+      exportBasis.currentReleasePackage,
+      { timelineRevision: exportBasis.timelineRevision },
+    ),
+    [exportBasis.currentReleasePackage, exportBasis.timelineRevision, loadedPreparedPackage],
+  );
+  const timelineRevisionChanged = useMemo(() => {
+    if (!loadedPreparedPackage) return false;
+    const previous = loadedPreparedPackage.provenance.timelineRevision ?? null;
+    const current = exportBasis.timelineRevision ?? null;
+    return previous !== current;
+  }, [exportBasis.timelineRevision, loadedPreparedPackage]);
+  const releasePrepStaleReasons = useMemo(() => {
+    const reasons = [...releasePrepComparison.staleReasons];
+    if (timelineRevisionChanged) reasons.push("Timeline revision changed");
+    return reasons;
+  }, [releasePrepComparison.staleReasons, timelineRevisionChanged]);
+  const exportTruthState: HammerExportTruthState = !loadedPreparedPackage
+    ? "never_prepared"
+    : releasePrepComparison.preparedStatus === "current" && !timelineRevisionChanged
+    ? "current"
+    : "stale";
+  const exportStatusLabel = exportTruthState === "never_prepared"
+    ? "Never prepared"
+    : exportTruthState === "current"
+    ? "Prepared and current"
+    : "Prepared, but stale";
+  const prepareButtonLabel = exportTruthState === "stale"
+    ? "Prepare Updated Package"
+    : "Prepare Release Package";
+
+  async function handlePrepareReleasePackage(): Promise<void> {
+    if (releasePrepSaving) return;
+
+    setReleasePrepSaving(true);
+    setReleasePrepError(null);
+    setReleasePrepSaved(null);
+
+    try {
+      const preparedPackage = buildHammerPreparedReleasePackage({
+        current: exportBasis.currentReleasePackage,
+        timelineRevision: exportBasis.timelineRevision,
+      });
+
+      const result = await saveHammerPreparedReleasePackage({
+        workpieceId: launchContext.workpiece_id,
+        pkg: preparedPackage,
+        subtitles: exportBasis.subtitles,
+      });
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+
+      const subtitleArtifactCount = Number(Boolean(preparedPackage.subtitles.srt.artifactPath))
+        + Number(Boolean(preparedPackage.subtitles.vtt.artifactPath));
+
+      setReleasePrepSaved({
+        preparedAt: preparedPackage.preparedAt,
+        overallStatus: preparedPackage.overallStatus,
+        subtitleArtifactCount,
+      });
+      setLoadedPreparedPackage(result.data ?? preparedPackage);
+    } catch (error) {
+      setReleasePrepError(toErrorMessage(error, "Hammer could not prepare the release package."));
+    } finally {
+      setReleasePrepSaving(false);
+    }
   }
 
   useEffect(() => {
@@ -1327,6 +1522,51 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <div className="hammer-tool-hint">
                     {props.releasePrepHref ? "Handoff path available." : "Handoff path unavailable."}
                   </div>
+                  <div className="hammer-tool-hint">Export status: {exportStatusLabel}</div>
+                  {releasePrepLoading ? (
+                    <div className="hammer-tool-hint">Checking prepared package state...</div>
+                  ) : null}
+                  {loadedPreparedPackage?.preparedAt ? (
+                    <div className="hammer-tool-hint">
+                      Last prepared {new Date(loadedPreparedPackage.preparedAt).toLocaleString()}.
+                    </div>
+                  ) : null}
+                  {loadedPreparedPackage?.transcript.fingerprint ? (
+                    <div className="hammer-tool-hint">
+                      Basis {loadedPreparedPackage.transcript.fingerprint.slice(0, 18)}...
+                    </div>
+                  ) : null}
+                  {exportTruthState === "stale" && releasePrepStaleReasons.length > 0 ? (
+                    <div className="hammer-tool-hint">
+                      Changes since last prepare: {releasePrepStaleReasons.join("; ")}.
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handlePrepareReleasePackage();
+                    }}
+                    disabled={releasePrepSaving || releasePrepLoading}
+                  >
+                    {releasePrepSaving ? "Preparing..." : prepareButtonLabel}
+                  </button>
+                  {releasePrepSaved ? (
+                    <div className="hammer-tool-hint">
+                      Prepared {new Date(releasePrepSaved.preparedAt).toLocaleString()}.
+                      Status {releasePrepSaved.overallStatus}.
+                      Subtitle artifacts {releasePrepSaved.subtitleArtifactCount}.
+                    </div>
+                  ) : null}
+                  {releasePrepError ? (
+                    <div className="hammer-tool-hint">
+                      {releasePrepError}
+                    </div>
+                  ) : null}
+                  {props.releasePrepHref && exportTruthState !== "never_prepared" ? (
+                    <a href={props.releasePrepHref}>
+                      {exportTruthState === "current" ? "Open Release Prep" : "Open Release Prep (stale)"}
+                    </a>
+                  ) : null}
                 </section>
               ) : null}
 
