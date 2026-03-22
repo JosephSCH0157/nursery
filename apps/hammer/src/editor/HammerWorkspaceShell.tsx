@@ -194,6 +194,11 @@ function formatBytes(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function isSourceDeskAuthMessage(message: string | null): boolean {
+  if (!message) return false;
+  return /(auth|session|token|sign[ -]?in|unauthorized|forbidden)/i.test(message);
+}
+
 export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): JSX.Element {
   if (!props.launchContext) {
     return (
@@ -418,6 +423,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return [...paths];
   }, [sourceBrollItems, sourceImageItems, sourceImageLibraryItems]);
+  const imageUsageByPath = useMemo(() => {
+    const usage = new Map<string, number>();
+    for (const item of sourceImageItems) {
+      if (!item.assetPath) continue;
+      usage.set(item.assetPath, (usage.get(item.assetPath) ?? 0) + 1);
+    }
+    return usage;
+  }, [sourceImageItems]);
 
   useEffect(() => {
     const synced = syncEditableTranscriptSegments(transcriptSegments, selectedSegmentId);
@@ -664,7 +677,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <div className="hammer-source-status">Loading stored Source Desk media...</div>
               ) : null}
               {sourceDeskError ? (
-                <div className="hammer-source-status hammer-source-status--error">{sourceDeskError}</div>
+                <div
+                  className={isSourceDeskAuthMessage(sourceDeskError)
+                    ? "hammer-source-status hammer-source-status--info"
+                    : "hammer-source-status hammer-source-status--error"}
+                  role="status"
+                >
+                  {sourceDeskError}
+                </div>
               ) : null}
 
               {selectedSourceTab === "transcript" ? (
@@ -739,7 +759,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       <span>{sourceImageLibraryItems.length} stored images</span>
                       <button
                         type="button"
-                        className="hammer-source-upload-button"
+                        className="hammer-source-upload-button is-secondary"
                         onClick={() => imageUploadInputRef.current?.click()}
                         disabled={uploadingCategory != null}
                       >
@@ -764,13 +784,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             src={sourceDeskPreviewUrls[item.assetPath]}
                             alt={item.label}
                           />
-                        ) : null}
+                        ) : (
+                          <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">No thumbnail</div>
+                        )}
                         <header className="hammer-source-card__head">
                           <strong>{item.label}</strong>
                           <span className={item.status === "uncertain" ? "is-warning" : "is-ready"}>{item.status}</span>
                         </header>
                         <div className="hammer-source-card__meta">
+                          <span>Type: image</span>
                           <span>{item.startSec.toFixed(1)}s - {item.endSec.toFixed(1)}s</span>
+                          <span>Uses: 1</span>
                           <span>{item.visualMode ?? "visual"}</span>
                           <span>{item.confidence != null ? `${Math.round(item.confidence * 100)}% match` : "match n/a"}</span>
                         </div>
@@ -796,12 +820,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             src={sourceDeskPreviewUrls[file.path]}
                             alt={file.name}
                           />
-                        ) : null}
+                        ) : (
+                          <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">No thumbnail</div>
+                        )}
                         <header className="hammer-source-card__head">
                           <strong>{file.name}</strong>
                           <span>stored</span>
                         </header>
                         <div className="hammer-source-card__meta">
+                          <span>Type: image</span>
+                          <span>Uses: {imageUsageByPath.get(file.path) ?? 0}</span>
                           <span>{formatBytes(file.bytes)}</span>
                           <span>{file.updatedAt ?? "updated time unavailable"}</span>
                         </div>
@@ -815,7 +843,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       <span>No image placements are available yet.</span>
                       <button
                         type="button"
-                        className="hammer-source-upload-button"
+                        className="hammer-source-upload-button is-secondary"
                         onClick={() => imageUploadInputRef.current?.click()}
                         disabled={uploadingCategory != null}
                       >
@@ -879,7 +907,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       <span>{sourceBrollItems.length} b-roll assets</span>
                       <button
                         type="button"
-                        className="hammer-source-upload-button"
+                        className="hammer-source-upload-button is-secondary"
                         onClick={() => brollUploadInputRef.current?.click()}
                         disabled={uploadingCategory != null}
                       >
@@ -905,12 +933,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             muted
                             preload="metadata"
                           />
-                        ) : null}
+                        ) : (
+                          <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">No thumbnail</div>
+                        )}
                         <header className="hammer-source-card__head">
                           <strong>{item.label}</strong>
                           <span>b-roll</span>
                         </header>
                         <div className="hammer-source-card__meta">
+                          <span>Type: b-roll</span>
                           <span>{item.firstStartSec.toFixed(1)}s - {item.lastEndSec.toFixed(1)}s</span>
                           <span>Uses: {item.usageCount}</span>
                           <span>{item.visualMode ?? "mode n/a"}</span>
@@ -936,7 +967,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       <span>No b-roll assets are currently linked.</span>
                       <button
                         type="button"
-                        className="hammer-source-upload-button"
+                        className="hammer-source-upload-button is-secondary"
                         onClick={() => brollUploadInputRef.current?.click()}
                         disabled={uploadingCategory != null}
                       >
@@ -1271,66 +1302,75 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               aria-label="Timeline playhead"
             />
             {selectedSegment ? (
-              <section className="hammer-timeline-editor" aria-label="Timeline segment editor">
+              <section className="hammer-timeline-editor" aria-label="Selected segment timing inspector">
                 <div className="hammer-timeline-editor__meta">
                   <span>{selectedSegment.speaker}</span>
                   <span>{selectedSegment.start_sec.toFixed(1)}s - {selectedSegment.end_sec.toFixed(1)}s</span>
                 </div>
                 <div className="hammer-timeline-editor__controls">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFocusOverride("time-focus");
-                      moveSegment(selectedSegment.segment_id, -0.5);
-                    }}
-                  >
-                    Move -0.5s
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFocusOverride("time-focus");
-                      moveSegment(selectedSegment.segment_id, 0.5);
-                    }}
-                  >
-                    Move +0.5s
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFocusOverride("time-focus");
-                      trimSegmentStart(selectedSegment.segment_id, -0.1);
-                    }}
-                  >
-                    Trim In -0.1s
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFocusOverride("time-focus");
-                      trimSegmentStart(selectedSegment.segment_id, 0.1);
-                    }}
-                  >
-                    Trim In +0.1s
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFocusOverride("time-focus");
-                      trimSegmentEnd(selectedSegment.segment_id, -0.1);
-                    }}
-                  >
-                    Trim Out -0.1s
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFocusOverride("time-focus");
-                      trimSegmentEnd(selectedSegment.segment_id, 0.1);
-                    }}
-                  >
-                    Trim Out +0.1s
-                  </button>
+                  <div className="hammer-timeline-editor__control-group">
+                    <span>Move</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("time-focus");
+                        moveSegment(selectedSegment.segment_id, -0.5);
+                      }}
+                    >
+                      -0.5s
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("time-focus");
+                        moveSegment(selectedSegment.segment_id, 0.5);
+                      }}
+                    >
+                      +0.5s
+                    </button>
+                  </div>
+                  <div className="hammer-timeline-editor__control-group">
+                    <span>Trim In</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("time-focus");
+                        trimSegmentStart(selectedSegment.segment_id, -0.1);
+                      }}
+                    >
+                      -0.1s
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("time-focus");
+                        trimSegmentStart(selectedSegment.segment_id, 0.1);
+                      }}
+                    >
+                      +0.1s
+                    </button>
+                  </div>
+                  <div className="hammer-timeline-editor__control-group">
+                    <span>Trim Out</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("time-focus");
+                        trimSegmentEnd(selectedSegment.segment_id, -0.1);
+                      }}
+                    >
+                      -0.1s
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("time-focus");
+                        trimSegmentEnd(selectedSegment.segment_id, 0.1);
+                      }}
+                    >
+                      +0.1s
+                    </button>
+                  </div>
                 </div>
               </section>
             ) : null}

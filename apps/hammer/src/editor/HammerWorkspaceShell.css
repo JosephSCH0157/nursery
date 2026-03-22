@@ -233,15 +233,22 @@ Guardrails:
 .hammer-source-status {
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 8px;
-  padding: 6px 8px;
+  padding: 5px 8px;
   font-size: 11px;
   color: #93c5fd;
   background: rgba(15, 23, 42, 0.52);
 }
 
+.hammer-source-status--info {
+  border-color: rgba(148, 163, 184, 0.3);
+  color: #bfdbfe;
+  background: rgba(15, 23, 42, 0.38);
+}
+
 .hammer-source-status--error {
-  border-color: rgba(239, 68, 68, 0.4);
-  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.4);
+  color: #fee2e2;
+  background: rgba(69, 10, 10, 0.24);
 }
 
 .hammer-source-upload-button {
@@ -252,6 +259,11 @@ Guardrails:
   padding: 5px 8px;
   font-size: 11px;
   cursor: pointer;
+}
+
+.hammer-source-upload-button.is-secondary {
+  opacity: 0.86;
+  padding: 4px 7px;
 }
 
 .hammer-source-upload-button:disabled {
@@ -275,10 +287,21 @@ Guardrails:
 .hammer-source-card__thumb {
   width: 100%;
   max-height: 120px;
+  min-height: 86px;
   object-fit: cover;
   border-radius: 8px;
   border: 1px solid rgba(148, 163, 184, 0.24);
   background: rgba(2, 6, 23, 0.72);
+}
+
+.hammer-source-card__thumb--placeholder {
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: #94a3b8;
+  background:
+    linear-gradient(135deg, rgba(30, 41, 59, 0.7) 25%, rgba(15, 23, 42, 0.88) 25%, rgba(15, 23, 42, 0.88) 50%, rgba(30, 41, 59, 0.7) 50%, rgba(30, 41, 59, 0.7) 75%, rgba(15, 23, 42, 0.88) 75%, rgba(15, 23, 42, 0.88));
+  background-size: 14px 14px;
 }
 
 .hammer-source-card__head {
@@ -367,18 +390,25 @@ Guardrails:
 .hammer-preview-meta,
 .hammer-tool-state-grid {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   color: #cbd5e1;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .hammer-tool-card {
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 10px;
   background: rgba(15, 23, 42, 0.68);
-  padding: 8px;
+  padding: 9px 9px 8px;
   display: grid;
   gap: 8px;
+}
+
+.hammer-tool-state-grid {
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+  margin-top: 2px;
+  padding-top: 5px;
+  color: #94a3b8;
 }
 
 .hammer-tool-card__head {
@@ -425,8 +455,8 @@ Guardrails:
 
 .hammer-timeline-dock__body {
   overflow: hidden;
-  grid-template-rows: 30px auto minmax(0, 1fr);
-  gap: 8px;
+  grid-template-rows: 24px auto minmax(0, 1fr);
+  gap: 6px;
 }
 
 .hammer-timeline-dock__body input[type="range"] {
@@ -545,35 +575,51 @@ Guardrails:
 }
 
 .hammer-timeline-editor {
-  border: 1px solid rgba(96, 165, 250, 0.28);
-  border-radius: 10px;
-  background: rgba(15, 23, 42, 0.6);
-  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.42);
+  padding: 5px 7px;
   display: grid;
-  gap: 8px;
+  gap: 5px;
 }
 
 .hammer-timeline-editor__meta {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  color: #93c5fd;
-  font-size: 11px;
+  color: #bfdbfe;
+  font-size: 10px;
 }
 
 .hammer-timeline-editor__controls {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+}
+
+.hammer-timeline-editor__control-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 999px;
+  padding: 2px 4px;
+  background: rgba(2, 6, 23, 0.56);
+}
+
+.hammer-timeline-editor__control-group span {
+  font-size: 10px;
+  color: #93c5fd;
+  padding-left: 2px;
 }
 
 .hammer-timeline-editor__controls button {
   border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 8px;
+  border-radius: 999px;
   background: rgba(2, 6, 23, 0.72);
   color: #cbd5e1;
-  padding: 5px 6px;
-  font-size: 11px;
+  padding: 2px 6px;
+  font-size: 10px;
   cursor: pointer;
 }
 
