@@ -34,7 +34,6 @@ import {
 import {
   listWorkpieceStoredMedia,
   loadIntroOutroSelection,
-  normalizeWorkpieceRelativePath,
   readHammerMediaPreviewErrorDiagnostics,
   loadWorkpieceMediaPreviewUrl,
   saveIntroOutroSelection,
@@ -42,6 +41,7 @@ import {
   type HammerIntroOutroSelection,
   type HammerStoredMediaFile,
 } from "../lib/hammerSourceDeskMediaApi";
+import { normalizeWorkpieceRelativePath } from "../lib/workpiecePaths";
 import { preserveTranscriptMetadata } from "../prep/hammerPrep";
 import { buildHammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
 import {
