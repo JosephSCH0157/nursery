@@ -42,6 +42,14 @@ import {
   type GapCleanupOptions,
 } from "./hammerCleanupTools";
 import {
+  clearHammerHistory,
+  createHammerHistoryState,
+  pushHammerHistoryEntry,
+  redoHammerHistory,
+  undoHammerHistory,
+  type HammerHistoryEntry,
+} from "./hammerWorkspaceHistory";
+import {
   listWorkpieceStoredMedia,
   loadIntroOutroSelection,
   readHammerMediaPreviewErrorDiagnostics,
@@ -73,6 +81,7 @@ const TIMELINE_DOCK_BASELINE_HEIGHT_PX = 376;
 const TIMELINE_DOCK_TIME_FOCUS_HEIGHT_PX = 504;
 const SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY = 4;
 const SOURCE_DESK_PREVIEW_MAX_ITEMS = 48;
+const HISTORY_MAX_SIZE = 100;
 
 type HammerToolId = HammerWorkspaceToolId;
 type HammerSourceTabId = "transcript" | "images" | "assets" | "broll" | "introoutro";
@@ -156,6 +165,13 @@ type HammerReleasePrepSaveState = {
   preparedAt: string;
   overallStatus: HammerPreparedReleaseOverallStatus;
   subtitleArtifactCount: number;
+};
+
+type HammerTranscriptWorkspaceState = {
+  segments: HammerTranscriptSegment[];
+  selectedSegmentId: string | null;
+  playheadSec: number;
+  transcriptTimingHint: string | null;
 };
 
 type HammerExportTruthState = "never_prepared" | "current" | "stale";
@@ -265,6 +281,51 @@ function stableHashToken(value: string): string {
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
   return hash.toString(16).padStart(8, "0");
+}
+
+function createHistoryEntryId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `hist-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function cloneWorkspaceState(state: HammerTranscriptWorkspaceState): HammerTranscriptWorkspaceState {
+  return {
+    segments: state.segments.map((segment) => ({ ...segment })),
+    selectedSegmentId: state.selectedSegmentId,
+    playheadSec: state.playheadSec,
+    transcriptTimingHint: state.transcriptTimingHint,
+  };
+}
+
+function areSegmentListsEqual(left: HammerTranscriptSegment[], right: HammerTranscriptSegment[]): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const lhs = left[index];
+    const rhs = right[index];
+    if (!lhs || !rhs) return false;
+    if (
+      lhs.segment_id !== rhs.segment_id
+      || lhs.speaker !== rhs.speaker
+      || lhs.text !== rhs.text
+      || lhs.start_sec !== rhs.start_sec
+      || lhs.end_sec !== rhs.end_sec
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areWorkspaceStatesEqual(
+  left: HammerTranscriptWorkspaceState,
+  right: HammerTranscriptWorkspaceState,
+): boolean {
+  return left.selectedSegmentId === right.selectedSegmentId
+    && left.playheadSec === right.playheadSec
+    && left.transcriptTimingHint === right.transcriptTimingHint
+    && areSegmentListsEqual(left.segments, right.segments);
 }
 
 function buildPreparedPackageIdentityFingerprint(pkg: HammerPreparedReleasePackage): string {
@@ -392,6 +453,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const transcriptLineRefs = useRef(new Map<string, HTMLButtonElement>());
   const timelineTrackScrollRef = useRef<HTMLDivElement | null>(null);
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
+  const historyStateRef = useRef(createHammerHistoryState(HISTORY_MAX_SIZE));
 
   const previewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
   const workspaceFocusMode = focusOverride === "auto" ? resolveWorkspaceFocusMode(activeTool) : focusOverride;
@@ -621,8 +683,81 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return usage;
   }, [sourceImageItems]);
 
+  function captureWorkspaceState(): HammerTranscriptWorkspaceState {
+    return {
+      segments: editableTranscriptSegments.map((segment) => ({ ...segment })),
+      selectedSegmentId,
+      playheadSec,
+      transcriptTimingHint,
+    };
+  }
+
+  function applyWorkspaceState(nextState: HammerTranscriptWorkspaceState): void {
+    setEditableTranscriptSegments(nextState.segments);
+    setSelectedSegmentId(nextState.selectedSegmentId);
+    setPlayheadSec(nextState.playheadSec);
+    setTranscriptTimingHint(nextState.transcriptTimingHint);
+    setCleanupPreview(null);
+  }
+
+  function applyHistoryMutation(args: {
+    label: string;
+    affectedSegments?: string[];
+    toolId?: string;
+    computeAfter: (before: HammerTranscriptWorkspaceState) => HammerTranscriptWorkspaceState;
+  }): boolean {
+    const before = captureWorkspaceState();
+    const after = cloneWorkspaceState(args.computeAfter(cloneWorkspaceState(before)));
+    if (areWorkspaceStatesEqual(before, after)) {
+      return false;
+    }
+
+    const entry: HammerHistoryEntry = {
+      id: createHistoryEntryId(),
+      label: args.label,
+      timestamp: Date.now(),
+      undo: () => {
+        applyWorkspaceState(cloneWorkspaceState(before));
+      },
+      redo: () => {
+        applyWorkspaceState(cloneWorkspaceState(after));
+      },
+      affectedSegments: args.affectedSegments,
+      toolId: args.toolId,
+    };
+
+    pushHammerHistoryEntry(historyStateRef.current, entry);
+    try {
+      entry.redo();
+      return true;
+    } catch (error) {
+      historyStateRef.current.undoStack.pop();
+      console.error("Hammer history redo application failed", {
+        entryId: entry.id,
+        label: entry.label,
+        error,
+      });
+      return false;
+    }
+  }
+
+  function undoHistory(): void {
+    const applied = undoHammerHistory(historyStateRef.current);
+    if (!applied) return;
+    selectionOriginRef.current = "system";
+    setFocusOverride("source-focus");
+  }
+
+  function redoHistory(): void {
+    const applied = redoHammerHistory(historyStateRef.current);
+    if (!applied) return;
+    selectionOriginRef.current = "system";
+    setFocusOverride("source-focus");
+  }
+
   useEffect(() => {
     const synced = syncEditableTranscriptSegments(transcriptSegments, selectedSegmentId);
+    clearHammerHistory(historyStateRef.current);
     setEditableTranscriptSegments(synced.segments);
     setSelectedSegmentId(synced.selectedSegmentId);
     setTranscriptTimingHint(null);
@@ -853,35 +988,90 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   function updateSegmentTiming(
     segmentId: string,
+    label: string,
     updater: (segment: HammerTranscriptSegment) => HammerTranscriptSegment,
+    playheadUpdater?: (currentPlayheadSec: number) => number,
   ): void {
-    setEditableTranscriptSegments((current) => updateSegmentInTimeline(current, segmentId, updater));
+    applyHistoryMutation({
+      label,
+      affectedSegments: [segmentId],
+      computeAfter: (before) => ({
+        ...before,
+        segments: updateSegmentInTimeline(before.segments, segmentId, updater),
+        playheadSec: playheadUpdater ? playheadUpdater(before.playheadSec) : before.playheadSec,
+        transcriptTimingHint: null,
+      }),
+    });
   }
 
   function moveSegment(segmentId: string, deltaSec: number): void {
-    updateSegmentTiming(segmentId, (segment) => moveSegmentTiming(segment, deltaSec));
-    setPlayheadSec((current) => Math.max(0, roundToTenth(current + deltaSec)));
+    updateSegmentTiming(
+      segmentId,
+      "Adjust segment timing",
+      (segment) => moveSegmentTiming(segment, deltaSec),
+      (current) => Math.max(0, roundToTenth(current + deltaSec)),
+    );
   }
 
   function trimSegmentStart(segmentId: string, deltaSec: number): void {
-    updateSegmentTiming(segmentId, (segment) => trimSegmentStartTiming(segment, deltaSec));
-    setPlayheadSec((current) => Math.max(0, roundToTenth(current + deltaSec)));
+    updateSegmentTiming(
+      segmentId,
+      "Trim segment start",
+      (segment) => trimSegmentStartTiming(segment, deltaSec),
+      (current) => Math.max(0, roundToTenth(current + deltaSec)),
+    );
   }
 
   function trimSegmentEnd(segmentId: string, deltaSec: number): void {
-    updateSegmentTiming(segmentId, (segment) => trimSegmentEndTiming(segment, deltaSec));
+    updateSegmentTiming(segmentId, "Trim segment end", (segment) => trimSegmentEndTiming(segment, deltaSec));
   }
 
   function applyCleanup(preview: HammerCleanupPreview): void {
-    const synced = syncEditableTranscriptSegments(preview.resultSegments, selectedSegmentId);
-    setEditableTranscriptSegments(synced.segments);
-    setSelectedSegmentId(synced.selectedSegmentId);
-    if (synced.selectedSegmentId) {
-      const selected = synced.segments.find((segment) => segment.segment_id === synced.selectedSegmentId) ?? null;
-      if (selected) setPlayheadSec(selected.start_sec);
-    }
-    setCleanupPreview(null);
+    const toolId = preview.label.toLowerCase().replace(/\s+/g, "-");
+    applyHistoryMutation({
+      label: preview.label,
+      affectedSegments: preview.suggestions.map((suggestion) => suggestion.segmentId),
+      toolId,
+      computeAfter: (before) => {
+        const synced = syncEditableTranscriptSegments(preview.resultSegments, before.selectedSegmentId);
+        const selected = synced.selectedSegmentId
+          ? synced.segments.find((segment) => segment.segment_id === synced.selectedSegmentId) ?? null
+          : null;
+        return {
+          ...before,
+          segments: synced.segments,
+          selectedSegmentId: synced.selectedSegmentId,
+          playheadSec: selected ? selected.start_sec : before.playheadSec,
+          transcriptTimingHint: null,
+        };
+      },
+    });
   }
+
+  useEffect(() => {
+    function handleKeyboardHistory(event: KeyboardEvent): void {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+
+      const wantsUndo = key === "z" && !event.shiftKey;
+      const wantsRedo = (key === "z" && event.shiftKey) || key === "y";
+      if (!wantsUndo && !wantsRedo) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (wantsUndo) {
+        undoHistory();
+        return;
+      }
+      redoHistory();
+    }
+
+    window.addEventListener("keydown", handleKeyboardHistory);
+    return () => {
+      window.removeEventListener("keydown", handleKeyboardHistory);
+    };
+  }, [editableTranscriptSegments, playheadSec, selectedSegmentId, transcriptTimingHint]);
 
   const exportBasis = useMemo(() => {
     const transcriptForRelease = preserveTranscriptMetadata(
@@ -1194,25 +1384,30 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                 if (!Number.isFinite(parsed)) return;
                                 const nextStart = Math.max(0, roundToTenth(parsed));
                                 setFocusOverride("source-focus");
-                                setSelectedSegmentId(selectedSegment.segment_id);
-                                setEditableTranscriptSegments((current) => updateSegmentInTimeline(
-                                  current,
-                                  selectedSegment.segment_id,
-                                  (segment) => {
-                                    const endFloor = roundToTenth(nextStart + 0.1);
-                                    return {
-                                      ...segment,
-                                      start_sec: nextStart,
-                                      end_sec: Math.max(roundToTenth(segment.end_sec), endFloor),
-                                    };
-                                  },
-                                ));
-                                setTranscriptTimingHint(
-                                  nextStart !== parsed
-                                    ? `Start adjusted to ${nextStart.toFixed(1)}s to stay on the timeline grid.`
-                                    : null,
-                                );
-                                setPlayheadSec(nextStart);
+                                applyHistoryMutation({
+                                  label: "Adjust segment start",
+                                  affectedSegments: [selectedSegment.segment_id],
+                                  computeAfter: (before) => ({
+                                    ...before,
+                                    segments: updateSegmentInTimeline(
+                                      before.segments,
+                                      selectedSegment.segment_id,
+                                      (segment) => {
+                                        const endFloor = roundToTenth(nextStart + 0.1);
+                                        return {
+                                          ...segment,
+                                          start_sec: nextStart,
+                                          end_sec: Math.max(roundToTenth(segment.end_sec), endFloor),
+                                        };
+                                      },
+                                    ),
+                                    selectedSegmentId: selectedSegment.segment_id,
+                                    playheadSec: nextStart,
+                                    transcriptTimingHint: nextStart !== parsed
+                                      ? `Start adjusted to ${nextStart.toFixed(1)}s to stay on the timeline grid.`
+                                      : null,
+                                  }),
+                                });
                               }}
                             />
                           </label>
@@ -1231,20 +1426,25 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                 const minimumEnd = roundToTenth(selectedSegment.start_sec + 0.1);
                                 const adjustedEnd = Math.max(nextEnd, minimumEnd);
                                 setFocusOverride("source-focus");
-                                setSelectedSegmentId(selectedSegment.segment_id);
-                                setEditableTranscriptSegments((current) => updateSegmentInTimeline(
-                                  current,
-                                  selectedSegment.segment_id,
-                                  (segment) => ({
-                                    ...segment,
-                                    end_sec: Math.max(adjustedEnd, roundToTenth(segment.start_sec + 0.1)),
+                                applyHistoryMutation({
+                                  label: "Adjust segment end",
+                                  affectedSegments: [selectedSegment.segment_id],
+                                  computeAfter: (before) => ({
+                                    ...before,
+                                    segments: updateSegmentInTimeline(
+                                      before.segments,
+                                      selectedSegment.segment_id,
+                                      (segment) => ({
+                                        ...segment,
+                                        end_sec: Math.max(adjustedEnd, roundToTenth(segment.start_sec + 0.1)),
+                                      }),
+                                    ),
+                                    selectedSegmentId: selectedSegment.segment_id,
+                                    transcriptTimingHint: adjustedEnd !== parsed
+                                      ? `End adjusted to ${adjustedEnd.toFixed(1)}s to remain after start time.`
+                                      : null,
                                   }),
-                                ));
-                                setTranscriptTimingHint(
-                                  adjustedEnd !== parsed
-                                    ? `End adjusted to ${adjustedEnd.toFixed(1)}s to remain after start time.`
-                                    : null,
-                                );
+                                });
                               }}
                             />
                           </label>
@@ -1262,12 +1462,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             onFocus={() => setFocusOverride("source-focus")}
                             onChange={(event) => {
                               setFocusOverride("source-focus");
-                              setTranscriptTimingHint(null);
-                              setEditableTranscriptSegments((current) => updateTranscriptSegmentSpeaker(
-                                current,
-                                selectedSegment.segment_id,
-                                event.target.value,
-                              ));
+                              applyHistoryMutation({
+                                label: "Edit speaker label",
+                                affectedSegments: [selectedSegment.segment_id],
+                                computeAfter: (before) => ({
+                                  ...before,
+                                  segments: updateTranscriptSegmentSpeaker(
+                                    before.segments,
+                                    selectedSegment.segment_id,
+                                    event.target.value,
+                                  ),
+                                  transcriptTimingHint: null,
+                                }),
+                              });
                             }}
                           />
                         </label>
@@ -1278,12 +1485,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             onFocus={() => setFocusOverride("source-focus")}
                             onChange={(event) => {
                               setFocusOverride("source-focus");
-                              setTranscriptTimingHint(null);
-                              setEditableTranscriptSegments((current) => updateTranscriptSegmentText(
-                                current,
-                                selectedSegment.segment_id,
-                                event.target.value,
-                              ));
+                              applyHistoryMutation({
+                                label: "Edit transcript text",
+                                affectedSegments: [selectedSegment.segment_id],
+                                computeAfter: (before) => ({
+                                  ...before,
+                                  segments: updateTranscriptSegmentText(
+                                    before.segments,
+                                    selectedSegment.segment_id,
+                                    event.target.value,
+                                  ),
+                                  transcriptTimingHint: null,
+                                }),
+                              });
                             }}
                           />
                         </label>
