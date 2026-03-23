@@ -42,13 +42,19 @@ import {
   type GapCleanupOptions,
 } from "./hammerCleanupTools";
 import {
-  clearHammerHistory,
-  createHammerHistoryState,
-  pushHammerHistoryEntry,
-  redoHammerHistory,
-  undoHammerHistory,
-  type HammerHistoryEntry,
+  createHammerHistoryController,
+  createHammerHistoryDocument,
+  hashEditorState,
+  normalizeHammerHistoryDocument,
+  cloneEditorState,
+  type HammerEditorStateSerializable,
+  type HammerHistoryController,
+  type HammerHistoryKind,
 } from "./hammerWorkspaceHistory";
+import {
+  loadHammerHistoryDocument,
+  saveHammerHistoryDocument,
+} from "../lib/hammerHistoryArtifactApi";
 import {
   listWorkpieceStoredMedia,
   loadIntroOutroSelection,
@@ -82,6 +88,8 @@ const TIMELINE_DOCK_TIME_FOCUS_HEIGHT_PX = 504;
 const SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY = 4;
 const SOURCE_DESK_PREVIEW_MAX_ITEMS = 48;
 const HISTORY_MAX_SIZE = 100;
+const HISTORY_PERSIST_DEBOUNCE_MS = 900;
+const TEXT_EDIT_COALESCE_MS = 1500;
 
 type HammerToolId = HammerWorkspaceToolId;
 type HammerSourceTabId = "transcript" | "images" | "assets" | "broll" | "introoutro";
@@ -165,13 +173,6 @@ type HammerReleasePrepSaveState = {
   preparedAt: string;
   overallStatus: HammerPreparedReleaseOverallStatus;
   subtitleArtifactCount: number;
-};
-
-type HammerTranscriptWorkspaceState = {
-  segments: HammerTranscriptSegment[];
-  selectedSegmentId: string | null;
-  playheadSec: number;
-  transcriptTimingHint: string | null;
 };
 
 type HammerExportTruthState = "never_prepared" | "current" | "stale";
@@ -283,49 +284,32 @@ function stableHashToken(value: string): string {
   return hash.toString(16).padStart(8, "0");
 }
 
-function createHistoryEntryId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `hist-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+function toEditorState(args: {
+  segments: HammerTranscriptSegment[];
+  selectedSegmentId: string | null;
+  playheadSec: number;
+  transcriptTimingHint: string | null;
+}): HammerEditorStateSerializable {
+  return {
+    transcriptSegments: args.segments.map((segment) => ({ ...segment })),
+    selectedSegmentId: args.selectedSegmentId,
+    playheadSec: args.playheadSec,
+    transcriptTimingHint: args.transcriptTimingHint,
+  };
 }
 
-function cloneWorkspaceState(state: HammerTranscriptWorkspaceState): HammerTranscriptWorkspaceState {
+function toShellState(state: HammerEditorStateSerializable): {
+  segments: HammerTranscriptSegment[];
+  selectedSegmentId: string | null;
+  playheadSec: number;
+  transcriptTimingHint: string | null;
+} {
   return {
-    segments: state.segments.map((segment) => ({ ...segment })),
+    segments: state.transcriptSegments.map((segment) => ({ ...segment })),
     selectedSegmentId: state.selectedSegmentId,
     playheadSec: state.playheadSec,
     transcriptTimingHint: state.transcriptTimingHint,
   };
-}
-
-function areSegmentListsEqual(left: HammerTranscriptSegment[], right: HammerTranscriptSegment[]): boolean {
-  if (left.length !== right.length) return false;
-  for (let index = 0; index < left.length; index += 1) {
-    const lhs = left[index];
-    const rhs = right[index];
-    if (!lhs || !rhs) return false;
-    if (
-      lhs.segment_id !== rhs.segment_id
-      || lhs.speaker !== rhs.speaker
-      || lhs.text !== rhs.text
-      || lhs.start_sec !== rhs.start_sec
-      || lhs.end_sec !== rhs.end_sec
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function areWorkspaceStatesEqual(
-  left: HammerTranscriptWorkspaceState,
-  right: HammerTranscriptWorkspaceState,
-): boolean {
-  return left.selectedSegmentId === right.selectedSegmentId
-    && left.playheadSec === right.playheadSec
-    && left.transcriptTimingHint === right.transcriptTimingHint
-    && areSegmentListsEqual(left.segments, right.segments);
 }
 
 function buildPreparedPackageIdentityFingerprint(pkg: HammerPreparedReleasePackage): string {
@@ -446,6 +430,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [releasePrepSaved, setReleasePrepSaved] = useState<HammerReleasePrepSaveState | null>(null);
   const [loadedPreparedPackage, setLoadedPreparedPackage] = useState<HammerPreparedReleasePackage | null>(null);
   const [transcriptTimingHint, setTranscriptTimingHint] = useState<string | null>(null);
+  const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
   const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -453,7 +438,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const transcriptLineRefs = useRef(new Map<string, HTMLButtonElement>());
   const timelineTrackScrollRef = useRef<HTMLDivElement | null>(null);
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
-  const historyStateRef = useRef(createHammerHistoryState(HISTORY_MAX_SIZE));
+  const historyControllerRef = useRef<HammerHistoryController | null>(null);
+  const historyPersistTimerRef = useRef<number | null>(null);
 
   const previewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
   const workspaceFocusMode = focusOverride === "auto" ? resolveWorkspaceFocusMode(activeTool) : focusOverride;
@@ -682,89 +668,197 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return usage;
   }, [sourceImageItems]);
+  const historyController = historyControllerRef.current;
+  const canUndo = historyController?.canUndo() ?? false;
+  const canRedo = historyController?.canRedo() ?? false;
+  const undoLabel = historyController?.peekUndoEntry()?.label ?? null;
+  const redoLabel = historyController?.peekRedoEntry()?.label ?? null;
 
-  function captureWorkspaceState(): HammerTranscriptWorkspaceState {
-    return {
-      segments: editableTranscriptSegments.map((segment) => ({ ...segment })),
+  function captureWorkspaceState(): HammerEditorStateSerializable {
+    return toEditorState({
+      segments: editableTranscriptSegments,
       selectedSegmentId,
       playheadSec,
       transcriptTimingHint,
-    };
+    });
   }
 
-  function applyWorkspaceState(nextState: HammerTranscriptWorkspaceState): void {
-    setEditableTranscriptSegments(nextState.segments);
-    setSelectedSegmentId(nextState.selectedSegmentId);
-    setPlayheadSec(nextState.playheadSec);
-    setTranscriptTimingHint(nextState.transcriptTimingHint);
+  function applyWorkspaceState(nextState: HammerEditorStateSerializable): void {
+    const normalized = toShellState(nextState);
+    setEditableTranscriptSegments(normalized.segments);
+    setSelectedSegmentId(normalized.selectedSegmentId);
+    setPlayheadSec(normalized.playheadSec);
+    setTranscriptTimingHint(normalized.transcriptTimingHint);
     setCleanupPreview(null);
+  }
+
+  function clearPersistTimer(): void {
+    if (historyPersistTimerRef.current != null) {
+      window.clearTimeout(historyPersistTimerRef.current);
+      historyPersistTimerRef.current = null;
+    }
+  }
+
+  async function persistHistoryDocument(): Promise<void> {
+    const controller = historyControllerRef.current;
+    if (!controller) return;
+
+    controller.document.metadata = {
+      ...(controller.document.metadata ?? {}),
+      lastKnownSelectionSegmentId: selectedSegmentId,
+      lastKnownTool: activeTool,
+    };
+    controller.document.updatedAt = new Date().toISOString();
+
+    const result = await saveHammerHistoryDocument({
+      workpieceId: launchContext.workpiece_id,
+      document: controller.document,
+    });
+    if (!result.ok) {
+      setHistoryStatus(result.error);
+      return;
+    }
+    setHistoryStatus(null);
+  }
+
+  function scheduleHistoryPersist(immediate = false): void {
+    clearPersistTimer();
+    if (immediate) {
+      void persistHistoryDocument();
+      return;
+    }
+
+    historyPersistTimerRef.current = window.setTimeout(() => {
+      historyPersistTimerRef.current = null;
+      void persistHistoryDocument();
+    }, HISTORY_PERSIST_DEBOUNCE_MS);
   }
 
   function applyHistoryMutation(args: {
     label: string;
+    kind?: HammerHistoryKind;
     affectedSegments?: string[];
     toolId?: string;
-    computeAfter: (before: HammerTranscriptWorkspaceState) => HammerTranscriptWorkspaceState;
+    transactionId?: string;
+    allowCoalesce?: boolean;
+    immediatePersist?: boolean;
+    computeAfter: (before: HammerEditorStateSerializable) => HammerEditorStateSerializable;
   }): boolean {
+    const controller = historyControllerRef.current;
+    if (!controller) return false;
+
     const before = captureWorkspaceState();
-    const after = cloneWorkspaceState(args.computeAfter(cloneWorkspaceState(before)));
-    if (areWorkspaceStatesEqual(before, after)) {
-      return false;
-    }
+    const after = cloneEditorState(args.computeAfter(cloneEditorState(before)));
 
-    const entry: HammerHistoryEntry = {
-      id: createHistoryEntryId(),
+    const entry = controller.applyMutation({
       label: args.label,
-      timestamp: Date.now(),
-      undo: () => {
-        applyWorkspaceState(cloneWorkspaceState(before));
-      },
-      redo: () => {
-        applyWorkspaceState(cloneWorkspaceState(after));
-      },
-      affectedSegments: args.affectedSegments,
+      kind: args.kind,
       toolId: args.toolId,
-    };
+      affectedSegmentIds: args.affectedSegments,
+      transactionId: args.transactionId ?? null,
+      allowCoalesce: args.allowCoalesce,
+      coalesceWindowMs: TEXT_EDIT_COALESCE_MS,
+      nextState: after,
+    });
+    if (!entry) return false;
 
-    pushHammerHistoryEntry(historyStateRef.current, entry);
-    try {
-      entry.redo();
-      return true;
-    } catch (error) {
-      historyStateRef.current.undoStack.pop();
-      console.error("Hammer history redo application failed", {
-        entryId: entry.id,
-        label: entry.label,
-        error,
-      });
-      return false;
-    }
+    applyWorkspaceState(controller.getState());
+    scheduleHistoryPersist(args.immediatePersist === true);
+    return true;
   }
 
   function undoHistory(): void {
-    const applied = undoHammerHistory(historyStateRef.current);
-    if (!applied) return;
+    const controller = historyControllerRef.current;
+    if (!controller) return;
+    const entry = controller.undo();
+    if (!entry) return;
+    applyWorkspaceState(controller.getState());
     selectionOriginRef.current = "system";
     setFocusOverride("source-focus");
+    scheduleHistoryPersist();
   }
 
   function redoHistory(): void {
-    const applied = redoHammerHistory(historyStateRef.current);
-    if (!applied) return;
+    const controller = historyControllerRef.current;
+    if (!controller) return;
+    const entry = controller.redo();
+    if (!entry) return;
+    applyWorkspaceState(controller.getState());
     selectionOriginRef.current = "system";
     setFocusOverride("source-focus");
+    scheduleHistoryPersist();
   }
 
   useEffect(() => {
+    let active = true;
+    clearPersistTimer();
+
     const synced = syncEditableTranscriptSegments(transcriptSegments, selectedSegmentId);
-    clearHammerHistory(historyStateRef.current);
-    setEditableTranscriptSegments(synced.segments);
-    setSelectedSegmentId(synced.selectedSegmentId);
-    setTranscriptTimingHint(null);
-    setCleanupPreview(null);
-    setPlayheadSec((current) => Math.max(0, Math.min(current, resolveTranscriptDurationSec(synced.segments))));
+    const baselineState = toEditorState({
+      segments: synced.segments,
+      selectedSegmentId: synced.selectedSegmentId,
+      playheadSec: Math.max(0, Math.min(playheadSec, resolveTranscriptDurationSec(synced.segments))),
+      transcriptTimingHint: null,
+    });
+    const baseRevisionId = hashEditorState(baselineState);
+
+    historyControllerRef.current = createHammerHistoryController({
+      document: createHammerHistoryDocument({
+        workpieceId: launchContext.workpiece_id,
+        sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
+        baseRevisionId,
+      }),
+      initialState: baselineState,
+      maxUndoSteps: HISTORY_MAX_SIZE,
+    });
+
+    applyWorkspaceState(baselineState);
     selectionOriginRef.current = "system";
-  }, [launchContext.workpiece_id, transcriptSourceId]);
+
+    void loadHammerHistoryDocument(launchContext.workpiece_id)
+      .then((result) => {
+        if (!active) return;
+        if (!result.ok) {
+          setHistoryStatus(result.error);
+          return;
+        }
+        if (!result.exists || !result.data) {
+          setHistoryStatus(null);
+          return;
+        }
+
+        const loaded = normalizeHammerHistoryDocument(result.data, {
+          workpieceId: launchContext.workpiece_id,
+          sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
+          baseRevisionId,
+        });
+
+        if (loaded.baseRevisionId !== baseRevisionId) {
+          setHistoryStatus("History base revision mismatch detected. Opened baseline without replay.");
+          return;
+        }
+
+        const controller = createHammerHistoryController({
+          document: loaded,
+          initialState: baselineState,
+          maxUndoSteps: HISTORY_MAX_SIZE,
+        });
+        const replayed = controller.getReplayStateFromBaseline(baselineState);
+        controller.replaceState(replayed);
+        historyControllerRef.current = controller;
+        applyWorkspaceState(replayed);
+        setHistoryStatus(null);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setHistoryStatus(toErrorMessage(error, "Hammer could not recover persistent history."));
+      });
+
+    return () => {
+      active = false;
+      clearPersistTimer();
+    };
+  }, [launchContext.session_id, launchContext.workpiece_id, transcriptSegments, transcriptSourceId]);
 
   useEffect(() => {
     const segment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
@@ -994,10 +1088,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   ): void {
     applyHistoryMutation({
       label,
+      kind: "timing_adjustment",
       affectedSegments: [segmentId],
       computeAfter: (before) => ({
         ...before,
-        segments: updateSegmentInTimeline(before.segments, segmentId, updater),
+        transcriptSegments: updateSegmentInTimeline(before.transcriptSegments, segmentId, updater),
         playheadSec: playheadUpdater ? playheadUpdater(before.playheadSec) : before.playheadSec,
         transcriptTimingHint: null,
       }),
@@ -1028,10 +1123,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   function applyCleanup(preview: HammerCleanupPreview): void {
     const toolId = preview.label.toLowerCase().replace(/\s+/g, "-");
+    historyControllerRef.current?.createCheckpoint(`Before ${preview.label}`);
     applyHistoryMutation({
       label: preview.label,
+      kind: "cleanup_tool",
       affectedSegments: preview.suggestions.map((suggestion) => suggestion.segmentId),
       toolId,
+      immediatePersist: true,
       computeAfter: (before) => {
         const synced = syncEditableTranscriptSegments(preview.resultSegments, before.selectedSegmentId);
         const selected = synced.selectedSegmentId
@@ -1039,7 +1137,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           : null;
         return {
           ...before,
-          segments: synced.segments,
+          transcriptSegments: synced.segments,
           selectedSegmentId: synced.selectedSegmentId,
           playheadSec: selected ? selected.start_sec : before.playheadSec,
           transcriptTimingHint: null,
@@ -1334,6 +1432,24 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             <header className="hammer-bay-head">
               <strong>Source Desk</strong>
               <div className="hammer-bay-tabs">
+                <button
+                  type="button"
+                  onClick={undoHistory}
+                  disabled={!canUndo}
+                  title={undoLabel ? `Undo ${undoLabel}` : "Undo"}
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  onClick={redoHistory}
+                  disabled={!canRedo}
+                  title={redoLabel ? `Redo ${redoLabel}` : "Redo"}
+                >
+                  Redo
+                </button>
+              </div>
+              <div className="hammer-bay-tabs">
                 {SOURCE_TABS.map((tab) => (
                   <button
                     key={tab.id}
@@ -1358,6 +1474,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   role="status"
                 >
                   {sourceDeskError}
+                </div>
+              ) : null}
+              {historyStatus ? (
+                <div className="hammer-source-status hammer-source-status--info" role="status">
+                  {historyStatus}
                 </div>
               ) : null}
 
@@ -1386,11 +1507,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                 setFocusOverride("source-focus");
                                 applyHistoryMutation({
                                   label: "Adjust segment start",
+                                  kind: "timing_adjustment",
                                   affectedSegments: [selectedSegment.segment_id],
                                   computeAfter: (before) => ({
                                     ...before,
-                                    segments: updateSegmentInTimeline(
-                                      before.segments,
+                                    transcriptSegments: updateSegmentInTimeline(
+                                      before.transcriptSegments,
                                       selectedSegment.segment_id,
                                       (segment) => {
                                         const endFloor = roundToTenth(nextStart + 0.1);
@@ -1428,11 +1550,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                 setFocusOverride("source-focus");
                                 applyHistoryMutation({
                                   label: "Adjust segment end",
+                                  kind: "timing_adjustment",
                                   affectedSegments: [selectedSegment.segment_id],
                                   computeAfter: (before) => ({
                                     ...before,
-                                    segments: updateSegmentInTimeline(
-                                      before.segments,
+                                    transcriptSegments: updateSegmentInTimeline(
+                                      before.transcriptSegments,
                                       selectedSegment.segment_id,
                                       (segment) => ({
                                         ...segment,
@@ -1464,11 +1587,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                               setFocusOverride("source-focus");
                               applyHistoryMutation({
                                 label: "Edit speaker label",
+                                kind: "speaker_edit",
                                 affectedSegments: [selectedSegment.segment_id],
+                                transactionId: `speaker:${selectedSegment.segment_id}`,
+                                allowCoalesce: true,
                                 computeAfter: (before) => ({
                                   ...before,
-                                  segments: updateTranscriptSegmentSpeaker(
-                                    before.segments,
+                                  transcriptSegments: updateTranscriptSegmentSpeaker(
+                                    before.transcriptSegments,
                                     selectedSegment.segment_id,
                                     event.target.value,
                                   ),
@@ -1487,11 +1613,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                               setFocusOverride("source-focus");
                               applyHistoryMutation({
                                 label: "Edit transcript text",
+                                kind: "transcript_text_edit",
                                 affectedSegments: [selectedSegment.segment_id],
+                                transactionId: `text:${selectedSegment.segment_id}`,
+                                allowCoalesce: true,
                                 computeAfter: (before) => ({
                                   ...before,
-                                  segments: updateTranscriptSegmentText(
-                                    before.segments,
+                                  transcriptSegments: updateTranscriptSegmentText(
+                                    before.transcriptSegments,
                                     selectedSegment.segment_id,
                                     event.target.value,
                                   ),

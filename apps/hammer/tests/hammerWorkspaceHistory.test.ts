@@ -1,136 +1,185 @@
 import assert from "node:assert/strict";
+import type { HammerTranscriptSegment } from "../../../packages/contracts/hammer/transcript.contract";
 import {
-  clearHammerHistory,
-  createHammerHistoryState,
-  pushHammerHistoryEntry,
-  redoHammerHistory,
-  undoHammerHistory,
+  applyPatches,
+  buildStatePatches,
+  cloneEditorState,
+  createHammerHistoryController,
+  createHammerHistoryDocument,
+  hashEditorState,
+  normalizeHammerHistoryDocument,
+  type HammerEditorStateSerializable,
 } from "../src/editor/hammerWorkspaceHistory";
 
-async function testPushAndStackLimits() {
-  const history = createHammerHistoryState(2);
-  const trace: string[] = [];
-
-  for (let index = 0; index < 3; index += 1) {
-    const id = `entry-${index}`;
-    pushHammerHistoryEntry(history, {
-      id,
-      label: id,
-      timestamp: index,
-      undo: () => {
-        trace.push(`undo:${id}`);
-      },
-      redo: () => {
-        trace.push(`redo:${id}`);
-      },
-    });
-  }
-
-  assert.equal(history.undoStack.length, 2);
-  assert.equal(history.undoStack[0]?.id, "entry-1");
-  assert.equal(history.undoStack[1]?.id, "entry-2");
-  assert.equal(history.redoStack.length, 0);
+function segment(id: string, text: string, start = 0, end = 1): HammerTranscriptSegment {
+  return {
+    segment_id: id,
+    speaker: "Host",
+    text,
+    start_sec: start,
+    end_sec: end,
+  };
 }
 
-async function testUndoRedoFlow() {
-  const history = createHammerHistoryState(10);
-  const trace: string[] = [];
-
-  pushHammerHistoryEntry(history, {
-    id: "entry-a",
-    label: "entry-a",
-    timestamp: 1,
-    undo: () => {
-      trace.push("undo:a");
-    },
-    redo: () => {
-      trace.push("redo:a");
-    },
-  });
-
-  pushHammerHistoryEntry(history, {
-    id: "entry-b",
-    label: "entry-b",
-    timestamp: 2,
-    undo: () => {
-      trace.push("undo:b");
-    },
-    redo: () => {
-      trace.push("redo:b");
-    },
-  });
-
-  assert.equal(undoHammerHistory(history), true);
-  assert.deepEqual(trace, ["undo:b"]);
-  assert.equal(history.undoStack.length, 1);
-  assert.equal(history.redoStack.length, 1);
-
-  assert.equal(redoHammerHistory(history), true);
-  assert.deepEqual(trace, ["undo:b", "redo:b"]);
-  assert.equal(history.undoStack.length, 2);
-  assert.equal(history.redoStack.length, 0);
+function baseState(): HammerEditorStateSerializable {
+  return {
+    transcriptSegments: [segment("a", "hello"), segment("b", "world", 1, 2)],
+    selectedSegmentId: "a",
+    playheadSec: 0,
+    transcriptTimingHint: null,
+  };
 }
 
-async function testRedoClearsOnNewPush() {
-  const history = createHammerHistoryState(10);
-  pushHammerHistoryEntry(history, {
-    id: "first",
-    label: "first",
-    timestamp: 1,
-    undo: () => {},
-    redo: () => {},
-  });
-  assert.equal(undoHammerHistory(history), true);
-  assert.equal(history.redoStack.length, 1);
+async function testPatchRoundTrip() {
+  const before = baseState();
+  const after = cloneEditorState(before);
+  after.transcriptSegments[0] = { ...after.transcriptSegments[0], text: "hello there" };
+  after.selectedSegmentId = "b";
+  after.playheadSec = 1.2;
 
-  pushHammerHistoryEntry(history, {
-    id: "second",
-    label: "second",
-    timestamp: 2,
-    undo: () => {},
-    redo: () => {},
-  });
-  assert.equal(history.redoStack.length, 0);
+  const patches = buildStatePatches(before, after);
+  assert.ok(patches.forward.length > 0);
+  assert.ok(patches.inverse.length > 0);
+
+  const applied = applyPatches(before, patches.forward);
+  assert.deepEqual(applied, after);
+
+  const rolledBack = applyPatches(applied, patches.inverse);
+  assert.deepEqual(rolledBack, before);
 }
 
-async function testFailureSafety() {
-  const history = createHammerHistoryState(10);
-  pushHammerHistoryEntry(history, {
-    id: "bad-undo",
-    label: "bad-undo",
-    timestamp: 1,
-    undo: () => {
-      throw new Error("undo failed");
-    },
-    redo: () => {},
+async function testControllerUndoRedoAndRedoClear() {
+  const initial = baseState();
+  const controller = createHammerHistoryController({
+    document: createHammerHistoryDocument({
+      workpieceId: "wp-1",
+      sessionId: "session-1",
+      baseRevisionId: hashEditorState(initial),
+    }),
+    initialState: initial,
+    maxUndoSteps: 10,
   });
 
-  assert.equal(undoHammerHistory(history), false);
-  assert.equal(history.undoStack.length, 1);
-  assert.equal(history.redoStack.length, 0);
+  const first = cloneEditorState(initial);
+  first.transcriptSegments[0] = { ...first.transcriptSegments[0], text: "first edit" };
+  const firstEntry = controller.applyMutation({
+    label: "Edit transcript text",
+    kind: "transcript_text_edit",
+    transactionId: "text:a",
+    nextState: first,
+  });
+  assert.ok(firstEntry);
 
-  clearHammerHistory(history);
-  pushHammerHistoryEntry(history, {
-    id: "bad-redo",
-    label: "bad-redo",
-    timestamp: 2,
-    undo: () => {},
-    redo: () => {
-      throw new Error("redo failed");
-    },
+  const second = cloneEditorState(first);
+  second.transcriptSegments[1] = { ...second.transcriptSegments[1], text: "second edit" };
+  const secondEntry = controller.applyMutation({
+    label: "Edit transcript text",
+    kind: "transcript_text_edit",
+    transactionId: "text:b",
+    nextState: second,
+  });
+  assert.ok(secondEntry);
+
+  assert.equal(controller.canUndo(), true);
+  assert.equal(controller.canRedo(), false);
+
+  const undone = controller.undo();
+  assert.ok(undone);
+  assert.equal(controller.getState().transcriptSegments[1]?.text, "world");
+  assert.equal(controller.canRedo(), true);
+
+  const replacement = cloneEditorState(controller.getState());
+  replacement.transcriptSegments[1] = { ...replacement.transcriptSegments[1], text: "replacement" };
+  controller.applyMutation({
+    label: "Edit transcript text",
+    kind: "transcript_text_edit",
+    transactionId: "text:b",
+    nextState: replacement,
+  });
+  assert.equal(controller.canRedo(), false);
+}
+
+async function testCoalescedTextEdits() {
+  const initial = baseState();
+  const controller = createHammerHistoryController({
+    document: createHammerHistoryDocument({
+      workpieceId: "wp-2",
+      sessionId: "session-2",
+      baseRevisionId: hashEditorState(initial),
+    }),
+    initialState: initial,
   });
 
-  assert.equal(undoHammerHistory(history), true);
-  assert.equal(redoHammerHistory(history), false);
-  assert.equal(history.undoStack.length, 0);
-  assert.equal(history.redoStack.length, 1);
+  const first = cloneEditorState(initial);
+  first.transcriptSegments[0] = { ...first.transcriptSegments[0], text: "h" };
+  controller.applyMutation({
+    label: "Edit transcript text",
+    kind: "transcript_text_edit",
+    transactionId: "text:a",
+    allowCoalesce: true,
+    coalesceWindowMs: 2000,
+    nextState: first,
+  });
+
+  const second = cloneEditorState(first);
+  second.transcriptSegments[0] = { ...second.transcriptSegments[0], text: "hello edited" };
+  controller.applyMutation({
+    label: "Edit transcript text",
+    kind: "transcript_text_edit",
+    transactionId: "text:a",
+    allowCoalesce: true,
+    coalesceWindowMs: 2000,
+    nextState: second,
+  });
+
+  assert.equal(controller.document.undoStack.length, 1);
+  assert.equal(controller.getState().transcriptSegments[0]?.text, "hello edited");
+  controller.undo();
+  assert.equal(controller.getState().transcriptSegments[0]?.text, "hello");
+}
+
+async function testNormalizeAndReplay() {
+  const initial = baseState();
+  const document = createHammerHistoryDocument({
+    workpieceId: "wp-3",
+    sessionId: "session-3",
+    baseRevisionId: hashEditorState(initial),
+  });
+  const controller = createHammerHistoryController({
+    document,
+    initialState: initial,
+  });
+
+  const next = cloneEditorState(initial);
+  next.playheadSec = 1.7;
+  next.selectedSegmentId = "b";
+  controller.applyMutation({
+    label: "Adjust timing",
+    kind: "timing_adjustment",
+    nextState: next,
+  });
+
+  const normalized = normalizeHammerHistoryDocument(document, {
+    workpieceId: "fallback",
+    sessionId: "fallback",
+    baseRevisionId: "fallback",
+  });
+
+  const replayController = createHammerHistoryController({
+    document: normalized,
+    initialState: initial,
+  });
+  const replayed = replayController.getReplayStateFromBaseline(initial);
+
+  assert.equal(replayed.playheadSec, 1.7);
+  assert.equal(replayed.selectedSegmentId, "b");
 }
 
 async function run() {
-  await testPushAndStackLimits();
-  await testUndoRedoFlow();
-  await testRedoClearsOnNewPush();
-  await testFailureSafety();
+  await testPatchRoundTrip();
+  await testControllerUndoRedoAndRedoClear();
+  await testCoalescedTextEdits();
+  await testNormalizeAndReplay();
   // eslint-disable-next-line no-console
   console.log("Hammer workspace history tests passed.");
 }
