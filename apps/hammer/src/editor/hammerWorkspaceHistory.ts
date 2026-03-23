@@ -20,9 +20,15 @@ export type HammerHistoryKind =
   | "output_selection"
   | "editor_state_change";
 
+export interface HammerOutputSelectionState {
+  layerId: string | null;
+  sourceRecipeRef: string | null;
+}
+
 export interface HammerEditorStateSerializable {
   transcriptSegments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
+  outputSelection: HammerOutputSelectionState;
   selectedSegmentId: string | null;
   playheadSec: number;
   transcriptTimingHint: string | null;
@@ -149,6 +155,10 @@ export function cloneEditorState(state: HammerEditorStateSerializable): HammerEd
   return {
     transcriptSegments: cloneSegments(state.transcriptSegments),
     visualPlacements: cloneVisualPlacements(state.visualPlacements),
+    outputSelection: {
+      layerId: state.outputSelection.layerId,
+      sourceRecipeRef: state.outputSelection.sourceRecipeRef,
+    },
     selectedSegmentId: state.selectedSegmentId,
     playheadSec: state.playheadSec,
     transcriptTimingHint: state.transcriptTimingHint,
@@ -461,6 +471,36 @@ function normalizeVisualPlacementsFromValue(value: unknown): HammerPersistedVisu
   };
 }
 
+function normalizeOutputSelectionFromValue(value: unknown): HammerOutputSelectionState {
+  if (value == null) {
+    return {
+      layerId: null,
+      sourceRecipeRef: null,
+    };
+  }
+
+  const row = readJsonObject(value);
+  if (!row) {
+    return {
+      layerId: null,
+      sourceRecipeRef: null,
+    };
+  }
+
+  return {
+    layerId: readString(row.layerId),
+    sourceRecipeRef: readString(row.sourceRecipeRef),
+  };
+}
+
+function areOutputSelectionsEqual(
+  left: HammerOutputSelectionState,
+  right: HammerOutputSelectionState,
+): boolean {
+  return left.layerId === right.layerId
+    && left.sourceRecipeRef === right.sourceRecipeRef;
+}
+
 function areVisualPlacementsEqual(
   left: HammerPersistedVisualPlacements | null,
   right: HammerPersistedVisualPlacements | null,
@@ -614,6 +654,18 @@ function applyPatchToState(state: HammerEditorStateSerializable, patch: JsonPatc
     return next;
   }
 
+  if (root === "outputSelection") {
+    if (patch.op === "remove") {
+      next.outputSelection = {
+        layerId: null,
+        sourceRecipeRef: null,
+      };
+      return next;
+    }
+    next.outputSelection = normalizeOutputSelectionFromValue(patch.value);
+    return next;
+  }
+
   throw new Error(`Unsupported patch root path: ${root}`);
 }
 
@@ -724,6 +776,19 @@ export function buildStatePatches(
       op: "replace",
       path: "/visualPlacements",
       value: clonePatchValue(before.visualPlacements),
+    });
+  }
+
+  if (!areOutputSelectionsEqual(before.outputSelection, after.outputSelection)) {
+    forward.push({
+      op: "replace",
+      path: "/outputSelection",
+      value: clonePatchValue(after.outputSelection),
+    });
+    inverse.unshift({
+      op: "replace",
+      path: "/outputSelection",
+      value: clonePatchValue(before.outputSelection),
     });
   }
 

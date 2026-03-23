@@ -25,6 +25,10 @@ function baseState(): HammerEditorStateSerializable {
   return {
     transcriptSegments: [segment("a", "hello"), segment("b", "world", 1, 2)],
     visualPlacements: null,
+    outputSelection: {
+      layerId: null,
+      sourceRecipeRef: null,
+    },
     selectedSegmentId: "a",
     playheadSec: 0,
     transcriptTimingHint: null,
@@ -154,9 +158,13 @@ async function testNormalizeAndReplay() {
   const next = cloneEditorState(initial);
   next.playheadSec = 1.7;
   next.selectedSegmentId = "b";
+  next.outputSelection = {
+    layerId: "macro_run_1",
+    sourceRecipeRef: "retake_cleanup",
+  };
   controller.applyMutation({
-    label: "Adjust timing",
-    kind: "timing_adjustment",
+    label: "Set export output",
+    kind: "output_selection",
     nextState: next,
   });
 
@@ -174,6 +182,43 @@ async function testNormalizeAndReplay() {
 
   assert.equal(replayed.playheadSec, 1.7);
   assert.equal(replayed.selectedSegmentId, "b");
+  assert.equal(replayed.outputSelection.layerId, "macro_run_1");
+  assert.equal(replayed.outputSelection.sourceRecipeRef, "retake_cleanup");
+}
+
+async function testOutputSelectionUndoRedo() {
+  const initial = baseState();
+  const controller = createHammerHistoryController({
+    document: createHammerHistoryDocument({
+      workpieceId: "wp-4",
+      sessionId: "session-4",
+      baseRevisionId: hashEditorState(initial),
+    }),
+    initialState: initial,
+  });
+
+  const selected = cloneEditorState(initial);
+  selected.outputSelection = {
+    layerId: "macro_run_2",
+    sourceRecipeRef: "filler_cleanup",
+  };
+
+  controller.applyMutation({
+    label: "Set export output to filler cleanup",
+    kind: "output_selection",
+    nextState: selected,
+  });
+
+  assert.equal(controller.getState().outputSelection.layerId, "macro_run_2");
+  assert.equal(controller.getState().outputSelection.sourceRecipeRef, "filler_cleanup");
+
+  controller.undo();
+  assert.equal(controller.getState().outputSelection.layerId, null);
+  assert.equal(controller.getState().outputSelection.sourceRecipeRef, null);
+
+  controller.redo();
+  assert.equal(controller.getState().outputSelection.layerId, "macro_run_2");
+  assert.equal(controller.getState().outputSelection.sourceRecipeRef, "filler_cleanup");
 }
 
 async function run() {
@@ -181,6 +226,7 @@ async function run() {
   await testControllerUndoRedoAndRedoClear();
   await testCoalescedTextEdits();
   await testNormalizeAndReplay();
+  await testOutputSelectionUndoRedo();
   // eslint-disable-next-line no-console
   console.log("Hammer workspace history tests passed.");
 }

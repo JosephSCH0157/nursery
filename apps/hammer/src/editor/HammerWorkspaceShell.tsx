@@ -7,6 +7,7 @@ import type { HammerTranscriptSegment } from "../../../../packages/contracts/ham
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
 import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import type {
+  HammerDerivedTextLayer,
   HammerPersistedAudioPolish,
   HammerPersistedStructuredTranscript,
   HammerVisualPlacementRecord,
@@ -51,7 +52,12 @@ import {
   type HammerEditorStateSerializable,
   type HammerHistoryController,
   type HammerHistoryKind,
+  type HammerOutputSelectionState,
 } from "./hammerWorkspaceHistory";
+import {
+  listHammerDerivedTextLayers,
+  setHammerDerivedTextLayerOutput,
+} from "../macros/hammerDerivedTranscriptLayers";
 import {
   loadHammerHistoryDocument,
   saveHammerHistoryDocument,
@@ -288,6 +294,7 @@ function stableHashToken(value: string): string {
 function toEditorState(args: {
   segments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
+  outputSelection: HammerOutputSelectionState;
   selectedSegmentId: string | null;
   playheadSec: number;
   transcriptTimingHint: string | null;
@@ -306,6 +313,10 @@ function toEditorState(args: {
         })),
       }
       : null,
+    outputSelection: {
+      layerId: args.outputSelection.layerId,
+      sourceRecipeRef: args.outputSelection.sourceRecipeRef,
+    },
     selectedSegmentId: args.selectedSegmentId,
     playheadSec: args.playheadSec,
     transcriptTimingHint: args.transcriptTimingHint,
@@ -315,6 +326,7 @@ function toEditorState(args: {
 function toShellState(state: HammerEditorStateSerializable): {
   segments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
+  outputSelection: HammerOutputSelectionState;
   selectedSegmentId: string | null;
   playheadSec: number;
   transcriptTimingHint: string | null;
@@ -333,10 +345,32 @@ function toShellState(state: HammerEditorStateSerializable): {
         })),
       }
       : null,
+    outputSelection: {
+      layerId: state.outputSelection.layerId,
+      sourceRecipeRef: state.outputSelection.sourceRecipeRef,
+    },
     selectedSegmentId: state.selectedSegmentId,
     playheadSec: state.playheadSec,
     transcriptTimingHint: state.transcriptTimingHint,
   };
+}
+
+function resolveOutputSelectionFromTranscript(
+  transcript: HammerPersistedStructuredTranscript | null | undefined,
+): HammerOutputSelectionState {
+  const outputLayerId = transcript?.derived_text_layers?.output_layer_id ?? null;
+  const layer = outputLayerId
+    ? transcript?.derived_text_layers?.layers.find((item) => item.layer_id === outputLayerId) ?? null
+    : null;
+  return {
+    layerId: layer?.layer_id ?? null,
+    sourceRecipeRef: layer?.recipe_ref ?? null,
+  };
+}
+
+function formatOutputLayerLabel(layer: HammerDerivedTextLayer): string {
+  const recipe = layer.recipe_ref.trim() || "derived";
+  return `${recipe} output`;
 }
 
 function compactHistoryActionLabel(label: string | null): string {
@@ -425,6 +459,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   );
   const [editableVisualPlacements, setEditableVisualPlacements] = useState<HammerPersistedVisualPlacements | null>(
     () => props.visualPlacements ?? null,
+  );
+  const [editableOutputSelection, setEditableOutputSelection] = useState<HammerOutputSelectionState>(
+    () => resolveOutputSelectionFromTranscript(props.structuredTranscript ?? null),
   );
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(transcriptSegments[0]?.segment_id ?? null);
   const [playheadSec, setPlayheadSec] = useState(0);
@@ -721,11 +758,24 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const redoDepth = historyController?.document.redoStack.length ?? 0;
   const undoLabelCompact = compactHistoryActionLabel(undoLabel);
   const redoLabelCompact = compactHistoryActionLabel(redoLabel);
+  const outputLayerCandidates = useMemo(
+    () => listHammerDerivedTextLayers(props.structuredTranscript ?? null, { includeDiscarded: false }),
+    [props.structuredTranscript],
+  );
+  const activeOutputLayerId = props.structuredTranscript?.derived_text_layers?.active_layer_id ?? null;
+  const activeOutputLayer = outputLayerCandidates.find((layer) => layer.layer_id === activeOutputLayerId) ?? null;
+  const selectedOutputLayer = outputLayerCandidates.find(
+    (layer) => layer.layer_id === editableOutputSelection.layerId,
+  ) ?? null;
+  const outputSelectionSummary = selectedOutputLayer
+    ? formatOutputLayerLabel(selectedOutputLayer)
+    : "Raw transcript output";
 
   function captureWorkspaceState(): HammerEditorStateSerializable {
     return toEditorState({
       segments: editableTranscriptSegments,
       visualPlacements: editableVisualPlacements,
+      outputSelection: editableOutputSelection,
       selectedSegmentId,
       playheadSec,
       transcriptTimingHint,
@@ -736,6 +786,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const normalized = toShellState(nextState);
     setEditableTranscriptSegments(normalized.segments);
     setEditableVisualPlacements(normalized.visualPlacements);
+    setEditableOutputSelection(normalized.outputSelection);
     setSelectedSegmentId(normalized.selectedSegmentId);
     setPlayheadSec(normalized.playheadSec);
     setTranscriptTimingHint(normalized.transcriptTimingHint);
@@ -846,9 +897,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     clearPersistTimer();
 
     const synced = syncEditableTranscriptSegments(transcriptSegments, selectedSegmentId);
+    const baselineOutputSelection = resolveOutputSelectionFromTranscript(props.structuredTranscript ?? null);
     const baselineState = toEditorState({
       segments: synced.segments,
       visualPlacements: props.visualPlacements ?? null,
+      outputSelection: baselineOutputSelection,
       selectedSegmentId: synced.selectedSegmentId,
       playheadSec: Math.max(0, Math.min(playheadSec, resolveTranscriptDurationSec(synced.segments))),
       transcriptTimingHint: null,
@@ -1320,6 +1373,38 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
+  function selectOutputLayerForExport(layerId: string | null): void {
+    const targetLayer = layerId
+      ? outputLayerCandidates.find((layer) => layer.layer_id === layerId) ?? null
+      : null;
+    const nextSelection: HammerOutputSelectionState = {
+      layerId: targetLayer?.layer_id ?? null,
+      sourceRecipeRef: targetLayer?.recipe_ref ?? null,
+    };
+    if (
+      nextSelection.layerId === editableOutputSelection.layerId
+      && nextSelection.sourceRecipeRef === editableOutputSelection.sourceRecipeRef
+    ) {
+      return;
+    }
+
+    applyHistoryMutation({
+      label: targetLayer
+        ? `Set export output to ${targetLayer.recipe_ref}`
+        : "Set export output to raw transcript",
+      kind: "output_selection",
+      toolId: "export",
+      immediatePersist: true,
+      computeAfter: (before) => ({
+        ...before,
+        outputSelection: {
+          layerId: nextSelection.layerId,
+          sourceRecipeRef: nextSelection.sourceRecipeRef,
+        },
+      }),
+    });
+  }
+
   useEffect(() => {
     function handleKeyboardHistory(event: KeyboardEvent): void {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
@@ -1346,11 +1431,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [editableTranscriptSegments, playheadSec, selectedSegmentId, transcriptTimingHint]);
 
   const exportBasis = useMemo(() => {
-    const transcriptForRelease = preserveTranscriptMetadata(
+    const transcriptForReleaseBase = preserveTranscriptMetadata(
       editableTranscriptSegments,
       props.structuredTranscript ?? null,
       mediaRef,
       transcriptSourceId,
+    );
+    const transcriptForRelease = setHammerDerivedTextLayerOutput(
+      transcriptForReleaseBase,
+      editableOutputSelection.layerId,
     );
     const editPlan = launchContext.edit_plan
       ? {
@@ -1396,6 +1485,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       },
     };
   }, [
+    editableOutputSelection.layerId,
     editableTranscriptSegments,
     launchContext,
     mediaRef,
@@ -1560,7 +1650,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       mediaSourceLabel,
       selectedMacroRecipeRef: props.selectedMacroRecipeRef ?? null,
       lastMacroRunRef: props.lastMacroRunRef ?? null,
-      structuredTranscript: props.structuredTranscript ?? null,
+      structuredTranscript: exportBasis.transcriptForRelease,
       editPlan,
       visualPlacements: editableVisualPlacements,
       audioPolish: props.audioPolish ?? null,
@@ -1576,7 +1666,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     props.lastMacroRunRef,
     props.onWorkspaceSnapshotChange,
     props.selectedMacroRecipeRef,
-    props.structuredTranscript,
+    exportBasis.transcriptForRelease,
     editableVisualPlacements,
     selectedSegmentId,
     editableTranscriptSegments,
@@ -2591,6 +2681,47 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     {releasePrepOpenHref ? "Handoff path available." : "Handoff path unavailable."}
                   </div>
                   <div className="hammer-tool-hint">Export status: {exportStatusLabel}</div>
+                  <div className="hammer-tool-hint">Output source: {outputSelectionSummary}</div>
+                  {activeOutputLayer ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("tool-focus");
+                        selectOutputLayerForExport(activeOutputLayer.layer_id);
+                      }}
+                      disabled={editableOutputSelection.layerId === activeOutputLayer.layer_id}
+                    >
+                      Use active layer as export result
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusOverride("tool-focus");
+                      selectOutputLayerForExport(null);
+                    }}
+                    disabled={editableOutputSelection.layerId == null}
+                  >
+                    Use raw transcript as export result
+                  </button>
+                  {outputLayerCandidates.length > 0 ? (
+                    <div className="hammer-tool-hint">
+                      {outputLayerCandidates.map((layer) => (
+                        <button
+                          key={layer.layer_id}
+                          type="button"
+                          onClick={() => {
+                            setFocusOverride("tool-focus");
+                            selectOutputLayerForExport(layer.layer_id);
+                          }}
+                          disabled={editableOutputSelection.layerId === layer.layer_id}
+                        >
+                          {editableOutputSelection.layerId === layer.layer_id ? "Selected: " : "Use: "}
+                          {formatOutputLayerLabel(layer)}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                   {releasePrepLoading ? (
                     <div className="hammer-tool-hint">Checking prepared package state...</div>
                   ) : null}
@@ -2642,6 +2773,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <div>Workspace mode: {workspaceFocusMode}</div>
                 <div>Macro: {props.selectedMacroRecipeRef ?? "none"}</div>
                 <div>Last run: {props.lastMacroRunRef ?? "none"}</div>
+                <div>Output source: {outputSelectionSummary}</div>
                 <div>Release prep: {releasePrepOpenHref ? "available" : "unavailable"}</div>
               </div>
             </div>
