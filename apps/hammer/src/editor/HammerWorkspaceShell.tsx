@@ -9,6 +9,7 @@ import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import type {
   HammerPersistedAudioPolish,
   HammerPersistedStructuredTranscript,
+  HammerVisualPlacementRecord,
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
 import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
@@ -286,12 +287,25 @@ function stableHashToken(value: string): string {
 
 function toEditorState(args: {
   segments: HammerTranscriptSegment[];
+  visualPlacements: HammerPersistedVisualPlacements | null;
   selectedSegmentId: string | null;
   playheadSec: number;
   transcriptTimingHint: string | null;
 }): HammerEditorStateSerializable {
   return {
     transcriptSegments: args.segments.map((segment) => ({ ...segment })),
+    visualPlacements: args.visualPlacements
+      ? {
+        ...args.visualPlacements,
+        source_refs: [...args.visualPlacements.source_refs],
+        uncertainty_flags: [...args.visualPlacements.uncertainty_flags],
+        placements: args.visualPlacements.placements.map((placement) => ({
+          ...placement,
+          matched_segment_ids: [...placement.matched_segment_ids],
+          uncertainty_flags: [...placement.uncertainty_flags],
+        })),
+      }
+      : null,
     selectedSegmentId: args.selectedSegmentId,
     playheadSec: args.playheadSec,
     transcriptTimingHint: args.transcriptTimingHint,
@@ -300,12 +314,25 @@ function toEditorState(args: {
 
 function toShellState(state: HammerEditorStateSerializable): {
   segments: HammerTranscriptSegment[];
+  visualPlacements: HammerPersistedVisualPlacements | null;
   selectedSegmentId: string | null;
   playheadSec: number;
   transcriptTimingHint: string | null;
 } {
   return {
     segments: state.transcriptSegments.map((segment) => ({ ...segment })),
+    visualPlacements: state.visualPlacements
+      ? {
+        ...state.visualPlacements,
+        source_refs: [...state.visualPlacements.source_refs],
+        uncertainty_flags: [...state.visualPlacements.uncertainty_flags],
+        placements: state.visualPlacements.placements.map((placement) => ({
+          ...placement,
+          matched_segment_ids: [...placement.matched_segment_ids],
+          uncertainty_flags: [...placement.uncertainty_flags],
+        })),
+      }
+      : null,
     selectedSegmentId: state.selectedSegmentId,
     playheadSec: state.playheadSec,
     transcriptTimingHint: state.transcriptTimingHint,
@@ -317,6 +344,13 @@ function compactHistoryActionLabel(label: string | null): string {
   const trimmed = label.trim();
   if (trimmed.length <= 28) return trimmed;
   return `${trimmed.slice(0, 25)}...`;
+}
+
+function createVisualPlacementId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `placement:${crypto.randomUUID()}`;
+  }
+  return `placement:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function buildPreparedPackageIdentityFingerprint(pkg: HammerPreparedReleasePackage): string {
@@ -388,6 +422,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [activeTool, setActiveTool] = useState<HammerToolId>("polish");
   const [editableTranscriptSegments, setEditableTranscriptSegments] = useState<HammerTranscriptSegment[]>(
     () => transcriptSegments,
+  );
+  const [editableVisualPlacements, setEditableVisualPlacements] = useState<HammerPersistedVisualPlacements | null>(
+    () => props.visualPlacements ?? null,
   );
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(transcriptSegments[0]?.segment_id ?? null);
   const [playheadSec, setPlayheadSec] = useState(0);
@@ -466,7 +503,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
   const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
   const sourceImageItems = useMemo<HammerSourceImageItem[]>(() => (
-    (props.visualPlacements?.placements ?? []).map((placement) => ({
+    (editableVisualPlacements?.placements ?? []).map((placement) => ({
       id: placement.placement_id,
       label: placement.label ?? placement.asset_ref ?? placement.asset_path ?? placement.entry_id,
       anchorSegmentId: placement.anchor_segment_id,
@@ -477,10 +514,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       visualMode: placement.visual_mode,
       assetPath: placement.asset_path,
     }))
-  ), [props.visualPlacements?.placements]);
+  ), [editableVisualPlacements?.placements]);
   const sourceAssetItems = useMemo<HammerSourceAssetItem[]>(() => {
     const byId = new Map<string, HammerSourceAssetItem>();
-    for (const placement of props.visualPlacements?.placements ?? []) {
+    for (const placement of editableVisualPlacements?.placements ?? []) {
       const assetId = placement.asset_id ?? placement.asset_ref ?? placement.asset_path ?? placement.placement_id;
       const existing = byId.get(assetId);
       const nextKind = deriveAssetKind({
@@ -542,7 +579,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
 
     return [...byId.values()].sort((a, b) => a.firstStartSec - b.firstStartSec);
-  }, [mediaRef, props.visualPlacements?.placements, storedMediaFiles, transcriptDurationSec]);
+  }, [editableVisualPlacements?.placements, mediaRef, storedMediaFiles, transcriptDurationSec]);
   const sourceBrollItems = useMemo(
     () => sourceAssetItems.filter((item) => item.kind === "broll"),
     [sourceAssetItems],
@@ -688,6 +725,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   function captureWorkspaceState(): HammerEditorStateSerializable {
     return toEditorState({
       segments: editableTranscriptSegments,
+      visualPlacements: editableVisualPlacements,
       selectedSegmentId,
       playheadSec,
       transcriptTimingHint,
@@ -697,6 +735,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   function applyWorkspaceState(nextState: HammerEditorStateSerializable): void {
     const normalized = toShellState(nextState);
     setEditableTranscriptSegments(normalized.segments);
+    setEditableVisualPlacements(normalized.visualPlacements);
     setSelectedSegmentId(normalized.selectedSegmentId);
     setPlayheadSec(normalized.playheadSec);
     setTranscriptTimingHint(normalized.transcriptTimingHint);
@@ -749,6 +788,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     label: string;
     kind?: HammerHistoryKind;
     affectedSegments?: string[];
+    affectedPlacementIds?: string[];
     toolId?: string;
     transactionId?: string;
     allowCoalesce?: boolean;
@@ -766,6 +806,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       kind: args.kind,
       toolId: args.toolId,
       affectedSegmentIds: args.affectedSegments,
+      affectedPlacementIds: args.affectedPlacementIds,
       transactionId: args.transactionId ?? null,
       allowCoalesce: args.allowCoalesce,
       coalesceWindowMs: TEXT_EDIT_COALESCE_MS,
@@ -807,6 +848,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const synced = syncEditableTranscriptSegments(transcriptSegments, selectedSegmentId);
     const baselineState = toEditorState({
       segments: synced.segments,
+      visualPlacements: props.visualPlacements ?? null,
       selectedSegmentId: synced.selectedSegmentId,
       playheadSec: Math.max(0, Math.min(playheadSec, resolveTranscriptDurationSec(synced.segments))),
       transcriptTimingHint: null,
@@ -869,7 +911,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       active = false;
       clearPersistTimer();
     };
-  }, [launchContext.session_id, launchContext.workpiece_id, transcriptSegments, transcriptSourceId]);
+  }, [
+    launchContext.session_id,
+    launchContext.workpiece_id,
+    editableVisualPlacements,
+    transcriptSegments,
+    transcriptSourceId,
+  ]);
 
   useEffect(() => {
     const segment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
@@ -1157,6 +1205,121 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
+  function updateVisualPlacementTiming(placementId: string, deltaSec: number): void {
+    applyHistoryMutation({
+      label: "Adjust visual placement timing",
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedPlacementIds: [placementId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const current = before.visualPlacements;
+        if (!current) return before;
+        const nextPlacements = current.placements.map((placement) => {
+          if (placement.placement_id !== placementId) return placement;
+          const duration = Math.max(0.5, roundToTenth(placement.end_sec - placement.start_sec));
+          const nextStart = Math.max(0, roundToTenth(placement.start_sec + deltaSec));
+          const maxStart = Math.max(0, roundToTenth(transcriptDurationSec - duration));
+          const clampedStart = Math.min(nextStart, maxStart);
+          const nextEnd = Math.min(transcriptDurationSec, roundToTenth(clampedStart + duration));
+          return {
+            ...placement,
+            start_sec: clampedStart,
+            end_sec: Math.max(roundToTenth(clampedStart + 0.5), nextEnd),
+          };
+        });
+
+        return {
+          ...before,
+          visualPlacements: {
+            ...current,
+            placements: nextPlacements,
+          },
+        };
+      },
+    });
+  }
+
+  function removeVisualPlacement(placementId: string): void {
+    const placement = editableVisualPlacements?.placements.find((item) => item.placement_id === placementId) ?? null;
+    applyHistoryMutation({
+      label: "Remove image placement",
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedSegments: placement ? [placement.anchor_segment_id] : undefined,
+      affectedPlacementIds: [placementId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const current = before.visualPlacements;
+        if (!current) return before;
+
+        return {
+          ...before,
+          visualPlacements: {
+            ...current,
+            placements: current.placements.filter((item) => item.placement_id !== placementId),
+          },
+        };
+      },
+    });
+  }
+
+  function addImagePlacementFromLibrary(args: {
+    assetPath: string;
+    label: string;
+  }): void {
+    const placementId = createVisualPlacementId();
+
+    applyHistoryMutation({
+      label: "Add image placement",
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedPlacementIds: [placementId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const current = before.visualPlacements;
+        if (!current) return before;
+
+        const anchorSegment = before.selectedSegmentId
+          ? before.transcriptSegments.find((segment) => segment.segment_id === before.selectedSegmentId) ?? null
+          : before.transcriptSegments[0] ?? null;
+        if (!anchorSegment) return before;
+
+        const nextStart = Math.max(0, roundToTenth(before.playheadSec));
+        const nextEnd = Math.max(nextStart + 0.5, Math.min(transcriptDurationSec, roundToTenth(nextStart + 3)));
+        const nextPlacement: HammerVisualPlacementRecord = {
+          placement_id: placementId,
+          entry_id: `manual:${placementId}`,
+          anchor_segment_id: anchorSegment.segment_id,
+          matched_segment_ids: [anchorSegment.segment_id],
+          anchor_text: anchorSegment.text,
+          asset_ref: args.assetPath,
+          asset_id: null,
+          asset_path: args.assetPath,
+          storage_key: args.assetPath,
+          label: args.label,
+          visual_mode: "still_image",
+          start_sec: nextStart,
+          end_sec: nextEnd,
+          confidence: null,
+          timing_source: "ordered_fallback",
+          status: "placed",
+          ingest_state: "approved",
+          uncertainty_flags: [],
+        };
+
+        return {
+          ...before,
+          selectedSegmentId: anchorSegment.segment_id,
+          visualPlacements: {
+            ...current,
+            placements: [...current.placements, nextPlacement],
+          },
+        };
+      },
+    });
+  }
+
   useEffect(() => {
     function handleKeyboardHistory(event: KeyboardEvent): void {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
@@ -1206,7 +1369,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       prepStatus: transcriptForRelease.segments.length > 0 ? "prepared" : "idle",
       alignmentStatus: transcriptForRelease.segments.length > 0 ? "aligned" : "not_started",
       structuredTranscript: transcriptForRelease,
-      visualPlacements: props.visualPlacements ?? null,
+      visualPlacements: editableVisualPlacements,
       audioPolish: props.audioPolish ?? null,
       editorSession: {
         schema_version: 1,
@@ -1240,7 +1403,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     previewMode,
     props.audioPolish,
     props.structuredTranscript,
-    props.visualPlacements,
+    editableVisualPlacements,
     selectedSegmentId,
     transcriptSourceId,
     workspaceMapping,
@@ -1399,7 +1562,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       lastMacroRunRef: props.lastMacroRunRef ?? null,
       structuredTranscript: props.structuredTranscript ?? null,
       editPlan,
-      visualPlacements: props.visualPlacements ?? null,
+      visualPlacements: editableVisualPlacements,
       audioPolish: props.audioPolish ?? null,
     };
 
@@ -1414,7 +1577,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     props.onWorkspaceSnapshotChange,
     props.selectedMacroRecipeRef,
     props.structuredTranscript,
-    props.visualPlacements,
+    editableVisualPlacements,
     selectedSegmentId,
     editableTranscriptSegments,
     transcriptSourceId,
@@ -1755,6 +1918,33 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           >
                             Jump to timeline
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFocusOverride("time-focus");
+                              updateVisualPlacementTiming(item.id, -0.5);
+                            }}
+                          >
+                            -0.5s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFocusOverride("time-focus");
+                              updateVisualPlacementTiming(item.id, 0.5);
+                            }}
+                          >
+                            +0.5s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFocusOverride("tool-focus");
+                              removeVisualPlacement(item.id);
+                            }}
+                          >
+                            Remove
+                          </button>
                         </div>
                       </article>
                     ))}
@@ -1782,6 +1972,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <span>{file.updatedAt ?? "updated time unavailable"}</span>
                         </div>
                         <div className="hammer-source-card__path">{file.path}</div>
+                        <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFocusOverride("tool-focus");
+                              addImagePlacementFromLibrary({
+                                assetPath: file.path,
+                                label: file.name,
+                              });
+                            }}
+                          >
+                            Add placement
+                          </button>
+                        </div>
                       </article>
                     ))}
                   </>
@@ -2291,7 +2495,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       <option value="segment">Segment boundaries</option>
                     </select>
                   </label>
-                  <div className="hammer-tool-hint">Placed visuals: {props.visualPlacements?.placements.length ?? 0}</div>
+                  <div className="hammer-tool-hint">Placed visuals: {editableVisualPlacements?.placements.length ?? 0}</div>
                 </section>
               ) : null}
 

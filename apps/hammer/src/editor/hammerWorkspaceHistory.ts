@@ -1,4 +1,8 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import type {
+  HammerPersistedVisualPlacements,
+  HammerVisualPlacementRecord,
+} from "../persistence/hammerPersistenceContract";
 
 export type JsonPatchLike = {
   op: "replace" | "add" | "remove";
@@ -18,6 +22,7 @@ export type HammerHistoryKind =
 
 export interface HammerEditorStateSerializable {
   transcriptSegments: HammerTranscriptSegment[];
+  visualPlacements: HammerPersistedVisualPlacements | null;
   selectedSegmentId: string | null;
   playheadSec: number;
   transcriptTimingHint: string | null;
@@ -120,9 +125,30 @@ function cloneSegments(segments: HammerTranscriptSegment[]): HammerTranscriptSeg
   return segments.map((segment) => ({ ...segment }));
 }
 
+function clonePlacementRecords(placements: HammerVisualPlacementRecord[]): HammerVisualPlacementRecord[] {
+  return placements.map((placement) => ({
+    ...placement,
+    matched_segment_ids: [...placement.matched_segment_ids],
+    uncertainty_flags: [...placement.uncertainty_flags],
+  }));
+}
+
+function cloneVisualPlacements(
+  placements: HammerPersistedVisualPlacements | null,
+): HammerPersistedVisualPlacements | null {
+  if (!placements) return null;
+  return {
+    ...placements,
+    source_refs: [...placements.source_refs],
+    uncertainty_flags: [...placements.uncertainty_flags],
+    placements: clonePlacementRecords(placements.placements),
+  };
+}
+
 export function cloneEditorState(state: HammerEditorStateSerializable): HammerEditorStateSerializable {
   return {
     transcriptSegments: cloneSegments(state.transcriptSegments),
+    visualPlacements: cloneVisualPlacements(state.visualPlacements),
     selectedSegmentId: state.selectedSegmentId,
     playheadSec: state.playheadSec,
     transcriptTimingHint: state.transcriptTimingHint,
@@ -358,6 +384,90 @@ function readSegmentAt(state: HammerEditorStateSerializable, index: number): Ham
   return { ...segment };
 }
 
+function normalizeVisualPlacementsFromValue(value: unknown): HammerPersistedVisualPlacements | null {
+  if (value == null) return null;
+  const row = readJsonObject(value);
+  if (!row) return null;
+
+  const sourceRefs = Array.isArray(row.source_refs)
+    ? row.source_refs.map((item) => readString(item)).filter((item): item is string => Boolean(item))
+    : [];
+  const uncertaintyFlags = Array.isArray(row.uncertainty_flags)
+    ? row.uncertainty_flags.map((item) => readString(item)).filter((item): item is string => Boolean(item))
+    : [];
+
+  const placementsRaw = Array.isArray(row.placements) ? row.placements : [];
+  const placements = placementsRaw
+    .map((item) => {
+      const placement = readJsonObject(item);
+      if (!placement) return null;
+      const placementId = readString(placement.placement_id);
+      const entryId = readString(placement.entry_id);
+      const anchorSegmentId = readString(placement.anchor_segment_id);
+      const assetRef = readString(placement.asset_ref);
+      const timingSource = readString(placement.timing_source);
+      const status = readString(placement.status);
+      const startSec = Number(placement.start_sec);
+      const endSec = Number(placement.end_sec);
+      if (
+        !placementId
+        || !entryId
+        || !anchorSegmentId
+        || !assetRef
+        || !timingSource
+        || !status
+        || !Number.isFinite(startSec)
+        || !Number.isFinite(endSec)
+      ) {
+        return null;
+      }
+      return {
+        placement_id: placementId,
+        entry_id: entryId,
+        anchor_segment_id: anchorSegmentId,
+        matched_segment_ids: Array.isArray(placement.matched_segment_ids)
+          ? placement.matched_segment_ids
+            .map((segmentId) => readString(segmentId))
+            .filter((segmentId): segmentId is string => Boolean(segmentId))
+          : [],
+        anchor_text: readString(placement.anchor_text),
+        asset_ref: assetRef,
+        asset_id: readString(placement.asset_id),
+        asset_path: readString(placement.asset_path),
+        storage_key: readString(placement.storage_key),
+        label: readString(placement.label),
+        visual_mode: readString(placement.visual_mode),
+        start_sec: startSec,
+        end_sec: endSec,
+        confidence: Number.isFinite(Number(placement.confidence)) ? Number(placement.confidence) : null,
+        timing_source: timingSource === "ordered_fallback" ? "ordered_fallback" : "transcript_match",
+        status: status === "uncertain" ? "uncertain" : "placed",
+        ingest_state: placement.ingest_state === "approved" ? "approved" : "suggested",
+        uncertainty_flags: Array.isArray(placement.uncertainty_flags)
+          ? placement.uncertainty_flags
+            .map((flag) => readString(flag))
+            .filter((flag): flag is string => Boolean(flag))
+          : [],
+      } as HammerVisualPlacementRecord;
+    })
+    .filter((placement): placement is HammerVisualPlacementRecord => Boolean(placement));
+
+  return {
+    schema_version: 1,
+    status: row.status === "prepared" ? "prepared" : "not_started",
+    source_refs: sourceRefs,
+    uncertainty_flags: uncertaintyFlags,
+    placements,
+  };
+}
+
+function areVisualPlacementsEqual(
+  left: HammerPersistedVisualPlacements | null,
+  right: HammerPersistedVisualPlacements | null,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function applyPatchToState(state: HammerEditorStateSerializable, patch: JsonPatchLike): HammerEditorStateSerializable {
   const next = cloneEditorState(state);
   const parts = serializePatchPath(patch.path);
@@ -495,6 +605,15 @@ function applyPatchToState(state: HammerEditorStateSerializable, patch: JsonPatc
     return next;
   }
 
+  if (root === "visualPlacements") {
+    if (patch.op === "remove") {
+      next.visualPlacements = null;
+      return next;
+    }
+    next.visualPlacements = normalizeVisualPlacementsFromValue(patch.value);
+    return next;
+  }
+
   throw new Error(`Unsupported patch root path: ${root}`);
 }
 
@@ -593,6 +712,19 @@ export function buildStatePatches(
   if (before.transcriptTimingHint !== after.transcriptTimingHint) {
     forward.push({ op: "replace", path: "/transcriptTimingHint", value: after.transcriptTimingHint });
     inverse.unshift({ op: "replace", path: "/transcriptTimingHint", value: before.transcriptTimingHint });
+  }
+
+  if (!areVisualPlacementsEqual(before.visualPlacements, after.visualPlacements)) {
+    forward.push({
+      op: "replace",
+      path: "/visualPlacements",
+      value: clonePatchValue(after.visualPlacements),
+    });
+    inverse.unshift({
+      op: "replace",
+      path: "/visualPlacements",
+      value: clonePatchValue(before.visualPlacements),
+    });
   }
 
   return { forward, inverse };

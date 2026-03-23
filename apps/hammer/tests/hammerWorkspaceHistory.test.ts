@@ -24,6 +24,7 @@ function segment(id: string, text: string, start = 0, end = 1): HammerTranscript
 function baseState(): HammerEditorStateSerializable {
   return {
     transcriptSegments: [segment("a", "hello"), segment("b", "world", 1, 2)],
+    visualPlacements: null,
     selectedSegmentId: "a",
     playheadSec: 0,
     transcriptTimingHint: null,
