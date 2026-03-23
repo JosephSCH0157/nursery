@@ -1,7 +1,7 @@
 import { HAMMER_RUNTIME_WRITTEN_BY } from "../prep/hammerPrep";
 import { tongsFetch } from "./tongsFetch";
-import { normalizeWorkpieceRelativePath } from "./workpiecePaths";
-export { normalizeWorkpieceRelativePath } from "./workpiecePaths";
+import { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
+export { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
 
 const INTRO_OUTRO_SELECTION_PATH = "hammer/session/intro-outro.v1.json";
 const SOURCE_DESK_UPLOAD_BASE_PATH = "assets/uploads";

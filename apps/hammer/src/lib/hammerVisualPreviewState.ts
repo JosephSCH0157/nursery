@@ -1,6 +1,6 @@
 import type { HammerPersistedVisualPlacements, HammerVisualPlacementRecord } from "../persistence/hammerPersistenceContract";
 import { tongsFetch } from "./tongsFetch";
-import { normalizeWorkpieceRelativePath } from "./workpiecePaths";
+import { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
 import {
   HAMMER_PREVIEW_PLACEMENT_DEFAULTS,
   resolveActiveHammerVisualAtTime,

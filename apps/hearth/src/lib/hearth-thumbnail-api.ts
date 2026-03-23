@@ -9,7 +9,7 @@ import {
 } from "./episode-package-v2";
 import { resolveAiLaneFromStorage, resolveForgeUserAccessToken } from "./hearth-chat-api";
 import { tongsFetch } from "./tongs-fetch";
-import { normalizeWorkpieceRelativePath } from "./workpiece-paths";
+import { normalizeWorkpieceRelativePathOrNull } from "../../../../packages/contracts/workpiece-paths";
 
 type GeneratedAsset = {
   id: string;
@@ -300,11 +300,11 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 function resolveCandidateAssetPaths(workpieceId: string, version: EpisodeThumbnailVersion): string[] {
   const candidates: string[] = [];
-  const direct = normalizeWorkpieceRelativePath(workpieceId, version.asset_path);
+  const direct = normalizeWorkpieceRelativePathOrNull(workpieceId, version.asset_path);
   if (direct) candidates.push(direct);
 
   const encodedPathAsset = version.asset_id.startsWith("path:")
-    ? normalizeWorkpieceRelativePath(workpieceId, version.asset_id.slice(5))
+    ? normalizeWorkpieceRelativePathOrNull(workpieceId, version.asset_id.slice(5))
     : null;
   if (encodedPathAsset) candidates.push(encodedPathAsset);
 

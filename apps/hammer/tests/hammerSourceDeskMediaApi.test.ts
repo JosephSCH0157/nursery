@@ -9,7 +9,7 @@ import {
   saveIntroOutroSelection,
   uploadWorkpieceMediaFile,
 } from "../src/lib/hammerSourceDeskMediaApi";
-import { normalizeWorkpieceRelativePath } from "../src/lib/workpiecePaths";
+import { normalizeWorkpieceRelativePath } from "../../../packages/contracts/workpiece-paths";
 
 type FetchCall = {
   url: string;

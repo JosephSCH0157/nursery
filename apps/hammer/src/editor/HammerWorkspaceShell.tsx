@@ -41,7 +41,7 @@ import {
   type HammerIntroOutroSelection,
   type HammerStoredMediaFile,
 } from "../lib/hammerSourceDeskMediaApi";
-import { normalizeWorkpieceRelativePath } from "../lib/workpiecePaths";
+import { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
 import { preserveTranscriptMetadata } from "../prep/hammerPrep";
 import { buildHammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
 import {
