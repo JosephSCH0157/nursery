@@ -312,6 +312,13 @@ function toShellState(state: HammerEditorStateSerializable): {
   };
 }
 
+function compactHistoryActionLabel(label: string | null): string {
+  if (!label) return "";
+  const trimmed = label.trim();
+  if (trimmed.length <= 28) return trimmed;
+  return `${trimmed.slice(0, 25)}...`;
+}
+
 function buildPreparedPackageIdentityFingerprint(pkg: HammerPreparedReleasePackage): string {
   const basis = [
     `v:${String(pkg.version)}`,
@@ -673,6 +680,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const canRedo = historyController?.canRedo() ?? false;
   const undoLabel = historyController?.peekUndoEntry()?.label ?? null;
   const redoLabel = historyController?.peekRedoEntry()?.label ?? null;
+  const undoDepth = historyController?.document.undoStack.length ?? 0;
+  const redoDepth = historyController?.document.redoStack.length ?? 0;
+  const undoLabelCompact = compactHistoryActionLabel(undoLabel);
+  const redoLabelCompact = compactHistoryActionLabel(redoLabel);
 
   function captureWorkspaceState(): HammerEditorStateSerializable {
     return toEditorState({
@@ -1438,7 +1449,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   disabled={!canUndo}
                   title={undoLabel ? `Undo ${undoLabel}` : "Undo"}
                 >
-                  Undo
+                  {canUndo && undoLabelCompact ? `Undo ${undoLabelCompact}` : "Undo"}
                 </button>
                 <button
                   type="button"
@@ -1446,7 +1457,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   disabled={!canRedo}
                   title={redoLabel ? `Redo ${redoLabel}` : "Redo"}
                 >
-                  Redo
+                  {canRedo && redoLabelCompact ? `Redo ${redoLabelCompact}` : "Redo"}
                 </button>
               </div>
               <div className="hammer-bay-tabs">
@@ -1481,6 +1492,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   {historyStatus}
                 </div>
               ) : null}
+              <div className="hammer-source-status hammer-source-status--info" role="status">
+                History: {undoDepth} undo / {redoDepth} redo
+              </div>
 
               {selectedSourceTab === "transcript" ? (
                 editableTranscriptSegments.length > 0 ? (
@@ -1589,7 +1603,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                 label: "Edit speaker label",
                                 kind: "speaker_edit",
                                 affectedSegments: [selectedSegment.segment_id],
-                                transactionId: `speaker:${selectedSegment.segment_id}`,
+                                transactionId: `speaker:${selectedSegment.segment_id}:${activeTool}:${selectedSourceTab}`,
                                 allowCoalesce: true,
                                 computeAfter: (before) => ({
                                   ...before,
@@ -1615,7 +1629,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                 label: "Edit transcript text",
                                 kind: "transcript_text_edit",
                                 affectedSegments: [selectedSegment.segment_id],
-                                transactionId: `text:${selectedSegment.segment_id}`,
+                                transactionId: `text:${selectedSegment.segment_id}:${activeTool}:${selectedSourceTab}`,
                                 allowCoalesce: true,
                                 computeAfter: (before) => ({
                                   ...before,
