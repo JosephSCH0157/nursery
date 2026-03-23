@@ -61,6 +61,8 @@ const TOOLBAR_WIDTH_PX = 72;
 const PREVIEW_BAY_MAX_WIDTH_PX = 460;
 const TIMELINE_DOCK_BASELINE_HEIGHT_PX = 376;
 const TIMELINE_DOCK_TIME_FOCUS_HEIGHT_PX = 504;
+const SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY = 4;
+const SOURCE_DESK_PREVIEW_MAX_ITEMS = 48;
 
 type HammerToolId = HammerWorkspaceToolId;
 type HammerSourceTabId = "transcript" | "images" | "assets" | "broll" | "introoutro";
@@ -618,27 +620,46 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     let active = true;
     const nextUrls: Record<string, string> = {};
     const nextFailures: Record<string, true> = {};
+    const previewPaths = sourceDeskPreviewPaths.slice(0, SOURCE_DESK_PREVIEW_MAX_ITEMS);
 
-    void Promise.all(sourceDeskPreviewPaths.map(async (path) => {
-      try {
-        const url = await loadWorkpieceMediaPreviewUrl({
-          workpieceId: launchContext.workpiece_id,
-          path,
-        });
-        nextUrls[path] = url;
-      } catch (error) {
-        nextFailures[path] = true;
-        const diagnostics = readHammerMediaPreviewErrorDiagnostics(error);
-        console.warn("Hammer Source Desk preview unavailable", {
-          workpieceId: launchContext.workpiece_id,
-          originalPath: diagnostics?.originalPath ?? path,
-          normalizedPath: diagnostics?.normalizedPath
-            ?? normalizeWorkpieceRelativePath(launchContext.workpiece_id, path),
-          status: diagnostics?.status ?? null,
-          error,
-        });
+    if (sourceDeskPreviewPaths.length > SOURCE_DESK_PREVIEW_MAX_ITEMS) {
+      console.info("Hammer Source Desk preview load capped", {
+        workpieceId: launchContext.workpiece_id,
+        requested: sourceDeskPreviewPaths.length,
+        loaded: previewPaths.length,
+      });
+    }
+
+    async function loadPreviewBatch(paths: string[]): Promise<void> {
+      await Promise.all(paths.map(async (path) => {
+        try {
+          const url = await loadWorkpieceMediaPreviewUrl({
+            workpieceId: launchContext.workpiece_id,
+            path,
+          });
+          nextUrls[path] = url;
+        } catch (error) {
+          nextFailures[path] = true;
+          const diagnostics = readHammerMediaPreviewErrorDiagnostics(error);
+          console.warn("Hammer Source Desk preview unavailable", {
+            workpieceId: launchContext.workpiece_id,
+            originalPath: diagnostics?.originalPath ?? path,
+            normalizedPath: diagnostics?.normalizedPath
+              ?? normalizeWorkpieceRelativePath(launchContext.workpiece_id, path),
+            status: diagnostics?.status ?? null,
+            error,
+          });
+        }
+      }));
+    }
+
+    void (async () => {
+      for (let index = 0; index < previewPaths.length; index += SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY) {
+        if (!active) break;
+        const batch = previewPaths.slice(index, index + SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY);
+        await loadPreviewBatch(batch);
       }
-    })).then(() => {
+
       if (!active) {
         for (const url of Object.values(nextUrls)) URL.revokeObjectURL(url);
         return;
@@ -648,7 +669,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         return nextUrls;
       });
       setSourceDeskPreviewFailures(nextFailures);
-    });
+    })();
 
     return () => {
       active = false;
