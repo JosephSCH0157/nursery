@@ -286,8 +286,8 @@ Guardrails:
 
 .hammer-source-card__thumb {
   width: 100%;
-  max-height: 120px;
-  min-height: 86px;
+  aspect-ratio: 16 / 9;
+  display: block;
   object-fit: cover;
   border-radius: 8px;
   border: 1px solid rgba(148, 163, 184, 0.24);
