@@ -162,23 +162,59 @@ Guardrails:
   gap: 6px;
 }
 
-.hammer-transcript-row {
-  border: 1px solid rgba(148, 163, 184, 0.22);
+.hammer-transcript-document {
+  border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 10px;
-  background: rgba(15, 23, 42, 0.6);
-  padding: 9px 10px;
-  color: #d7e1f0;
-  cursor: pointer;
+  background: rgba(15, 23, 42, 0.5);
+  padding: 10px;
   display: grid;
-  gap: 3px;
-  text-align: left;
-  font-size: 13px;
-  line-height: 1.35;
+  gap: 4px;
 }
 
-.hammer-transcript-row.is-active {
-  border-color: rgba(96, 165, 250, 0.7);
-  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.24);
+.hammer-transcript-line {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 5px 6px;
+  color: #d7e1f0;
+  cursor: pointer;
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.hammer-transcript-line:hover {
+  background: rgba(30, 41, 59, 0.4);
+}
+
+.hammer-transcript-line.is-active {
+  background: rgba(37, 99, 235, 0.12);
+  box-shadow: inset 2px 0 0 rgba(96, 165, 250, 0.85);
+}
+
+.hammer-transcript-line.is-modified .hammer-transcript-line__meta {
+  color: #fcd34d;
+}
+
+.hammer-transcript-line__meta {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: #93c5fd;
+}
+
+.hammer-transcript-line__speaker {
+  font-weight: 600;
+  color: #bfdbfe;
+  margin-right: 6px;
+}
+
+.hammer-transcript-line__text {
+  color: #dbeafe;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .hammer-transcript-editor {
@@ -218,6 +254,24 @@ Guardrails:
 .hammer-transcript-editor__field textarea {
   min-height: 68px;
   resize: vertical;
+}
+
+.hammer-transcript-editor__hint {
+  border: 1px solid rgba(251, 191, 36, 0.38);
+  border-radius: 8px;
+  padding: 4px 7px;
+  font-size: 11px;
+  color: #fde68a;
+  background: rgba(120, 53, 15, 0.24);
+}
+
+.hammer-transcript-status-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 3px 2px 1px;
+  font-size: 10px;
+  color: #93c5fd;
 }
 
 .hammer-source-summary {
@@ -446,6 +500,71 @@ Guardrails:
 .hammer-tool-hint {
   color: #93c5fd;
   font-size: 11px;
+}
+
+.hammer-cleanup-tool {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 9px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  background: rgba(2, 6, 23, 0.42);
+}
+
+.hammer-cleanup-tool--quick {
+  border-color: rgba(59, 130, 246, 0.36);
+  background: rgba(30, 58, 138, 0.2);
+}
+
+.hammer-cleanup-tool__head {
+  display: grid;
+  gap: 2px;
+}
+
+.hammer-cleanup-tool__head strong {
+  color: #dbeafe;
+  font-size: 12px;
+}
+
+.hammer-cleanup-tool__head span {
+  color: #93c5fd;
+  font-size: 11px;
+}
+
+.hammer-cleanup-preview {
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  border-radius: 9px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  background: rgba(30, 64, 175, 0.14);
+}
+
+.hammer-cleanup-preview__head {
+  display: grid;
+  gap: 2px;
+}
+
+.hammer-cleanup-preview__head strong {
+  color: #dbeafe;
+  font-size: 12px;
+}
+
+.hammer-cleanup-preview__head span {
+  color: #bfdbfe;
+  font-size: 11px;
+}
+
+.hammer-cleanup-preview__list {
+  display: grid;
+  gap: 3px;
+  font-size: 11px;
+  color: #cbd5e1;
+}
+
+.hammer-cleanup-preview__actions {
+  display: flex;
+  gap: 6px;
 }
 
 .hammer-timeline-tools {

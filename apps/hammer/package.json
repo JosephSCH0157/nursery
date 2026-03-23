@@ -19,7 +19,8 @@
     "test:workspace-transcript": "tsx tests/hammerWorkspaceTranscript.test.ts",
     "test:workspace-authority": "tsx tests/hammerWorkspaceAuthority.test.ts",
     "test:workspace-core": "pnpm run test:workspace-timeline && pnpm run test:workspace-transcript && pnpm run test:workspace-authority && pnpm run test:source-desk-media",
-    "test:source-desk-media": "tsx tests/hammerSourceDeskMediaApi.test.ts"
+    "test:source-desk-media": "tsx tests/hammerSourceDeskMediaApi.test.ts",
+    "test:transcript-hardening": "tsx tests/hammerTranscriptHardening.test.ts"
   },
   "dependencies": {
     "react": "^19.2.0",

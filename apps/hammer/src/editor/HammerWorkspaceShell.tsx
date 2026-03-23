@@ -32,6 +32,16 @@ import {
   updateTranscriptSegmentText,
 } from "./hammerWorkspaceTranscript";
 import {
+  previewQuickClean,
+  previewRemoveFillers,
+  previewRemoveRetakes,
+  previewShortenGaps,
+  type HammerCleanupPreview,
+  type RetakeCleanupOptions,
+  type FillerCleanupOptions,
+  type GapCleanupOptions,
+} from "./hammerCleanupTools";
+import {
   listWorkpieceStoredMedia,
   loadIntroOutroSelection,
   readHammerMediaPreviewErrorDiagnostics,
@@ -226,6 +236,17 @@ function formatBytes(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function hasTranscriptSegmentChanged(
+  previous: HammerTranscriptSegment | undefined,
+  next: HammerTranscriptSegment,
+): boolean {
+  if (!previous) return true;
+  return previous.speaker !== next.speaker
+    || previous.text !== next.text
+    || previous.start_sec !== next.start_sec
+    || previous.end_sec !== next.end_sec;
+}
+
 function isSourceDeskAuthMessage(message: string | null): boolean {
   if (!message) return false;
   return /(auth|session|token|sign[ -]?in|unauthorized|forbidden)/i.test(message);
@@ -320,6 +341,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [playheadSec, setPlayheadSec] = useState(0);
   const [focusOverride, setFocusOverride] = useState<HammerWorkspaceFocusOverride>("auto");
   const [polishStrength, setPolishStrength] = useState(60);
+  const [gapCleanupOptions, setGapCleanupOptions] = useState<GapCleanupOptions>({
+    maxGapSec: 0.4,
+    minPauseSec: 0.1,
+    preserveDramaticPauses: true,
+  });
+  const [fillerCleanupOptions, setFillerCleanupOptions] = useState<FillerCleanupOptions>({
+    aggressiveness: "medium",
+    protectIntentionalPhrasing: true,
+  });
+  const [retakeCleanupOptions, setRetakeCleanupOptions] = useState<RetakeCleanupOptions>({
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
   const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
   const [videoSnapMode, setVideoSnapMode] = useState<"timeline" | "segment">("timeline");
@@ -347,10 +384,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [releasePrepError, setReleasePrepError] = useState<string | null>(null);
   const [releasePrepSaved, setReleasePrepSaved] = useState<HammerReleasePrepSaveState | null>(null);
   const [loadedPreparedPackage, setLoadedPreparedPackage] = useState<HammerPreparedReleasePackage | null>(null);
+  const [transcriptTimingHint, setTranscriptTimingHint] = useState<string | null>(null);
   const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
   const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
   const lastHandledHandoffTokenRef = useRef<number | null>(null);
+  const transcriptLineRefs = useRef(new Map<string, HTMLButtonElement>());
+  const timelineTrackScrollRef = useRef<HTMLDivElement | null>(null);
+  const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
 
   const previewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
   const workspaceFocusMode = focusOverride === "auto" ? resolveWorkspaceFocusMode(activeTool) : focusOverride;
@@ -488,6 +529,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       selected: segment.segment_id === selectedSegmentId,
       tone: "dialogue",
       onSelect: () => {
+        selectionOriginRef.current = "timeline";
         setFocusOverride("time-focus");
         setSelectedSegmentId(segment.segment_id);
         setPlayheadSec(segment.start_sec);
@@ -503,6 +545,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       selected: item.anchorSegmentId === selectedSegmentId,
       tone: "image",
       onSelect: () => {
+        selectionOriginRef.current = "timeline";
         setFocusOverride("time-focus");
         setSelectedSegmentId(item.anchorSegmentId);
         setPlayheadSec(item.startSec);
@@ -539,6 +582,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return byLane;
   }, [timelineDurationSec, timelineLanes]);
   const playheadRatioPercent = Math.min(100, (playheadSec / timelineDurationSec) * 100);
+  const sourceTranscriptById = useMemo(() => {
+    const byId = new Map<string, HammerTranscriptSegment>();
+    for (const segment of transcriptSegments) {
+      byId.set(segment.segment_id, segment);
+    }
+    return byId;
+  }, [transcriptSegments]);
+  const modifiedTranscriptSegmentIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const segment of editableTranscriptSegments) {
+      if (hasTranscriptSegmentChanged(sourceTranscriptById.get(segment.segment_id), segment)) {
+        ids.add(segment.segment_id);
+      }
+    }
+    return ids;
+  }, [editableTranscriptSegments, sourceTranscriptById]);
+  const modifiedSegmentCount = modifiedTranscriptSegmentIds.size;
   const sourceDeskPreviewPaths = useMemo(() => {
     const paths = new Set<string>();
     for (const item of sourceImageLibraryItems) {
@@ -565,7 +625,63 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const synced = syncEditableTranscriptSegments(transcriptSegments, selectedSegmentId);
     setEditableTranscriptSegments(synced.segments);
     setSelectedSegmentId(synced.selectedSegmentId);
-  }, [transcriptSegments, transcriptSourceId]);
+    setTranscriptTimingHint(null);
+    setCleanupPreview(null);
+    setPlayheadSec((current) => Math.max(0, Math.min(current, resolveTranscriptDurationSec(synced.segments))));
+    selectionOriginRef.current = "system";
+  }, [launchContext.workpiece_id, transcriptSourceId]);
+
+  useEffect(() => {
+    const segment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
+    if (!segment) return;
+    if (segment.segment_id === selectedSegmentId) return;
+    selectionOriginRef.current = "playhead";
+    setSelectedSegmentId(segment.segment_id);
+  }, [editableTranscriptSegments, playheadSec, selectedSegmentId]);
+
+  useEffect(() => {
+    if (!selectedSegmentId) return;
+    const selected = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId);
+    if (!selected) return;
+
+    const origin = selectionOriginRef.current;
+    const line = transcriptLineRefs.current.get(selectedSegmentId) ?? null;
+    if (line) {
+      const parentScroll = line.closest(".hammer-bay-body");
+      if (parentScroll instanceof HTMLElement) {
+        const lineTop = line.offsetTop;
+        const lineBottom = lineTop + line.offsetHeight;
+        const viewTop = parentScroll.scrollTop;
+        const viewBottom = viewTop + parentScroll.clientHeight;
+        const comfortPadding = Math.min(84, Math.floor(parentScroll.clientHeight * 0.2));
+        const inComfortBand = lineTop >= (viewTop + comfortPadding) && lineBottom <= (viewBottom - comfortPadding);
+        if (origin !== "playhead" || !inComfortBand) {
+          line.scrollIntoView({ block: "center", behavior: origin === "playhead" ? "auto" : "smooth" });
+        }
+      }
+    }
+
+    const trackScroll = timelineTrackScrollRef.current;
+    if (trackScroll && timelineDurationSec > 0) {
+      const midpoint = (selected.start_sec + selected.end_sec) / 2;
+      const ratio = Math.max(0, Math.min(1, midpoint / timelineDurationSec));
+      const targetPixel = ratio * trackScroll.scrollWidth;
+      const viewLeft = trackScroll.scrollLeft;
+      const viewRight = viewLeft + trackScroll.clientWidth;
+      const comfortLeft = viewLeft + (trackScroll.clientWidth * 0.2);
+      const comfortRight = viewRight - (trackScroll.clientWidth * 0.2);
+      const inComfortBand = targetPixel >= comfortLeft && targetPixel <= comfortRight;
+      if (origin !== "playhead" || !inComfortBand) {
+        const centeredLeft = Math.max(0, targetPixel - (trackScroll.clientWidth / 2));
+        trackScroll.scrollTo({
+          left: centeredLeft,
+          behavior: origin === "playhead" ? "auto" : "smooth",
+        });
+      }
+    }
+
+    selectionOriginRef.current = "system";
+  }, [editableTranscriptSegments, selectedSegmentId, timelineDurationSec]);
 
   async function refreshSourceDeskMedia(): Promise<void> {
     setSourceDeskLoading(true);
@@ -754,6 +870,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   function trimSegmentEnd(segmentId: string, deltaSec: number): void {
     updateSegmentTiming(segmentId, (segment) => trimSegmentEndTiming(segment, deltaSec));
+  }
+
+  function applyCleanup(preview: HammerCleanupPreview): void {
+    const synced = syncEditableTranscriptSegments(preview.resultSegments, selectedSegmentId);
+    setEditableTranscriptSegments(synced.segments);
+    setSelectedSegmentId(synced.selectedSegmentId);
+    if (synced.selectedSegmentId) {
+      const selected = synced.segments.find((segment) => segment.segment_id === synced.selectedSegmentId) ?? null;
+      if (selected) setPlayheadSec(selected.start_sec);
+    }
+    setCleanupPreview(null);
   }
 
   const exportBasis = useMemo(() => {
@@ -1053,6 +1180,80 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <span>{selectedSegment.start_sec.toFixed(1)}s - {selectedSegment.end_sec.toFixed(1)}s</span>
                           <span>{selectedSegment.segment_id}</span>
                         </div>
+                        <div className="hammer-transcript-editor__meta">
+                          <label className="hammer-transcript-editor__field">
+                            <span>Start (s)</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step={0.1}
+                              value={selectedSegment.start_sec}
+                              onFocus={() => setFocusOverride("source-focus")}
+                              onChange={(event) => {
+                                const parsed = Number(event.target.value);
+                                if (!Number.isFinite(parsed)) return;
+                                const nextStart = Math.max(0, roundToTenth(parsed));
+                                setFocusOverride("source-focus");
+                                setSelectedSegmentId(selectedSegment.segment_id);
+                                setEditableTranscriptSegments((current) => updateSegmentInTimeline(
+                                  current,
+                                  selectedSegment.segment_id,
+                                  (segment) => {
+                                    const endFloor = roundToTenth(nextStart + 0.1);
+                                    return {
+                                      ...segment,
+                                      start_sec: nextStart,
+                                      end_sec: Math.max(roundToTenth(segment.end_sec), endFloor),
+                                    };
+                                  },
+                                ));
+                                setTranscriptTimingHint(
+                                  nextStart !== parsed
+                                    ? `Start adjusted to ${nextStart.toFixed(1)}s to stay on the timeline grid.`
+                                    : null,
+                                );
+                                setPlayheadSec(nextStart);
+                              }}
+                            />
+                          </label>
+                          <label className="hammer-transcript-editor__field">
+                            <span>End (s)</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step={0.1}
+                              value={selectedSegment.end_sec}
+                              onFocus={() => setFocusOverride("source-focus")}
+                              onChange={(event) => {
+                                const parsed = Number(event.target.value);
+                                if (!Number.isFinite(parsed)) return;
+                                const nextEnd = Math.max(0, roundToTenth(parsed));
+                                const minimumEnd = roundToTenth(selectedSegment.start_sec + 0.1);
+                                const adjustedEnd = Math.max(nextEnd, minimumEnd);
+                                setFocusOverride("source-focus");
+                                setSelectedSegmentId(selectedSegment.segment_id);
+                                setEditableTranscriptSegments((current) => updateSegmentInTimeline(
+                                  current,
+                                  selectedSegment.segment_id,
+                                  (segment) => ({
+                                    ...segment,
+                                    end_sec: Math.max(adjustedEnd, roundToTenth(segment.start_sec + 0.1)),
+                                  }),
+                                ));
+                                setTranscriptTimingHint(
+                                  adjustedEnd !== parsed
+                                    ? `End adjusted to ${adjustedEnd.toFixed(1)}s to remain after start time.`
+                                    : null,
+                                );
+                              }}
+                            />
+                          </label>
+                        </div>
+                        {transcriptTimingHint ? (
+                          <div className="hammer-transcript-editor__hint" role="status">
+                            {transcriptTimingHint}
+                          </div>
+                        ) : null}
                         <label className="hammer-transcript-editor__field">
                           <span>Speaker</span>
                           <input
@@ -1061,6 +1262,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             onFocus={() => setFocusOverride("source-focus")}
                             onChange={(event) => {
                               setFocusOverride("source-focus");
+                              setTranscriptTimingHint(null);
                               setEditableTranscriptSegments((current) => updateTranscriptSegmentSpeaker(
                                 current,
                                 selectedSegment.segment_id,
@@ -1076,6 +1278,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             onFocus={() => setFocusOverride("source-focus")}
                             onChange={(event) => {
                               setFocusOverride("source-focus");
+                              setTranscriptTimingHint(null);
                               setEditableTranscriptSegments((current) => updateTranscriptSegmentText(
                                 current,
                                 selectedSegment.segment_id,
@@ -1086,21 +1289,47 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         </label>
                       </section>
                     ) : null}
-                    {editableTranscriptSegments.map((segment) => (
-                      <button
-                        key={segment.segment_id}
-                        type="button"
-                        className={segment.segment_id === selectedSegmentId ? "hammer-transcript-row is-active" : "hammer-transcript-row"}
-                        onClick={() => {
-                          setFocusOverride("source-focus");
-                          setSelectedSegmentId(segment.segment_id);
-                          setPlayheadSec(segment.start_sec);
-                        }}
-                      >
-                        <span>{segment.speaker}</span>
-                        <span>{segment.text}</span>
-                      </button>
-                    ))}
+                    <div className="hammer-transcript-status-rail" role="status">
+                      <span>{editableTranscriptSegments.length} segments</span>
+                      <span>{modifiedSegmentCount} modified</span>
+                      <span>{modifiedSegmentCount > 0 ? "recompute needed" : "in sync"}</span>
+                    </div>
+                    <article className="hammer-transcript-document" aria-label="Transcript document">
+                      {editableTranscriptSegments.map((segment) => (
+                        <button
+                          key={segment.segment_id}
+                          type="button"
+                          className={[
+                            "hammer-transcript-line",
+                            segment.segment_id === selectedSegmentId ? "is-active" : "",
+                            modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
+                          ].filter(Boolean).join(" ")}
+                          onClick={() => {
+                            selectionOriginRef.current = "transcript";
+                            setFocusOverride("source-focus");
+                            setSelectedSegmentId(segment.segment_id);
+                            setTranscriptTimingHint(null);
+                            setPlayheadSec(segment.start_sec);
+                          }}
+                          ref={(element) => {
+                            if (element) {
+                              transcriptLineRefs.current.set(segment.segment_id, element);
+                            } else {
+                              transcriptLineRefs.current.delete(segment.segment_id);
+                            }
+                          }}
+                        >
+                          <span className="hammer-transcript-line__meta">
+                            {segment.start_sec.toFixed(1)}s - {segment.end_sec.toFixed(1)}s
+                            {" · "}
+                            {(segment.end_sec - segment.start_sec).toFixed(1)}s
+                            {modifiedTranscriptSegmentIds.has(segment.segment_id) ? " · modified" : ""}
+                          </span>
+                          <span className="hammer-transcript-line__speaker">{segment.speaker}:</span>
+                          <span className="hammer-transcript-line__text">{segment.text}</span>
+                        </button>
+                      ))}
+                    </article>
                   </>
                 ) : <div className="hammer-empty-state">Transcript is not loaded yet.</div>
               ) : null}
@@ -1161,6 +1390,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <button
                             type="button"
                             onClick={() => {
+                              selectionOriginRef.current = "timeline";
                               setFocusOverride("time-focus");
                               setSelectedSegmentId(item.anchorSegmentId);
                               setPlayheadSec(item.startSec);
@@ -1484,7 +1714,178 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       }}
                     />
                   </label>
-                  <div className="hammer-tool-hint">Applies cleanup suggestions without altering original media.</div>
+                  <section className="hammer-cleanup-tool">
+                    <div className="hammer-cleanup-tool__head">
+                      <strong>Shorten Gaps</strong>
+                      <span>Tighten dead air without changing spoken content.</span>
+                    </div>
+                    <label className="hammer-tool-field">
+                      <span>Max allowed gap (sec)</span>
+                      <input
+                        type="number"
+                        min={0.1}
+                        step={0.05}
+                        value={gapCleanupOptions.maxGapSec}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setGapCleanupOptions((current) => ({
+                            ...current,
+                            maxGapSec: Math.max(0.1, Number(event.target.value) || 0.4),
+                          }));
+                        }}
+                      />
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={gapCleanupOptions.preserveDramaticPauses}
+                        onChange={(event) => setGapCleanupOptions((current) => ({
+                          ...current,
+                          preserveDramaticPauses: event.target.checked,
+                        }))}
+                      />
+                      <span>Preserve dramatic pauses</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("tool-focus");
+                        setCleanupPreview(previewShortenGaps(editableTranscriptSegments, gapCleanupOptions));
+                      }}
+                    >
+                      Preview Changes
+                    </button>
+                  </section>
+
+                  <section className="hammer-cleanup-tool">
+                    <div className="hammer-cleanup-tool__head">
+                      <strong>Remove Fillers</strong>
+                      <span>Cut ums, uhs, and verbal clutter deterministically.</span>
+                    </div>
+                    <label className="hammer-tool-field">
+                      <span>Aggressiveness</span>
+                      <select
+                        value={fillerCleanupOptions.aggressiveness}
+                        onChange={(event) => setFillerCleanupOptions((current) => ({
+                          ...current,
+                          aggressiveness: event.target.value as FillerCleanupOptions["aggressiveness"],
+                        }))}
+                      >
+                        <option value="light">Light</option>
+                        <option value="medium">Medium</option>
+                        <option value="strong">Strong</option>
+                      </select>
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={fillerCleanupOptions.protectIntentionalPhrasing}
+                        onChange={(event) => setFillerCleanupOptions((current) => ({
+                          ...current,
+                          protectIntentionalPhrasing: event.target.checked,
+                        }))}
+                      />
+                      <span>Protect intentional phrasing</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("tool-focus");
+                        setCleanupPreview(previewRemoveFillers(editableTranscriptSegments, fillerCleanupOptions));
+                      }}
+                    >
+                      Preview Changes
+                    </button>
+                  </section>
+
+                  <section className="hammer-cleanup-tool">
+                    <div className="hammer-cleanup-tool__head">
+                      <strong>Remove Retakes</strong>
+                      <span>Remove false starts and repeated takes with confidence scoring.</span>
+                    </div>
+                    <label className="hammer-tool-field">
+                      <span>Detection mode</span>
+                      <select
+                        value={retakeCleanupOptions.detection}
+                        onChange={(event) => setRetakeCleanupOptions((current) => ({
+                          ...current,
+                          detection: event.target.value as RetakeCleanupOptions["detection"],
+                        }))}
+                      >
+                        <option value="conservative">Conservative</option>
+                        <option value="normal">Normal</option>
+                        <option value="aggressive">Aggressive</option>
+                      </select>
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={retakeCleanupOptions.preferLaterCleanerTake}
+                        onChange={(event) => setRetakeCleanupOptions((current) => ({
+                          ...current,
+                          preferLaterCleanerTake: event.target.checked,
+                        }))}
+                      />
+                      <span>Prefer later cleaner take</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("tool-focus");
+                        setCleanupPreview(previewRemoveRetakes(editableTranscriptSegments, retakeCleanupOptions));
+                      }}
+                    >
+                      Preview Changes
+                    </button>
+                  </section>
+
+                  <section className="hammer-cleanup-tool hammer-cleanup-tool--quick">
+                    <div className="hammer-cleanup-tool__head">
+                      <strong>Quick Clean</strong>
+                      <span>Run Retakes → Fillers → Gaps in one deterministic pass.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("tool-focus");
+                        setCleanupPreview(previewQuickClean({
+                          segments: editableTranscriptSegments,
+                          retakes: retakeCleanupOptions,
+                          fillers: fillerCleanupOptions,
+                          gaps: gapCleanupOptions,
+                        }));
+                      }}
+                    >
+                      Preview Quick Clean
+                    </button>
+                  </section>
+
+                  {cleanupPreview ? (
+                    <section className="hammer-cleanup-preview" aria-label="Cleanup preview">
+                      <div className="hammer-cleanup-preview__head">
+                        <strong>{cleanupPreview.label}</strong>
+                        <span>
+                          {cleanupPreview.summary.changedSegments} segments affected · {cleanupPreview.summary.removedSegments} removed ·{" "}
+                          {cleanupPreview.summary.timeSavedSec.toFixed(1)}s saved
+                        </span>
+                      </div>
+                      <div className="hammer-cleanup-preview__list">
+                        {cleanupPreview.suggestions.slice(0, 8).map((suggestion) => (
+                          <div key={suggestion.id}>
+                            {suggestion.description} ({Math.round(suggestion.confidence * 100)}% confidence)
+                          </div>
+                        ))}
+                        {cleanupPreview.suggestions.length > 8 ? (
+                          <div>+{cleanupPreview.suggestions.length - 8} more suggestions</div>
+                        ) : null}
+                      </div>
+                      <div className="hammer-cleanup-preview__actions">
+                        <button type="button" onClick={() => applyCleanup(cleanupPreview)}>Apply</button>
+                        <button type="button" onClick={() => setCleanupPreview(null)}>Discard</button>
+                      </div>
+                    </section>
+                  ) : null}
+                  <div className="hammer-tool-hint">Deterministic cleanup only. No AI inference path.</div>
                 </section>
               ) : null}
 
@@ -1704,6 +2105,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               step={0.1}
               value={playheadSec}
               onChange={(event) => {
+                selectionOriginRef.current = "playhead";
                 setPlayheadSec(Number(event.target.value));
                 setFocusOverride(resolveFocusAfterPlayheadChange(focusOverride));
               }}
@@ -1782,7 +2184,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 </div>
               </section>
             ) : null}
-            <div className="hammer-timeline-track-scroll">
+            <div className="hammer-timeline-track-scroll" ref={timelineTrackScrollRef}>
               {editableTranscriptSegments.length > 0 ? (
                 <section className="hammer-timeline-board" aria-label="Track-based timeline">
                   <div className="hammer-timeline-ruler">
