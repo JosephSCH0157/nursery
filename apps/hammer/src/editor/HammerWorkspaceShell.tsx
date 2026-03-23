@@ -354,8 +354,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   const previewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
   const workspaceFocusMode = focusOverride === "auto" ? resolveWorkspaceFocusMode(activeTool) : focusOverride;
-  const mediaRef = resolveMediaRef(launchContext);
-  const workspaceMapping = resolveWorkspaceMapping(launchContext);
+  const mediaRef = useMemo(
+    () => resolveMediaRef(launchContext),
+    [launchContext.media],
+  );
+  const workspaceMapping = useMemo(
+    () => resolveWorkspaceMapping(launchContext),
+    [launchContext.media],
+  );
   const mediaSourceLabel = launchContext.media.kind === "dev-tone"
     ? "Dev tone"
     : launchContext.media.label ?? mediaRef?.local_relpath ?? null;
@@ -665,10 +671,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         return;
       }
       setSourceDeskPreviewUrls((previous) => {
+        const previousKeys = Object.keys(previous);
+        const nextKeys = Object.keys(nextUrls);
+        const unchanged = previousKeys.length === nextKeys.length
+          && nextKeys.every((key) => previous[key] === nextUrls[key]);
+        if (unchanged) return previous;
         for (const url of Object.values(previous)) URL.revokeObjectURL(url);
         return nextUrls;
       });
-      setSourceDeskPreviewFailures(nextFailures);
+      setSourceDeskPreviewFailures((previous) => {
+        const previousKeys = Object.keys(previous);
+        const nextKeys = Object.keys(nextFailures);
+        const unchanged = previousKeys.length === nextKeys.length
+          && nextKeys.every((key) => previous[key] === nextFailures[key]);
+        return unchanged ? previous : nextFailures;
+      });
     })();
 
     return () => {
