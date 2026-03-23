@@ -56,6 +56,7 @@ import {
 } from "./hammerWorkspaceHistory";
 import {
   listHammerDerivedTextLayers,
+  normalizeHammerOutputSelectionRef,
   setHammerDerivedTextLayerOutput,
 } from "../macros/hammerDerivedTranscriptLayers";
 import {
@@ -358,14 +359,13 @@ function toShellState(state: HammerEditorStateSerializable): {
 function resolveOutputSelectionFromTranscript(
   transcript: HammerPersistedStructuredTranscript | null | undefined,
 ): HammerOutputSelectionState {
-  const outputLayerId = transcript?.derived_text_layers?.output_layer_id ?? null;
-  const layer = outputLayerId
-    ? transcript?.derived_text_layers?.layers.find((item) => item.layer_id === outputLayerId) ?? null
-    : null;
-  return {
-    layerId: layer?.layer_id ?? null,
-    sourceRecipeRef: layer?.recipe_ref ?? null,
-  };
+  return normalizeHammerOutputSelectionRef({
+    selection: {
+      layerId: transcript?.derived_text_layers?.output_layer_id ?? null,
+      sourceRecipeRef: null,
+    },
+    layers: listHammerDerivedTextLayers(transcript, { includeDiscarded: false }),
+  });
 }
 
 function formatOutputLayerLabel(layer: HammerDerivedTextLayer): string {
@@ -891,6 +891,33 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setFocusOverride("source-focus");
     scheduleHistoryPersist();
   }
+
+  useEffect(() => {
+    if (!editableOutputSelection.layerId) return;
+
+    const normalized = normalizeHammerOutputSelectionRef({
+      selection: editableOutputSelection,
+      layers: outputLayerCandidates,
+    });
+
+    if (
+      normalized.layerId === editableOutputSelection.layerId
+      && normalized.sourceRecipeRef === editableOutputSelection.sourceRecipeRef
+    ) {
+      return;
+    }
+
+    applyHistoryMutation({
+      label: "Clear invalid export output selection",
+      kind: "output_selection",
+      toolId: "export",
+      immediatePersist: true,
+      computeAfter: (before) => ({
+        ...before,
+        outputSelection: normalized,
+      }),
+    });
+  }, [editableOutputSelection, outputLayerCandidates]);
 
   useEffect(() => {
     let active = true;
