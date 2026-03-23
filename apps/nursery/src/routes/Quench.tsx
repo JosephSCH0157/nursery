@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useLocation, useOutletContext } from "react-router-dom";
 import {
   type AdapterPublishResult,
   type AdapterValidationResult,
@@ -8,6 +8,7 @@ import {
   type PublishContext,
   type QuenchMockReleaseCase,
   type QuenchPlatform,
+  type ReleasePacket,
   type ReleaseMode,
   type ReleaseReadinessCheckKey,
   type ResolvedAsset,
@@ -19,6 +20,9 @@ import {
   resolveReleaseAssets,
   validateReleasePacketReadiness,
 } from "@forge/quench";
+import type { HammerPreparedReleasePackage } from "../../../hammer/src/lib/hammerPreparedReleasePackage";
+import { tongsFetch } from "../../../hammer/src/lib/tongsFetch";
+import { parseForgeRouteContext } from "../lib/forge-route-context";
 import type { AppShellContext } from "./AppShell";
 import "./Quench.css";
 
@@ -48,6 +52,173 @@ const MODE_LABELS: Record<ReleaseMode, string> = {
   schedule: "Schedule",
   premiere: "Premiere",
 };
+
+const QUENCH_OPEN_PREPARED_RELEASE = "prepared_release";
+
+type QuenchPreparedReleaseHandoff = {
+  mode: "prepared_release";
+  workspaceId: string | null;
+  workpieceId: string | null;
+  packagePath: string | null;
+  expectedVersion: number | null;
+  expectedFingerprint: string | null;
+  expectedPreparedAt: string | null;
+  expectedState: string | null;
+};
+
+type QuenchPreparedReleaseState = {
+  status: "idle" | "loading" | "ready" | "error";
+  handoff: QuenchPreparedReleaseHandoff | null;
+  message: string | null;
+  warning: string | null;
+  loadedFingerprint: string | null;
+  loadedPreparedAt: string | null;
+};
+
+function readString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function readJsonObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function parseOptionalNumber(value: string | null): number | null {
+  if (!value) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.trunc(parsed);
+}
+
+function stableHashToken(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+function buildPreparedPackageIdentityFingerprint(pkg: HammerPreparedReleasePackage): string {
+  const basis = [
+    `v:${String(pkg.version)}`,
+    `ws:${pkg.workspaceId ?? ""}`,
+    `wp:${pkg.workpieceId}`,
+    `at:${pkg.preparedAt}`,
+    `ts:${pkg.transcript.fingerprint ?? ""}`,
+    `srt:${pkg.subtitles.srt.fingerprint ?? ""}`,
+    `vtt:${pkg.subtitles.vtt.fingerprint ?? ""}`,
+    `m:${pkg.media.fingerprint ?? ""}`,
+    `tl:${pkg.provenance.timelineRevision ?? ""}`,
+  ].join("|");
+  return `hppkg:${stableHashToken(basis)}`;
+}
+
+function parsePreparedReleaseHandoff(search: string): QuenchPreparedReleaseHandoff | null {
+  const params = new URLSearchParams(search);
+  const mode = readString(params.get("quench_open"));
+  if (mode !== QUENCH_OPEN_PREPARED_RELEASE) return null;
+  const routeContext = parseForgeRouteContext(search);
+  return {
+    mode: "prepared_release",
+    workspaceId: routeContext.workspaceId,
+    workpieceId: routeContext.workpieceId,
+    packagePath: readString(params.get("prepared_package_path")),
+    expectedVersion: parseOptionalNumber(readString(params.get("prepared_package_version"))),
+    expectedFingerprint: readString(params.get("prepared_package_fingerprint")),
+    expectedPreparedAt: readString(params.get("prepared_package_prepared_at")),
+    expectedState: readString(params.get("prepared_package_state")),
+  };
+}
+
+function normalizePreparedReleasePackage(value: unknown): HammerPreparedReleasePackage | null {
+  const row = readJsonObject(value);
+  if (!row) return null;
+  const version = row.version;
+  if (version !== 1) return null;
+  if (!readString(row.workpieceId)) return null;
+  if (!readString(row.preparedAt)) return null;
+  return row as unknown as HammerPreparedReleasePackage;
+}
+
+function buildPreparedReleaseCase(args: {
+  shellWorkspaceId: string | null;
+  pkg: HammerPreparedReleasePackage;
+  packagePath: string;
+}): QuenchMockReleaseCase {
+  const workspaceId = args.pkg.workspaceId ?? args.shellWorkspaceId ?? "";
+  const workpieceId = args.pkg.workpieceId;
+  const identityFingerprint = buildPreparedPackageIdentityFingerprint(args.pkg);
+  const caseId = `handoff_prepared_${workpieceId}_${identityFingerprint.slice(-8)}`;
+  const audioExportId = args.pkg.media.status === "ready"
+    ? (args.pkg.media.sourceMediaId ?? `prepared_audio_${identityFingerprint.slice(-8)}`)
+    : null;
+  const audioUri = args.pkg.media.sourceMediaId
+    ? `workpiece-media://${workpieceId}/${args.pkg.media.sourceMediaId}`
+    : `workpiece://${workpieceId}/${args.packagePath}`;
+  const packet: ReleasePacket = {
+    release_packet_id: `release_packet_${caseId}`,
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    episode_id: workpieceId,
+    title: `Hammer prepared package ${workpieceId.slice(0, 8)}`,
+    description: `Prepared at ${args.pkg.preparedAt} with package status ${args.pkg.overallStatus}.`,
+    tags: ["hammer-prepared", "quench-handoff"],
+    thumbnail_asset_id: null,
+    video_export_id: null,
+    audio_export_id: audioExportId,
+    shorts: [],
+    asset_source: "cloud",
+    rss_ready: args.pkg.subtitles.srt.status === "ready" && args.pkg.media.status === "ready",
+    platform_overrides: {},
+    seo_metadata: {
+      transcript_asset_id: args.pkg.transcript.revisionId,
+      canonical_slug: `prepared-${workpieceId.slice(0, 8)}`,
+      keywords: ["prepared package", "hammer handoff"],
+    },
+  };
+
+  return {
+    case_id: caseId,
+    label: "Hammer Prepared Handoff",
+    summary: `Loaded from ${args.packagePath} (${args.pkg.overallStatus})`,
+    packet,
+    resolved_assets: {
+      ...(audioExportId
+        ? {
+          audio: {
+            asset_id: audioExportId,
+            kind: "audio",
+            source: "cloud",
+            uri: audioUri,
+            mime_type: "audio/mpeg",
+            duration_sec: typeof args.pkg.media.durationMs === "number"
+              ? Math.max(0, Math.round(args.pkg.media.durationMs / 1000))
+              : undefined,
+            accessible: true,
+          },
+        }
+        : {}),
+      shorts: [],
+    },
+    default_platforms: [],
+    default_publish_options: {},
+  };
+}
+
+async function readResponseJson(response: Response): Promise<unknown> {
+  const text = await response.text();
+  const raw = readString(text);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { raw };
+  }
+}
 
 function getDefaultPublishOptions(platform: QuenchPlatform): PlatformPublishOptions {
   if (platform === "rss") {
@@ -113,10 +284,27 @@ type ResolvedAssetCard = {
 
 export default function QuenchRoute() {
   const shell = useOutletContext<AppShellContext>();
-  const releaseCases = useMemo<QuenchMockReleaseCase[]>(
+  const location = useLocation();
+  const mockReleaseCases = useMemo<QuenchMockReleaseCase[]>(
     () => listQuenchMockReleaseCases({ workspaceId: shell.workspaceId }),
     [shell.workspaceId],
   );
+  const [handoffPreparedCase, setHandoffPreparedCase] = useState<QuenchMockReleaseCase | null>(null);
+  const [preparedHandoffState, setPreparedHandoffState] = useState<QuenchPreparedReleaseState>({
+    status: "idle",
+    handoff: null,
+    message: null,
+    warning: null,
+    loadedFingerprint: null,
+    loadedPreparedAt: null,
+  });
+  const releaseCases = useMemo<QuenchMockReleaseCase[]>(() => {
+    if (!handoffPreparedCase) return mockReleaseCases;
+    return [
+      handoffPreparedCase,
+      ...mockReleaseCases.filter((entry) => entry.case_id !== handoffPreparedCase.case_id),
+    ];
+  }, [handoffPreparedCase, mockReleaseCases]);
   const [selectedCaseId, setSelectedCaseId] = useState<string>(() =>
     listQuenchMockReleaseCases({ workspaceId: shell.workspaceId })[0]?.case_id ?? "",
   );
@@ -133,11 +321,187 @@ export default function QuenchRoute() {
   const [publishResults, setPublishResults] = useState<Partial<Record<QuenchPlatform, AdapterPublishResult>>>({});
   const [boardUpdatedAt, setBoardUpdatedAt] = useState<string | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    const handoff = parsePreparedReleaseHandoff(location.search);
+    if (!handoff) {
+      setHandoffPreparedCase(null);
+      setPreparedHandoffState({
+        status: "idle",
+        handoff: null,
+        message: null,
+        warning: null,
+        loadedFingerprint: null,
+        loadedPreparedAt: null,
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (!handoff.workpieceId || !handoff.packagePath) {
+      setHandoffPreparedCase(null);
+      setPreparedHandoffState({
+        status: "error",
+        handoff,
+        message: "Prepared-package handoff is missing workpiece_id or package path.",
+        warning: null,
+        loadedFingerprint: null,
+        loadedPreparedAt: null,
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setPreparedHandoffState({
+      status: "loading",
+      handoff,
+      message: null,
+      warning: null,
+      loadedFingerprint: null,
+      loadedPreparedAt: null,
+    });
+
+    async function loadPreparedHandoff(): Promise<void> {
+      try {
+        const response = await tongsFetch(
+          `/tongs/workpieces/${encodeURIComponent(handoff.workpieceId!)}/read-file?path=${encodeURIComponent(handoff.packagePath!)}`,
+          {
+            method: "GET",
+            timeoutMs: 45_000,
+          },
+        );
+        const payload = await readResponseJson(response);
+        if (!response.ok) {
+          const root = readJsonObject(payload);
+          const errorMessage = readString(readJsonObject(root?.error)?.message)
+            ?? "Quench could not resolve the prepared package from Tongs.";
+          if (cancelled) return;
+          setHandoffPreparedCase(null);
+          setPreparedHandoffState({
+            status: "error",
+            handoff,
+            message: errorMessage,
+            warning: null,
+            loadedFingerprint: null,
+            loadedPreparedAt: null,
+          });
+          return;
+        }
+
+        const root = readJsonObject(payload);
+        if (root?.exists !== true) {
+          if (cancelled) return;
+          setHandoffPreparedCase(null);
+          setPreparedHandoffState({
+            status: "error",
+            handoff,
+            message: "Prepared package was not found at the provided path.",
+            warning: null,
+            loadedFingerprint: null,
+            loadedPreparedAt: null,
+          });
+          return;
+        }
+
+        const pkg = normalizePreparedReleasePackage(root?.data);
+        if (!pkg) {
+          if (cancelled) return;
+          setHandoffPreparedCase(null);
+          setPreparedHandoffState({
+            status: "error",
+            handoff,
+            message: "Prepared package payload is invalid or incompatible.",
+            warning: null,
+            loadedFingerprint: null,
+            loadedPreparedAt: null,
+          });
+          return;
+        }
+
+        if (pkg.workpieceId !== handoff.workpieceId) {
+          if (cancelled) return;
+          setHandoffPreparedCase(null);
+          setPreparedHandoffState({
+            status: "error",
+            handoff,
+            message: "Prepared package identity does not match the requested workpiece.",
+            warning: null,
+            loadedFingerprint: null,
+            loadedPreparedAt: pkg.preparedAt,
+          });
+          return;
+        }
+
+        if (handoff.expectedVersion != null && pkg.version !== handoff.expectedVersion) {
+          if (cancelled) return;
+          setHandoffPreparedCase(null);
+          setPreparedHandoffState({
+            status: "error",
+            handoff,
+            message: `Prepared package version mismatch. Expected ${handoff.expectedVersion}, found ${pkg.version}.`,
+            warning: null,
+            loadedFingerprint: null,
+            loadedPreparedAt: pkg.preparedAt,
+          });
+          return;
+        }
+
+        const loadedFingerprint = buildPreparedPackageIdentityFingerprint(pkg);
+        const warning = handoff.expectedFingerprint && handoff.expectedFingerprint !== loadedFingerprint
+          ? "Prepared package fingerprint changed since Hammer generated this handoff."
+          : handoff.workspaceId && pkg.workspaceId && handoff.workspaceId !== pkg.workspaceId
+            ? "Prepared package workspace differs from current route context."
+            : null;
+        const preparedCase = buildPreparedReleaseCase({
+          shellWorkspaceId: shell.workspaceId,
+          pkg,
+          packagePath: handoff.packagePath,
+        });
+        if (cancelled) return;
+        setHandoffPreparedCase(preparedCase);
+        setPreparedHandoffState({
+          status: "ready",
+          handoff,
+          message: null,
+          warning,
+          loadedFingerprint,
+          loadedPreparedAt: pkg.preparedAt,
+        });
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error && error.message.trim()
+          ? error.message
+          : "Quench could not load the prepared package.";
+        setHandoffPreparedCase(null);
+        setPreparedHandoffState({
+          status: "error",
+          handoff,
+          message,
+          warning: null,
+          loadedFingerprint: null,
+          loadedPreparedAt: null,
+        });
+      }
+    }
+
+    void loadPreparedHandoff();
+    return () => {
+      cancelled = true;
+    };
+  }, [location.search, shell.workspaceId]);
+
   const applySelectedCaseDefaults = useCallback((nextCase: QuenchMockReleaseCase) => {
     setSelectedCaseId(nextCase.case_id);
     setSelectedPlatforms([...nextCase.default_platforms]);
     setPublishOptions(clonePublishOptions(nextCase.default_publish_options));
   }, []);
+
+  useEffect(() => {
+    if (!handoffPreparedCase) return;
+    applySelectedCaseDefaults(handoffPreparedCase);
+  }, [applySelectedCaseDefaults, handoffPreparedCase]);
 
   useEffect(() => {
     if (!releaseCases.length) return;
@@ -308,11 +672,31 @@ export default function QuenchRoute() {
         </div>
       </header>
 
+      {preparedHandoffState.handoff ? (
+        <div className="quench-console__banner">
+          <strong>Hammer handoff:</strong>
+          {" "}
+          {preparedHandoffState.status === "loading" ? "Resolving prepared package..." : null}
+          {preparedHandoffState.status === "ready"
+            ? `Prepared package loaded from ${preparedHandoffState.handoff.packagePath ?? "unknown path"}.`
+            : null}
+          {preparedHandoffState.status === "error"
+            ? preparedHandoffState.message ?? "Prepared package could not be resolved."
+            : null}
+          {preparedHandoffState.loadedPreparedAt ? ` Prepared at ${formatDate(preparedHandoffState.loadedPreparedAt)}.` : null}
+          {preparedHandoffState.loadedFingerprint ? ` Fingerprint ${preparedHandoffState.loadedFingerprint}.` : null}
+          {preparedHandoffState.handoff.expectedState ? ` Hammer marked this package ${preparedHandoffState.handoff.expectedState}.` : null}
+        </div>
+      ) : null}
+      {preparedHandoffState.warning ? (
+        <div className="quench-console__issue is-warn">{preparedHandoffState.warning}</div>
+      ) : null}
+
       <div className="quench-console__layout">
         <aside className="quench-console__panel quench-console__panel--left">
           <div className="quench-console__panel-head">
             <h2>Release packets</h2>
-            <span>{releaseCases.length} mock cases</span>
+            <span>{releaseCases.length}{handoffPreparedCase ? " packets" : " mock cases"}</span>
           </div>
           <div className="quench-console__case-list">
             {releaseCases.map((entry) => {

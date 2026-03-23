@@ -4,9 +4,12 @@ import {
   buildSourceDeskUploadPath,
   isAcceptedSourceDeskMediaUpload,
   loadIntroOutroSelection,
+  loadWorkpieceMediaPreviewUrl,
+  readHammerMediaPreviewErrorDiagnostics,
   saveIntroOutroSelection,
   uploadWorkpieceMediaFile,
 } from "../src/lib/hammerSourceDeskMediaApi";
+import { normalizeWorkpieceRelativePath } from "../src/lib/workpiecePaths";
 
 type FetchCall = {
   url: string;
@@ -150,6 +153,74 @@ async function testIntroOutroSelectionSerializationRoundTrip() {
   });
 }
 
+async function testNormalizeWorkpieceRelativePath() {
+  assert.equal(
+    normalizeWorkpieceRelativePath("abc123", "workpieces/abc123/assets/image.png"),
+    "assets/image.png",
+  );
+  assert.equal(
+    normalizeWorkpieceRelativePath("abc123", "/workpieces/abc123/assets/image.png"),
+    "assets/image.png",
+  );
+  assert.equal(
+    normalizeWorkpieceRelativePath("abc123", "assets/image.png"),
+    "assets/image.png",
+  );
+}
+
+async function testPreviewRequestUsesNormalizedRelativePath() {
+  const calls: FetchCall[] = [];
+  const createObjectUrl = URL.createObjectURL;
+  URL.createObjectURL = ((blob: Blob) => `blob:${blob.type}`) as typeof URL.createObjectURL;
+  try {
+    const fakeFetch = async (url: string, options: Record<string, unknown>) => {
+      calls.push({ url, options });
+      return new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      });
+    };
+
+    const url = await loadWorkpieceMediaPreviewUrl({
+      workpieceId: "abc123",
+      path: "/workpieces/abc123/assets/image.png",
+      fetcher: fakeFetch as never,
+    });
+
+    assert.equal(url, "blob:image/png");
+    assert.equal(calls.length, 1);
+    assert.equal(
+      calls[0]?.url,
+      "/tongs/workpieces/abc123/read-file?path=assets%2Fimage.png&encoding=binary",
+    );
+  } finally {
+    URL.createObjectURL = createObjectUrl;
+  }
+}
+
+async function testPreviewErrorIncludesNormalizationDiagnostics() {
+  const fakeFetch = async () => new Response(null, { status: 404 });
+
+  await assert.rejects(async () => {
+    try {
+      await loadWorkpieceMediaPreviewUrl({
+        workpieceId: "abc123",
+        path: "workpieces/abc123/assets/missing.png",
+        fetcher: fakeFetch as never,
+      });
+    } catch (error) {
+      const diagnostics = readHammerMediaPreviewErrorDiagnostics(error);
+      assert.deepEqual(diagnostics, {
+        workpieceId: "abc123",
+        originalPath: "workpieces/abc123/assets/missing.png",
+        normalizedPath: "assets/missing.png",
+        status: 404,
+      });
+      throw error;
+    }
+  }, /source desk media preview/i);
+}
+
 async function testNoLocalStorageDependencyInApiModule() {
   const source = await readFile(
     "d:/nursery/nursery/apps/hammer/src/lib/hammerSourceDeskMediaApi.ts",
@@ -164,6 +235,9 @@ async function run() {
   await testUploadDestinationAndPayloadShape();
   await testInvalidUploadRejectedBeforeFetch();
   await testIntroOutroSelectionSerializationRoundTrip();
+  await testNormalizeWorkpieceRelativePath();
+  await testPreviewRequestUsesNormalizedRelativePath();
+  await testPreviewErrorIncludesNormalizationDiagnostics();
   await testNoLocalStorageDependencyInApiModule();
   // eslint-disable-next-line no-console
   console.log("Hammer Source Desk media API tests passed.");

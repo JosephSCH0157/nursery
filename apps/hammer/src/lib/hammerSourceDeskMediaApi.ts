@@ -1,5 +1,6 @@
 import { HAMMER_RUNTIME_WRITTEN_BY } from "../prep/hammerPrep";
 import { tongsFetch } from "./tongsFetch";
+import { normalizeWorkpieceRelativePath } from "./workpiecePaths";
 
 const INTRO_OUTRO_SELECTION_PATH = "hammer/session/intro-outro.v1.json";
 const SOURCE_DESK_UPLOAD_BASE_PATH = "assets/uploads";
@@ -80,6 +81,37 @@ function basename(path: string): string {
   const normalized = path.replace(/\\/g, "/");
   const parts = normalized.split("/");
   return parts[parts.length - 1] ?? path;
+}
+
+type HammerMediaPreviewErrorDiagnostics = {
+  workpieceId: string;
+  originalPath: string;
+  normalizedPath: string;
+  status: number | null;
+};
+
+type HammerMediaPreviewLoadError = Error & HammerMediaPreviewErrorDiagnostics;
+
+function createMediaPreviewLoadError(args: HammerMediaPreviewErrorDiagnostics): HammerMediaPreviewLoadError {
+  return Object.assign(new Error("Hammer could not load Source Desk media preview."), args);
+}
+
+export function readHammerMediaPreviewErrorDiagnostics(error: unknown): HammerMediaPreviewErrorDiagnostics | null {
+  if (!(error instanceof Error)) return null;
+  const diagnostics = error as Partial<HammerMediaPreviewErrorDiagnostics>;
+  if (
+    typeof diagnostics.workpieceId !== "string"
+    || typeof diagnostics.originalPath !== "string"
+    || typeof diagnostics.normalizedPath !== "string"
+  ) {
+    return null;
+  }
+  return {
+    workpieceId: diagnostics.workpieceId,
+    originalPath: diagnostics.originalPath,
+    normalizedPath: diagnostics.normalizedPath,
+    status: typeof diagnostics.status === "number" ? diagnostics.status : null,
+  };
 }
 
 function flattenStorageFiles(nodes: StorageNode[]): HammerStoredMediaFile[] {
@@ -282,25 +314,42 @@ export async function loadWorkpieceMediaPreviewUrl(args: {
   mimeType?: string | null;
   fetcher?: TongsFetcher;
 }): Promise<string> {
+  const normalizedPath = normalizeWorkpieceRelativePath(args.workpieceId, args.path);
   const params = new URLSearchParams({
-    path: args.path,
+    path: normalizedPath,
     encoding: "binary",
   });
-  const response = await (args.fetcher ?? tongsFetch)(
-    `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?${params.toString()}`,
-    {
-      method: "GET",
-      headers: {
-        accept: "application/octet-stream",
+  try {
+    const response = await (args.fetcher ?? tongsFetch)(
+      `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?${params.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          accept: "application/octet-stream",
+        },
+        timeoutMs: 45_000,
       },
-      timeoutMs: 45_000,
-    },
-  );
+    );
 
-  if (!response.ok) {
-    throw new Error("Hammer could not load Source Desk media preview.");
+    if (!response.ok) {
+      throw createMediaPreviewLoadError({
+        workpieceId: args.workpieceId,
+        originalPath: args.path,
+        normalizedPath,
+        status: response.status,
+      });
+    }
+    const bytes = await response.arrayBuffer();
+    const contentType = response.headers.get("content-type")?.trim() || args.mimeType?.trim() || "application/octet-stream";
+    return URL.createObjectURL(new Blob([bytes], { type: contentType }));
+  } catch (error) {
+    const diagnostics = readHammerMediaPreviewErrorDiagnostics(error);
+    if (diagnostics) throw error;
+    throw createMediaPreviewLoadError({
+      workpieceId: args.workpieceId,
+      originalPath: args.path,
+      normalizedPath,
+      status: null,
+    });
   }
-  const bytes = await response.arrayBuffer();
-  const contentType = response.headers.get("content-type")?.trim() || args.mimeType?.trim() || "application/octet-stream";
-  return URL.createObjectURL(new Blob([bytes], { type: contentType }));
 }

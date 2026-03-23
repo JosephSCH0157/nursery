@@ -34,6 +34,8 @@ import {
 import {
   listWorkpieceStoredMedia,
   loadIntroOutroSelection,
+  normalizeWorkpieceRelativePath,
+  readHammerMediaPreviewErrorDiagnostics,
   loadWorkpieceMediaPreviewUrl,
   saveIntroOutroSelection,
   uploadWorkpieceMediaFile,
@@ -43,6 +45,7 @@ import {
 import { preserveTranscriptMetadata } from "../prep/hammerPrep";
 import { buildHammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
 import {
+  HAMMER_PREPARED_RELEASE_PACKAGE_PATH,
   buildHammerPreparedReleasePackage,
   compareHammerPreparedReleasePackageToCurrent,
   type HammerPreparedReleasePackage,
@@ -232,6 +235,30 @@ function toErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function stableHashToken(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+function buildPreparedPackageIdentityFingerprint(pkg: HammerPreparedReleasePackage): string {
+  const basis = [
+    `v:${String(pkg.version)}`,
+    `ws:${pkg.workspaceId ?? ""}`,
+    `wp:${pkg.workpieceId}`,
+    `at:${pkg.preparedAt}`,
+    `ts:${pkg.transcript.fingerprint ?? ""}`,
+    `srt:${pkg.subtitles.srt.fingerprint ?? ""}`,
+    `vtt:${pkg.subtitles.vtt.fingerprint ?? ""}`,
+    `m:${pkg.media.fingerprint ?? ""}`,
+    `tl:${pkg.provenance.timelineRevision ?? ""}`,
+  ].join("|");
+  return `hppkg:${stableHashToken(basis)}`;
+}
+
 function resolveLaneGaps(blocks: HammerTimelineLaneBlock[], durationSec: number): Array<{ id: string; startSec: number; endSec: number }> {
   const sorted = [...blocks]
     .map((block) => ({
@@ -312,6 +339,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   });
   const [savingIntroOutro, setSavingIntroOutro] = useState(false);
   const [sourceDeskPreviewUrls, setSourceDeskPreviewUrls] = useState<Record<string, string>>({});
+  const [sourceDeskPreviewFailures, setSourceDeskPreviewFailures] = useState<Record<string, true>>({});
   const [releasePrepSaving, setReleasePrepSaving] = useState(false);
   const [releasePrepLoading, setReleasePrepLoading] = useState(false);
   const [releasePrepError, setReleasePrepError] = useState<string | null>(null);
@@ -589,6 +617,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useEffect(() => {
     let active = true;
     const nextUrls: Record<string, string> = {};
+    const nextFailures: Record<string, true> = {};
 
     void Promise.all(sourceDeskPreviewPaths.map(async (path) => {
       try {
@@ -597,8 +626,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           path,
         });
         nextUrls[path] = url;
-      } catch {
-        // Keep missing previews non-blocking; cards still render metadata/actions.
+      } catch (error) {
+        nextFailures[path] = true;
+        const diagnostics = readHammerMediaPreviewErrorDiagnostics(error);
+        console.warn("Hammer Source Desk preview unavailable", {
+          workpieceId: launchContext.workpiece_id,
+          originalPath: diagnostics?.originalPath ?? path,
+          normalizedPath: diagnostics?.normalizedPath
+            ?? normalizeWorkpieceRelativePath(launchContext.workpiece_id, path),
+          status: diagnostics?.status ?? null,
+          error,
+        });
       }
     })).then(() => {
       if (!active) {
@@ -609,6 +647,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         for (const url of Object.values(previous)) URL.revokeObjectURL(url);
         return nextUrls;
       });
+      setSourceDeskPreviewFailures(nextFailures);
     });
 
     return () => {
@@ -775,6 +814,29 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const prepareButtonLabel = exportTruthState === "stale"
     ? "Prepare Updated Package"
     : "Prepare Release Package";
+  const releasePrepOpenHref = useMemo(() => {
+    if (!props.releasePrepHref || !loadedPreparedPackage) return null;
+    try {
+      const parsed = new URL(props.releasePrepHref, "https://forge.local");
+      parsed.searchParams.set("quench_open", "prepared_release");
+      parsed.searchParams.set("prepared_package_path", HAMMER_PREPARED_RELEASE_PACKAGE_PATH);
+      parsed.searchParams.set("prepared_package_version", String(loadedPreparedPackage.version));
+      parsed.searchParams.set(
+        "prepared_package_fingerprint",
+        buildPreparedPackageIdentityFingerprint(loadedPreparedPackage),
+      );
+      if (loadedPreparedPackage.preparedAt) {
+        parsed.searchParams.set("prepared_package_prepared_at", loadedPreparedPackage.preparedAt);
+      } else {
+        parsed.searchParams.delete("prepared_package_prepared_at");
+      }
+      parsed.searchParams.set("prepared_package_state", exportTruthState);
+      const search = parsed.searchParams.toString();
+      return search ? `${parsed.pathname}?${search}` : parsed.pathname;
+    } catch {
+      return props.releasePrepHref;
+    }
+  }, [exportTruthState, loadedPreparedPackage, props.releasePrepHref]);
 
   async function handlePrepareReleasePackage(): Promise<void> {
     if (releasePrepSaving) return;
@@ -1042,7 +1104,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             alt={item.label}
                           />
                         ) : (
-                          <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">No thumbnail</div>
+                          <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">
+                            {item.assetPath && sourceDeskPreviewFailures[item.assetPath] ? "Preview unavailable" : "No thumbnail"}
+                          </div>
                         )}
                         <header className="hammer-source-card__head">
                           <strong>{item.label}</strong>
@@ -1078,7 +1142,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             alt={file.name}
                           />
                         ) : (
-                          <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">No thumbnail</div>
+                          <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">
+                            {sourceDeskPreviewFailures[file.path] ? "Preview unavailable" : "No thumbnail"}
+                          </div>
                         )}
                         <header className="hammer-source-card__head">
                           <strong>{file.name}</strong>
@@ -1191,7 +1257,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             preload="metadata"
                           />
                         ) : (
-                          <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">No thumbnail</div>
+                          <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">
+                            {item.assetPath && sourceDeskPreviewFailures[item.assetPath] ? "Preview unavailable" : "No thumbnail"}
+                          </div>
                         )}
                         <header className="hammer-source-card__head">
                           <strong>{item.label}</strong>
@@ -1520,7 +1588,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Quench Handoff</header>
                   <div className="hammer-tool-hint">
-                    {props.releasePrepHref ? "Handoff path available." : "Handoff path unavailable."}
+                    {releasePrepOpenHref ? "Handoff path available." : "Handoff path unavailable."}
                   </div>
                   <div className="hammer-tool-hint">Export status: {exportStatusLabel}</div>
                   {releasePrepLoading ? (
@@ -1562,8 +1630,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       {releasePrepError}
                     </div>
                   ) : null}
-                  {props.releasePrepHref && exportTruthState !== "never_prepared" ? (
-                    <a href={props.releasePrepHref}>
+                  {releasePrepOpenHref && exportTruthState !== "never_prepared" ? (
+                    <a href={releasePrepOpenHref}>
                       {exportTruthState === "current" ? "Open Release Prep" : "Open Release Prep (stale)"}
                     </a>
                   ) : null}
@@ -1574,7 +1642,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <div>Workspace mode: {workspaceFocusMode}</div>
                 <div>Macro: {props.selectedMacroRecipeRef ?? "none"}</div>
                 <div>Last run: {props.lastMacroRunRef ?? "none"}</div>
-                <div>Release prep: {props.releasePrepHref ? "available" : "unavailable"}</div>
+                <div>Release prep: {releasePrepOpenHref ? "available" : "unavailable"}</div>
               </div>
             </div>
           </section>

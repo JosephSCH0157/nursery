@@ -1,5 +1,6 @@
 import type { HammerPersistedVisualPlacements, HammerVisualPlacementRecord } from "../persistence/hammerPersistenceContract";
 import { tongsFetch } from "./tongsFetch";
+import { normalizeWorkpieceRelativePath } from "./workpiecePaths";
 import {
   HAMMER_PREVIEW_PLACEMENT_DEFAULTS,
   resolveActiveHammerVisualAtTime,
@@ -61,12 +62,7 @@ function inferImageMimeType(path: string | null | undefined): string {
 function normalizeWorkpieceFilePath(workpieceId: string, input: string | null | undefined): string | null {
   const value = readString(input);
   if (!value) return null;
-  const normalized = value.replace(/^\/+/, "");
-  const prefix = `workpieces/${workpieceId}/`;
-  if (normalized.startsWith(prefix)) {
-    return normalized.slice(prefix.length);
-  }
-  return normalized;
+  return normalizeWorkpieceRelativePath(workpieceId, value);
 }
 
 export function getHammerPreviewVisualAssetRef(placement: HammerVisualPlacementRecord): string {

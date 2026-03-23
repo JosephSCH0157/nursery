@@ -12,15 +12,12 @@ export default function HammerEditorRoute() {
   const routeWorkpieceId = resolveHammerRouteWorkpieceId(location.search);
   const releasePrepHref = useMemo(() => {
     if (!context.workspaceId || !routeWorkpieceId) return null;
-    const baseHref = buildForgeRouteHref("/app/tongs", {
+    const baseHref = buildForgeRouteHref("/app/quench", {
       search: location.search,
       workspaceId: context.workspaceId,
       workpieceId: routeWorkpieceId,
     });
-    const parsed = new URL(baseHref, "https://forge.local");
-    parsed.searchParams.set("mode", "release");
-    const nextSearch = parsed.searchParams.toString();
-    return nextSearch ? `${parsed.pathname}?${nextSearch}` : parsed.pathname;
+    return baseHref;
   }, [context.workspaceId, location.search, routeWorkpieceId]);
   const libraryHref = buildForgeRouteHref("/app/hammer", {
     search: location.search,
