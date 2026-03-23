@@ -166,6 +166,10 @@ async function testNormalizeWorkpieceRelativePath() {
     normalizeWorkpieceRelativePath("abc123", "assets/image.png"),
     "assets/image.png",
   );
+  assert.equal(
+    normalizeWorkpieceRelativePath("abc123", "workpieces/abc123/workpieces/abc123/assets/image.png"),
+    "assets/image.png",
+  );
 }
 
 async function testPreviewRequestUsesNormalizedRelativePath() {

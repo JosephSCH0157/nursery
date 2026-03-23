@@ -4,6 +4,7 @@ import {
   type EpisodeImageMapEntry,
 } from "./episode-package-v2";
 import { tongsFetch } from "./tongs-fetch";
+import { normalizeWorkpieceRelativePath } from "./workpiece-paths";
 
 export type WorkpieceImageMapView = {
   workpieceId: string;
@@ -408,7 +409,7 @@ export async function loadImageMapCandidatePreviewDataUrl(args: {
   | { ok: true; dataUrl: string; path: string }
   | { ok: false; error: string }
 > {
-  const path = readString(args.path);
+  const path = normalizeWorkpieceRelativePath(args.workpieceId, args.path);
   if (!path) {
     return { ok: false, error: "Candidate preview path is missing." };
   }

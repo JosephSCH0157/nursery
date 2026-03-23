@@ -1,8 +1,8 @@
 export function normalizeWorkpieceRelativePath(workpieceId: string, rawPath: string): string {
-  const withoutLeadingSlash = rawPath.replace(/^\/+/, "");
   const workpiecePrefix = `workpieces/${workpieceId}/`;
-  if (withoutLeadingSlash.startsWith(workpiecePrefix)) {
-    return withoutLeadingSlash.slice(workpiecePrefix.length);
+  let normalized = rawPath.replace(/^\/+/, "");
+  while (normalized.startsWith(workpiecePrefix)) {
+    normalized = normalized.slice(workpiecePrefix.length);
   }
-  return withoutLeadingSlash;
+  return normalized;
 }

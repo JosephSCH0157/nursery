@@ -28,6 +28,7 @@ import {
   saveWorkpieceImageMap,
   selectWorkpieceImageMapCandidate,
 } from "../src/lib/hearth-image-map-repo";
+import { loadThumbnailPreviewDataUrl } from "../src/lib/hearth-thumbnail-api";
 import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
 import {
   assessImageMapScriptAnchor,
@@ -1590,6 +1591,78 @@ async function testImageMapCandidatePreviewLoaderReadsCanonicalFilePath() {
     }
   } finally {
     harness.restore();
+  }
+}
+
+async function testImageMapCandidatePreviewLoaderNormalizesRepeatedWorkpiecePrefixes() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  harness.setPreviewFile("assets/image-map/candidates/a.png", "cHJldmlldy1pbWFnZQ==", "image/png");
+
+  try {
+    const result = await loadImageMapCandidatePreviewDataUrl({
+      workpieceId: WORKPIECE_A,
+      path: `workpieces/${WORKPIECE_A}/workpieces/${WORKPIECE_A}/assets/image-map/candidates/a.png`,
+      mimeType: "image/png",
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.match(result.dataUrl, /^data:image\/png;base64,/);
+      assert.equal(result.path, "assets/image-map/candidates/a.png");
+    }
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testThumbnailPreviewLoaderNormalizesRepeatedWorkpiecePrefixes() {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: unknown) => {
+    const rawUrl = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : String(input);
+    const url = new URL(rawUrl, "https://example.test");
+    assert.equal(url.pathname, `/tongs/workpieces/${encodeURIComponent(WORKPIECE_A)}/read-file`);
+    assert.equal(url.searchParams.get("path"), `assets/thumbnails/${WORKPIECE_A}/version-a.png`);
+    return new Response(JSON.stringify({
+      ok: true,
+      data: {
+        bytes_base64: "cHJldmlldy1pbWFnZQ==",
+        content_type: "image/png",
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const result = await loadThumbnailPreviewDataUrl({
+      workpieceId: WORKPIECE_A,
+      version: {
+        id: "version-a",
+        concept_id: "concept-a",
+        created_at: "2026-03-10T16:20:00.000Z",
+        provider: "openai",
+        prompt: "poster art",
+        asset_id: `path:workpieces/${WORKPIECE_A}/workpieces/${WORKPIECE_A}/assets/thumbnails/${WORKPIECE_A}/version-a.png`,
+        status: "ready",
+        asset_path: `workpieces/${WORKPIECE_A}/workpieces/${WORKPIECE_A}/assets/thumbnails/${WORKPIECE_A}/version-a.png`,
+        mime_type: "image/png",
+        provider_request_id: null,
+        error: null,
+      },
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.match(result.dataUrl, /^data:image\/png;base64,/);
+      assert.equal(result.path, `assets/thumbnails/${WORKPIECE_A}/version-a.png`);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 }
 
@@ -3217,6 +3290,8 @@ async function run() {
   await testImageMapCandidateSelectionPersistsCanonicalSelectedAsset();
   await testImageMapCandidateSelectionRejectsDetachedCandidate();
   await testImageMapCandidatePreviewLoaderReadsCanonicalFilePath();
+  await testImageMapCandidatePreviewLoaderNormalizesRepeatedWorkpiecePrefixes();
+  await testThumbnailPreviewLoaderNormalizesRepeatedWorkpiecePrefixes();
   testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph();
   testGenerateImageMapEntriesFromTaggedScriptSkipsSpeakerAndNoteTags();
   testBuildImageMapAnchorPickerParagraphsSkipsStandaloneBlockTags();
