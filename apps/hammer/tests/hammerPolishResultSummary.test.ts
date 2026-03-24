@@ -149,12 +149,55 @@ function test_solo_mode_summary_metadata() {
   assert.equal(summary.notes.includes("Suppressed non-target segments: 3"), true);
 }
 
+function test_interview_mode_summary_metadata() {
+  const interviewPreview: HammerCleanupPreview = {
+    label: "Interview Mode",
+    resultSegments: [],
+    suggestions: [
+      {
+        id: "iv-1",
+        type: "filler_remove",
+        segmentId: "s2",
+        description: "Removed filler phrases in respondent answer.",
+        confidence: 0.86,
+        timeSavedSec: 0.4,
+      },
+    ],
+    summary: {
+      changedSegments: 1,
+      removedSegments: 0,
+      timeSavedSec: 0.4,
+    },
+    metadata: {
+      speakerInterview: {
+        intent: "Keep host prompts intact while tightening respondent answers for clearer interview flow.",
+        hostSpeaker: "S1",
+        respondentSpeaker: "S2",
+        promptsKept: 2,
+        answerSegmentsTightened: 1,
+        fillersRemoved: 3,
+        retakesRemoved: 0,
+        interruptionsSuppressed: 1,
+        estimatedDurationSavedSec: 0.4,
+        confidenceLabel: "High",
+        confidenceScore: 0.9,
+        safetyNote: "Source transcript and media remain recoverable. Undo restores the prior state in one step.",
+      },
+    },
+  };
+  const summary = buildPolishResultSummaryFromCleanupPreview(interviewPreview);
+  assert.equal(summary.tool, "interview_mode");
+  assert.equal(summary.notes.includes("Host: S1"), true);
+  assert.equal(summary.notes.includes("Respondent: S2"), true);
+}
+
 function run() {
   test_basic_summary_shape();
   test_quick_clean_sequence_is_disclosed();
   test_no_change_preview_sets_note();
   test_tighten_selection_summary_metadata();
   test_solo_mode_summary_metadata();
+  test_interview_mode_summary_metadata();
   // eslint-disable-next-line no-console
   console.log("Hammer polish result summary tests passed.");
 }

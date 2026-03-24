@@ -26,6 +26,15 @@ export type SpeakerSoloOptions = {
   maxInterruptionSec: number;
 };
 
+export type SpeakerInterviewOptions = {
+  hostSpeaker: string;
+  respondentSpeaker: string;
+  tightness: "light" | "medium" | "tight";
+  removeBackchannels: boolean;
+  collapseInterruptions: boolean;
+  maxInterruptionSec: number;
+};
+
 export type CleanupSuggestionType =
   | "gap_trim"
   | "filler_remove"
@@ -70,6 +79,20 @@ export type HammerCleanupPreview = {
         scopeLabel: string;
         suppressedSegments: number;
         collapsedInterruptions: number;
+        estimatedDurationSavedSec: number;
+        confidenceLabel: "High" | "Medium" | "Low";
+        confidenceScore: number;
+        safetyNote: string;
+      };
+      speakerInterview?: {
+        intent: string;
+        hostSpeaker: string;
+        respondentSpeaker: string;
+        promptsKept: number;
+        answerSegmentsTightened: number;
+        fillersRemoved: number;
+        retakesRemoved: number;
+        interruptionsSuppressed: number;
         estimatedDurationSavedSec: number;
         confidenceLabel: "High" | "Medium" | "Low";
         confidenceScore: number;
@@ -614,6 +637,207 @@ export function previewSpeakerSolo(args: {
         scopeLabel,
         suppressedSegments,
         collapsedInterruptions,
+        estimatedDurationSavedSec,
+        confidenceLabel,
+        confidenceScore,
+        safetyNote: "Source transcript and media remain recoverable. Undo restores the prior state in one step.",
+      },
+    },
+  };
+}
+
+const INTERVIEW_BACKCHANNEL_RE = /^(?:mm-?hmm|mhm|yeah|yep|right|got it|okay|ok|sure|uh-huh|huh)$/i;
+const INTERVIEW_RETAKE_RE = /\b(?:let me start over|scratch that|take that again|redo|retake)\b/i;
+
+export function previewSpeakerInterview(args: {
+  segments: HammerTranscriptSegment[];
+  options: SpeakerInterviewOptions;
+  segmentIds?: string[];
+}): HammerCleanupPreview {
+  const sorted = cloneSegments(args.segments).sort((a, b) => a.start_sec - b.start_sec);
+  const scopeSet = args.segmentIds && args.segmentIds.length > 0 ? new Set(args.segmentIds) : null;
+  const suggestions: HammerCleanupSuggestion[] = [];
+  const changed = new Set<string>();
+  const resultSegments = sorted.map((segment) => ({ ...segment }));
+  const fillerDictionary = args.options.tightness === "tight"
+    ? FILLERS_STRONG
+    : args.options.tightness === "medium"
+    ? FILLERS_MEDIUM
+    : FILLERS_LIGHT;
+  let promptsKept = 0;
+  let answerSegmentsTightened = 0;
+  let fillersRemoved = 0;
+  let retakesRemoved = 0;
+  let interruptionsSuppressed = 0;
+  let estimatedDurationSavedSec = 0;
+
+  for (let index = 0; index < resultSegments.length; index += 1) {
+    const segment = resultSegments[index];
+    if (scopeSet && !scopeSet.has(segment.segment_id)) continue;
+    const durationSec = roundToTenth(Math.max(0.1, segment.end_sec - segment.start_sec));
+    const isHost = segment.speaker === args.options.hostSpeaker;
+    const isRespondent = segment.speaker === args.options.respondentSpeaker;
+
+    if (isHost) {
+      promptsKept += 1;
+      continue;
+    }
+
+    if (!isRespondent) {
+      const shortInterruption = args.options.collapseInterruptions && durationSec <= Math.max(0.2, args.options.maxInterruptionSec);
+      if (shortInterruption && segment.is_disabled !== true) {
+        segment.is_disabled = true;
+        interruptionsSuppressed += 1;
+        changed.add(segment.segment_id);
+        estimatedDurationSavedSec = roundToTenth(estimatedDurationSavedSec + durationSec);
+        suggestions.push({
+          id: `interview:interrupt:${segment.segment_id}`,
+          type: "fragment_merge",
+          segmentId: segment.segment_id,
+          description: "Suppressed short interruption outside host/respondent flow.",
+          confidence: 0.85,
+          timeSavedSec: durationSec,
+        });
+      }
+      continue;
+    }
+
+    const original = normalizeTextSpacing(segment.text);
+    let working = original;
+
+    if (args.options.removeBackchannels && INTERVIEW_BACKCHANNEL_RE.test(working) && segment.is_disabled !== true) {
+      segment.is_disabled = true;
+      retakesRemoved += 1;
+      changed.add(segment.segment_id);
+      estimatedDurationSavedSec = roundToTenth(estimatedDurationSavedSec + durationSec);
+      suggestions.push({
+        id: `interview:backchannel:${segment.segment_id}`,
+        type: "retake_remove",
+        segmentId: segment.segment_id,
+        description: "Removed brief respondent backchannel for tighter answer flow.",
+        confidence: 0.89,
+        timeSavedSec: durationSec,
+      });
+      continue;
+    }
+
+    const restart = trimRestartPrefix(working);
+    if (restart.trimmed) {
+      working = restart.text;
+      suggestions.push({
+        id: `interview:restart:${segment.segment_id}`,
+        type: "restart_trim",
+        segmentId: segment.segment_id,
+        description: "Trimmed respondent restart phrase.",
+        confidence: 0.87,
+        timeSavedSec: 0.2,
+      });
+      changed.add(segment.segment_id);
+    }
+
+    const filler = cleanFillerText(working, fillerDictionary);
+    if (filler.removed > 0) {
+      fillersRemoved += filler.removed;
+      working = normalizeTextSpacing(filler.text);
+      suggestions.push({
+        id: `interview:filler:${segment.segment_id}`,
+        type: "filler_remove",
+        segmentId: segment.segment_id,
+        description: `Removed ${filler.removed} filler phrase${filler.removed === 1 ? "" : "s"} in respondent answer.`,
+        confidence: 0.88,
+        timeSavedSec: roundToTenth(Math.max(0.1, filler.removed * 0.11)),
+      });
+      changed.add(segment.segment_id);
+    }
+
+    const repeatedWordCollapse = collapseRepeatedSingleWords(working);
+    if (repeatedWordCollapse.collapsed > 0) {
+      working = normalizeTextSpacing(repeatedWordCollapse.text);
+      suggestions.push({
+        id: `interview:repeat-word:${segment.segment_id}`,
+        type: "repetition_collapse",
+        segmentId: segment.segment_id,
+        description: `Collapsed repeated words (${repeatedWordCollapse.collapsed}) in respondent answer.`,
+        confidence: 0.84,
+        timeSavedSec: roundToTenth(Math.max(0.1, repeatedWordCollapse.collapsed * 0.08)),
+      });
+      changed.add(segment.segment_id);
+    }
+
+    const repeatedPhraseCollapse = collapseRepeatedShortPhrases(working);
+    if (repeatedPhraseCollapse.collapsed > 0) {
+      working = normalizeTextSpacing(repeatedPhraseCollapse.text);
+      suggestions.push({
+        id: `interview:repeat-phrase:${segment.segment_id}`,
+        type: "repetition_collapse",
+        segmentId: segment.segment_id,
+        description: `Collapsed repeated short phrase (${repeatedPhraseCollapse.collapsed}) in respondent answer.`,
+        confidence: 0.8,
+        timeSavedSec: roundToTenth(Math.max(0.1, repeatedPhraseCollapse.collapsed * 0.1)),
+      });
+      changed.add(segment.segment_id);
+    }
+
+    const tail = trimWanderingTail(working);
+    if (tail.trimmed) {
+      working = tail.text;
+      suggestions.push({
+        id: `interview:tail:${segment.segment_id}`,
+        type: "restart_trim",
+        segmentId: segment.segment_id,
+        description: "Trimmed wandering answer tail.",
+        confidence: 0.77,
+        timeSavedSec: 0.2,
+      });
+      changed.add(segment.segment_id);
+    }
+
+    if (INTERVIEW_RETAKE_RE.test(original) && segment.is_disabled !== true) {
+      segment.is_disabled = true;
+      retakesRemoved += 1;
+      changed.add(segment.segment_id);
+      estimatedDurationSavedSec = roundToTenth(estimatedDurationSavedSec + durationSec);
+      suggestions.push({
+        id: `interview:retake:${segment.segment_id}`,
+        type: "retake_remove",
+        segmentId: segment.segment_id,
+        description: "Removed explicit respondent retake line.",
+        confidence: 0.91,
+        timeSavedSec: durationSec,
+      });
+      continue;
+    }
+
+    if (working && working !== segment.text) {
+      segment.text = working;
+      answerSegmentsTightened += 1;
+    }
+  }
+
+  estimatedDurationSavedSec = roundToTenth(suggestions.reduce((sum, suggestion) => sum + suggestion.timeSavedSec, 0));
+  const confidencePenalty = Math.min(0.25, (retakesRemoved + interruptionsSuppressed) * 0.015);
+  const confidenceScore = Number(Math.max(0.64, 0.93 - confidencePenalty).toFixed(2));
+  const confidenceLabel = confidenceScore >= 0.85 ? "High" : confidenceScore >= 0.72 ? "Medium" : "Low";
+
+  return {
+    label: "Interview Mode",
+    resultSegments,
+    suggestions,
+    summary: {
+      changedSegments: changed.size,
+      removedSegments: retakesRemoved + interruptionsSuppressed,
+      timeSavedSec: estimatedDurationSavedSec,
+    },
+    metadata: {
+      speakerInterview: {
+        intent: "Keep host prompts intact while tightening respondent answers for clearer interview flow.",
+        hostSpeaker: args.options.hostSpeaker,
+        respondentSpeaker: args.options.respondentSpeaker,
+        promptsKept,
+        answerSegmentsTightened,
+        fillersRemoved,
+        retakesRemoved,
+        interruptionsSuppressed,
         estimatedDurationSavedSec,
         confidenceLabel,
         confidenceScore,

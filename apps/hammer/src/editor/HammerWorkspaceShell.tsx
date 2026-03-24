@@ -54,6 +54,7 @@ import {
   previewQuickClean,
   previewRemoveFillers,
   previewRemoveRetakes,
+  previewSpeakerInterview,
   previewSpeakerSolo,
   previewShortenGaps,
   previewTightenSelection,
@@ -61,6 +62,7 @@ import {
   type RetakeCleanupOptions,
   type FillerCleanupOptions,
   type GapCleanupOptions,
+  type SpeakerInterviewOptions,
   type SpeakerSoloOptions,
 } from "./hammerCleanupTools";
 import PolishResultSummary, {
@@ -144,6 +146,10 @@ import {
   loadHammerPreparedReleasePackage,
   saveHammerPreparedReleasePackage,
 } from "../lib/hammerPreparedReleasePackageApi";
+import {
+  buildHammerCaptionPreviewModel,
+  type HammerCaptionPreviewChunk,
+} from "../lib/hammerCaptionPreview";
 import "./HammerWorkspaceShell.css";
 
 const SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY = 4;
@@ -254,6 +260,42 @@ type HammerReleasePrepSaveState = {
   preparedAt: string;
   overallStatus: HammerPreparedReleaseOverallStatus;
   subtitleArtifactCount: number;
+};
+
+type HammerCaptionReadingSpeed = "slow" | "standard" | "fast";
+type HammerCaptionPunctuationMode = "preserve" | "normalize";
+
+type HammerCaptionFormattingState = {
+  style: "sentence" | "title" | "upper";
+  maxCharsPerLine: number;
+  maxLinesPerCaption: number;
+  includeSpeakerLabels: boolean;
+  punctuationMode: HammerCaptionPunctuationMode;
+  readingSpeed: HammerCaptionReadingSpeed;
+};
+
+type HammerCaptionBuiltChunk = {
+  id: string;
+  startSec: number;
+  endSec: number;
+  text: string;
+  lineCount: number;
+  charCount: number;
+  sourceSegmentIds: string[];
+  approximateTiming: boolean;
+};
+
+type HammerCaptionBuildState = {
+  builtAt: string;
+  sourceLayerId: string | null;
+  sourceLabel: string;
+  fingerprint: string;
+  chunkCount: number;
+  segmentCount: number;
+  approximateTiming: boolean;
+  chunks: HammerCaptionBuiltChunk[];
+  srt: string;
+  vtt: string;
 };
 
 type HammerExportTruthState = "never_prepared" | "current" | "stale";
@@ -459,6 +501,18 @@ function resolveOutputSelectionFromTranscript(
 
 function formatOutputLayerLabel(layer: HammerDerivedTextLayer): string {
   const recipe = layer.recipe_ref.trim() || "derived";
+  if (recipe.startsWith("speaker_solo:")) {
+    const speaker = recipe.split(":", 2)[1]?.trim().toUpperCase() || "Speaker";
+    return `Solo Mode - ${speaker}`;
+  }
+  if (recipe.startsWith("speaker_interview:")) {
+    const pair = recipe.split(":", 2)[1] ?? "";
+    const [host, respondent] = pair.split("->").map((item) => item.trim().toUpperCase());
+    if (host && respondent) {
+      return `Interview Mode - ${host} -> ${respondent}`;
+    }
+    return "Interview Mode";
+  }
   return `${recipe} output`;
 }
 
@@ -511,6 +565,167 @@ function createTimelineMarkerId(): string {
     return `marker:${crypto.randomUUID()}`;
   }
   return `marker:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function toTitleCaseText(value: string): string {
+  return value.replace(/\b([a-z])/g, (match) => match.toUpperCase());
+}
+
+function applyCaptionStyle(value: string, style: HammerCaptionFormattingState["style"]): string {
+  if (style === "upper") return value.toUpperCase();
+  if (style === "title") return toTitleCaseText(value.toLowerCase());
+  return value;
+}
+
+function normalizeCaptionPunctuation(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.!?;:])/g, "$1")
+    .replace(/([,.!?;:]){2,}/g, "$1")
+    .trim();
+}
+
+function splitCaptionWordsByLimit(text: string, maxChars: number): string[] {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return [];
+  const words = normalized.split(" ");
+  const chunks: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (current && candidate.length > maxChars) {
+      chunks.push(current);
+      current = word;
+      continue;
+    }
+    current = candidate;
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function wrapCaptionLines(text: string, maxCharsPerLine: number, maxLines: number): string {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let index = 0;
+  while (index < words.length && lines.length < maxLines) {
+    if (lines.length === maxLines - 1) {
+      lines.push(words.slice(index).join(" "));
+      break;
+    }
+    let line = words[index] ?? "";
+    index += 1;
+    while (index < words.length) {
+      const candidate = `${line} ${words[index]}`;
+      if (candidate.length > maxCharsPerLine) break;
+      line = candidate;
+      index += 1;
+    }
+    lines.push(line);
+  }
+  return lines.slice(0, maxLines).join("\n");
+}
+
+function resolveCaptionCharsPerSecond(speed: HammerCaptionReadingSpeed): number {
+  if (speed === "slow") return 12;
+  if (speed === "fast") return 20;
+  return 16;
+}
+
+function buildCaptionChunksFromPreview(args: {
+  chunks: HammerCaptionPreviewChunk[];
+  formatting: HammerCaptionFormattingState;
+}): HammerCaptionBuiltChunk[] {
+  const results: HammerCaptionBuiltChunk[] = [];
+  const cpsLimit = resolveCaptionCharsPerSecond(args.formatting.readingSpeed);
+  let cursor = 0;
+  for (const chunk of args.chunks) {
+    const duration = Math.max(0.1, chunk.end_sec - chunk.start_sec);
+    const layoutCap = Math.max(18, args.formatting.maxCharsPerLine * args.formatting.maxLinesPerCaption);
+    const speedCap = Math.max(18, Math.floor(duration * cpsLimit));
+    const maxChars = Math.max(18, Math.min(layoutCap, speedCap));
+    const baseText = args.formatting.includeSpeakerLabels
+      ? `${chunk.speaker}: ${chunk.text}`
+      : chunk.text;
+    const punctuated = args.formatting.punctuationMode === "normalize"
+      ? normalizeCaptionPunctuation(baseText)
+      : baseText.replace(/\s+/g, " ").trim();
+    const styled = applyCaptionStyle(punctuated, args.formatting.style);
+    const parts = splitCaptionWordsByLimit(styled, maxChars);
+    const totalWeight = Math.max(parts.reduce((sum, part) => sum + Math.max(part.length, 1), 0), 1);
+    let offset = chunk.start_sec;
+    let consumed = 0;
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = parts[index];
+      consumed += Math.max(part.length, 1);
+      const nextEnd = index < parts.length - 1
+        ? chunk.start_sec + (duration * (consumed / totalWeight))
+        : chunk.end_sec;
+      const wrapped = wrapCaptionLines(part, args.formatting.maxCharsPerLine, args.formatting.maxLinesPerCaption);
+      const lines = wrapped.split("\n").filter(Boolean);
+      results.push({
+        id: `${chunk.chunk_id}:${index}:${cursor}`,
+        startSec: offset,
+        endSec: Math.max(nextEnd, offset + 0.05),
+        text: wrapped,
+        lineCount: lines.length,
+        charCount: wrapped.replace(/\n/g, "").length,
+        sourceSegmentIds: [...chunk.segment_ids],
+        approximateTiming: chunk.approximate_timing || parts.length > 1,
+      });
+      offset = Math.max(nextEnd, offset + 0.05);
+      cursor += 1;
+    }
+  }
+  return results;
+}
+
+function formatCaptionTimestamp(totalSeconds: number, format: "srt" | "vtt"): string {
+  const clampedMs = Math.max(Math.round(totalSeconds * 1000), 0);
+  const hours = Math.floor(clampedMs / 3_600_000);
+  const minutes = Math.floor((clampedMs % 3_600_000) / 60_000);
+  const seconds = Math.floor((clampedMs % 60_000) / 1000);
+  const milliseconds = clampedMs % 1000;
+  const separator = format === "srt" ? "," : ".";
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}${separator}${String(milliseconds).padStart(3, "0")}`;
+}
+
+function renderBuiltSrt(chunks: HammerCaptionBuiltChunk[]): string {
+  return chunks.map((chunk, index) => [
+    String(index + 1),
+    `${formatCaptionTimestamp(chunk.startSec, "srt")} --> ${formatCaptionTimestamp(chunk.endSec, "srt")}`,
+    chunk.text,
+  ].join("\n")).join("\n\n");
+}
+
+function renderBuiltVtt(chunks: HammerCaptionBuiltChunk[]): string {
+  const body = chunks.map((chunk) => [
+    `${formatCaptionTimestamp(chunk.startSec, "vtt")} --> ${formatCaptionTimestamp(chunk.endSec, "vtt")}`,
+    chunk.text,
+  ].join("\n")).join("\n\n");
+  return body ? `WEBVTT\n\n${body}` : "WEBVTT\n";
+}
+
+function buildCaptionBasisFingerprint(args: {
+  transcript: HammerPersistedStructuredTranscript;
+  outputLayerId: string | null;
+  outputRecipeRef: string | null;
+  formatting: HammerCaptionFormattingState;
+}): string {
+  return stableHashToken(JSON.stringify({
+    transcriptId: args.transcript.transcript_id,
+    outputLayerId: args.outputLayerId,
+    outputRecipeRef: args.outputRecipeRef,
+    formatting: args.formatting,
+    segments: args.transcript.segments.map((segment) => ({
+      id: segment.segment_id,
+      speaker: segment.speaker,
+      text: segment.text,
+      start: segment.start_sec,
+      end: segment.end_sec,
+      disabled: segment.is_disabled === true,
+    })),
+  }));
 }
 
 function buildPreparedPackageIdentityFingerprint(pkg: HammerPreparedReleasePackage): string {
@@ -632,12 +847,30 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     compressGaps: false,
     maxInterruptionSec: 0.8,
   }));
+  const [speakerInterviewOptions, setSpeakerInterviewOptions] = useState<SpeakerInterviewOptions>(() => ({
+    hostSpeaker: transcriptSegments[0]?.speaker ?? "S1",
+    respondentSpeaker: transcriptSegments[1]?.speaker ?? transcriptSegments[0]?.speaker ?? "S2",
+    tightness: "medium",
+    removeBackchannels: true,
+    collapseInterruptions: true,
+    maxInterruptionSec: 0.8,
+  }));
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
   const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
   const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
   const [videoSnapMode, setVideoSnapMode] = useState<"timeline" | "segment">("timeline");
-  const [captionStyle, setCaptionStyle] = useState<"sentence" | "title" | "upper">("sentence");
+  const [captionFormatting, setCaptionFormatting] = useState<HammerCaptionFormattingState>({
+    style: "sentence",
+    maxCharsPerLine: 42,
+    maxLinesPerCaption: 2,
+    includeSpeakerLabels: false,
+    punctuationMode: "preserve",
+    readingSpeed: "standard",
+  });
+  const [selectedCaptionArtifactFormat, setSelectedCaptionArtifactFormat] = useState<"srt" | "vtt">("srt");
+  const [captionBuildState, setCaptionBuildState] = useState<HammerCaptionBuildState | null>(null);
+  const [captionBuildFeedback, setCaptionBuildFeedback] = useState<string | null>(null);
   const [detailTag, setDetailTag] = useState("main-edit");
   const [finishingChecklist, setFinishingChecklist] = useState({
     transcriptReviewed: false,
@@ -677,6 +910,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const historyPersistTimerRef = useRef<number | null>(null);
   const snapshotManifestRef = useRef<HammerSnapshotManifestV1 | null>(null);
   const lastSnapshottedHeadEntryIdRef = useRef<string | null>(null);
+  const historyBaselineStateRef = useRef<HammerEditorStateSerializable | null>(null);
+  const baselineDerivedLayersRef = useRef<HammerPersistedStructuredTranscript["derived_text_layers"]>(
+    cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers),
+  );
   const derivedLayerHistoryRef = useRef<Map<string, DerivedLayerHistoryTransition>>(new Map());
   const scrubRectRef = useRef<{ left: number; width: number } | null>(null);
   const scrubAutoPlayRef = useRef(false);
@@ -1056,6 +1293,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => [...(historyController?.document.entries ?? [])].slice(-12).reverse(),
     [historyController?.document.entries],
   );
+  const historyEntryById = useMemo(() => {
+    const byId = new Map<string, HammerHistoryEntry>();
+    for (const entry of historyController?.document.entries ?? []) {
+      byId.set(entry.id, entry);
+    }
+    return byId;
+  }, [historyController?.document.entries]);
   const undoLabelCompact = compactHistoryActionLabel(undoLabel);
   const redoLabelCompact = compactHistoryActionLabel(redoLabel);
   const outputLayerCandidates = useMemo(
@@ -1073,6 +1317,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const viewingModeSummary = activeOutputLayer
     ? `Derived - ${formatOutputLayerLabel(activeOutputLayer)}`
     : "Raw";
+  const captionSourceLabel = selectedOutputLayer
+    ? formatOutputLayerLabel(selectedOutputLayer)
+    : "Raw transcript";
   const cleanupPreviewSummary = useMemo(
     () => (cleanupPreview ? buildPolishResultSummaryFromCleanupPreview(cleanupPreview) : null),
     [cleanupPreview],
@@ -1127,6 +1374,32 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setPlayheadSec(normalized.playheadSec);
     setTranscriptTimingHint(normalized.transcriptTimingHint);
     setCleanupPreview(null);
+  }
+
+  function buildHistoryPathToEntry(entryId: string): string[] {
+    const path: string[] = [];
+    const visited = new Set<string>();
+    let cursor: string | null = entryId;
+    while (cursor && !visited.has(cursor)) {
+      const entry: HammerHistoryEntry | null = historyEntryById.get(cursor) ?? null;
+      if (!entry) break;
+      path.push(entry.id);
+      visited.add(cursor);
+      cursor = entry.parentEntryId ?? null;
+    }
+    return path.reverse();
+  }
+
+  function resolveDerivedLayersForUndoStack(
+    undoStack: readonly string[],
+  ): HammerPersistedStructuredTranscript["derived_text_layers"] {
+    let next = cloneHammerDerivedTextLayers(baselineDerivedLayersRef.current);
+    for (const entryId of undoStack) {
+      const transition = derivedLayerHistoryRef.current.get(entryId);
+      if (!transition) continue;
+      next = cloneHammerDerivedTextLayers(transition.after);
+    }
+    return next;
   }
 
   function clearPersistTimer(): void {
@@ -1327,6 +1600,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [speakerOptions, speakerSoloOptions.targetSpeaker]);
 
   useEffect(() => {
+    if (speakerOptions.length === 0) return;
+    setSpeakerInterviewOptions((current) => {
+      let nextHost = current.hostSpeaker;
+      let nextRespondent = current.respondentSpeaker;
+      if (!speakerOptions.includes(nextHost)) {
+        nextHost = speakerOptions[0] ?? "S1";
+      }
+      if (!speakerOptions.includes(nextRespondent) || nextRespondent === nextHost) {
+        nextRespondent = speakerOptions.find((speaker) => speaker !== nextHost) ?? nextHost;
+      }
+      if (nextHost === current.hostSpeaker && nextRespondent === current.respondentSpeaker) {
+        return current;
+      }
+      return {
+        ...current,
+        hostSpeaker: nextHost,
+        respondentSpeaker: nextRespondent,
+      };
+    });
+  }, [speakerOptions]);
+
+  useEffect(() => {
     let active = true;
     clearPersistTimer();
     snapshotManifestRef.current = null;
@@ -1343,6 +1638,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       playheadSec: Math.max(0, Math.min(playheadSec, resolveTranscriptDurationSec(synced.segments))),
       transcriptTimingHint: null,
     });
+    historyBaselineStateRef.current = cloneEditorState(baselineState);
+    baselineDerivedLayersRef.current = cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers);
     const baseRevisionId = hashEditorState(baselineState);
 
     historyControllerRef.current = createHammerHistoryController({
@@ -2551,18 +2848,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const toolId = preview.label.toLowerCase().replace(/\s+/g, "-");
     const summary = buildPolishResultSummaryFromCleanupPreview(preview);
     historyControllerRef.current?.createCheckpoint(`Before ${preview.label}`);
-    if (preview.metadata?.speakerSolo && workspaceStructuredTranscript) {
+    const isSpeakerSoloApply = Boolean(preview.metadata?.speakerSolo);
+    const isSpeakerInterviewApply = Boolean(preview.metadata?.speakerInterview);
+    if ((isSpeakerSoloApply || isSpeakerInterviewApply) && workspaceStructuredTranscript) {
       const nextLayerChanges = editableTranscriptSegments
         .map((segment) => {
           const nextSegment = preview.resultSegments.find((item) => item.segment_id === segment.segment_id) ?? null;
-          const newlySuppressed = Boolean(nextSegment?.is_disabled === true && segment.is_disabled !== true);
-          if (!newlySuppressed) return null;
+          if (!nextSegment) return null;
+          const newlySuppressed = Boolean(nextSegment.is_disabled === true && segment.is_disabled !== true);
+          const textChanged = nextSegment.text !== segment.text;
+          if (!newlySuppressed && !textChanged) return null;
+          const cleanedText = newlySuppressed ? "" : nextSegment.text;
           return {
             segment_id: segment.segment_id,
             original_text: segment.text,
-            cleaned_text: "",
+            cleaned_text: cleanedText,
             operations: [{
-              kind: "retake_fragment_removed" as const,
+              kind: newlySuppressed ? "retake_fragment_removed" as const : "filler_removed" as const,
               value: segment.text,
               start: 0,
               end: segment.text.length,
@@ -2571,17 +2873,24 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         })
         .filter((change): change is NonNullable<typeof change> => Boolean(change));
       if (nextLayerChanges.length === 0) {
-        setTranscriptTimingHint("Solo Mode found no non-target segments to suppress.");
+        setTranscriptTimingHint(isSpeakerSoloApply
+          ? "Solo Mode found no non-target segments to suppress."
+          : "Interview Mode found no respondent changes to apply.");
         return;
       }
 
       const nowIso = new Date().toISOString();
-      const targetSpeaker = preview.metadata.speakerSolo.targetSpeaker.trim() || "speaker";
-      const layerLabel = `Solo Mode - ${targetSpeaker}`;
+      const layerLabel = isSpeakerSoloApply
+        ? `Solo Mode - ${preview.metadata?.speakerSolo?.targetSpeaker.trim() || "speaker"}`
+        : `Interview Mode - ${preview.metadata?.speakerInterview?.hostSpeaker.trim() || "host"}->${preview.metadata?.speakerInterview?.respondentSpeaker.trim() || "guest"}`;
+      const recipeRef = isSpeakerSoloApply
+        ? `speaker_solo:${preview.metadata?.speakerSolo?.targetSpeaker.trim().toLowerCase() || "speaker"}`
+        : `speaker_interview:${preview.metadata?.speakerInterview?.hostSpeaker.trim().toLowerCase() || "host"}->${preview.metadata?.speakerInterview?.respondentSpeaker.trim().toLowerCase() || "guest"}`;
+      const macroKind = isSpeakerSoloApply ? "speaker_solo" as const : "speaker_interview" as const;
       const layer = createHammerDerivedTextLayer({
         transcriptId: workspaceStructuredTranscript.transcript_id,
-        recipeRef: `speaker_solo:${targetSpeaker.toLowerCase()}`,
-        macroKind: "speaker_solo",
+        recipeRef,
+        macroKind,
         changes: nextLayerChanges,
         nowIso,
       });
@@ -2789,6 +3098,81 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
+  function selectViewingLayer(layerId: string | null): void {
+    if (!workspaceStructuredTranscript) return;
+    const currentLayerId = workspaceStructuredTranscript.derived_text_layers?.active_layer_id ?? null;
+    if (currentLayerId === layerId) return;
+
+    const withActiveLayer = setHammerDerivedTextLayerActive(workspaceStructuredTranscript, layerId);
+    const beforeDerived = cloneHammerDerivedTextLayers(workspaceStructuredTranscript.derived_text_layers);
+    const afterDerived = cloneHammerDerivedTextLayers(withActiveLayer.derived_text_layers);
+    const targetLayer = layerId
+      ? listHammerDerivedTextLayers(withActiveLayer, { includeDiscarded: false }).find((layer) => layer.layer_id === layerId) ?? null
+      : null;
+    const layerLabel = targetLayer ? formatOutputLayerLabel(targetLayer) : "Raw";
+
+    const historyEntry = applyHistoryMutation({
+      label: targetLayer ? `Switch viewing layer to ${layerLabel}` : "Switch viewing layer to Raw",
+      kind: "editor_state_change",
+      toolId: "polish",
+      immediatePersist: true,
+      computeAfter: (before) => ({
+        ...before,
+        transcriptTimingHint: null,
+      }),
+    });
+    if (!historyEntry) return;
+
+    setEditableDerivedTextLayers(afterDerived);
+    derivedLayerHistoryRef.current.set(historyEntry.id, {
+      before: beforeDerived,
+      after: afterDerived,
+      layerLabel,
+    });
+  }
+
+  function jumpToHistoryEntry(entryId: string): void {
+    const controller = historyControllerRef.current;
+    const baseline = historyBaselineStateRef.current;
+    if (!controller || !baseline) return;
+    if (!historyEntryById.has(entryId)) return;
+
+    const currentPath = [
+      ...controller.document.undoStack,
+      ...[...controller.document.redoStack].reverse(),
+    ];
+    const targetIndex = currentPath.indexOf(entryId);
+    const targetPath = targetIndex >= 0
+      ? currentPath.slice(0, targetIndex + 1)
+      : buildHistoryPathToEntry(entryId);
+    const nextRedo = targetIndex >= 0
+      ? currentPath.slice(targetIndex + 1).reverse()
+      : [];
+    const replayed = controller.getReplayStateFromBaseline(baseline, entryId);
+
+    controller.document.undoStack = [...targetPath];
+    controller.document.redoStack = [...nextRedo];
+    controller.document.headEntryId = entryId;
+    controller.document.updatedAt = new Date().toISOString();
+    controller.replaceState(replayed);
+
+    applyWorkspaceState(replayed);
+    setEditableDerivedTextLayers(resolveDerivedLayersForUndoStack(targetPath));
+    setHistoryStatus(nextRedo.length > 0 ? "History jump mode: reviewing a past state." : null);
+    selectionOriginRef.current = "system";
+    setFocusOverride("source-focus");
+    scheduleHistoryPersist();
+  }
+
+  function restoreCurrentHistoryState(): void {
+    const controller = historyControllerRef.current;
+    if (!controller || controller.document.redoStack.length === 0) return;
+    controller.document.redoStack = [];
+    controller.document.updatedAt = new Date().toISOString();
+    setHistoryStatus("Restored this state. Future history steps were cleared.");
+    scheduleHistoryPersist(true);
+  }
+
   useEffect(() => {
     function handleKeyboardHistory(event: KeyboardEvent): void {
       if (isKeyboardEditingTarget(event.target)) return;
@@ -2983,7 +3367,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const selectedLayer = transcriptForRelease.derived_text_layers?.layers.find(
       (layer) => layer.layer_id === editableOutputSelection.layerId && layer.status !== "discarded",
     ) ?? null;
-    if (selectedLayer?.macro_kind === "speaker_solo") {
+    if (selectedLayer?.macro_kind === "speaker_solo" || selectedLayer?.macro_kind === "speaker_interview") {
       const suppressedSegmentIds = new Set(
         selectedLayer.changes
           .filter((change) => change.cleaned_text.trim().length === 0)
@@ -2992,6 +3376,44 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       transcriptForRelease = {
         ...transcriptForRelease,
         segments: transcriptForRelease.segments.filter((segment) => !suppressedSegmentIds.has(segment.segment_id)),
+      };
+    }
+    const captionBasisFingerprint = buildCaptionBasisFingerprint({
+      transcript: transcriptForRelease,
+      outputLayerId: editableOutputSelection.layerId,
+      outputRecipeRef: editableOutputSelection.sourceRecipeRef,
+      formatting: captionFormatting,
+    });
+    const hasCurrentCaptionBuild = captionBuildState?.fingerprint === captionBasisFingerprint;
+    if (hasCurrentCaptionBuild && captionBuildState) {
+      transcriptForRelease = {
+        ...transcriptForRelease,
+        subtitle_outputs: {
+          schema_version: 1,
+          last_generated_format: selectedCaptionArtifactFormat,
+          srt: {
+            format: "srt",
+            generated_at: captionBuildState.builtAt,
+            source_transcript_id: transcriptForRelease.transcript_id,
+            source_layer_id: editableOutputSelection.layerId ?? null,
+            source_kind: editableOutputSelection.layerId ? "derived" : "raw",
+            source_recipe_ref: editableOutputSelection.sourceRecipeRef ?? null,
+            approximate_timing: captionBuildState.approximateTiming,
+            entry_count: captionBuildState.chunkCount,
+            content: captionBuildState.srt,
+          },
+          vtt: {
+            format: "vtt",
+            generated_at: captionBuildState.builtAt,
+            source_transcript_id: transcriptForRelease.transcript_id,
+            source_layer_id: editableOutputSelection.layerId ?? null,
+            source_kind: editableOutputSelection.layerId ? "derived" : "raw",
+            source_recipe_ref: editableOutputSelection.sourceRecipeRef ?? null,
+            approximate_timing: captionBuildState.approximateTiming,
+            entry_count: captionBuildState.chunkCount,
+            content: captionBuildState.vtt,
+          },
+        },
       };
     }
     const editPlan = launchContext.edit_plan
@@ -3038,7 +3460,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       },
     };
   }, [
+    captionBuildState,
+    captionFormatting,
     editableOutputSelection.layerId,
+    editableOutputSelection.sourceRecipeRef,
     editableTranscriptSegments,
     launchContext,
     mediaRef,
@@ -3047,6 +3472,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     props.audioPolish,
     workspaceStructuredTranscript,
     editableVisualPlacements,
+    selectedCaptionArtifactFormat,
     selectedSegmentId,
     transcriptSourceId,
     workspaceMapping,
@@ -3107,6 +3533,60 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return props.releasePrepHref;
     }
   }, [exportTruthState, loadedPreparedPackage, props.releasePrepHref]);
+
+  function handleRebuildCaptionArtifacts(): void {
+    const preview = buildHammerCaptionPreviewModel(
+      exportBasis.transcriptForRelease.segments,
+      exportBasis.transcriptForRelease,
+    );
+    const formattedChunks = buildCaptionChunksFromPreview({
+      chunks: preview.chunks,
+      formatting: captionFormatting,
+    });
+    const builtAt = new Date().toISOString();
+    const nextBuild: HammerCaptionBuildState = {
+      builtAt,
+      sourceLayerId: editableOutputSelection.layerId ?? null,
+      sourceLabel: captionSourceLabel,
+      fingerprint: captionBasisFingerprint,
+      chunkCount: formattedChunks.length,
+      segmentCount: preview.segment_count,
+      approximateTiming: formattedChunks.some((chunk) => chunk.approximateTiming),
+      chunks: formattedChunks,
+      srt: renderBuiltSrt(formattedChunks),
+      vtt: renderBuiltVtt(formattedChunks),
+    };
+    setCaptionBuildState(nextBuild);
+    setCaptionBuildFeedback(`Built ${formattedChunks.length} caption rows from ${captionSourceLabel}.`);
+  }
+
+  const captionBasisFingerprint = useMemo(
+    () => buildCaptionBasisFingerprint({
+      transcript: exportBasis.transcriptForRelease,
+      outputLayerId: editableOutputSelection.layerId,
+      outputRecipeRef: editableOutputSelection.sourceRecipeRef,
+      formatting: captionFormatting,
+    }),
+    [
+      captionFormatting,
+      editableOutputSelection.layerId,
+      editableOutputSelection.sourceRecipeRef,
+      exportBasis.transcriptForRelease,
+    ],
+  );
+  const captionBuildFreshness: "missing" | "current" | "stale" = !captionBuildState
+    ? "missing"
+    : captionBuildState.fingerprint === captionBasisFingerprint
+    ? "current"
+    : "stale";
+  const captionBuildStatusLabel = captionBuildFreshness === "missing"
+    ? "Missing caption build"
+    : captionBuildFreshness === "current"
+    ? "Up to date"
+    : "Needs refresh";
+  const activeCaptionArtifactText = selectedCaptionArtifactFormat === "srt"
+    ? (captionBuildState?.srt ?? "")
+    : (captionBuildState?.vtt ?? "");
 
   async function handlePrepareReleasePackage(): Promise<void> {
     if (releasePrepSaving) return;
@@ -3330,13 +3810,63 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               <div className="hammer-source-status hammer-source-status--info" role="status">
                 History: {undoDepth} undo / {redoDepth} redo
               </div>
-              <div className="hammer-source-status hammer-source-status--info" role="status">
-                Viewing: {viewingModeSummary}
-              </div>
+              <section className="hammer-layer-selector" aria-label="Layer state">
+                <header className="hammer-layer-selector__head">
+                  <strong>Layer State</strong>
+                </header>
+                <label className="hammer-layer-selector__field">
+                  <span>Viewing layer</span>
+                  <select
+                    value={activeOutputLayerId ?? "__raw__"}
+                    onChange={(event) => {
+                      setFocusOverride("source-focus");
+                      const nextLayerId = event.target.value === "__raw__" ? null : event.target.value;
+                      selectViewingLayer(nextLayerId);
+                    }}
+                    disabled={!workspaceStructuredTranscript}
+                  >
+                    <option value="__raw__">Raw</option>
+                    {outputLayerCandidates.map((layer) => (
+                      <option key={layer.layer_id} value={layer.layer_id}>
+                        {formatOutputLayerLabel(layer)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="hammer-layer-selector__field">
+                  <span>Export basis</span>
+                  <select
+                    value={editableOutputSelection.layerId ?? "__raw__"}
+                    onChange={(event) => {
+                      setFocusOverride("source-focus");
+                      const nextLayerId = event.target.value === "__raw__" ? null : event.target.value;
+                      selectOutputLayerForExport(nextLayerId);
+                    }}
+                  >
+                    <option value="__raw__">Raw transcript</option>
+                    {outputLayerCandidates.map((layer) => (
+                      <option key={layer.layer_id} value={layer.layer_id}>
+                        {formatOutputLayerLabel(layer)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </section>
               <section className="hammer-history-panel" aria-label="Edit history">
                 <header className="hammer-history-panel__head">
                   <strong>History</strong>
-                  <span>{recentHistoryEntries.length} shown</span>
+                  <div className="hammer-history-panel__head-actions">
+                    {canRedo ? (
+                      <button
+                        type="button"
+                        onClick={restoreCurrentHistoryState}
+                        className="hammer-history-panel__action"
+                      >
+                        Restore this state
+                      </button>
+                    ) : null}
+                    <span>{recentHistoryEntries.length} shown</span>
+                  </div>
                 </header>
                 {recentHistoryEntries.length === 0 ? (
                   <div className="hammer-history-panel__empty">No edits recorded yet.</div>
@@ -3347,9 +3877,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       const derivedTransition = derivedLayerHistoryRef.current.get(entry.id) ?? null;
                       const derivedLayerCreated = Boolean(derivedTransition);
                       return (
-                        <article
+                        <button
                           key={entry.id}
-                          className={`hammer-history-panel__item${isCurrent ? " is-current" : ""}`}
+                          type="button"
+                          className={[
+                            "hammer-history-panel__item",
+                            isCurrent ? "is-current" : "",
+                            derivedLayerCreated ? "is-layer-transition" : "",
+                          ].filter(Boolean).join(" ")}
+                          onClick={() => {
+                            setFocusOverride("source-focus");
+                            jumpToHistoryEntry(entry.id);
+                          }}
                         >
                           <div className="hammer-history-panel__row">
                             <strong>{entry.label}</strong>
@@ -3357,11 +3896,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           </div>
                           <div className="hammer-history-panel__meta">
                             <span>Scope: {formatHistoryEntryScope(entry)}</span>
+                            <span>Layer action: {derivedLayerCreated ? "yes" : "no"}</span>
                             <span>Derived layer: {derivedLayerCreated ? "yes" : "no"}</span>
                             {derivedTransition ? <span>Layer: {derivedTransition.layerLabel}</span> : null}
-                            {isCurrent ? <span>Current state</span> : null}
+                            {isCurrent ? <span>Current head</span> : null}
+                            {isCurrent && derivedTransition ? <span>Active layer transition</span> : null}
                           </div>
-                        </article>
+                        </button>
                       );
                     })}
                   </div>
@@ -4273,6 +4814,118 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </button>
                   </section>
 
+                  <section className="hammer-cleanup-tool">
+                    <div className="hammer-cleanup-tool__head">
+                      <strong>Interview Mode</strong>
+                      <span>
+                        Intent: Keep interviewer prompts intact while tightening respondent answers into a cleaner conversational cut.
+                      </span>
+                    </div>
+                    <label className="hammer-tool-field">
+                      <span>Interviewer speaker</span>
+                      <select
+                        value={speakerInterviewOptions.hostSpeaker}
+                        onChange={(event) => {
+                          const hostSpeaker = event.target.value;
+                          setFocusOverride("tool-focus");
+                          setSpeakerInterviewOptions((current) => ({
+                            ...current,
+                            hostSpeaker,
+                            respondentSpeaker: current.respondentSpeaker === hostSpeaker
+                              ? (speakerOptions.find((speaker) => speaker !== hostSpeaker) ?? hostSpeaker)
+                              : current.respondentSpeaker,
+                          }));
+                        }}
+                        disabled={speakerOptions.length === 0}
+                      >
+                        {speakerOptions.length > 0 ? speakerOptions.map((speaker) => (
+                          <option key={`interview-host-${speaker}`} value={speaker}>{speaker}</option>
+                        )) : (
+                          <option value="">No speakers</option>
+                        )}
+                      </select>
+                    </label>
+                    <label className="hammer-tool-field">
+                      <span>Respondent speaker</span>
+                      <select
+                        value={speakerInterviewOptions.respondentSpeaker}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerInterviewOptions((current) => ({
+                            ...current,
+                            respondentSpeaker: event.target.value,
+                          }));
+                        }}
+                        disabled={speakerOptions.length === 0}
+                      >
+                        {speakerOptions.length > 0 ? speakerOptions.map((speaker) => (
+                          <option key={`interview-respondent-${speaker}`} value={speaker}>{speaker}</option>
+                        )) : (
+                          <option value="">No speakers</option>
+                        )}
+                      </select>
+                    </label>
+                    <label className="hammer-tool-field">
+                      <span>Tightness</span>
+                      <select
+                        value={speakerInterviewOptions.tightness}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerInterviewOptions((current) => ({
+                            ...current,
+                            tightness: event.target.value as SpeakerInterviewOptions["tightness"],
+                          }));
+                        }}
+                      >
+                        <option value="light">Light</option>
+                        <option value="medium">Medium</option>
+                        <option value="tight">Tight</option>
+                      </select>
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={speakerInterviewOptions.removeBackchannels}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerInterviewOptions((current) => ({
+                            ...current,
+                            removeBackchannels: event.target.checked,
+                          }));
+                        }}
+                      />
+                      <span>Remove short backchannels</span>
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={speakerInterviewOptions.collapseInterruptions}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerInterviewOptions((current) => ({
+                            ...current,
+                            collapseInterruptions: event.target.checked,
+                          }));
+                        }}
+                      />
+                      <span>Suppress non-flow interruptions</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("tool-focus");
+                        setCleanupPreview(previewSpeakerInterview({
+                          segments: editableTranscriptSegments,
+                          options: speakerInterviewOptions,
+                          segmentIds: hasTranscriptSelection ? transcriptSelectionRange.segmentIds : undefined,
+                        }));
+                      }}
+                      disabled={!speakerInterviewOptions.hostSpeaker || !speakerInterviewOptions.respondentSpeaker}
+                    >
+                      Preview Interview Mode
+                    </button>
+                  </section>
+
                   <section className="hammer-cleanup-tool hammer-cleanup-tool--quick">
                     <div className="hammer-cleanup-tool__head">
                       <strong>Quick Clean</strong>
@@ -4350,6 +5003,32 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           </div>
                           <div className="hammer-tighten-preview__safety">
                             {cleanupPreview.metadata.speakerSolo.safetyNote}
+                          </div>
+                        </section>
+                      ) : null}
+                      {cleanupPreview.metadata?.speakerInterview ? (
+                        <section className="hammer-tighten-preview" aria-label="Interview mode preview">
+                          <div className="hammer-tighten-preview__intent">
+                            <strong>Intent</strong>
+                            <span>{cleanupPreview.metadata.speakerInterview.intent}</span>
+                          </div>
+                          <div className="hammer-tighten-preview__meta">
+                            <span>Interviewer: {cleanupPreview.metadata.speakerInterview.hostSpeaker}</span>
+                            <span>Respondent: {cleanupPreview.metadata.speakerInterview.respondentSpeaker}</span>
+                            <span>Prompts kept: {cleanupPreview.metadata.speakerInterview.promptsKept}</span>
+                            <span>Answer segments tightened: {cleanupPreview.metadata.speakerInterview.answerSegmentsTightened}</span>
+                            <span>Fillers removed: {cleanupPreview.metadata.speakerInterview.fillersRemoved}</span>
+                            <span>Retakes removed: {cleanupPreview.metadata.speakerInterview.retakesRemoved}</span>
+                            <span>Interruptions suppressed: {cleanupPreview.metadata.speakerInterview.interruptionsSuppressed}</span>
+                            <span>Estimated time saved: {cleanupPreview.metadata.speakerInterview.estimatedDurationSavedSec.toFixed(1)} s</span>
+                            <span>
+                              Confidence: {cleanupPreview.metadata.speakerInterview.confidenceLabel}
+                              {" "}
+                              ({Math.round(cleanupPreview.metadata.speakerInterview.confidenceScore * 100)}%)
+                            </span>
+                          </div>
+                          <div className="hammer-tighten-preview__safety">
+                            {cleanupPreview.metadata.speakerInterview.safetyNote}
                           </div>
                         </section>
                       ) : null}
@@ -4812,46 +5491,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       Requested but not yet rendered in v1: {studioRackRenderDeferredModules.join(", ")}
                     </div>
                   ) : null}
-                  {activeOutputLayer ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("tool-focus");
-                        selectOutputLayerForExport(activeOutputLayer.layer_id);
-                      }}
-                      disabled={editableOutputSelection.layerId === activeOutputLayer.layer_id}
-                    >
-                      Use active layer as export result
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFocusOverride("tool-focus");
-                      selectOutputLayerForExport(null);
-                    }}
-                    disabled={editableOutputSelection.layerId == null}
-                  >
-                    Use raw transcript as export result
-                  </button>
-                  {outputLayerCandidates.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      {outputLayerCandidates.map((layer) => (
-                        <button
-                          key={layer.layer_id}
-                          type="button"
-                          onClick={() => {
-                            setFocusOverride("tool-focus");
-                            selectOutputLayerForExport(layer.layer_id);
-                          }}
-                          disabled={editableOutputSelection.layerId === layer.layer_id}
-                        >
-                          {editableOutputSelection.layerId === layer.layer_id ? "Selected: " : "Use: "}
-                          {formatOutputLayerLabel(layer)}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
+                  <div className="hammer-tool-hint">Layer selection lives in the Layer State block.</div>
                   {releasePrepLoading ? (
                     <div className="hammer-tool-hint">Checking prepared package state...</div>
                   ) : null}

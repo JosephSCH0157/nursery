@@ -44,7 +44,8 @@ export interface HammerPersistedEditorSession {
 export type HammerDerivedTextMacroKind =
   | "filler_cleanup"
   | "retake_tightening"
-  | "speaker_solo";
+  | "speaker_solo"
+  | "speaker_interview";
 
 export type HammerDerivedTextOperationKind =
   | "filler_removed"

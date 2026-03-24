@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { HammerTranscriptSegment } from "../../../packages/contracts/hammer/transcript.contract";
 import {
+  previewSpeakerInterview,
   previewQuickClean,
   previewRemoveFillers,
   previewRemoveRetakes,
@@ -151,6 +152,35 @@ async function testSpeakerSoloSuppressesNonTargetDeterministically() {
   );
 }
 
+async function testSpeakerInterviewTightensRespondentOnly() {
+  const segments = [
+    s("a", 0, 1.1, "S1", "How did that start?"),
+    s("b", 1.1, 3.5, "S2", "Um I mean it started started when we were, you know, testing."),
+    s("c", 3.5, 4.0, "S3", "yeah"),
+    s("d", 4.0, 5.0, "S1", "What happened next?"),
+  ];
+  const preview = previewSpeakerInterview({
+    segments,
+    options: {
+      hostSpeaker: "S1",
+      respondentSpeaker: "S2",
+      tightness: "medium",
+      removeBackchannels: true,
+      collapseInterruptions: true,
+      maxInterruptionSec: 0.8,
+    },
+  });
+  assert.equal(preview.label, "Interview Mode");
+  assert.equal(preview.metadata?.speakerInterview?.hostSpeaker, "S1");
+  assert.equal(preview.metadata?.speakerInterview?.respondentSpeaker, "S2");
+  const hostA = preview.resultSegments.find((segment) => segment.segment_id === "a");
+  assert.equal(hostA?.text, "How did that start?");
+  const respondent = preview.resultSegments.find((segment) => segment.segment_id === "b");
+  assert.equal(Boolean(respondent && respondent.text !== segments[1]?.text), true);
+  const interruption = preview.resultSegments.find((segment) => segment.segment_id === "c");
+  assert.equal(interruption?.is_disabled === true, true);
+}
+
 async function run() {
   await testShortenGapsDeterministic();
   await testFillerRemovalDeterministic();
@@ -159,6 +189,7 @@ async function run() {
   await testTightenSelectionPreservesUnselectedSegments();
   await testTightenSelectionRejectsInlineSpeakerTagAsTextMutationRisk();
   await testSpeakerSoloSuppressesNonTargetDeterministically();
+  await testSpeakerInterviewTightensRespondentOnly();
   // eslint-disable-next-line no-console
   console.log("Hammer cleanup tools tests passed.");
 }
