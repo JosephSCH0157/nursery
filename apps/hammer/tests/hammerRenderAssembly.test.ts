@@ -157,10 +157,102 @@ async function testOrphanedLinkedDuckIsExplicitlyDegraded() {
   assert.equal(assembly.operations[0]?.reason_codes.includes("operation_conflict"), true);
 }
 
+async function testExportTimelineAssemblyIsDeterministicAndComposed() {
+  const graph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_render_04",
+      version: "1",
+      created_at: "2026-03-24T12:30:00.000Z",
+      updated_at: "2026-03-24T12:30:00.000Z",
+      source_transcript_id: "transcript_render_04",
+      preview_mode: "edit-aware",
+      instructions: [
+        {
+          instruction_id: "ins_ripple_01",
+          segment_id: "seg_01",
+          type: "ripple_delete",
+          start_sec: 1,
+          end_sec: 2,
+          created_at: "2026-03-24T12:30:00.000Z",
+        },
+        {
+          instruction_id: "ins_broll_02",
+          segment_id: "seg_02",
+          type: "insert_broll",
+          asset_ref: "assets/broll-02.mp4",
+          start_sec: 2,
+          end_sec: 5,
+          asset_binding_state: "resolved",
+          created_at: "2026-03-24T12:30:00.000Z",
+        },
+        {
+          instruction_id: "ins_duck_02",
+          segment_id: "seg_02",
+          type: "audio_duck",
+          start_sec: 2,
+          end_sec: 5,
+          duck_gain_db: -9,
+          created_at: "2026-03-24T12:30:00.000Z",
+        },
+        {
+          instruction_id: "ins_transition_01",
+          segment_id: "seg_03",
+          type: "crossfade",
+          next_segment_id: "seg_04",
+          duration_sec: 0.4,
+          start_sec: 5.4,
+          end_sec: 5.8,
+          created_at: "2026-03-24T12:30:00.000Z",
+        },
+      ],
+    },
+    workspaceId: "ws_render",
+    workpieceId: "wp_render",
+    sessionId: "session_render",
+  });
+  const capabilities = {
+    preview_supported_operation_types: ["ripple_delete", "insert_broll", "audio_duck", "crossfade"],
+    export_supported_operation_types: ["ripple_delete", "insert_broll", "audio_duck", "crossfade"],
+    handoff_supported_operation_types: ["ripple_delete", "insert_broll", "audio_duck", "crossfade"],
+  } as const;
+  const first = buildHammerRenderAssembly({
+    canonicalGraph: graph,
+    runtimeCapabilities: capabilities,
+    transcriptSegments: [
+      { segment_id: "seg_01", start_sec: 0, end_sec: 4 },
+      { segment_id: "seg_02", start_sec: 4, end_sec: 10 },
+    ],
+    captionChunks: [
+      { chunk_id: "cap_01", start_sec: 0, end_sec: 1, segment_ids: ["seg_01"] },
+      { chunk_id: "cap_02", start_sec: 3, end_sec: 4, segment_ids: ["seg_01"] },
+    ],
+  });
+  const second = buildHammerRenderAssembly({
+    canonicalGraph: graph,
+    runtimeCapabilities: capabilities,
+    transcriptSegments: [
+      { segment_id: "seg_01", start_sec: 0, end_sec: 4 },
+      { segment_id: "seg_02", start_sec: 4, end_sec: 10 },
+    ],
+    captionChunks: [
+      { chunk_id: "cap_01", start_sec: 0, end_sec: 1, segment_ids: ["seg_01"] },
+      { chunk_id: "cap_02", start_sec: 3, end_sec: 4, segment_ids: ["seg_01"] },
+    ],
+  });
+  assert.deepEqual(first.export_timeline, second.export_timeline);
+  assert.equal(first.export_timeline.final_duration_sec, 9);
+  assert.equal(first.export_timeline.export_posture, "authoritative");
+  assert.equal(first.export_timeline.audio_layers.some((layer) => layer.kind === "duck_region"), true);
+  assert.equal(first.export_timeline.visual_layers.some((layer) => layer.kind === "broll"), true);
+  assert.equal(first.export_timeline.transition_layers.some((layer) => layer.kind === "crossfade"), true);
+  assert.equal(first.export_timeline.caption_timing_map.find((entry) => entry.chunk_id === "cap_02")?.start_sec, 2);
+}
+
 async function run() {
   await testAssemblyDeterminismAndPosture();
   await testUnresolvedBrollIsNeverTreatedAsBoundMediaTruth();
   await testOrphanedLinkedDuckIsExplicitlyDegraded();
+  await testExportTimelineAssemblyIsDeterministicAndComposed();
   // eslint-disable-next-line no-console
   console.log("Hammer render assembly tests passed.");
 }

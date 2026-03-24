@@ -7,6 +7,7 @@ import type {
   HammerEditorialDegradationReasonCode,
   HammerEditorialPreviewTruthPosture,
 } from "../../../../packages/contracts/hammer/editorial-authority.contract";
+import { remapPlacementForRippleDelete } from "./hammerWorkspaceTimeline";
 
 export type HammerRenderAssemblyTruthPosture = HammerEditorialPreviewTruthPosture;
 export type HammerRenderAssemblyPlanTarget = "preview" | "export" | "handoff";
@@ -45,6 +46,88 @@ export interface HammerRenderAssemblyResult {
   preview: HammerRenderAssemblyPlan;
   export: HammerRenderAssemblyPlan;
   handoff: HammerRenderAssemblyPlan;
+  export_timeline: HammerExportTimelineAssembly;
+}
+
+export interface HammerRenderAssemblyTranscriptSegmentInput {
+  segment_id: string;
+  start_sec: number;
+  end_sec: number;
+}
+
+export interface HammerRenderAssemblyCaptionChunkInput {
+  chunk_id: string;
+  start_sec: number;
+  end_sec: number;
+  segment_ids: string[];
+}
+
+export interface HammerExportTimelineAudioLayer {
+  kind: "primary_dialogue" | "duck_region" | "fade_audio";
+  operation_id: string | null;
+  start_sec: number;
+  end_sec: number;
+  posture: HammerRenderAssemblyTruthPosture;
+  capability: HammerEditorialCapability;
+  reason_codes: HammerEditorialDegradationReasonCode[];
+  meta?: {
+    duck_gain_db?: number;
+    linked_broll_operation_id?: string | null;
+    fade_curve?: "linear" | "log";
+  };
+}
+
+export interface HammerExportTimelineVisualLayer {
+  kind: "primary_video" | "broll" | "dip_to_black";
+  operation_id: string | null;
+  start_sec: number;
+  end_sec: number;
+  posture: HammerRenderAssemblyTruthPosture;
+  capability: HammerEditorialCapability;
+  reason_codes: HammerEditorialDegradationReasonCode[];
+  meta?: {
+    asset_ref?: string;
+    intent_ref?: string | null;
+    intent_description?: string | null;
+  };
+}
+
+export interface HammerExportTimelineTransitionLayer {
+  kind: "hard_cut" | "crossfade" | "dip_to_black" | "fade_audio";
+  operation_id: string;
+  start_sec: number;
+  end_sec: number;
+  posture: HammerRenderAssemblyTruthPosture;
+  capability: HammerEditorialCapability;
+  reason_codes: HammerEditorialDegradationReasonCode[];
+}
+
+export interface HammerExportTimelineCaptionMapEntry {
+  chunk_id: string;
+  start_sec: number;
+  end_sec: number;
+  segment_ids: string[];
+  posture: HammerRenderAssemblyTruthPosture;
+}
+
+export interface HammerExportTimelineUnsupportedOperation {
+  operation_id: string;
+  type: HammerEditInstruction["type"];
+  posture: HammerRenderAssemblyTruthPosture;
+  capability: HammerEditorialCapability;
+  reason_codes: HammerEditorialDegradationReasonCode[];
+}
+
+export interface HammerExportTimelineAssembly {
+  final_duration_sec: number;
+  final_duration_ms: number;
+  export_posture: HammerRenderAssemblyTruthPosture;
+  audio_layers: HammerExportTimelineAudioLayer[];
+  visual_layers: HammerExportTimelineVisualLayer[];
+  transition_layers: HammerExportTimelineTransitionLayer[];
+  caption_timing_map: HammerExportTimelineCaptionMapEntry[];
+  attention_reasons: string[];
+  unsupported_or_degraded_ops: HammerExportTimelineUnsupportedOperation[];
 }
 
 function postureFromSupport(isSupported: boolean): HammerRenderAssemblyTruthPosture {
@@ -186,6 +269,8 @@ export function projectEditPlanFromEditorialAuthorityGraph(args: {
 export function buildHammerRenderAssembly(args: {
   canonicalGraph: HammerEditorialAuthorityGraph;
   runtimeCapabilities: HammerRenderRuntimeCapabilities;
+  transcriptSegments?: HammerRenderAssemblyTranscriptSegmentInput[] | null;
+  captionChunks?: HammerRenderAssemblyCaptionChunkInput[] | null;
 }): HammerRenderAssemblyResult {
   const activeOperationIds = new Set(
     args.canonicalGraph.operations
@@ -268,13 +353,319 @@ export function buildHammerRenderAssembly(args: {
     };
   };
 
+  const previewPlan = buildPlan("preview");
+  const exportPlan = buildPlan("export");
+  const handoffPlan = buildPlan("handoff");
+
   return {
     schema_version: 1,
     graph_id: args.canonicalGraph.graph_id,
     graph_version: args.canonicalGraph.graph_version,
     operations,
-    preview: buildPlan("preview"),
-    export: buildPlan("export"),
-    handoff: buildPlan("handoff"),
+    preview: previewPlan,
+    export: exportPlan,
+    handoff: handoffPlan,
+    export_timeline: buildHammerExportTimelineAssembly({
+      graph: args.canonicalGraph,
+      operations,
+      transcriptSegments: args.transcriptSegments ?? null,
+      captionChunks: args.captionChunks ?? null,
+      exportPosture: exportPlan.posture,
+    }),
+  };
+}
+
+function roundToMillisecondSec(value: number): number {
+  return Number(Math.max(0, value).toFixed(3));
+}
+
+function resolveInstructionWindow(instruction: HammerEditInstruction): { start_sec: number; end_sec: number } | null {
+  switch (instruction.type) {
+    case "insert_broll":
+    case "audio_duck":
+    case "dip_to_black":
+    case "fade_audio":
+    case "hard_cut":
+      return {
+        start_sec: instruction.start_sec,
+        end_sec: instruction.end_sec,
+      };
+    case "crossfade":
+      if (typeof instruction.start_sec === "number" && typeof instruction.end_sec === "number") {
+        return {
+          start_sec: instruction.start_sec,
+          end_sec: instruction.end_sec,
+        };
+      }
+      return null;
+    default:
+      return null;
+  }
+}
+
+function applyRippleDeletesToWindow(args: {
+  start_sec: number;
+  end_sec: number;
+  rippleDeletes: Array<{ start_sec: number; end_sec: number }>;
+}): { start_sec: number; end_sec: number; removed: boolean; degraded: boolean } {
+  let start_sec = args.start_sec;
+  let end_sec = args.end_sec;
+  let degraded = false;
+  for (const rippleDelete of args.rippleDeletes) {
+    const remap = remapPlacementForRippleDelete({
+      startSec: start_sec,
+      endSec: end_sec,
+      removedStartSec: rippleDelete.start_sec,
+      removedEndSec: rippleDelete.end_sec,
+    });
+    if (remap.kind === "removed") {
+      return { start_sec, end_sec, removed: true, degraded };
+    }
+    start_sec = remap.startSec;
+    end_sec = remap.endSec;
+    if (remap.needsAttention) degraded = true;
+  }
+  return { start_sec, end_sec, removed: false, degraded };
+}
+
+function computeFinalDurationFromStructuralDeletes(args: {
+  base_duration_sec: number;
+  rippleDeletes: Array<{ start_sec: number; end_sec: number }>;
+}): number {
+  let duration = args.base_duration_sec;
+  for (const rippleDelete of args.rippleDeletes) {
+    const start_sec = Math.max(0, Math.min(duration, rippleDelete.start_sec));
+    const end_sec = Math.max(start_sec, Math.min(duration, rippleDelete.end_sec));
+    duration = Math.max(0, duration - Math.max(0, end_sec - start_sec));
+  }
+  return roundToMillisecondSec(duration);
+}
+
+function buildHammerExportTimelineAssembly(args: {
+  graph: HammerEditorialAuthorityGraph;
+  operations: HammerRenderAssemblyOperationResolution[];
+  transcriptSegments: HammerRenderAssemblyTranscriptSegmentInput[] | null;
+  captionChunks: HammerRenderAssemblyCaptionChunkInput[] | null;
+  exportPosture: HammerRenderAssemblyTruthPosture;
+}): HammerExportTimelineAssembly {
+  const operationResolutionById = new Map(args.operations.map((operation) => [operation.operation_id, operation] as const));
+  const activeOperations = args.graph.operations
+    .filter((operation) => operation.lifecycle === "active")
+    .sort((left, right) => left.sequence - right.sequence);
+  const rippleDeletes = activeOperations
+    .flatMap((operation) => (
+      operation.instruction.type === "ripple_delete"
+        ? [{ start_sec: operation.instruction.start_sec, end_sec: operation.instruction.end_sec }]
+        : []
+    ));
+  const transcriptDurationSec = Math.max(
+    0,
+    ...(args.transcriptSegments ?? []).map((segment) => segment.end_sec),
+  );
+  const structuralDurationSec = computeFinalDurationFromStructuralDeletes({
+    base_duration_sec: transcriptDurationSec,
+    rippleDeletes,
+  });
+
+  const unsupportedOrDegradedOps = args.operations
+    .flatMap((operation) => (
+      operation.export_posture === "authoritative"
+        ? []
+        : [{
+          operation_id: operation.operation_id,
+          type: operation.type,
+          posture: operation.export_posture,
+          capability: operation.capability,
+          reason_codes: operation.reason_codes,
+        }]
+    ));
+
+  const audioLayers: HammerExportTimelineAudioLayer[] = [{
+    kind: "primary_dialogue",
+    operation_id: null,
+    start_sec: 0,
+    end_sec: structuralDurationSec,
+    posture: "authoritative",
+    capability: "executable",
+    reason_codes: [],
+  }];
+  const visualLayers: HammerExportTimelineVisualLayer[] = [{
+    kind: "primary_video",
+    operation_id: null,
+    start_sec: 0,
+    end_sec: structuralDurationSec,
+    posture: "authoritative",
+    capability: "executable",
+    reason_codes: [],
+  }];
+  const transitionLayers: HammerExportTimelineTransitionLayer[] = [];
+
+  for (const operation of activeOperations) {
+    const resolution = operationResolutionById.get(operation.operation_id);
+    if (!resolution) continue;
+    switch (operation.instruction.type) {
+      case "insert_broll": {
+        if (operation.instruction.asset_binding_state === "unresolved") break;
+        visualLayers.push({
+          kind: "broll",
+          operation_id: operation.operation_id,
+          start_sec: roundToMillisecondSec(operation.instruction.start_sec),
+          end_sec: roundToMillisecondSec(operation.instruction.end_sec),
+          posture: resolution.export_posture,
+          capability: resolution.capability,
+          reason_codes: resolution.reason_codes,
+          meta: {
+            asset_ref: operation.instruction.asset_ref,
+            intent_ref: operation.instruction.intent_ref ?? null,
+            intent_description: operation.instruction.intent_description ?? null,
+          },
+        });
+        break;
+      }
+      case "audio_duck": {
+        audioLayers.push({
+          kind: "duck_region",
+          operation_id: operation.operation_id,
+          start_sec: roundToMillisecondSec(operation.instruction.start_sec),
+          end_sec: roundToMillisecondSec(operation.instruction.end_sec),
+          posture: resolution.export_posture,
+          capability: resolution.capability,
+          reason_codes: resolution.reason_codes,
+          meta: {
+            duck_gain_db: operation.instruction.duck_gain_db,
+            linked_broll_operation_id: operation.instruction.linked_broll_operation_id ?? null,
+          },
+        });
+        break;
+      }
+      case "fade_audio": {
+        const window = resolveInstructionWindow(operation.instruction);
+        audioLayers.push({
+          kind: "fade_audio",
+          operation_id: operation.operation_id,
+          start_sec: roundToMillisecondSec(operation.instruction.start_sec),
+          end_sec: roundToMillisecondSec(operation.instruction.end_sec),
+          posture: resolution.export_posture,
+          capability: resolution.capability,
+          reason_codes: resolution.reason_codes,
+          meta: {
+            fade_curve: operation.instruction.fade_curve ?? "linear",
+          },
+        });
+        if (window) {
+          transitionLayers.push({
+            kind: "fade_audio",
+            operation_id: operation.operation_id,
+            start_sec: roundToMillisecondSec(window.start_sec),
+            end_sec: roundToMillisecondSec(window.end_sec),
+            posture: resolution.export_posture,
+            capability: resolution.capability,
+            reason_codes: resolution.reason_codes,
+          });
+        }
+        break;
+      }
+      case "dip_to_black": {
+        const window = resolveInstructionWindow(operation.instruction);
+        visualLayers.push({
+          kind: "dip_to_black",
+          operation_id: operation.operation_id,
+          start_sec: roundToMillisecondSec(operation.instruction.start_sec),
+          end_sec: roundToMillisecondSec(operation.instruction.end_sec),
+          posture: resolution.export_posture,
+          capability: resolution.capability,
+          reason_codes: resolution.reason_codes,
+        });
+        if (window) {
+          transitionLayers.push({
+            kind: "dip_to_black",
+            operation_id: operation.operation_id,
+            start_sec: roundToMillisecondSec(window.start_sec),
+            end_sec: roundToMillisecondSec(window.end_sec),
+            posture: resolution.export_posture,
+            capability: resolution.capability,
+            reason_codes: resolution.reason_codes,
+          });
+        }
+        break;
+      }
+      case "hard_cut":
+      case "crossfade": {
+        const window = resolveInstructionWindow(operation.instruction);
+        if (!window) break;
+        transitionLayers.push({
+          kind: operation.instruction.type,
+          operation_id: operation.operation_id,
+          start_sec: roundToMillisecondSec(window.start_sec),
+          end_sec: roundToMillisecondSec(window.end_sec),
+          posture: resolution.export_posture,
+          capability: resolution.capability,
+          reason_codes: resolution.reason_codes,
+        });
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  const attentionReasons = new Set<string>();
+  for (const operation of unsupportedOrDegradedOps) {
+    for (const reasonCode of operation.reason_codes) {
+      attentionReasons.add(`${operation.operation_id}:${reasonCode}`);
+    }
+  }
+
+  const captionTimingMap: HammerExportTimelineCaptionMapEntry[] = [];
+  let captionPosture: HammerRenderAssemblyTruthPosture = "authoritative";
+  if ((args.captionChunks?.length ?? 0) === 0 && (args.transcriptSegments?.length ?? 0) > 0) {
+    captionPosture = "degraded";
+    attentionReasons.add("captions:missing_timing_input");
+  } else {
+    for (const chunk of args.captionChunks ?? []) {
+      const remapped = applyRippleDeletesToWindow({
+        start_sec: chunk.start_sec,
+        end_sec: chunk.end_sec,
+        rippleDeletes,
+      });
+      if (remapped.removed) continue;
+      if (remapped.degraded) {
+        captionPosture = captionPosture === "unavailable" ? "unavailable" : "degraded";
+        attentionReasons.add(`captions:remap_attention:${chunk.chunk_id}`);
+      }
+      captionTimingMap.push({
+        chunk_id: chunk.chunk_id,
+        start_sec: roundToMillisecondSec(remapped.start_sec),
+        end_sec: roundToMillisecondSec(remapped.end_sec),
+        segment_ids: [...chunk.segment_ids],
+        posture: remapped.degraded ? "degraded" : "authoritative",
+      });
+    }
+  }
+
+  const maxLayerEndSec = Math.max(
+    structuralDurationSec,
+    ...audioLayers.map((layer) => layer.end_sec),
+    ...visualLayers.map((layer) => layer.end_sec),
+    ...transitionLayers.map((layer) => layer.end_sec),
+    ...captionTimingMap.map((entry) => entry.end_sec),
+  );
+  const finalDurationSec = roundToMillisecondSec(maxLayerEndSec);
+  const finalDurationMs = Math.round(finalDurationSec * 1000);
+  const exportPosture = aggregatePosture([args.exportPosture, captionPosture]);
+  if (exportPosture !== "authoritative") {
+    attentionReasons.add(`export_posture:${exportPosture}`);
+  }
+
+  return {
+    final_duration_sec: finalDurationSec,
+    final_duration_ms: finalDurationMs,
+    export_posture: exportPosture,
+    audio_layers: audioLayers,
+    visual_layers: visualLayers,
+    transition_layers: transitionLayers,
+    caption_timing_map: captionTimingMap,
+    attention_reasons: Array.from(attentionReasons).sort(),
+    unsupported_or_degraded_ops: unsupportedOrDegradedOps,
   };
 }

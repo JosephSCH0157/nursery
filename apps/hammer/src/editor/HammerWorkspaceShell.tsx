@@ -203,7 +203,22 @@ const SCRUB_RATE_OPTIONS = [1, 0.75, 0.5] as const;
 const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
 const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
   preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut"],
-  export_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut"],
+  export_supported_operation_types: [
+    "delete",
+    "mute",
+    "trim",
+    "split",
+    "merge",
+    "hard_cut",
+    "cut_range",
+    "ripple_delete",
+    "insert_broll",
+    "overlay_graphic",
+    "crossfade",
+    "dip_to_black",
+    "fade_audio",
+    "audio_duck",
+  ],
   handoff_supported_operation_types: [
     "delete",
     "mute",
@@ -4439,6 +4454,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const renderAssembly = buildHammerRenderAssembly({
       canonicalGraph,
       runtimeCapabilities: HAMMER_RENDER_RUNTIME_CAPABILITIES,
+      transcriptSegments: transcriptForRelease.segments.map((segment) => ({
+        segment_id: segment.segment_id,
+        start_sec: segment.start_sec,
+        end_sec: segment.end_sec,
+      })),
+      captionChunks: buildHammerCaptionPreviewModel(
+        transcriptForRelease.segments,
+        transcriptForRelease,
+      ).chunks.map((chunk) => ({
+        chunk_id: chunk.chunk_id,
+        start_sec: chunk.start_sec,
+        end_sec: chunk.end_sec,
+        segment_ids: [...chunk.segment_ids],
+      })),
     });
     const currentReleasePackage = buildHammerReleasePrepPackage({
       workspaceId: launchContext.workspace_id,
@@ -4528,7 +4557,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     ? "Export Updated Packet to Quench"
     : "Export to Quench";
   const previewTruthPosture = exportBasis.renderAssembly.preview.posture;
-  const exportTruthPosture = exportBasis.renderAssembly.export.posture;
+  const exportTruthPosture = exportBasis.renderAssembly.export_timeline.export_posture;
   const handoffTruthPosture = exportBasis.renderAssembly.handoff.posture;
   const boundObjects = useMemo(
     () => deriveHammerBoundObjects({
