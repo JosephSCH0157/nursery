@@ -8299,6 +8299,7 @@ export default function HearthShell() {
       return;
     }
 
+    let expectedMetadataUpdatedAt = imageMapMetadataUpdatedAt;
     const requestedSourceType = mode === "stock" ? "stock" : "ai";
     if (selectedImageMapEntry.source_type !== requestedSourceType) {
       const updatedEntries = episodePackage.image_map.entries.map((entry) => (
@@ -8315,6 +8316,7 @@ export default function HearthShell() {
         setImageMapCandidateError(sourceSaved.error);
         return;
       }
+      expectedMetadataUpdatedAt = sourceSaved.metadataUpdatedAt;
       setImageMapSourceTypeDraft(requestedSourceType);
     }
 
@@ -8326,8 +8328,6 @@ export default function HearthShell() {
 
     const exactAnchorAssessment = assessImageMapScriptAnchor(canonicalScript.text, selectedImageMapEntry.script_anchor);
     const effectiveScriptAnchor = exactAnchorAssessment.exactAnchor;
-    let expectedMetadataUpdatedAt = imageMapMetadataUpdatedAt;
-
     if (!effectiveScriptAnchor) {
       setMode("focus");
       setShowManualDraft(false);
