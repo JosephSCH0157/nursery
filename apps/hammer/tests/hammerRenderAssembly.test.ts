@@ -248,11 +248,64 @@ async function testExportTimelineAssemblyIsDeterministicAndComposed() {
   assert.equal(first.export_timeline.caption_timing_map.find((entry) => entry.chunk_id === "cap_02")?.start_sec, 2);
 }
 
+async function testPodcastMasterPassPostureTracksRuntimeCapability() {
+  const graph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_render_05",
+      version: "1",
+      created_at: "2026-03-24T12:40:00.000Z",
+      updated_at: "2026-03-24T12:40:00.000Z",
+      source_transcript_id: "transcript_render_05",
+      preview_mode: "edit-aware",
+      instructions: [
+        {
+          instruction_id: "ins_master_01",
+          segment_id: "seg_01",
+          type: "podcast_master_pass",
+          preset: "podcast_master_v1",
+          noise_cleanup: "light",
+          normalization_lufs: -16,
+          compression_amount: "medium",
+          limiter_ceiling_dbtp: -1,
+          created_at: "2026-03-24T12:40:00.000Z",
+        },
+      ],
+    },
+    workspaceId: "ws_render",
+    workpieceId: "wp_render",
+    sessionId: "session_render",
+  });
+  const available = buildHammerRenderAssembly({
+    canonicalGraph: graph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: [],
+      export_supported_operation_types: ["podcast_master_pass"],
+      handoff_supported_operation_types: ["podcast_master_pass"],
+    },
+    transcriptSegments: [{ segment_id: "seg_01", start_sec: 0, end_sec: 10 }],
+    captionChunks: [{ chunk_id: "cap_01", start_sec: 0, end_sec: 1, segment_ids: ["seg_01"] }],
+  });
+  const unavailable = buildHammerRenderAssembly({
+    canonicalGraph: graph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: [],
+      export_supported_operation_types: [],
+      handoff_supported_operation_types: ["podcast_master_pass"],
+    },
+    transcriptSegments: [{ segment_id: "seg_01", start_sec: 0, end_sec: 10 }],
+    captionChunks: [{ chunk_id: "cap_01", start_sec: 0, end_sec: 1, segment_ids: ["seg_01"] }],
+  });
+  assert.equal(available.export_timeline.audio_layers.some((layer) => layer.kind === "podcast_master_pass"), true);
+  assert.equal(available.export_timeline.export_posture, "authoritative");
+  assert.equal(unavailable.export_timeline.export_posture, "degraded");
+}
+
 async function run() {
   await testAssemblyDeterminismAndPosture();
   await testUnresolvedBrollIsNeverTreatedAsBoundMediaTruth();
   await testOrphanedLinkedDuckIsExplicitlyDegraded();
   await testExportTimelineAssemblyIsDeterministicAndComposed();
+  await testPodcastMasterPassPostureTracksRuntimeCapability();
   // eslint-disable-next-line no-console
   console.log("Hammer render assembly tests passed.");
 }

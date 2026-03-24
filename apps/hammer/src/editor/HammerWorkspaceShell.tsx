@@ -177,6 +177,7 @@ import {
   createFadeAudioInstruction,
   createHardCutInstruction,
   createInsertBrollInstruction,
+  createPodcastMasterPassInstruction,
   createRippleDeleteInstruction,
   remapResolvedBrollOperationsForRippleDelete,
   resolveInsertBrollSuggestionInGraph,
@@ -234,6 +235,7 @@ const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
     "dip_to_black",
     "fade_audio",
     "audio_duck",
+    "podcast_master_pass",
   ],
 };
 
@@ -4057,6 +4059,39 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
+  function applyPodcastMasterPass(): void {
+    applyHistoryMutation({
+      label: "Apply Podcast Master pass",
+      kind: "editor_state_change",
+      toolId: "audio",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const graph = before.editorialAuthorityGraph;
+        if (!graph) return before;
+        const existingActive = graph.operations.find((operation) => (
+          operation.lifecycle === "active"
+          && operation.instruction.type === "podcast_master_pass"
+        ));
+        if (existingActive) return before;
+        const segment = before.selectedSegmentId
+          ? before.transcriptSegments.find((item) => item.segment_id === before.selectedSegmentId) ?? null
+          : before.transcriptSegments[0] ?? null;
+        if (!segment) return before;
+        const instruction = createPodcastMasterPassInstruction({
+          segmentId: segment.segment_id,
+          noiseCleanup: "light",
+          normalizationLufs: -16,
+          compressionAmount: "medium",
+          limiterCeilingDbtp: -1,
+        });
+        return {
+          ...before,
+          editorialAuthorityGraph: appendAuthorityInstructionForState(before, instruction),
+        };
+      },
+    });
+  }
+
   function selectOutputLayerForExport(layerId: string | null): void {
     const targetLayer = layerId
       ? outputLayerCandidates.find((layer) => layer.layer_id === layerId) ?? null
@@ -4453,7 +4488,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       });
     const renderAssembly = buildHammerRenderAssembly({
       canonicalGraph,
-      runtimeCapabilities: HAMMER_RENDER_RUNTIME_CAPABILITIES,
+      runtimeCapabilities: {
+        ...HAMMER_RENDER_RUNTIME_CAPABILITIES,
+        export_supported_operation_types: studioRackRenderBackendResolution.ffmpegAvailable
+          ? [...HAMMER_RENDER_RUNTIME_CAPABILITIES.export_supported_operation_types, "podcast_master_pass"]
+          : HAMMER_RENDER_RUNTIME_CAPABILITIES.export_supported_operation_types,
+      },
       transcriptSegments: transcriptForRelease.segments.map((segment) => ({
         segment_id: segment.segment_id,
         start_sec: segment.start_sec,
@@ -4522,6 +4562,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     transcriptSourceId,
     workspaceMapping,
     editableEditorialAuthorityGraph,
+    studioRackRenderBackendResolution.ffmpegAvailable,
   ]);
 
   const releasePrepComparison = useMemo(
@@ -4559,6 +4600,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const previewTruthPosture = exportBasis.renderAssembly.preview.posture;
   const exportTruthPosture = exportBasis.renderAssembly.export_timeline.export_posture;
   const handoffTruthPosture = exportBasis.renderAssembly.handoff.posture;
+  const podcastMasterLayer = useMemo(
+    () => exportBasis.renderAssembly.export_timeline.audio_layers.find((layer) => layer.kind === "podcast_master_pass") ?? null,
+    [exportBasis.renderAssembly.export_timeline.audio_layers],
+  );
   const boundObjects = useMemo(
     () => deriveHammerBoundObjects({
       canonical_graph: editableEditorialAuthorityGraph,
@@ -7045,6 +7090,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </div>
                   ) : null}
                   <div className="hammer-tool-hint">Active rack modules: {studioRackEnabledModuleCount}</div>
+                  <div className="hammer-tool-hint">
+                    Podcast Master: {podcastMasterLayer ? "declared" : "not declared"}
+                    {podcastMasterLayer
+                      ? ` · export posture ${podcastMasterLayer.posture} (${podcastMasterLayer.capability})`
+                      : ""}
+                  </div>
+                  {podcastMasterLayer?.meta ? (
+                    <div className="hammer-tool-hint">
+                      Preset {podcastMasterLayer.meta.preset}
+                      {` · loudness ${podcastMasterLayer.meta.normalization_lufs} LUFS`}
+                      {` · compression ${podcastMasterLayer.meta.compression_amount}`}
+                      {` · limiter ${podcastMasterLayer.meta.limiter_ceiling_dbtp} dBTP`}
+                    </div>
+                  ) : null}
+                  <button type="button" onClick={applyPodcastMasterPass} disabled={Boolean(podcastMasterLayer)}>
+                    {podcastMasterLayer ? "Podcast Master Applied" : "Apply Podcast Master"}
+                  </button>
                   <button
                     type="button"
                     onClick={() => {

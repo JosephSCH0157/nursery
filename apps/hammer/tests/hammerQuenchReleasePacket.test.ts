@@ -218,6 +218,7 @@ async function testPacketIncludesEditorialTruthExtensionWhenProvided() {
     packet.manifest.editorial_truth?.export_timeline_snapshot.export_posture,
     packet.manifest.editorial_truth?.posture_summary.export,
   );
+  assert.equal(packet.manifest.editorial_truth?.podcast_master_summary.applied, false);
 }
 
 async function testPacketDistinguishesUnresolvedVsResolvedBroll() {
@@ -472,6 +473,59 @@ async function testPacketReflectsRippleDeleteBrollRemapTruth() {
   assert.equal(packet.manifest.editorial_truth?.duck_linkage_summary.orphaned_duck_operation_ids.length, 0);
 }
 
+async function testPacketReflectsPodcastMasterSummary() {
+  const prep = buildHammerReleasePrepPackage({
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    prepStatus: "prepared",
+    alignmentStatus: "aligned",
+    structuredTranscript: transcript,
+    visualPlacements: null,
+    audioPolish: null,
+    editorSession: null,
+  });
+  const canonicalGraph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_packet_ext_06",
+      version: "1",
+      created_at: "2026-03-24T10:00:00.000Z",
+      updated_at: "2026-03-24T10:00:00.000Z",
+      source_transcript_id: "tx_release_packet",
+      instructions: [{
+        instruction_id: "ins_master_01",
+        segment_id: "seg_001",
+        type: "podcast_master_pass",
+        preset: "podcast_master_v1",
+        noise_cleanup: "light",
+        normalization_lufs: -16,
+        compression_amount: "medium",
+        limiter_ceiling_dbtp: -1,
+        created_at: "2026-03-24T10:00:00.000Z",
+      }],
+    },
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    sessionId: "session_demo",
+  });
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: [],
+      export_supported_operation_types: ["podcast_master_pass"],
+      handoff_supported_operation_types: ["podcast_master_pass"],
+    },
+    transcriptSegments: [{ segment_id: "seg_001", start_sec: 0, end_sec: 6 }],
+  });
+  const packet = buildHammerQuenchReleasePacket({
+    releasePrepPackage: prep,
+    canonicalGraph,
+    renderAssembly: assembly,
+    preparedAt: "2026-03-24T10:01:00.000Z",
+  });
+  assert.equal(packet.manifest.editorial_truth?.podcast_master_summary.applied, true);
+  assert.equal(packet.manifest.editorial_truth?.podcast_master_summary.preset, "podcast_master_v1");
+}
+
 async function run() {
   await testBuildQuenchPacketManifest();
   await testManifestPathConstant();
@@ -479,6 +533,7 @@ async function run() {
   await testPacketDistinguishesUnresolvedVsResolvedBroll();
   await testPacketReflectsResolvedBindingEdits();
   await testPacketReflectsRippleDeleteBrollRemapTruth();
+  await testPacketReflectsPodcastMasterSummary();
   // eslint-disable-next-line no-console
   console.log("Hammer Quench release packet tests passed.");
 }

@@ -116,7 +116,7 @@ export interface HammerQuenchReleasePacketManifest {
       final_duration_ms: number;
       export_posture: "authoritative" | "degraded" | "unavailable";
       audio_layers: Array<{
-        kind: "primary_dialogue" | "duck_region" | "fade_audio";
+        kind: "primary_dialogue" | "duck_region" | "fade_audio" | "podcast_master_pass";
         operation_id: string | null;
         start_sec: number;
         end_sec: number;
@@ -157,6 +157,17 @@ export interface HammerQuenchReleasePacketManifest {
         capability: "executable" | "degraded" | "unavailable";
         reason_codes: string[];
       }>;
+    };
+    podcast_master_summary: {
+      applied: boolean;
+      operation_id: string | null;
+      posture: "authoritative" | "degraded" | "unavailable";
+      capability: "executable" | "degraded" | "unavailable" | null;
+      preset: "podcast_master_v1" | null;
+      noise_cleanup: "off" | "light" | null;
+      normalization_lufs: number | null;
+      compression_amount: "light" | "medium" | null;
+      limiter_ceiling_dbtp: number | null;
     };
   };
 }
@@ -245,6 +256,7 @@ export function buildHammerQuenchReleasePacket(args: {
     if (operation.instruction.asset_binding_state === "unresolved") return [];
     return [operation.operation_id];
   }));
+  const podcastMasterLayer = args.renderAssembly?.export_timeline.audio_layers.find((layer) => layer.kind === "podcast_master_pass") ?? null;
 
   const manifest: HammerQuenchReleasePacketManifest = {
     version: 1,
@@ -424,6 +436,29 @@ export function buildHammerQuenchReleasePacket(args: {
               reason_codes: operation.reason_codes,
             })),
           },
+          podcast_master_summary: podcastMasterLayer
+            ? {
+              applied: true,
+              operation_id: podcastMasterLayer.operation_id,
+              posture: podcastMasterLayer.posture,
+              capability: podcastMasterLayer.capability,
+              preset: podcastMasterLayer.meta?.preset ?? null,
+              noise_cleanup: podcastMasterLayer.meta?.noise_cleanup ?? null,
+              normalization_lufs: podcastMasterLayer.meta?.normalization_lufs ?? null,
+              compression_amount: podcastMasterLayer.meta?.compression_amount ?? null,
+              limiter_ceiling_dbtp: podcastMasterLayer.meta?.limiter_ceiling_dbtp ?? null,
+            }
+            : {
+              applied: false,
+              operation_id: null,
+              posture: "unavailable" as const,
+              capability: null,
+              preset: null,
+              noise_cleanup: null,
+              normalization_lufs: null,
+              compression_amount: null,
+              limiter_ceiling_dbtp: null,
+            },
         },
       }
       : {}),

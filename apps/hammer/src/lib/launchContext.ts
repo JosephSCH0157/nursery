@@ -259,6 +259,28 @@ function readInstruction(input: unknown): HammerEditInstruction | null {
         created_at: createdAt,
       };
     }
+    case "podcast_master_pass": {
+      const preset = readString(row.preset);
+      if (preset !== "podcast_master_v1") return null;
+      const noiseCleanup = readString(row.noise_cleanup);
+      const normalizationLufs = readNumber(row.normalization_lufs);
+      const compressionAmount = readString(row.compression_amount);
+      const limiterCeilingDbtp = readNumber(row.limiter_ceiling_dbtp);
+      if (normalizationLufs == null || limiterCeilingDbtp == null) return null;
+      if (noiseCleanup !== "off" && noiseCleanup !== "light") return null;
+      if (compressionAmount !== "light" && compressionAmount !== "medium") return null;
+      return {
+        instruction_id: instructionId,
+        segment_id: segmentId,
+        type,
+        preset,
+        noise_cleanup: noiseCleanup,
+        normalization_lufs: normalizationLufs,
+        compression_amount: compressionAmount,
+        limiter_ceiling_dbtp: limiterCeilingDbtp,
+        created_at: createdAt,
+      };
+    }
     default:
       return null;
   }

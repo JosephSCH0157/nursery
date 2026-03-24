@@ -63,7 +63,7 @@ export interface HammerRenderAssemblyCaptionChunkInput {
 }
 
 export interface HammerExportTimelineAudioLayer {
-  kind: "primary_dialogue" | "duck_region" | "fade_audio";
+  kind: "primary_dialogue" | "duck_region" | "fade_audio" | "podcast_master_pass";
   operation_id: string | null;
   start_sec: number;
   end_sec: number;
@@ -74,6 +74,11 @@ export interface HammerExportTimelineAudioLayer {
     duck_gain_db?: number;
     linked_broll_operation_id?: string | null;
     fade_curve?: "linear" | "log";
+    preset?: "podcast_master_v1";
+    noise_cleanup?: "off" | "light";
+    normalization_lufs?: number;
+    compression_amount?: "light" | "medium";
+    limiter_ceiling_dbtp?: number;
   };
 }
 
@@ -563,6 +568,25 @@ function buildHammerExportTimelineAssembly(args: {
             reason_codes: resolution.reason_codes,
           });
         }
+        break;
+      }
+      case "podcast_master_pass": {
+        audioLayers.push({
+          kind: "podcast_master_pass",
+          operation_id: operation.operation_id,
+          start_sec: 0,
+          end_sec: structuralDurationSec,
+          posture: resolution.export_posture,
+          capability: resolution.capability,
+          reason_codes: resolution.reason_codes,
+          meta: {
+            preset: operation.instruction.preset,
+            noise_cleanup: operation.instruction.noise_cleanup,
+            normalization_lufs: operation.instruction.normalization_lufs,
+            compression_amount: operation.instruction.compression_amount,
+            limiter_ceiling_dbtp: operation.instruction.limiter_ceiling_dbtp,
+          },
+        });
         break;
       }
       case "dip_to_black": {

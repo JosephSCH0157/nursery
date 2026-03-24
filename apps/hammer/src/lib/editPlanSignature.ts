@@ -55,6 +55,15 @@ type SemanticEditInstruction =
     end_sec: number;
     duck_gain_db: number;
     linked_broll_operation_id?: string | null;
+  }
+  | {
+    type: "podcast_master_pass";
+    segment_id: string;
+    preset: "podcast_master_v1";
+    noise_cleanup: "off" | "light";
+    normalization_lufs: number;
+    compression_amount: "light" | "medium";
+    limiter_ceiling_dbtp: number;
   };
 
 function toSemanticEditInstruction(
@@ -134,6 +143,16 @@ function toSemanticEditInstruction(
         end_sec: instruction.end_sec,
         duck_gain_db: instruction.duck_gain_db,
         linked_broll_operation_id: instruction.linked_broll_operation_id ?? null,
+      };
+    case "podcast_master_pass":
+      return {
+        type: instruction.type,
+        segment_id: instruction.segment_id,
+        preset: instruction.preset,
+        noise_cleanup: instruction.noise_cleanup,
+        normalization_lufs: instruction.normalization_lufs,
+        compression_amount: instruction.compression_amount,
+        limiter_ceiling_dbtp: instruction.limiter_ceiling_dbtp,
       };
   }
 }
