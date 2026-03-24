@@ -112,6 +112,52 @@ export interface HammerQuenchReleasePacketManifest {
       orphaned_duck_operation_ids: string[];
       superseded_duck_operation_ids: string[];
     };
+    export_timeline_snapshot: {
+      final_duration_ms: number;
+      export_posture: "authoritative" | "degraded" | "unavailable";
+      audio_layers: Array<{
+        kind: "primary_dialogue" | "duck_region" | "fade_audio";
+        operation_id: string | null;
+        start_sec: number;
+        end_sec: number;
+        posture: "authoritative" | "degraded" | "unavailable";
+        capability: "executable" | "degraded" | "unavailable";
+        reason_codes: string[];
+      }>;
+      visual_layers: Array<{
+        kind: "primary_video" | "broll" | "dip_to_black";
+        operation_id: string | null;
+        start_sec: number;
+        end_sec: number;
+        posture: "authoritative" | "degraded" | "unavailable";
+        capability: "executable" | "degraded" | "unavailable";
+        reason_codes: string[];
+      }>;
+      transition_layers: Array<{
+        kind: "hard_cut" | "crossfade" | "dip_to_black" | "fade_audio";
+        operation_id: string;
+        start_sec: number;
+        end_sec: number;
+        posture: "authoritative" | "degraded" | "unavailable";
+        capability: "executable" | "degraded" | "unavailable";
+        reason_codes: string[];
+      }>;
+      caption_timing_map: Array<{
+        chunk_id: string;
+        start_sec: number;
+        end_sec: number;
+        segment_ids: string[];
+        posture: "authoritative" | "degraded" | "unavailable";
+      }>;
+      attention_reasons: string[];
+      unsupported_or_degraded_ops: Array<{
+        operation_id: string;
+        type: string;
+        posture: "authoritative" | "degraded" | "unavailable";
+        capability: "executable" | "degraded" | "unavailable";
+        reason_codes: string[];
+      }>;
+    };
   };
 }
 
@@ -129,7 +175,13 @@ function normalizeText(value: string | null | undefined): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function resolveDurationSeconds(pkg: HammerReleasePrepPackage): number | null {
+function resolveDurationSeconds(
+  pkg: HammerReleasePrepPackage,
+  renderAssembly?: HammerRenderAssemblyResult | null,
+): number | null {
+  if (renderAssembly?.export_timeline?.final_duration_ms && renderAssembly.export_timeline.final_duration_ms > 0) {
+    return Number((renderAssembly.export_timeline.final_duration_ms / 1000).toFixed(3));
+  }
   const durationMs = pkg.media_prep_outputs.audio.polish.output_duration_ms
     ?? pkg.media_prep_outputs.audio.raw_source.duration_ms
     ?? null;
@@ -202,7 +254,7 @@ export function buildHammerQuenchReleasePacket(args: {
     workpiece_id: pkg.identity.workpiece_id ?? "",
     workspace_id: pkg.identity.workspace_id ?? null,
     episode_title: null,
-    duration_seconds: resolveDurationSeconds(pkg),
+    duration_seconds: resolveDurationSeconds(pkg, args.renderAssembly),
     audio: {
       kind: pkg.media_prep_outputs.audio.preferred_playback.kind,
       media_id: pkg.media_prep_outputs.audio.preferred_playback.media_id,
@@ -325,6 +377,52 @@ export function buildHammerQuenchReleasePacket(args: {
               if (operation.instruction.type !== "audio_duck") return [];
               return [operation.operation_id];
             }),
+          },
+          export_timeline_snapshot: {
+            final_duration_ms: args.renderAssembly.export_timeline.final_duration_ms,
+            export_posture: args.renderAssembly.export_timeline.export_posture,
+            audio_layers: args.renderAssembly.export_timeline.audio_layers.map((layer) => ({
+              kind: layer.kind,
+              operation_id: layer.operation_id,
+              start_sec: layer.start_sec,
+              end_sec: layer.end_sec,
+              posture: layer.posture,
+              capability: layer.capability,
+              reason_codes: layer.reason_codes,
+            })),
+            visual_layers: args.renderAssembly.export_timeline.visual_layers.map((layer) => ({
+              kind: layer.kind,
+              operation_id: layer.operation_id,
+              start_sec: layer.start_sec,
+              end_sec: layer.end_sec,
+              posture: layer.posture,
+              capability: layer.capability,
+              reason_codes: layer.reason_codes,
+            })),
+            transition_layers: args.renderAssembly.export_timeline.transition_layers.map((layer) => ({
+              kind: layer.kind,
+              operation_id: layer.operation_id,
+              start_sec: layer.start_sec,
+              end_sec: layer.end_sec,
+              posture: layer.posture,
+              capability: layer.capability,
+              reason_codes: layer.reason_codes,
+            })),
+            caption_timing_map: args.renderAssembly.export_timeline.caption_timing_map.map((entry) => ({
+              chunk_id: entry.chunk_id,
+              start_sec: entry.start_sec,
+              end_sec: entry.end_sec,
+              segment_ids: [...entry.segment_ids],
+              posture: entry.posture,
+            })),
+            attention_reasons: [...args.renderAssembly.export_timeline.attention_reasons],
+            unsupported_or_degraded_ops: args.renderAssembly.export_timeline.unsupported_or_degraded_ops.map((operation) => ({
+              operation_id: operation.operation_id,
+              type: operation.type,
+              posture: operation.posture,
+              capability: operation.capability,
+              reason_codes: operation.reason_codes,
+            })),
           },
         },
       }

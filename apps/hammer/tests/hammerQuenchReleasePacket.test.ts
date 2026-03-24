@@ -213,6 +213,11 @@ async function testPacketIncludesEditorialTruthExtensionWhenProvided() {
   });
   assert.equal(packet.manifest.editorial_truth?.authority_graph_id, canonicalGraph.graph_id);
   assert.equal(packet.manifest.editorial_truth?.active_operations.length, 1);
+  assert.equal(packet.manifest.editorial_truth?.export_timeline_snapshot.final_duration_ms >= 0, true);
+  assert.equal(
+    packet.manifest.editorial_truth?.export_timeline_snapshot.export_posture,
+    packet.manifest.editorial_truth?.posture_summary.export,
+  );
 }
 
 async function testPacketDistinguishesUnresolvedVsResolvedBroll() {
