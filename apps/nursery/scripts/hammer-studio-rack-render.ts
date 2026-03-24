@@ -11,6 +11,10 @@ import type {
   HammerStudioRackRenderResponse,
 } from "../../hammer/src/editor/hammerStudioRackRenderApi";
 import { isHammerStudioRackIdentity, type HammerStudioRackState } from "../../hammer/src/editor/hammerStudioRack";
+import {
+  buildHammerTimelineAudioRenderPlan,
+  type HammerAudioTimelineSegmentInput,
+} from "../../hammer/src/editor/hammerAudioTimelineRenderPlan";
 import { buildHammerStudioRackFfmpegPlan } from "../../hammer/src/editor/hammerStudioRackFfmpegPlan";
 
 type HammerStudioRackRenderRouteResult = {
@@ -32,6 +36,7 @@ type NormalizedStudioRackRenderRequest = Omit<
   HammerStudioRackRenderRequest,
   "local_root_abs" | "local_relpath" | "canonical_workpiece_path" | "mime_type"
 > & {
+  timeline_segments: HammerAudioTimelineSegmentInput[];
   local_root_abs: string | null;
   local_relpath: string | null;
   canonical_workpiece_path: string | null;
@@ -171,12 +176,31 @@ function normalizeStudioRackRenderRequest(body: unknown): NormalizedStudioRackRe
   const workpieceId = readTrimmed(row.workpiece_id);
   const mediaKind = readTrimmed(row.media_kind);
   const requestedBackend = readTrimmed(row.requested_backend);
+  const timelineSegments = Array.isArray(row.timeline_segments)
+    ? row.timeline_segments
+      .map((value) => {
+        const segment = readObject(value);
+        const segmentId = readTrimmed(segment?.segment_id);
+        const startSec = readNumber(segment?.start_sec);
+        const endSec = readNumber(segment?.end_sec);
+        if (!segmentId || startSec == null || endSec == null) return null;
+        return {
+          segment_id: segmentId,
+          start_sec: startSec,
+          end_sec: endSec,
+          is_disabled: segment?.is_disabled === true,
+          gain_db: readNumber(segment?.gain_db) ?? 0,
+        } satisfies HammerAudioTimelineSegmentInput;
+      })
+      .filter((item): item is HammerAudioTimelineSegmentInput => Boolean(item))
+    : [];
   const rackState = row.rack_state;
   if (
     !workspaceId
     || !workpieceId
     || !mediaKind
     || (requestedBackend !== "native" && requestedBackend !== "ffmpeg")
+    || timelineSegments.length === 0
     || !rackState
   ) {
     return null;
@@ -187,6 +211,7 @@ function normalizeStudioRackRenderRequest(body: unknown): NormalizedStudioRackRe
     workpiece_id: workpieceId,
     media_kind: mediaKind as HammerStudioRackRenderRequest["media_kind"],
     requested_backend: requestedBackend,
+    timeline_segments: timelineSegments,
     rack_state: rackState as HammerStudioRackState,
     local_root_abs: readTrimmed(row.local_root_abs),
     local_relpath: readTrimmed(row.local_relpath),
@@ -513,25 +538,6 @@ export async function handleHammerStudioRackRenderRequest(
 
   const mediaRuntime = detectHammerMediaRuntime();
   const ffmpegBin = readTrimmed(mediaRuntime.ffmpeg.ffmpeg_bin);
-
-  if (request.requested_backend !== "ffmpeg") {
-    return {
-      status: 200,
-      payload: {
-        ok: true,
-        data: createSkippedResponse({
-          request,
-          resolvedBackend: "native",
-          reason: "Render lane native backend is not configured for Studio Rack processing. No derived artifact was produced.",
-          summary: {
-            requested_backend: request.requested_backend,
-            media_runtime_ffmpeg_available: mediaRuntime.ffmpeg.ffmpeg_available,
-          },
-        }),
-      },
-    };
-  }
-
   if (!mediaRuntime.ffmpeg.ffmpeg_available || !ffmpegBin) {
     return {
       status: 200,
@@ -540,7 +546,9 @@ export async function handleHammerStudioRackRenderRequest(
         data: createSkippedResponse({
           request,
           resolvedBackend: "native",
-          reason: "FFmpeg is unavailable. Studio Rack render stayed on native lane and did not process.",
+          reason: request.requested_backend === "ffmpeg"
+            ? "FFmpeg is unavailable. Studio Rack render stayed on native lane and did not process."
+            : "FFmpeg is unavailable. Timeline audio render could not produce a derived artifact in this runtime.",
           summary: {
             requested_backend: request.requested_backend,
             media_runtime_ffmpeg_install_state: mediaRuntime.ffmpeg.install_state,
@@ -589,12 +597,38 @@ export async function handleHammerStudioRackRenderRequest(
 
   try {
     const chain = buildHammerStudioRackFfmpegPlan(request.rack_state);
+    const shouldApplyRack = request.requested_backend === "ffmpeg"
+      && request.rack_state.is_enabled
+      && !request.rack_state.is_bypassed
+      && !isHammerStudioRackIdentity(request.rack_state);
+    const timelinePlan = buildHammerTimelineAudioRenderPlan({
+      segments: request.timeline_segments,
+      postFilterChain: shouldApplyRack ? chain.filterChain : null,
+    });
+    if (!timelinePlan) {
+      return {
+        status: 200,
+        payload: {
+          ok: true,
+          data: createSkippedResponse({
+            request,
+            resolvedBackend: request.requested_backend === "ffmpeg" ? "ffmpeg" : "native",
+            reason: "All timeline segments were disabled or invalid. No audio artifact was produced.",
+            summary: {
+              total_segments: request.timeline_segments.length,
+              active_segments: 0,
+            },
+          }),
+        },
+      };
+    }
+
     const renderedWaveBytes = await renderWaveBufferWithFfmpeg({
       sourceBytes: sourceMedia.sourceBytes,
       sourceExtension: sourceMedia.sourceExtension,
       sourceLabel: sourceMedia.sourceLabel,
       ffmpegBin,
-      filterChain: chain.filterChain,
+      filterChain: timelinePlan.filterComplex,
     });
     const outputWorkpiecePath = buildArtifactRelpath(request, sourceMedia.sourceLabel);
     const outputDurationMs = readWavDurationMs(renderedWaveBytes);
@@ -611,8 +645,8 @@ export async function handleHammerStudioRackRenderRequest(
           eventPayload: {
             source_path: sourceMedia.canonicalWorkpiecePath,
             requested_backend: request.requested_backend,
-            resolved_backend: "ffmpeg",
-            filter_count: chain.filters.length,
+            resolved_backend: shouldApplyRack ? "ffmpeg" : "native",
+            filter_count: timelinePlan.filterComplex.split(";").length,
           },
         });
       } catch (error) {
@@ -635,7 +669,7 @@ export async function handleHammerStudioRackRenderRequest(
         data: {
           status: "processed",
           requested_backend: request.requested_backend,
-          resolved_backend: "ffmpeg",
+          resolved_backend: shouldApplyRack ? "ffmpeg" : "native",
           processed_at: new Date().toISOString(),
           output_local_relpath: localArtifactWrite.outputLocalRelpath,
           output_workpiece_path: commitError ? null : outputWorkpiecePath,
@@ -651,6 +685,12 @@ export async function handleHammerStudioRackRenderRequest(
             canonical_commit_failure_reason: commitError,
             media_runtime_ffmpeg_install_state: mediaRuntime.ffmpeg.install_state,
             media_runtime_ffmpeg_available: mediaRuntime.ffmpeg.ffmpeg_available,
+            source_path_unchanged: sourceMedia.canonicalWorkpiecePath ?? sourceMedia.sourceLabel,
+            derived_output_path: outputWorkpiecePath,
+            requested_backend: request.requested_backend,
+            resolved_backend: shouldApplyRack ? "ffmpeg" : "native",
+            timeline_order_preserved: true,
+            ...timelinePlan.summary,
             ...chain.summary,
           },
         },

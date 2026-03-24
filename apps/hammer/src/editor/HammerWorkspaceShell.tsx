@@ -2424,6 +2424,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           workspaceId: launchContext.workspace_id,
           workpieceId: launchContext.workpiece_id,
           mediaKind: mediaRef.kind,
+          timelineSegments: editableTranscriptSegments.map((segment) => ({
+            segment_id: segment.segment_id,
+            start_sec: segment.start_sec,
+            end_sec: segment.end_sec,
+            is_disabled: segment.is_disabled,
+            gain_db: segment.gain_db,
+          })),
           rackState: editableStudioRack,
           localRootAbs: playbackLocalRootAbs,
           localRelpath: mediaRef.local_relpath ?? null,
@@ -3462,6 +3469,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       Last render lane result: {studioRackRenderStatus.message}
                     </div>
                   ) : null}
+                  {studioRackRenderStatus ? (
+                    <div className="hammer-tool-hint">
+                      Render receipt: requested lane {studioRackRenderStatus.requestedBackend}, resolved lane {studioRackRenderStatus.resolvedBackend}, status {studioRackRenderStatus.status}
+                    </div>
+                  ) : null}
                   {studioRackRenderStatus?.outputWorkpiecePath ? (
                     <div className="hammer-tool-hint">
                       Derived artifact: {studioRackRenderStatus.outputWorkpiecePath}
@@ -3868,6 +3880,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   {studioRackRenderStatus ? (
                     <div className="hammer-tool-hint">
                       Studio Rack render: {studioRackRenderStatus.message}
+                    </div>
+                  ) : null}
+                  {studioRackRenderStatus ? (
+                    <div className="hammer-tool-hint">
+                      Render receipt: requested lane {studioRackRenderStatus.requestedBackend}, resolved lane {studioRackRenderStatus.resolvedBackend}, status {studioRackRenderStatus.status}
                     </div>
                   ) : null}
                   {studioRackRenderStatus?.outputWorkpiecePath ? (

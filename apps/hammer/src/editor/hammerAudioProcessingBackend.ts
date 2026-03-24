@@ -8,7 +8,8 @@ import {
   type HammerStudioRackRenderRequest,
   type HammerStudioRackRenderResponse,
 } from "./hammerStudioRackRenderApi";
-import { isHammerStudioRackIdentity, type HammerStudioRackState } from "./hammerStudioRack";
+import type { HammerStudioRackState } from "./hammerStudioRack";
+import type { HammerAudioTimelineSegmentInput } from "./hammerAudioTimelineRenderPlan";
 
 export type HammerAudioProcessingBackendId = "native" | "ffmpeg";
 export type HammerAudioProcessingMode = "playback" | "render";
@@ -121,6 +122,7 @@ export async function executeDialogueAudioRenderWithBackend(args: {
   workspaceId: string;
   workpieceId: string;
   mediaKind: MediaKind;
+  timelineSegments: HammerAudioTimelineSegmentInput[];
   rackState: HammerStudioRackState;
   localRootAbs?: string | null;
   localRelpath?: string | null;
@@ -135,19 +137,13 @@ export async function executeDialogueAudioRenderWithBackend(args: {
     mode,
     runtimeSummary: args.runtimeSummary,
   });
-
-  if (!args.rackState.is_enabled || args.rackState.is_bypassed || isHammerStudioRackIdentity(args.rackState)) {
-    const message = !args.rackState.is_enabled
-      ? "Studio Rack is disabled. Render lane left source audio unchanged."
-      : args.rackState.is_bypassed
-      ? "Studio Rack bypass is active. Render lane left source audio unchanged for honest A/B."
-      : "Studio Rack has no active modules. Render lane left source audio unchanged.";
+  if (!resolution.ffmpegAvailable) {
     return {
       status: "skipped",
       requestedBackend: resolution.requestedBackend,
       resolvedBackend: resolution.resolvedBackend,
       mode,
-      message,
+      message: resolution.status,
       outputLocalRelpath: null,
       outputWorkpiecePath: null,
       outputMimeType: null,
@@ -155,14 +151,13 @@ export async function executeDialogueAudioRenderWithBackend(args: {
       rawResponse: null,
     };
   }
-
-  if (resolution.resolvedBackend !== "ffmpeg") {
+  if (!Array.isArray(args.timelineSegments) || args.timelineSegments.length === 0) {
     return {
       status: "skipped",
       requestedBackend: resolution.requestedBackend,
       resolvedBackend: resolution.resolvedBackend,
       mode,
-      message: resolution.status,
+      message: "Timeline render has no segments. No derived artifact was produced.",
       outputLocalRelpath: null,
       outputWorkpiecePath: null,
       outputMimeType: null,
@@ -178,6 +173,7 @@ export async function executeDialogueAudioRenderWithBackend(args: {
       workpiece_id: args.workpieceId,
       media_kind: args.mediaKind,
       requested_backend: resolution.requestedBackend,
+      timeline_segments: args.timelineSegments,
       rack_state: args.rackState,
       local_root_abs: args.localRootAbs ?? null,
       local_relpath: args.localRelpath ?? null,

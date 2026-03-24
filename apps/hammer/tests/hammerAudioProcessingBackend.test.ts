@@ -91,6 +91,9 @@ async function testRenderExecutionSkipsWhenFfmpegUnavailable() {
     workspaceId: "ws-1",
     workpieceId: "wp-1",
     mediaKind: "recording_audio",
+    timelineSegments: [
+      { segment_id: "s1", start_sec: 0, end_sec: 1 },
+    ],
     rackState: rack,
     runtimeSummary: runtime,
     executor: async () => {
@@ -101,6 +104,7 @@ async function testRenderExecutionSkipsWhenFfmpegUnavailable() {
 
   assert.equal(called, false);
   assert.equal(result.status, "skipped");
+  assert.equal(result.requestedBackend, "ffmpeg");
   assert.equal(result.resolvedBackend, "native");
   assert.equal(/unavailable/i.test(result.message), true);
 }
@@ -122,6 +126,9 @@ async function testRenderExecutionProcessesWhenFfmpegAvailable() {
     workspaceId: "ws-2",
     workpieceId: "wp-2",
     mediaKind: "recording_audio",
+    timelineSegments: [
+      { segment_id: "s1", start_sec: 0, end_sec: 1 },
+    ],
     rackState: rack,
     runtimeSummary: runtime,
     executor: async () => {
@@ -143,6 +150,7 @@ async function testRenderExecutionProcessesWhenFfmpegAvailable() {
 
   assert.equal(called, true);
   assert.equal(result.status, "processed");
+  assert.equal(result.requestedBackend, "ffmpeg");
   assert.equal(result.resolvedBackend, "ffmpeg");
   assert.equal(result.outputWorkpiecePath, "hammer/render/studio-rack/wp-2/out.wav");
 }

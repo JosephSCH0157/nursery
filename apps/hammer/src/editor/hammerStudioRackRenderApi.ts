@@ -1,5 +1,6 @@
 import type { MediaKind } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerStudioRackState } from "./hammerStudioRack";
+import type { HammerAudioTimelineSegmentInput } from "./hammerAudioTimelineRenderPlan";
 
 export const HAMMER_STUDIO_RACK_RENDER_ROUTE = "/api/hammer/render/studio-rack";
 
@@ -11,6 +12,7 @@ export interface HammerStudioRackRenderRequest {
   workpiece_id: string;
   media_kind: MediaKind;
   requested_backend: HammerStudioRackRenderRequestBackend;
+  timeline_segments: HammerAudioTimelineSegmentInput[];
   rack_state: HammerStudioRackState;
   local_root_abs?: string | null;
   local_relpath?: string | null;
