@@ -2008,6 +2008,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     <input
                       ref={imageUploadInputRef}
                       type="file"
+                      aria-label="Upload source desk image file"
                       accept="image/*"
                       className="hammer-source-upload-input"
                       onChange={(event) => {
@@ -2138,6 +2139,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     <input
                       ref={imageUploadInputRef}
                       type="file"
+                      aria-label="Upload source desk image file"
                       accept="image/*"
                       className="hammer-source-upload-input"
                       onChange={(event) => {
@@ -2202,6 +2204,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     <input
                       ref={brollUploadInputRef}
                       type="file"
+                      aria-label="Upload source desk b-roll file"
                       accept="video/*"
                       className="hammer-source-upload-input"
                       onChange={(event) => {
@@ -2264,6 +2267,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     <input
                       ref={brollUploadInputRef}
                       type="file"
+                      aria-label="Upload source desk b-roll file"
                       accept="video/*"
                       className="hammer-source-upload-input"
                       onChange={(event) => {
@@ -2291,6 +2295,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <input
                     ref={introOutroUploadInputRef}
                     type="file"
+                    aria-label="Upload source desk intro or outro file"
                     accept="video/*,audio/*"
                     className="hammer-source-upload-input"
                     onChange={(event) => {
@@ -2306,6 +2311,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </header>
                     <select
                       className="hammer-source-select"
+                      aria-label="Project intro media selection"
                       value={introOutroSelection.intro_path ?? ""}
                       onChange={(event) => {
                         const next: HammerIntroOutroSelection = {
@@ -2334,6 +2340,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </header>
                     <select
                       className="hammer-source-select"
+                      aria-label="Project outro media selection"
                       value={introOutroSelection.outro_path ?? ""}
                       onChange={(event) => {
                         const next: HammerIntroOutroSelection = {
