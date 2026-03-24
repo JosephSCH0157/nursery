@@ -327,6 +327,13 @@ type HammerBoundBrollInspectorState = {
   } | null;
 };
 
+type HammerBoundAttentionItem = {
+  operationId: string;
+  kind: "unresolved_suggestion" | "degraded_binding" | "superseded_binding";
+  label: string;
+  reasons: string[];
+};
+
 type HammerTimelineLaneBlock = {
   id: string;
   label: string;
@@ -3955,6 +3962,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
+  function focusBoundAttentionOperation(operationId: string): void {
+    setSelectedSourceTab("broll");
+    setActiveTool("video");
+    setFocusOverride("tool-focus");
+    setSelectedBoundBrollOperationId(operationId);
+    const operation = brollOperationById.get(operationId) ?? null;
+    if (operation && operation.instruction.type === "insert_broll") {
+      seekPlayheadToTime(operation.instruction.start_sec, "playhead");
+    }
+  }
+
+  function navigateBoundAttention(direction: "next" | "previous"): void {
+    if (boundAttentionQueue.length === 0) return;
+    const currentIndex = selectedAttentionIndex;
+    const nextIndex = direction === "next"
+      ? (currentIndex >= 0 ? (currentIndex + 1) % boundAttentionQueue.length : 0)
+      : (currentIndex >= 0 ? (currentIndex - 1 + boundAttentionQueue.length) % boundAttentionQueue.length : boundAttentionQueue.length - 1);
+    const target = boundAttentionQueue[nextIndex] ?? null;
+    if (!target) return;
+    focusBoundAttentionOperation(target.operationId);
+  }
+
   function selectOutputLayerForExport(layerId: string | null): void {
     const targetLayer = layerId
       ? outputLayerCandidates.find((layer) => layer.layer_id === layerId) ?? null
@@ -4523,22 +4552,81 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     resolvedBrollBindingItems,
     selectedBoundBrollOperationId,
   ]);
+  const boundAttentionQueue = useMemo<HammerBoundAttentionItem[]>(() => {
+    const operations = editableEditorialAuthorityGraph?.operations ?? [];
+    return operations
+      .filter((operation) => operation.instruction.type === "insert_broll")
+      .sort((left, right) => left.sequence - right.sequence)
+      .flatMap((operation) => {
+        if (operation.instruction.type !== "insert_broll") return [];
+        const reasons: string[] = [];
+        let kind: HammerBoundAttentionItem["kind"] | null = null;
+        if (operation.lifecycle === "superseded") {
+          kind = "superseded_binding";
+          reasons.push("Binding was superseded by a structural edit.");
+        }
+        if (operation.instruction.asset_binding_state === "unresolved") {
+          kind = "unresolved_suggestion";
+          reasons.push("Suggestion remains unresolved and is not media truth yet.");
+        }
+        const renderOperation = renderOperationById.get(operation.operation_id) ?? null;
+        if (
+          operation.lifecycle === "active"
+          && (
+            renderOperation?.capability === "degraded"
+            || renderOperation?.preview_posture !== "authoritative"
+            || renderOperation?.export_posture !== "authoritative"
+            || renderOperation?.handoff_posture !== "authoritative"
+            || operation.capability_state.reason_codes.includes("operation_conflict")
+          )
+        ) {
+          kind = operation.instruction.asset_binding_state === "unresolved"
+            ? kind ?? "unresolved_suggestion"
+            : "degraded_binding";
+          reasons.push("Binding posture is degraded and needs review.");
+        }
+        if (!kind) return [];
+        const dedupedReasons = Array.from(new Set(reasons));
+        return [{
+          operationId: operation.operation_id,
+          kind,
+          label: operation.instruction.intent_description
+            ?? operation.instruction.intent_ref
+            ?? operation.instruction.asset_ref,
+          reasons: dedupedReasons,
+        }];
+      });
+  }, [editableEditorialAuthorityGraph?.operations, renderOperationById]);
+  const boundAttentionSummary = useMemo(() => ({
+    total: boundAttentionQueue.length,
+    unresolvedCount: boundAttentionQueue.filter((item) => item.kind === "unresolved_suggestion").length,
+    degradedCount: boundAttentionQueue.filter((item) => item.kind === "degraded_binding").length,
+    supersededCount: boundAttentionQueue.filter((item) => item.kind === "superseded_binding").length,
+  }), [boundAttentionQueue]);
+  const selectedAttentionIndex = useMemo(
+    () => boundAttentionQueue.findIndex((item) => item.operationId === selectedBoundBrollOperationId),
+    [boundAttentionQueue, selectedBoundBrollOperationId],
+  );
   useEffect(() => {
-    if (resolvedBrollBindingItems.length === 0) {
+    if ((editableEditorialAuthorityGraph?.operations ?? []).filter((operation) => operation.instruction.type === "insert_broll").length === 0) {
       if (selectedBoundBrollOperationId != null) {
         setSelectedBoundBrollOperationId(null);
       }
       return;
     }
     if (!selectedBoundBrollOperationId) {
-      setSelectedBoundBrollOperationId(resolvedBrollBindingItems[0]?.operationId ?? null);
+      const preferredAttention = boundAttentionQueue[0]?.operationId ?? null;
+      const firstBroll = [...brollOperationById.keys()][0] ?? null;
+      setSelectedBoundBrollOperationId(preferredAttention ?? firstBroll);
       return;
     }
-    const stillExists = resolvedBrollBindingItems.some((item) => item.operationId === selectedBoundBrollOperationId);
+    const stillExists = brollOperationById.has(selectedBoundBrollOperationId);
     if (!stillExists) {
-      setSelectedBoundBrollOperationId(resolvedBrollBindingItems[0]?.operationId ?? null);
+      const preferredAttention = boundAttentionQueue[0]?.operationId ?? null;
+      const firstBroll = [...brollOperationById.keys()][0] ?? null;
+      setSelectedBoundBrollOperationId(preferredAttention ?? firstBroll);
     }
-  }, [resolvedBrollBindingItems, selectedBoundBrollOperationId]);
+  }, [boundAttentionQueue, brollOperationById, editableEditorialAuthorityGraph?.operations, selectedBoundBrollOperationId]);
   const releasePrepOpenHref = useMemo(() => {
     if (!props.releasePrepHref || !loadedPreparedPackage) return null;
     try {
@@ -7190,6 +7278,49 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <div className="hammer-tool-hint">
                     Resolved bindings: {resolvedBrollBindingItems.length} · unresolved suggestions: {unresolvedBrollSuggestionItems.length}
                   </div>
+                  <div className="hammer-tool-hint">
+                    Needs review: {boundAttentionSummary.total}
+                    {` (unresolved ${boundAttentionSummary.unresolvedCount}, degraded ${boundAttentionSummary.degradedCount}, superseded ${boundAttentionSummary.supersededCount})`}
+                  </div>
+                  <div className="hammer-source-card__actions">
+                    <button
+                      type="button"
+                      onClick={() => navigateBoundAttention("previous")}
+                      disabled={boundAttentionQueue.length === 0}
+                    >
+                      Previous Attention
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigateBoundAttention("next")}
+                      disabled={boundAttentionQueue.length === 0}
+                    >
+                      Next Attention
+                    </button>
+                  </div>
+                  {boundAttentionQueue.length > 0 ? (
+                    <div className="hammer-source-list">
+                      {boundAttentionQueue.slice(0, 5).map((item) => (
+                        <article key={`attention:${item.operationId}`} className={selectedBoundBrollOperationId === item.operationId ? "hammer-source-card is-selected" : "hammer-source-card"}>
+                          <header className="hammer-source-card__head">
+                            <strong>{item.label}</strong>
+                            <span>{item.kind.replace(/_/g, " ")}</span>
+                          </header>
+                          <div className="hammer-source-card__meta">
+                            <span>{item.reasons.join(" ")}</span>
+                          </div>
+                          <div className="hammer-source-card__actions">
+                            <button
+                              type="button"
+                              onClick={() => focusBoundAttentionOperation(item.operationId)}
+                            >
+                              Open In Inspector
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : null}
                   {selectedBoundBrollInspectorState ? (
                     <section className="hammer-cleanup-tool">
                       <div className="hammer-cleanup-tool__head">
@@ -7277,6 +7408,34 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             onClick={() => revertResolvedBrollBinding(selectedBoundBrollInspectorState.operationId)}
                           >
                             Revert Binding
+                          </button>
+                        </div>
+                      ) : null}
+                      {selectedBoundBrollInspectorState.bindingState === "unresolved"
+                        && selectedBoundBrollInspectorState.lifecycle === "active" ? (
+                        <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const candidate = sourceBrollItems.find((item) => item.assetPath)?.assetPath ?? null;
+                              if (!candidate) {
+                                setTranscriptTimingHint("Upload B-roll before resolving this suggestion.");
+                                return;
+                              }
+                              resolveHearthBrollSuggestion({
+                                operationId: selectedBoundBrollInspectorState.operationId,
+                                assetPath: candidate,
+                                label: "Resolved from inspector",
+                              });
+                            }}
+                          >
+                            Resolve With First Asset
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => discardHearthBrollSuggestion(selectedBoundBrollInspectorState.operationId)}
+                          >
+                            Discard Suggestion
                           </button>
                         </div>
                       ) : null}
