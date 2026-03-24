@@ -447,7 +447,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const launchContext = props.launchContext;
   const transcriptSegments = useMemo(
     () => readTranscriptSegments(launchContext, props.structuredTranscript ?? null),
-    [launchContext, props.structuredTranscript],
+    [launchContext.transcript, props.structuredTranscript],
   );
   const transcriptSourceId = props.structuredTranscript?.transcript_id
     ?? (launchContext.transcript.kind === "tongs-stub" ? launchContext.transcript.transcript_id : "runtime-transcript");
@@ -994,7 +994,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [
     launchContext.session_id,
     launchContext.workpiece_id,
-    editableVisualPlacements,
     transcriptSegments,
     transcriptSourceId,
   ]);
