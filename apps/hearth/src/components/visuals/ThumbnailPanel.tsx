@@ -444,6 +444,25 @@ export default function ThumbnailPanel({
         </div>
       </header>
 
+      <div className="hs-thumb-mobile-concept-header" aria-label="Selected concept">
+        <div className="hs-thumb-mobile-concept-header-label">
+          <span className="hs-thumb-mobile-concept-label-text">{selectedConceptLabel || "No concept"}</span>
+        </div>
+        <button
+          type="button"
+          className="hs-thumb-mobile-concept-change-btn"
+          onClick={() => {
+            const conceptsSection = document.querySelector(".hs-thumb-concepts");
+            if (conceptsSection) {
+              conceptsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+          }}
+          disabled={interactionDisabled}
+        >
+          Change
+        </button>
+      </div>
+
       <div className="hs-thumb-grid">
         <section className="hs-thumb-concepts" aria-label="Thumbnail concepts">
           <div className="hs-thumb-section-title">Concepts</div>

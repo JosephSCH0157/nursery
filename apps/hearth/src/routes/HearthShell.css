@@ -1706,6 +1706,57 @@
   gap: 6px;
 }
 
+.hs-thumb-mobile-concept-header {
+  display: none;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  width: 100%;
+  background: var(--forge-bg-elevated, #fff);
+  border-bottom: 1px solid var(--forge-border, #ddd);
+  padding: 8px 12px;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.hs-thumb-mobile-concept-header-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.hs-thumb-mobile-concept-label-text {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hs-thumb-mobile-concept-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(59, 130, 246, 0.15);
+  color: rgba(59, 130, 246, 0.85);
+  white-space: nowrap;
+}
+
+.hs-thumb-mobile-concept-change-btn {
+  padding: 6px 12px;
+  min-height: 32px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
 .hs-thumb-preview-wrap {
   display: grid;
   gap: 10px;
@@ -2866,6 +2917,74 @@
 @media (max-width: 900px) {
   .hs-thumb-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hs-thumb-mobile-concept-header {
+    display: grid;
+  }
+
+  .hs-thumb-concepts {
+    display: none;
+  }
+
+  .hs-thumb-preview-wrap {
+    gap: 16px;
+  }
+
+  .hs-thumb-section-title {
+    font-size: 11px;
+  }
+
+  .hs-thumb-controls {
+    flex-direction: column;
+  }
+
+  .hs-thumb-controls button,
+  .hs-thumb-controls select {
+    min-height: 40px;
+    font-size: 14px;
+    padding: 10px;
+  }
+
+  .hs-field {
+    display: grid;
+    gap: 6px;
+  }
+
+  .hs-field-label {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  textarea {
+    font-size: 16px;
+    min-height: 48px;
+    padding: 10px;
+  }
+
+  .hs-thumb-concept-item {
+    padding: 8px 10px;
+    min-height: 44px;
+  }
+
+  .hs-thumb-title-chip {
+    padding: 8px;
+  }
+
+  .hs-thumb-preview {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+  }
+
+  .hs-thumb-title-source {
+    margin-top: 12px;
+    border-top: 1px solid rgba(148, 163, 184, 0.2);
+    padding-top: 12px;
+  }
+
+  .hs-thumb-title-style {
+    margin-top: 8px;
   }
 
   .hs-imap-layout {
