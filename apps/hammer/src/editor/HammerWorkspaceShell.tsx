@@ -80,8 +80,12 @@ import {
   type HammerOutputSelectionState,
 } from "./hammerWorkspaceHistory";
 import {
+  appendHammerDerivedTextLayer,
+  cloneHammerDerivedTextLayers,
+  createHammerDerivedTextLayer,
   listHammerDerivedTextLayers,
   normalizeHammerOutputSelectionRef,
+  setHammerDerivedTextLayerActive,
   setHammerDerivedTextLayerOutput,
 } from "../macros/hammerDerivedTranscriptLayers";
 import {
@@ -142,10 +146,6 @@ import {
 } from "../lib/hammerPreparedReleasePackageApi";
 import "./HammerWorkspaceShell.css";
 
-const TOOLBAR_WIDTH_PX = 72;
-const PREVIEW_BAY_MAX_WIDTH_PX = 460;
-const TIMELINE_DOCK_BASELINE_HEIGHT_PX = 376;
-const TIMELINE_DOCK_TIME_FOCUS_HEIGHT_PX = 504;
 const SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY = 4;
 const SOURCE_DESK_PREVIEW_MAX_ITEMS = 48;
 const HISTORY_MAX_SIZE = 100;
@@ -257,6 +257,11 @@ type HammerReleasePrepSaveState = {
 };
 
 type HammerExportTruthState = "never_prepared" | "current" | "stale";
+type DerivedLayerHistoryTransition = {
+  before: HammerPersistedStructuredTranscript["derived_text_layers"];
+  after: HammerPersistedStructuredTranscript["derived_text_layers"];
+  layerLabel: string;
+};
 
 function readTranscriptSegments(
   launchContext: HammerLaunchContext,
@@ -575,6 +580,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   const [selectedSourceTab, setSelectedSourceTab] = useState<HammerSourceTabId>("transcript");
   const [activeTool, setActiveTool] = useState<HammerToolId>("polish");
+  const [editableDerivedTextLayers, setEditableDerivedTextLayers] = useState<
+    HammerPersistedStructuredTranscript["derived_text_layers"]
+  >(() => cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers));
   const [editableTranscriptSegments, setEditableTranscriptSegments] = useState<HammerTranscriptSegment[]>(
     () => transcriptSegments,
   );
@@ -669,6 +677,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const historyPersistTimerRef = useRef<number | null>(null);
   const snapshotManifestRef = useRef<HammerSnapshotManifestV1 | null>(null);
   const lastSnapshottedHeadEntryIdRef = useRef<string | null>(null);
+  const derivedLayerHistoryRef = useRef<Map<string, DerivedLayerHistoryTransition>>(new Map());
   const scrubRectRef = useRef<{ left: number; width: number } | null>(null);
   const scrubAutoPlayRef = useRef(false);
   const scrubReturnToPausedRef = useRef(false);
@@ -1028,6 +1037,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return [...labels];
   }, [editableTranscriptSegments]);
+  const workspaceStructuredTranscript = useMemo(() => {
+    if (!props.structuredTranscript) return null;
+    return {
+      ...props.structuredTranscript,
+      derived_text_layers: cloneHammerDerivedTextLayers(editableDerivedTextLayers),
+    };
+  }, [editableDerivedTextLayers, props.structuredTranscript]);
   const historyController = historyControllerRef.current;
   const canUndo = historyController?.canUndo() ?? false;
   const canRedo = historyController?.canRedo() ?? false;
@@ -1043,10 +1059,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const undoLabelCompact = compactHistoryActionLabel(undoLabel);
   const redoLabelCompact = compactHistoryActionLabel(redoLabel);
   const outputLayerCandidates = useMemo(
-    () => listHammerDerivedTextLayers(props.structuredTranscript ?? null, { includeDiscarded: false }),
-    [props.structuredTranscript],
+    () => listHammerDerivedTextLayers(workspaceStructuredTranscript ?? null, { includeDiscarded: false }),
+    [workspaceStructuredTranscript],
   );
-  const activeOutputLayerId = props.structuredTranscript?.derived_text_layers?.active_layer_id ?? null;
+  const activeOutputLayerId = workspaceStructuredTranscript?.derived_text_layers?.active_layer_id ?? null;
   const activeOutputLayer = outputLayerCandidates.find((layer) => layer.layer_id === activeOutputLayerId) ?? null;
   const selectedOutputLayer = outputLayerCandidates.find(
     (layer) => layer.layer_id === editableOutputSelection.layerId,
@@ -1054,6 +1070,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const outputSelectionSummary = selectedOutputLayer
     ? formatOutputLayerLabel(selectedOutputLayer)
     : "Raw transcript output";
+  const viewingModeSummary = activeOutputLayer
+    ? `Derived - ${formatOutputLayerLabel(activeOutputLayer)}`
+    : "Raw";
   const cleanupPreviewSummary = useMemo(
     () => (cleanupPreview ? buildPolishResultSummaryFromCleanupPreview(cleanupPreview) : null),
     [cleanupPreview],
@@ -1216,9 +1235,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     allowCoalesce?: boolean;
     immediatePersist?: boolean;
     computeAfter: (before: HammerEditorStateSerializable) => HammerEditorStateSerializable;
-  }): boolean {
+  }): HammerHistoryEntry | null {
     const controller = historyControllerRef.current;
-    if (!controller) return false;
+    if (!controller) return null;
 
     const before = captureWorkspaceState();
     const after = cloneEditorState(args.computeAfter(cloneEditorState(before)));
@@ -1234,11 +1253,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       coalesceWindowMs: TEXT_EDIT_COALESCE_MS,
       nextState: after,
     });
-    if (!entry) return false;
+    if (!entry) return null;
 
     applyWorkspaceState(controller.getState());
     scheduleHistoryPersist(args.immediatePersist === true);
-    return true;
+    return entry;
   }
 
   function undoHistory(): void {
@@ -1246,6 +1265,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (!controller) return;
     const entry = controller.undo();
     if (!entry) return;
+    const derivedTransition = derivedLayerHistoryRef.current.get(entry.id);
+    if (derivedTransition) {
+      setEditableDerivedTextLayers(cloneHammerDerivedTextLayers(derivedTransition.before));
+    }
     applyWorkspaceState(controller.getState());
     selectionOriginRef.current = "system";
     setFocusOverride("source-focus");
@@ -1257,6 +1280,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (!controller) return;
     const entry = controller.redo();
     if (!entry) return;
+    const derivedTransition = derivedLayerHistoryRef.current.get(entry.id);
+    if (derivedTransition) {
+      setEditableDerivedTextLayers(cloneHammerDerivedTextLayers(derivedTransition.after));
+    }
     applyWorkspaceState(controller.getState());
     selectionOriginRef.current = "system";
     setFocusOverride("source-focus");
@@ -1331,6 +1358,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     applyWorkspaceState(baselineState);
     selectionOriginRef.current = "system";
     setTimelineMarkers([]);
+    setEditableDerivedTextLayers(cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers));
+    derivedLayerHistoryRef.current.clear();
 
     void (async () => {
       const [historyResult, snapshotManifestResult] = await Promise.all([
@@ -1428,7 +1457,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       active = false;
       clearPersistTimer();
     };
-  }, [launchContext.workpiece_id, transcriptSourceId]);
+  }, [launchContext.workpiece_id, props.structuredTranscript, transcriptSourceId]);
 
   useEffect(() => {
     const selectedStillExists = selectedSegmentId
@@ -2522,6 +2551,72 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const toolId = preview.label.toLowerCase().replace(/\s+/g, "-");
     const summary = buildPolishResultSummaryFromCleanupPreview(preview);
     historyControllerRef.current?.createCheckpoint(`Before ${preview.label}`);
+    if (preview.metadata?.speakerSolo && workspaceStructuredTranscript) {
+      const nextLayerChanges = editableTranscriptSegments
+        .map((segment) => {
+          const nextSegment = preview.resultSegments.find((item) => item.segment_id === segment.segment_id) ?? null;
+          const newlySuppressed = Boolean(nextSegment?.is_disabled === true && segment.is_disabled !== true);
+          if (!newlySuppressed) return null;
+          return {
+            segment_id: segment.segment_id,
+            original_text: segment.text,
+            cleaned_text: "",
+            operations: [{
+              kind: "retake_fragment_removed" as const,
+              value: segment.text,
+              start: 0,
+              end: segment.text.length,
+            }],
+          };
+        })
+        .filter((change): change is NonNullable<typeof change> => Boolean(change));
+      if (nextLayerChanges.length === 0) {
+        setTranscriptTimingHint("Solo Mode found no non-target segments to suppress.");
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      const targetSpeaker = preview.metadata.speakerSolo.targetSpeaker.trim() || "speaker";
+      const layerLabel = `Solo Mode - ${targetSpeaker}`;
+      const layer = createHammerDerivedTextLayer({
+        transcriptId: workspaceStructuredTranscript.transcript_id,
+        recipeRef: `speaker_solo:${targetSpeaker.toLowerCase()}`,
+        macroKind: "speaker_solo",
+        changes: nextLayerChanges,
+        nowIso,
+      });
+      const beforeDerived = cloneHammerDerivedTextLayers(editableDerivedTextLayers);
+      const withLayer = appendHammerDerivedTextLayer(workspaceStructuredTranscript, layer);
+      const withLayerActive = setHammerDerivedTextLayerActive(withLayer, layer.layer_id);
+      const afterDerived = cloneHammerDerivedTextLayers(withLayerActive.derived_text_layers);
+
+      const historyEntry = applyHistoryMutation({
+        label: `Apply ${layerLabel} as derived layer`,
+        kind: "cleanup_tool",
+        affectedSegments: nextLayerChanges.map((change) => change.segment_id),
+        toolId,
+        immediatePersist: true,
+        computeAfter: (before) => ({
+          ...before,
+          transcriptTimingHint: null,
+        }),
+      });
+      if (!historyEntry) return;
+
+      setEditableDerivedTextLayers(afterDerived);
+      derivedLayerHistoryRef.current.set(historyEntry.id, {
+        before: beforeDerived,
+        after: afterDerived,
+        layerLabel,
+      });
+      setEditableOutputSelection((current) => normalizeHammerOutputSelectionRef({
+        selection: current,
+        layers: listHammerDerivedTextLayers(withLayerActive, { includeDiscarded: false }),
+      }));
+      setCleanupReceipt(summary);
+      return;
+    }
+
     const applied = applyHistoryMutation({
       label: preview.label,
       kind: "cleanup_tool",
@@ -2877,14 +2972,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const exportTranscriptSegments = editableTranscriptSegments.filter((segment) => !segment.is_disabled);
     const transcriptForReleaseBase = preserveTranscriptMetadata(
       exportTranscriptSegments,
-      props.structuredTranscript ?? null,
+      workspaceStructuredTranscript ?? null,
       mediaRef,
       transcriptSourceId,
     );
-    const transcriptForRelease = setHammerDerivedTextLayerOutput(
+    let transcriptForRelease = setHammerDerivedTextLayerOutput(
       transcriptForReleaseBase,
       editableOutputSelection.layerId,
     );
+    const selectedLayer = transcriptForRelease.derived_text_layers?.layers.find(
+      (layer) => layer.layer_id === editableOutputSelection.layerId && layer.status !== "discarded",
+    ) ?? null;
+    if (selectedLayer?.macro_kind === "speaker_solo") {
+      const suppressedSegmentIds = new Set(
+        selectedLayer.changes
+          .filter((change) => change.cleaned_text.trim().length === 0)
+          .map((change) => change.segment_id),
+      );
+      transcriptForRelease = {
+        ...transcriptForRelease,
+        segments: transcriptForRelease.segments.filter((segment) => !suppressedSegmentIds.has(segment.segment_id)),
+      };
+    }
     const editPlan = launchContext.edit_plan
       ? {
         ...launchContext.edit_plan,
@@ -2936,7 +3045,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     mediaSourceLabel,
     previewMode,
     props.audioPolish,
-    props.structuredTranscript,
+    workspaceStructuredTranscript,
     editableVisualPlacements,
     selectedSegmentId,
     transcriptSourceId,
@@ -3162,12 +3271,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         workspaceFocusMode === "time-focus" ? "is-time-focus" : "",
         workspaceFocusMode === "balanced" ? "is-balanced" : "",
       ].filter(Boolean).join(" ")}
-      style={{
-        ["--hammer-shell-toolbar-width" as string]: `${TOOLBAR_WIDTH_PX}px`,
-        ["--hammer-shell-preview-width" as string]: `${PREVIEW_BAY_MAX_WIDTH_PX}px`,
-        ["--hammer-shell-timeline-height" as string]: `${TIMELINE_DOCK_BASELINE_HEIGHT_PX}px`,
-        ["--hammer-shell-timeline-time-focus-height" as string]: `${TIMELINE_DOCK_TIME_FOCUS_HEIGHT_PX}px`,
-      }}
     >
       <div className="hammer-workspace-shell__main">
         <div className="hammer-workspace-shell__top">
@@ -3227,6 +3330,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               <div className="hammer-source-status hammer-source-status--info" role="status">
                 History: {undoDepth} undo / {redoDepth} redo
               </div>
+              <div className="hammer-source-status hammer-source-status--info" role="status">
+                Viewing: {viewingModeSummary}
+              </div>
               <section className="hammer-history-panel" aria-label="Edit history">
                 <header className="hammer-history-panel__head">
                   <strong>History</strong>
@@ -3238,7 +3344,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <div className="hammer-history-panel__list">
                     {recentHistoryEntries.map((entry) => {
                       const isCurrent = entry.id === historyHeadEntryId;
-                      const derivedLayerCreated = false;
+                      const derivedTransition = derivedLayerHistoryRef.current.get(entry.id) ?? null;
+                      const derivedLayerCreated = Boolean(derivedTransition);
                       return (
                         <article
                           key={entry.id}
@@ -3251,6 +3358,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <div className="hammer-history-panel__meta">
                             <span>Scope: {formatHistoryEntryScope(entry)}</span>
                             <span>Derived layer: {derivedLayerCreated ? "yes" : "no"}</span>
+                            {derivedTransition ? <span>Layer: {derivedTransition.layerLabel}</span> : null}
                             {isCurrent ? <span>Current state</span> : null}
                           </div>
                         </article>
@@ -3893,7 +4001,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     setPlaybackWindow(null);
                   }
                 }}
-                style={{ display: "none" }}
+                className="hammer-preview-audio"
               />
               <div className="hammer-preview-surface">
                 {playheadSegment ? (
@@ -4795,6 +4903,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <div>Workspace mode: {workspaceFocusMode}</div>
                 <div>Macro: {props.selectedMacroRecipeRef ?? "none"}</div>
                 <div>Last run: {props.lastMacroRunRef ?? "none"}</div>
+                <div>Viewing: {viewingModeSummary}</div>
                 <div>Output source: {outputSelectionSummary}</div>
                 <div>Release prep: {releasePrepOpenHref ? "available" : "unavailable"}</div>
               </div>
@@ -5036,40 +5145,63 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       beginTimelineScrub(event);
                     }}
                   >
-                    {timelineMinorTicks.map((tick) => (
-                      <div
-                        key={`minor-tick-${tick.ratio}`}
-                        className="hammer-timeline-ruler__tick hammer-timeline-ruler__tick--minor"
-                        style={{ left: `${tick.ratio * 100}%` }}
-                      />
-                    ))}
-                    {timelineTicks.map((tick) => (
-                      <div
-                        key={`tick-${tick.ratio}`}
-                        className="hammer-timeline-ruler__tick"
-                        style={{ left: `${tick.ratio * 100}%` }}
-                      >
-                        <span>{tick.timeSec.toFixed(0)}s</span>
-                      </div>
-                    ))}
-                    {sortedTimelineMarkers.map((marker) => (
-                      <div
-                        key={marker.id}
-                        className="hammer-timeline-ruler__marker"
-                        style={{ left: `${(marker.timeSec / timelineDurationSec) * 100}%` }}
-                        title={`${marker.label} ${marker.timeSec.toFixed(1)}s`}
-                      />
-                    ))}
-                    <div
-                      className="hammer-timeline-ruler__time-readout"
-                      style={{ left: `${playheadRatioPercent}%` }}
-                    >
-                      {playheadSec.toFixed(1)}s
-                    </div>
-                    <div
-                      className="hammer-timeline-playhead"
-                      style={{ left: `${playheadRatioPercent}%` }}
-                    />
+                    <svg className="hammer-timeline-ruler__canvas" viewBox="0 0 1000 28" preserveAspectRatio="none" aria-hidden="true">
+                      {timelineMinorTicks.map((tick) => {
+                        const x = tick.ratio * 1000;
+                        return (
+                          <line
+                            key={`minor-tick-${tick.ratio}`}
+                            className="hammer-timeline-ruler__tick hammer-timeline-ruler__tick--minor"
+                            x1={x}
+                            y1={13}
+                            x2={x}
+                            y2={28}
+                          />
+                        );
+                      })}
+                      {timelineTicks.map((tick) => {
+                        const x = tick.ratio * 1000;
+                        return (
+                          <g key={`tick-${tick.ratio}`}>
+                            <line
+                              className="hammer-timeline-ruler__tick"
+                              x1={x}
+                              y1={7}
+                              x2={x}
+                              y2={28}
+                            />
+                            <text className="hammer-timeline-ruler__tick-label" x={Math.min(995, x + 3)} y={7}>
+                              {tick.timeSec.toFixed(0)}s
+                            </text>
+                          </g>
+                        );
+                      })}
+                      {sortedTimelineMarkers.map((marker) => {
+                        const x = (marker.timeSec / timelineDurationSec) * 1000;
+                        return (
+                          <line
+                            key={marker.id}
+                            className="hammer-timeline-ruler__marker"
+                            x1={x}
+                            y1={0}
+                            x2={x}
+                            y2={28}
+                          >
+                            <title>{`${marker.label} ${marker.timeSec.toFixed(1)}s`}</title>
+                          </line>
+                        );
+                      })}
+                      <g transform={`translate(${playheadRatioPercent * 10} 0)`}>
+                        <line className="hammer-timeline-playhead" x1={0} y1={0} x2={0} y2={28} />
+                        <rect className="hammer-timeline-playhead-cap" x={-3.5} y={0} width={7} height={3} rx={1} ry={1} />
+                        <g transform="translate(0 2)">
+                          <rect className="hammer-timeline-ruler__time-readout" x={-20} y={0} width={40} height={13} rx={6} ry={6} />
+                          <text className="hammer-timeline-ruler__time-readout-text" x={0} y={9} textAnchor="middle">
+                            {playheadSec.toFixed(1)}s
+                          </text>
+                        </g>
+                      </g>
+                    </svg>
                   </div>
 
                   {timelineLanes.map((lane) => (
@@ -5084,38 +5216,64 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           beginTimelineScrub(event);
                         }}
                       >
-                        {(laneGapsById.get(lane.id) ?? []).map((gap) => (
-                          <div
-                            key={gap.id}
-                            className="hammer-timeline-gap"
-                            style={{
-                              left: `${(gap.startSec / timelineDurationSec) * 100}%`,
-                              width: `${Math.max(0.8, ((gap.endSec - gap.startSec) / timelineDurationSec) * 100)}%`,
-                            }}
+                        <svg className="hammer-timeline-lane__canvas" viewBox="0 0 1000 34" preserveAspectRatio="none" aria-label={`${lane.label} lane`}>
+                          {(laneGapsById.get(lane.id) ?? []).map((gap) => {
+                            const x = (gap.startSec / timelineDurationSec) * 1000;
+                            const width = Math.max(8, ((gap.endSec - gap.startSec) / timelineDurationSec) * 1000);
+                            return (
+                              <rect
+                                key={gap.id}
+                                className="hammer-timeline-gap"
+                                x={x}
+                                y={4}
+                                width={width}
+                                height={26}
+                                rx={6}
+                                ry={6}
+                              />
+                            );
+                          })}
+                          <line
+                            className="hammer-timeline-lane__playhead"
+                            x1={playheadRatioPercent * 10}
+                            y1={0}
+                            x2={playheadRatioPercent * 10}
+                            y2={34}
                           />
-                        ))}
-                        <div
-                          className="hammer-timeline-lane__playhead"
-                          style={{ left: `${playheadRatioPercent}%` }}
-                        />
-                        {lane.blocks.map((block) => (
-                          <button
-                            key={block.id}
-                            type="button"
-                            className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}${block.inRange ? " is-range" : ""}${block.disabled ? " is-disabled" : ""}`}
-                            style={{
-                              left: `${(block.startSec / timelineDurationSec) * 100}%`,
-                              width: `${Math.max(1.4, ((block.endSec - block.startSec) / timelineDurationSec) * 100)}%`,
-                            }}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              block.onSelect();
-                            }}
-                            title={`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}
-                          >
-                            <span>{block.label}</span>
-                          </button>
-                        ))}
+                          {lane.blocks.map((block) => {
+                            const x = (block.startSec / timelineDurationSec) * 1000;
+                            const width = Math.max(14, ((block.endSec - block.startSec) / timelineDurationSec) * 1000);
+                            return (
+                              <g
+                                key={block.id}
+                                role="button"
+                                tabIndex={0}
+                                className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}${block.inRange ? " is-range" : ""}${block.disabled ? " is-disabled" : ""}`}
+                                transform={`translate(${x} 5)`}
+                                onMouseDown={(event) => {
+                                  event.stopPropagation();
+                                }}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  block.onSelect();
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key !== "Enter" && event.key !== " ") return;
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  block.onSelect();
+                                }}
+                                aria-label={`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}
+                              >
+                                <title>{`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}</title>
+                                <rect className="hammer-timeline-block__rect" width={width} height={22} rx={3} ry={3} />
+                                <text className="hammer-timeline-block__text" x={5} y={14}>
+                                  {block.label}
+                                </text>
+                              </g>
+                            );
+                          })}
+                        </svg>
                       </div>
                     </div>
                   ))}

@@ -43,7 +43,8 @@ export interface HammerPersistedEditorSession {
 
 export type HammerDerivedTextMacroKind =
   | "filler_cleanup"
-  | "retake_tightening";
+  | "retake_tightening"
+  | "speaker_solo";
 
 export type HammerDerivedTextOperationKind =
   | "filler_removed"
