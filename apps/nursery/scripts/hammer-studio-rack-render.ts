@@ -11,6 +11,7 @@ import type {
   HammerStudioRackRenderResponse,
 } from "../../hammer/src/editor/hammerStudioRackRenderApi";
 import { isHammerStudioRackIdentity, type HammerStudioRackState } from "../../hammer/src/editor/hammerStudioRack";
+import { buildHammerStudioRackFfmpegPlan } from "../../hammer/src/editor/hammerStudioRackFfmpegPlan";
 
 type HammerStudioRackRenderRouteResult = {
   status: number;
@@ -200,84 +201,6 @@ function sanitizeSlug(value: string): string {
     .replace(/[^a-zA-Z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
-}
-
-function clamp(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, value));
-}
-
-function toLinearFromDb(dbValue: number): number {
-  return Math.pow(10, dbValue / 20);
-}
-
-function buildFfmpegFilterChain(rackState: HammerStudioRackState): {
-  filters: string[];
-  summary: Record<string, string | number | boolean | null>;
-} {
-  const filters: string[] = [];
-  const summary: Record<string, string | number | boolean | null> = {
-    rack_enabled: rackState.is_enabled,
-    rack_bypassed: rackState.is_bypassed,
-  };
-
-  const gate = rackState.modules.gate;
-  if (gate.is_enabled && !gate.is_bypassed) {
-    filters.push(
-      `agate=threshold=${toLinearFromDb(clamp(gate.threshold_db, -80, 0)).toFixed(6)}`
-      + `:range=${toLinearFromDb(clamp(gate.range_db, -60, 0)).toFixed(6)}`
-      + `:attack=${clamp(gate.attack_ms, 0.5, 120).toFixed(1)}`
-      + `:release=${clamp(gate.release_ms, 10, 1200).toFixed(1)}`,
-    );
-  }
-
-  const compressor = rackState.modules.compressor;
-  if (compressor.is_enabled && !compressor.is_bypassed) {
-    filters.push(
-      `acompressor=threshold=${clamp(compressor.threshold_db, -60, 0).toFixed(1)}dB`
-      + `:ratio=${clamp(compressor.ratio, 1, 20).toFixed(2)}`
-      + `:attack=${clamp(compressor.attack_ms, 0.5, 120).toFixed(1)}`
-      + `:release=${clamp(compressor.release_ms, 10, 1200).toFixed(1)}`
-      + `:makeup=${clamp(compressor.makeup_gain_db, -12, 18).toFixed(1)}`,
-    );
-  }
-
-  const eq = rackState.modules.eq;
-  if (eq.is_enabled && !eq.is_bypassed) {
-    filters.push(
-      `equalizer=f=${clamp(eq.low_shelf_hz, 40, 400).toFixed(0)}:t=o:w=1:g=${clamp(eq.low_shelf_gain_db, -12, 12).toFixed(2)}`,
-      `equalizer=f=${clamp(eq.mid_hz, 200, 8000).toFixed(0)}:t=q:w=${clamp(eq.mid_q, 0.2, 8).toFixed(2)}:g=${clamp(eq.mid_gain_db, -12, 12).toFixed(2)}`,
-      `equalizer=f=${clamp(eq.high_shelf_hz, 2000, 16000).toFixed(0)}:t=o:w=1:g=${clamp(eq.high_shelf_gain_db, -12, 12).toFixed(2)}`,
-    );
-  }
-
-  const reverb = rackState.modules.reverb;
-  if (reverb.is_enabled && !reverb.is_bypassed) {
-    const mix = clamp(reverb.mix, 0, 0.35);
-    const predelayMs = Math.max(1, Math.round(clamp(reverb.predelay_ms, 0, 140)));
-    const decayAmount = clamp(reverb.decay_sec / 3.2, 0.05, 0.9);
-    filters.push(
-      `aecho=in_gain=${(1 - mix).toFixed(3)}:out_gain=1.0:delays=${predelayMs}:decays=${decayAmount.toFixed(3)}`,
-    );
-  }
-
-  const tube = rackState.modules.tubeMicCharacter;
-  if (tube.is_enabled && !tube.is_bypassed) {
-    const amount = clamp(tube.amount, 0, 1);
-    const airGain = clamp(tube.air * amount * 6, -6, 6);
-    const warmthGain = clamp(tube.warmth * amount * 6, -6, 6);
-    const tubeRatio = 1 + amount * 2;
-    const tubeMakeup = amount * 2;
-    filters.push(
-      `equalizer=f=180:t=o:w=1:g=${warmthGain.toFixed(2)}`,
-      `equalizer=f=9500:t=o:w=1:g=${airGain.toFixed(2)}`,
-      `acompressor=threshold=-16dB:ratio=${tubeRatio.toFixed(2)}:attack=10:release=120:makeup=${tubeMakeup.toFixed(2)}`,
-    );
-  }
-
-  summary.filter_count = filters.length;
-  summary.filter_chain = filters.join(",");
-  return { filters, summary };
 }
 
 function buildArtifactRelpath(request: NormalizedStudioRackRenderRequest, sourceLabel: string): string {
@@ -665,13 +588,13 @@ export async function handleHammerStudioRackRenderRequest(
   }
 
   try {
-    const chain = buildFfmpegFilterChain(request.rack_state);
+    const chain = buildHammerStudioRackFfmpegPlan(request.rack_state);
     const renderedWaveBytes = await renderWaveBufferWithFfmpeg({
       sourceBytes: sourceMedia.sourceBytes,
       sourceExtension: sourceMedia.sourceExtension,
       sourceLabel: sourceMedia.sourceLabel,
       ffmpegBin,
-      filterChain: chain.filters.join(","),
+      filterChain: chain.filterChain,
     });
     const outputWorkpiecePath = buildArtifactRelpath(request, sourceMedia.sourceLabel);
     const outputDurationMs = readWavDurationMs(renderedWaveBytes);

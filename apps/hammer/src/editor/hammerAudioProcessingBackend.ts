@@ -107,7 +107,7 @@ function mapRenderResponseMessage(response: HammerStudioRackRenderResponse): str
     const output = response.output_workpiece_path
       ?? response.output_local_relpath
       ?? "derived artifact";
-    return `Studio Rack render completed via ${response.resolved_backend} lane (${output}).`;
+    return `Studio Rack render completed via ${response.resolved_backend} lane (${output}). A/B stays honest via bypass against source audio.`;
   }
   if (response.status === "skipped") {
     return response.failure_reason
@@ -137,12 +137,17 @@ export async function executeDialogueAudioRenderWithBackend(args: {
   });
 
   if (!args.rackState.is_enabled || args.rackState.is_bypassed || isHammerStudioRackIdentity(args.rackState)) {
+    const message = !args.rackState.is_enabled
+      ? "Studio Rack is disabled. Render lane left source audio unchanged."
+      : args.rackState.is_bypassed
+      ? "Studio Rack bypass is active. Render lane left source audio unchanged for honest A/B."
+      : "Studio Rack has no active modules. Render lane left source audio unchanged.";
     return {
       status: "skipped",
       requestedBackend: resolution.requestedBackend,
       resolvedBackend: resolution.resolvedBackend,
       mode,
-      message: "Studio Rack is disabled or identity. Render lane left source audio unchanged.",
+      message,
       outputLocalRelpath: null,
       outputWorkpiecePath: null,
       outputMimeType: null,

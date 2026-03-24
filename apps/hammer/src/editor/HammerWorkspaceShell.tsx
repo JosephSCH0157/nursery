@@ -442,6 +442,15 @@ function compactHistoryActionLabel(label: string | null): string {
   return `${trimmed.slice(0, 25)}...`;
 }
 
+function formatStudioRackModuleLabel(moduleId: string): string {
+  if (moduleId === "eq") return "Parametric EQ";
+  if (moduleId === "reverb") return "Reverb";
+  if (moduleId === "tubeMicCharacter") return "Tube Mic Character";
+  if (moduleId === "gate") return "Gate";
+  if (moduleId === "compressor") return "Compressor";
+  return moduleId;
+}
+
 function createVisualPlacementId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return `placement:${crypto.randomUUID()}`;
@@ -940,6 +949,29 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => Object.values(editableStudioRack.modules).filter((module) => module.is_enabled && !module.is_bypassed).length,
     [editableStudioRack.modules],
   );
+  const studioRackRenderAppliedModules = useMemo(() => {
+    const summary = studioRackRenderStatus?.rawResponse?.settings_summary ?? null;
+    const raw = typeof summary?.applied_modules === "string" ? summary.applied_modules : "";
+    if (!raw.trim()) return [] as string[];
+    return raw.split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .map((moduleId) => formatStudioRackModuleLabel(moduleId));
+  }, [studioRackRenderStatus]);
+  const studioRackRenderDeferredModules = useMemo(() => {
+    const summary = studioRackRenderStatus?.rawResponse?.settings_summary ?? null;
+    if (!summary) return [] as string[];
+    const moduleIds = ["eq", "reverb", "tubeMicCharacter"];
+    const deferred: string[] = [];
+    for (const moduleId of moduleIds) {
+      const requested = summary[`${moduleId}_requested`];
+      const applied = summary[`${moduleId}_applied`];
+      if (requested === true && applied !== true) {
+        deferred.push(formatStudioRackModuleLabel(moduleId));
+      }
+    }
+    return deferred;
+  }, [studioRackRenderStatus]);
 
   function captureWorkspaceState(): HammerEditorStateSerializable {
     return toEditorState({
@@ -3435,6 +3467,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       Derived artifact: {studioRackRenderStatus.outputWorkpiecePath}
                     </div>
                   ) : null}
+                  {studioRackRenderAppliedModules.length > 0 ? (
+                    <div className="hammer-tool-hint">
+                      Render applied modules: {studioRackRenderAppliedModules.join(", ")}
+                    </div>
+                  ) : null}
+                  {studioRackRenderDeferredModules.length > 0 ? (
+                    <div className="hammer-tool-hint">
+                      Requested but not yet rendered in v1: {studioRackRenderDeferredModules.join(", ")}
+                    </div>
+                  ) : null}
                   <div className="hammer-tool-hint">Active rack modules: {studioRackEnabledModuleCount}</div>
                   <button
                     type="button"
@@ -3559,6 +3601,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <strong>Parametric EQ</strong>
                           <span>Low shelf, mid, and high shelf shaping.</span>
                         </div>
+                        <div className="hammer-tool-hint">
+                          Render lane note: EQ controls are visible now, but FFmpeg render v1 does not apply EQ yet.
+                        </div>
                         <label className="hammer-tool-check">
                           <input
                             type="checkbox"
@@ -3599,6 +3644,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <strong>Reverb</strong>
                           <span>Subtle space for voice polish.</span>
                         </div>
+                        <div className="hammer-tool-hint">
+                          Render lane note: Reverb controls are visible now, but FFmpeg render v1 does not apply reverb yet.
+                        </div>
                         <label className="hammer-tool-check">
                           <input
                             type="checkbox"
@@ -3638,6 +3686,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         <div className="hammer-cleanup-tool__head">
                           <strong>Tube Mic Character</strong>
                           <span>Premium condenser-style character layer.</span>
+                        </div>
+                        <div className="hammer-tool-hint">
+                          Render lane note: Tube Mic Character controls are visible now, but FFmpeg render v1 does not apply tube shaping yet.
                         </div>
                         <label className="hammer-tool-check">
                           <input
@@ -3822,6 +3873,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   {studioRackRenderStatus?.outputWorkpiecePath ? (
                     <div className="hammer-tool-hint">
                       Render artifact path: {studioRackRenderStatus.outputWorkpiecePath}
+                    </div>
+                  ) : null}
+                  {studioRackRenderAppliedModules.length > 0 ? (
+                    <div className="hammer-tool-hint">
+                      Render applied modules: {studioRackRenderAppliedModules.join(", ")}
+                    </div>
+                  ) : null}
+                  {studioRackRenderDeferredModules.length > 0 ? (
+                    <div className="hammer-tool-hint">
+                      Requested but not yet rendered in v1: {studioRackRenderDeferredModules.join(", ")}
                     </div>
                   ) : null}
                   {activeOutputLayer ? (
