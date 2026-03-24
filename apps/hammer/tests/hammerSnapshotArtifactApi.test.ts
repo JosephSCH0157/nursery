@@ -9,6 +9,7 @@ import {
   type HammerHistorySnapshotV1,
   type HammerSnapshotManifestV1,
 } from "../src/lib/hammerSnapshotArtifactApi";
+import { createDefaultHammerStudioRackState } from "../src/editor/hammerStudioRack";
 
 type FetchCall = {
   url: string;
@@ -67,6 +68,7 @@ function buildSnapshot(): HammerHistorySnapshotV1 {
         },
       ],
       visualPlacements: null,
+      studioRack: createDefaultHammerStudioRackState(),
       outputSelection: {
         layerId: null,
         sourceRecipeRef: null,

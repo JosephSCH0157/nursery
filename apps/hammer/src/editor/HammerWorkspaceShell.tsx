@@ -115,8 +115,10 @@ import {
   type HammerStudioRackState,
 } from "./hammerStudioRack";
 import {
+  executeDialogueAudioRenderWithBackend,
   processDialogueAudioWithBackend,
   resolveHammerAudioProcessingBackend,
+  type HammerDialogueRenderExecutionResult,
 } from "./hammerAudioProcessingBackend";
 import { buildHammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBackbone";
 import { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
@@ -582,6 +584,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [releasePrepError, setReleasePrepError] = useState<string | null>(null);
   const [releasePrepSaved, setReleasePrepSaved] = useState<HammerReleasePrepSaveState | null>(null);
   const [loadedPreparedPackage, setLoadedPreparedPackage] = useState<HammerPreparedReleasePackage | null>(null);
+  const [studioRackRenderStatus, setStudioRackRenderStatus] = useState<HammerDialogueRenderExecutionResult | null>(null);
   const [transcriptTimingHint, setTranscriptTimingHint] = useState<string | null>(null);
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -1421,6 +1424,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setReleasePrepError(null);
     setLoadedPreparedPackage(null);
     setReleasePrepSaved(null);
+    setStudioRackRenderStatus(null);
 
     void loadHammerPreparedReleasePackage(launchContext.workpiece_id)
       .then((result) => {
@@ -2369,6 +2373,34 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setReleasePrepSaved(null);
 
     try {
+      let renderExecution: HammerDialogueRenderExecutionResult;
+      if (!mediaRef) {
+        renderExecution = {
+          status: "skipped",
+          requestedBackend: editableStudioRack.backend_preference,
+          resolvedBackend: "native",
+          mode: "render",
+          message: "No canonical source media is attached to this workpiece. Studio Rack render was skipped.",
+          outputLocalRelpath: null,
+          outputWorkpiecePath: null,
+          outputMimeType: null,
+          outputDurationMs: null,
+          rawResponse: null,
+        };
+      } else {
+        renderExecution = await executeDialogueAudioRenderWithBackend({
+          workspaceId: launchContext.workspace_id,
+          workpieceId: launchContext.workpiece_id,
+          mediaKind: mediaRef.kind,
+          rackState: editableStudioRack,
+          localRootAbs: playbackLocalRootAbs,
+          localRelpath: mediaRef.local_relpath ?? null,
+          canonicalWorkpiecePath: mediaRef.local_relpath ?? null,
+          runtimeSummary: mediaBackboneRuntime,
+        });
+      }
+      setStudioRackRenderStatus(renderExecution);
+
       const preparedPackage = buildHammerPreparedReleasePackage({
         current: exportBasis.currentReleasePackage,
         timelineRevision: exportBasis.timelineRevision,
@@ -3393,6 +3425,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <div className="hammer-tool-hint">
                     Render lane: {studioRackRenderConfig.backend} ({studioRackRenderBackendResolution.status})
                   </div>
+                  {studioRackRenderStatus ? (
+                    <div className="hammer-tool-hint">
+                      Last render lane result: {studioRackRenderStatus.message}
+                    </div>
+                  ) : null}
+                  {studioRackRenderStatus?.outputWorkpiecePath ? (
+                    <div className="hammer-tool-hint">
+                      Derived artifact: {studioRackRenderStatus.outputWorkpiecePath}
+                    </div>
+                  ) : null}
                   <div className="hammer-tool-hint">Active rack modules: {studioRackEnabledModuleCount}</div>
                   <button
                     type="button"
@@ -3772,6 +3814,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   </div>
                   <div className="hammer-tool-hint">Export status: {exportStatusLabel}</div>
                   <div className="hammer-tool-hint">Output source: {outputSelectionSummary}</div>
+                  {studioRackRenderStatus ? (
+                    <div className="hammer-tool-hint">
+                      Studio Rack render: {studioRackRenderStatus.message}
+                    </div>
+                  ) : null}
+                  {studioRackRenderStatus?.outputWorkpiecePath ? (
+                    <div className="hammer-tool-hint">
+                      Render artifact path: {studioRackRenderStatus.outputWorkpiecePath}
+                    </div>
+                  ) : null}
                   {activeOutputLayer ? (
                     <button
                       type="button"

@@ -6,6 +6,7 @@ import {
   shouldCreateHammerSnapshot,
   upsertHammerSnapshotManifest,
 } from "../src/editor/hammerSnapshotProduction";
+import { createDefaultHammerStudioRackState } from "../src/editor/hammerStudioRack";
 
 const editorState = {
   transcriptSegments: [
@@ -18,6 +19,7 @@ const editorState = {
     },
   ],
   visualPlacements: null,
+  studioRack: createDefaultHammerStudioRackState(),
   outputSelection: {
     layerId: null,
     sourceRecipeRef: null,

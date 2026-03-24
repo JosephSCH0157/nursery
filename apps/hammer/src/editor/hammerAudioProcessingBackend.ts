@@ -2,7 +2,13 @@ import {
   buildHammerMediaBackboneRuntimeSummary,
   type HammerMediaBackboneRuntimeSummary,
 } from "../media/hammerMediaBackbone";
-import type { HammerStudioRackState } from "./hammerStudioRack";
+import type { MediaKind } from "../../../../packages/contracts/hammer/media-resolver.contract";
+import {
+  requestHammerStudioRackRender,
+  type HammerStudioRackRenderRequest,
+  type HammerStudioRackRenderResponse,
+} from "./hammerStudioRackRenderApi";
+import { isHammerStudioRackIdentity, type HammerStudioRackState } from "./hammerStudioRack";
 
 export type HammerAudioProcessingBackendId = "native" | "ffmpeg";
 export type HammerAudioProcessingMode = "playback" | "render";
@@ -81,4 +87,126 @@ export function processDialogueAudioWithBackend(args: {
     mode: args.mode,
     rackState: args.rackState,
   };
+}
+
+export interface HammerDialogueRenderExecutionResult {
+  status: "processed" | "skipped" | "failed";
+  requestedBackend: HammerAudioProcessingBackendId;
+  resolvedBackend: HammerAudioProcessingBackendId;
+  mode: HammerAudioProcessingMode;
+  message: string;
+  outputLocalRelpath: string | null;
+  outputWorkpiecePath: string | null;
+  outputMimeType: string | null;
+  outputDurationMs: number | null;
+  rawResponse: HammerStudioRackRenderResponse | null;
+}
+
+function mapRenderResponseMessage(response: HammerStudioRackRenderResponse): string {
+  if (response.status === "processed") {
+    const output = response.output_workpiece_path
+      ?? response.output_local_relpath
+      ?? "derived artifact";
+    return `Studio Rack render completed via ${response.resolved_backend} lane (${output}).`;
+  }
+  if (response.status === "skipped") {
+    return response.failure_reason
+      ?? "Studio Rack render was skipped. No derived processing artifact was produced.";
+  }
+  return response.failure_reason
+    ?? "Studio Rack render failed before producing an artifact.";
+}
+
+export async function executeDialogueAudioRenderWithBackend(args: {
+  workspaceId: string;
+  workpieceId: string;
+  mediaKind: MediaKind;
+  rackState: HammerStudioRackState;
+  localRootAbs?: string | null;
+  localRelpath?: string | null;
+  canonicalWorkpiecePath?: string | null;
+  mimeType?: string | null;
+  runtimeSummary?: HammerMediaBackboneRuntimeSummary | null;
+  executor?: (request: HammerStudioRackRenderRequest) => Promise<HammerStudioRackRenderResponse>;
+}): Promise<HammerDialogueRenderExecutionResult> {
+  const mode: HammerAudioProcessingMode = "render";
+  const resolution = resolveHammerAudioProcessingBackend({
+    requestedBackend: args.rackState.backend_preference,
+    mode,
+    runtimeSummary: args.runtimeSummary,
+  });
+
+  if (!args.rackState.is_enabled || args.rackState.is_bypassed || isHammerStudioRackIdentity(args.rackState)) {
+    return {
+      status: "skipped",
+      requestedBackend: resolution.requestedBackend,
+      resolvedBackend: resolution.resolvedBackend,
+      mode,
+      message: "Studio Rack is disabled or identity. Render lane left source audio unchanged.",
+      outputLocalRelpath: null,
+      outputWorkpiecePath: null,
+      outputMimeType: null,
+      outputDurationMs: null,
+      rawResponse: null,
+    };
+  }
+
+  if (resolution.resolvedBackend !== "ffmpeg") {
+    return {
+      status: "skipped",
+      requestedBackend: resolution.requestedBackend,
+      resolvedBackend: resolution.resolvedBackend,
+      mode,
+      message: resolution.status,
+      outputLocalRelpath: null,
+      outputWorkpiecePath: null,
+      outputMimeType: null,
+      outputDurationMs: null,
+      rawResponse: null,
+    };
+  }
+
+  const execute = args.executor ?? requestHammerStudioRackRender;
+  try {
+    const response = await execute({
+      workspace_id: args.workspaceId,
+      workpiece_id: args.workpieceId,
+      media_kind: args.mediaKind,
+      requested_backend: resolution.requestedBackend,
+      rack_state: args.rackState,
+      local_root_abs: args.localRootAbs ?? null,
+      local_relpath: args.localRelpath ?? null,
+      canonical_workpiece_path: args.canonicalWorkpiecePath ?? null,
+      mime_type: args.mimeType ?? null,
+    });
+
+    return {
+      status: response.status,
+      requestedBackend: response.requested_backend,
+      resolvedBackend: response.resolved_backend,
+      mode,
+      message: mapRenderResponseMessage(response),
+      outputLocalRelpath: response.output_local_relpath,
+      outputWorkpiecePath: response.output_workpiece_path,
+      outputMimeType: response.output_mime_type,
+      outputDurationMs: response.output_duration_ms,
+      rawResponse: response,
+    };
+  } catch (error) {
+    const message = error instanceof Error && error.message.trim()
+      ? error.message
+      : "Studio Rack render failed.";
+    return {
+      status: "failed",
+      requestedBackend: resolution.requestedBackend,
+      resolvedBackend: resolution.resolvedBackend,
+      mode,
+      message,
+      outputLocalRelpath: null,
+      outputWorkpiecePath: null,
+      outputMimeType: null,
+      outputDurationMs: null,
+      rawResponse: null,
+    };
+  }
 }
