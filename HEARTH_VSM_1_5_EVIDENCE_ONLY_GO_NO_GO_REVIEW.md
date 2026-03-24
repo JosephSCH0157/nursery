@@ -138,6 +138,13 @@ Top Evidence-Backed Reasons:
 2. 
 3. 
 
+Decision Confidence (evidence-based):
+- [ ] High - evidence is clear and consistent
+- [ ] Medium - some ambiguity remains
+- [ ] Low - evidence is insufficient or conflicting
+
+Confidence Notes:
+
 Required Follow-Ups:
 1. 
 2. 
