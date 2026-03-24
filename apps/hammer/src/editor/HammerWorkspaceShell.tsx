@@ -3997,6 +3997,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : captionEditedFreshness === "stale"
     ? "Basis changed"
     : "No edited artifact";
+  const captionReleasePrepSummaryLine = `Using ${captionReleaseSourceLabel} · Built ${captionBuiltSummary} · Edited ${captionEditedSummary}`;
 
   async function handlePrepareReleasePackage(): Promise<void> {
     if (releasePrepSaving) return;
@@ -6172,7 +6173,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   </div>
                   <div className="hammer-tool-hint">Export status: {exportStatusLabel}</div>
                   <div className="hammer-tool-hint">Output source: {outputSelectionSummary}</div>
-                  <div className="hammer-tool-hint">Caption artifact source: {captionReleaseSourceLabel}</div>
+                  <div className={`hammer-caption-release-summary hammer-caption-release-summary--${captionReleasePrepSafetyState}`}>
+                    <div className="hammer-caption-release-summary__head">
+                      <strong>Caption release truth</strong>
+                      <span>{captionReleasePrepSafetyLabel}</span>
+                    </div>
+                    <div className="hammer-caption-release-summary__meta">{captionReleasePrepSummaryLine}</div>
+                    <div className="hammer-caption-release-summary__basis">Basis: {captionSourceLabel}</div>
+                    <div className="hammer-caption-release-summary__detail">{captionReleasePrepSafetyDetail}</div>
+                  </div>
                   {studioRackRenderStatus ? (
                     <div className="hammer-tool-hint">
                       Studio Rack render: {studioRackRenderStatus.message}
