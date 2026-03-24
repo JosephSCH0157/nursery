@@ -1688,11 +1688,115 @@
   padding: 6px 8px;
   background: transparent;
   text-align: left;
+  display: grid;
+  gap: 4px;
 }
 
 .hs-thumb-concept-item.is-selected {
   border-color: #557;
   background: rgba(85, 119, 255, 0.08);
+}
+
+.hs-thumb-concept-item-label {
+  font-weight: 600;
+}
+
+.hs-thumb-concept-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.hs-thumb-ctr-score {
+  font-weight: 700;
+}
+
+.hs-thumb-ctr-mini-scores {
+  font-variant-numeric: tabular-nums;
+}
+
+.hs-thumb-ctr-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.hs-thumb-ctr-badge {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.hs-thumb-ctr-badge.is-recommended {
+  background: rgba(245, 158, 11, 0.2);
+}
+
+.hs-thumb-ctr-badge.is-strong-alt {
+  background: rgba(239, 68, 68, 0.16);
+}
+
+.hs-thumb-ctr-badge.is-safe {
+  background: rgba(34, 197, 94, 0.18);
+}
+
+.hs-thumb-ctr-badge.is-risky {
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.hs-thumb-ctr-recommendation {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(245, 158, 11, 0.08);
+  display: grid;
+  gap: 4px;
+}
+
+.hs-thumb-ctr-recommendation-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.hs-thumb-ctr-recommendation-copy {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.hs-thumb-ctr-breakdown {
+  display: grid;
+  gap: 6px;
+}
+
+.hs-thumb-ctr-table-wrap {
+  overflow-x: auto;
+}
+
+.hs-thumb-ctr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.hs-thumb-ctr-table th,
+.hs-thumb-ctr-table td {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  padding: 6px 4px;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.hs-thumb-ctr-table th {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.75;
 }
 
 .hs-thumb-concept-editor {

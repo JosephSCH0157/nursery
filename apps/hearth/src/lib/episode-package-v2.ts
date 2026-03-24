@@ -39,6 +39,12 @@ export type EpisodeThumbnailConcept = {
   style_preset?: HearthVisualStyleValue | null;
   title_style?: EpisodeThumbnailTitleStyle | null;
   brand_template_id?: string | null;
+  has_face?: boolean;
+  emotion_intensity?: number | null;
+  text_length?: number | null;
+  contrast_score?: number | null;
+  novelty_score?: number | null;
+  topic_relevance?: number | null;
 };
 
 export type EpisodeThumbnailVersion = {
@@ -235,6 +241,11 @@ function readInteger(value: unknown): number | null {
   return Math.trunc(value);
 }
 
+function readNumber(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return value;
+}
+
 function normalizeIso(value: unknown, fallbackIso?: string): string {
   const raw = readString(value);
   if (!raw) return fallbackIso ?? new Date().toISOString();
@@ -361,6 +372,16 @@ function normalizeThumbnailConcepts(value: unknown): EpisodeThumbnailConcept[] {
         style_preset: normalizeHearthVisualStyle(readString(entry.style_preset) ?? readString(entry.mood_style) ?? null),
         title_style: normalizeEpisodeThumbnailTitleStyle(entry.title_style),
         brand_template_id: readString(entry.brand_template_id),
+        has_face: typeof entry.has_face === "boolean"
+          ? entry.has_face
+          : typeof entry.hasFace === "boolean"
+            ? entry.hasFace
+            : undefined,
+        emotion_intensity: readNumber(entry.emotion_intensity) ?? readNumber(entry.emotionIntensity),
+        text_length: readNumber(entry.text_length) ?? readNumber(entry.textLength),
+        contrast_score: readNumber(entry.contrast_score) ?? readNumber(entry.contrastScore),
+        novelty_score: readNumber(entry.novelty_score) ?? readNumber(entry.noveltyScore),
+        topic_relevance: readNumber(entry.topic_relevance) ?? readNumber(entry.topicRelevance),
       });
       continue;
     }
@@ -373,6 +394,12 @@ function normalizeThumbnailConcepts(value: unknown): EpisodeThumbnailConcept[] {
       style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
       title_style: DEFAULT_TITLE_STYLE,
       brand_template_id: null,
+      has_face: undefined,
+      emotion_intensity: null,
+      text_length: null,
+      contrast_score: null,
+      novelty_score: null,
+      topic_relevance: null,
     });
   }
   return out;
@@ -1296,6 +1323,12 @@ export function ensureLaunchVariantsV2(pkg: EpisodePackageV2): EpisodePackageV2 
         style_preset: normalizeHearthVisualStyle(concept.style_preset ?? null),
         title_style: normalizeEpisodeThumbnailTitleStyle(concept.title_style),
         brand_template_id: readString(concept.brand_template_id),
+        has_face: typeof concept.has_face === "boolean" ? concept.has_face : undefined,
+        emotion_intensity: readNumber(concept.emotion_intensity),
+        text_length: readNumber(concept.text_length),
+        contrast_score: readNumber(concept.contrast_score),
+        novelty_score: readNumber(concept.novelty_score),
+        topic_relevance: readNumber(concept.topic_relevance),
       }))
     : [];
   const versions = Array.isArray(normalized.thumbnail?.versions) ? normalized.thumbnail.versions : [];

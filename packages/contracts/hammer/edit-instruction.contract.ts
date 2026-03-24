@@ -12,7 +12,8 @@ export type HammerEditInstructionType =
   | "crossfade"
   | "dip_to_black"
   | "fade_audio"
-  | "audio_duck";
+  | "audio_duck"
+  | "podcast_master_pass";
 
 export type HammerEditInstructionOperationFamily =
   | "transcript_structural"
@@ -144,6 +145,15 @@ export interface HammerAudioDuckInstruction extends HammerEditInstructionBase {
   linked_broll_operation_id?: string | null;
 }
 
+export interface HammerPodcastMasterPassInstruction extends HammerEditInstructionBase {
+  type: "podcast_master_pass";
+  preset: "podcast_master_v1";
+  noise_cleanup: "off" | "light";
+  normalization_lufs: number;
+  compression_amount: "light" | "medium";
+  limiter_ceiling_dbtp: number;
+}
+
 export type HammerEditInstruction =
   | HammerDeleteInstruction
   | HammerMuteInstruction
@@ -158,7 +168,8 @@ export type HammerEditInstruction =
   | HammerCrossfadeInstruction
   | HammerDipToBlackInstruction
   | HammerFadeAudioInstruction
-  | HammerAudioDuckInstruction;
+  | HammerAudioDuckInstruction
+  | HammerPodcastMasterPassInstruction;
 
 export type HammerCutInstructionType = HammerEditInstructionType;
 export type HammerCutInstruction = HammerEditInstruction;

@@ -26,6 +26,10 @@ import {
   type ThumbnailLintResult,
   type ThumbnailLintStatus,
 } from "../../lib/thumbnail-lint";
+import {
+  evaluateThumbnailConcepts,
+  type ThumbnailEvaluation,
+} from "../../lib/thumbnail-ctr-evaluator";
 import { resolveHearthThumbnailOverlayText } from "../../lib/hearth-thumbnail-title-contract";
 import ThumbnailVersions from "./ThumbnailVersions";
 
@@ -120,6 +124,36 @@ function formatVariantTimestamp(timestamp: string | null): string | null {
 
 function resolveColorInputValue(color: string): string {
   return /^#[0-9a-f]{6}$/i.test(color) ? color.toUpperCase() : "#FFFFFF";
+}
+
+function resolveCtrLabel(label: ThumbnailEvaluation["labels"][number]): string {
+  switch (label) {
+    case "recommended_click_candidate":
+      return "Recommended Click Candidate";
+    case "strong_alternate":
+      return "Strong Alternate";
+    case "safe_pick":
+      return "Safe Pick";
+    case "high_risk_high_reward":
+      return "High-Risk / High-Reward";
+    default:
+      return label;
+  }
+}
+
+function resolveCtrBadgeClassName(label: ThumbnailEvaluation["labels"][number]): string {
+  switch (label) {
+    case "recommended_click_candidate":
+      return "hs-thumb-ctr-badge is-recommended";
+    case "strong_alternate":
+      return "hs-thumb-ctr-badge is-strong-alt";
+    case "safe_pick":
+      return "hs-thumb-ctr-badge is-safe";
+    case "high_risk_high_reward":
+      return "hs-thumb-ctr-badge is-risky";
+    default:
+      return "hs-thumb-ctr-badge";
+  }
 }
 
 type ThumbnailAuditState = {
@@ -305,6 +339,33 @@ export default function ThumbnailPanel({
   });
   const resolvedFontPreset = TITLE_FONT_PRESETS[resolvedBrandRender.title_style.font_preset];
   const seoTitleText = titleOptions.find((title) => title.is_primary)?.text ?? titleOptions[0]?.text ?? null;
+  const conceptEvaluations = evaluateThumbnailConcepts(concepts.map((concept) => ({
+    id: concept.id,
+    title: concept.label,
+    description: concept.prompt_text,
+    hasFace: concept.has_face,
+    emotionIntensity: concept.emotion_intensity ?? undefined,
+    textLength: concept.text_length ?? concept.label.length,
+    contrastScore: concept.contrast_score ?? 0.7,
+    noveltyScore: concept.novelty_score ?? 0.5,
+    topicRelevance: concept.topic_relevance ?? 0.8,
+  })));
+  const conceptEvaluationsById = new Map(conceptEvaluations.map((evaluation) => [evaluation.conceptId, evaluation]));
+  const rankedConceptEvaluations = conceptEvaluations
+    .map((evaluation, index) => ({
+      evaluation,
+      index,
+      concept: concepts[index],
+    }))
+    .sort((a, b) => {
+      if (b.evaluation.ctrScore !== a.evaluation.ctrScore) {
+        return b.evaluation.ctrScore - a.evaluation.ctrScore;
+      }
+      return a.index - b.index;
+    });
+  const recommendedEvaluation = conceptEvaluations.find((evaluation) => (
+    evaluation.labels.includes("recommended_click_candidate")
+  ));
   const canAudit = Boolean(
     previewDataUrl
     && previewState === "ready"
@@ -459,11 +520,79 @@ export default function ThumbnailPanel({
                   onClick={() => onSelectConcept(concept.id)}
                   disabled={interactionDisabled}
                 >
-                  <span>{concept.label}</span>
+                  <span className="hs-thumb-concept-item-label">{concept.label}</span>
+                  {conceptEvaluationsById.get(concept.id) ? (
+                    <div className="hs-thumb-concept-item-meta">
+                      <span className="hs-thumb-ctr-score">
+                        CTR {conceptEvaluationsById.get(concept.id)?.ctrScore}
+                      </span>
+                      <span className="hs-thumb-ctr-mini-scores">
+                        C{Math.round(conceptEvaluationsById.get(concept.id)?.curiosityScore ?? 0)} ·
+                        L{Math.round(conceptEvaluationsById.get(concept.id)?.clarityScore ?? 0)} ·
+                        E{Math.round(conceptEvaluationsById.get(concept.id)?.emotionScore ?? 0)}
+                      </span>
+                    </div>
+                  ) : null}
+                  {conceptEvaluationsById.get(concept.id)?.labels.length ? (
+                    <div className="hs-thumb-ctr-badge-row">
+                      {conceptEvaluationsById.get(concept.id)?.labels.map((label) => (
+                        <span key={`${concept.id}:${label}`} className={resolveCtrBadgeClassName(label)}>
+                          {resolveCtrLabel(label)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </button>
               ))
             )}
           </div>
+
+          {recommendedEvaluation?.recommendationReason ? (
+            <div className="hs-thumb-ctr-recommendation" role="status" aria-live="polite">
+              <div className="hs-thumb-ctr-recommendation-title">Recommendation</div>
+              <div className="hs-thumb-ctr-recommendation-copy">
+                {recommendedEvaluation.recommendationReason}
+              </div>
+            </div>
+          ) : null}
+
+          <section className="hs-thumb-ctr-breakdown" aria-label="Predicted CTR breakdown">
+            <div className="hs-thumb-section-title">Predicted CTR Breakdown</div>
+            {rankedConceptEvaluations.length === 0 ? (
+              <div className="hs-thumb-empty">No concepts to score yet.</div>
+            ) : (
+              <div className="hs-thumb-ctr-table-wrap">
+                <table className="hs-thumb-ctr-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Concept</th>
+                      <th scope="col">CTR</th>
+                      <th scope="col">Curiosity</th>
+                      <th scope="col">Clarity</th>
+                      <th scope="col">Emotion</th>
+                      <th scope="col">Brand Fit</th>
+                      <th scope="col">Signals</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rankedConceptEvaluations.map(({ evaluation, concept }) => (
+                      <tr key={evaluation.conceptId}>
+                        <td>{concept?.label ?? evaluation.conceptId}</td>
+                        <td>{evaluation.ctrScore}</td>
+                        <td>{Math.round(evaluation.curiosityScore)}</td>
+                        <td>{Math.round(evaluation.clarityScore)}</td>
+                        <td>{Math.round(evaluation.emotionScore)}</td>
+                        <td>{Math.round(evaluation.brandFitScore)}</td>
+                        <td>
+                          {evaluation.labels.length ? evaluation.labels.map(resolveCtrLabel).join(" · ") : "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
 
           <div className="hs-thumb-concept-editor">
             <label className="hs-field">
