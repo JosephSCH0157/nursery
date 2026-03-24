@@ -67,7 +67,19 @@ import {
   loadHammerHistoryDocument,
   saveHammerHistoryDocument,
 } from "../lib/hammerHistoryArtifactApi";
+import {
+  loadHammerSnapshotManifest,
+  saveHammerSnapshotManifest,
+  saveHammerSnapshotPayload,
+  type HammerSnapshotManifestV1,
+} from "../lib/hammerSnapshotArtifactApi";
 import { buildSourceDeskPreviewFetchKey } from "./sourceDeskPreviewChurn";
+import {
+  buildHammerHistorySnapshot,
+  resolveActiveSnapshotHeadEntryId,
+  shouldCreateHammerSnapshot,
+  upsertHammerSnapshotManifest,
+} from "./hammerSnapshotProduction";
 import {
   listWorkpieceStoredMedia,
   loadIntroOutroSelection,
@@ -527,6 +539,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
   const historyControllerRef = useRef<HammerHistoryController | null>(null);
   const historyPersistTimerRef = useRef<number | null>(null);
+  const snapshotManifestRef = useRef<HammerSnapshotManifestV1 | null>(null);
+  const lastSnapshottedHeadEntryIdRef = useRef<string | null>(null);
 
   const previewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
   const workspaceFocusMode = focusOverride === "auto" ? resolveWorkspaceFocusMode(activeTool) : focusOverride;
@@ -838,6 +852,60 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
     setHistoryStatus(null);
+
+    const headEntryId = controller.document.headEntryId ?? null;
+    const undoDepth = controller.document.undoStack.length;
+    const redoDepth = controller.document.redoStack.length;
+    const shouldSnapshot = shouldCreateHammerSnapshot({
+      undoDepth,
+      headEntryId,
+      lastSnapshottedHeadEntryId: lastSnapshottedHeadEntryIdRef.current,
+    });
+    if (!shouldSnapshot) return;
+
+    const snapshot = buildHammerHistorySnapshot({
+      workpieceId: launchContext.workpiece_id,
+      sessionId: controller.document.sessionId,
+      baseRevisionId: controller.document.baseRevisionId,
+      headEntryId,
+      undoDepth,
+      redoDepth,
+      editorState: controller.getState(),
+    });
+
+    const payloadSaved = await saveHammerSnapshotPayload({
+      workpieceId: launchContext.workpiece_id,
+      snapshot,
+    });
+    if (!payloadSaved.ok) {
+      console.warn("Hammer snapshot payload write skipped", {
+        workpieceId: launchContext.workpiece_id,
+        status: payloadSaved.status,
+        error: payloadSaved.error,
+      });
+      return;
+    }
+
+    const nextManifest = upsertHammerSnapshotManifest({
+      manifest: snapshotManifestRef.current,
+      workpieceId: launchContext.workpiece_id,
+      snapshot,
+    });
+    const manifestSaved = await saveHammerSnapshotManifest({
+      workpieceId: launchContext.workpiece_id,
+      manifest: nextManifest,
+    });
+    if (!manifestSaved.ok) {
+      console.warn("Hammer snapshot manifest write skipped", {
+        workpieceId: launchContext.workpiece_id,
+        status: manifestSaved.status,
+        error: manifestSaved.error,
+      });
+      return;
+    }
+
+    snapshotManifestRef.current = manifestSaved.data ?? nextManifest;
+    lastSnapshottedHeadEntryIdRef.current = resolveActiveSnapshotHeadEntryId(snapshotManifestRef.current);
   }
 
   function scheduleHistoryPersist(immediate = false): void {
@@ -940,6 +1008,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useEffect(() => {
     let active = true;
     clearPersistTimer();
+    snapshotManifestRef.current = null;
+    lastSnapshottedHeadEntryIdRef.current = null;
 
     const synced = syncEditableTranscriptSegments(transcriptSegments, selectedSegmentId);
     const baselineOutputSelection = resolveOutputSelectionFromTranscript(props.structuredTranscript ?? null);
@@ -965,6 +1035,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     applyWorkspaceState(baselineState);
     selectionOriginRef.current = "system";
+
+    void loadHammerSnapshotManifest(launchContext.workpiece_id)
+      .then((result) => {
+        if (!active) return;
+        if (!result.ok) {
+          console.warn("Hammer snapshot manifest unavailable during bootstrap", {
+            workpieceId: launchContext.workpiece_id,
+            status: result.status,
+            error: result.error,
+          });
+          return;
+        }
+        snapshotManifestRef.current = result.exists ? (result.data ?? null) : null;
+        lastSnapshottedHeadEntryIdRef.current = resolveActiveSnapshotHeadEntryId(snapshotManifestRef.current);
+      })
+      .catch((error) => {
+        if (!active) return;
+        console.warn("Hammer snapshot manifest bootstrap read failed", {
+          workpieceId: launchContext.workpiece_id,
+          error,
+        });
+      });
 
     void loadHammerHistoryDocument(launchContext.workpiece_id)
       .then((result) => {
