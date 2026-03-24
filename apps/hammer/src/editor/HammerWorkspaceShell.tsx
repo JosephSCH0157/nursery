@@ -54,6 +54,7 @@ import {
   previewRemoveFillers,
   previewRemoveRetakes,
   previewShortenGaps,
+  previewTightenSelection,
   type HammerCleanupPreview,
   type RetakeCleanupOptions,
   type FillerCleanupOptions,
@@ -2052,6 +2053,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setFocusOverride("time-focus");
   }
 
+  function tightenTranscriptSelection(): void {
+    if (!hasTranscriptSelection) {
+      setTranscriptTimingHint("Select transcript segments to tighten.");
+      return;
+    }
+
+    setFocusOverride("tool-focus");
+    setActiveTool("polish");
+    setCleanupReceipt(null);
+    setCleanupPreview(previewTightenSelection({
+      segments: editableTranscriptSegments,
+      segmentIds: transcriptSelectionRange.segmentIds,
+    }));
+    setTranscriptTimingHint(null);
+  }
+
   function togglePlayback(): void {
     if (editableTranscriptSegments.length === 0) return;
     if (!playbackMediaSrc) {
@@ -2878,6 +2895,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         <button type="button" onClick={disableTranscriptSelection} disabled={!hasTranscriptSelection}>
                           {transcriptSelectionAllDisabled ? "Enable Selection" : "Disable Selection"}
                         </button>
+                        <button type="button" onClick={tightenTranscriptSelection} disabled={!hasTranscriptSelection}>
+                          Tighten Selection
+                        </button>
                         <button type="button" onClick={clearTranscriptSelection} disabled={!hasTranscriptSelection}>
                           Clear Selection
                         </button>
@@ -3527,6 +3547,38 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
                   {cleanupPreview && cleanupPreviewSummary ? (
                     <PolishResultSummary phase="preview" summary={cleanupPreviewSummary}>
+                      {cleanupPreview.metadata?.tightenSelection ? (
+                        <section className="hammer-tighten-preview" aria-label="Meaning-preserving tighten preview">
+                          <div className="hammer-tighten-preview__intent">
+                            <strong>Intent</strong>
+                            <span>{cleanupPreview.metadata.tightenSelection.intent}</span>
+                          </div>
+                          <div className="hammer-tighten-preview__meta">
+                            <span>Removed fillers: {cleanupPreview.metadata.tightenSelection.removedFillers}</span>
+                            <span>Collapsed repetitions: {cleanupPreview.metadata.tightenSelection.collapsedRepetitions}</span>
+                            <span>Merged fragments: {cleanupPreview.metadata.tightenSelection.mergedFragments}</span>
+                            <span>Estimated time saved: {cleanupPreview.summary.timeSavedSec.toFixed(1)} s</span>
+                            <span>
+                              Confidence: {cleanupPreview.metadata.tightenSelection.confidenceLabel}
+                              {" "}
+                              ({Math.round(cleanupPreview.metadata.tightenSelection.confidenceScore * 100)}%)
+                            </span>
+                          </div>
+                          <div className="hammer-tighten-preview__text-grid">
+                            <article className="hammer-tighten-preview__pane">
+                              <header>Before</header>
+                              <p>{cleanupPreview.metadata.tightenSelection.beforeText || "No source text in selection."}</p>
+                            </article>
+                            <article className="hammer-tighten-preview__pane">
+                              <header>After</header>
+                              <p>{cleanupPreview.metadata.tightenSelection.afterText || "No tightened text proposed."}</p>
+                            </article>
+                          </div>
+                          <div className="hammer-tighten-preview__safety">
+                            {cleanupPreview.metadata.tightenSelection.safetyNote}
+                          </div>
+                        </section>
+                      ) : null}
                       <button type="button" onClick={() => applyCleanup(cleanupPreview)}>Apply</button>
                       <button type="button" onClick={() => setCleanupPreview(null)}>Discard</button>
                     </PolishResultSummary>

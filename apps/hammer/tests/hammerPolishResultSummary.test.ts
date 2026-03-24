@@ -71,10 +71,50 @@ function test_no_change_preview_sets_note() {
   assert.equal(summary.confidence, null);
 }
 
+function test_tighten_selection_summary_metadata() {
+  const tightenPreview: HammerCleanupPreview = {
+    label: "Tighten Selection",
+    resultSegments: [],
+    suggestions: [
+      {
+        id: "t1",
+        type: "repetition_collapse",
+        segmentId: "s1",
+        description: "Collapsed repeated phrase.",
+        confidence: 0.84,
+        timeSavedSec: 0.3,
+      },
+    ],
+    summary: {
+      changedSegments: 1,
+      removedSegments: 0,
+      timeSavedSec: 0.3,
+    },
+    metadata: {
+      tightenSelection: {
+        intent: "Tighten this passage while preserving meaning.",
+        beforeText: "This this is is long.",
+        afterText: "This is long.",
+        removedFillers: 0,
+        collapsedRepetitions: 2,
+        mergedFragments: 0,
+        confidenceLabel: "High",
+        confidenceScore: 0.91,
+        safetyNote: "Original performance preserved. Undo restores fully.",
+      },
+    },
+  };
+  const summary = buildPolishResultSummaryFromCleanupPreview(tightenPreview);
+  assert.equal(summary.tool, "tighten_selection");
+  assert.equal(summary.notes.includes("Collapsed repetitions: 2"), true);
+  assert.equal(summary.notes.includes("Confidence: High"), true);
+}
+
 function run() {
   test_basic_summary_shape();
   test_quick_clean_sequence_is_disclosed();
   test_no_change_preview_sets_note();
+  test_tighten_selection_summary_metadata();
   // eslint-disable-next-line no-console
   console.log("Hammer polish result summary tests passed.");
 }

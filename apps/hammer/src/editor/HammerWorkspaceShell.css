@@ -686,6 +686,65 @@ Guardrails:
   gap: 6px;
 }
 
+.hammer-tighten-preview {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(15, 23, 42, 0.34);
+}
+
+.hammer-tighten-preview__intent {
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+  color: #cbd5e1;
+}
+
+.hammer-tighten-preview__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 11px;
+  color: #bfdbfe;
+}
+
+.hammer-tighten-preview__text-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.hammer-tighten-preview__pane {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(2, 6, 23, 0.45);
+}
+
+.hammer-tighten-preview__pane header {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #93c5fd;
+  margin-bottom: 4px;
+}
+
+.hammer-tighten-preview__pane p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #dbeafe;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hammer-tighten-preview__safety {
+  font-size: 11px;
+  color: #86efac;
+}
+
 .hammer-timeline-tools {
   display: flex;
   gap: 6px;

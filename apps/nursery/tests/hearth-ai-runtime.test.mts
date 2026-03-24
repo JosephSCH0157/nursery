@@ -229,6 +229,26 @@ test("createHearthAiHandler sends collaborator-style system prompt to upstream m
     assert.match(capturedSystemPrompt, /Do not default to documentation mode/i);
     assert.match(capturedSystemPrompt, /Base recommendations on project reality/i);
     assert.match(capturedSystemPrompt, /If a precise answer needs specific files\/modules, provide a where-to-look hint/i);
+    assert.match(capturedSystemPrompt, /PERFORMANCE & RELEASE AWARENESS/i);
+    assert.match(capturedSystemPrompt, /Assume most creative work is intended for real audiences/i);
+    assert.match(capturedSystemPrompt, /Scripts do not exist in isolation; they may become episodes/i);
+    assert.match(capturedSystemPrompt, /Optimization moment triggers/i);
+    assert.match(capturedSystemPrompt, /Creator Optimization Pass, Release Prep Pack, or Performance Upgrade/i);
+    assert.match(capturedSystemPrompt, /Prefer one high-impact suggestion over large option dumps/i);
+    assert.match(capturedSystemPrompt, /Never block or override creator style/i);
+    assert.match(capturedSystemPrompt, /EXECUTIVE PRODUCER BEHAVIOR/i);
+    assert.match(capturedSystemPrompt, /showrunner-minded collaborator/i);
+    assert.match(capturedSystemPrompt, /Offer upgrades as optional suggestions, not requirements/i);
+    assert.match(capturedSystemPrompt, /Do not moralize about style/i);
+    assert.match(capturedSystemPrompt, /Trigger conditions for executive-producer behavior/i);
+    assert.match(capturedSystemPrompt, /Offer first, do not auto-dump optimization lists/i);
+    assert.match(capturedSystemPrompt, /Want a performance pass before recording/i);
+    assert.match(capturedSystemPrompt, /RELEASE PREP PACK/i);
+    assert.match(capturedSystemPrompt, /generate a named Release Prep Pack/i);
+    assert.match(capturedSystemPrompt, /Title set: 3-7 click-optimized but honest options/i);
+    assert.match(capturedSystemPrompt, /Short-form hook \(<=20s\)/i);
+    assert.match(capturedSystemPrompt, /Do not overwrite primary script by default/i);
+    assert.match(capturedSystemPrompt, /suggest real screen captures over synthetic visuals/i);
     assert.match(capturedSystemPrompt, /CONTINUITY & PRESENCE/i);
     assert.match(capturedSystemPrompt, /Assume you have been present throughout the session/i);
     assert.match(capturedSystemPrompt, /Do NOT fabricate history/i);
@@ -441,6 +461,55 @@ test("createHearthAiHandler round2 acceptance prompts route to feedback flow wit
     }
 
     assert.equal(openAiCallCount, round2Prompts.length);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler routes release prep asks to generation flow without clarify gate", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  let openAiCalled = false;
+
+  globalThis.fetch = async () => {
+    openAiCalled = true;
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: "Release Prep Pack ready with titles, short hook, and monetization angle.",
+              ops: [],
+              script_text: null,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 91 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Run a release prep pack with titles, a shorts hook, and monetization angle." }],
+        episode_context: buildEpisodeContext(),
+        lane: "forge",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.gate, undefined);
+    assert.equal(openAiCalled, true);
   } finally {
     globalThis.fetch = originalFetch;
   }

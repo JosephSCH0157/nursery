@@ -8,7 +8,8 @@ export type HammerPolishToolId =
   | "shorten_gaps"
   | "remove_fillers"
   | "remove_retakes"
-  | "quick_clean";
+  | "quick_clean"
+  | "tighten_selection";
 
 export type HammerPolishResultSummary = {
   tool: HammerPolishToolId;
@@ -35,6 +36,9 @@ const CATEGORY_LABELS: Record<CleanupSuggestionType, string> = {
   gap_trim: "Gap trims",
   filler_remove: "Filler removals",
   retake_remove: "Retake removals",
+  repetition_collapse: "Repetition collapses",
+  restart_trim: "Restart trims",
+  fragment_merge: "Fragment merges",
 };
 
 const QUICK_CLEAN_SEQUENCE = [
@@ -48,6 +52,7 @@ function resolveToolId(label: string): HammerPolishToolId {
   if (normalized === "shorten gaps") return "shorten_gaps";
   if (normalized === "remove fillers") return "remove_fillers";
   if (normalized === "remove retakes") return "remove_retakes";
+  if (normalized === "tighten selection") return "tighten_selection";
   return "quick_clean";
 }
 
@@ -78,6 +83,13 @@ export function buildPolishResultSummaryFromCleanupPreview(
   const notes: string[] = [];
   if (preview.suggestions.length === 0) {
     notes.push("No qualifying edits detected.");
+  }
+  if (preview.metadata?.tightenSelection) {
+    notes.push(`Removed fillers: ${preview.metadata.tightenSelection.removedFillers}`);
+    notes.push(`Collapsed repetitions: ${preview.metadata.tightenSelection.collapsedRepetitions}`);
+    notes.push(`Merged fragments: ${preview.metadata.tightenSelection.mergedFragments}`);
+    notes.push(`Confidence: ${preview.metadata.tightenSelection.confidenceLabel}`);
+    notes.push(preview.metadata.tightenSelection.safetyNote);
   }
 
   return {

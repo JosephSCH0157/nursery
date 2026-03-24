@@ -19,7 +19,13 @@ export type RetakeCleanupOptions = {
   sameSpeakerOnly: boolean;
 };
 
-export type CleanupSuggestionType = "gap_trim" | "filler_remove" | "retake_remove";
+export type CleanupSuggestionType =
+  | "gap_trim"
+  | "filler_remove"
+  | "retake_remove"
+  | "repetition_collapse"
+  | "restart_trim"
+  | "fragment_merge";
 
 export type HammerCleanupSuggestion = {
   id: string;
@@ -38,6 +44,19 @@ export type HammerCleanupPreview = {
     changedSegments: number;
     removedSegments: number;
     timeSavedSec: number;
+  };
+  metadata?: {
+    tightenSelection?: {
+      intent: string;
+      beforeText: string;
+      afterText: string;
+      removedFillers: number;
+      collapsedRepetitions: number;
+      mergedFragments: number;
+      confidenceLabel: "High" | "Medium" | "Low";
+      confidenceScore: number;
+      safetyNote: string;
+    };
   };
 };
 
@@ -119,6 +138,72 @@ function cleanFillerText(text: string, dictionary: string[]): { text: string; re
   }
   next = next.replace(/\s{2,}/g, " ").replace(/\s+([,.;!?])/g, "$1").trim();
   return { text: next, removed };
+}
+
+function normalizeTextSpacing(text: string): string {
+  return text
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;!?])/g, "$1")
+    .replace(/\(\s+/g, "(")
+    .replace(/\s+\)/g, ")")
+    .trim();
+}
+
+function collapseRepeatedSingleWords(text: string): { text: string; collapsed: number } {
+  let collapsed = 0;
+  const next = text.replace(/\b([a-z']+)(?:\s+\1\b)+/gi, (_match, word: string) => {
+    collapsed += 1;
+    return word;
+  });
+  return { text: next, collapsed };
+}
+
+function collapseRepeatedShortPhrases(text: string): { text: string; collapsed: number } {
+  let collapsed = 0;
+  const next = text.replace(
+    /\b([a-z']+(?:\s+[a-z']+){1,3})(?:\s*,?\s+\1\b)+/gi,
+    (_match, phrase: string) => {
+      collapsed += 1;
+      return phrase;
+    },
+  );
+  return { text: next, collapsed };
+}
+
+function trimRestartPrefix(text: string): { text: string; trimmed: boolean } {
+  const next = text.replace(
+    /^(?:\s*(?:um+|uh+|er+|ah+|i mean|you know|so|well|okay|ok|let me start over|sorry)\s*[,.-]*)+/i,
+    "",
+  );
+  return {
+    text: normalizeTextSpacing(next),
+    trimmed: normalizeTextSpacing(next) !== normalizeTextSpacing(text),
+  };
+}
+
+function trimWanderingTail(text: string): { text: string; trimmed: boolean } {
+  const next = text.replace(
+    /\s*(?:you know|or whatever|and stuff|kind of thing|if that makes sense)\s*[.!?]*$/i,
+    "",
+  );
+  return {
+    text: normalizeTextSpacing(next),
+    trimmed: normalizeTextSpacing(next) !== normalizeTextSpacing(text),
+  };
+}
+
+function tokenCount(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function isLikelyFragment(text: string): boolean {
+  const trimmed = normalizeTextSpacing(text);
+  if (!trimmed) return true;
+  const words = tokenCount(trimmed);
+  if (words <= 2) return true;
+  if (/^(?:i mean|you know|so|well|okay|ok)\b/i.test(trimmed) && words <= 5) return true;
+  if (!/[.!?]$/.test(trimmed) && words <= 3) return true;
+  return false;
 }
 
 export function previewRemoveFillers(
@@ -215,6 +300,202 @@ export function previewRemoveRetakes(
       changedSegments: suggestions.length,
       removedSegments: suggestions.length,
       timeSavedSec: roundToTenth(suggestions.reduce((sum, item) => sum + item.timeSavedSec, 0)),
+    },
+  };
+}
+
+export function previewTightenSelection(args: {
+  segments: HammerTranscriptSegment[];
+  segmentIds: string[];
+}): HammerCleanupPreview {
+  if (args.segmentIds.length === 0) {
+    return {
+      label: "Tighten Selection",
+      resultSegments: cloneSegments(args.segments),
+      suggestions: [],
+      summary: {
+        changedSegments: 0,
+        removedSegments: 0,
+        timeSavedSec: 0,
+      },
+      metadata: {
+        tightenSelection: {
+          intent: "Tighten this passage while preserving meaning.",
+          beforeText: "",
+          afterText: "",
+          removedFillers: 0,
+          collapsedRepetitions: 0,
+          mergedFragments: 0,
+          confidenceLabel: "Low",
+          confidenceScore: 0.5,
+          safetyNote: "Original performance preserved. Undo restores fully.",
+        },
+      },
+    };
+  }
+
+  const idSet = new Set(args.segmentIds);
+  const sorted = cloneSegments(args.segments).sort((a, b) => a.start_sec - b.start_sec);
+  const beforeSelection = sorted.filter((segment) => idSet.has(segment.segment_id));
+  const beforeText = beforeSelection.map((segment) => segment.text.trim()).filter(Boolean).join(" ");
+  const suggestions: HammerCleanupSuggestion[] = [];
+  const changed = new Set<string>();
+  const removeIds = new Set<string>();
+  let removedFillers = 0;
+  let collapsedRepetitions = 0;
+  let mergedFragments = 0;
+  let confidencePenalty = 0;
+
+  const fillerDictionary = [...FILLERS_MEDIUM, "actually", "right", "just"];
+
+  for (const segment of sorted) {
+    if (!idSet.has(segment.segment_id)) continue;
+
+    const original = normalizeTextSpacing(segment.text);
+    let working = original;
+
+    const restart = trimRestartPrefix(working);
+    working = restart.text;
+    if (restart.trimmed) {
+      suggestions.push({
+        id: `tighten:restart:${segment.segment_id}`,
+        type: "restart_trim",
+        segmentId: segment.segment_id,
+        description: "Trimmed restart phrase.",
+        confidence: 0.9,
+        timeSavedSec: 0.2,
+      });
+      changed.add(segment.segment_id);
+      confidencePenalty += 0.02;
+    }
+
+    const filler = cleanFillerText(working, fillerDictionary);
+    working = normalizeTextSpacing(filler.text);
+    if (filler.removed > 0) {
+      removedFillers += filler.removed;
+      suggestions.push({
+        id: `tighten:filler:${segment.segment_id}`,
+        type: "filler_remove",
+        segmentId: segment.segment_id,
+        description: `Removed ${filler.removed} filler phrase${filler.removed === 1 ? "" : "s"}.`,
+        confidence: 0.92,
+        timeSavedSec: roundToTenth(Math.max(0.1, filler.removed * 0.12)),
+      });
+      changed.add(segment.segment_id);
+    }
+
+    const repeatedWordCollapse = collapseRepeatedSingleWords(working);
+    working = normalizeTextSpacing(repeatedWordCollapse.text);
+    if (repeatedWordCollapse.collapsed > 0) {
+      collapsedRepetitions += repeatedWordCollapse.collapsed;
+      suggestions.push({
+        id: `tighten:repeat-word:${segment.segment_id}`,
+        type: "repetition_collapse",
+        segmentId: segment.segment_id,
+        description: `Collapsed repeated words (${repeatedWordCollapse.collapsed}).`,
+        confidence: 0.89,
+        timeSavedSec: roundToTenth(Math.max(0.1, repeatedWordCollapse.collapsed * 0.08)),
+      });
+      changed.add(segment.segment_id);
+      confidencePenalty += 0.03;
+    }
+
+    const repeatedPhraseCollapse = collapseRepeatedShortPhrases(working);
+    working = normalizeTextSpacing(repeatedPhraseCollapse.text);
+    if (repeatedPhraseCollapse.collapsed > 0) {
+      collapsedRepetitions += repeatedPhraseCollapse.collapsed;
+      suggestions.push({
+        id: `tighten:repeat-phrase:${segment.segment_id}`,
+        type: "repetition_collapse",
+        segmentId: segment.segment_id,
+        description: `Collapsed repeated phrase (${repeatedPhraseCollapse.collapsed}).`,
+        confidence: 0.82,
+        timeSavedSec: roundToTenth(Math.max(0.1, repeatedPhraseCollapse.collapsed * 0.12)),
+      });
+      changed.add(segment.segment_id);
+      confidencePenalty += 0.05;
+    }
+
+    const tail = trimWanderingTail(working);
+    working = tail.text;
+    if (tail.trimmed) {
+      suggestions.push({
+        id: `tighten:tail:${segment.segment_id}`,
+        type: "restart_trim",
+        segmentId: segment.segment_id,
+        description: "Trimmed wandering tail phrase.",
+        confidence: 0.78,
+        timeSavedSec: 0.2,
+      });
+      changed.add(segment.segment_id);
+      confidencePenalty += 0.06;
+    }
+
+    if (isLikelyFragment(working)) {
+      removeIds.add(segment.segment_id);
+      mergedFragments += 1;
+      const durationSec = roundToTenth(Math.max(0.1, segment.end_sec - segment.start_sec));
+      suggestions.push({
+        id: `tighten:fragment:${segment.segment_id}`,
+        type: "fragment_merge",
+        segmentId: segment.segment_id,
+        description: "Removed fragment that does not carry unique meaning.",
+        confidence: 0.74,
+        timeSavedSec: durationSec,
+      });
+      changed.add(segment.segment_id);
+      confidencePenalty += 0.08;
+      continue;
+    }
+
+    if (working && working !== segment.text) {
+      segment.text = working;
+    }
+  }
+
+  let cumulativeShift = 0;
+  const resultSegments: HammerTranscriptSegment[] = [];
+  for (const segment of sorted) {
+    const duration = roundToTenth(Math.max(0.1, segment.end_sec - segment.start_sec));
+    if (removeIds.has(segment.segment_id)) {
+      cumulativeShift = roundToTenth(cumulativeShift + duration);
+      continue;
+    }
+    const nextStart = roundToTenth(Math.max(0, segment.start_sec - cumulativeShift));
+    resultSegments.push({
+      ...segment,
+      start_sec: nextStart,
+      end_sec: roundToTenth(nextStart + duration),
+    });
+  }
+
+  const afterSelection = resultSegments.filter((segment) => idSet.has(segment.segment_id));
+  const afterText = afterSelection.map((segment) => segment.text.trim()).filter(Boolean).join(" ");
+  const baseScore = Math.max(0.55, Math.min(0.97, 0.95 - confidencePenalty));
+  const confidenceScore = Number(baseScore.toFixed(2));
+  const confidenceLabel = confidenceScore >= 0.85 ? "High" : confidenceScore >= 0.7 ? "Medium" : "Low";
+
+  return {
+    label: "Tighten Selection",
+    resultSegments,
+    suggestions,
+    summary: {
+      changedSegments: changed.size,
+      removedSegments: removeIds.size,
+      timeSavedSec: roundToTenth(suggestions.reduce((sum, item) => sum + item.timeSavedSec, 0)),
+    },
+    metadata: {
+      tightenSelection: {
+        intent: "Tighten this passage while preserving meaning.",
+        beforeText,
+        afterText,
+        removedFillers,
+        collapsedRepetitions,
+        mergedFragments,
+        confidenceLabel,
+        confidenceScore,
+        safetyNote: "Original performance preserved. Undo restores fully.",
+      },
     },
   };
 }

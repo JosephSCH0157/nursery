@@ -109,7 +109,11 @@ import {
   validateAnvilTagContract,
   type AnvilTagValidation,
 } from "../lib/anvil-tag-contract";
-import { commitWorkpieceProductionArtifact, type ProductionArtifactKind } from "../lib/hearth-production-repo";
+import {
+  commitWorkpieceProductionArtifact,
+  readWorkpieceProductionArtifact,
+  type ProductionArtifactKind,
+} from "../lib/hearth-production-repo";
 import {
   generateEpisodeThumbnail,
   loadThumbnailPreviewDataUrl,
@@ -218,7 +222,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
 type FocusTab = "draft" | "planning" | "sources" | "revisions";
 type FocusPanelId = "chat" | "thumbnail" | "imageMap" | "metadata";
-type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
+type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
 type SttLane = "browser" | "ai";
 type SttState = "idle" | "listening" | "transcribing";
 type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
@@ -290,11 +294,26 @@ type CanonicalImageMapScriptState = {
   error: string | null;
 };
 
+type ReleasePrepSectionKey =
+  | "youtube_optimized_cut"
+  | "title_options"
+  | "short_form_hook_20s"
+  | "tone_variant_creator"
+  | "audience_variant"
+  | "monetization_angle";
+
+type ReleasePrepSection = {
+  key: ReleasePrepSectionKey;
+  label: string;
+  content: string;
+};
+
 const PRODUCTION_ACTION_LABEL: Record<ProductionAction, string> = {
   seo: "Generate SEO",
   tags: "Generate Tags",
   thumbnails: "Thumbnail Concepts",
   image_beat_sheet: "Image Beat Sheet",
+  release_prep_pack: "Release Prep Pack",
 };
 
 const PRODUCTION_ACTION_ARTIFACT_KIND: Record<ProductionAction, ProductionArtifactKind> = {
@@ -302,6 +321,7 @@ const PRODUCTION_ACTION_ARTIFACT_KIND: Record<ProductionAction, ProductionArtifa
   tags: "tags",
   thumbnails: "thumbnails",
   image_beat_sheet: "image_beat_sheet",
+  release_prep_pack: "pack",
 };
 
 const TONE_PRESET_OPTIONS = [
@@ -1046,6 +1066,43 @@ function buildProductionPrompt(args: {
     ].join("\n");
   }
 
+  if (args.action === "release_prep_pack") {
+    return [
+      ...header,
+      "Generate a Release Prep Pack from this approved script.",
+      "Return plain text with exact sections in this order:",
+      "YOUTUBE_OPTIMIZED_CUT:",
+      "- tighter opening hook and clear promise",
+      "- retention-aware structure notes",
+      "",
+      "TITLE_OPTIONS:",
+      "- provide 3-7 options",
+      "- click-optimized but honest",
+      "- varied emotional framing",
+      "",
+      "SHORT_FORM_HOOK_20S:",
+      "- one cold-open hook suitable for Shorts/TikTok/Reels",
+      "- keep it to <= 20 seconds spoken length",
+      "",
+      "TONE_VARIANT_CREATOR:",
+      "- more conversational personality-led version of the opening",
+      "",
+      "AUDIENCE_VARIANT:",
+      "- one tailored opening variant for a likely audience angle",
+      "",
+      "MONETIZATION_ANGLE:",
+      "- sponsorship positioning idea",
+      "- one CTA direction",
+      "- optional premium episode framing",
+      "",
+      "Rules:",
+      "- Do not overwrite the primary script.",
+      "- Treat this as a derived release-prep output.",
+      "- Do not use markdown tables.",
+      "- Keep recommendations practical and production-ready.",
+    ].join("\n");
+  }
+
   return [
     ...header,
     "Generate an image beat sheet.",
@@ -1119,6 +1176,42 @@ function parseImageBeatSheetEntries(text: string): ImageBeatSheetEntry[] {
 
   flush();
   return entries;
+}
+
+function parseReleasePrepPackSections(rawText: string): ReleasePrepSection[] {
+  const text = rawText.replace(/\r\n?/g, "\n").trim();
+  if (!text) return [];
+  const headerRe = /^(YOUTUBE_OPTIMIZED_CUT|TITLE_OPTIONS|SHORT_FORM_HOOK_20S|TONE_VARIANT_CREATOR|AUDIENCE_VARIANT|MONETIZATION_ANGLE):\s*$/gm;
+  const matches = [...text.matchAll(headerRe)];
+  if (matches.length === 0) {
+    return [{
+      key: "youtube_optimized_cut",
+      label: "Release Prep Pack",
+      content: text,
+    }];
+  }
+
+  const out: ReleasePrepSection[] = [];
+  for (let index = 0; index < matches.length; index += 1) {
+    const current = matches[index];
+    const next = matches[index + 1];
+    const header = (current?.[1] ?? "").trim().toUpperCase();
+    const start = (current?.index ?? 0) + (current?.[0]?.length ?? 0);
+    const end = next?.index ?? text.length;
+    const body = text.slice(start, end).trim();
+    const key = header.toLowerCase() as ReleasePrepSectionKey;
+    const label = header
+      .toLowerCase()
+      .split("_")
+      .map((part) => (part === "20s" ? "20s" : part.charAt(0).toUpperCase() + part.slice(1)))
+      .join(" ");
+    out.push({
+      key,
+      label,
+      content: body || "(No content generated)",
+    });
+  }
+  return out;
 }
 
 function hasExplicitWorkpieceQuery(): boolean {
@@ -2065,6 +2158,10 @@ export default function HearthShell() {
   const [chatMessages, setChatMessages] = useState<HearthChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
+  const [latestReleasePrepRawText, setLatestReleasePrepRawText] = useState<string | null>(null);
+  const [latestReleasePrepSections, setLatestReleasePrepSections] = useState<ReleasePrepSection[]>([]);
+  const [releasePrepLoadState, setReleasePrepLoadState] = useState<"idle" | "loading" | "ready" | "missing" | "error">("idle");
+  const [releasePrepScriptVersion, setReleasePrepScriptVersion] = useState<number | null>(null);
   const [sttLane, setSttLane] = useState<SttLane>("browser");
   const [sttState, setSttState] = useState<SttState>("idle");
   const [sttError, setSttError] = useState<string | null>(null);
@@ -2991,6 +3088,10 @@ export default function HearthShell() {
       setImageMapSaveState("saved");
       setImageMapSaveError(null);
       setImageMapExportMessage(null);
+      setLatestReleasePrepRawText(null);
+      setLatestReleasePrepSections([]);
+      setReleasePrepLoadState("idle");
+      setReleasePrepScriptVersion(null);
       artifactStateWorkpieceIdRef.current = episodeId || null;
     }
 
@@ -3038,6 +3139,53 @@ export default function HearthShell() {
       return imageEntries[0]?.id ?? null;
     });
   }, [workpieceId]);
+
+  const loadLatestReleasePrepPack = useCallback(async (scriptVersion: number) => {
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!episodeId || !Number.isFinite(scriptVersion) || scriptVersion <= 0) {
+      setLatestReleasePrepRawText(null);
+      setLatestReleasePrepSections([]);
+      setReleasePrepLoadState("idle");
+      setReleasePrepScriptVersion(null);
+      return;
+    }
+
+    setReleasePrepLoadState("loading");
+    const loaded = await readWorkpieceProductionArtifact({
+      workpieceId: episodeId,
+      scriptVersion,
+      kind: "pack",
+    });
+    if (!loaded.ok) {
+      setLatestReleasePrepRawText(null);
+      setLatestReleasePrepSections([]);
+      setReleasePrepLoadState(loaded.reason === "not_found" ? "missing" : "error");
+      setReleasePrepScriptVersion(scriptVersion);
+      return;
+    }
+
+    const payload = loaded.payload;
+    const rawText = (
+      typeof payload === "object" && payload && !Array.isArray(payload)
+        ? readTrimmedString((payload as Record<string, unknown>).raw_text)
+        : null
+    ) ?? "";
+    setLatestReleasePrepRawText(rawText || null);
+    setLatestReleasePrepSections(parseReleasePrepPackSections(rawText));
+    setReleasePrepLoadState("ready");
+    setReleasePrepScriptVersion(scriptVersion);
+  }, [workpieceId]);
+
+  useEffect(() => {
+    if (!hasApprovedScript || !approvedScriptVersion) {
+      setLatestReleasePrepRawText(null);
+      setLatestReleasePrepSections([]);
+      setReleasePrepLoadState("idle");
+      setReleasePrepScriptVersion(null);
+      return;
+    }
+    void loadLatestReleasePrepPack(approvedScriptVersion);
+  }, [approvedScriptVersion, hasApprovedScript, loadLatestReleasePrepPack]);
 
   const refreshReadyScripts = useCallback(async () => {
     const workspace = normalizeUuid(workspaceId);
@@ -6760,6 +6908,9 @@ export default function HearthShell() {
         setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
         return;
       }
+      if (args.action === "release_prep_pack") {
+        await loadLatestReleasePrepPack(args.scriptVersion);
+      }
       if (args.action === "thumbnails") {
         void refreshEpisodePackage();
       }
@@ -9471,7 +9622,58 @@ export default function HearthShell() {
                 >
                   {activeProductionAction === "image_beat_sheet" && isAiProcessing ? "Generating..." : "Image Beat Sheet"}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => void onRunProductionAction("release_prep_pack")}
+                  disabled={isAiProcessing || aiCreditsDepleted}
+                >
+                  {activeProductionAction === "release_prep_pack" && isAiProcessing ? "Generating..." : "Release Prep Pack"}
+                </button>
               </div>
+            ) : null}
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <section className="hs-release-prep-viewer" aria-label="Latest release prep pack">
+                <div className="hs-release-prep-viewer__head">
+                  <strong>Latest Release Prep Pack</strong>
+                  <span>Derived output only - primary script unchanged.</span>
+                </div>
+                <div className="hs-release-prep-viewer__meta">
+                  <span>
+                    {releasePrepScriptVersion
+                      ? `Script v${releasePrepScriptVersion}`
+                      : `Script v${approvedScriptVersion}`}
+                    {latestReleasePrepRawText
+                      ? ` · ${latestReleasePrepRawText.length} chars`
+                      : ""}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void loadLatestReleasePrepPack(approvedScriptVersion)}
+                    disabled={isAiProcessing || releasePrepLoadState === "loading"}
+                  >
+                    {releasePrepLoadState === "loading" ? "Refreshing..." : "Refresh"}
+                  </button>
+                </div>
+                {releasePrepLoadState === "missing" ? (
+                  <div className="hs-field-label-muted">
+                    No saved Release Prep Pack for this approved script version yet.
+                  </div>
+                ) : null}
+                {releasePrepLoadState === "error" ? (
+                  <div className="hs-error-text-small">Could not load the latest Release Prep Pack artifact.</div>
+                ) : null}
+                {releasePrepLoadState === "ready" && latestReleasePrepSections.length > 0 ? (
+                  <div className="hs-release-prep-viewer__sections">
+                    {latestReleasePrepSections.map((section) => (
+                      <article key={section.key} className="hs-release-prep-viewer__section">
+                        <header>{section.label}</header>
+                        <pre>{section.content}</pre>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
             ) : null}
 
             <div className="hs-ai-shortcut-row" role="group" aria-label="Chat shortcuts">

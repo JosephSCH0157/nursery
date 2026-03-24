@@ -5,6 +5,7 @@ import {
   previewRemoveFillers,
   previewRemoveRetakes,
   previewShortenGaps,
+  previewTightenSelection,
 } from "../src/editor/hammerCleanupTools";
 
 function s(id: string, start: number, end: number, speaker: string, text: string): HammerTranscriptSegment {
@@ -74,11 +75,62 @@ async function testQuickCleanOrderDeterministic() {
   assert.equal(preview.label, "Quick Clean");
 }
 
+async function testTightenSelectionPreservesUnselectedSegments() {
+  const segments = [
+    s("a", 0, 1.2, "Host", "Intro stays untouched."),
+    s("b", 1.2, 2.6, "Host", "Um I mean this this point is is clear."),
+    s("c", 2.6, 3.1, "Host", "you know"),
+    s("d", 3.1, 4.0, "Host", "Outro stays untouched."),
+  ];
+
+  const preview = previewTightenSelection({
+    segments,
+    segmentIds: ["b", "c"],
+  });
+
+  assert.equal(preview.label, "Tighten Selection");
+  assert.ok(preview.summary.changedSegments >= 1);
+  assert.ok(preview.summary.timeSavedSec >= 0.1);
+  assert.ok(preview.metadata?.tightenSelection != null);
+  assert.equal(preview.metadata?.tightenSelection?.removedFillers != null, true);
+  assert.equal(preview.metadata?.tightenSelection?.collapsedRepetitions != null, true);
+  assert.equal(preview.metadata?.tightenSelection?.mergedFragments != null, true);
+
+  const first = preview.resultSegments.find((segment) => segment.segment_id === "a");
+  const last = preview.resultSegments.find((segment) => segment.segment_id === "d");
+  assert.equal(first?.text, "Intro stays untouched.");
+  assert.equal(last?.text, "Outro stays untouched.");
+  assert.equal(
+    preview.resultSegments.some((segment) => segment.segment_id === "c"),
+    false,
+    "Filler-only fragment should be removable inside selected tighten span",
+  );
+}
+
+async function testTightenSelectionRejectsInlineSpeakerTagAsTextMutationRisk() {
+  const segments = [
+    s("a", 0, 1.2, "Host", "normal line"),
+    s("b", 1.2, 2.3, "Host", "this is [s1] not valid inline"),
+  ];
+  const preview = previewTightenSelection({
+    segments,
+    segmentIds: ["a", "b"],
+  });
+  assert.equal(preview.summary.changedSegments >= 0, true);
+  assert.equal(
+    preview.resultSegments.some((segment) => segment.text.includes("[s1]")),
+    true,
+    "Tighten should not rewrite structural tags; validator remains source of truth",
+  );
+}
+
 async function run() {
   await testShortenGapsDeterministic();
   await testFillerRemovalDeterministic();
   await testRetakeRemovalDeterministic();
   await testQuickCleanOrderDeterministic();
+  await testTightenSelectionPreservesUnselectedSegments();
+  await testTightenSelectionRejectsInlineSpeakerTagAsTextMutationRisk();
   // eslint-disable-next-line no-console
   console.log("Hammer cleanup tools tests passed.");
 }
