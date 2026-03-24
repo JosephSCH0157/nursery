@@ -635,288 +635,288 @@ export default function ThumbnailPanel({
           </div>
         </section>
 
-        <section className="hs-thumb-preview-wrap" aria-label="Thumbnail preview">
-          <section className="hs-thumb-block hs-thumb-block-preview" aria-label="Preview block">
-            <h3 className="hs-thumb-block-title">Preview</h3>
-            <div className="hs-thumb-preview-note">{previewStatusMessage}</div>
-
-            <div
-              ref={previewRef}
-              className={`hs-thumb-preview${previewAspectClass}${safeZoneEnabled ? " show-safe-zone" : ""}`}
-            >
-              {previewState === "loading" ? (
-                <div className="hs-thumb-preview-empty">Loading preview...</div>
-              ) : null}
-              {previewState === "error" ? (
-                <div className="hs-thumb-preview-empty">{previewError || "Preview unavailable."}</div>
-              ) : null}
-              {previewState === "idle" ? (
-                <div className="hs-thumb-preview-empty">Select a version to preview.</div>
-              ) : null}
-              {previewDataUrl && previewState === "ready" ? (
-                <>
-                  <img src={previewDataUrl} alt="Selected thumbnail preview" className="hs-thumb-preview-image" />
-                  <div className="hs-thumb-preview-treatment" aria-hidden="true" />
-                  <div
-                    className="hs-thumb-preview-accent"
-                    aria-hidden="true"
-                  />
-                  {hasOverlayTitle ? (
-                    <div
-                      className="hs-thumb-preview-copy"
-                      aria-label="Thumbnail title preview"
-                    >
-                      <div
-                        ref={previewTextRef}
-                        className="hs-thumb-preview-copy-text"
-                      >
-                        {selectedTitleText}
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="hs-thumb-safe-zone" aria-hidden="true" />
-                </>
-              ) : null}
-            </div>
-
-            <div className="hs-thumb-controls">
-              <select
-                aria-label="Thumbnail aspect ratio"
-                title="Thumbnail aspect ratio"
-                value={aspect}
-                onChange={(event) => onAspectChange(event.target.value as "16:9" | "1:1" | "9:16")}
-                disabled={isGenerating || isUploading}
-              >
-                <option value="16:9">16:9</option>
-                <option value="1:1">1:1</option>
-                <option value="9:16">9:16</option>
-              </select>
-              <button
-                type="button"
-                onClick={onGenerate}
-                disabled={isGenerating || isUploading}
-              >
-                {isGenerating ? "Generating..." : "Generate"}
-              </button>
-              <button
-                type="button"
-                onClick={onRegenerate}
-                disabled={isGenerating || isUploading || !selectedConceptId}
-              >
-                Regenerate
-              </button>
-              <button
-                type="button"
-                onClick={onToggleSafeZone}
-                disabled={isGenerating || isUploading}
-              >
-                {safeZoneEnabled ? "Hide Safe Zone" : "Show Safe Zone"}
-              </button>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isGenerating || isUploading}
-              >
-                {isUploading ? "Uploading..." : "Upload Image"}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                aria-label="Upload thumbnail image"
-                title="Upload thumbnail image"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (!file) return;
-                  onUploadImage(file);
-                  event.target.value = "";
-                }}
-                className="hs-thumb-file-input"
-              />
-            </div>
-
-            {selectedConceptEvaluation ? (
-              <section className="hs-thumb-recommendation-summary" aria-label="Recommendation summary">
-                <div className="hs-thumb-section-title hs-thumb-section-title-strong">Recommendation</div>
-                <div className="hs-thumb-recommendation-summary-title">{selectedRecommendationHeadline}</div>
-                <div className="hs-thumb-recommendation-summary-copy">{selectedRecommendationSummary}</div>
-              </section>
-            ) : null}
-          </section>
-
-          <section className="hs-thumb-block hs-thumb-block-concept" aria-label="Concept authoring block">
-            <h3 className="hs-thumb-block-title">Concept</h3>
-            <section className="hs-thumb-prompt-section" aria-label="Concept prompt and style">
-              <div className="hs-thumb-section-title">Concept Authoring</div>
-              <label className="hs-field">
-                <span className="hs-field-label">Concept Label</span>
-                <input
-                  type="text"
-                  value={selectedConceptLabel}
-                  onChange={(event) => onSelectedConceptLabelChange(event.target.value)}
-                  placeholder="Concept label"
-                  disabled={interactionDisabled}
-                />
-              </label>
-              <label className="hs-field">
-                <span className="hs-field-label">Visual Style</span>
-                <select
-                  value={selectedConceptStylePreset}
-                  onChange={(event) => onSelectedConceptStylePresetChange(event.target.value)}
-                  disabled={interactionDisabled}
-                >
-                  {HEARTH_VISUAL_STYLE_DEFINITIONS.map((style) => (
-                    <option key={style.value} value={style.value}>
-                      {style.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="hs-field">
-                <span className="hs-field-label">Prompt</span>
-                <div className="hs-thumb-field-helper">Describe the image, tone, framing, and emotional angle.</div>
-                <textarea
-                  value={selectedConceptPrompt}
-                  onChange={(event) => onSelectedConceptPromptChange(event.target.value)}
-                  placeholder="Describe the thumbnail concept"
-                  rows={6}
-                  disabled={interactionDisabled}
-                  className="hs-thumb-prompt-input"
-                />
-              </label>
-              <label className="hs-field">
-                <span className="hs-field-label">Prompt Override</span>
-                <textarea
-                  value={promptOverride}
-                  onChange={(event) => onPromptOverrideChange(event.target.value)}
-                  placeholder="Optional prompt override"
-                  rows={3}
-                  disabled={isGenerating || isUploading}
-                />
-              </label>
-            </section>
-          </section>
-
-          <section className="hs-thumb-block hs-thumb-block-refinement" aria-label="Refinement block">
-            <h3 className="hs-thumb-block-title">Refinement</h3>
-
-            <section className="hs-thumb-title-source" aria-label="Thumbnail title overlay">
-              <div className="hs-thumb-section-title">Text &amp; Branding</div>
-            {titleOptions.length === 0 ? (
-              <div className="hs-thumb-empty">Generate SEO titles to place clean text on the thumbnail.</div>
-            ) : (
-              <div className="hs-thumb-title-list">
-                {titleOptions.map((title) => (
-                  <button
-                    key={title.id}
-                    type="button"
-                    className={`hs-thumb-title-chip${title.id === selectedTitleId ? " is-selected" : ""}`}
-                    onClick={() => onSelectTitle(title.id)}
-                    disabled={isGenerating || isUploading}
-                    title={resolveHearthThumbnailOverlayText(title) === title.text
-                      ? title.text
-                      : `Overlay: ${resolveHearthThumbnailOverlayText(title)}\nSEO title: ${title.text}`}
-                  >
-                    <span className="hs-thumb-title-chip-label">{title.label}</span>
-                    <span className="hs-thumb-title-chip-text">{resolveHearthThumbnailOverlayText(title)}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="hs-thumb-title-help">
-              Hearth derives a thumbnail-safe overlay hook from the selected title using the shared thumbnail title contract.
-            </div>
+        <section className="hs-thumb-center" aria-label="Thumbnail creative workspace">
+          <section className="hs-thumb-prompt-section" aria-label="Concept authoring">
             <details className="hs-thumb-advanced-options">
-              <summary>Text &amp; Branding Options</summary>
+              <summary>Concept Authoring</summary>
               <div className="hs-thumb-advanced-options-body">
                 <label className="hs-field">
-                  <span className="hs-field-label">Brand Template</span>
+                  <span className="hs-field-label">Concept Label</span>
+                  <input
+                    type="text"
+                    value={selectedConceptLabel}
+                    onChange={(event) => onSelectedConceptLabelChange(event.target.value)}
+                    placeholder="Concept label"
+                    disabled={interactionDisabled}
+                  />
+                </label>
+                <label className="hs-field">
+                  <span className="hs-field-label">Visual Style</span>
                   <select
-                    value={selectedConceptBrandTemplateId ?? ""}
-                    onChange={(event) => onSelectedConceptBrandTemplateChange(event.target.value || null)}
-                    disabled={interactionDisabled || brandTemplatesLoading}
+                    value={selectedConceptStylePreset}
+                    onChange={(event) => onSelectedConceptStylePresetChange(event.target.value)}
+                    disabled={interactionDisabled}
                   >
-                    <option value="">None</option>
-                    {brandTemplates.map((template) => (
-                      <option key={template.id} value={template.id}>
-                        {template.isDefault ? `${template.name} (Default)` : template.name}
+                    {HEARTH_VISUAL_STYLE_DEFINITIONS.map((style) => (
+                      <option key={style.value} value={style.value}>
+                        {style.label}
                       </option>
                     ))}
                   </select>
                 </label>
-                {brandTemplatesLoading ? (
-                  <div className="hs-thumb-template-meta">Loading workspace brand templates...</div>
-                ) : null}
-                {brandTemplatesError ? (
-                  <div className="hs-error-text-small">{brandTemplatesError}</div>
-                ) : null}
-                <section className="hs-thumb-title-style" aria-label="Thumbnail title styling">
-                  <div className="hs-thumb-section-title">Title Styling</div>
-                  <div className="hs-thumb-title-style-grid">
-                    <label className="hs-field">
-                      <span className="hs-field-label">Font Preset</span>
-                      <select
-                        value={normalizedTitleStyle.font_preset}
-                        onChange={(event) => onSelectedConceptTitleFontPresetChange(event.target.value)}
-                        disabled={interactionDisabled}
-                      >
-                        {Object.entries(TITLE_FONT_PRESETS).map(([value, preset]) => (
-                          <option key={value} value={value}>
-                            {preset.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="hs-field hs-thumb-color-field">
-                      <span className="hs-field-label">Text Color</span>
-                      <input
-                        type="color"
-                        value={colorInputValue}
-                        onChange={(event) => onSelectedConceptTitleColorChange(event.target.value)}
-                        disabled={interactionDisabled}
-                        className="hs-thumb-color-input"
-                      />
-                    </label>
-                  </div>
-                  <label className="hs-thumb-shadow-toggle">
-                    <input
-                      type="checkbox"
-                      checked={normalizedTitleStyle.shadow.enabled}
-                      onChange={(event) => onSelectedConceptTitleShadowEnabledChange(event.target.checked)}
-                      disabled={interactionDisabled}
-                    />
-                    <span>Drop Shadow</span>
-                  </label>
-                  {normalizedTitleStyle.shadow.enabled ? (
-                    <label className="hs-field">
-                      <span className="hs-field-label">Shadow Strength</span>
-                      <select
-                        value={normalizedTitleStyle.shadow.strength}
-                        onChange={(event) => onSelectedConceptTitleShadowStrengthChange(event.target.value as TitleShadowStrength)}
-                        disabled={interactionDisabled}
-                      >
-                        {TITLE_SHADOW_STRENGTH_VALUES.map((strength) => (
-                          <option key={strength} value={strength}>
-                            {strength[0]?.toUpperCase()}{strength.slice(1)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ) : null}
-                </section>
               </div>
             </details>
+            <label className="hs-field">
+              <span className="hs-field-label">Prompt</span>
+              <div className="hs-thumb-field-helper">Describe the image, tone, framing, and emotional angle.</div>
+              <textarea
+                value={selectedConceptPrompt}
+                onChange={(event) => onSelectedConceptPromptChange(event.target.value)}
+                placeholder="Describe the thumbnail concept"
+                rows={7}
+                disabled={interactionDisabled}
+                className="hs-thumb-prompt-input"
+              />
+            </label>
+            <label className="hs-field">
+              <span className="hs-field-label">Prompt Override</span>
+              <textarea
+                value={promptOverride}
+                onChange={(event) => onPromptOverrideChange(event.target.value)}
+                placeholder="Optional prompt override"
+                rows={3}
+                disabled={isGenerating || isUploading}
+              />
+            </label>
+          </section>
+
+          <div className="hs-thumb-preview-note">{previewStatusMessage}</div>
+
+          <div
+            ref={previewRef}
+            className={`hs-thumb-preview${previewAspectClass}${safeZoneEnabled ? " show-safe-zone" : ""}`}
+          >
+            {previewState === "loading" ? (
+              <div className="hs-thumb-preview-empty">Loading preview...</div>
+            ) : null}
+            {previewState === "error" ? (
+              <div className="hs-thumb-preview-empty">{previewError || "Preview unavailable."}</div>
+            ) : null}
+            {previewState === "idle" ? (
+              <div className="hs-thumb-preview-empty">Select a version to preview.</div>
+            ) : null}
+            {previewDataUrl && previewState === "ready" ? (
+              <>
+                <img src={previewDataUrl} alt="Selected thumbnail preview" className="hs-thumb-preview-image" />
+                <div className="hs-thumb-preview-treatment" aria-hidden="true" />
+                <div
+                  className="hs-thumb-preview-accent"
+                  aria-hidden="true"
+                />
+                {hasOverlayTitle ? (
+                  <div
+                    className="hs-thumb-preview-copy"
+                    aria-label="Thumbnail title preview"
+                  >
+                    <div
+                      ref={previewTextRef}
+                      className="hs-thumb-preview-copy-text"
+                    >
+                      {selectedTitleText}
+                    </div>
+                  </div>
+                ) : null}
+                <div className="hs-thumb-safe-zone" aria-hidden="true" />
+              </>
+            ) : null}
+          </div>
+
+          <div className="hs-thumb-controls">
+            <select
+              aria-label="Thumbnail aspect ratio"
+              title="Thumbnail aspect ratio"
+              value={aspect}
+              onChange={(event) => onAspectChange(event.target.value as "16:9" | "1:1" | "9:16")}
+              disabled={isGenerating || isUploading}
+            >
+              <option value="16:9">16:9</option>
+              <option value="1:1">1:1</option>
+              <option value="9:16">9:16</option>
+            </select>
+            <button
+              type="button"
+              onClick={onGenerate}
+              disabled={isGenerating || isUploading}
+            >
+              {isGenerating ? "Generating..." : "Generate"}
+            </button>
+            <button
+              type="button"
+              onClick={onRegenerate}
+              disabled={isGenerating || isUploading || !selectedConceptId}
+            >
+              Regenerate
+            </button>
+            <button
+              type="button"
+              onClick={onToggleSafeZone}
+              disabled={isGenerating || isUploading}
+            >
+              {safeZoneEnabled ? "Hide Safe Zone" : "Show Safe Zone"}
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isGenerating || isUploading}
+            >
+              {isUploading ? "Uploading..." : "Upload Image"}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              aria-label="Upload thumbnail image"
+              title="Upload thumbnail image"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                onUploadImage(file);
+                event.target.value = "";
+              }}
+              className="hs-thumb-file-input"
+            />
+          </div>
+
+          {generateError ? (
+            <div className="hs-error-text-small">{generateError}</div>
+          ) : null}
+          {uploadError ? (
+            <div className="hs-error-text-small">{uploadError}</div>
+          ) : null}
+        </section>
+
+        <section className="hs-thumb-sidebar-right" aria-label="Thumbnail controls and insights">
+          {selectedConceptEvaluation ? (
+            <section className="hs-thumb-sidebar-section" aria-label="Recommendation">
+              <div className="hs-thumb-section-title hs-thumb-section-title-strong">Recommendation</div>
+              <div className="hs-thumb-recommendation-summary-title">{selectedRecommendationHeadline}</div>
+              <div className="hs-thumb-recommendation-summary-copy">{selectedRecommendationSummary}</div>
             </section>
+          ) : null}
 
-            {generateError ? (
-              <div className="hs-error-text-small">{generateError}</div>
-            ) : null}
-            {uploadError ? (
-              <div className="hs-error-text-small">{uploadError}</div>
-            ) : null}
+          <details className="hs-thumb-sidebar-section" open>
+            <summary>Text & Branding</summary>
+            <div>
+              {titleOptions.length === 0 ? (
+                <div className="hs-thumb-empty">Generate SEO titles to place clean text on the thumbnail.</div>
+              ) : (
+                <div className="hs-thumb-title-list">
+                  {titleOptions.map((title) => (
+                    <button
+                      key={title.id}
+                      type="button"
+                      className={`hs-thumb-title-chip${title.id === selectedTitleId ? " is-selected" : ""}`}
+                      onClick={() => onSelectTitle(title.id)}
+                      disabled={isGenerating || isUploading}
+                      title={resolveHearthThumbnailOverlayText(title) === title.text
+                        ? title.text
+                        : `Overlay: ${resolveHearthThumbnailOverlayText(title)}\nSEO title: ${title.text}`}
+                    >
+                      <span className="hs-thumb-title-chip-label">{title.label}</span>
+                      <span className="hs-thumb-title-chip-text">{resolveHearthThumbnailOverlayText(title)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="hs-thumb-title-help">
+                Hearth derives a thumbnail-safe overlay hook from the selected title using the shared thumbnail title contract.
+              </div>
+              <details className="hs-thumb-advanced-options">
+                <summary>Branding Options</summary>
+                <div className="hs-thumb-advanced-options-body">
+                  <label className="hs-field">
+                    <span className="hs-field-label">Brand Template</span>
+                    <select
+                      value={selectedConceptBrandTemplateId ?? ""}
+                      onChange={(event) => onSelectedConceptBrandTemplateChange(event.target.value || null)}
+                      disabled={interactionDisabled || brandTemplatesLoading}
+                    >
+                      <option value="">None</option>
+                      {brandTemplates.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.isDefault ? `${template.name} (Default)` : template.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {brandTemplatesLoading ? (
+                    <div className="hs-thumb-template-meta">Loading workspace brand templates...</div>
+                  ) : null}
+                  {brandTemplatesError ? (
+                    <div className="hs-error-text-small">{brandTemplatesError}</div>
+                  ) : null}
+                  <section className="hs-thumb-title-style" aria-label="Thumbnail title styling">
+                    <div className="hs-thumb-section-title">Title Styling</div>
+                    <div className="hs-thumb-title-style-grid">
+                      <label className="hs-field">
+                        <span className="hs-field-label">Font Preset</span>
+                        <select
+                          value={normalizedTitleStyle.font_preset}
+                          onChange={(event) => onSelectedConceptTitleFontPresetChange(event.target.value)}
+                          disabled={interactionDisabled}
+                        >
+                          {Object.entries(TITLE_FONT_PRESETS).map(([value, preset]) => (
+                            <option key={value} value={value}>
+                              {preset.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="hs-field hs-thumb-color-field">
+                        <span className="hs-field-label">Text Color</span>
+                        <input
+                          type="color"
+                          value={colorInputValue}
+                          onChange={(event) => onSelectedConceptTitleColorChange(event.target.value)}
+                          disabled={interactionDisabled}
+                          className="hs-thumb-color-input"
+                        />
+                      </label>
+                    </div>
+                    <label className="hs-thumb-shadow-toggle">
+                      <input
+                        type="checkbox"
+                        checked={normalizedTitleStyle.shadow.enabled}
+                        onChange={(event) => onSelectedConceptTitleShadowEnabledChange(event.target.checked)}
+                        disabled={interactionDisabled}
+                      />
+                      <span>Drop Shadow</span>
+                    </label>
+                    {normalizedTitleStyle.shadow.enabled ? (
+                      <label className="hs-field">
+                        <span className="hs-field-label">Shadow Strength</span>
+                        <select
+                          value={normalizedTitleStyle.shadow.strength}
+                          onChange={(event) => onSelectedConceptTitleShadowStrengthChange(event.target.value as TitleShadowStrength)}
+                          disabled={interactionDisabled}
+                        >
+                          {TITLE_SHADOW_STRENGTH_VALUES.map((strength) => (
+                            <option key={strength} value={strength}>
+                              {strength[0]?.toUpperCase()}{strength.slice(1)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                  </section>
+                </div>
+              </details>
+            </div>
+          </details>
 
-            <section className="hs-thumb-audit-wrap" aria-label="Analysis block">
-              <div className="hs-thumb-section-title hs-thumb-section-title-strong">Analysis</div>
+          <details className="hs-thumb-sidebar-section">
+            <summary>Analysis</summary>
+            <div>
               <section className="hs-thumb-audit" aria-label="Thumbnail readability audit">
                 <div className="hs-thumb-audit-header">
                   <div>
@@ -966,8 +966,8 @@ export default function ThumbnailPanel({
                   </div>
                 )}
               </section>
-            </section>
-          </section>
+            </div>
+          </details>
         </section>
       </div>
 
