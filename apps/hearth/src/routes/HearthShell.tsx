@@ -8305,25 +8305,6 @@ export default function HearthShell() {
     }
 
     let expectedMetadataUpdatedAt = imageMapMetadataUpdatedAt;
-    const requestedSourceType = mode === "stock" ? "stock" : "ai";
-    if (selectedImageMapEntry.source_type !== requestedSourceType) {
-      const updatedEntries = episodePackage.image_map.entries.map((entry) => (
-        entry.id === selectedImageMapEntry.id
-          ? {
-              ...entry,
-              source_type: requestedSourceType,
-              origin: "hearth" as const,
-            }
-          : entry
-      ));
-      const sourceSaved = await persistImageMapEntries({ entries: updatedEntries });
-      if (!sourceSaved.ok) {
-        setImageMapCandidateError(sourceSaved.error);
-        return;
-      }
-      expectedMetadataUpdatedAt = sourceSaved.metadataUpdatedAt;
-      setImageMapSourceTypeDraft(requestedSourceType);
-    }
 
     const canonicalScript = await readCanonicalScriptForImageMapGeneration();
     if (!canonicalScript.ok) {
@@ -8353,6 +8334,26 @@ export default function HearthShell() {
             : "Generate two still candidates for this visual beat? This will spend AI credits.",
         );
     if (!confirmed) return;
+
+    const requestedSourceType = mode === "stock" ? "stock" : "ai";
+    if (selectedImageMapEntry.source_type !== requestedSourceType) {
+      const updatedEntries = episodePackage.image_map.entries.map((entry) => (
+        entry.id === selectedImageMapEntry.id
+          ? {
+              ...entry,
+              source_type: requestedSourceType,
+              origin: "hearth" as const,
+            }
+          : entry
+      ));
+      const sourceSaved = await persistImageMapEntries({ entries: updatedEntries });
+      if (!sourceSaved.ok) {
+        setImageMapCandidateError(sourceSaved.error);
+        return;
+      }
+      expectedMetadataUpdatedAt = sourceSaved.metadataUpdatedAt;
+      setImageMapSourceTypeDraft(requestedSourceType);
+    }
 
     setIsImageMapCandidateGenerating(true);
     setImageMapCandidateError(null);
