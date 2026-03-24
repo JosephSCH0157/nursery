@@ -303,6 +303,30 @@ type HammerResolvedBrollBindingItem = HammerBrollSuggestionItem & {
   linkedPlacementId: string | null;
 };
 
+type HammerBoundBrollInspectorState = {
+  operationId: string;
+  lifecycle: "active" | "reverted" | "superseded";
+  intentSource: "manual" | "hearth_suggestion";
+  intentDescription: string | null;
+  bindingState: "resolved" | "unresolved";
+  startSec: number;
+  endSec: number;
+  assetRef: string;
+  previewPosture: "authoritative" | "degraded" | "unavailable";
+  exportPosture: "authoritative" | "degraded" | "unavailable";
+  handoffPosture: "authoritative" | "degraded" | "unavailable";
+  needsAttention: boolean;
+  attentionFlags: string[];
+  linkedDuck: {
+    operationId: string;
+    startSec: number;
+    endSec: number;
+    aligned: boolean;
+    capability: "executable" | "degraded" | "unavailable";
+    needsAttention: boolean;
+  } | null;
+};
+
 type HammerTimelineLaneBlock = {
   id: string;
   label: string;
@@ -998,6 +1022,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   const [selectedSourceTab, setSelectedSourceTab] = useState<HammerSourceTabId>("transcript");
   const [activeTool, setActiveTool] = useState<HammerToolId>("polish");
+  const [selectedBoundBrollOperationId, setSelectedBoundBrollOperationId] = useState<string | null>(null);
   const [editableDerivedTextLayers, setEditableDerivedTextLayers] = useState<
     HammerPersistedStructuredTranscript["derived_text_layers"]
   >(() => cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers));
@@ -1402,6 +1427,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         };
       });
   }, [brollSuggestionItems, editableVisualPlacements?.placements]);
+  const brollOperationById = useMemo(() => {
+    const byId = new Map<string, HammerEditorialAuthorityGraph["operations"][number]>();
+    for (const operation of editableEditorialAuthorityGraph?.operations ?? []) {
+      if (operation.instruction.type !== "insert_broll") continue;
+      byId.set(operation.operation_id, operation);
+    }
+    return byId;
+  }, [editableEditorialAuthorityGraph?.operations]);
   const sourceImageLibraryItems = useMemo(
     () => storedMediaFiles.filter((file) => file.kind === "image"),
     [storedMediaFiles],
@@ -3859,6 +3892,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           },
         });
         if (!nextGraph) return before;
+        const synchronizedGraph = synchronizeLinkedAudioDuckForBrollOperation({
+          graph: nextGraph,
+          brollOperationId: operationId,
+        }) ?? nextGraph;
         const nextPlacements = current.placements.map((placement) => {
           if (placement.authority_operation_id !== operationId) return placement;
           return {
@@ -3868,6 +3905,44 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             storage_key: assetPath,
           };
         });
+        return {
+          ...before,
+          editorialAuthorityGraph: synchronizedGraph,
+          visualPlacements: {
+            ...current,
+            placements: nextPlacements,
+          },
+        };
+      },
+    });
+  }
+
+  function revertResolvedBrollBinding(operationId: string): void {
+    applyHistoryMutation({
+      label: "Revert resolved b-roll binding",
+      kind: "visual_adjustment",
+      toolId: "video",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const graph = before.editorialAuthorityGraph;
+        const current = before.visualPlacements;
+        if (!graph || !current) return before;
+        const brollOperation = graph.operations.find((item) => item.operation_id === operationId) ?? null;
+        if (!brollOperation || brollOperation.instruction.type !== "insert_broll") return before;
+        let nextGraph = setAuthorityOperationLifecycle({
+          graph,
+          operationId,
+          lifecycle: "reverted",
+        }) ?? graph;
+        const companionDuckId = brollOperation.instruction.companion_audio_duck_operation_id ?? null;
+        if (companionDuckId) {
+          nextGraph = setAuthorityOperationLifecycle({
+            graph: nextGraph,
+            operationId: companionDuckId,
+            lifecycle: "reverted",
+          }) ?? nextGraph;
+        }
+        const nextPlacements = current.placements.filter((placement) => placement.authority_operation_id !== operationId);
         return {
           ...before,
           editorialAuthorityGraph: nextGraph,
@@ -4368,6 +4443,102 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const previewTruthPosture = exportBasis.renderAssembly.preview.posture;
   const exportTruthPosture = exportBasis.renderAssembly.export.posture;
   const handoffTruthPosture = exportBasis.renderAssembly.handoff.posture;
+  const renderOperationById = useMemo(() => {
+    const byId = new Map<string, (typeof exportBasis.renderAssembly.operations)[number]>();
+    for (const operation of exportBasis.renderAssembly.operations) {
+      byId.set(operation.operation_id, operation);
+    }
+    return byId;
+  }, [exportBasis.renderAssembly.operations]);
+  const selectedBoundBrollInspectorState = useMemo<HammerBoundBrollInspectorState | null>(() => {
+    const selectedOperationId = selectedBoundBrollOperationId
+      ?? resolvedBrollBindingItems[0]?.operationId
+      ?? null;
+    if (!selectedOperationId) return null;
+    const brollOperation = brollOperationById.get(selectedOperationId) ?? null;
+    if (!brollOperation || brollOperation.instruction.type !== "insert_broll") return null;
+    const brollInstruction = brollOperation.instruction;
+    const renderOperation = renderOperationById.get(selectedOperationId) ?? null;
+    const linkedDuckOperation = (editableEditorialAuthorityGraph?.operations ?? []).find((operation) => {
+      if (operation.instruction.type !== "audio_duck") return false;
+      if (operation.lifecycle !== "active") return false;
+      return operation.instruction.linked_broll_operation_id === selectedOperationId
+        || (
+          brollInstruction.companion_audio_duck_operation_id != null
+          && operation.operation_id === brollInstruction.companion_audio_duck_operation_id
+        );
+    }) ?? null;
+    const linkedDuckRender = linkedDuckOperation
+      ? renderOperationById.get(linkedDuckOperation.operation_id) ?? null
+      : null;
+    const attentionFlags = [
+      ...(brollOperation.capability_state.reason_codes.includes("operation_conflict")
+        ? ["Adjusted by structural remap; review recommended."]
+        : []),
+      ...(brollOperation.lifecycle === "superseded"
+        ? ["Removed by structural edit."]
+        : []),
+      ...(brollInstruction.asset_binding_state === "unresolved"
+        ? ["Unresolved suggestion: not yet media truth."]
+        : []),
+      ...(linkedDuckOperation && linkedDuckRender?.capability === "degraded" && linkedDuckRender.reason_codes.includes("operation_conflict")
+        ? ["Linked duck companion requires review."]
+        : []),
+    ];
+    const duckAligned = linkedDuckOperation && linkedDuckOperation.instruction.type === "audio_duck"
+      ? (
+        linkedDuckOperation.instruction.start_sec === brollInstruction.start_sec
+        && linkedDuckOperation.instruction.end_sec === brollInstruction.end_sec
+      )
+      : false;
+    return {
+      operationId: selectedOperationId,
+      lifecycle: brollOperation.lifecycle,
+      intentSource: brollInstruction.intent_source ?? "manual",
+      intentDescription: brollInstruction.intent_description ?? null,
+      bindingState: brollInstruction.asset_binding_state === "unresolved" ? "unresolved" : "resolved",
+      startSec: brollInstruction.start_sec,
+      endSec: brollInstruction.end_sec,
+      assetRef: brollInstruction.asset_ref,
+      previewPosture: renderOperation?.preview_posture ?? "unavailable",
+      exportPosture: renderOperation?.export_posture ?? "unavailable",
+      handoffPosture: renderOperation?.handoff_posture ?? "unavailable",
+      needsAttention: attentionFlags.length > 0,
+      attentionFlags,
+      linkedDuck: linkedDuckOperation && linkedDuckOperation.instruction.type === "audio_duck"
+        ? {
+          operationId: linkedDuckOperation.operation_id,
+          startSec: linkedDuckOperation.instruction.start_sec,
+          endSec: linkedDuckOperation.instruction.end_sec,
+          aligned: duckAligned,
+          capability: linkedDuckRender?.capability ?? "unavailable",
+          needsAttention: !duckAligned || (linkedDuckRender?.capability === "degraded"),
+        }
+        : null,
+    };
+  }, [
+    brollOperationById,
+    editableEditorialAuthorityGraph?.operations,
+    renderOperationById,
+    resolvedBrollBindingItems,
+    selectedBoundBrollOperationId,
+  ]);
+  useEffect(() => {
+    if (resolvedBrollBindingItems.length === 0) {
+      if (selectedBoundBrollOperationId != null) {
+        setSelectedBoundBrollOperationId(null);
+      }
+      return;
+    }
+    if (!selectedBoundBrollOperationId) {
+      setSelectedBoundBrollOperationId(resolvedBrollBindingItems[0]?.operationId ?? null);
+      return;
+    }
+    const stillExists = resolvedBrollBindingItems.some((item) => item.operationId === selectedBoundBrollOperationId);
+    if (!stillExists) {
+      setSelectedBoundBrollOperationId(resolvedBrollBindingItems[0]?.operationId ?? null);
+    }
+  }, [resolvedBrollBindingItems, selectedBoundBrollOperationId]);
   const releasePrepOpenHref = useMemo(() => {
     if (!props.releasePrepHref || !loadedPreparedPackage) return null;
     try {
@@ -5619,7 +5790,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       </article>
                     ))}
                     {resolvedBrollBindingItems.map((binding) => (
-                      <article key={binding.operationId} className="hammer-source-card">
+                      <article
+                        key={binding.operationId}
+                        className={selectedBoundBrollOperationId === binding.operationId ? "hammer-source-card is-selected" : "hammer-source-card"}
+                      >
                         <header className="hammer-source-card__head">
                           <strong>{binding.intentDescription ?? "Resolved B-roll binding"}</strong>
                           <span>resolved</span>
@@ -5631,6 +5805,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         </div>
                         <div className="hammer-source-card__path">{binding.assetRef}</div>
                         <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTool("video");
+                              setFocusOverride("tool-focus");
+                              setSelectedBoundBrollOperationId(binding.operationId);
+                            }}
+                          >
+                            Inspect
+                          </button>
                           <button
                             type="button"
                             onClick={() => moveResolvedBrollBinding(binding.operationId, -0.5)}
@@ -5669,6 +5853,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             }}
                           >
                             Replace Asset
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              revertResolvedBrollBinding(binding.operationId);
+                            }}
+                          >
+                            Revert Binding
                           </button>
                         </div>
                       </article>
@@ -6995,6 +7187,105 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </select>
                   </label>
                   <div className="hammer-tool-hint">Placed visuals: {editableVisualPlacements?.placements.length ?? 0}</div>
+                  <div className="hammer-tool-hint">
+                    Resolved bindings: {resolvedBrollBindingItems.length} · unresolved suggestions: {unresolvedBrollSuggestionItems.length}
+                  </div>
+                  {selectedBoundBrollInspectorState ? (
+                    <section className="hammer-cleanup-tool">
+                      <div className="hammer-cleanup-tool__head">
+                        <strong>Bound Object Inspector</strong>
+                        <span>{selectedBoundBrollInspectorState.operationId}</span>
+                      </div>
+                      <div className="hammer-tool-hint">
+                        Intent: {selectedBoundBrollInspectorState.intentSource}
+                        {selectedBoundBrollInspectorState.intentDescription
+                          ? ` · ${selectedBoundBrollInspectorState.intentDescription}`
+                          : ""}
+                      </div>
+                      <div className="hammer-tool-hint">
+                        Binding: {selectedBoundBrollInspectorState.bindingState} · lifecycle: {selectedBoundBrollInspectorState.lifecycle}
+                      </div>
+                      <div className="hammer-tool-hint">
+                        Window: {selectedBoundBrollInspectorState.startSec.toFixed(1)}s - {selectedBoundBrollInspectorState.endSec.toFixed(1)}s
+                      </div>
+                      <div className="hammer-tool-hint">Asset: {selectedBoundBrollInspectorState.assetRef}</div>
+                      <div className="hammer-tool-hint">
+                        Posture: preview {selectedBoundBrollInspectorState.previewPosture}
+                        {` · export ${selectedBoundBrollInspectorState.exportPosture} · handoff ${selectedBoundBrollInspectorState.handoffPosture}`}
+                      </div>
+                      {selectedBoundBrollInspectorState.linkedDuck ? (
+                        <div className="hammer-tool-hint">
+                          Linked duck {selectedBoundBrollInspectorState.linkedDuck.operationId}
+                          {`: ${selectedBoundBrollInspectorState.linkedDuck.startSec.toFixed(1)}s - ${selectedBoundBrollInspectorState.linkedDuck.endSec.toFixed(1)}s`}
+                          {` · aligned ${selectedBoundBrollInspectorState.linkedDuck.aligned ? "yes" : "no"}`}
+                          {` · ${selectedBoundBrollInspectorState.linkedDuck.capability}`}
+                        </div>
+                      ) : (
+                        <div className="hammer-tool-hint">Linked duck: none</div>
+                      )}
+                      {selectedBoundBrollInspectorState.needsAttention ? (
+                        <div className="hammer-tool-hint">
+                          Attention: {selectedBoundBrollInspectorState.attentionFlags.join(" ")}
+                        </div>
+                      ) : (
+                        <div className="hammer-tool-hint">Attention: none</div>
+                      )}
+                      {selectedBoundBrollInspectorState.bindingState === "resolved"
+                        && selectedBoundBrollInspectorState.lifecycle === "active" ? (
+                        <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => moveResolvedBrollBinding(selectedBoundBrollInspectorState.operationId, -0.5)}
+                          >
+                            Move -0.5s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveResolvedBrollBinding(selectedBoundBrollInspectorState.operationId, 0.5)}
+                          >
+                            Move +0.5s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => trimResolvedBrollBinding(selectedBoundBrollInspectorState.operationId, "start", 0.25)}
+                          >
+                            Trim In +0.25s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => trimResolvedBrollBinding(selectedBoundBrollInspectorState.operationId, "end", -0.25)}
+                          >
+                            Trim Out -0.25s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const replacement = sourceBrollItems.find(
+                                (item) => item.assetPath && item.assetPath !== selectedBoundBrollInspectorState.assetRef,
+                              )?.assetPath ?? null;
+                              if (!replacement) {
+                                setTranscriptTimingHint("Upload another b-roll asset before replacing this binding.");
+                                return;
+                              }
+                              replaceResolvedBrollBinding(selectedBoundBrollInspectorState.operationId, replacement);
+                            }}
+                          >
+                            Replace Asset
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => revertResolvedBrollBinding(selectedBoundBrollInspectorState.operationId)}
+                          >
+                            Revert Binding
+                          </button>
+                        </div>
+                      ) : null}
+                    </section>
+                  ) : (
+                    <div className="hammer-tool-hint">
+                      Select a resolved B-roll binding from Source Desk to inspect canonical linkage and attention state.
+                    </div>
+                  )}
                 </section>
               ) : null}
 
