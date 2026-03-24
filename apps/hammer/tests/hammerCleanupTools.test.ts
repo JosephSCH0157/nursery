@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { HammerTranscriptSegment } from "../../../packages/contracts/hammer/transcript.contract";
 import {
   previewSpeakerInterview,
+  previewSpeakerPanel,
   previewQuickClean,
   previewRemoveFillers,
   previewRemoveRetakes,
@@ -181,6 +182,32 @@ async function testSpeakerInterviewTightensRespondentOnly() {
   assert.equal(interruption?.is_disabled === true, true);
 }
 
+async function testSpeakerPanelSuppressesLowSignalCrossTalkDeterministically() {
+  const segments = [
+    s("a", 0, 1.0, "S1", "Let me frame this quickly."),
+    s("b", 1.0, 1.3, "S3", "yeah"),
+    s("c", 1.3, 2.2, "S1", "The main point is cadence."),
+    s("d", 2.2, 2.4, "S2", "mm-hmm"),
+    s("e", 2.4, 3.2, "S2", "I agree with that framing."),
+  ];
+  const options = {
+    hostSpeaker: "S1",
+    primarySpeakerBias: "balanced",
+    removeShortBackchannels: true,
+    suppressShortCrossTalk: true,
+    maxInterruptionSec: 0.8,
+  } as const;
+  const first = previewSpeakerPanel({ segments, options });
+  const second = previewSpeakerPanel({ segments, options });
+  assert.deepEqual(first, second, "Panel mode preview must be deterministic");
+  assert.equal(first.label, "Panel Mode");
+  assert.equal(first.metadata?.speakerPanel?.hostSpeaker, "S1");
+  assert.equal(first.metadata?.speakerPanel?.backchannelsRemoved, 2);
+  assert.equal(first.metadata?.speakerPanel?.turnsPreserved, 3);
+  assert.equal(first.resultSegments.find((segment) => segment.segment_id === "b")?.is_disabled === true, true);
+  assert.equal(first.resultSegments.find((segment) => segment.segment_id === "d")?.is_disabled === true, true);
+}
+
 async function run() {
   await testShortenGapsDeterministic();
   await testFillerRemovalDeterministic();
@@ -190,6 +217,7 @@ async function run() {
   await testTightenSelectionRejectsInlineSpeakerTagAsTextMutationRisk();
   await testSpeakerSoloSuppressesNonTargetDeterministically();
   await testSpeakerInterviewTightensRespondentOnly();
+  await testSpeakerPanelSuppressesLowSignalCrossTalkDeterministically();
   // eslint-disable-next-line no-console
   console.log("Hammer cleanup tools tests passed.");
 }

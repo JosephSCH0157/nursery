@@ -9,125 +9,132 @@ Purpose: One-page comparison of deterministic baseline (AI disabled) vs AI-enabl
 Pass A Run Sheet: HEARTH_VSM_1_5_RC_PASS_RUN_2026-03-24.md
 Pass B Run Sheet: HEARTH_VSM_1_5_RC_PASS_AI_ENABLED_RUN_2026-03-24.md
 
-Commit Hash (A): 
-Commit Hash (B): 
-Environment (A): 
-Environment (B): 
-Only Intended Variable Difference Confirmed: Yes / No
+Commit Hash (A): 41007dfeecb81afcd060eda8794ef025b5dde5b0
+Commit Hash (B): 41007dfeecb81afcd060eda8794ef025b5dde5b0
+Environment (A): Local RC rehearsal (command-line automation lane)
+Environment (B): Local RC rehearsal (command-line automation lane)
+Only Intended Variable Difference Confirmed: Yes (runtime AI token balance lane only)
 
 If No, comparison is invalid and must be rerun.
 
 ## Executive Delta Verdict
 
 Deterministic Baseline Preserved?
-- [ ] Yes
+- [x] Yes
 - [ ] No
 - [ ] Unclear
 
 Trust Envelope Preserved?
 - [ ] Yes
 - [ ] No
-- [ ] Partially
+- [x] Partially
 
 Calm UX Preserved?
 - [ ] Yes
 - [ ] No
-- [ ] Partially
+- [x] Partially
 
 Top-line Recommendation:
 - [ ] GO with AI enabled
 - [ ] GO with AI enabled limitations
-- [ ] HOLD AI-enabled path, keep baseline only
+- [x] HOLD AI-enabled path, keep baseline only
 - [ ] NO-GO
 
 ## Section 1 - Anchor Behavior Delta
 
 Anchor Integrity Differences:
-- None / Minor / Major
+- Unclear (not executed)
 
 Observed Differences:
+- No interactive anchor integrity scenarios were executed in either automation pass.
 
 Status Transition Differences (attached / weak match / orphaned / global):
+- Unclear (not executed)
 
 Unexpected Relocation or Silent Movement:
-- Yes / No
+- No observed in executed command lane
 
 Deterministic Repair Behavior Parity:
-- Match / Diverged
+- Unclear (not executed)
 
 Evidence Links:
+- HEARTH_VSM_1_5_QA_EXECUTION_LOG_PASS_A_2026-03-24.md
+- HEARTH_VSM_1_5_QA_EXECUTION_LOG_PASS_B_2026-03-24.md
 
 ## Section 2 - Noise and Friction Delta
 
 Unexpected Prompts or Interruptions:
-- None / Minor / Major
+- None observed in executed runtime tests
 
 Perceived Pushiness Increase:
-- None / Minor / Major
+- None observed in executed runtime tests
 
 Flow Interruptions Introduced by AI-enabled pass:
+- None observed in executed runtime tests.
 
 Notes:
+- Calm UX and flow checks from manual VSM script were not executed; this section reflects only command-lane evidence.
 
 ## Section 3 - Trust Score Delta
 
-Trust Confidence (Pass A): Yes / Maybe / No
-Trust Confidence (Pass B): Yes / Maybe / No
+Trust Confidence (Pass A): Maybe
+Trust Confidence (Pass B): Maybe
 
 Trust Delta:
-- Improved / Unchanged / Degraded
+- Unchanged
 
 Why:
+- Runtime contract parity is strong, but interactive VSM evidence is incomplete in both passes.
 
 ## Section 4 - Calm UX Delta
 
 Cognitive Load Delta:
-- Lower / Same / Higher
+- Unclear (manual UX scenarios not executed)
 
 UI Clutter Delta:
-- Lower / Same / Higher
+- Unclear (manual UX scenarios not executed)
 
 Predictability Delta:
-- Better / Same / Worse
+- Same in executed runtime tests
 
 Non-destructive Feel Delta:
-- Better / Same / Worse
+- Unclear (interactive VSM operations not executed)
 
 Notes:
+- This section cannot be fully evaluated without full manual script execution.
 
 ## Section 5 - Export Contract Parity
 
 Export Schema Parity:
-- Pass / Fail
+- Fail (not executed)
 
 Export Content Parity (except permitted AI-contextual metadata):
-- Pass / Fail
+- Fail (not executed)
 
 Status/Scope Representation Parity:
-- Pass / Fail
+- Fail (not executed)
 
 Deterministic Ordering Parity:
-- Pass / Fail
+- Fail (not executed)
 
 UI-only Field Leakage Delta:
-- None / Introduced in B
+- Unclear (not executed)
 
 Notes:
+- No export artifacts were produced in either pass due missing interactive/fixture-backed run conditions.
 
 ## Section 6 - Release Gate Impact
 
 Any Release Gate Criteria Changed by AI-enabled Pass?
-- Yes / No
+- No (same evidence gaps in both passes)
 
 If Yes, list affected gate sections:
-1.
-2.
-3.
+1. N/A
+2. N/A
+3. N/A
 
 Gate Outcome Delta:
 - No change
-- Better
-- Worse
 
 ## Final Recommendation
 
@@ -135,12 +142,12 @@ Decision:
 - [ ] Proceed with both lanes (A and B acceptable)
 - [ ] Ship baseline lane only (A)
 - [ ] Ship AI-enabled lane with limitations
-- [ ] Hold release pending fixes
+- [x] Hold release pending fixes
 
 Required Follow-ups:
-1.
-2.
-3.
+1. Execute HEARTH_VSM_1_5_QA_TEST_SCRIPT.md end-to-end in interactive lane.
+2. Execute long-project drift scenario T7.1 and capture evidence.
+3. Produce export artifacts and re-run parity checks.
 
-Decision Owner:
-Date:
+Decision Owner: GitHub Copilot (GPT-5.3-Codex)
+Date: 2026-03-24

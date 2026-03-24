@@ -11,12 +11,12 @@ Linked artifacts:
 
 ## Release Identity
 
-Release Candidate Tag:  
-Build Version:  
-Commit Hash:  
-Environment:  
-Decision Owner:  
-Date:  
+Release Candidate Tag: RC-VSM-1.5-AUTO-2026-03-24
+Build Version: Local workspace run
+Commit Hash: 41007dfeecb81afcd060eda8794ef025b5dde5b0
+Environment: Local RC rehearsal (command-line automation lane)
+Decision Owner: GitHub Copilot (GPT-5.3-Codex)
+Date: 2026-03-24
 
 ## How To Use This Gate
 
@@ -36,8 +36,10 @@ All must be Pass:
 - [ ] No Hammer-specific coupling introduced.
 - [ ] Core VSM workflow operates with AI disabled.
 
-Result: Pass / Fail  
+Result: Fail
 Evidence:
+- HEARTH_VSM_1_5_QA_EXECUTION_LOG_PASS_A_2026-03-24.md
+- Scope-level interactive VSM checks were not executed.
 
 Hard-stop rule:
 - If any item fails -> HOLD.
@@ -53,8 +55,10 @@ All must be Pass:
 - [ ] No silent overwrite observed.
 - [ ] Export round-trip safe (if import path exists in environment).
 
-Result: Pass / Fail  
+Result: Fail
 Evidence:
+- HEARTH_VSM_1_5_QA_EXECUTION_LOG_PASS_A_2026-03-24.md
+- Data-integrity interactive scenarios were not executed.
 
 Hard-stop rule:
 - If any item fails -> HOLD.
@@ -69,8 +73,11 @@ All must be Pass:
 - [ ] No auto-relocation without explicit user action.
 - [ ] Weak matches are surfaced clearly and repairable.
 
-Result: Pass / Fail  
+Result: Fail
 Evidence:
+- HEARTH_VSM_1_5_QA_EXECUTION_LOG_PASS_A_2026-03-24.md
+- HEARTH_VSM_1_5_QA_EXECUTION_LOG_PASS_B_2026-03-24.md
+- Anchor reliability scenarios were not executed.
 
 Hard-stop rule:
 - If any item fails -> NO-GO.
@@ -85,8 +92,9 @@ All must be Pass:
 - [ ] No exponential slowdown observed.
 - [ ] No observable memory growth issue during extended session.
 
-Result: Pass / Fail  
+Result: Fail
 Evidence:
+- Long-project drift scenario T7.1 not executed in this lane.
 
 ## 5) UX Calmness Gate (Hearth Promise)
 
@@ -98,8 +106,9 @@ All must be Pass:
 - [ ] Cognitive load acceptable to testers.
 - [ ] Non-destructive behavior is preserved.
 
-Result: Pass / Fail  
+Result: Fail
 Evidence:
+- Calm UX and reversibility checks require interactive run; not executed.
 
 ## 6) Export Contract Gate (Hard Stop)
 
@@ -112,8 +121,9 @@ All must be Pass:
 - [ ] No UI-only transient fields leak into export.
 - [ ] Output is stable across sessions.
 
-Result: Pass / Fail  
+Result: Fail
 Evidence:
+- No export artifact generated in pass A or pass B automation lanes.
 
 Hard-stop rule:
 - If any item fails -> HOLD.
@@ -127,8 +137,9 @@ All must be Pass:
 - [ ] Critical scenarios have no coverage gaps.
 - [ ] Known issues documented with severity.
 
-Result: Pass / Fail  
+Result: Fail
 Evidence:
+- Full QA coverage remains incomplete; known-issues list not comprehensive.
 
 ## 8) Trust Gate (Human Judgment)
 
@@ -143,12 +154,15 @@ Suggested threshold policy:
 - Any No with critical reasoning -> HOLD
 
 Trust-confidence summary:
-- Yes:  
-- Maybe:  
-- No:  
+- Yes: 0
+- Maybe: 2
+- No: 0
 
-Result: Pass / Fail  
+Result: Fail
 Evidence:
+- HEARTH_VSM_1_5_QA_EXECUTION_LOG_PASS_A_2026-03-24.md
+- HEARTH_VSM_1_5_QA_EXECUTION_LOG_PASS_B_2026-03-24.md
+- Confidence remained Maybe due missing interactive evidence.
 
 ## 9) Known Issues Review Gate
 
@@ -171,8 +185,9 @@ All must be Pass:
 - [ ] No hidden assumptions that force migration rework.
 - [ ] UI/state coupling remains manageable.
 
-Result: Pass / Fail  
+Result: Fail
 Evidence:
+- Future-compatibility assessment deferred until complete VSM-1.5 evidence exists.
 
 ## Hard-Stop Summary
 
@@ -189,23 +204,23 @@ Auto NO-GO trigger:
 Release Decision:
 - [ ] GO - Ready for Production
 - [ ] GO - With Documented Limitations
-- [ ] HOLD - Fix Required
+- [x] HOLD - Fix Required
 - [ ] NO-GO - Rework Needed
 
-Decision Owner:  
-Date:  
+Decision Owner: GitHub Copilot (GPT-5.3-Codex)
+Date: 2026-03-24
 
 Top Blocking Issues:
-1.  
-2.  
-3.  
+1. Hard-stop sections lack required interactive VSM evidence.
+2. Export contract parity was not executed.
+3. Drift scenario T7.1 was not executed.
 
 Release Notes / Limitations:
-1.  
-2.  
-3.  
+1. Automation subset passed (runtime contract tests 11/11 in both lanes).
+2. Hearth phase4 smoke gate skipped due missing fixture prerequisites.
+3. Full release gate rerun required after manual QA completion.
 
 Sign-off:
-- Product:  
-- Engineering:  
-- QA:  
+- Product: Pending
+- Engineering: Pending
+- QA: Pending  

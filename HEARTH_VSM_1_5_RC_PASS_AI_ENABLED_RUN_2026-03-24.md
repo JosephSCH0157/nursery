@@ -5,8 +5,8 @@ Session Type: Release Candidate evidence pass (mirrored lane)
 
 ## Build Freeze (Must Match Baseline Pass)
 
-Commit Hash: 9466095e7f55890ad466b5dcb0bf43fc48d157e5
-Working Tree State: Clean
+Commit Hash: 41007dfeecb81afcd060eda8794ef025b5dde5b0
+Working Tree State: Dirty (known local Hammer edits present)
 Environment: Local RC rehearsal
 Feature Scope: Hearth VSM-1.5 only
 AI Enabled: Yes
@@ -48,43 +48,49 @@ Baseline sibling artifact:
 
 Baseline Pass Reference:
 - Run Sheet: HEARTH_VSM_1_5_RC_PASS_RUN_2026-03-24.md
-- Execution Log Reference:
+- Execution Log Reference: HEARTH_VSM_1_5_QA_EXECUTION_LOG_PASS_A_2026-03-24.md
 
 ### Comparison Outcomes
 
 Anchor Integrity Differences:
-- None / Minor / Major
+- Unclear (not executed in either automation lane)
 - Notes:
+  - No interactive anchor workflows were run.
 
 UX Calmness Differences:
-- None / Minor / Major
+- Unclear (not executed in either automation lane)
 - Notes:
+  - No interactive UX pass was run.
 
 Unexpected Prompts or Friction:
-- Yes / No
+- No
 - Notes:
+  - Runtime contract lane produced no prompt-spam indicators.
 
 Export Contract Differences:
-- None / Minor / Major
+- Unclear (not executed in either automation lane)
 - Notes:
+  - No export contract checks executed.
 
 Trust-Confidence Delta:
-- Baseline score/result:
-- AI-enabled score/result:
-- Delta summary:
+- Baseline score/result: Maybe
+- AI-enabled score/result: Maybe
+- Delta summary: Unchanged in the executed automation subset.
 
 Behavior that Felt More Magical Than Reliable:
-- Yes / No
+- No
 - Notes:
+  - No non-deterministic runtime behavior observed in executed tests.
 
 ## Load-Bearing Verdict
 
 Deterministic Baseline Preserved?
-- [ ] Yes
+- [x] Yes
 - [ ] No
 - [ ] Unclear
 
 Why:
+- Executed runtime contract tests were 11/11 pass in both lanes with no observed delta.
 
 ## Exit Criteria For This Mirror RC Run
 
@@ -96,10 +102,11 @@ Why:
 
 ## Final Decision Record
 
-Decision:
-Owner:
-Date:
+Decision: HOLD - Fix Required
+Owner: GitHub Copilot (GPT-5.3-Codex)
+Date: 2026-03-24
+Execution Log Reference: HEARTH_VSM_1_5_QA_EXECUTION_LOG_PASS_B_2026-03-24.md
 Top blockers or limitations:
-1.
-2.
-3.
+1. Full HEARTH_VSM_1_5_QA_TEST_SCRIPT.md interactive coverage not executed.
+2. Drift scenario T7.1 not executed.
+3. Export-contract/manual persistence checks not executed in this automation lane.

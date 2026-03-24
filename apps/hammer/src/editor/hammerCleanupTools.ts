@@ -44,6 +44,14 @@ export type SpeakerMonologueOptions = {
   compressGaps: boolean;
 };
 
+export type SpeakerPanelOptions = {
+  hostSpeaker: string;
+  primarySpeakerBias: "none" | "balanced" | "host_favoring";
+  removeShortBackchannels: boolean;
+  suppressShortCrossTalk: boolean;
+  maxInterruptionSec: number;
+};
+
 export type CleanupSuggestionType =
   | "gap_trim"
   | "filler_remove"
@@ -113,6 +121,19 @@ export type HammerCleanupPreview = {
         backchannelsRemoved: number;
         interruptionsSuppressed: number;
         sameSpeakerRunsTightened: number;
+        estimatedDurationSavedSec: number;
+        confidenceLabel: "High" | "Medium" | "Low";
+        confidenceScore: number;
+        safetyNote: string;
+      };
+      speakerPanel?: {
+        intent: string;
+        participantScope: string;
+        hostSpeaker: string;
+        primarySpeakerBias: "none" | "balanced" | "host_favoring";
+        backchannelsRemoved: number;
+        crossTalkSegmentsSuppressed: number;
+        turnsPreserved: number;
         estimatedDurationSavedSec: number;
         confidenceLabel: "High" | "Medium" | "Low";
         confidenceScore: number;
@@ -1055,6 +1076,116 @@ export function previewSpeakerInterview(args: {
         confidenceLabel,
         confidenceScore,
         safetyNote: "Source transcript and media remain recoverable. Undo restores the prior state in one step.",
+      },
+    },
+  };
+}
+
+function isPanelBackchannel(text: string): boolean {
+  const normalized = normalizeTextSpacing(text);
+  if (!normalized) return false;
+  if (tokenCount(normalized) > 4) return false;
+  return INTERVIEW_BACKCHANNEL_RE.test(normalized);
+}
+
+export function previewSpeakerPanel(args: {
+  segments: HammerTranscriptSegment[];
+  options: SpeakerPanelOptions;
+  segmentIds?: string[];
+}): HammerCleanupPreview {
+  const sorted = cloneSegments(args.segments).sort((a, b) => a.start_sec - b.start_sec);
+  const scopeSet = args.segmentIds && args.segmentIds.length > 0 ? new Set(args.segmentIds) : null;
+  const scopeLabel = scopeSet
+    ? `${scopeSet.size} selected segment${scopeSet.size === 1 ? "" : "s"}`
+    : "full transcript";
+  const suggestions: HammerCleanupSuggestion[] = [];
+  const changed = new Set<string>();
+  const resultSegments = sorted.map((segment) => ({ ...segment }));
+  let backchannelsRemoved = 0;
+  let crossTalkSegmentsSuppressed = 0;
+  let estimatedDurationSavedSec = 0;
+
+  for (let index = 0; index < resultSegments.length; index += 1) {
+    const segment = resultSegments[index];
+    if (scopeSet && !scopeSet.has(segment.segment_id)) continue;
+    if (segment.is_disabled === true) continue;
+
+    const durationSec = roundToTenth(Math.max(0.1, segment.end_sec - segment.start_sec));
+    const previous = resultSegments[index - 1];
+    const next = resultSegments[index + 1];
+    const sameSpeakerEnvelope = Boolean(
+      previous
+      && next
+      && previous.speaker === next.speaker
+      && previous.speaker !== segment.speaker,
+    );
+    const shortInterruption = sameSpeakerEnvelope
+      && durationSec <= Math.max(0.2, args.options.maxInterruptionSec);
+    const isBackchannel = args.options.removeShortBackchannels && isPanelBackchannel(segment.text);
+    const speakerIsHost = segment.speaker === args.options.hostSpeaker;
+    const preserveByBias = args.options.primarySpeakerBias === "host_favoring" && speakerIsHost;
+
+    let shouldSuppress = false;
+    let reason = "";
+    let confidence = 0.86;
+    if (isBackchannel && !preserveByBias) {
+      shouldSuppress = true;
+      reason = "Removed low-signal backchannel in panel flow.";
+      confidence = 0.91;
+      backchannelsRemoved += 1;
+    } else if (args.options.suppressShortCrossTalk && shortInterruption && !preserveByBias) {
+      shouldSuppress = true;
+      reason = "Suppressed short cross-talk interruption between adjacent same-speaker turns.";
+      confidence = args.options.primarySpeakerBias === "none" ? 0.84 : 0.88;
+      crossTalkSegmentsSuppressed += 1;
+    }
+
+    if (!shouldSuppress) continue;
+    segment.is_disabled = true;
+    changed.add(segment.segment_id);
+    estimatedDurationSavedSec = roundToTenth(estimatedDurationSavedSec + durationSec);
+    suggestions.push({
+      id: `panel:${segment.segment_id}:${index}`,
+      type: "fragment_merge",
+      segmentId: segment.segment_id,
+      description: reason,
+      confidence,
+      timeSavedSec: durationSec,
+    });
+  }
+
+  const turnsPreserved = resultSegments.filter((segment) => segment.is_disabled !== true).length;
+  const confidencePenalty = Math.min(
+    0.24,
+    (backchannelsRemoved * 0.015)
+      + (crossTalkSegmentsSuppressed * 0.018)
+      + (args.options.primarySpeakerBias === "none" ? 0.06 : 0.03),
+  );
+  const confidenceScore = Number(Math.max(0.66, 0.93 - confidencePenalty).toFixed(2));
+  const confidenceLabel = confidenceScore >= 0.85 ? "High" : confidenceScore >= 0.72 ? "Medium" : "Low";
+
+  return {
+    label: "Panel Mode",
+    resultSegments,
+    suggestions,
+    summary: {
+      changedSegments: changed.size,
+      removedSegments: backchannelsRemoved + crossTalkSegmentsSuppressed,
+      timeSavedSec: estimatedDurationSavedSec,
+    },
+    metadata: {
+      speakerPanel: {
+        intent: "Preserve panel turn structure while reducing low-signal backchannels and short cross-talk clutter.",
+        participantScope: scopeLabel,
+        hostSpeaker: args.options.hostSpeaker,
+        primarySpeakerBias: args.options.primarySpeakerBias,
+        backchannelsRemoved,
+        crossTalkSegmentsSuppressed,
+        turnsPreserved,
+        estimatedDurationSavedSec,
+        confidenceLabel,
+        confidenceScore,
+        safetyNote: "Preserves speaker structure while reducing low-signal overlap and backchannels. Source transcript and media remain recoverable.",
       },
     },
   };

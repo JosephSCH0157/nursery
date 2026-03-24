@@ -5,11 +5,11 @@ Session Type: Release Candidate evidence pass
 
 ## Build Freeze
 
-Commit Hash: 9466095e7f55890ad466b5dcb0bf43fc48d157e5
-Working Tree State: Clean
+Commit Hash: 41007dfeecb81afcd060eda8794ef025b5dde5b0
+Working Tree State: Dirty (known local Hammer edits present)
 Environment: Local RC rehearsal
 Feature Scope: Hearth VSM-1.5 only
-AI Enabled: No (recommended first pass)
+AI Enabled: No (runtime constrained lane)
 
 Rule:
 - If commit hash, environment, or AI state changes during run, stop and restart with a new run sheet.
@@ -50,10 +50,11 @@ Rule:
 
 ## Final Decision Record
 
-Decision: 
-Owner: 
-Date: 
+Decision: HOLD - Fix Required
+Owner: GitHub Copilot (GPT-5.3-Codex)
+Date: 2026-03-24
+Execution Log Reference: HEARTH_VSM_1_5_QA_EXECUTION_LOG_PASS_A_2026-03-24.md
 Top blockers or limitations:
-1. 
-2. 
-3. 
+1. Full HEARTH_VSM_1_5_QA_TEST_SCRIPT.md interactive coverage not executed.
+2. Drift scenario T7.1 not executed.
+3. Export-contract/manual persistence checks not executed in this automation lane.

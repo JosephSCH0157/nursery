@@ -46,7 +46,8 @@ export type HammerDerivedTextMacroKind =
   | "retake_tightening"
   | "speaker_solo"
   | "speaker_interview"
-  | "speaker_monologue";
+  | "speaker_monologue"
+  | "speaker_panel";
 
 export type HammerDerivedTextOperationKind =
   | "filler_removed"

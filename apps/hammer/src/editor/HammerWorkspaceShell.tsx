@@ -55,6 +55,7 @@ import {
   previewRemoveFillers,
   previewRemoveRetakes,
   previewSpeakerMonologue,
+  previewSpeakerPanel,
   previewSpeakerInterview,
   previewSpeakerSolo,
   previewShortenGaps,
@@ -64,6 +65,7 @@ import {
   type FillerCleanupOptions,
   type GapCleanupOptions,
   type SpeakerMonologueOptions,
+  type SpeakerPanelOptions,
   type SpeakerInterviewOptions,
   type SpeakerSoloOptions,
 } from "./hammerCleanupTools";
@@ -537,6 +539,12 @@ function formatOutputLayerLabelFromRecipeRef(recipeRef: string): string {
     const speaker = recipe.split(":", 2)[1]?.trim().toUpperCase() || "Speaker";
     return `Monologue Cleanup - ${speaker}`;
   }
+  if (recipe.startsWith("speaker_panel:")) {
+    const bias = recipe.split(":", 2)[1]?.trim();
+    if (bias === "host_favoring") return "Panel Mode - Host favoring";
+    if (bias === "none") return "Panel Mode - No bias";
+    return "Panel Mode";
+  }
   return `${recipe} output`;
 }
 
@@ -936,6 +944,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     maxInterruptionSec: 0.8,
     tightenTargetRuns: true,
     compressGaps: false,
+  }));
+  const [speakerPanelOptions, setSpeakerPanelOptions] = useState<SpeakerPanelOptions>(() => ({
+    hostSpeaker: transcriptSegments[0]?.speaker ?? "S1",
+    primarySpeakerBias: "balanced",
+    removeShortBackchannels: true,
+    suppressShortCrossTalk: true,
+    maxInterruptionSec: 0.8,
   }));
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
@@ -1398,10 +1413,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   ) ?? null;
   const outputSelectionSummary = selectedOutputLayer
     ? formatOutputLayerLabel(selectedOutputLayer)
-    : "Raw transcript output";
+    : "Raw transcript";
   const viewingModeSummary = activeOutputLayer
     ? `Derived - ${formatOutputLayerLabel(activeOutputLayer)}`
-    : "Raw";
+    : "Raw transcript";
   const captionSourceLabel = selectedOutputLayer
     ? formatOutputLayerLabel(selectedOutputLayer)
     : "Raw transcript";
@@ -1714,6 +1729,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       };
     });
   }, [speakerOptions]);
+
+  useEffect(() => {
+    if (speakerOptions.length === 0) return;
+    if (speakerOptions.includes(speakerPanelOptions.hostSpeaker)) return;
+    setSpeakerPanelOptions((current) => ({
+      ...current,
+      hostSpeaker: speakerOptions[0] ?? "S1",
+    }));
+  }, [speakerOptions, speakerPanelOptions.hostSpeaker]);
 
   useEffect(() => {
     let active = true;
@@ -2949,7 +2973,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const isSpeakerSoloApply = Boolean(preview.metadata?.speakerSolo);
     const isSpeakerInterviewApply = Boolean(preview.metadata?.speakerInterview);
     const isSpeakerMonologueApply = Boolean(preview.metadata?.speakerMonologue);
-    if ((isSpeakerSoloApply || isSpeakerInterviewApply || isSpeakerMonologueApply) && workspaceStructuredTranscript) {
+    const isSpeakerPanelApply = Boolean(preview.metadata?.speakerPanel);
+    if ((isSpeakerSoloApply || isSpeakerInterviewApply || isSpeakerMonologueApply || isSpeakerPanelApply) && workspaceStructuredTranscript) {
       const nextLayerChanges = editableTranscriptSegments
         .map((segment) => {
           const nextSegment = preview.resultSegments.find((item) => item.segment_id === segment.segment_id) ?? null;
@@ -2977,6 +3002,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             ? "Solo Mode found no non-target segments to suppress."
             : isSpeakerInterviewApply
             ? "Interview Mode found no respondent changes to apply."
+            : isSpeakerPanelApply
+            ? "Panel Mode found no low-signal cross-talk or backchannels to suppress."
             : "Monologue Cleanup found no qualifying interruptions or target-speaker cleanup to apply.",
         );
         return;
@@ -2987,12 +3014,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         ? `speaker_solo:${preview.metadata?.speakerSolo?.targetSpeaker.trim().toLowerCase() || "speaker"}`
         : isSpeakerInterviewApply
         ? `speaker_interview:${preview.metadata?.speakerInterview?.hostSpeaker.trim().toLowerCase() || "host"}->${preview.metadata?.speakerInterview?.respondentSpeaker.trim().toLowerCase() || "guest"}`
+        : isSpeakerPanelApply
+        ? `speaker_panel:${preview.metadata?.speakerPanel?.primarySpeakerBias ?? "balanced"}`
         : `speaker_monologue:${preview.metadata?.speakerMonologue?.targetSpeaker.trim().toLowerCase() || "speaker"}`;
       const layerLabel = formatOutputLayerLabelFromRecipeRef(recipeRef);
       const macroKind = isSpeakerSoloApply
         ? "speaker_solo" as const
         : isSpeakerInterviewApply
         ? "speaker_interview" as const
+        : isSpeakerPanelApply
+        ? "speaker_panel" as const
         : "speaker_monologue" as const;
       const layer = createHammerDerivedTextLayer({
         transcriptId: workspaceStructuredTranscript.transcript_id,
@@ -3191,7 +3222,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     applyHistoryMutation({
       label: targetLayer
         ? `Set export output to ${formatOutputLayerLabel(targetLayer)}`
-        : "Set export output to raw transcript",
+        : "Set export output to Raw transcript",
       kind: "output_selection",
       toolId: "export",
       immediatePersist: true,
@@ -3216,10 +3247,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const targetLayer = layerId
       ? listHammerDerivedTextLayers(withActiveLayer, { includeDiscarded: false }).find((layer) => layer.layer_id === layerId) ?? null
       : null;
-    const layerLabel = targetLayer ? formatOutputLayerLabel(targetLayer) : "Raw";
+    const layerLabel = targetLayer ? formatOutputLayerLabel(targetLayer) : "Raw transcript";
 
     const historyEntry = applyHistoryMutation({
-      label: targetLayer ? `Switch viewing layer to ${layerLabel}` : "Switch viewing layer to Raw",
+      label: targetLayer ? `Switch viewing layer to ${layerLabel}` : "Switch viewing layer to Raw transcript",
       kind: "editor_state_change",
       toolId: "polish",
       immediatePersist: true,
@@ -4276,7 +4307,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     }}
                     disabled={!workspaceStructuredTranscript}
                   >
-                    <option value="__raw__">Raw</option>
+                    <option value="__raw__">Raw transcript</option>
                     {outputLayerCandidates.map((layer) => (
                       <option key={layer.layer_id} value={layer.layer_id}>
                         {formatOutputLayerLabel(layer)}
@@ -5494,6 +5525,112 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </button>
                   </section>
 
+                  <section className="hammer-cleanup-tool">
+                    <div className="hammer-cleanup-tool__head">
+                      <strong>Panel Mode</strong>
+                      <span>
+                        Intent: Keep multi-speaker panel flow readable by suppressing low-signal backchannels and short cross-talk without rewriting speaker structure.
+                      </span>
+                    </div>
+                    <label className="hammer-tool-field">
+                      <span>Host / moderator speaker</span>
+                      <select
+                        value={speakerPanelOptions.hostSpeaker}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerPanelOptions((current) => ({
+                            ...current,
+                            hostSpeaker: event.target.value,
+                          }));
+                        }}
+                        disabled={speakerOptions.length === 0}
+                      >
+                        {speakerOptions.length > 0 ? speakerOptions.map((speaker) => (
+                          <option key={`panel-host-${speaker}`} value={speaker}>{speaker}</option>
+                        )) : (
+                          <option value="">No speakers</option>
+                        )}
+                      </select>
+                    </label>
+                    <label className="hammer-tool-field">
+                      <span>Primary speaker bias</span>
+                      <select
+                        value={speakerPanelOptions.primarySpeakerBias}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerPanelOptions((current) => ({
+                            ...current,
+                            primarySpeakerBias: event.target.value as SpeakerPanelOptions["primarySpeakerBias"],
+                          }));
+                        }}
+                      >
+                        <option value="none">None</option>
+                        <option value="balanced">Balanced</option>
+                        <option value="host_favoring">Host favoring</option>
+                      </select>
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={speakerPanelOptions.removeShortBackchannels}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerPanelOptions((current) => ({
+                            ...current,
+                            removeShortBackchannels: event.target.checked,
+                          }));
+                        }}
+                      />
+                      <span>Remove short backchannels</span>
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={speakerPanelOptions.suppressShortCrossTalk}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerPanelOptions((current) => ({
+                            ...current,
+                            suppressShortCrossTalk: event.target.checked,
+                          }));
+                        }}
+                      />
+                      <span>Suppress short cross-talk interruptions</span>
+                    </label>
+                    <label className="hammer-tool-field">
+                      <span>Max interruption (sec)</span>
+                      <input
+                        type="number"
+                        min={0.2}
+                        max={5}
+                        step={0.1}
+                        value={speakerPanelOptions.maxInterruptionSec}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerPanelOptions((current) => ({
+                            ...current,
+                            maxInterruptionSec: Math.max(0.2, Number(event.target.value) || 0.8),
+                          }));
+                        }}
+                        disabled={!speakerPanelOptions.suppressShortCrossTalk}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("tool-focus");
+                        setCleanupPreview(previewSpeakerPanel({
+                          segments: editableTranscriptSegments,
+                          options: speakerPanelOptions,
+                          segmentIds: hasTranscriptSelection ? transcriptSelectionRange.segmentIds : undefined,
+                        }));
+                      }}
+                      disabled={!speakerPanelOptions.hostSpeaker}
+                    >
+                      Preview Panel Mode
+                    </button>
+                  </section>
+
                   <section className="hammer-cleanup-tool hammer-cleanup-tool--quick">
                     <div className="hammer-cleanup-tool__head">
                       <strong>Quick Clean</strong>
@@ -5620,6 +5757,31 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           </div>
                           <div className="hammer-tighten-preview__safety">
                             {cleanupPreview.metadata.speakerMonologue.safetyNote}
+                          </div>
+                        </section>
+                      ) : null}
+                      {cleanupPreview.metadata?.speakerPanel ? (
+                        <section className="hammer-tighten-preview" aria-label="Panel mode preview">
+                          <div className="hammer-tighten-preview__intent">
+                            <strong>Intent</strong>
+                            <span>{cleanupPreview.metadata.speakerPanel.intent}</span>
+                          </div>
+                          <div className="hammer-tighten-preview__meta">
+                            <span>Participant scope: {cleanupPreview.metadata.speakerPanel.participantScope}</span>
+                            <span>Host/moderator: {cleanupPreview.metadata.speakerPanel.hostSpeaker}</span>
+                            <span>Bias: {cleanupPreview.metadata.speakerPanel.primarySpeakerBias.replace(/_/g, " ")}</span>
+                            <span>Backchannels removed: {cleanupPreview.metadata.speakerPanel.backchannelsRemoved}</span>
+                            <span>Cross-talk suppressed: {cleanupPreview.metadata.speakerPanel.crossTalkSegmentsSuppressed}</span>
+                            <span>Turns preserved: {cleanupPreview.metadata.speakerPanel.turnsPreserved}</span>
+                            <span>Estimated time saved: {cleanupPreview.metadata.speakerPanel.estimatedDurationSavedSec.toFixed(1)} s</span>
+                            <span>
+                              Confidence: {cleanupPreview.metadata.speakerPanel.confidenceLabel}
+                              {" "}
+                              ({Math.round(cleanupPreview.metadata.speakerPanel.confidenceScore * 100)}%)
+                            </span>
+                          </div>
+                          <div className="hammer-tighten-preview__safety">
+                            {cleanupPreview.metadata.speakerPanel.safetyNote}
                           </div>
                         </section>
                       ) : null}

@@ -191,6 +191,47 @@ function test_interview_mode_summary_metadata() {
   assert.equal(summary.notes.includes("Respondent: S2"), true);
 }
 
+function test_panel_mode_summary_metadata() {
+  const panelPreview: HammerCleanupPreview = {
+    label: "Panel Mode",
+    resultSegments: [],
+    suggestions: [
+      {
+        id: "panel-1",
+        type: "fragment_merge",
+        segmentId: "s3",
+        description: "Suppressed short cross-talk interruption between adjacent same-speaker turns.",
+        confidence: 0.87,
+        timeSavedSec: 0.3,
+      },
+    ],
+    summary: {
+      changedSegments: 1,
+      removedSegments: 1,
+      timeSavedSec: 0.3,
+    },
+    metadata: {
+      speakerPanel: {
+        intent: "Preserve panel turn structure while reducing low-signal backchannels and short cross-talk clutter.",
+        participantScope: "full transcript",
+        hostSpeaker: "S1",
+        primarySpeakerBias: "balanced",
+        backchannelsRemoved: 1,
+        crossTalkSegmentsSuppressed: 1,
+        turnsPreserved: 8,
+        estimatedDurationSavedSec: 0.3,
+        confidenceLabel: "High",
+        confidenceScore: 0.88,
+        safetyNote: "Preserves speaker structure while reducing low-signal overlap and backchannels. Source transcript and media remain recoverable.",
+      },
+    },
+  };
+  const summary = buildPolishResultSummaryFromCleanupPreview(panelPreview);
+  assert.equal(summary.tool, "panel_mode");
+  assert.equal(summary.notes.includes("Host: S1"), true);
+  assert.equal(summary.notes.includes("Cross-talk suppressed: 1"), true);
+}
+
 function run() {
   test_basic_summary_shape();
   test_quick_clean_sequence_is_disclosed();
@@ -198,6 +239,7 @@ function run() {
   test_tighten_selection_summary_metadata();
   test_solo_mode_summary_metadata();
   test_interview_mode_summary_metadata();
+  test_panel_mode_summary_metadata();
   // eslint-disable-next-line no-console
   console.log("Hammer polish result summary tests passed.");
 }
