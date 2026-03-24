@@ -187,6 +187,11 @@ export function buildHammerRenderAssembly(args: {
   canonicalGraph: HammerEditorialAuthorityGraph;
   runtimeCapabilities: HammerRenderRuntimeCapabilities;
 }): HammerRenderAssemblyResult {
+  const activeOperationIds = new Set(
+    args.canonicalGraph.operations
+      .filter((operation) => operation.lifecycle === "active")
+      .map((operation) => operation.operation_id),
+  );
   const operations = args.canonicalGraph.operations
     .filter((operation) => operation.lifecycle === "active")
     .sort((left, right) => left.sequence - right.sequence)
@@ -203,8 +208,14 @@ export function buildHammerRenderAssembly(args: {
       const handoffPosture = aggregatePosture([baseline.handoff_posture, explicitHandoff]);
       const unresolvedBroll = operation.instruction.type === "insert_broll"
         && operation.instruction.asset_binding_state === "unresolved";
+      const orphanedLinkedDuck = operation.instruction.type === "audio_duck"
+        && Boolean(operation.instruction.linked_broll_operation_id)
+        && !activeOperationIds.has(operation.instruction.linked_broll_operation_id ?? "");
       const unresolvedReasonCodes: HammerEditorialDegradationReasonCode[] = unresolvedBroll
         ? ["preview_not_supported", "handoff_deferred"]
+        : [];
+      const orphanedDuckReasonCodes: HammerEditorialDegradationReasonCode[] = orphanedLinkedDuck
+        ? ["operation_conflict"]
         : [];
       const reasonCodes = [
         ...operation.capability_state.reason_codes,
@@ -212,16 +223,17 @@ export function buildHammerRenderAssembly(args: {
         ...operation.truth_posture.export.reason_codes,
         ...operation.truth_posture.handoff.reason_codes,
         ...unresolvedReasonCodes,
+        ...orphanedDuckReasonCodes,
       ];
       return {
         operation_id: operation.operation_id,
         instruction_id: operation.instruction.instruction_id,
         type: operation.instruction.type,
         lifecycle: operation.lifecycle,
-        preview_posture: unresolvedBroll ? "unavailable" : previewPosture,
-        export_posture: unresolvedBroll ? "degraded" : exportPosture,
-        handoff_posture: unresolvedBroll ? "degraded" : handoffPosture,
-        capability: unresolvedBroll ? "degraded" : operation.capability_state.capability,
+        preview_posture: unresolvedBroll ? "unavailable" : orphanedLinkedDuck ? "degraded" : previewPosture,
+        export_posture: unresolvedBroll ? "degraded" : orphanedLinkedDuck ? "degraded" : exportPosture,
+        handoff_posture: unresolvedBroll ? "degraded" : orphanedLinkedDuck ? "degraded" : handoffPosture,
+        capability: unresolvedBroll || orphanedLinkedDuck ? "degraded" : operation.capability_state.capability,
         reason_codes: Array.from(new Set(reasonCodes)),
       } satisfies HammerRenderAssemblyOperationResolution;
     });

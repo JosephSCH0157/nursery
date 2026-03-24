@@ -118,9 +118,49 @@ async function testUnresolvedBrollIsNeverTreatedAsBoundMediaTruth() {
   assert.equal(assembly.handoff.posture, "degraded");
 }
 
+async function testOrphanedLinkedDuckIsExplicitlyDegraded() {
+  const graph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_render_03",
+      version: "1",
+      created_at: "2026-03-24T12:20:00.000Z",
+      updated_at: "2026-03-24T12:20:00.000Z",
+      source_transcript_id: "transcript_render_03",
+      preview_mode: "edit-aware",
+      instructions: [
+        {
+          instruction_id: "ins_duck_orphaned",
+          segment_id: "seg_20",
+          type: "audio_duck",
+          start_sec: 5,
+          end_sec: 7,
+          duck_gain_db: -9,
+          linked_broll_operation_id: "op:missing-broll",
+          created_at: "2026-03-24T12:20:00.000Z",
+        },
+      ],
+    },
+    workspaceId: "ws_render",
+    workpieceId: "wp_render",
+    sessionId: "session_render",
+  });
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph: graph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: ["audio_duck"],
+      export_supported_operation_types: ["audio_duck"],
+      handoff_supported_operation_types: ["audio_duck"],
+    },
+  });
+  assert.equal(assembly.preview.posture, "degraded");
+  assert.equal(assembly.operations[0]?.capability, "degraded");
+  assert.equal(assembly.operations[0]?.reason_codes.includes("operation_conflict"), true);
+}
+
 async function run() {
   await testAssemblyDeterminismAndPosture();
   await testUnresolvedBrollIsNeverTreatedAsBoundMediaTruth();
+  await testOrphanedLinkedDuckIsExplicitlyDegraded();
   // eslint-disable-next-line no-console
   console.log("Hammer render assembly tests passed.");
 }

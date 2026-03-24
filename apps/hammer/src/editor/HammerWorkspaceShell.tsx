@@ -172,6 +172,7 @@ import {
   remapResolvedBrollOperationsForRippleDelete,
   resolveInsertBrollSuggestionInGraph,
   setAuthorityOperationLifecycle,
+  synchronizeLinkedAudioDuckForBrollOperation,
   updateResolvedInsertBrollOperationInGraph,
 } from "./hammerAuthorityOps";
 import {
@@ -3109,6 +3110,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               adjustedOperationIds: [],
               removedOperationIds: [],
               attentionOperationIds: [],
+              adjustedDuckOperationIds: [],
+              removedDuckOperationIds: [],
+              orphanedDuckOperationIds: [],
             },
           };
 
@@ -3528,14 +3532,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           assetBindingState: "resolved",
           duckPreference: "auto",
         });
+        const withBroll = appendAuthorityInstructionForState(before, brollInstruction);
+        const brollOperationId = withBroll.operations.at(-1)?.operation_id ?? null;
         const duckInstruction = createAudioDuckInstruction({
           segmentId: anchorSegment.segment_id,
           startSec: nextStart,
           endSec: nextEnd,
           duckGainDb: -9,
+          linkedBrollOperationId: brollOperationId,
         });
-        const withBroll = appendAuthorityInstructionForState(before, brollInstruction);
-        const brollOperationId = withBroll.operations.at(-1)?.operation_id ?? null;
         const withDuck = appendAuthorityInstructionToGraph({
           graph: withBroll,
           instruction: duckInstruction,
@@ -3547,11 +3552,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             sourceTranscriptId: transcriptSourceId,
           },
         });
+        const duckOperationId = withDuck.operations.at(-1)?.operation_id ?? null;
+        const withLinkedDuck = brollOperationId
+          ? (updateResolvedInsertBrollOperationInGraph({
+            graph: withDuck,
+            operationId: brollOperationId,
+            changes: {
+              companion_audio_duck_operation_id: duckOperationId,
+            },
+          }) ?? withDuck)
+          : withDuck;
 
         brollPlacement.authority_operation_id = brollOperationId ?? undefined;
         return {
           ...before,
-          editorialAuthorityGraph: withDuck,
+          editorialAuthorityGraph: withLinkedDuck,
           selectedSegmentId: anchorSegment.segment_id,
           visualPlacements: {
             ...current,
@@ -3632,6 +3647,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               startSec,
               endSec,
               duckGainDb: -9,
+              linkedBrollOperationId: args.operationId,
             }),
             fallback: {
               graphId: `${launchContext.workpiece_id}:authority`,
@@ -3641,6 +3657,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               sourceTranscriptId: transcriptSourceId,
             },
           });
+          const duckOperationId = nextGraph.operations.at(-1)?.operation_id ?? null;
+          nextGraph = updateResolvedInsertBrollOperationInGraph({
+            graph: nextGraph,
+            operationId: args.operationId,
+            changes: {
+              companion_audio_duck_operation_id: duckOperationId,
+            },
+          }) ?? nextGraph;
         }
 
         const brollPlacement: HammerVisualPlacementRecord = {
@@ -3728,6 +3752,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           },
         });
         if (!nextGraph) return before;
+        const synchronizedGraph = synchronizeLinkedAudioDuckForBrollOperation({
+          graph: nextGraph,
+          brollOperationId: operationId,
+        }) ?? nextGraph;
         const nextPlacements = current.placements.map((placement) => {
           if (placement.authority_operation_id !== operationId) return placement;
           return {
@@ -3738,7 +3766,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         });
         return {
           ...before,
-          editorialAuthorityGraph: nextGraph,
+          editorialAuthorityGraph: synchronizedGraph,
           visualPlacements: {
             ...current,
             placements: nextPlacements,
@@ -3785,6 +3813,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           },
         });
         if (!nextGraph) return before;
+        const synchronizedGraph = synchronizeLinkedAudioDuckForBrollOperation({
+          graph: nextGraph,
+          brollOperationId: operationId,
+        }) ?? nextGraph;
         const nextPlacements = current.placements.map((placement) => {
           if (placement.authority_operation_id !== operationId) return placement;
           return {
@@ -3795,7 +3827,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         });
         return {
           ...before,
-          editorialAuthorityGraph: nextGraph,
+          editorialAuthorityGraph: synchronizedGraph,
           visualPlacements: {
             ...current,
             placements: nextPlacements,

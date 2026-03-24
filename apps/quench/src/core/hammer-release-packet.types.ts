@@ -85,6 +85,16 @@ export interface HammerQuenchReleasePacketManifest {
       removed_binding_operation_ids: string[];
       attention_binding_operation_ids: string[];
     };
+    duck_linkage_summary: {
+      linked_duck_bindings: Array<{
+        operation_id: string;
+        linked_broll_operation_id: string;
+        start_sec: number;
+        end_sec: number;
+      }>;
+      orphaned_duck_operation_ids: string[];
+      superseded_duck_operation_ids: string[];
+    };
   };
 }
 

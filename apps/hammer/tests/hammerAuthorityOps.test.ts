@@ -8,6 +8,7 @@ import {
   createRippleDeleteInstruction,
   remapResolvedBrollOperationsForRippleDelete,
   resolveInsertBrollSuggestionInGraph,
+  synchronizeLinkedAudioDuckForBrollOperation,
   updateResolvedInsertBrollOperationInGraph,
 } from "../src/editor/hammerAuthorityOps";
 import {
@@ -358,9 +359,36 @@ async function testRippleDeleteRemapsResolvedBrollDeterministically() {
       sourceTranscriptId: "tx_ops",
     },
   });
-  const rippleOpId = withRipple.operations.at(-1)?.operation_id ?? "";
-  const remapped = remapResolvedBrollOperationsForRippleDelete({
+  const spanBrollOperationId = withRipple.operations.find((op) => op.instruction.instruction_id === "broll_span")?.operation_id ?? "";
+  const withLinkedDuck = appendAuthorityInstructionToGraph({
     graph: withRipple,
+    instruction: createAudioDuckInstruction({
+      segmentId: "seg_01",
+      startSec: 1,
+      endSec: 7,
+      duckGainDb: -9,
+      linkedBrollOperationId: spanBrollOperationId,
+      instructionId: "duck_span_linked",
+    }),
+    fallback: {
+      graphId: "fallback",
+      workspaceId: "ws_ops",
+      workpieceId: "wp_ops",
+      sessionId: "session_ops",
+      sourceTranscriptId: "tx_ops",
+    },
+  });
+  const duckOpId = withLinkedDuck.operations.find((op) => op.instruction.instruction_id === "duck_span_linked")?.operation_id ?? "";
+  const withCompanion = updateResolvedInsertBrollOperationInGraph({
+    graph: withLinkedDuck,
+    operationId: spanBrollOperationId,
+    changes: {
+      companion_audio_duck_operation_id: duckOpId,
+    },
+  }) ?? withLinkedDuck;
+  const rippleOpId = withCompanion.operations.find((op) => op.instruction.instruction_id === "ripple_ops_matrix")?.operation_id ?? "";
+  const remapped = remapResolvedBrollOperationsForRippleDelete({
+    graph: withCompanion,
     rippleDeleteOperationId: rippleOpId,
     removedStartSec: 2,
     removedEndSec: 4,
@@ -397,6 +425,69 @@ async function testRippleDeleteRemapsResolvedBrollDeterministically() {
   assert.equal(remapped.summary.adjustedOperationIds.includes(afterOp?.operation_id ?? ""), true);
   assert.equal(remapped.summary.removedOperationIds.includes(insideOp?.operation_id ?? ""), true);
   assert.equal(remapped.summary.attentionOperationIds.includes(spanOp?.operation_id ?? ""), true);
+  assert.equal(remapped.summary.adjustedDuckOperationIds.length, 1);
+}
+
+async function testLinkedDuckSynchronizesWithBrollMoveTrim() {
+  const initial = baseState();
+  const withBroll = appendAuthorityInstructionToGraph({
+    graph: initial.editorialAuthorityGraph,
+    instruction: createInsertBrollInstruction({
+      segmentId: "seg_02",
+      assetRef: "assets/broll/linked.mp4",
+      startSec: 2,
+      endSec: 4,
+      instructionId: "broll_linked_01",
+    }),
+    fallback: {
+      graphId: "fallback",
+      workspaceId: "ws_ops",
+      workpieceId: "wp_ops",
+      sessionId: "session_ops",
+      sourceTranscriptId: "tx_ops",
+    },
+  });
+  const brollOperationId = withBroll.operations.at(-1)?.operation_id ?? "";
+  const withDuck = appendAuthorityInstructionToGraph({
+    graph: withBroll,
+    instruction: createAudioDuckInstruction({
+      segmentId: "seg_02",
+      startSec: 2,
+      endSec: 4,
+      duckGainDb: -9,
+      linkedBrollOperationId: brollOperationId,
+      instructionId: "duck_linked_01",
+    }),
+    fallback: {
+      graphId: "fallback",
+      workspaceId: "ws_ops",
+      workpieceId: "wp_ops",
+      sessionId: "session_ops",
+      sourceTranscriptId: "tx_ops",
+    },
+  });
+  const duckOperationId = withDuck.operations.at(-1)?.operation_id ?? "";
+  const movedBroll = updateResolvedInsertBrollOperationInGraph({
+    graph: withDuck,
+    operationId: brollOperationId,
+    changes: {
+      start_sec: 2.5,
+      end_sec: 4.5,
+      companion_audio_duck_operation_id: duckOperationId,
+    },
+  }) ?? withDuck;
+  const synchronized = synchronizeLinkedAudioDuckForBrollOperation({
+    graph: movedBroll,
+    brollOperationId,
+  });
+  assert.ok(synchronized);
+  const linkedDuck = synchronized?.operations.find((op) => op.operation_id === duckOperationId) ?? null;
+  assert.equal(linkedDuck?.instruction.type, "audio_duck");
+  if (linkedDuck?.instruction.type === "audio_duck") {
+    assert.equal(linkedDuck.instruction.start_sec, 2.5);
+    assert.equal(linkedDuck.instruction.end_sec, 4.5);
+    assert.equal(linkedDuck.instruction.linked_broll_operation_id, brollOperationId);
+  }
 }
 
 async function run() {
@@ -405,6 +496,7 @@ async function run() {
   await testSuggestionResolutionPreservesOperationIdentity();
   await testResolvedBindingMoveTrimReplacePreserveOperationIdentity();
   await testRippleDeleteRemapsResolvedBrollDeterministically();
+  await testLinkedDuckSynchronizesWithBrollMoveTrim();
   // eslint-disable-next-line no-console
   console.log("Hammer authority ops tests passed.");
 }

@@ -96,6 +96,7 @@ export interface HammerInsertBrollInstruction extends HammerEditInstructionBase 
   asset_binding_state?: "resolved" | "unresolved";
   duck_preference?: "auto" | "none" | "manual";
   replace_clip_id?: string;
+  companion_audio_duck_operation_id?: string | null;
 }
 
 export interface HammerOverlayGraphicInstruction extends HammerEditInstructionBase {
@@ -116,6 +117,7 @@ export interface HammerAudioDuckInstruction extends HammerEditInstructionBase {
   start_sec: number;
   end_sec: number;
   duck_gain_db: number;
+  linked_broll_operation_id?: string | null;
 }
 
 export type HammerEditInstruction =

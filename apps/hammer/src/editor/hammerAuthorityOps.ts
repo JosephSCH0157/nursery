@@ -262,7 +262,12 @@ export function updateResolvedInsertBrollOperationInGraph(args: {
   operationId: string;
   changes: Partial<Pick<
     HammerInsertBrollInstruction,
-    "asset_ref" | "start_sec" | "end_sec" | "intent_description" | "duck_preference"
+    | "asset_ref"
+    | "start_sec"
+    | "end_sec"
+    | "intent_description"
+    | "duck_preference"
+    | "companion_audio_duck_operation_id"
   >>;
   nowIso?: string;
 }): HammerEditorialAuthorityGraph | null {
@@ -279,7 +284,58 @@ export function updateResolvedInsertBrollOperationInGraph(args: {
       ...(typeof args.changes.end_sec === "number" ? { end_sec: args.changes.end_sec } : {}),
       ...(args.changes.intent_description !== undefined ? { intent_description: args.changes.intent_description } : {}),
       ...(args.changes.duck_preference ? { duck_preference: args.changes.duck_preference } : {}),
+      ...(args.changes.companion_audio_duck_operation_id !== undefined
+        ? { companion_audio_duck_operation_id: args.changes.companion_audio_duck_operation_id }
+        : {}),
       asset_binding_state: "resolved",
+    };
+    if (JSON.stringify(nextInstruction) === JSON.stringify(operation.instruction)) return operation;
+    changed = true;
+    return {
+      ...operation,
+      instruction: nextInstruction,
+      updated_at: nowIso,
+    };
+  });
+  if (!changed) return null;
+  return {
+    ...args.graph,
+    operations,
+    graph_version: args.graph.graph_version + 1,
+    updated_at: nowIso,
+  };
+}
+
+export function synchronizeLinkedAudioDuckForBrollOperation(args: {
+  graph: HammerEditorialAuthorityGraph;
+  brollOperationId: string;
+  nowIso?: string;
+}): HammerEditorialAuthorityGraph | null {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  const broll = args.graph.operations.find((operation) => (
+    operation.operation_id === args.brollOperationId
+    && operation.lifecycle === "active"
+    && operation.instruction.type === "insert_broll"
+    && operation.instruction.asset_binding_state !== "unresolved"
+  )) ?? null;
+  if (!broll || broll.instruction.type !== "insert_broll") return null;
+  const brollInstruction = broll.instruction;
+  let changed = false;
+  const operations = args.graph.operations.map((operation) => {
+    if (operation.lifecycle !== "active") return operation;
+    if (operation.instruction.type !== "audio_duck") return operation;
+    const isLinkedByBrollRef = operation.instruction.linked_broll_operation_id === args.brollOperationId;
+    const isLinkedByCompanionRef = (
+      brollInstruction.companion_audio_duck_operation_id != null
+      && operation.operation_id === brollInstruction.companion_audio_duck_operation_id
+    );
+    if (!isLinkedByBrollRef && !isLinkedByCompanionRef) return operation;
+    const nextInstruction: HammerAudioDuckInstruction = {
+      ...operation.instruction,
+      segment_id: brollInstruction.segment_id,
+      start_sec: brollInstruction.start_sec,
+      end_sec: brollInstruction.end_sec,
+      linked_broll_operation_id: args.brollOperationId,
     };
     if (JSON.stringify(nextInstruction) === JSON.stringify(operation.instruction)) return operation;
     changed = true;
@@ -302,6 +358,9 @@ export interface RippleDeleteRemapSummary {
   adjustedOperationIds: string[];
   removedOperationIds: string[];
   attentionOperationIds: string[];
+  adjustedDuckOperationIds: string[];
+  removedDuckOperationIds: string[];
+  orphanedDuckOperationIds: string[];
 }
 
 function mergeReasonCodes(
@@ -326,10 +385,13 @@ export function remapResolvedBrollOperationsForRippleDelete(args: {
     adjustedOperationIds: [],
     removedOperationIds: [],
     attentionOperationIds: [],
+    adjustedDuckOperationIds: [],
+    removedDuckOperationIds: [],
+    orphanedDuckOperationIds: [],
   };
   let changed = false;
 
-  const operations = args.graph.operations.map((operation) => {
+  let operations = args.graph.operations.map((operation) => {
     if (operation.lifecycle !== "active") return operation;
     if (operation.operation_id === args.rippleDeleteOperationId) return operation;
     if (operation.instruction.type !== "insert_broll") return operation;
@@ -401,6 +463,96 @@ export function remapResolvedBrollOperationsForRippleDelete(args: {
     };
   });
 
+  const activeBrollById = new Map<string, HammerEditorialAuthorityOperation>();
+  const companionDuckToBrollId = new Map<string, string>();
+  for (const operation of operations) {
+    if (operation.lifecycle !== "active") continue;
+    if (operation.instruction.type !== "insert_broll") continue;
+    if (operation.instruction.asset_binding_state === "unresolved") continue;
+    activeBrollById.set(operation.operation_id, operation);
+    if (operation.instruction.companion_audio_duck_operation_id) {
+      companionDuckToBrollId.set(operation.instruction.companion_audio_duck_operation_id, operation.operation_id);
+    }
+  }
+
+  operations = operations.map((operation) => {
+    if (operation.lifecycle !== "active") return operation;
+    if (operation.instruction.type !== "audio_duck") return operation;
+    const linkedBrollOperationId = operation.instruction.linked_broll_operation_id
+      ?? companionDuckToBrollId.get(operation.operation_id)
+      ?? null;
+    if (!linkedBrollOperationId) return operation;
+    const linkedBroll = activeBrollById.get(linkedBrollOperationId) ?? null;
+    if (!linkedBroll || linkedBroll.instruction.type !== "insert_broll") {
+      changed = true;
+      summary.removedDuckOperationIds.push(operation.operation_id);
+      summary.orphanedDuckOperationIds.push(operation.operation_id);
+      return {
+        ...operation,
+        lifecycle: "superseded" as const,
+        superseded_by_operation_id: args.rippleDeleteOperationId,
+        updated_at: nowIso,
+      };
+    }
+    const nextInstruction: HammerAudioDuckInstruction = {
+      ...operation.instruction,
+      segment_id: linkedBroll.instruction.segment_id,
+      start_sec: linkedBroll.instruction.start_sec,
+      end_sec: linkedBroll.instruction.end_sec,
+      linked_broll_operation_id: linkedBrollOperationId,
+    };
+    const needsAttention = linkedBroll.capability_state.reason_codes.includes("operation_conflict");
+    const baseReasonCodes = needsAttention
+      ? mergeReasonCodes(operation.capability_state.reason_codes, ["operation_conflict"])
+      : operation.capability_state.reason_codes;
+    const timingChanged = (
+      operation.instruction.start_sec !== nextInstruction.start_sec
+      || operation.instruction.end_sec !== nextInstruction.end_sec
+      || operation.instruction.segment_id !== nextInstruction.segment_id
+    );
+    const degradedChanged = needsAttention && (
+      operation.capability_state.capability !== "degraded"
+      || !operation.capability_state.reason_codes.includes("operation_conflict")
+    );
+    if (!timingChanged && !degradedChanged) return operation;
+    changed = true;
+    summary.adjustedDuckOperationIds.push(operation.operation_id);
+    return {
+      ...operation,
+      instruction: nextInstruction,
+      capability_state: needsAttention
+        ? {
+          ...operation.capability_state,
+          capability: "degraded" as const,
+          reason_codes: baseReasonCodes,
+        }
+        : operation.capability_state,
+      truth_posture: needsAttention
+        ? {
+          preview: {
+            ...operation.truth_posture.preview,
+            posture: "degraded" as const,
+            capability: "degraded" as const,
+            reason_codes: mergeReasonCodes(operation.truth_posture.preview.reason_codes, ["operation_conflict"]),
+          },
+          export: {
+            ...operation.truth_posture.export,
+            posture: "degraded" as const,
+            capability: "degraded" as const,
+            reason_codes: mergeReasonCodes(operation.truth_posture.export.reason_codes, ["operation_conflict"]),
+          },
+          handoff: {
+            ...operation.truth_posture.handoff,
+            posture: "degraded" as const,
+            capability: "degraded" as const,
+            reason_codes: mergeReasonCodes(operation.truth_posture.handoff.reason_codes, ["operation_conflict"]),
+          },
+        }
+        : operation.truth_posture,
+      updated_at: nowIso,
+    };
+  });
+
   return {
     graph: changed
       ? {
@@ -446,6 +598,7 @@ export function createAudioDuckInstruction(args: {
   startSec: number;
   endSec: number;
   duckGainDb: number;
+  linkedBrollOperationId?: string | null;
   nowIso?: string;
   instructionId?: string;
 }): HammerAudioDuckInstruction {
@@ -457,6 +610,7 @@ export function createAudioDuckInstruction(args: {
     start_sec: args.startSec,
     end_sec: args.endSec,
     duck_gain_db: args.duckGainDb,
+    linked_broll_operation_id: args.linkedBrollOperationId ?? null,
     created_at: nowIso,
     execution: {
       operation_family: "audio_shaping",

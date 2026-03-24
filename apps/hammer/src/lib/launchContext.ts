@@ -191,6 +191,7 @@ function readInstruction(input: unknown): HammerEditInstruction | null {
               ? "manual"
               : "auto",
             replace_clip_id: readString(row.replace_clip_id) ?? undefined,
+            companion_audio_duck_operation_id: readString(row.companion_audio_duck_operation_id) ?? null,
           }
           : {}),
         created_at: createdAt,
@@ -221,6 +222,7 @@ function readInstruction(input: unknown): HammerEditInstruction | null {
         start_sec: startSec,
         end_sec: endSec,
         duck_gain_db: duckGainDb,
+        linked_broll_operation_id: readString(row.linked_broll_operation_id) ?? null,
         created_at: createdAt,
       };
     }

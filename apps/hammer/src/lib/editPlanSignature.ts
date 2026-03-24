@@ -39,6 +39,7 @@ type SemanticEditInstruction =
     intent_description?: string | null;
     asset_binding_state?: "resolved" | "unresolved";
     duck_preference?: "auto" | "none" | "manual";
+    companion_audio_duck_operation_id?: string | null;
   }
   | {
     type: "crossfade";
@@ -52,6 +53,7 @@ type SemanticEditInstruction =
     start_sec: number;
     end_sec: number;
     duck_gain_db: number;
+    linked_broll_operation_id?: string | null;
   };
 
 function toSemanticEditInstruction(
@@ -106,6 +108,7 @@ function toSemanticEditInstruction(
             intent_description: instruction.intent_description ?? null,
             asset_binding_state: instruction.asset_binding_state ?? "resolved",
             duck_preference: instruction.duck_preference ?? "auto",
+            companion_audio_duck_operation_id: instruction.companion_audio_duck_operation_id ?? null,
           }
           : {}),
       };
@@ -123,6 +126,7 @@ function toSemanticEditInstruction(
         start_sec: instruction.start_sec,
         end_sec: instruction.end_sec,
         duck_gain_db: instruction.duck_gain_db,
+        linked_broll_operation_id: instruction.linked_broll_operation_id ?? null,
       };
   }
 }
