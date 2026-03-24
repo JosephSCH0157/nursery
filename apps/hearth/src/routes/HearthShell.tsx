@@ -63,6 +63,7 @@ import {
   draftHasUsableScriptBody,
   hydrateDraftBodyFromCanonicalScript,
 } from "../lib/hearth-draft-hydration";
+import { getScriptReadiness } from "../lib/hearth-script-readiness";
 import {
   selectActiveWorkpieceContext,
   selectDraftForWorkpiece,
@@ -105,10 +106,12 @@ import {
   updateHearthProposalBodyOp,
 } from "../lib/hearth-ai-proposal";
 import {
-  formatScriptToAnvilTagsNoAi,
-  validateAnvilTagContract,
-  type AnvilTagValidation,
-} from "../lib/anvil-tag-contract";
+  normalizeScriptTags,
+  repairScriptTags,
+  validateScriptTags,
+  type ScriptValidationResult,
+  type ScriptValidationIssue,
+} from "@forge/shared/script-tags";
 import {
   commitWorkpieceProductionArtifact,
   readWorkpieceProductionArtifact,
@@ -1858,8 +1861,16 @@ type PendingAiProposal = {
 
 type ScriptValidationState = {
   source: "save_notice" | "save_gate" | "ai_apply" | "ai_repair";
-  result: AnvilTagValidation;
+  result: ScriptValidationResult;
 };
+
+interface HearthScriptState {
+  rawText: string;
+  normalizedText: string;
+  validation: ScriptValidationResult;
+  lastValidatedAt: string | null;
+  isDirty: boolean;
+}
 
 const READY_URGENCY_APPLICABLE_CATEGORY_SET = new Set<HearthContentCategory>([
   "hot_topic",
@@ -2030,6 +2041,31 @@ function buildOpenInAnvilHref(
   params.set("open", "script");
   params.set("script_path", normalizedScriptPath);
   return `/app/anvil?${params.toString()}`;
+}
+
+const SCRIPT_TAG_VALIDATOR_VERSION = "shared-script-tags-v1";
+
+function buildValidationReport(result: ScriptValidationResult): string {
+  if (result.issues.length === 0) return "No issues.";
+  return result.issues
+    .map((issue) => `[line ${issue.line}, col ${issue.column}] ${issue.message}`)
+    .join("\n");
+}
+
+function buildPersistedValidationMeta(result: ScriptValidationResult) {
+  return {
+    ok: result.ok,
+    issueCount: result.issues.length,
+    issues: result.issues,
+    validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
+    validatedAt: new Date().toISOString(),
+  };
+}
+
+function evaluateScriptValidation(rawText: string): { normalizedText: string; validation: ScriptValidationResult } {
+  const normalizedText = normalizeScriptTags(rawText);
+  const validation = validateScriptTags(normalizedText);
+  return { normalizedText, validation };
 }
 
 function resolveReadyOpenHref(entry: HearthReadyScript): string | null {
@@ -2327,6 +2363,26 @@ export default function HearthShell() {
   const chatHydrationSeqRef = useRef(0);
   const gateAwaitingAnswersRef = useRef(false);
   const pendingShortcutIntentRef = useRef<"outline" | "script" | null>(null);
+
+  const hearthScriptState = useMemo<HearthScriptState | null>(() => {
+    if (!activeDraft) return null;
+    const rawText = activeDraft.body ?? "";
+    const { normalizedText, validation } = evaluateScriptValidation(rawText);
+    return {
+      rawText,
+      normalizedText,
+      validation,
+      lastValidatedAt: new Date().toISOString(),
+      isDirty: draftSnapshot?.body !== rawText,
+    };
+  }, [activeDraft, draftSnapshot?.body]);
+
+  const scriptReadiness = useMemo(() => getScriptReadiness({
+    validation: hearthScriptState?.validation ?? validateScriptTags(""),
+    hasScriptText: Boolean((activeDraft?.body ?? "").trim()),
+  }), [activeDraft?.body, hearthScriptState?.validation]);
+  const approvalBlocked = !scriptReadiness.ready;
+  const handoffBlocked = !scriptReadiness.ready;
 
   const flushChatHistoryNow = useCallback((options?: {
     historyKey?: string | null;
@@ -3741,6 +3797,23 @@ export default function HearthShell() {
     setScriptPanelCopyMessage(copied ? "Copied to clipboard." : "Clipboard write failed.");
   }, [scriptPanelBodyText]);
 
+  const onJumpToValidationIssue = useCallback((issue: ScriptValidationIssue) => {
+    const textarea = bodyRef.current;
+    if (!textarea) return;
+    const lines = textarea.value.split("\n");
+    const targetLine = Math.max(1, issue.line);
+    const targetColumn = Math.max(1, issue.column);
+    let offset = 0;
+    for (let i = 0; i < targetLine - 1 && i < lines.length; i += 1) {
+      offset += (lines[i]?.length ?? 0) + 1;
+    }
+    const nextPos = Math.min(textarea.value.length, offset + targetColumn - 1);
+    textarea.focus();
+    textarea.setSelectionRange(nextPos, nextPos);
+    textarea.scrollTop = Math.max(0, textarea.scrollHeight * ((targetLine - 1) / Math.max(1, lines.length)));
+    setCursorPosition(nextPos);
+  }, []);
+
   const onOpenInAnvil = useCallback(async () => {
     const workspace = workspaceId?.trim() ?? "";
     const episodeId = workpieceId?.trim() ?? "";
@@ -3768,9 +3841,24 @@ export default function HearthShell() {
       return;
     }
 
+    const { normalizedText, validation } = evaluateScriptValidation(activeDraft.body);
+    if (!validation.ok) {
+      setScriptValidation({
+        source: "save_gate",
+        result: validation,
+      });
+      setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(validation)}`);
+      return;
+    }
+
     const now = Date.now();
     const saved = await persistDraft({
-      draft: { ...activeDraft, updatedAt: now },
+      draft: {
+        ...activeDraft,
+        body: normalizedText,
+        updatedAt: now,
+        scriptValidationMeta: buildPersistedValidationMeta(validation),
+      },
       updatedAt: now,
       createRevision: null,
       syncSources: false,
@@ -3779,7 +3867,9 @@ export default function HearthShell() {
     });
     if (!saved) return;
 
-    const published = await commitHearthPrimaryScript(episodeId, activeDraft.body);
+    const published = await commitHearthPrimaryScript(episodeId, normalizedText, {
+      validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
+    });
     if (!published.ok) {
       const statusText = published.status ? ` (${published.status})` : "";
       setError(`Failed to publish script for Anvil${statusText}. Try again.`);
@@ -5920,15 +6010,18 @@ export default function HearthShell() {
       setError(null);
     }
     const shouldValidateForAnvil = args.validateForAnvil === true;
-    const tagValidation = shouldValidateForAnvil
-      ? validateAnvilTagContract(args.draft.body)
-      : null;
-    const hasAnvilTagWarning = Boolean(tagValidation && !tagValidation.ok);
-    if (hasAnvilTagWarning && tagValidation) {
+    const { normalizedText, validation } = evaluateScriptValidation(args.draft.body);
+    const hasAnvilTagWarning = !validation.ok;
+    if (hasAnvilTagWarning) {
       setScriptValidation({
-        source: "save_notice",
-        result: tagValidation,
+        source: shouldValidateForAnvil ? "save_gate" : "save_notice",
+        result: validation,
       });
+      if (shouldValidateForAnvil) {
+        setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(validation)}`);
+        if (showSavingState) setIsSaving(false);
+        return false;
+      }
     } else {
       setScriptValidation(null);
     }
@@ -5977,11 +6070,13 @@ export default function HearthShell() {
       const toSave: Draft = {
         ...args.draft,
         title: normalizeTitle(args.draft.title),
+        body: normalizedText,
         updatedAt: args.updatedAt,
         revisionCount,
         lastRevisionAt,
         createdBy: args.draft.createdBy ?? buildDraftAttribution(hearthUser),
         updatedBy: buildDraftAttribution(hearthUser),
+        scriptValidationMeta: buildPersistedValidationMeta(validation),
       };
 
       await store.saveDraft(toSave, { reason: args.saveReason });
@@ -6449,27 +6544,40 @@ export default function HearthShell() {
 
   async function onFixScriptFormattingNoAi() {
     if (!activeDraft) return;
-    const formattedBody = formatScriptToAnvilTagsNoAi(activeDraft.body);
-    const validation = validateAnvilTagContract(formattedBody);
+    const normalized = normalizeScriptTags(activeDraft.body);
+    const repaired = repairScriptTags(normalized);
+    const validation = validateScriptTags(repaired.text);
     if (!validation.ok) {
       setScriptValidation({
         source: "save_gate",
         result: validation,
       });
-      setError(`Script tag validation failed:\n${validation.report}`);
-      return;
+      setError(
+        `Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(validation)}`,
+      );
     }
 
     const now = Date.now();
     const saved = await persistDraft({
-      draft: { ...activeDraft, body: formattedBody, updatedAt: now },
+      draft: { ...activeDraft, body: repaired.text, updatedAt: now },
       updatedAt: now,
       createRevision: null,
       syncSources: false,
       syncSession: false,
+      saveReason: "repair:deterministic",
     });
     if (saved) {
-      setScriptValidation(null);
+      const fixedCount = repaired.repairedIssues.length;
+      const remainingCount = validation.issues.length;
+      if (remainingCount > 0) {
+        setError(`${fixedCount} issues fixed automatically. ${remainingCount} issues remain and need manual correction.`);
+      } else {
+        setError(`${fixedCount} issues fixed automatically.`);
+      }
+      setScriptValidation(validation.ok ? null : {
+        source: "save_notice",
+        result: validation,
+      });
     }
   }
 
@@ -6528,14 +6636,17 @@ export default function HearthShell() {
       }
 
       const opBody = result.ops.find((op) => op.op === "set_body");
-      const repairedBody = result.scriptText ?? (opBody && opBody.op === "set_body" ? opBody.value : "");
-      const validation = validateAnvilTagContract(repairedBody);
+      const aiText = result.scriptText ?? (opBody && opBody.op === "set_body" ? opBody.value : "");
+      const normalized = normalizeScriptTags(aiText);
+      const repaired = repairScriptTags(normalized);
+      const repairedBody = repaired.text;
+      const validation = validateScriptTags(repairedBody);
       if (!validation.ok) {
         setScriptValidation({
           source: "ai_repair",
           result: validation,
         });
-        setError(`Script tag validation failed after AI repair:\n${validation.report}`);
+        setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(validation)}`);
         return;
       }
 
@@ -6606,13 +6717,13 @@ export default function HearthShell() {
     const bodyWillChange = opsToApply.some((op) => op.op === "set_body");
     if (bodyWillChange) {
       const projectedBody = findNextBodyFromOps(activeDraft.body, opsToApply);
-      const projectedValidation = validateAnvilTagContract(projectedBody);
+      const projectedValidation = validateScriptTags(normalizeScriptTags(projectedBody));
       if (!projectedValidation.ok) {
         setScriptValidation({
           source: "ai_apply",
           result: projectedValidation,
         });
-        setError(`Script tag validation failed:\n${projectedValidation.report}`);
+        setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(projectedValidation)}`);
         return;
       }
     }
@@ -6830,13 +6941,13 @@ export default function HearthShell() {
       return;
     }
 
-    const validation = validateAnvilTagContract(activeDraft.body);
+    const { normalizedText, validation } = evaluateScriptValidation(activeDraft.body);
     if (!validation.ok) {
       setScriptValidation({
         source: "save_gate",
         result: validation,
       });
-      setError(`Script tag validation failed:\n${validation.report}`);
+      setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(validation)}`);
       return;
     }
 
@@ -6851,16 +6962,24 @@ export default function HearthShell() {
     setIsApprovingScript(true);
     try {
       const now = Date.now();
+      const normalizedDraft: Draft = {
+        ...activeDraft,
+        body: normalizedText,
+        scriptValidationMeta: buildPersistedValidationMeta(validation),
+      };
       const saved = await persistDraft({
-        draft: { ...activeDraft, updatedAt: now },
+        draft: { ...normalizedDraft, updatedAt: now },
         updatedAt: now,
         createRevision: { kind: "milestone", note: approvalNote },
         syncSources: false,
         syncSession: false,
+        validateForAnvil: true,
       });
       if (!saved) return;
 
-      const published = await commitHearthPrimaryScript(episodeId, activeDraft.body);
+      const published = await commitHearthPrimaryScript(episodeId, normalizedText, {
+        validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
+      });
       if (!published.ok) {
         setError("Failed to publish approved script to Tongs. Try approving again.");
         return;
@@ -6871,7 +6990,7 @@ export default function HearthShell() {
         workspaceId,
         workpieceId: episodeId,
         scriptPath,
-        scriptText: activeDraft.body,
+        scriptText: normalizedText,
       });
       const graduatedSparkId = graduateLinkedSpark(episodeId);
       if (mirror.ok) {
@@ -6925,7 +7044,7 @@ export default function HearthShell() {
       let styleAlignmentMarker: string | null = null;
       const styleUpdate = await updateStyleProfileFromReadyCheckpoint({
         workspaceId,
-        scriptText: activeDraft.body,
+        scriptText: normalizedText,
       });
       if (styleUpdate.ok) {
         if (!styleUpdate.skipped) {
@@ -9420,6 +9539,8 @@ export default function HearthShell() {
       ? ` · ${unusedSourcesCount} unused`
       : "";
     const hasScript = Boolean((activeDraft?.body ?? "").trim());
+    const displayedValidation = scriptValidation?.result ?? hearthScriptState?.validation ?? null;
+    const validationIssueCount = displayedValidation?.issues.length ?? 0;
     const showScriptEditor = showManualDraft || showScriptPanel;
     const scriptPanelTitle = isCanonicalImageMapScriptPanel
       ? "Canonical Script"
@@ -9483,7 +9604,7 @@ export default function HearthShell() {
           <button
             type="button"
             onClick={() => void onApproveScript()}
-            disabled={!activeDraft || !hasScript || isSaving || isAiProcessing || isApprovingScript}
+            disabled={!activeDraft || !hasScript || isSaving || isAiProcessing || isApprovingScript || approvalBlocked}
           >
             {isApprovingScript ? "Approving..." : "Approve Script"}
           </button>
@@ -9542,30 +9663,35 @@ export default function HearthShell() {
           </section>
         ) : null}
 
-        {scriptValidation ? (
+        {displayedValidation && !displayedValidation.ok ? (
           <section className="hs-script-validation" aria-label="Anvil tag validation">
-            <div className="hs-script-validation-title">
-              {scriptValidation.source === "save_notice"
-                ? "Script Tag Contract Warning"
-                : "Script Tag Contract Failed"}
-            </div>
+            <div className="hs-script-validation-title">Tag Validation</div>
             <div className="hs-script-validation-subtitle">
-              {scriptValidation.source === "save_notice"
-                ? "Saved draft. Script tags still need fixing before Anvil export."
-                : scriptValidation.source === "ai_apply"
-                ? "AI proposed script changes are invalid."
-                : scriptValidation.source === "ai_repair"
-                  ? "AI repair result is still invalid."
-                  : "Script tags must be valid for this action."}
+              Script tags must be valid before approval.
+              Fix the issues below to continue.
             </div>
-            <pre className="hs-script-validation-report">{scriptValidation.result.report}</pre>
+            <div className="hs-script-validation-subtitle">{validationIssueCount} errors</div>
+            <pre className="hs-script-validation-report">{buildValidationReport(displayedValidation)}</pre>
+            <ul className="hs-script-validation-issues">
+              {displayedValidation.issues.map((issue, index) => (
+                <li key={`${issue.code}-${issue.line}-${issue.column}-${index}`}>
+                  <button
+                    type="button"
+                    onClick={() => onJumpToValidationIssue(issue)}
+                    className="hs-script-validation-jump"
+                  >
+                    line {issue.line}: {issue.message}
+                  </button>
+                </li>
+              ))}
+            </ul>
             <div className="hs-script-validation-actions">
               <button
                 type="button"
                 onClick={() => void onFixScriptFormattingNoAi()}
                 disabled={!activeDraft || isSaving || isRepairingScript}
               >
-                Fix formatting (no AI)
+                Fix Tag Structure
               </button>
               <button
                 type="button"
@@ -9677,7 +9803,7 @@ export default function HearthShell() {
                   {pendingAiProposal.ops.map((op, index) => {
                     const diff = buildProposalDiff(op);
                     const proposalBodyValidation = op.op === "set_body"
-                      ? validateAnvilTagContract(op.value)
+                      ? validateScriptTags(normalizeScriptTags(op.value))
                       : null;
                     const proposalBodyDirty = op.op === "set_body"
                       ? isHearthProposalBodyOpDirty(pendingAiProposal.ops, pendingAiProposal.originalOps, index)
@@ -9735,7 +9861,7 @@ export default function HearthShell() {
                               <div className={`hs-ai-op-validation${proposalBodyValidation?.ok ? " is-valid" : " is-invalid"}`}>
                                 {proposalBodyValidation?.ok
                                   ? "Tag contract OK."
-                                  : proposalBodyValidation?.report ?? "Tag contract check unavailable."}
+                                  : proposalBodyValidation ? buildValidationReport(proposalBodyValidation) : "Tag contract check unavailable."}
                               </div>
                             </div>
                           ) : diff ? (
@@ -10277,7 +10403,6 @@ export default function HearthShell() {
                   placeholder={scriptPanelPlaceholder}
                   onChange={(event) => {
                     if (isCanonicalImageMapScriptPanel) return;
-                    setScriptValidation(null);
                     setActiveDraft((prev) => {
                       if (!prev) return prev;
                       draftEditVersionRef.current += 1;
@@ -11257,7 +11382,7 @@ export default function HearthShell() {
                   <button
                     type="button"
                     onClick={() => void onOpenInAnvil()}
-                    disabled={!openInAnvilHref}
+                    disabled={!openInAnvilHref || handoffBlocked}
                     className="hs-mode-button"
                   >
                     Open in Anvil

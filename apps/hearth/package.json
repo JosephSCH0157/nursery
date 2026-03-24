@@ -13,6 +13,7 @@
     "test:thumbnail-lint": "tsx tests/thumbnail-lint.test.ts"
   },
   "dependencies": {
+    "@forge/shared": "workspace:*",
     "@forge/ui-mobile": "workspace:*",
     "react": "^19.2.0"
   },

@@ -1,4 +1,11 @@
-import type { Draft, DraftId } from "../domain/draft";
+import type {
+  Draft,
+  DraftId,
+  PersistedScriptValidationMeta,
+  ScriptValidationCode,
+  ScriptValidationIssue,
+  ScriptValidationSeverity,
+} from "../domain/draft";
 import type { Revision, RevisionId } from "../domain/revision";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
 import {
@@ -39,6 +46,47 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function normalizeValidationIssue(value: unknown): ScriptValidationIssue | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const code = typeof row.code === "string" ? row.code : null;
+  const severity = typeof row.severity === "string" ? row.severity : null;
+  const message = typeof row.message === "string" ? row.message : null;
+  const line = typeof row.line === "number" && Number.isFinite(row.line) ? Math.max(1, Math.trunc(row.line)) : null;
+  const column = typeof row.column === "number" && Number.isFinite(row.column) ? Math.max(1, Math.trunc(row.column)) : null;
+  if (!code || !severity || !message || !line || !column) return null;
+  return {
+    code: code as ScriptValidationCode,
+    severity: severity as ScriptValidationSeverity,
+    message,
+    line,
+    column,
+    ...(typeof row.tag === "string" ? { tag: row.tag } : {}),
+  };
+}
+
+function normalizeScriptValidationMeta(value: unknown): PersistedScriptValidationMeta | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.ok !== "boolean") return null;
+  const issues = Array.isArray(row.issues)
+    ? row.issues.map((issue) => normalizeValidationIssue(issue)).filter((issue): issue is ScriptValidationIssue => Boolean(issue))
+    : [];
+  const issueCount = typeof row.issueCount === "number" && Number.isFinite(row.issueCount)
+    ? Math.max(0, Math.trunc(row.issueCount))
+    : issues.length;
+  const validatorVersion = typeof row.validatorVersion === "string" ? row.validatorVersion.trim() : "";
+  const validatedAt = typeof row.validatedAt === "string" ? row.validatedAt.trim() : "";
+  if (!validatorVersion || !validatedAt) return null;
+  return {
+    ok: row.ok,
+    issueCount,
+    issues,
+    validatorVersion,
+    validatedAt,
+  };
+}
+
 function normalizeDraft(value: unknown): Draft | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
@@ -52,6 +100,7 @@ function normalizeDraft(value: unknown): Draft | null {
   const lastRevisionAt = isFiniteNumber(row.lastRevisionAt) ? row.lastRevisionAt : undefined;
   const archived = typeof row.archived === "boolean" ? row.archived : undefined;
   const pinned = typeof row.pinned === "boolean" ? row.pinned : undefined;
+  const scriptValidationMeta = normalizeScriptValidationMeta(row.scriptValidationMeta);
 
   return {
     id,
@@ -63,6 +112,7 @@ function normalizeDraft(value: unknown): Draft | null {
     lastRevisionAt,
     archived,
     pinned,
+    scriptValidationMeta,
   };
 }
 

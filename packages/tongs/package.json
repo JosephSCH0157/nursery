@@ -28,6 +28,7 @@
     "typescript-eslint": "^8.57.0"
   },
   "dependencies": {
+    "@forge/shared": "workspace:*",
     "@supabase/supabase-js": "^2.98.0"
   }
 }

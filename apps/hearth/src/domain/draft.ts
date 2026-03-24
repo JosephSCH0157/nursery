@@ -5,6 +5,37 @@ export type DraftAttribution = {
   displayName: string | null;
 };
 
+export type ScriptValidationSeverity = "error" | "warning";
+
+export type ScriptValidationCode =
+  | "UNSUPPORTED_TAG"
+  | "UNCLOSED_TAG"
+  | "UNOPENED_CLOSING_TAG"
+  | "CROSSED_TAGS"
+  | "SPEAKER_TAG_NOT_OWN_LINE"
+  | "NOTE_TAG_NOT_OWN_LINE"
+  | "INVALID_SPEAKER_TAG"
+  | "INVALID_PACING_TOKEN"
+  | "TEXT_OUTSIDE_SPEAKER_BLOCK"
+  | "EMPTY_SPEAKER_BLOCK";
+
+export interface ScriptValidationIssue {
+  code: ScriptValidationCode;
+  severity: ScriptValidationSeverity;
+  message: string;
+  line: number;
+  column: number;
+  tag?: string;
+}
+
+export interface PersistedScriptValidationMeta {
+  ok: boolean;
+  issueCount: number;
+  issues: ScriptValidationIssue[];
+  validatorVersion: string;
+  validatedAt: string;
+}
+
 export interface Draft {
   id: DraftId;
   title: string;
@@ -17,6 +48,7 @@ export interface Draft {
   pinned?: boolean;
   createdBy?: DraftAttribution | null;
   updatedBy?: DraftAttribution | null;
+  scriptValidationMeta?: PersistedScriptValidationMeta | null;
 }
 
 function generateDraftId(): DraftId {
@@ -45,5 +77,6 @@ export function createDraft(partial?: { title?: string; body?: string }): Draft 
     pinned: false,
     createdBy: null,
     updatedBy: null,
+    scriptValidationMeta: null,
   };
 }
