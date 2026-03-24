@@ -93,6 +93,15 @@ export interface HammerQuenchReleasePacketManifest {
         asset_ref: string;
       }>;
     };
+    broll_timeline_remap_summary: {
+      adjusted_bindings: Array<{
+        operation_id: string;
+        start_sec: number;
+        end_sec: number;
+      }>;
+      removed_binding_operation_ids: string[];
+      attention_binding_operation_ids: string[];
+    };
   };
 }
 
@@ -251,6 +260,29 @@ export function buildHammerQuenchReleasePacket(args: {
                 operation_id: operation.operation_id,
                 asset_ref: operation.instruction.asset_ref,
               }];
+            }),
+          },
+          broll_timeline_remap_summary: {
+            adjusted_bindings: (args.canonicalGraph?.operations ?? []).flatMap((operation) => {
+              if (operation.lifecycle !== "active") return [];
+              if (operation.instruction.type !== "insert_broll") return [];
+              if (operation.instruction.asset_binding_state === "unresolved") return [];
+              return [{
+                operation_id: operation.operation_id,
+                start_sec: operation.instruction.start_sec,
+                end_sec: operation.instruction.end_sec,
+              }];
+            }),
+            removed_binding_operation_ids: (args.canonicalGraph?.operations ?? []).flatMap((operation) => {
+              if (operation.lifecycle !== "superseded") return [];
+              if (operation.instruction.type !== "insert_broll") return [];
+              return [operation.operation_id];
+            }),
+            attention_binding_operation_ids: (args.canonicalGraph?.operations ?? []).flatMap((operation) => {
+              if (operation.lifecycle !== "active") return [];
+              if (operation.instruction.type !== "insert_broll") return [];
+              if (!operation.capability_state.reason_codes.includes("operation_conflict")) return [];
+              return [operation.operation_id];
             }),
           },
         },

@@ -307,6 +307,91 @@ export type CutSegmentRangeResult = {
   removedStartIndex: number;
 };
 
+export type RippleDeletePlacementRemapKind =
+  | "unchanged"
+  | "shifted"
+  | "trimmed"
+  | "bridged"
+  | "removed";
+
+export interface RippleDeletePlacementRemapResult {
+  kind: RippleDeletePlacementRemapKind;
+  startSec: number;
+  endSec: number;
+  shiftedBySec: number;
+  needsAttention: boolean;
+}
+
+export function remapPlacementForRippleDelete(args: {
+  startSec: number;
+  endSec: number;
+  removedStartSec: number;
+  removedEndSec: number;
+}): RippleDeletePlacementRemapResult {
+  const removedStartSec = roundToTenth(Math.max(0, args.removedStartSec));
+  const removedEndSec = roundToTenth(Math.max(removedStartSec, args.removedEndSec));
+  const shiftSec = roundToTenth(Math.max(0, removedEndSec - removedStartSec));
+  const startSec = roundToTenth(Math.max(0, args.startSec));
+  const endSec = roundToTenth(Math.max(startSec, args.endSec));
+  if (shiftSec <= 0) {
+    return {
+      kind: "unchanged",
+      startSec,
+      endSec,
+      shiftedBySec: 0,
+      needsAttention: false,
+    };
+  }
+
+  // Entire placement is before the removed range.
+  if (endSec <= removedStartSec) {
+    return {
+      kind: "unchanged",
+      startSec,
+      endSec,
+      shiftedBySec: 0,
+      needsAttention: false,
+    };
+  }
+
+  // Entire placement is after the removed range, so it ripples earlier.
+  if (startSec >= removedEndSec) {
+    return {
+      kind: "shifted",
+      startSec: roundToTenth(Math.max(0, startSec - shiftSec)),
+      endSec: roundToTenth(Math.max(0, endSec - shiftSec)),
+      shiftedBySec: shiftSec,
+      needsAttention: false,
+    };
+  }
+
+  const mapTime = (timeSec: number): number => {
+    if (timeSec <= removedStartSec) return roundToTenth(timeSec);
+    if (timeSec >= removedEndSec) return roundToTenth(Math.max(0, timeSec - shiftSec));
+    return removedStartSec;
+  };
+  const mappedStart = mapTime(startSec);
+  const mappedEnd = mapTime(endSec);
+  if (mappedEnd <= mappedStart) {
+    return {
+      kind: "removed",
+      startSec: mappedStart,
+      endSec: mappedEnd,
+      shiftedBySec: shiftSec,
+      needsAttention: false,
+    };
+  }
+
+  const spansAcrossDelete = startSec < removedStartSec && endSec > removedEndSec;
+  return {
+    kind: spansAcrossDelete ? "bridged" : "trimmed",
+    startSec: mappedStart,
+    endSec: mappedEnd,
+    shiftedBySec: shiftSec,
+    needsAttention: spansAcrossDelete,
+  };
+}
+
 export function cutSegmentRangeAndRipple(args: {
   segments: HammerTranscriptSegment[];
   segmentIds: string[];

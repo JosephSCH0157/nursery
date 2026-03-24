@@ -7,7 +7,9 @@ import type {
 import type {
   HammerEditorialAuthorityGraph,
   HammerEditorialAuthorityOperation,
+  HammerEditorialDegradationReasonCode,
 } from "../../../../packages/contracts/hammer/editorial-authority.contract";
+import { remapPlacementForRippleDelete } from "./hammerWorkspaceTimeline";
 
 interface AppendAuthorityInstructionArgs {
   graph: HammerEditorialAuthorityGraph | null;
@@ -293,6 +295,122 @@ export function updateResolvedInsertBrollOperationInGraph(args: {
     operations,
     graph_version: args.graph.graph_version + 1,
     updated_at: nowIso,
+  };
+}
+
+export interface RippleDeleteRemapSummary {
+  adjustedOperationIds: string[];
+  removedOperationIds: string[];
+  attentionOperationIds: string[];
+}
+
+function mergeReasonCodes(
+  current: HammerEditorialDegradationReasonCode[],
+  incoming: HammerEditorialDegradationReasonCode[],
+): HammerEditorialDegradationReasonCode[] {
+  return Array.from(new Set([...current, ...incoming]));
+}
+
+export function remapResolvedBrollOperationsForRippleDelete(args: {
+  graph: HammerEditorialAuthorityGraph;
+  rippleDeleteOperationId: string;
+  removedStartSec: number;
+  removedEndSec: number;
+  nowIso?: string;
+}): {
+  graph: HammerEditorialAuthorityGraph;
+  summary: RippleDeleteRemapSummary;
+} {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  const summary: RippleDeleteRemapSummary = {
+    adjustedOperationIds: [],
+    removedOperationIds: [],
+    attentionOperationIds: [],
+  };
+  let changed = false;
+
+  const operations = args.graph.operations.map((operation) => {
+    if (operation.lifecycle !== "active") return operation;
+    if (operation.operation_id === args.rippleDeleteOperationId) return operation;
+    if (operation.instruction.type !== "insert_broll") return operation;
+    if (operation.instruction.asset_binding_state === "unresolved") return operation;
+
+    const remap = remapPlacementForRippleDelete({
+      startSec: operation.instruction.start_sec,
+      endSec: operation.instruction.end_sec,
+      removedStartSec: args.removedStartSec,
+      removedEndSec: args.removedEndSec,
+    });
+    if (remap.kind === "unchanged") return operation;
+
+    changed = true;
+    if (remap.kind === "removed") {
+      summary.removedOperationIds.push(operation.operation_id);
+      return {
+        ...operation,
+        lifecycle: "superseded" as const,
+        superseded_by_operation_id: args.rippleDeleteOperationId,
+        updated_at: nowIso,
+      };
+    }
+
+    summary.adjustedOperationIds.push(operation.operation_id);
+    const reasonCodes = remap.needsAttention
+      ? mergeReasonCodes(operation.capability_state.reason_codes, ["operation_conflict"])
+      : operation.capability_state.reason_codes;
+    if (remap.needsAttention) {
+      summary.attentionOperationIds.push(operation.operation_id);
+    }
+    return {
+      ...operation,
+      instruction: {
+        ...operation.instruction,
+        start_sec: remap.startSec,
+        end_sec: remap.endSec,
+      },
+      capability_state: remap.needsAttention
+        ? {
+          ...operation.capability_state,
+          capability: "degraded" as const,
+          reason_codes: reasonCodes,
+        }
+        : operation.capability_state,
+      truth_posture: remap.needsAttention
+        ? {
+          preview: {
+            ...operation.truth_posture.preview,
+            posture: "degraded" as const,
+            capability: "degraded" as const,
+            reason_codes: mergeReasonCodes(operation.truth_posture.preview.reason_codes, ["operation_conflict"]),
+          },
+          export: {
+            ...operation.truth_posture.export,
+            posture: "degraded" as const,
+            capability: "degraded" as const,
+            reason_codes: mergeReasonCodes(operation.truth_posture.export.reason_codes, ["operation_conflict"]),
+          },
+          handoff: {
+            ...operation.truth_posture.handoff,
+            posture: "degraded" as const,
+            capability: "degraded" as const,
+            reason_codes: mergeReasonCodes(operation.truth_posture.handoff.reason_codes, ["operation_conflict"]),
+          },
+        }
+        : operation.truth_posture,
+      updated_at: nowIso,
+    };
+  });
+
+  return {
+    graph: changed
+      ? {
+        ...args.graph,
+        operations,
+        graph_version: args.graph.graph_version + 1,
+        updated_at: nowIso,
+      }
+      : args.graph,
+    summary,
   };
 }
 

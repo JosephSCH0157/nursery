@@ -76,6 +76,15 @@ export interface HammerQuenchReleasePacketManifest {
         asset_ref: string;
       }>;
     };
+    broll_timeline_remap_summary: {
+      adjusted_bindings: Array<{
+        operation_id: string;
+        start_sec: number;
+        end_sec: number;
+      }>;
+      removed_binding_operation_ids: string[];
+      attention_binding_operation_ids: string[];
+    };
   };
 }
 

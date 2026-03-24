@@ -6,6 +6,7 @@ import {
   createAudioDuckInstruction,
   createInsertBrollInstruction,
   createRippleDeleteInstruction,
+  remapResolvedBrollOperationsForRippleDelete,
   resolveInsertBrollSuggestionInGraph,
   updateResolvedInsertBrollOperationInGraph,
 } from "../src/editor/hammerAuthorityOps";
@@ -271,11 +272,139 @@ async function testResolvedBindingMoveTrimReplacePreserveOperationIdentity() {
   }
 }
 
+async function testRippleDeleteRemapsResolvedBrollDeterministically() {
+  const initial = baseState();
+  const withBrollA = appendAuthorityInstructionToGraph({
+    graph: initial.editorialAuthorityGraph,
+    instruction: createInsertBrollInstruction({
+      segmentId: "seg_01",
+      assetRef: "assets/broll/before.mp4",
+      startSec: 0.5,
+      endSec: 1.5,
+      instructionId: "broll_before",
+    }),
+    fallback: {
+      graphId: "fallback",
+      workspaceId: "ws_ops",
+      workpieceId: "wp_ops",
+      sessionId: "session_ops",
+      sourceTranscriptId: "tx_ops",
+    },
+  });
+  const withBrollB = appendAuthorityInstructionToGraph({
+    graph: withBrollA,
+    instruction: createInsertBrollInstruction({
+      segmentId: "seg_01",
+      assetRef: "assets/broll/after.mp4",
+      startSec: 6,
+      endSec: 7,
+      instructionId: "broll_after",
+    }),
+    fallback: {
+      graphId: "fallback",
+      workspaceId: "ws_ops",
+      workpieceId: "wp_ops",
+      sessionId: "session_ops",
+      sourceTranscriptId: "tx_ops",
+    },
+  });
+  const withBrollC = appendAuthorityInstructionToGraph({
+    graph: withBrollB,
+    instruction: createInsertBrollInstruction({
+      segmentId: "seg_01",
+      assetRef: "assets/broll/inside.mp4",
+      startSec: 2.2,
+      endSec: 3.7,
+      instructionId: "broll_inside",
+    }),
+    fallback: {
+      graphId: "fallback",
+      workspaceId: "ws_ops",
+      workpieceId: "wp_ops",
+      sessionId: "session_ops",
+      sourceTranscriptId: "tx_ops",
+    },
+  });
+  const withBrollD = appendAuthorityInstructionToGraph({
+    graph: withBrollC,
+    instruction: createInsertBrollInstruction({
+      segmentId: "seg_01",
+      assetRef: "assets/broll/span.mp4",
+      startSec: 1,
+      endSec: 7,
+      instructionId: "broll_span",
+    }),
+    fallback: {
+      graphId: "fallback",
+      workspaceId: "ws_ops",
+      workpieceId: "wp_ops",
+      sessionId: "session_ops",
+      sourceTranscriptId: "tx_ops",
+    },
+  });
+  const withRipple = appendAuthorityInstructionToGraph({
+    graph: withBrollD,
+    instruction: createRippleDeleteInstruction({
+      segmentId: "seg_01",
+      startSec: 2,
+      endSec: 4,
+      instructionId: "ripple_ops_matrix",
+    }),
+    fallback: {
+      graphId: "fallback",
+      workspaceId: "ws_ops",
+      workpieceId: "wp_ops",
+      sessionId: "session_ops",
+      sourceTranscriptId: "tx_ops",
+    },
+  });
+  const rippleOpId = withRipple.operations.at(-1)?.operation_id ?? "";
+  const remapped = remapResolvedBrollOperationsForRippleDelete({
+    graph: withRipple,
+    rippleDeleteOperationId: rippleOpId,
+    removedStartSec: 2,
+    removedEndSec: 4,
+  });
+
+  const beforeOp = remapped.graph.operations.find((op) => op.instruction.instruction_id === "broll_before");
+  const afterOp = remapped.graph.operations.find((op) => op.instruction.instruction_id === "broll_after");
+  const insideOp = remapped.graph.operations.find((op) => op.instruction.instruction_id === "broll_inside");
+  const spanOp = remapped.graph.operations.find((op) => op.instruction.instruction_id === "broll_span");
+
+  assert.equal(beforeOp?.instruction.type, "insert_broll");
+  if (beforeOp?.instruction.type === "insert_broll") {
+    assert.equal(beforeOp.instruction.start_sec, 0.5);
+    assert.equal(beforeOp.instruction.end_sec, 1.5);
+  }
+
+  assert.equal(afterOp?.instruction.type, "insert_broll");
+  if (afterOp?.instruction.type === "insert_broll") {
+    assert.equal(afterOp.instruction.start_sec, 4);
+    assert.equal(afterOp.instruction.end_sec, 5);
+  }
+
+  assert.equal(insideOp?.lifecycle, "superseded");
+  assert.equal(insideOp?.superseded_by_operation_id, rippleOpId);
+
+  assert.equal(spanOp?.instruction.type, "insert_broll");
+  if (spanOp?.instruction.type === "insert_broll") {
+    assert.equal(spanOp.instruction.start_sec, 1);
+    assert.equal(spanOp.instruction.end_sec, 5);
+  }
+  assert.equal(spanOp?.capability_state.capability, "degraded");
+  assert.equal(spanOp?.capability_state.reason_codes.includes("operation_conflict"), true);
+
+  assert.equal(remapped.summary.adjustedOperationIds.includes(afterOp?.operation_id ?? ""), true);
+  assert.equal(remapped.summary.removedOperationIds.includes(insideOp?.operation_id ?? ""), true);
+  assert.equal(remapped.summary.attentionOperationIds.includes(spanOp?.operation_id ?? ""), true);
+}
+
 async function run() {
   await testFirstAuthorityOpsAffectAssemblyDeterministically();
   await testUndoRedoPreservesCanonicalOperationIdentity();
   await testSuggestionResolutionPreservesOperationIdentity();
   await testResolvedBindingMoveTrimReplacePreserveOperationIdentity();
+  await testRippleDeleteRemapsResolvedBrollDeterministically();
   // eslint-disable-next-line no-console
   console.log("Hammer authority ops tests passed.");
 }
