@@ -12,6 +12,7 @@ export type HammerWorkspaceToolId =
 export type HammerWorkspaceFocusMode = "balanced" | "source-focus" | "tool-focus" | "time-focus";
 export type HammerWorkspaceFocusOverride = HammerWorkspaceFocusMode | "auto";
 export type SegmentNavigationDirection = "previous" | "next";
+export type BoundaryNavigationDirection = "previous" | "next";
 
 export const SMALL_PLAYHEAD_NUDGE_SEC = 0.1;
 export const LARGE_PLAYHEAD_NUDGE_SEC = 1;
@@ -393,6 +394,36 @@ export function resolveTimelineBoundaryTimes(segments: HammerTranscriptSegment[]
   return [...new Set(
     segments.flatMap((segment) => [roundToTenth(segment.start_sec), roundToTenth(segment.end_sec)]),
   )].sort((a, b) => a - b);
+}
+
+export function resolveAdjacentBoundaryTime(args: {
+  boundaryTimesSec: number[];
+  playheadSec: number;
+  direction: BoundaryNavigationDirection;
+  epsilonSec?: number;
+}): number {
+  const boundaries = [...new Set(args.boundaryTimesSec.map((timeSec) => roundToTenth(timeSec)))]
+    .sort((left, right) => left - right);
+  if (boundaries.length === 0) return roundToTenth(args.playheadSec);
+
+  const epsilonSec = args.epsilonSec ?? 0.0001;
+  if (args.direction === "previous") {
+    for (let index = boundaries.length - 1; index >= 0; index -= 1) {
+      const boundary = boundaries[index] ?? 0;
+      if (boundary < args.playheadSec - epsilonSec) {
+        return roundToTenth(boundary);
+      }
+    }
+    return boundaries[0] ?? 0;
+  }
+
+  for (let index = 0; index < boundaries.length; index += 1) {
+    const boundary = boundaries[index] ?? 0;
+    if (boundary > args.playheadSec + epsilonSec) {
+      return roundToTenth(boundary);
+    }
+  }
+  return boundaries[boundaries.length - 1] ?? roundToTenth(args.playheadSec);
 }
 
 export function snapPlayheadToBoundary(args: {

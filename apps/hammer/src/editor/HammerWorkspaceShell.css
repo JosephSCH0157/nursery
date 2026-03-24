@@ -757,6 +757,11 @@ Guardrails:
   gap: 6px;
 }
 
+.hammer-timeline-dock__body.is-scrubbing .hammer-timeline-ruler,
+.hammer-timeline-dock__body.is-scrubbing .hammer-timeline-lane__track {
+  cursor: grabbing;
+}
+
 .hammer-timeline-dock__body input[type="range"] {
   width: 100%;
   margin: 0;
@@ -795,6 +800,7 @@ Guardrails:
     ),
     rgba(15, 23, 42, 0.56);
   overflow: hidden;
+  cursor: grab;
 }
 
 .hammer-timeline-ruler__tick {
@@ -905,6 +911,7 @@ Guardrails:
     ),
     rgba(15, 23, 42, 0.42);
   overflow: hidden;
+  cursor: grab;
 }
 
 .hammer-timeline-lane__track--dialogue {

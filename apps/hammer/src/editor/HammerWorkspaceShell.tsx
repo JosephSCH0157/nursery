@@ -21,6 +21,7 @@ import {
   cutSegmentRangeAndRipple,
   deleteSegmentAndRipple,
   moveSegmentTiming,
+  resolveAdjacentBoundaryTime,
   resolveAdjacentSegmentSelection,
   resolveEffectivePlaybackTime,
   resolveFocusAfterPlayheadChange,
@@ -148,9 +149,19 @@ const HISTORY_MAX_SIZE = 100;
 const HISTORY_PERSIST_DEBOUNCE_MS = 900;
 const TEXT_EDIT_COALESCE_MS = 1500;
 const PLAYHEAD_SNAP_TOLERANCE_SEC = DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC;
+const PRE_ROLL_SEC = 2;
+const POST_ROLL_SEC = 1;
+const SCRUB_SEEK_THRESHOLD_SEC = 0.05;
 
 type HammerToolId = HammerWorkspaceToolId;
 type HammerSourceTabId = "transcript" | "images" | "assets" | "broll" | "introoutro";
+type HammerPlaybackWindowMode = "loop" | "roll";
+type HammerPlaybackWindow = {
+  mode: HammerPlaybackWindowMode;
+  startSec: number;
+  endSec: number;
+  label: string;
+};
 
 type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
@@ -548,6 +559,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   );
   const [playheadSec, setPlayheadSec] = useState(0);
   const [isPlaybackActive, setIsPlaybackActive] = useState(false);
+  const [playbackWindow, setPlaybackWindow] = useState<HammerPlaybackWindow | null>(null);
+  const [isScrubbing, setIsScrubbing] = useState(false);
   const [focusOverride, setFocusOverride] = useState<HammerWorkspaceFocusOverride>("auto");
   const [polishStrength, setPolishStrength] = useState(60);
   const [gapCleanupOptions, setGapCleanupOptions] = useState<GapCleanupOptions>({
@@ -610,6 +623,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const historyPersistTimerRef = useRef<number | null>(null);
   const snapshotManifestRef = useRef<HammerSnapshotManifestV1 | null>(null);
   const lastSnapshottedHeadEntryIdRef = useRef<string | null>(null);
+  const scrubRectRef = useRef<{ left: number; width: number } | null>(null);
+  const scrubAutoPlayRef = useRef(false);
+  const scrubReturnToPausedRef = useRef(false);
 
   const previewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
   const workspaceFocusMode = focusOverride === "auto" ? resolveWorkspaceFocusMode(activeTool) : focusOverride;
@@ -677,6 +693,37 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     [transcriptSelectionRange.segmentIds],
   );
   const hasTranscriptSelection = transcriptSelectionRange.segmentIds.length > 0;
+  const activeTranscriptTargetRange = useMemo(() => {
+    if (
+      transcriptSelectionRange.startSec != null
+      && transcriptSelectionRange.endSec != null
+      && transcriptSelectionRange.endSec > transcriptSelectionRange.startSec
+    ) {
+      return {
+        startSec: transcriptSelectionRange.startSec,
+        endSec: transcriptSelectionRange.endSec,
+        label: `${transcriptSelectionRange.segmentIds.length} selected segment${transcriptSelectionRange.segmentIds.length === 1 ? "" : "s"}`,
+      };
+    }
+    if (selectedSegment && selectedSegment.end_sec > selectedSegment.start_sec) {
+      return {
+        startSec: selectedSegment.start_sec,
+        endSec: selectedSegment.end_sec,
+        label: `Segment ${selectedSegment.segment_id}`,
+      };
+    }
+    return null;
+  }, [selectedSegment, transcriptSelectionRange]);
+  const isLoopPlaybackActive = playbackWindow?.mode === "loop";
+  const playbackModeLabel = isScrubbing
+    ? "Scrubbing"
+    : playbackWindow?.mode === "loop"
+    ? `Looping ${playbackWindow.label}`
+    : playbackWindow?.mode === "roll"
+    ? `Auditioning ${playbackWindow.label}`
+    : isPlaybackActive
+    ? "Playing"
+    : "Paused";
   const transcriptSegmentsById = useMemo(() => {
     const byId = new Map<string, HammerTranscriptSegment>();
     for (const segment of editableTranscriptSegments) {
@@ -1413,8 +1460,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
 
-    const targetTime = Math.max(0, Math.min(playheadSec, transcriptDurationSec > 0 ? transcriptDurationSec : playheadSec));
-    if (Math.abs(previewAudio.currentTime - targetTime) > 0.15) {
+    const playbackTarget = resolvePlaybackWindowProgress(playheadSec).nextPlayheadSec;
+    const targetTime = Math.max(0, Math.min(playbackTarget, transcriptDurationSec > 0 ? transcriptDurationSec : playbackTarget));
+    if (Math.abs(previewAudio.currentTime - targetTime) > SCRUB_SEEK_THRESHOLD_SEC) {
       previewAudio.currentTime = targetTime;
     }
 
@@ -1426,7 +1474,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     void previewAudio.play().catch(() => {
       setIsPlaybackActive(false);
     });
-  }, [isPlaybackActive, playbackMediaSrc, playheadSec, transcriptDurationSec]);
+  }, [isPlaybackActive, playbackMediaSrc, playheadSec, transcriptDurationSec, playbackWindow]);
 
   useEffect(() => {
     if (!isPlaybackActive) return;
@@ -1438,21 +1486,34 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     const intervalId = window.setInterval(() => {
       setPlayheadSec((current) => {
-        const next = roundToTenth(current + SMALL_PLAYHEAD_NUDGE_SEC);
+        const next = Math.min(roundToTenth(current + SMALL_PLAYHEAD_NUDGE_SEC), transcriptDurationSec);
         const effectiveNext = resolveEffectivePlaybackTime(editableTranscriptSegments, next);
-        if (effectiveNext >= transcriptDurationSec) {
+        const windowProgress = resolvePlaybackWindowProgress(effectiveNext);
+        if (windowProgress.shouldStop) {
           window.clearInterval(intervalId);
           setIsPlaybackActive(false);
-          return roundToTenth(transcriptDurationSec);
+          if (playbackWindow?.mode === "roll") {
+            setPlaybackWindow(null);
+          }
         }
-        return effectiveNext;
+        if (!playbackWindow && effectiveNext >= transcriptDurationSec) {
+          window.clearInterval(intervalId);
+          setIsPlaybackActive(false);
+        }
+        return roundToTenth(windowProgress.nextPlayheadSec);
       });
     }, 100);
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [editableTranscriptSegments, isPlaybackActive, playbackMediaSrc, transcriptDurationSec]);
+  }, [
+    editableTranscriptSegments,
+    isPlaybackActive,
+    playbackMediaSrc,
+    playbackWindow,
+    transcriptDurationSec,
+  ]);
 
   useEffect(() => {
     if (!selectedSegmentId) return;
@@ -1497,6 +1558,30 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     selectionOriginRef.current = "system";
   }, [editableTranscriptSegments, selectedSegmentId, timelineDurationSec]);
+
+  useEffect(() => {
+    if (!isScrubbing) return;
+
+    const handleMouseMove = (event: globalThis.MouseEvent): void => {
+      if (event.buttons === 0) {
+        endTimelineScrub();
+        return;
+      }
+      seekPlayheadFromScrubClientX(event.clientX);
+    };
+
+    const handleMouseUp = (): void => {
+      endTimelineScrub();
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isScrubbing]);
 
   async function refreshSourceDeskMedia(): Promise<void> {
     setSourceDeskLoading(true);
@@ -1708,26 +1793,194 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     updateSegmentTiming(segmentId, "Trim segment end", (segment) => trimSegmentEndTiming(segment, deltaSec));
   }
 
-  function seekPlayheadToTime(nextTimeSec: number, origin: "timeline" | "playhead" = "timeline"): void {
+  function seekPlayheadToTime(
+    nextTimeSec: number,
+    origin: "timeline" | "playhead" = "timeline",
+    options?: { snapToBoundary?: boolean },
+  ): void {
     const clamped = Math.max(0, Math.min(timelineDurationSec, roundToTenth(nextTimeSec)));
-    const snapped = snapPlayheadToBoundary({
-      nextPlayheadSec: clamped,
-      boundaryTimesSec: playheadBoundaryTimesSec,
-      toleranceSec: PLAYHEAD_SNAP_TOLERANCE_SEC,
-    });
+    const snapped = options?.snapToBoundary === false
+      ? clamped
+      : snapPlayheadToBoundary({
+        nextPlayheadSec: clamped,
+        boundaryTimesSec: playheadBoundaryTimesSec,
+        toleranceSec: PLAYHEAD_SNAP_TOLERANCE_SEC,
+      });
     selectionOriginRef.current = origin;
     setPlayheadSec(snapped);
     setFocusOverride(resolveFocusAfterPlayheadChange(focusOverride));
   }
 
-  function seekPlayheadFromPointer(
-    event: MouseEvent<HTMLElement>,
-    origin: "timeline" | "playhead" = "timeline",
-  ): void {
+  function resolvePlaybackWindowProgress(nextTimeSec: number): {
+    nextPlayheadSec: number;
+    shouldLoop: boolean;
+    shouldStop: boolean;
+  } {
+    const clamped = Math.max(0, Math.min(timelineDurationSec, roundToTenth(nextTimeSec)));
+    if (!playbackWindow) {
+      return {
+        nextPlayheadSec: clamped,
+        shouldLoop: false,
+        shouldStop: false,
+      };
+    }
+
+    const windowStart = Math.max(0, Math.min(timelineDurationSec, roundToTenth(playbackWindow.startSec)));
+    const windowEnd = Math.max(windowStart, Math.min(timelineDurationSec, roundToTenth(playbackWindow.endSec)));
+    if (clamped < windowStart) {
+      return {
+        nextPlayheadSec: windowStart,
+        shouldLoop: false,
+        shouldStop: false,
+      };
+    }
+    if (clamped >= windowEnd) {
+      if (playbackWindow.mode === "loop") {
+        return {
+          nextPlayheadSec: windowStart,
+          shouldLoop: true,
+          shouldStop: false,
+        };
+      }
+      return {
+        nextPlayheadSec: windowEnd,
+        shouldLoop: false,
+        shouldStop: true,
+      };
+    }
+
+    return {
+      nextPlayheadSec: clamped,
+      shouldLoop: false,
+      shouldStop: false,
+    };
+  }
+
+  function resolveSelectionPlaybackRange(args: { preRollSec: number; postRollSec: number; labelPrefix: string }): HammerPlaybackWindow | null {
+    if (!activeTranscriptTargetRange) return null;
+    const startSec = Math.max(0, roundToTenth(activeTranscriptTargetRange.startSec - args.preRollSec));
+    const endSec = Math.min(timelineDurationSec, roundToTenth(activeTranscriptTargetRange.endSec + args.postRollSec));
+    if (endSec <= startSec) return null;
+    return {
+      mode: "roll",
+      startSec,
+      endSec,
+      label: `${args.labelPrefix} ${activeTranscriptTargetRange.label}`,
+    };
+  }
+
+  function jumpToSelectionBoundary(boundary: "start" | "end"): void {
+    if (!activeTranscriptTargetRange) {
+      setTranscriptTimingHint("Select one or more segments to jump to selection boundaries.");
+      return;
+    }
+    setTranscriptTimingHint(null);
+    seekPlayheadToTime(boundary === "start" ? activeTranscriptTargetRange.startSec : activeTranscriptTargetRange.endSec, "playhead");
+  }
+
+  function jumpToEditPoint(direction: "previous" | "next"): void {
+    if (playheadBoundaryTimesSec.length === 0) return;
+    const target = resolveAdjacentBoundaryTime({
+      boundaryTimesSec: playheadBoundaryTimesSec,
+      playheadSec,
+      direction,
+    });
+    seekPlayheadToTime(target, "playhead");
+  }
+
+  function toggleSelectionLoopPlayback(): void {
+    if (isLoopPlaybackActive) {
+      setPlaybackWindow(null);
+      setTranscriptTimingHint("Loop playback disabled.");
+      return;
+    }
+    if (!playbackMediaSrc) {
+      setTranscriptTimingHint("Mapped media unavailable. Check workspace media mapping or source media link.");
+      return;
+    }
+    if (!activeTranscriptTargetRange) {
+      setTranscriptTimingHint("Select one or more segments to loop playback.");
+      return;
+    }
+
+    const nextWindow: HammerPlaybackWindow = {
+      mode: "loop",
+      startSec: activeTranscriptTargetRange.startSec,
+      endSec: activeTranscriptTargetRange.endSec,
+      label: activeTranscriptTargetRange.label,
+    };
+
+    setPlaybackWindow(nextWindow);
+    seekPlayheadToTime(nextWindow.startSec, "playhead");
+    setIsPlaybackActive(true);
+    setFocusOverride("time-focus");
+    setTranscriptTimingHint(null);
+  }
+
+  function playSelectionWithRoll(): void {
+    if (!playbackMediaSrc) {
+      setTranscriptTimingHint("Mapped media unavailable. Check workspace media mapping or source media link.");
+      return;
+    }
+    const nextWindow = resolveSelectionPlaybackRange({
+      preRollSec: PRE_ROLL_SEC,
+      postRollSec: POST_ROLL_SEC,
+      labelPrefix: "Pre/Post Roll",
+    });
+    if (!nextWindow) {
+      setTranscriptTimingHint("Select one or more segments to audition with pre/post roll.");
+      return;
+    }
+
+    setPlaybackWindow(nextWindow);
+    seekPlayheadToTime(nextWindow.startSec, "playhead", { snapToBoundary: false });
+    setIsPlaybackActive(true);
+    setFocusOverride("time-focus");
+    setTranscriptTimingHint(null);
+  }
+
+  function seekPlayheadFromScrubClientX(clientX: number): void {
+    const rect = scrubRectRef.current;
+    if (!rect || rect.width <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    seekPlayheadToTime(ratio * timelineDurationSec, "playhead", { snapToBoundary: false });
+  }
+
+  function beginTimelineScrub(event: MouseEvent<HTMLElement>): void {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest(".hammer-timeline-block")) return;
     const rect = event.currentTarget.getBoundingClientRect();
     if (rect.width <= 0) return;
-    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-    seekPlayheadToTime(ratio * timelineDurationSec, origin);
+
+    event.preventDefault();
+    scrubRectRef.current = { left: rect.left, width: rect.width };
+    scrubAutoPlayRef.current = false;
+    scrubReturnToPausedRef.current = !isPlaybackActive;
+    setFocusOverride("time-focus");
+    setIsScrubbing(true);
+    seekPlayheadFromScrubClientX(event.clientX);
+
+    if (!isPlaybackActive && playbackMediaSrc && previewAudioRef.current) {
+      const previewAudio = previewAudioRef.current;
+      void previewAudio.play()
+        .then(() => {
+          scrubAutoPlayRef.current = true;
+        })
+        .catch(() => {
+          scrubAutoPlayRef.current = false;
+        });
+    }
+  }
+
+  function endTimelineScrub(): void {
+    setIsScrubbing(false);
+    scrubRectRef.current = null;
+    if (scrubAutoPlayRef.current && scrubReturnToPausedRef.current) {
+      previewAudioRef.current?.pause();
+      setIsPlaybackActive(false);
+    }
+    scrubAutoPlayRef.current = false;
+    scrubReturnToPausedRef.current = false;
   }
 
   function splitSelectedSegmentAtPlayhead(): void {
@@ -2069,13 +2322,40 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setTranscriptTimingHint(null);
   }
 
+  function handlePlaybackProgress(nextTimeSec: number): void {
+    const effectiveNext = resolveEffectivePlaybackTime(editableTranscriptSegments, nextTimeSec);
+    const windowProgress = resolvePlaybackWindowProgress(effectiveNext);
+    const nextPlayhead = roundToTenth(windowProgress.nextPlayheadSec);
+
+    setPlayheadSec((current) => (
+      Math.abs(current - nextPlayhead) >= SCRUB_SEEK_THRESHOLD_SEC ? nextPlayhead : current
+    ));
+
+    if (windowProgress.shouldLoop && previewAudioRef.current) {
+      previewAudioRef.current.currentTime = nextPlayhead;
+      return;
+    }
+
+    if (windowProgress.shouldStop) {
+      setIsPlaybackActive(false);
+      if (playbackWindow?.mode === "roll") {
+        setPlaybackWindow(null);
+      }
+    }
+  }
+
   function togglePlayback(): void {
     if (editableTranscriptSegments.length === 0) return;
     if (!playbackMediaSrc) {
       setTranscriptTimingHint("Mapped media unavailable. Check workspace media mapping or source media link.");
       return;
     }
-    setIsPlaybackActive((current) => !current);
+    setIsPlaybackActive((current) => {
+      if (current && playbackWindow?.mode === "roll") {
+        setPlaybackWindow(null);
+      }
+      return !current;
+    });
     setFocusOverride("time-focus");
   }
 
@@ -2288,6 +2568,34 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           return;
         }
 
+        if (event.key === "Home") {
+          event.preventDefault();
+          event.stopPropagation();
+          jumpToSelectionBoundary("start");
+          return;
+        }
+
+        if (event.key === "End") {
+          event.preventDefault();
+          event.stopPropagation();
+          jumpToSelectionBoundary("end");
+          return;
+        }
+
+        if (event.key === ",") {
+          event.preventDefault();
+          event.stopPropagation();
+          jumpToEditPoint("previous");
+          return;
+        }
+
+        if (event.key === ".") {
+          event.preventDefault();
+          event.stopPropagation();
+          jumpToEditPoint("next");
+          return;
+        }
+
         if (event.key === " " || event.code === "Space") {
           event.preventDefault();
           event.stopPropagation();
@@ -2299,6 +2607,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           event.preventDefault();
           event.stopPropagation();
           splitSelectedSegmentAtPlayhead();
+          return;
+        }
+
+        if (event.key.toLowerCase() === "l") {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleSelectionLoopPlayback();
+          return;
+        }
+
+        if (event.key.toLowerCase() === "p") {
+          event.preventDefault();
+          event.stopPropagation();
+          playSelectionWithRoll();
           return;
         }
 
@@ -2356,11 +2678,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     adjustSelectedSegmentGain,
     clearTranscriptSelection,
     deleteSelectedSegmentAndRipple,
+    jumpToEditPoint,
+    jumpToSelectionBoundary,
     nudgePlayhead,
+    playSelectionWithRoll,
     redoHistory,
     selectAdjacentSegment,
     splitSelectedSegmentAtPlayhead,
     togglePlayback,
+    toggleSelectionLoopPlayback,
     toggleSelectedSegmentDisabled,
     undoHistory,
   ]);
@@ -3343,7 +3669,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 ref={previewAudioRef}
                 src={playbackMediaSrc ?? undefined}
                 preload="metadata"
-                onEnded={() => setIsPlaybackActive(false)}
+                onTimeUpdate={(event) => {
+                  if (!isPlaybackActive) return;
+                  handlePlaybackProgress(event.currentTarget.currentTime);
+                }}
+                onEnded={() => {
+                  setIsPlaybackActive(false);
+                  if (playbackWindow?.mode === "roll") {
+                    setPlaybackWindow(null);
+                  }
+                }}
                 style={{ display: "none" }}
               />
               <div className="hammer-preview-surface">
@@ -3357,10 +3692,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               </div>
               <div className="hammer-preview-meta">
                 <span>Playhead {playheadSec.toFixed(1)}s</span>
-                <span>{isPlaybackActive ? "Playing" : "Paused"}</span>
+                <span>{playbackModeLabel}</span>
                 <span>{mediaSourceLabel ?? "No media source"}</span>
                 <span>Playback lane: {studioRackPlaybackConfig.backend}</span>
                 <span>{playbackMediaSrc ? "Mapped media ready" : "Mapped media unavailable"}</span>
+                {playbackWindow ? (
+                  <span>
+                    Window {playbackWindow.startSec.toFixed(1)}s - {playbackWindow.endSec.toFixed(1)}s
+                  </span>
+                ) : null}
                 <button type="button" onClick={togglePlayback}>
                   {isPlaybackActive ? "Pause (Space)" : "Play (Space)"}
                 </button>
@@ -4146,16 +4486,34 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <button type="button" onClick={() => setFocusOverride("time-focus")}>Time</button>
               </div>
             </header>
-          <div className="hammer-bay-body hammer-timeline-dock__body">
+          <div className={`hammer-bay-body hammer-timeline-dock__body${isScrubbing ? " is-scrubbing" : ""}`}>
             <div className="hammer-timeline-tools">
               <button type="button" onClick={togglePlayback}>
                 {isPlaybackActive ? "Pause" : "Play"}
+              </button>
+              <button type="button" onClick={toggleSelectionLoopPlayback}>
+                {isLoopPlaybackActive ? "Stop Loop (L)" : "Loop Selection (L)"}
+              </button>
+              <button type="button" onClick={playSelectionWithRoll}>
+                Audition Roll (P)
               </button>
               <button type="button" onClick={() => selectAdjacentSegment("previous")} disabled={!selectedSegment}>
                 Prev (↑)
               </button>
               <button type="button" onClick={() => selectAdjacentSegment("next")} disabled={!selectedSegment}>
                 Next (↓)
+              </button>
+              <button type="button" onClick={() => jumpToSelectionBoundary("start")}>
+                Sel In (Home)
+              </button>
+              <button type="button" onClick={() => jumpToSelectionBoundary("end")}>
+                Sel Out (End)
+              </button>
+              <button type="button" onClick={() => jumpToEditPoint("previous")}>
+                Prev Edit (,)
+              </button>
+              <button type="button" onClick={() => jumpToEditPoint("next")}>
+                Next Edit (.)
               </button>
               <button type="button" onClick={() => nudgePlayhead(-SMALL_PLAYHEAD_NUDGE_SEC)}>
                 -0.1s (←)
@@ -4300,8 +4658,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <section className="hammer-timeline-board" aria-label="Track-based timeline">
                   <div
                     className="hammer-timeline-ruler"
-                    onClick={(event) => {
-                      seekPlayheadFromPointer(event);
+                    onMouseDown={(event) => {
+                      beginTimelineScrub(event);
                     }}
                   >
                     {timelineMinorTicks.map((tick) => (
@@ -4340,10 +4698,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       </div>
                       <div
                         className={`hammer-timeline-lane__track hammer-timeline-lane__track--${lane.tone}`}
-                        onClick={(event) => {
-                          const target = event.target;
-                          if (target instanceof HTMLElement && target.closest(".hammer-timeline-block")) return;
-                          seekPlayheadFromPointer(event);
+                        onMouseDown={(event) => {
+                          beginTimelineScrub(event);
                         }}
                       >
                         {(laneGapsById.get(lane.id) ?? []).map((gap) => (
