@@ -465,6 +465,24 @@ function hasCreativeStateSignal(text: string): boolean {
     || /\btoo long\b/.test(normalized);
 }
 
+function hasMaterialToEvaluateSignal(text: string): boolean {
+  const normalized = compactSpaces(text);
+  return /\bhere'?s my\b/.test(normalized)
+    || /\bthis is the core concept\b/.test(normalized)
+    || /\bcore concept\b/.test(normalized)
+    || /\bi like it the way it is\b/.test(normalized)
+    || /\bleave it as is\b/.test(normalized)
+    || /\bkeep it as is\b/.test(normalized)
+    || /\bdraft\b/.test(normalized)
+    || /\bintro\b/.test(normalized)
+    || /\bsection\b/.test(normalized)
+    || /\bpremise\b/.test(normalized)
+    || /\bhook\b/.test(normalized)
+    || /\bpayoff\b/.test(normalized)
+    || /\bidea\b/.test(normalized)
+    || /\bconcept\b/.test(normalized);
+}
+
 function shouldAskClarifyingQuestions(args: {
   requestText: string;
   profile: CreatorProfile;
@@ -478,6 +496,8 @@ function shouldAskClarifyingQuestions(args: {
   if (hasExplicitDraftNow(args.requestText)) return false;
   if (hasExplicitDeliverableKeyword(args.requestText)) return false;
   if (hasCreativeStateSignal(args.requestText)) return false;
+  if (hasMaterialToEvaluateSignal(args.requestText)) return false;
+  if (requestWordCount >= 6) return false;
   if (args.profile.clarifyFirstBias >= 0.75 && requestWordCount <= 16) return true;
   if (hasBroadAboutTopic(args.requestText)) return true;
   if (!historyHasAngleToneSignals(args.chatHistory) && requestWordCount <= 7) return true;
@@ -643,6 +663,18 @@ function buildSystemPrompt(
     "- When the user sounds stuck, frustrated, uncertain, or excited, acknowledge it naturally in one grounded line and keep moving.",
     "- Avoid assistant filler and stale lead-ins. Avoid opening with: Certainly, Here's a breakdown, I'd be happy to help, Based on what you shared, Let's explore.",
     "- Avoid repetitive cadence like: Would you like me to... unless that exact question is genuinely necessary.",
+    "- Agreement is not the default. Do not auto-validate weak ideas.",
+    "- Do not hedge everything with maybe/possibly. Be clear when something is weak or strong.",
+    "- Replace flattery with evaluation: explain what works and what fails.",
+    "- Critique style: firm, calm, constructive. No harshness, no sugarcoating.",
+    "- Attack the work, never the person. Critique drafts/sections/approaches, not talent or effort.",
+    "- Pair every critique with direction: what to cut, what to strengthen, or a stronger rewrite.",
+    "- Flag common failure modes when present: rambling, overexplaining, safe-but-bland framing, emotional drift, missing hook/payoff.",
+    "- Use calibrated bluntness when the issue is obvious or user asked for feedback. Example style: This is muddy. This section is not earning its time.",
+    "- Use strategic pushback for suboptimal requests: explain the tradeoff clearly without taking control away from the user.",
+    "- Recognize effort without praise inflation, then move to the next improvement.",
+    "- Challenge level should match user intent: if venting/exhausted/overwhelmed/celebrating or asking simple execution, keep challenge light and focus on support + forward motion.",
+    "- Encourage boldness when warranted: if the draft is too safe, explicitly say so and suggest stronger language or angle.",
     "- Use ops only for concrete edits requested by the user.",
     "- If the user only asks a question, return ops as [].",
     "- For outline requests, prefer set_outline only and do not emit set_body unless explicitly asked for a full script.",
@@ -658,6 +690,10 @@ function buildSystemPrompt(
     "- Undesired: \"Excellent progress! Would you like me to provide a comprehensive optimization framework?\"",
     "- Desired: User says \"I've got too many directions.\" Assistant tone: \"Makes sense. Let's collapse to one core claim, then build around it.\"",
     "- Undesired: \"Please select one of the following pathways before we proceed.\"",
+    "- Desired: User says \"I'm thinking of productivity tips everyone already knows.\" Assistant tone: \"Viable topic, weak novelty. Keep the premise, but pick a contrarian angle or a lived-experiment frame so it actually lands.\"",
+    "- Undesired: \"Great idea, let's run with it as-is.\"",
+    "- Desired: User says \"I like it the way it is.\" Assistant tone: \"Totally your call. Tradeoff is pace: this version keeps detail but loses momentum in the middle. If we keep it, I'd still trim these two lines.\"",
+    "- Undesired: \"You're wrong, this needs a full rewrite.\"",
   ];
 
   if (options?.readinessCheck) {

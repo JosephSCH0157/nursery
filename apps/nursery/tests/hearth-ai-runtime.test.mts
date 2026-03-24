@@ -208,6 +208,11 @@ test("createHearthAiHandler sends collaborator-style system prompt to upstream m
     assert.match(capturedSystemPrompt, /Avoid assistant filler and stale lead-ins/i);
     assert.match(capturedSystemPrompt, /Ask fewer follow-up questions/i);
     assert.match(capturedSystemPrompt, /Voice examples \(style calibration\)/i);
+    assert.match(capturedSystemPrompt, /Agreement is not the default/i);
+    assert.match(capturedSystemPrompt, /Critique style: firm, calm, constructive/i);
+    assert.match(capturedSystemPrompt, /Attack the work, never the person/i);
+    assert.match(capturedSystemPrompt, /strategic pushback/i);
+    assert.match(capturedSystemPrompt, /Use calibrated bluntness/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -351,10 +356,69 @@ test("createHearthAiHandler acceptance prompts route to drafting flow instead of
       assert.equal(response.status, 200);
       const payload = await response.json();
       assert.equal(payload.ok, true);
-      assert.equal(payload.gate, undefined);
+      assert.equal(payload.gate, undefined, `unexpected clarify gate for prompt: ${content}`);
     }
 
     assert.equal(openAiCallCount, acceptancePrompts.length);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler round2 acceptance prompts route to feedback flow without clarify gate", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  let openAiCallCount = 0;
+
+  globalThis.fetch = async () => {
+    openAiCallCount += 1;
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: "The premise is usable, but it's too safe. Here's the sharper version.",
+              ops: [],
+              script_text: null,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 77 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const round2Prompts = [
+    "I'm thinking of doing an episode about productivity tips everyone already knows.",
+    "Here's my intro and it's probably too long but I'm not sure where the drag starts.",
+    "I like it the way it is.",
+    "This is the core concept: burnout isn't about laziness, it's misaligned incentives.",
+  ];
+
+  try {
+    for (const content of round2Prompts) {
+      const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          messages: [{ role: "user", content }],
+          episode_context: buildEpisodeContext(),
+          lane: "forge",
+          behavior: "careful",
+        }),
+      }));
+
+      assert.equal(response.status, 200);
+      const payload = await response.json();
+      assert.equal(payload.ok, true);
+      assert.equal(payload.gate, undefined);
+    }
+
+    assert.equal(openAiCallCount, round2Prompts.length);
   } finally {
     globalThis.fetch = originalFetch;
   }
