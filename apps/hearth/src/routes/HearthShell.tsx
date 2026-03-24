@@ -9877,7 +9877,7 @@ export default function HearthShell() {
                 type="button"
                 onClick={onToggleVisualScriptMode}
               >
-                {isVisualScriptMode ? "Exit Visual Script Mode" : "Visual Script Mode"}
+                {isVisualScriptMode ? "Exit Visual Beats" : "Visual Beats"}
               </button>
             ) : null}
           </div>
@@ -10349,13 +10349,13 @@ export default function HearthShell() {
             {hasApprovedScript && approvedScriptVersion ? (
               <CollapsibleFocusPanel
                 panelId="hearth-image-map-panel"
-                title="Visual Script Mode"
+                title="Visual Beats"
                 meta={imageMapPanelMeta}
                 collapsed={focusPanelLayout.imageMap}
                 onToggle={() => onToggleFocusPanel("imageMap")}
               >
                 <ImageMapPanel
-                  panelTitle="Visual Script Mode"
+                  panelTitle="Visual Beats"
                   manualOnly
                   entries={imageMapEntries}
                   selectedEntryId={selectedImageMapEntryId}
