@@ -180,7 +180,18 @@ function readInstruction(input: unknown): HammerEditInstruction | null {
         start_sec: startSec,
         end_sec: endSec,
         ...(type === "insert_broll"
-          ? { replace_clip_id: readString(row.replace_clip_id) ?? undefined }
+          ? {
+            intent_source: readString(row.intent_source) === "hearth_suggestion" ? "hearth_suggestion" : "manual",
+            intent_ref: readString(row.intent_ref) ?? undefined,
+            intent_description: readString(row.intent_description) ?? null,
+            asset_binding_state: readString(row.asset_binding_state) === "unresolved" ? "unresolved" : "resolved",
+            duck_preference: readString(row.duck_preference) === "none"
+              ? "none"
+              : readString(row.duck_preference) === "manual"
+              ? "manual"
+              : "auto",
+            replace_clip_id: readString(row.replace_clip_id) ?? undefined,
+          }
           : {}),
         created_at: createdAt,
       };

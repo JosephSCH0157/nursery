@@ -90,6 +90,11 @@ export interface HammerInsertBrollInstruction extends HammerEditInstructionBase 
   asset_ref: string;
   start_sec: number;
   end_sec: number;
+  intent_source?: "manual" | "hearth_suggestion";
+  intent_ref?: string;
+  intent_description?: string | null;
+  asset_binding_state?: "resolved" | "unresolved";
+  duck_preference?: "auto" | "none" | "manual";
   replace_clip_id?: string;
 }
 

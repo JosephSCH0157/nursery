@@ -34,6 +34,11 @@ type SemanticEditInstruction =
     asset_ref: string;
     start_sec: number;
     end_sec: number;
+    intent_source?: "manual" | "hearth_suggestion";
+    intent_ref?: string | null;
+    intent_description?: string | null;
+    asset_binding_state?: "resolved" | "unresolved";
+    duck_preference?: "auto" | "none" | "manual";
   }
   | {
     type: "crossfade";
@@ -94,6 +99,15 @@ function toSemanticEditInstruction(
         asset_ref: instruction.asset_ref,
         start_sec: instruction.start_sec,
         end_sec: instruction.end_sec,
+        ...(instruction.type === "insert_broll"
+          ? {
+            intent_source: instruction.intent_source ?? "manual",
+            intent_ref: instruction.intent_ref ?? null,
+            intent_description: instruction.intent_description ?? null,
+            asset_binding_state: instruction.asset_binding_state ?? "resolved",
+            duck_preference: instruction.duck_preference ?? "auto",
+          }
+          : {}),
       };
     case "crossfade":
       return {

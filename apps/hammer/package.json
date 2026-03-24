@@ -18,6 +18,7 @@
     "test:workspace-timeline": "tsx tests/hammerWorkspaceTimeline.test.ts",
     "test:workspace-transcript": "tsx tests/hammerWorkspaceTranscript.test.ts",
     "test:workspace-history": "tsx tests/hammerWorkspaceHistory.test.ts",
+    "test:authority-ops": "tsx tests/hammerAuthorityOps.test.ts",
     "test:editorial-authority-contract": "tsx tests/hammerEditorialAuthorityContract.test.ts",
     "test:render-assembly": "tsx tests/hammerRenderAssembly.test.ts",
     "test:output-selection-guard": "tsx tests/hammerOutputSelectionGuard.test.ts",

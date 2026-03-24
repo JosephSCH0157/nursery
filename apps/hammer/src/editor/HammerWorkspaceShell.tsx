@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { JSX, MouseEvent } from "react";
 import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
+import type { HammerEditInstruction } from "../../../../packages/contracts/hammer/edit-instruction.contract";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { MediaRef, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
@@ -161,6 +162,12 @@ import {
   projectEditorialAuthorityGraphFromEditPlan,
   type HammerRenderRuntimeCapabilities,
 } from "./hammerRenderAssembly";
+import {
+  appendAuthorityInstructionToGraph,
+  createAudioDuckInstruction,
+  createInsertBrollInstruction,
+  createRippleDeleteInstruction,
+} from "./hammerAuthorityOps";
 import {
   buildHammerCaptionPreviewModel,
   type HammerCaptionPreviewChunk,
@@ -1583,6 +1590,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setCleanupPreview(null);
   }
 
+  function appendAuthorityInstructionForState(
+    state: HammerEditorStateSerializable,
+    instruction: HammerEditInstruction,
+  ): HammerEditorialAuthorityGraph {
+    return appendAuthorityInstructionToGraph({
+      graph: state.editorialAuthorityGraph,
+      instruction,
+      fallback: {
+        graphId: `${launchContext.workpiece_id}:authority`,
+        workspaceId: launchContext.workspace_id,
+        workpieceId: launchContext.workpiece_id,
+        sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
+        sourceTranscriptId: transcriptSourceId,
+      },
+    });
+  }
+
   function buildHistoryPathToEntry(entryId: string): string[] {
     const path: string[] = [];
     const visited = new Set<string>();
@@ -3000,6 +3024,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           segmentIds: transcriptSelectionRange.segmentIds,
         });
         if (!cut.changed || cut.removedStartSec == null || cut.removedEndSec == null) return before;
+        const authorityInstruction = createRippleDeleteInstruction({
+          segmentId: transcriptSelectionRange.segmentIds[0] ?? before.selectedSegmentId ?? "segment:unknown",
+          startSec: cut.removedStartSec,
+          endSec: cut.removedEndSec,
+        });
+        const nextAuthorityGraph = appendAuthorityInstructionForState(before, authorityInstruction);
 
         const nextSelection = resolveSelectedSegmentAfterDelete({
           segmentsAfterDelete: cut.segments,
@@ -3009,6 +3039,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         return {
           ...before,
           transcriptSegments: cut.segments,
+          editorialAuthorityGraph: nextAuthorityGraph,
           selectedSegmentId: nextSelection,
           playheadSec: resolvePlayheadAfterRangeCut({
             playheadSec: before.playheadSec,
@@ -3318,6 +3349,87 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           visualPlacements: {
             ...current,
             placements: [...current.placements, nextPlacement],
+          },
+        };
+      },
+    });
+  }
+
+  function insertBrollFromLibrary(args: {
+    assetPath: string;
+    label: string;
+  }): void {
+    const placementId = createVisualPlacementId();
+
+    applyHistoryMutation({
+      label: "Insert b-roll",
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedPlacementIds: [placementId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const current = before.visualPlacements;
+        if (!current) return before;
+        const anchorSegment = before.selectedSegmentId
+          ? before.transcriptSegments.find((segment) => segment.segment_id === before.selectedSegmentId) ?? null
+          : before.transcriptSegments[0] ?? null;
+        if (!anchorSegment) return before;
+
+        const nextStart = Math.max(0, roundToTenth(before.playheadSec));
+        const nextEnd = Math.max(nextStart + 0.5, Math.min(transcriptDurationSec, roundToTenth(nextStart + 3)));
+        const brollPlacement: HammerVisualPlacementRecord = {
+          placement_id: placementId,
+          entry_id: `manual:${placementId}`,
+          anchor_segment_id: anchorSegment.segment_id,
+          matched_segment_ids: [anchorSegment.segment_id],
+          anchor_text: anchorSegment.text,
+          asset_ref: args.assetPath,
+          asset_id: null,
+          asset_path: args.assetPath,
+          storage_key: args.assetPath,
+          label: args.label,
+          visual_mode: "broll",
+          start_sec: nextStart,
+          end_sec: nextEnd,
+          confidence: null,
+          timing_source: "ordered_fallback",
+          status: "placed",
+          ingest_state: "approved",
+          uncertainty_flags: [],
+        };
+
+        const brollInstruction = createInsertBrollInstruction({
+          segmentId: anchorSegment.segment_id,
+          assetRef: args.assetPath,
+          startSec: nextStart,
+          endSec: nextEnd,
+        });
+        const duckInstruction = createAudioDuckInstruction({
+          segmentId: anchorSegment.segment_id,
+          startSec: nextStart,
+          endSec: nextEnd,
+          duckGainDb: -9,
+        });
+        const withBroll = appendAuthorityInstructionForState(before, brollInstruction);
+        const withDuck = appendAuthorityInstructionToGraph({
+          graph: withBroll,
+          instruction: duckInstruction,
+          fallback: {
+            graphId: `${launchContext.workpiece_id}:authority`,
+            workspaceId: launchContext.workspace_id,
+            workpieceId: launchContext.workpiece_id,
+            sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
+            sourceTranscriptId: transcriptSourceId,
+          },
+        });
+
+        return {
+          ...before,
+          editorialAuthorityGraph: withDuck,
+          selectedSegmentId: anchorSegment.segment_id,
+          visualPlacements: {
+            ...current,
+            placements: [...current.placements, brollPlacement],
           },
         };
       },
@@ -4830,6 +4942,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <span>{item.confidence != null ? `${Math.round(item.confidence * 100)}% match` : "match n/a"}</span>
                         </div>
                         <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFocusOverride("tool-focus");
+                              insertBrollFromLibrary({
+                                assetPath: item.assetPath ?? item.id,
+                                label: item.label,
+                              });
+                            }}
+                          >
+                            Insert at playhead
+                          </button>
                           <button
                             type="button"
                             onClick={() => {
@@ -6675,6 +6799,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <div className="hammer-tool-hint">Preview truth: {previewTruthPosture}</div>
                   <div className="hammer-tool-hint">Export truth: {exportTruthPosture}</div>
                   <div className="hammer-tool-hint">Handoff truth: {handoffTruthPosture}</div>
+                  {previewTruthPosture !== "authoritative" ? (
+                    <div className="hammer-tool-hint">
+                      Preview is {previewTruthPosture}; at least one active operation is not fully previewable in this runtime.
+                    </div>
+                  ) : null}
                   <div className={`hammer-caption-release-summary hammer-caption-release-summary--${captionReleasePrepSafetyState}`}>
                     <div className="hammer-caption-release-summary__head">
                       <strong>Caption release truth</strong>
