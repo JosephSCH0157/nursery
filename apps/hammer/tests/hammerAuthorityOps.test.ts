@@ -7,6 +7,7 @@ import {
   createInsertBrollInstruction,
   createRippleDeleteInstruction,
   resolveInsertBrollSuggestionInGraph,
+  updateResolvedInsertBrollOperationInGraph,
 } from "../src/editor/hammerAuthorityOps";
 import {
   buildHammerRenderAssembly,
@@ -228,10 +229,53 @@ async function testSuggestionResolutionPreservesOperationIdentity() {
   }
 }
 
+async function testResolvedBindingMoveTrimReplacePreserveOperationIdentity() {
+  const initial = baseState();
+  const inserted = appendAuthorityInstructionToGraph({
+    graph: initial.editorialAuthorityGraph,
+    instruction: createInsertBrollInstruction({
+      segmentId: "seg_02",
+      assetRef: "assets/broll/original.mp4",
+      startSec: 2,
+      endSec: 5,
+      instructionId: "insert_resolved_01",
+    }),
+    fallback: {
+      graphId: "fallback",
+      workspaceId: "ws_ops",
+      workpieceId: "wp_ops",
+      sessionId: "session_ops",
+      sourceTranscriptId: "tx_ops",
+    },
+  });
+  const operationId = inserted.operations.at(-1)?.operation_id ?? "";
+  const moved = updateResolvedInsertBrollOperationInGraph({
+    graph: inserted,
+    operationId,
+    changes: { start_sec: 2.5, end_sec: 5.5 },
+  });
+  assert.ok(moved);
+  const replaced = updateResolvedInsertBrollOperationInGraph({
+    graph: moved!,
+    operationId,
+    changes: { asset_ref: "assets/broll/replaced.mp4" },
+  });
+  assert.ok(replaced);
+  const operation = replaced?.operations.find((item) => item.operation_id === operationId) ?? null;
+  assert.equal(operation?.instruction.type, "insert_broll");
+  if (operation?.instruction.type === "insert_broll") {
+    assert.equal(operation.instruction.start_sec, 2.5);
+    assert.equal(operation.instruction.end_sec, 5.5);
+    assert.equal(operation.instruction.asset_ref, "assets/broll/replaced.mp4");
+    assert.equal(operation.instruction.asset_binding_state, "resolved");
+  }
+}
+
 async function run() {
   await testFirstAuthorityOpsAffectAssemblyDeterministically();
   await testUndoRedoPreservesCanonicalOperationIdentity();
   await testSuggestionResolutionPreservesOperationIdentity();
+  await testResolvedBindingMoveTrimReplacePreserveOperationIdentity();
   // eslint-disable-next-line no-console
   console.log("Hammer authority ops tests passed.");
 }

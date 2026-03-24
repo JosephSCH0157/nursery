@@ -10,7 +10,12 @@ import {
 import type { HammerPersistedStructuredTranscript } from "../src/persistence/hammerPersistenceContract";
 import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammerRenderAssembly";
 import { buildHammerRenderAssembly } from "../src/editor/hammerRenderAssembly";
-import { createHearthBrollSuggestionInstruction, appendAuthorityInstructionToGraph } from "../src/editor/hammerAuthorityOps";
+import {
+  appendAuthorityInstructionToGraph,
+  createHearthBrollSuggestionInstruction,
+  createInsertBrollInstruction,
+  updateResolvedInsertBrollOperationInGraph,
+} from "../src/editor/hammerAuthorityOps";
 
 const transcript: HammerPersistedStructuredTranscript = {
   schema_version: 1,
@@ -267,11 +272,82 @@ async function testPacketDistinguishesUnresolvedVsResolvedBroll() {
   assert.equal(packet.manifest.editorial_truth?.broll_resolution_summary.resolved_bindings.length, 0);
 }
 
+async function testPacketReflectsResolvedBindingEdits() {
+  const prep = buildHammerReleasePrepPackage({
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    prepStatus: "prepared",
+    alignmentStatus: "aligned",
+    structuredTranscript: transcript,
+    visualPlacements: null,
+    audioPolish: null,
+    editorSession: null,
+  });
+  const baseGraph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_packet_ext_03",
+      version: "1",
+      created_at: "2026-03-24T10:00:00.000Z",
+      updated_at: "2026-03-24T10:00:00.000Z",
+      source_transcript_id: "tx_release_packet",
+      instructions: [],
+    },
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    sessionId: "session_demo",
+  });
+  const inserted = appendAuthorityInstructionToGraph({
+    graph: baseGraph,
+    instruction: createInsertBrollInstruction({
+      segmentId: "seg_001",
+      assetRef: "assets/broll/original.mp4",
+      startSec: 0.4,
+      endSec: 1.4,
+      assetBindingState: "resolved",
+    }),
+    fallback: {
+      graphId: baseGraph.graph_id,
+      workspaceId: "ws_demo",
+      workpieceId: "wp_demo",
+      sessionId: "session_demo",
+      sourceTranscriptId: "tx_release_packet",
+    },
+  });
+  const opId = inserted.operations.at(-1)?.operation_id ?? "";
+  const edited = updateResolvedInsertBrollOperationInGraph({
+    graph: inserted,
+    operationId: opId,
+    changes: {
+      asset_ref: "assets/broll/replaced.mp4",
+      start_sec: 0.6,
+      end_sec: 1.8,
+    },
+  }) ?? inserted;
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph: edited,
+    runtimeCapabilities: {
+      preview_supported_operation_types: ["insert_broll"],
+      export_supported_operation_types: ["insert_broll"],
+      handoff_supported_operation_types: ["insert_broll"],
+    },
+  });
+  const packet = buildHammerQuenchReleasePacket({
+    releasePrepPackage: prep,
+    canonicalGraph: edited,
+    renderAssembly: assembly,
+    preparedAt: "2026-03-24T10:01:00.000Z",
+  });
+  assert.equal(packet.manifest.editorial_truth?.broll_resolution_summary.unresolved_intents.length, 0);
+  assert.equal(packet.manifest.editorial_truth?.broll_resolution_summary.resolved_bindings.length, 1);
+  assert.equal(packet.manifest.editorial_truth?.broll_resolution_summary.resolved_bindings[0]?.asset_ref, "assets/broll/replaced.mp4");
+}
+
 async function run() {
   await testBuildQuenchPacketManifest();
   await testManifestPathConstant();
   await testPacketIncludesEditorialTruthExtensionWhenProvided();
   await testPacketDistinguishesUnresolvedVsResolvedBroll();
+  await testPacketReflectsResolvedBindingEdits();
   // eslint-disable-next-line no-console
   console.log("Hammer Quench release packet tests passed.");
 }

@@ -170,6 +170,7 @@ import {
   createRippleDeleteInstruction,
   resolveInsertBrollSuggestionInGraph,
   setAuthorityOperationLifecycle,
+  updateResolvedInsertBrollOperationInGraph,
 } from "./hammerAuthorityOps";
 import {
   buildHammerCaptionPreviewModel,
@@ -234,6 +235,7 @@ type HammerWorkspaceShellProps = {
     id: Exclude<HammerPreparedNextStepActionId, "export_later">;
     token: number;
   } | null;
+  aiInUse?: boolean;
   onWorkspaceSnapshotChange?: (snapshot: HammerWorkspaceSnapshot) => void;
 };
 
@@ -285,10 +287,17 @@ type HammerBrollSuggestionItem = {
   segmentId: string;
   startSec: number;
   endSec: number;
+  assetRef: string;
   intentRef: string | null;
   intentDescription: string | null;
   bindingState: "resolved" | "unresolved";
   duckPreference: "auto" | "none" | "manual";
+};
+
+type HammerResolvedBrollBindingItem = HammerBrollSuggestionItem & {
+  bindingState: "resolved";
+  assetRef: string;
+  linkedPlacementId: string | null;
 };
 
 type HammerTimelineLaneBlock = {
@@ -1360,6 +1369,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         segmentId: operation.instruction.segment_id,
         startSec: operation.instruction.start_sec,
         endSec: operation.instruction.end_sec,
+        assetRef: operation.instruction.asset_ref,
         intentRef: operation.instruction.intent_ref ?? null,
         intentDescription: operation.instruction.intent_description ?? null,
         bindingState: operation.instruction.asset_binding_state === "unresolved" ? "unresolved" : "resolved",
@@ -1371,6 +1381,24 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => brollSuggestionItems.filter((item) => item.bindingState === "unresolved"),
     [brollSuggestionItems],
   );
+  const resolvedBrollBindingItems = useMemo<HammerResolvedBrollBindingItem[]>(() => {
+    const placementsByOperationId = new Map<string, HammerVisualPlacementRecord>();
+    for (const placement of editableVisualPlacements?.placements ?? []) {
+      if (!placement.authority_operation_id) continue;
+      placementsByOperationId.set(placement.authority_operation_id, placement);
+    }
+    return brollSuggestionItems
+      .filter((item): item is HammerBrollSuggestionItem & { bindingState: "resolved" } => item.bindingState === "resolved")
+      .map((item) => {
+        const linkedPlacement = placementsByOperationId.get(item.operationId) ?? null;
+        return {
+          ...item,
+          bindingState: "resolved",
+          assetRef: linkedPlacement?.asset_ref ?? item.assetRef,
+          linkedPlacementId: linkedPlacement?.placement_id ?? null,
+        };
+      });
+  }, [brollSuggestionItems, editableVisualPlacements?.placements]);
   const sourceImageLibraryItems = useMemo(
     () => storedMediaFiles.filter((file) => file.kind === "image"),
     [storedMediaFiles],
@@ -3414,6 +3442,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         const nextEnd = Math.max(nextStart + 0.5, Math.min(transcriptDurationSec, roundToTenth(nextStart + 3)));
         const brollPlacement: HammerVisualPlacementRecord = {
           placement_id: placementId,
+          authority_operation_id: undefined,
           entry_id: `manual:${placementId}`,
           anchor_segment_id: anchorSegment.segment_id,
           matched_segment_ids: [anchorSegment.segment_id],
@@ -3450,6 +3479,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           duckGainDb: -9,
         });
         const withBroll = appendAuthorityInstructionForState(before, brollInstruction);
+        const brollOperationId = withBroll.operations.at(-1)?.operation_id ?? null;
         const withDuck = appendAuthorityInstructionToGraph({
           graph: withBroll,
           instruction: duckInstruction,
@@ -3462,6 +3492,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           },
         });
 
+        brollPlacement.authority_operation_id = brollOperationId ?? undefined;
         return {
           ...before,
           editorialAuthorityGraph: withDuck,
@@ -3558,6 +3589,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
         const brollPlacement: HammerVisualPlacementRecord = {
           placement_id: placementId,
+          authority_operation_id: args.operationId,
           entry_id: `manual:${placementId}`,
           anchor_segment_id: anchorSegment.segment_id,
           matched_segment_ids: [anchorSegment.segment_id],
@@ -3607,6 +3639,154 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         return {
           ...before,
           editorialAuthorityGraph: next,
+        };
+      },
+    });
+  }
+
+  function moveResolvedBrollBinding(operationId: string, deltaSec: number): void {
+    applyHistoryMutation({
+      label: "Move resolved b-roll binding",
+      kind: "visual_adjustment",
+      toolId: "video",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const graph = before.editorialAuthorityGraph;
+        const current = before.visualPlacements;
+        if (!graph || !current) return before;
+        const op = graph.operations.find((item) => item.operation_id === operationId) ?? null;
+        if (!op || op.instruction.type !== "insert_broll" || op.instruction.asset_binding_state === "unresolved") {
+          return before;
+        }
+        const duration = Math.max(0.5, roundToTenth(op.instruction.end_sec - op.instruction.start_sec));
+        const candidateStart = Math.max(0, roundToTenth(op.instruction.start_sec + deltaSec));
+        const maxStart = Math.max(0, roundToTenth(transcriptDurationSec - duration));
+        const nextStart = Math.min(candidateStart, maxStart);
+        const nextEnd = Math.min(transcriptDurationSec, roundToTenth(nextStart + duration));
+        const nextGraph = updateResolvedInsertBrollOperationInGraph({
+          graph,
+          operationId,
+          changes: {
+            start_sec: nextStart,
+            end_sec: nextEnd,
+          },
+        });
+        if (!nextGraph) return before;
+        const nextPlacements = current.placements.map((placement) => {
+          if (placement.authority_operation_id !== operationId) return placement;
+          return {
+            ...placement,
+            start_sec: nextStart,
+            end_sec: nextEnd,
+          };
+        });
+        return {
+          ...before,
+          editorialAuthorityGraph: nextGraph,
+          visualPlacements: {
+            ...current,
+            placements: nextPlacements,
+          },
+        };
+      },
+    });
+  }
+
+  function trimResolvedBrollBinding(
+    operationId: string,
+    edge: "start" | "end",
+    deltaSec: number,
+  ): void {
+    applyHistoryMutation({
+      label: edge === "start" ? "Trim b-roll in point" : "Trim b-roll out point",
+      kind: "visual_adjustment",
+      toolId: "video",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const graph = before.editorialAuthorityGraph;
+        const current = before.visualPlacements;
+        if (!graph || !current) return before;
+        const op = graph.operations.find((item) => item.operation_id === operationId) ?? null;
+        if (!op || op.instruction.type !== "insert_broll" || op.instruction.asset_binding_state === "unresolved") {
+          return before;
+        }
+        let nextStart = op.instruction.start_sec;
+        let nextEnd = op.instruction.end_sec;
+        if (edge === "start") {
+          nextStart = Math.max(0, roundToTenth(nextStart + deltaSec));
+          nextStart = Math.min(nextStart, roundToTenth(nextEnd - 0.5));
+        } else {
+          nextEnd = Math.min(transcriptDurationSec, roundToTenth(nextEnd + deltaSec));
+          nextEnd = Math.max(nextEnd, roundToTenth(nextStart + 0.5));
+        }
+        if (nextEnd <= nextStart) return before;
+        const nextGraph = updateResolvedInsertBrollOperationInGraph({
+          graph,
+          operationId,
+          changes: {
+            start_sec: nextStart,
+            end_sec: nextEnd,
+          },
+        });
+        if (!nextGraph) return before;
+        const nextPlacements = current.placements.map((placement) => {
+          if (placement.authority_operation_id !== operationId) return placement;
+          return {
+            ...placement,
+            start_sec: nextStart,
+            end_sec: nextEnd,
+          };
+        });
+        return {
+          ...before,
+          editorialAuthorityGraph: nextGraph,
+          visualPlacements: {
+            ...current,
+            placements: nextPlacements,
+          },
+        };
+      },
+    });
+  }
+
+  function replaceResolvedBrollBinding(operationId: string, assetPath: string): void {
+    applyHistoryMutation({
+      label: "Replace resolved b-roll asset",
+      kind: "visual_adjustment",
+      toolId: "video",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const graph = before.editorialAuthorityGraph;
+        const current = before.visualPlacements;
+        if (!graph || !current) return before;
+        const op = graph.operations.find((item) => item.operation_id === operationId) ?? null;
+        if (!op || op.instruction.type !== "insert_broll" || op.instruction.asset_binding_state === "unresolved") {
+          return before;
+        }
+        const nextGraph = updateResolvedInsertBrollOperationInGraph({
+          graph,
+          operationId,
+          changes: {
+            asset_ref: assetPath,
+          },
+        });
+        if (!nextGraph) return before;
+        const nextPlacements = current.placements.map((placement) => {
+          if (placement.authority_operation_id !== operationId) return placement;
+          return {
+            ...placement,
+            asset_ref: assetPath,
+            asset_path: assetPath,
+            storage_key: assetPath,
+          };
+        });
+        return {
+          ...before,
+          editorialAuthorityGraph: nextGraph,
+          visualPlacements: {
+            ...current,
+            placements: nextPlacements,
+          },
         };
       },
     });
@@ -4684,6 +4864,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           <section className="hammer-source-bay">
             <header className="hammer-bay-head">
               <strong>Source Desk</strong>
+              {props.aiInUse ? (
+                <div className="hammer-tool-hint" role="status" aria-live="polite">
+                  AI in use now. Live processing is active.
+                </div>
+              ) : null}
               <div className="hammer-bay-tabs">
                 <button
                   type="button"
@@ -5284,6 +5469,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     <div className="hammer-source-summary">
                       <span>{sourceBrollItems.length} b-roll assets</span>
                       <span>{unresolvedBrollSuggestionItems.length} unresolved Hearth suggestions</span>
+                      <span>{resolvedBrollBindingItems.length} resolved bindings</span>
                       <button
                         type="button"
                         className="hammer-source-upload-button is-secondary"
@@ -5344,6 +5530,61 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         </div>
                       </article>
                     ))}
+                    {resolvedBrollBindingItems.map((binding) => (
+                      <article key={binding.operationId} className="hammer-source-card">
+                        <header className="hammer-source-card__head">
+                          <strong>{binding.intentDescription ?? "Resolved B-roll binding"}</strong>
+                          <span>resolved</span>
+                        </header>
+                        <div className="hammer-source-card__meta">
+                          <span>{binding.startSec.toFixed(1)}s - {binding.endSec.toFixed(1)}s</span>
+                          <span>Duck: {binding.duckPreference}</span>
+                          <span>Segment: {binding.segmentId}</span>
+                        </div>
+                        <div className="hammer-source-card__path">{binding.assetRef}</div>
+                        <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => moveResolvedBrollBinding(binding.operationId, -0.5)}
+                          >
+                            Move -0.5s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveResolvedBrollBinding(binding.operationId, 0.5)}
+                          >
+                            Move +0.5s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => trimResolvedBrollBinding(binding.operationId, "start", 0.25)}
+                          >
+                            Trim In +0.25s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => trimResolvedBrollBinding(binding.operationId, "end", -0.25)}
+                          >
+                            Trim Out -0.25s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const replacement = sourceBrollItems.find(
+                                (item) => item.assetPath && item.assetPath !== binding.assetRef,
+                              )?.assetPath ?? null;
+                              if (!replacement) {
+                                setTranscriptTimingHint("Upload another b-roll asset before replacing this binding.");
+                                return;
+                              }
+                              replaceResolvedBrollBinding(binding.operationId, replacement);
+                            }}
+                          >
+                            Replace Asset
+                          </button>
+                        </div>
+                      </article>
+                    ))}
                     <input
                       ref={brollUploadInputRef}
                       type="file"
@@ -5399,6 +5640,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     <div className="hammer-source-summary">
                       <span>No b-roll assets are currently linked.</span>
                       <span>{unresolvedBrollSuggestionItems.length} unresolved Hearth suggestions</span>
+                      <span>{resolvedBrollBindingItems.length} resolved bindings</span>
                       <button
                         type="button"
                         className="hammer-source-upload-button is-secondary"

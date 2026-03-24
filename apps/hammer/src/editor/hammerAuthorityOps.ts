@@ -255,6 +255,47 @@ export function resolveInsertBrollSuggestionInGraph(args: {
   };
 }
 
+export function updateResolvedInsertBrollOperationInGraph(args: {
+  graph: HammerEditorialAuthorityGraph;
+  operationId: string;
+  changes: Partial<Pick<
+    HammerInsertBrollInstruction,
+    "asset_ref" | "start_sec" | "end_sec" | "intent_description" | "duck_preference"
+  >>;
+  nowIso?: string;
+}): HammerEditorialAuthorityGraph | null {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  let changed = false;
+  const operations = args.graph.operations.map((operation) => {
+    if (operation.operation_id !== args.operationId) return operation;
+    if (operation.instruction.type !== "insert_broll") return operation;
+    if (operation.instruction.asset_binding_state === "unresolved") return operation;
+    const nextInstruction: HammerInsertBrollInstruction = {
+      ...operation.instruction,
+      ...(args.changes.asset_ref ? { asset_ref: args.changes.asset_ref } : {}),
+      ...(typeof args.changes.start_sec === "number" ? { start_sec: args.changes.start_sec } : {}),
+      ...(typeof args.changes.end_sec === "number" ? { end_sec: args.changes.end_sec } : {}),
+      ...(args.changes.intent_description !== undefined ? { intent_description: args.changes.intent_description } : {}),
+      ...(args.changes.duck_preference ? { duck_preference: args.changes.duck_preference } : {}),
+      asset_binding_state: "resolved",
+    };
+    if (JSON.stringify(nextInstruction) === JSON.stringify(operation.instruction)) return operation;
+    changed = true;
+    return {
+      ...operation,
+      instruction: nextInstruction,
+      updated_at: nowIso,
+    };
+  });
+  if (!changed) return null;
+  return {
+    ...args.graph,
+    operations,
+    graph_version: args.graph.graph_version + 1,
+    updated_at: nowIso,
+  };
+}
+
 export function setAuthorityOperationLifecycle(args: {
   graph: HammerEditorialAuthorityGraph;
   operationId: string;

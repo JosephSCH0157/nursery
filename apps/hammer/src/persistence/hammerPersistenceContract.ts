@@ -150,6 +150,7 @@ export interface HammerPersistedSpeakerMap {
 
 export interface HammerVisualPlacementRecord {
   placement_id: string;
+  authority_operation_id?: string;
   entry_id: string;
   anchor_segment_id: string;
   matched_segment_ids: string[];

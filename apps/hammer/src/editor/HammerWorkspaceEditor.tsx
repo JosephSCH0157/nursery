@@ -879,6 +879,7 @@ export default function HammerWorkspaceEditor(
             selectedMacroRecipeRef={loadedPersistenceSnapshot?.macro_hooks.recipe_ref ?? null}
             lastMacroRunRef={loadedPersistenceSnapshot?.macro_hooks.last_run_ref ?? null}
             prepHandoffAction={preparedActionIntent}
+            aiInUse={prepState.status === "preparing"}
             onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
           />
         </div>

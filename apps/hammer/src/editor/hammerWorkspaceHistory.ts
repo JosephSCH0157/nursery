@@ -512,6 +512,7 @@ function normalizeVisualPlacementsFromValue(value: unknown): HammerPersistedVisu
       }
       return {
         placement_id: placementId,
+        authority_operation_id: readString(placement.authority_operation_id) ?? undefined,
         entry_id: entryId,
         anchor_segment_id: anchorSegmentId,
         matched_segment_ids: Array.isArray(placement.matched_segment_ids)
