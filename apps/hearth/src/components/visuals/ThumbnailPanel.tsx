@@ -325,6 +325,7 @@ export default function ThumbnailPanel({
     result: null,
     error: null,
   });
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const previewAspectClass = aspect === "1:1"
     ? " is-square"
     : aspect === "9:16"
@@ -655,6 +656,15 @@ export default function ThumbnailPanel({
         </section>
 
         <section className="hs-thumb-center" aria-label="Thumbnail creative workspace">
+          <button
+            type="button"
+            className="hs-thumb-sidebar-toggle visible"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            title="Toggle controls panel"
+            aria-label="Toggle controls panel"
+          >
+            {sidebarOpen ? "◀ Close" : "Refine ▶"}
+          </button>
           <section className="hs-thumb-prompt-section" aria-label="Concept authoring">
             <details className="hs-thumb-advanced-options">
               <summary>Concept Authoring</summary>
@@ -814,7 +824,13 @@ export default function ThumbnailPanel({
           ) : null}
         </section>
 
-        <section className="hs-thumb-sidebar-right" aria-label="Thumbnail controls and insights">
+        <div
+          className={`hs-thumb-sidebar-backdrop${sidebarOpen ? " is-open" : ""}`}
+          onClick={() => setSidebarOpen(false)}
+          role="presentation"
+        />
+
+        <section className={`hs-thumb-sidebar-right${sidebarOpen ? " is-open" : ""}`} aria-label="Thumbnail controls and insights">
           {selectedConceptEvaluation ? (
             <section className="hs-thumb-sidebar-section" aria-label="Recommendation">
               <div className="hs-thumb-section-title hs-thumb-section-title-strong">Recommendation</div>
