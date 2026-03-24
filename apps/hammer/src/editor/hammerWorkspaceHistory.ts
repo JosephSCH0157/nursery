@@ -124,7 +124,10 @@ export interface HammerHistoryController {
   createCheckpoint(label: string): HammerCheckpoint | null;
   getState(): HammerEditorStateSerializable;
   replaceState(state: HammerEditorStateSerializable): void;
-  getReplayStateFromBaseline(baseline: HammerEditorStateSerializable): HammerEditorStateSerializable;
+  getReplayStateFromBaseline(
+    baseline: HammerEditorStateSerializable,
+    afterEntryId?: string | null,
+  ): HammerEditorStateSerializable;
 }
 
 function cloneSegments(segments: HammerTranscriptSegment[]): HammerTranscriptSegment[] {
@@ -1029,9 +1032,16 @@ export function createHammerHistoryController(args: {
       state = cloneEditorState(nextState);
     },
 
-    getReplayStateFromBaseline(baseline) {
+    getReplayStateFromBaseline(baseline, afterEntryId) {
       let replay = cloneEditorState(baseline);
+      let shouldReplay = !afterEntryId;
       for (const entryId of args.document.undoStack) {
+        if (!shouldReplay) {
+          if (entryId === afterEntryId) {
+            shouldReplay = true;
+          }
+          continue;
+        }
         const entry = readEntryById(args.document, entryId);
         if (!entry) continue;
         replay = applyPatches(replay, entry.forwardPatch);

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { JSX } from "react";
+import type { JSX, MouseEvent } from "react";
 import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { MediaRef, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
@@ -15,12 +15,15 @@ import type {
 } from "../persistence/hammerPersistenceContract";
 import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import {
+  deleteSegmentAndRipple,
   moveSegmentTiming,
   resolveFocusAfterPlayheadChange,
+  resolvePlayheadAfterDelete,
   resolvePreviewLabel,
   resolvePlayheadSegment,
   resolveWorkspaceFocusMode,
   roundToTenth,
+  splitSegmentAtTime,
   trimSegmentEndTiming,
   trimSegmentStartTiming,
   updateSegmentInTimeline,
@@ -69,6 +72,7 @@ import {
 } from "../lib/hammerHistoryArtifactApi";
 import {
   loadHammerSnapshotManifest,
+  loadHammerSnapshotPayload,
   saveHammerSnapshotManifest,
   saveHammerSnapshotPayload,
   type HammerSnapshotManifestV1,
@@ -300,6 +304,13 @@ function toErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function isKeyboardEditingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tagName = target.tagName.toUpperCase();
+  return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
+}
+
 function stableHashToken(value: string): string {
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {
@@ -482,6 +493,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   );
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(transcriptSegments[0]?.segment_id ?? null);
   const [playheadSec, setPlayheadSec] = useState(0);
+  const [isPlaybackActive, setIsPlaybackActive] = useState(false);
   const [focusOverride, setFocusOverride] = useState<HammerWorkspaceFocusOverride>("auto");
   const [polishStrength, setPolishStrength] = useState(60);
   const [gapCleanupOptions, setGapCleanupOptions] = useState<GapCleanupOptions>({
@@ -1036,66 +1048,97 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     applyWorkspaceState(baselineState);
     selectionOriginRef.current = "system";
 
-    void loadHammerSnapshotManifest(launchContext.workpiece_id)
-      .then((result) => {
-        if (!active) return;
-        if (!result.ok) {
-          console.warn("Hammer snapshot manifest unavailable during bootstrap", {
-            workpieceId: launchContext.workpiece_id,
-            status: result.status,
-            error: result.error,
-          });
-          return;
-        }
-        snapshotManifestRef.current = result.exists ? (result.data ?? null) : null;
+    void (async () => {
+      const [historyResult, snapshotManifestResult] = await Promise.all([
+        loadHammerHistoryDocument(launchContext.workpiece_id),
+        loadHammerSnapshotManifest(launchContext.workpiece_id),
+      ]);
+      if (!active) return;
+
+      let snapshotRecoveryStatus: string | null = null;
+      if (!snapshotManifestResult.ok) {
+        snapshotManifestRef.current = null;
+        lastSnapshottedHeadEntryIdRef.current = null;
+        snapshotRecoveryStatus = "Snapshot fallback: manifest unavailable. Opened with full history replay.";
+      } else {
+        snapshotManifestRef.current = snapshotManifestResult.exists ? (snapshotManifestResult.data ?? null) : null;
         lastSnapshottedHeadEntryIdRef.current = resolveActiveSnapshotHeadEntryId(snapshotManifestRef.current);
-      })
-      .catch((error) => {
-        if (!active) return;
-        console.warn("Hammer snapshot manifest bootstrap read failed", {
-          workpieceId: launchContext.workpiece_id,
-          error,
-        });
+      }
+
+      if (!historyResult.ok) {
+        setHistoryStatus(historyResult.error);
+        return;
+      }
+      if (!historyResult.exists || !historyResult.data) {
+        setHistoryStatus(snapshotRecoveryStatus);
+        return;
+      }
+
+      const loaded = normalizeHammerHistoryDocument(historyResult.data, {
+        workpieceId: launchContext.workpiece_id,
+        sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
+        baseRevisionId,
       });
 
-    void loadHammerHistoryDocument(launchContext.workpiece_id)
-      .then((result) => {
-        if (!active) return;
-        if (!result.ok) {
-          setHistoryStatus(result.error);
-          return;
-        }
-        if (!result.exists || !result.data) {
-          setHistoryStatus(null);
-          return;
-        }
+      if (loaded.baseRevisionId !== baseRevisionId) {
+        setHistoryStatus("History base revision mismatch detected. Opened baseline without replay.");
+        return;
+      }
 
-        const loaded = normalizeHammerHistoryDocument(result.data, {
-          workpieceId: launchContext.workpiece_id,
-          sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
-          baseRevisionId,
-        });
-
-        if (loaded.baseRevisionId !== baseRevisionId) {
-          setHistoryStatus("History base revision mismatch detected. Opened baseline without replay.");
-          return;
-        }
-
-        const controller = createHammerHistoryController({
-          document: loaded,
-          initialState: baselineState,
-          maxUndoSteps: HISTORY_MAX_SIZE,
-        });
-        const replayed = controller.getReplayStateFromBaseline(baselineState);
-        controller.replaceState(replayed);
-        historyControllerRef.current = controller;
-        applyWorkspaceState(replayed);
-        setHistoryStatus(null);
-      })
-      .catch((error) => {
-        if (!active) return;
-        setHistoryStatus(toErrorMessage(error, "Hammer could not recover persistent history."));
+      const controller = createHammerHistoryController({
+        document: loaded,
+        initialState: baselineState,
+        maxUndoSteps: HISTORY_MAX_SIZE,
       });
+      let replayed = controller.getReplayStateFromBaseline(baselineState);
+
+      const manifest = snapshotManifestRef.current;
+      const activeSnapshotRef = manifest?.activeSnapshotRef ?? null;
+      if (activeSnapshotRef) {
+        const activeSnapshotEntry = manifest?.snapshots.find((entry) => entry.snapshotRef === activeSnapshotRef) ?? null;
+        if (!activeSnapshotEntry) {
+          snapshotRecoveryStatus = "Snapshot fallback: active snapshot missing from manifest. Opened with full history replay.";
+        } else {
+          const snapshotPayloadResult = await loadHammerSnapshotPayload({
+            workpieceId: launchContext.workpiece_id,
+            snapshotRef: activeSnapshotRef,
+          });
+          if (!active) return;
+          if (!snapshotPayloadResult.ok) {
+            snapshotRecoveryStatus = "Snapshot fallback: payload unavailable. Opened with full history replay.";
+          } else if (!snapshotPayloadResult.exists || !snapshotPayloadResult.data) {
+            snapshotRecoveryStatus = "Snapshot fallback: payload missing. Opened with full history replay.";
+          } else {
+            const snapshot = snapshotPayloadResult.data;
+            const workpieceMatches = snapshot.workpieceId === launchContext.workpiece_id;
+            const baseRevisionMatches = snapshot.baseRevisionId === baseRevisionId;
+            const headExistsInLedger = snapshot.headEntryId == null || loaded.undoStack.includes(snapshot.headEntryId);
+            if (!workpieceMatches || !baseRevisionMatches || !headExistsInLedger) {
+              const reason = !workpieceMatches
+                ? "workpiece mismatch"
+                : !baseRevisionMatches
+                ? "base revision mismatch"
+                : "snapshot head not found in ledger";
+              snapshotRecoveryStatus = `Snapshot fallback: ${reason}. Opened with full history replay.`;
+            } else {
+              replayed = controller.getReplayStateFromBaseline(
+                snapshot.editorState,
+                snapshot.headEntryId,
+              );
+              snapshotRecoveryStatus = null;
+            }
+          }
+        }
+      }
+
+      controller.replaceState(replayed);
+      historyControllerRef.current = controller;
+      applyWorkspaceState(replayed);
+      setHistoryStatus(snapshotRecoveryStatus);
+    })().catch((error) => {
+      if (!active) return;
+      setHistoryStatus(toErrorMessage(error, "Hammer could not recover persistent history."));
+    });
 
     return () => {
       active = false;
@@ -1110,6 +1153,36 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     selectionOriginRef.current = "playhead";
     setSelectedSegmentId(segment.segment_id);
   }, [editableTranscriptSegments, playheadSec, selectedSegmentId]);
+
+  useEffect(() => {
+    setPlayheadSec((current) => (
+      current > timelineDurationSec ? roundToTenth(timelineDurationSec) : current
+    ));
+  }, [timelineDurationSec]);
+
+  useEffect(() => {
+    if (!isPlaybackActive) return;
+    if (transcriptDurationSec <= 0) {
+      setIsPlaybackActive(false);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setPlayheadSec((current) => {
+        const next = roundToTenth(current + 0.1);
+        if (next >= transcriptDurationSec) {
+          window.clearInterval(intervalId);
+          setIsPlaybackActive(false);
+          return roundToTenth(transcriptDurationSec);
+        }
+        return next;
+      });
+    }, 100);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isPlaybackActive, transcriptDurationSec]);
 
   useEffect(() => {
     if (!selectedSegmentId) return;
@@ -1364,6 +1437,100 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     updateSegmentTiming(segmentId, "Trim segment end", (segment) => trimSegmentEndTiming(segment, deltaSec));
   }
 
+  function seekPlayheadToTime(nextTimeSec: number, origin: "timeline" | "playhead" = "timeline"): void {
+    const clamped = Math.max(0, Math.min(timelineDurationSec, roundToTenth(nextTimeSec)));
+    selectionOriginRef.current = origin;
+    setPlayheadSec(clamped);
+    setFocusOverride(resolveFocusAfterPlayheadChange(focusOverride));
+  }
+
+  function seekPlayheadFromPointer(
+    event: MouseEvent<HTMLElement>,
+    origin: "timeline" | "playhead" = "timeline",
+  ): void {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    seekPlayheadToTime(ratio * timelineDurationSec, origin);
+  }
+
+  function splitSelectedSegmentAtPlayhead(): void {
+    if (!selectedSegmentId) {
+      setTranscriptTimingHint("Select a segment to split.");
+      return;
+    }
+
+    const applied = applyHistoryMutation({
+      label: "Split segment at playhead",
+      kind: "segment_structure",
+      affectedSegments: [selectedSegmentId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const split = splitSegmentAtTime(before.transcriptSegments, selectedSegmentId, before.playheadSec);
+        if (!split.changed || split.splitSec == null) return before;
+        return {
+          ...before,
+          transcriptSegments: split.segments,
+          selectedSegmentId: split.rightSegmentId ?? split.leftSegmentId ?? before.selectedSegmentId,
+          playheadSec: split.splitSec,
+          transcriptTimingHint: null,
+        };
+      },
+    });
+
+    if (!applied) {
+      setTranscriptTimingHint("Playhead must sit within the selected segment to split.");
+      return;
+    }
+
+    setFocusOverride("time-focus");
+  }
+
+  function deleteSelectedSegmentAndRipple(): void {
+    if (!selectedSegmentId) {
+      setTranscriptTimingHint("Select a segment to delete.");
+      return;
+    }
+
+    const applied = applyHistoryMutation({
+      label: "Delete segment and ripple",
+      kind: "segment_structure",
+      affectedSegments: [selectedSegmentId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const deleted = deleteSegmentAndRipple(before.transcriptSegments, selectedSegmentId);
+        if (!deleted.changed || !deleted.removedSegment) return before;
+
+        const fallbackIndex = Math.min(deleted.removedIndex, Math.max(0, deleted.segments.length - 1));
+        const fallbackSelection = deleted.segments[fallbackIndex]?.segment_id ?? null;
+        const nextSelection = before.selectedSegmentId === selectedSegmentId
+          ? fallbackSelection
+          : before.selectedSegmentId;
+
+        return {
+          ...before,
+          transcriptSegments: deleted.segments,
+          selectedSegmentId: nextSelection,
+          playheadSec: resolvePlayheadAfterDelete(before.playheadSec, deleted.removedSegment, deleted.shiftSec),
+          transcriptTimingHint: null,
+        };
+      },
+    });
+
+    if (!applied) {
+      setTranscriptTimingHint("Selected segment could not be deleted.");
+      return;
+    }
+
+    setFocusOverride("time-focus");
+  }
+
+  function togglePlayback(): void {
+    if (editableTranscriptSegments.length === 0) return;
+    setIsPlaybackActive((current) => !current);
+    setFocusOverride("time-focus");
+  }
+
   function applyCleanup(preview: HammerCleanupPreview): void {
     const toolId = preview.label.toLowerCase().replace(/\s+/g, "-");
     const summary = buildPolishResultSummaryFromCleanupPreview(preview);
@@ -1542,6 +1709,31 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   useEffect(() => {
     function handleKeyboardHistory(event: KeyboardEvent): void {
+      if (isKeyboardEditingTarget(event.target)) return;
+
+      if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (event.key === " " || event.code === "Space") {
+          event.preventDefault();
+          event.stopPropagation();
+          togglePlayback();
+          return;
+        }
+
+        if (event.key.toLowerCase() === "s") {
+          event.preventDefault();
+          event.stopPropagation();
+          splitSelectedSegmentAtPlayhead();
+          return;
+        }
+
+        if (event.key === "Delete" || event.key === "Backspace") {
+          event.preventDefault();
+          event.stopPropagation();
+          deleteSelectedSegmentAndRipple();
+          return;
+        }
+      }
+
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
       const key = event.key.toLowerCase();
 
@@ -1563,7 +1755,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return () => {
       window.removeEventListener("keydown", handleKeyboardHistory);
     };
-  }, [editableTranscriptSegments, playheadSec, selectedSegmentId, transcriptTimingHint]);
+  }, [deleteSelectedSegmentAndRipple, redoHistory, splitSelectedSegmentAtPlayhead, togglePlayback, undoHistory]);
 
   const exportBasis = useMemo(() => {
     const transcriptForReleaseBase = preserveTranscriptMetadata(
@@ -2479,7 +2671,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               </div>
               <div className="hammer-preview-meta">
                 <span>Playhead {playheadSec.toFixed(1)}s</span>
+                <span>{isPlaybackActive ? "Playing" : "Paused"}</span>
                 <span>{mediaSourceLabel ?? "No media source"}</span>
+                <button type="button" onClick={togglePlayback}>
+                  {isPlaybackActive ? "Pause (Space)" : "Play (Space)"}
+                </button>
               </div>
             </div>
           </section>
@@ -2925,6 +3121,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               </div>
             </header>
           <div className="hammer-bay-body hammer-timeline-dock__body">
+            <div className="hammer-timeline-tools">
+              <button type="button" onClick={togglePlayback}>
+                {isPlaybackActive ? "Pause" : "Play"}
+              </button>
+              <button type="button" onClick={splitSelectedSegmentAtPlayhead} disabled={!selectedSegment}>
+                Split (S)
+              </button>
+              <button type="button" onClick={deleteSelectedSegmentAndRipple} disabled={!selectedSegment}>
+                Delete (Del)
+              </button>
+            </div>
             <input
               type="range"
               min={0}
@@ -2932,9 +3139,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               step={0.1}
               value={playheadSec}
               onChange={(event) => {
-                selectionOriginRef.current = "playhead";
-                setPlayheadSec(Number(event.target.value));
-                setFocusOverride(resolveFocusAfterPlayheadChange(focusOverride));
+                seekPlayheadToTime(Number(event.target.value), "playhead");
               }}
               aria-label="Timeline playhead"
             />
@@ -3014,7 +3219,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             <div className="hammer-timeline-track-scroll" ref={timelineTrackScrollRef}>
               {editableTranscriptSegments.length > 0 ? (
                 <section className="hammer-timeline-board" aria-label="Track-based timeline">
-                  <div className="hammer-timeline-ruler">
+                  <div
+                    className="hammer-timeline-ruler"
+                    onClick={(event) => {
+                      seekPlayheadFromPointer(event);
+                    }}
+                  >
                     {timelineMinorTicks.map((tick) => (
                       <div
                         key={`minor-tick-${tick.ratio}`}
@@ -3049,7 +3259,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         <strong>{lane.label}</strong>
                         <span>{lane.blocks.length} clips</span>
                       </div>
-                      <div className={`hammer-timeline-lane__track hammer-timeline-lane__track--${lane.tone}`}>
+                      <div
+                        className={`hammer-timeline-lane__track hammer-timeline-lane__track--${lane.tone}`}
+                        onClick={(event) => {
+                          const target = event.target;
+                          if (target instanceof HTMLElement && target.closest(".hammer-timeline-block")) return;
+                          seekPlayheadFromPointer(event);
+                        }}
+                      >
                         {(laneGapsById.get(lane.id) ?? []).map((gap) => (
                           <div
                             key={gap.id}
@@ -3073,7 +3290,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                               left: `${(block.startSec / timelineDurationSec) * 100}%`,
                               width: `${Math.max(1.4, ((block.endSec - block.startSec) / timelineDurationSec) * 100)}%`,
                             }}
-                            onClick={block.onSelect}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              block.onSelect();
+                            }}
                             title={`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}
                           >
                             <span>{block.label}</span>

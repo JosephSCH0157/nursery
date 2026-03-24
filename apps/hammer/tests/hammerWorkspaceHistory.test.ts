@@ -221,12 +221,46 @@ async function testOutputSelectionUndoRedo() {
   assert.equal(controller.getState().outputSelection.sourceRecipeRef, "filler_cleanup");
 }
 
+async function testReplayFromSnapshotTail() {
+  const initial = baseState();
+  const controller = createHammerHistoryController({
+    document: createHammerHistoryDocument({
+      workpieceId: "wp-5",
+      sessionId: "session-5",
+      baseRevisionId: hashEditorState(initial),
+    }),
+    initialState: initial,
+  });
+
+  const afterFirst = cloneEditorState(initial);
+  afterFirst.transcriptSegments[0] = { ...afterFirst.transcriptSegments[0], text: "first" };
+  const firstEntry = controller.applyMutation({
+    label: "First edit",
+    kind: "transcript_text_edit",
+    nextState: afterFirst,
+  });
+  assert.ok(firstEntry);
+
+  const afterSecond = cloneEditorState(afterFirst);
+  afterSecond.transcriptSegments[1] = { ...afterSecond.transcriptSegments[1], text: "second" };
+  controller.applyMutation({
+    label: "Second edit",
+    kind: "transcript_text_edit",
+    nextState: afterSecond,
+  });
+
+  const tailReplayed = controller.getReplayStateFromBaseline(afterFirst, firstEntry?.id ?? null);
+  assert.equal(tailReplayed.transcriptSegments[0]?.text, "first");
+  assert.equal(tailReplayed.transcriptSegments[1]?.text, "second");
+}
+
 async function run() {
   await testPatchRoundTrip();
   await testControllerUndoRedoAndRedoClear();
   await testCoalescedTextEdits();
   await testNormalizeAndReplay();
   await testOutputSelectionUndoRedo();
+  await testReplayFromSnapshotTail();
   // eslint-disable-next-line no-console
   console.log("Hammer workspace history tests passed.");
 }

@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import type { HammerTranscriptSegment } from "../../../packages/contracts/hammer/transcript.contract";
 import {
+  deleteSegmentAndRipple,
   moveSegmentTiming,
   resolveFocusAfterPlayheadChange,
+  resolvePlayheadAfterDelete,
   resolvePreviewLabel,
   resolvePlayheadSegment,
   resolveWorkspaceFocusMode,
+  splitSegmentAtTime,
   trimSegmentEndTiming,
   trimSegmentStartTiming,
   updateSegmentInTimeline,
@@ -82,12 +85,57 @@ async function testSegmentListUpdate() {
   assert.equal(updated[1]?.text, "B updated");
 }
 
+async function testSplitSegmentAtPlayhead() {
+  const segments = [
+    buildSegment({ segment_id: "seg_a", start_sec: 0, end_sec: 2, text: "Part A" }),
+    buildSegment({ segment_id: "seg_b", start_sec: 2, end_sec: 4, text: "Part B" }),
+  ];
+
+  const split = splitSegmentAtTime(segments, "seg_a", 1.2);
+  assert.equal(split.changed, true);
+  assert.equal(split.segments.length, 3);
+  assert.equal(split.segments[0]?.start_sec, 0);
+  assert.equal(split.segments[0]?.end_sec, 1.2);
+  assert.equal(split.segments[1]?.start_sec, 1.2);
+  assert.equal(split.segments[1]?.end_sec, 2);
+  assert.equal(split.segments[2]?.segment_id, "seg_b");
+}
+
+async function testDeleteSegmentAndRipple() {
+  const segments = [
+    buildSegment({ segment_id: "seg_a", start_sec: 0, end_sec: 1 }),
+    buildSegment({ segment_id: "seg_b", start_sec: 1, end_sec: 2 }),
+    buildSegment({ segment_id: "seg_c", start_sec: 2, end_sec: 3 }),
+  ];
+
+  const deleted = deleteSegmentAndRipple(segments, "seg_b");
+  assert.equal(deleted.changed, true);
+  assert.equal(deleted.segments.length, 2);
+  assert.equal(deleted.shiftSec, 1);
+  assert.equal(deleted.segments[0]?.segment_id, "seg_a");
+  assert.equal(deleted.segments[0]?.start_sec, 0);
+  assert.equal(deleted.segments[0]?.end_sec, 1);
+  assert.equal(deleted.segments[1]?.segment_id, "seg_c");
+  assert.equal(deleted.segments[1]?.start_sec, 1);
+  assert.equal(deleted.segments[1]?.end_sec, 2);
+}
+
+async function testResolvePlayheadAfterDelete() {
+  const removed = buildSegment({ segment_id: "seg_b", start_sec: 2, end_sec: 3 });
+  assert.equal(resolvePlayheadAfterDelete(1.5, removed, 1), 1.5);
+  assert.equal(resolvePlayheadAfterDelete(2.5, removed, 1), 2);
+  assert.equal(resolvePlayheadAfterDelete(4.2, removed, 1), 3.2);
+}
+
 async function run() {
   await testFocusModeDefaults();
   await testMoveAndTrimTiming();
   await testPlayheadResolution();
   await testFocusAndPreviewResolution();
   await testSegmentListUpdate();
+  await testSplitSegmentAtPlayhead();
+  await testDeleteSegmentAndRipple();
+  await testResolvePlayheadAfterDelete();
   // eslint-disable-next-line no-console
   console.log("Hammer workspace timeline tests passed.");
 }
