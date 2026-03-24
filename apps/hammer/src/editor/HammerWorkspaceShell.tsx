@@ -172,6 +172,11 @@ import {
 import { resolvePodcastMasterUiStatus } from "./hammerPodcastMasterStatus";
 import { evaluateHammerReadinessGate } from "./hammerReadinessGate";
 import {
+  decideHammerQuenchHandoff,
+  type HammerQuenchHandoffStatus,
+  validateHammerQuenchPacketForHandoff,
+} from "./hammerQuenchHandoff";
+import {
   appendAuthorityInstructionToGraph,
   createHearthBrollSuggestionInstruction,
   createAudioDuckInstruction,
@@ -1194,6 +1199,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [releasePrepLoading, setReleasePrepLoading] = useState(false);
   const [releasePrepError, setReleasePrepError] = useState<string | null>(null);
   const [releasePrepSaved, setReleasePrepSaved] = useState<HammerReleasePrepSaveState | null>(null);
+  const [quenchHandoffStatus, setQuenchHandoffStatus] = useState<{
+    status: HammerQuenchHandoffStatus;
+    message: string;
+  } | null>(null);
   const [loadedPreparedPackage, setLoadedPreparedPackage] = useState<HammerPreparedReleasePackage | null>(null);
   const [studioRackRenderStatus, setStudioRackRenderStatus] = useState<HammerDialogueRenderExecutionResult | null>(null);
   const [transcriptTimingHint, setTranscriptTimingHint] = useState<string | null>(null);
@@ -4616,9 +4625,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : exportTruthState === "current"
     ? "Exported and current"
     : "Exported, but stale";
-  const prepareButtonLabel = exportTruthState === "stale"
-    ? "Export Updated Packet to Quench"
-    : "Export to Quench";
   const previewTruthPosture = exportBasis.renderAssembly.preview.posture;
   const exportTruthPosture = exportBasis.renderAssembly.export_timeline.export_posture;
   const handoffTruthPosture = exportBasis.renderAssembly.handoff.posture;
@@ -4761,6 +4767,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : readinessGate.status === "blocked"
     ? "Blocked"
     : `Needs review (${readinessGate.review_count})`;
+  const sendToQuenchButtonLabel = readinessGate.status === "blocked"
+    ? "Blocked — Resolve Issues"
+    : readinessGate.status === "needs_review"
+    ? "Send to Quench (Needs Review)"
+    : exportTruthState === "stale"
+    ? "Send Updated Packet to Quench"
+    : "Send to Quench";
   const selectedAttentionIndex = useMemo(
     () => boundAttentionQueue.findIndex((item) => item.operationId === selectedBoundBrollOperationId),
     [boundAttentionQueue, selectedBoundBrollOperationId],
@@ -5186,14 +5199,36 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : "No edited artifact";
   const captionReleasePrepSummaryLine = `Using ${captionReleaseSourceLabel} · Built ${captionBuiltSummary} · Edited ${captionEditedSummary}`;
 
-  async function handlePrepareReleasePackage(): Promise<void> {
+  async function handleSendToQuench(): Promise<void> {
     if (releasePrepSaving) return;
 
     setReleasePrepSaving(true);
     setReleasePrepError(null);
     setReleasePrepSaved(null);
+    setQuenchHandoffStatus(null);
 
     try {
+      const handoffDecision = decideHammerQuenchHandoff({ readinessGate });
+      if (handoffDecision.status === "blocked") {
+        setQuenchHandoffStatus({
+          status: "blocked",
+          message: handoffDecision.reasons.join(" "),
+        });
+        return;
+      }
+      if (handoffDecision.status === "requires_confirmation") {
+        const proceed = window.confirm(
+          `This episode still needs review (${readinessGate.review_count} item${readinessGate.review_count === 1 ? "" : "s"}). Send to Quench anyway?`,
+        );
+        if (!proceed) {
+          setQuenchHandoffStatus({
+            status: "blocked",
+            message: "Handoff cancelled. Resolve review items before sending.",
+          });
+          return;
+        }
+      }
+
       let renderExecution: HammerDialogueRenderExecutionResult;
       if (!mediaRef) {
         renderExecution = {
@@ -5249,12 +5284,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         canonicalGraph: exportBasis.canonicalGraph,
         renderAssembly: exportBasis.renderAssembly,
       });
+      const packetValidation = validateHammerQuenchPacketForHandoff({
+        packet: quenchPacket,
+        renderAssembly: exportBasis.renderAssembly,
+        readinessGate,
+      });
+      if (!packetValidation.ok) {
+        setQuenchHandoffStatus({
+          status: "failed_validation",
+          message: packetValidation.reasons.join(" "),
+        });
+        return;
+      }
       const packetSave = await saveHammerQuenchReleasePacket({
         workpieceId: launchContext.workpiece_id,
         packet: quenchPacket,
       });
       if (!packetSave.ok) {
-        throw new Error(packetSave.error);
+        setQuenchHandoffStatus({
+          status: "failed_handoff",
+          message: packetSave.error,
+        });
+        return;
       }
 
       const subtitleArtifactCount = Number(Boolean(preparedPackage.subtitles.srt.artifactPath))
@@ -5266,8 +5317,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         subtitleArtifactCount,
       });
       setLoadedPreparedPackage(result.data ?? preparedPackage);
+      setQuenchHandoffStatus({
+        status: "sent",
+        message: "Sent to Quench successfully.",
+      });
     } catch (error) {
-      setReleasePrepError(toErrorMessage(error, "Hammer could not export the Quench release packet."));
+      const message = toErrorMessage(error, "Hammer could not send the Quench release packet.");
+      setReleasePrepError(message);
+      setQuenchHandoffStatus({
+        status: "failed_persistence",
+        message,
+      });
     } finally {
       setReleasePrepSaving(false);
     }
@@ -8142,12 +8202,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <button
                     type="button"
                     onClick={() => {
-                      void handlePrepareReleasePackage();
+                      void handleSendToQuench();
                     }}
-                    disabled={releasePrepSaving || releasePrepLoading}
+                    disabled={releasePrepSaving || releasePrepLoading || readinessGate.status === "blocked"}
                   >
-                    {releasePrepSaving ? "Preparing..." : prepareButtonLabel}
+                    {releasePrepSaving ? "Sending..." : sendToQuenchButtonLabel}
                   </button>
+                  {quenchHandoffStatus ? (
+                    <div className="hammer-tool-hint">
+                      Handoff status: {quenchHandoffStatus.status} · {quenchHandoffStatus.message}
+                    </div>
+                  ) : null}
                   {releasePrepSaved ? (
                     <div className="hammer-tool-hint">
                       {readinessGate.status === "ready" ? "Ready for Quench." : readinessGate.status === "blocked" ? "Prepared packet is blocked for handoff." : "Prepared packet needs review before handoff."}
