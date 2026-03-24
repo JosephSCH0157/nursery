@@ -14,6 +14,10 @@ function isSpeaker(value: unknown): value is "s1" | "s2" | "g1" | "g2" {
   return value === "s1" || value === "s2" || value === "g1" || value === "g2";
 }
 
+function normalizeSpeakers(speakers: readonly ("s1" | "s2" | "g1" | "g2")[]): ("s1" | "s2" | "g1" | "g2")[] {
+  return Array.from(new Set(speakers.filter((speaker) => isSpeaker(speaker))));
+}
+
 export function readProductionDefaults(): ProductionDefaults {
   try {
     const raw = window.localStorage.getItem(COMPOSE_DEFAULTS_KEY);
@@ -54,4 +58,38 @@ export function buildSetupFromDefaults(defaults: ProductionDefaults): ComposeSet
     usesProductionDefault: true,
     isOverrideFromProductionDefault: false,
   };
+}
+
+export function composeSetupDiffersFromDefaults(setup: ComposeSetup, defaults: ProductionDefaults): boolean {
+  const normalizedSetupSpeakers = normalizeSpeakers(setup.speakers).slice(0, setup.speakerCount);
+  const normalizedDefaultSpeakers = normalizeSpeakers(defaults.defaultSpeakers).slice(0, defaults.defaultSpeakerCount);
+  if (setup.speakerCount !== defaults.defaultSpeakerCount) return true;
+  if (setup.mode !== defaults.defaultMode) return true;
+  if ((setup.targetSpeaker ?? null) !== (defaults.defaultTargetSpeaker ?? null)) return true;
+  if (normalizedSetupSpeakers.length !== normalizedDefaultSpeakers.length) return true;
+  return normalizedSetupSpeakers.some((speaker, index) => speaker !== normalizedDefaultSpeakers[index]);
+}
+
+export function buildDefaultsFromComposeSetup(
+  setup: ComposeSetup,
+  previousDefaults: ProductionDefaults,
+): ProductionDefaults {
+  const speakers = normalizeSpeakers(setup.speakers).slice(0, setup.speakerCount);
+  return {
+    defaultSpeakerCount: setup.speakerCount,
+    defaultSpeakers: speakers.length > 0 ? speakers : previousDefaults.defaultSpeakers.slice(0, setup.speakerCount),
+    defaultMode: setup.mode,
+    defaultTargetSpeaker: setup.mode === "full_script_single_speaker" ? setup.targetSpeaker : null,
+    assumeStandardUnlessOverridden: previousDefaults.assumeStandardUnlessOverridden,
+  };
+}
+
+export function resolveProductionDefaultsUpdate(input: {
+  setup: ComposeSetup;
+  currentDefaults: ProductionDefaults;
+  promoteToDefault: boolean;
+}): ProductionDefaults | null {
+  if (!input.promoteToDefault) return null;
+  if (!composeSetupDiffersFromDefaults(input.setup, input.currentDefaults)) return null;
+  return buildDefaultsFromComposeSetup(input.setup, input.currentDefaults);
 }

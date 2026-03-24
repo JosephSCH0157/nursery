@@ -44,3 +44,24 @@
   display: flex;
   gap: 8px;
 }
+
+.hs-compose-modal-checkbox {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #2f2f2f;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #131313;
+}
+
+.hs-compose-modal-checkbox input {
+  margin-right: 6px;
+}
+
+.hs-compose-modal-checkbox span {
+  font-size: 0.92rem;
+}
+
+.hs-compose-modal-checkbox small {
+  color: #a9a9a9;
+}

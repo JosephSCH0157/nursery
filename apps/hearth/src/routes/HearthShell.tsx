@@ -119,7 +119,12 @@ import type {
 } from "../domain/compose";
 import { buildComposeScriptRequest } from "../lib/build-compose-request";
 import { resolveComposeConflicts } from "../lib/compose-conflicts";
-import { buildSetupFromDefaults, readProductionDefaults } from "../lib/compose-defaults";
+import {
+  buildSetupFromDefaults,
+  readProductionDefaults,
+  resolveProductionDefaultsUpdate,
+  writeProductionDefaults,
+} from "../lib/compose-defaults";
 import { inferSpeakersFromScript, validateComposeContent } from "../lib/compose-content-validation";
 import { buildComposePrompt } from "../lib/compose-prompt";
 import ComposeSetupModal from "../ui/ComposeSetupModal";
@@ -2229,7 +2234,7 @@ export default function HearthShell() {
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [isVisualScriptMode, setIsVisualScriptMode] = useState(false);
   const [composeModalOpen, setComposeModalOpen] = useState(false);
-  const [productionDefaults] = useState<ProductionDefaults>(() => readProductionDefaults());
+  const [productionDefaults, setProductionDefaults] = useState<ProductionDefaults>(() => readProductionDefaults());
   const [composeSetupDraft, setComposeSetupDraft] = useState<ComposeSetup>(() => buildSetupFromDefaults(readProductionDefaults()));
   const [scriptCompletionBadge, setScriptCompletionBadge] = useState<ScriptCompletionBadge | null>(null);
   const [scriptCompletionReasons, setScriptCompletionReasons] = useState<string[]>([]);
@@ -8807,25 +8812,35 @@ export default function HearthShell() {
     setComposeModalOpen(true);
   }
 
-  function onComposeSetupSubmit(setup: ComposeSetup) {
-    setComposeSetupDraft(setup);
+  function onComposeSetupSubmit(setup: ComposeSetup, options?: { saveAsDefault?: boolean }) {
+    const promotedDefaults = resolveProductionDefaultsUpdate({
+      setup,
+      currentDefaults: productionDefaults,
+      promoteToDefault: options?.saveAsDefault === true,
+    });
+    const effectiveSetup = promotedDefaults ? buildSetupFromDefaults(promotedDefaults) : setup;
+    if (promotedDefaults) {
+      setProductionDefaults(promotedDefaults);
+      writeProductionDefaults(promotedDefaults);
+    }
+    setComposeSetupDraft(effectiveSetup);
     setComposeModalOpen(false);
     setActiveDraft((prev) => {
       if (!prev) return prev;
       return {
         ...prev,
         scriptAuthoringMeta: {
-          composeMode: setup.mode,
-          targetSpeaker: setup.targetSpeaker,
-          speakers: setup.speakers,
-          speakerCount: setup.speakerCount,
-          isOverrideFromProductionDefault: setup.isOverrideFromProductionDefault,
+          composeMode: effectiveSetup.mode,
+          targetSpeaker: effectiveSetup.targetSpeaker,
+          speakers: effectiveSetup.speakers,
+          speakerCount: effectiveSetup.speakerCount,
+          isOverrideFromProductionDefault: effectiveSetup.isOverrideFromProductionDefault,
           lastComposedAt: new Date().toISOString(),
         },
       };
     });
     const request = buildComposeScriptRequest({
-      setup,
+      setup: effectiveSetup,
       sourceText: "Compose from current episode context.",
       existingDraftText: activeDraft?.body ?? "",
     });

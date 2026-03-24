@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CanonicalSpeakerId, ComposeSetup, ComposeMode, ProductionDefaults } from "../domain/compose";
+import { composeSetupDiffersFromDefaults } from "../lib/compose-defaults";
 import "./ComposeSetupModal.css";
 
 const ALL_SPEAKERS: CanonicalSpeakerId[] = ["s1", "s2", "g1", "g2"];
@@ -8,7 +9,8 @@ type Props = {
   open: boolean;
   defaults: ProductionDefaults;
   onClose: () => void;
-  onCompose: (setup: ComposeSetup) => void;
+  onCompose: (setup: ComposeSetup, options?: { saveAsDefault?: boolean }) => void;
+  canSaveAsDefault?: boolean;
 };
 
 function clampSpeakers(speakers: CanonicalSpeakerId[], count: 1 | 2 | 3 | 4): CanonicalSpeakerId[] {
@@ -24,6 +26,17 @@ export default function ComposeSetupModal(props: Props) {
   const [speakers, setSpeakers] = useState<CanonicalSpeakerId[]>(defaults.defaultSpeakers);
   const [mode, setMode] = useState<ComposeMode>(defaults.defaultMode);
   const [targetSpeaker, setTargetSpeaker] = useState<CanonicalSpeakerId | null>(defaults.defaultTargetSpeaker);
+  const [saveAsDefault, setSaveAsDefault] = useState(false);
+
+  useEffect(() => {
+    if (!props.open) return;
+    setCustomize(false);
+    setSpeakerCount(defaults.defaultSpeakerCount);
+    setSpeakers(defaults.defaultSpeakers);
+    setMode(defaults.defaultMode);
+    setTargetSpeaker(defaults.defaultTargetSpeaker);
+    setSaveAsDefault(false);
+  }, [props.open, defaults]);
 
   const normalizedSpeakers = useMemo(() => clampSpeakers(speakers, speakerCount), [speakers, speakerCount]);
   const canSubmit = mode !== "full_script_single_speaker" || Boolean(targetSpeaker);
@@ -47,6 +60,8 @@ export default function ComposeSetupModal(props: Props) {
     usesProductionDefault: false,
     isOverrideFromProductionDefault: true,
   };
+  const customSetupDiffersFromDefaults = composeSetupDiffersFromDefaults(customSetup, defaults);
+  const showSaveAsDefault = (props.canSaveAsDefault ?? true) && customSetupDiffersFromDefaults;
 
   return (
     <div className="hs-compose-modal-backdrop" role="presentation">
@@ -66,7 +81,7 @@ export default function ComposeSetupModal(props: Props) {
                 : ""}
             </p>
             <div className="hs-compose-modal-actions">
-              <button type="button" onClick={() => props.onCompose(standardSetup)}>Compose now</button>
+              <button type="button" onClick={() => props.onCompose(standardSetup, { saveAsDefault: false })}>Compose now</button>
               <button type="button" onClick={() => setCustomize(true)}>Change setup</button>
             </div>
           </div>
@@ -125,9 +140,25 @@ export default function ComposeSetupModal(props: Props) {
               </label>
             ) : null}
 
+            {showSaveAsDefault ? (
+              <label className="hs-compose-modal-checkbox">
+                <input
+                  type="checkbox"
+                  checked={saveAsDefault}
+                  onChange={(event) => setSaveAsDefault(event.target.checked)}
+                />
+                <span>Save this setup as the new standard for this production</span>
+                <small>Future Compose actions will use this setup by default.</small>
+              </label>
+            ) : null}
+
             <div className="hs-compose-modal-actions">
               <button type="button" onClick={() => setCustomize(false)}>Use standard setup</button>
-              <button type="button" disabled={!canSubmit} onClick={() => props.onCompose(customSetup)}>
+              <button
+                type="button"
+                disabled={!canSubmit}
+                onClick={() => props.onCompose(customSetup, { saveAsDefault })}
+              >
                 Compose now
               </button>
             </div>
