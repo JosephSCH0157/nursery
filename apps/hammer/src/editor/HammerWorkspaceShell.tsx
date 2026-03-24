@@ -596,9 +596,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [studioRackRenderStatus, setStudioRackRenderStatus] = useState<HammerDialogueRenderExecutionResult | null>(null);
   const [transcriptTimingHint, setTranscriptTimingHint] = useState<string | null>(null);
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
+  const [playbackMediaSrc, setPlaybackMediaSrc] = useState<string | null>(null);
   const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
   const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const lastHandledHandoffTokenRef = useRef<number | null>(null);
   const transcriptLineRefs = useRef(new Map<string, HTMLButtonElement>());
   const timelineTrackScrollRef = useRef<HTMLDivElement | null>(null);
@@ -623,10 +625,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : launchContext.media.label ?? mediaRef?.local_relpath ?? null;
   const playbackLocalRootAbs = workspaceMapping?.local_root_abs
     ?? (launchContext.media.kind === "mapped-local" ? (launchContext.media.media_root_abs ?? null) : null);
-  const playbackMediaSrc = useMemo(() => {
-    if (!playbackLocalRootAbs || !mediaRef?.local_relpath) return null;
-    return buildHammerDevMediaUrl(playbackLocalRootAbs, mediaRef.local_relpath);
-  }, [mediaRef?.local_relpath, playbackLocalRootAbs]);
   const mediaBackboneRuntime = useMemo(
     () => buildHammerMediaBackboneRuntimeSummary(),
     [],
@@ -1356,11 +1354,86 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [timelineDurationSec]);
 
   useEffect(() => {
+    let active = true;
+    let objectUrlToRevoke: string | null = null;
+
+    const localRelpath = mediaRef?.local_relpath ?? null;
+    if (!localRelpath) {
+      setPlaybackMediaSrc(null);
+      return () => {};
+    }
+
+    if (playbackLocalRootAbs) {
+      setPlaybackMediaSrc(buildHammerDevMediaUrl(playbackLocalRootAbs, localRelpath));
+      return () => {};
+    }
+
+    (async () => {
+      try {
+        const previewUrl = await loadWorkpieceMediaPreviewUrl({
+          workpieceId: launchContext.workpiece_id,
+          path: localRelpath,
+          mimeType: mediaRef?.kind === "recording_audio" ? "audio/mpeg" : "video/webm",
+        });
+        if (!active) {
+          URL.revokeObjectURL(previewUrl);
+          return;
+        }
+        objectUrlToRevoke = previewUrl;
+        setPlaybackMediaSrc(previewUrl);
+      } catch {
+        if (!active) return;
+        setPlaybackMediaSrc(null);
+      }
+    })();
+
+    return () => {
+      active = false;
+      if (objectUrlToRevoke) {
+        URL.revokeObjectURL(objectUrlToRevoke);
+      }
+    };
+  }, [
+    launchContext.workpiece_id,
+    mediaRef?.kind,
+    mediaRef?.local_relpath,
+    playbackLocalRootAbs,
+  ]);
+
+  useEffect(() => {
+    const previewAudio = previewAudioRef.current;
+    if (!previewAudio) return;
+
+    if (!playbackMediaSrc) {
+      previewAudio.pause();
+      previewAudio.removeAttribute("src");
+      previewAudio.load();
+      if (isPlaybackActive) setIsPlaybackActive(false);
+      return;
+    }
+
+    const targetTime = Math.max(0, Math.min(playheadSec, transcriptDurationSec > 0 ? transcriptDurationSec : playheadSec));
+    if (Math.abs(previewAudio.currentTime - targetTime) > 0.15) {
+      previewAudio.currentTime = targetTime;
+    }
+
+    if (!isPlaybackActive) {
+      previewAudio.pause();
+      return;
+    }
+
+    void previewAudio.play().catch(() => {
+      setIsPlaybackActive(false);
+    });
+  }, [isPlaybackActive, playbackMediaSrc, playheadSec, transcriptDurationSec]);
+
+  useEffect(() => {
     if (!isPlaybackActive) return;
     if (transcriptDurationSec <= 0) {
       setIsPlaybackActive(false);
       return;
     }
+    if (playbackMediaSrc) return;
 
     const intervalId = window.setInterval(() => {
       setPlayheadSec((current) => {
@@ -1378,7 +1451,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [editableTranscriptSegments, isPlaybackActive, transcriptDurationSec]);
+  }, [editableTranscriptSegments, isPlaybackActive, playbackMediaSrc, transcriptDurationSec]);
 
   useEffect(() => {
     if (!selectedSegmentId) return;
@@ -1981,6 +2054,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   function togglePlayback(): void {
     if (editableTranscriptSegments.length === 0) return;
+    if (!playbackMediaSrc) {
+      setTranscriptTimingHint("Mapped media unavailable. Check workspace media mapping or source media link.");
+      return;
+    }
     setIsPlaybackActive((current) => !current);
     setFocusOverride("time-focus");
   }
@@ -3242,6 +3319,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               <span>{previewMode}</span>
             </header>
             <div className="hammer-bay-body hammer-preview-bay__body">
+              <audio
+                ref={previewAudioRef}
+                src={playbackMediaSrc ?? undefined}
+                preload="metadata"
+                onEnded={() => setIsPlaybackActive(false)}
+                style={{ display: "none" }}
+              />
               <div className="hammer-preview-surface">
                 {playheadSegment ? (
                   <div className="hammer-preview-surface__label">
