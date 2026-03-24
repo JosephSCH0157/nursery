@@ -63,6 +63,7 @@ import {
   loadHammerHistoryDocument,
   saveHammerHistoryDocument,
 } from "../lib/hammerHistoryArtifactApi";
+import { buildSourceDeskPreviewFetchKey } from "./sourceDeskPreviewChurn";
 import {
   listWorkpieceStoredMedia,
   loadIntroOutroSelection,
@@ -741,6 +742,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return [...paths];
   }, [sourceBrollItems, sourceImageItems, sourceImageLibraryItems]);
+  const sourceDeskPreviewFetchPaths = useMemo(
+    () => sourceDeskPreviewPaths.slice(0, SOURCE_DESK_PREVIEW_MAX_ITEMS),
+    [sourceDeskPreviewPaths],
+  );
+  const sourceDeskPreviewFetchKey = useMemo(
+    () => buildSourceDeskPreviewFetchKey(sourceDeskPreviewFetchPaths),
+    [sourceDeskPreviewFetchPaths],
+  );
   const imageUsageByPath = useMemo(() => {
     const usage = new Map<string, number>();
     for (const item of sourceImageItems) {
@@ -991,12 +1000,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       active = false;
       clearPersistTimer();
     };
-  }, [
-    launchContext.session_id,
-    launchContext.workpiece_id,
-    transcriptSegments,
-    transcriptSourceId,
-  ]);
+  }, [launchContext.workpiece_id, transcriptSourceId]);
 
   useEffect(() => {
     const segment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
@@ -1109,7 +1113,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     let active = true;
     const nextUrls: Record<string, string> = {};
     const nextFailures: Record<string, true> = {};
-    const previewPaths = sourceDeskPreviewPaths.slice(0, SOURCE_DESK_PREVIEW_MAX_ITEMS);
+    const previewPaths = sourceDeskPreviewFetchPaths;
 
     if (sourceDeskPreviewPaths.length > SOURCE_DESK_PREVIEW_MAX_ITEMS) {
       console.info("Hammer Source Desk preview load capped", {
@@ -1174,7 +1178,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return () => {
       active = false;
     };
-  }, [launchContext.workpiece_id, sourceDeskPreviewPaths]);
+  }, [launchContext.workpiece_id, sourceDeskPreviewFetchKey]);
 
   useEffect(() => () => {
     for (const url of Object.values(sourceDeskPreviewUrls)) URL.revokeObjectURL(url);
