@@ -134,7 +134,7 @@ export default function ForgeHub() {
                 <div className="forge-hub__card-hint">{x.hint}</div>
               </div>
               {x.underConstruction ? (
-                <div className="forge-hub__card-status">Under Construction</div>
+                <div className="forge-hub__card-status" aria-label="Under Construction" title="Under Construction">UC</div>
               ) : null}
               <div className="forge-hub__card-desc">{x.desc}</div>
             </a>
@@ -150,7 +150,7 @@ export default function ForgeHub() {
                 <div className="forge-hub__card-hint">{x.hint}</div>
               </div>
               {x.underConstruction ? (
-                <div className="forge-hub__card-status">Under Construction</div>
+                <div className="forge-hub__card-status" aria-label="Under Construction" title="Under Construction">UC</div>
               ) : null}
               <div className="forge-hub__card-desc">{x.desc}</div>
             </Link>

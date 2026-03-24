@@ -30,6 +30,9 @@ importers:
 
   apps/anvil:
     dependencies:
+      '@forge/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@supabase/supabase-js':
         specifier: ^2.98.0
         version: 2.98.0
@@ -177,6 +180,9 @@ importers:
 
   apps/hearth:
     dependencies:
+      '@forge/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@forge/ui-mobile':
         specifier: workspace:*
         version: link:../../packages/ui-mobile
@@ -272,8 +278,13 @@ importers:
 
   packages/hearth: {}
 
+  packages/shared: {}
+
   packages/tongs:
     dependencies:
+      '@forge/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@supabase/supabase-js':
         specifier: ^2.98.0
         version: 2.98.0

@@ -25,6 +25,27 @@
   line-height: 1;
 }
 
+.bellows-standalone__title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bellows-standalone__title-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(244, 207, 160, 0.42);
+  background: rgba(244, 207, 160, 0.12);
+  color: rgba(255, 238, 207, 0.92);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .bellows-standalone__subtitle {
   margin: 0;
   max-width: 700px;

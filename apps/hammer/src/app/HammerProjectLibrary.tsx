@@ -192,8 +192,11 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
     <section className="hammer-project-library">
       <header className="hammer-project-library__header">
         <div className="hammer-project-library__intro">
-          <div className="hammer-project-library__eyebrow">
-            Hammer Project Library
+          <div className="hammer-project-library__eyebrow-row">
+            <div className="hammer-project-library__eyebrow">
+              Hammer Project Library
+            </div>
+            <span className="hammer-project-library__title-badge">Under Construction</span>
           </div>
           <h2 className="hammer-project-library__title">Project Library</h2>
           <div className="hammer-project-library__summary">

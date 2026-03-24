@@ -648,7 +648,10 @@ export default function QuenchRoute() {
     <section className="quench-console">
       <header className="quench-console__header">
         <div className="quench-console__heading">
-          <div className="quench-console__eyebrow">Quench Console</div>
+          <div className="quench-console__eyebrow-row">
+            <div className="quench-console__eyebrow">Quench Console</div>
+            <span className="quench-console__title-badge">Under Construction</span>
+          </div>
           <h1 className="quench-console__title">Release packet board</h1>
           <p className="quench-console__subtitle">
             Typed mock packets, real readiness checks, real adapter capability contracts, and stub/live publish board behavior without pretending uploads are implemented.

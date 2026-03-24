@@ -2126,7 +2126,10 @@ export default function BellowsStandalone() {
       <header className="bellows-standalone__header">
         <div>
           <div className="bellows-standalone__eyebrow">Forge Tool Surface</div>
-          <h1 className="bellows-standalone__title">Bellows</h1>
+          <div className="bellows-standalone__title-row">
+            <h1 className="bellows-standalone__title">Bellows</h1>
+            <span className="bellows-standalone__title-badge">Under Construction</span>
+          </div>
           <p className="bellows-standalone__subtitle">
             Thin operator console over the real Bellows runtime, rehydrated from canonical Tongs recovery truth.
           </p>
