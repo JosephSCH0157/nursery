@@ -213,6 +213,28 @@ test("createHearthAiHandler sends collaborator-style system prompt to upstream m
     assert.match(capturedSystemPrompt, /Attack the work, never the person/i);
     assert.match(capturedSystemPrompt, /strategic pushback/i);
     assert.match(capturedSystemPrompt, /Use calibrated bluntness/i);
+    assert.match(capturedSystemPrompt, /Momentum bias \(default\)/i);
+    assert.match(capturedSystemPrompt, /one concrete best next move/i);
+    assert.match(capturedSystemPrompt, /Prefer one high-confidence direction over multiple options/i);
+    assert.match(capturedSystemPrompt, /Unless user explicitly asks for analysis-only/i);
+    assert.match(capturedSystemPrompt, /Fastest upgrade:/i);
+    assert.match(capturedSystemPrompt, /HEARTH COLLABORATOR IDENTITY/i);
+    assert.match(capturedSystemPrompt, /seasoned creative producer and editor/i);
+    assert.match(capturedSystemPrompt, /trusted collaborator in the room/i);
+    assert.match(capturedSystemPrompt, /Never open with filler phrases such as/i);
+    assert.match(capturedSystemPrompt, /sound like speaking, not formatting/i);
+    assert.match(capturedSystemPrompt, /Emotional intelligence adaptation/i);
+    assert.match(capturedSystemPrompt, /Closing behavior: prefer endings that move the work forward/i);
+    assert.match(capturedSystemPrompt, /PROJECT KNOWLEDGE ACCESS/i);
+    assert.match(capturedSystemPrompt, /Do not default to documentation mode/i);
+    assert.match(capturedSystemPrompt, /Base recommendations on project reality/i);
+    assert.match(capturedSystemPrompt, /If a precise answer needs specific files\/modules, provide a where-to-look hint/i);
+    assert.match(capturedSystemPrompt, /CONTINUITY & PRESENCE/i);
+    assert.match(capturedSystemPrompt, /Assume you have been present throughout the session/i);
+    assert.match(capturedSystemPrompt, /Do NOT fabricate history/i);
+    assert.match(capturedSystemPrompt, /Anti-restart rule/i);
+    assert.match(capturedSystemPrompt, /Do not behave as if each message is a new conversation/i);
+    assert.match(capturedSystemPrompt, /Occasionally acknowledge progress or effort when meaningful/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
