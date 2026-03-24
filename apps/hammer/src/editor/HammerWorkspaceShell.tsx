@@ -166,9 +166,11 @@ import {
 import {
   deriveHammerBoundAttentionQueue,
   deriveHammerBoundObjects,
+  type HammerBoundAttentionQueueItem,
   type HammerBoundObject,
 } from "./hammerBoundObjects";
 import { resolvePodcastMasterUiStatus } from "./hammerPodcastMasterStatus";
+import { evaluateHammerReadinessGate } from "./hammerReadinessGate";
 import {
   appendAuthorityInstructionToGraph,
   createHearthBrollSuggestionInstruction,
@@ -4009,6 +4011,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     focusBoundAttentionOperation(target.operationId);
   }
 
+  function focusReadinessIssue(): void {
+    const operationId = readinessGate.primary_operation_id
+      ?? boundAttentionQueue[0]?.operationId
+      ?? unresolvedBrollSuggestionItems[0]?.operationId
+      ?? null;
+    if (!operationId) return;
+    focusBoundAttentionOperation(operationId);
+  }
+
   function addMinimalTransition(transitionType: "hard_cut" | "crossfade" | "dip_to_black" | "fade_audio"): void {
     applyHistoryMutation({
       label: `Add ${transitionType.replace("_", " ")}`,
@@ -4723,6 +4734,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       reasons: item.reasons,
     }));
   }, [boundObjects]);
+  const boundAttentionQueueForGate = useMemo<HammerBoundAttentionQueueItem[]>(
+    () => deriveHammerBoundAttentionQueue(boundObjects),
+    [boundObjects],
+  );
   const boundAttentionSummary = useMemo(() => ({
     total: boundAttentionQueue.length,
     unresolvedCount: boundAttentionQueue.filter((item) => item.kind === "unresolved_suggestion").length,
@@ -4730,6 +4745,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     supersededCount: boundAttentionQueue.filter((item) => item.kind === "superseded_binding").length,
     transitionCount: boundAttentionQueue.filter((item) => item.kind === "transition_attention").length,
   }), [boundAttentionQueue]);
+  const readinessGate = useMemo(() => evaluateHammerReadinessGate({
+    renderAssembly: exportBasis.renderAssembly,
+    canonicalGraph: editableEditorialAuthorityGraph,
+    boundAttentionQueue: boundAttentionQueueForGate,
+    unresolvedBrollSuggestionOperationIds: unresolvedBrollSuggestionItems.map((item) => item.operationId),
+  }), [
+    exportBasis.renderAssembly,
+    editableEditorialAuthorityGraph,
+    boundAttentionQueueForGate,
+    unresolvedBrollSuggestionItems,
+  ]);
+  const readinessStatusLabel = readinessGate.status === "ready"
+    ? "Ready for export"
+    : readinessGate.status === "blocked"
+    ? "Blocked"
+    : `Needs review (${readinessGate.review_count})`;
   const selectedAttentionIndex = useMemo(
     () => boundAttentionQueue.findIndex((item) => item.operationId === selectedBoundBrollOperationId),
     [boundAttentionQueue, selectedBoundBrollOperationId],

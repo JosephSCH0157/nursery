@@ -3143,6 +3143,47 @@
 
 /* Canvas Priority Mode: Expand preview, collapse sidebars */
 @media (max-width: 1400px) {
+  /* Canvas Priority: Collapse left Forge nav to icons */
+  .hs-shell-grid {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .hs-rail {
+    width: 56px;
+    padding: 8px;
+    gap: 6px;
+  }
+
+  .hs-rail-header,
+  .hs-rail-title,
+  .hs-rail-meta,
+  .hs-rail-heading,
+  .hs-rail-label,
+  .hs-rail-section > .hs-field-label {
+    display: none;
+  }
+
+  .hs-rail-section {
+    gap: 4px;
+  }
+
+  button {
+    aspect-ratio: 1;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    font-size: 0;
+    margin: 0 auto;
+  }
+
+  button span,
+  button span:first-child {
+    font-size: 14px;
+  }
+
+  /* Canvas Priority: Thumbnail panel grid collapse */
   .hs-thumb-grid {
     grid-template-columns: 56px 1fr;
   }
@@ -3188,6 +3229,31 @@
     display: none;
   }
 
+  /* Sticky controls under canvas */
+  .hs-thumb-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 8px;
+    padding: 8px;
+    background: var(--forge-bg-elevated, #fff);
+    border: 1px solid var(--forge-border, #ddd);
+    border-radius: 6px;
+    margin: 8px 0;
+    position: sticky;
+    bottom: auto;
+    top: 100px;
+    z-index: 99;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  }
+
+  .hs-thumb-controls button,
+  .hs-thumb-controls select {
+    min-height: 40px;
+    font-size: 13px;
+    padding: 8px;
+  }
+
+  /* Right sidebar drawer */
   .hs-thumb-sidebar-right {
     position: fixed;
     right: 0;
@@ -3241,20 +3307,15 @@
 
   .hs-thumb-center {
     position: relative;
+    display: grid;
+    gap: 0;
   }
 
-  .hs-thumb-controls {
-    flex-direction: column;
-    margin-top: 8px;
-  }
-
-  .hs-thumb-controls > * {
-    width: 100%;
-  }
-
-  .hs-thumb-controls button,
-  .hs-thumb-controls select {
-    min-height: 40px;
+  .hs-thumb-prompt-section {
+    order: 10;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--forge-border, #ddd);
   }
 }
 

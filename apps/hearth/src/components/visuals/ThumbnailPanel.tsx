@@ -665,59 +665,6 @@ export default function ThumbnailPanel({
           >
             {sidebarOpen ? "◀ Close" : "Refine ▶"}
           </button>
-          <section className="hs-thumb-prompt-section" aria-label="Concept authoring">
-            <details className="hs-thumb-advanced-options">
-              <summary>Concept Authoring</summary>
-              <div className="hs-thumb-advanced-options-body">
-                <label className="hs-field">
-                  <span className="hs-field-label">Concept Label</span>
-                  <input
-                    type="text"
-                    value={selectedConceptLabel}
-                    onChange={(event) => onSelectedConceptLabelChange(event.target.value)}
-                    placeholder="Concept label"
-                    disabled={interactionDisabled}
-                  />
-                </label>
-                <label className="hs-field">
-                  <span className="hs-field-label">Visual Style</span>
-                  <select
-                    value={selectedConceptStylePreset}
-                    onChange={(event) => onSelectedConceptStylePresetChange(event.target.value)}
-                    disabled={interactionDisabled}
-                  >
-                    {HEARTH_VISUAL_STYLE_DEFINITIONS.map((style) => (
-                      <option key={style.value} value={style.value}>
-                        {style.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            </details>
-            <label className="hs-field">
-              <span className="hs-field-label">Prompt</span>
-              <div className="hs-thumb-field-helper">Describe the image, tone, framing, and emotional angle.</div>
-              <textarea
-                value={selectedConceptPrompt}
-                onChange={(event) => onSelectedConceptPromptChange(event.target.value)}
-                placeholder="Describe the thumbnail concept"
-                rows={7}
-                disabled={interactionDisabled}
-                className="hs-thumb-prompt-input"
-              />
-            </label>
-            <label className="hs-field">
-              <span className="hs-field-label">Prompt Override</span>
-              <textarea
-                value={promptOverride}
-                onChange={(event) => onPromptOverrideChange(event.target.value)}
-                placeholder="Optional prompt override"
-                rows={3}
-                disabled={isGenerating || isUploading}
-              />
-            </label>
-          </section>
 
           <div className="hs-thumb-preview-note">{previewStatusMessage}</div>
 
@@ -822,6 +769,60 @@ export default function ThumbnailPanel({
           {uploadError ? (
             <div className="hs-error-text-small">{uploadError}</div>
           ) : null}
+
+          <section className="hs-thumb-prompt-section" aria-label="Concept authoring">
+            <details className="hs-thumb-advanced-options">
+              <summary>Concept Authoring</summary>
+              <div className="hs-thumb-advanced-options-body">
+                <label className="hs-field">
+                  <span className="hs-field-label">Concept Label</span>
+                  <input
+                    type="text"
+                    value={selectedConceptLabel}
+                    onChange={(event) => onSelectedConceptLabelChange(event.target.value)}
+                    placeholder="Concept label"
+                    disabled={interactionDisabled}
+                  />
+                </label>
+                <label className="hs-field">
+                  <span className="hs-field-label">Visual Style</span>
+                  <select
+                    value={selectedConceptStylePreset}
+                    onChange={(event) => onSelectedConceptStylePresetChange(event.target.value)}
+                    disabled={interactionDisabled}
+                  >
+                    {HEARTH_VISUAL_STYLE_DEFINITIONS.map((style) => (
+                      <option key={style.value} value={style.value}>
+                        {style.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </details>
+            <label className="hs-field">
+              <span className="hs-field-label">Prompt</span>
+              <div className="hs-thumb-field-helper">Describe the image, tone, framing, and emotional angle.</div>
+              <textarea
+                value={selectedConceptPrompt}
+                onChange={(event) => onSelectedConceptPromptChange(event.target.value)}
+                placeholder="Describe the thumbnail concept"
+                rows={7}
+                disabled={interactionDisabled}
+                className="hs-thumb-prompt-input"
+              />
+            </label>
+            <label className="hs-field">
+              <span className="hs-field-label">Prompt Override</span>
+              <textarea
+                value={promptOverride}
+                onChange={(event) => onPromptOverrideChange(event.target.value)}
+                placeholder="Optional prompt override"
+                rows={3}
+                disabled={isGenerating || isUploading}
+              />
+            </label>
+          </section>
         </section>
 
         <div
