@@ -102,6 +102,16 @@ export interface HammerQuenchReleasePacketManifest {
       removed_binding_operation_ids: string[];
       attention_binding_operation_ids: string[];
     };
+    duck_linkage_summary: {
+      linked_duck_bindings: Array<{
+        operation_id: string;
+        linked_broll_operation_id: string;
+        start_sec: number;
+        end_sec: number;
+      }>;
+      orphaned_duck_operation_ids: string[];
+      superseded_duck_operation_ids: string[];
+    };
   };
 }
 
@@ -176,6 +186,12 @@ export function buildHammerQuenchReleasePacket(args: {
     end_sec: placement.end_sec,
     asset_path: placement.asset_path,
     status: placement.status,
+  }));
+  const activeBrollOperationIds = new Set((args.canonicalGraph?.operations ?? []).flatMap((operation) => {
+    if (operation.lifecycle !== "active") return [];
+    if (operation.instruction.type !== "insert_broll") return [];
+    if (operation.instruction.asset_binding_state === "unresolved") return [];
+    return [operation.operation_id];
   }));
 
   const manifest: HammerQuenchReleasePacketManifest = {
@@ -282,6 +298,31 @@ export function buildHammerQuenchReleasePacket(args: {
               if (operation.lifecycle !== "active") return [];
               if (operation.instruction.type !== "insert_broll") return [];
               if (!operation.capability_state.reason_codes.includes("operation_conflict")) return [];
+              return [operation.operation_id];
+            }),
+          },
+          duck_linkage_summary: {
+            linked_duck_bindings: (args.canonicalGraph?.operations ?? []).flatMap((operation) => {
+              if (operation.lifecycle !== "active") return [];
+              if (operation.instruction.type !== "audio_duck") return [];
+              if (!operation.instruction.linked_broll_operation_id) return [];
+              return [{
+                operation_id: operation.operation_id,
+                linked_broll_operation_id: operation.instruction.linked_broll_operation_id,
+                start_sec: operation.instruction.start_sec,
+                end_sec: operation.instruction.end_sec,
+              }];
+            }),
+            orphaned_duck_operation_ids: (args.canonicalGraph?.operations ?? []).flatMap((operation) => {
+              if (operation.instruction.type !== "audio_duck") return [];
+              const linkedBrollOperationId = operation.instruction.linked_broll_operation_id ?? null;
+              if (!linkedBrollOperationId) return [];
+              if (activeBrollOperationIds.has(linkedBrollOperationId)) return [];
+              return [operation.operation_id];
+            }),
+            superseded_duck_operation_ids: (args.canonicalGraph?.operations ?? []).flatMap((operation) => {
+              if (operation.lifecycle !== "superseded") return [];
+              if (operation.instruction.type !== "audio_duck") return [];
               return [operation.operation_id];
             }),
           },

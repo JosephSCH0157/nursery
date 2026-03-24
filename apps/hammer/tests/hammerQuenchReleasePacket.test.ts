@@ -272,6 +272,7 @@ async function testPacketDistinguishesUnresolvedVsResolvedBroll() {
   });
   assert.equal(packet.manifest.editorial_truth?.broll_resolution_summary.unresolved_intents.length, 1);
   assert.equal(packet.manifest.editorial_truth?.broll_resolution_summary.resolved_bindings.length, 0);
+  assert.equal(packet.manifest.editorial_truth?.duck_linkage_summary.linked_duck_bindings.length, 0);
 }
 
 async function testPacketReflectsResolvedBindingEdits() {
@@ -419,8 +420,29 @@ async function testPacketReflectsRippleDeleteBrollRemapTruth() {
     },
   });
   const rippleOperationId = withRipple.operations.at(-1)?.operation_id ?? "";
-  const remapped = remapResolvedBrollOperationsForRippleDelete({
+  const spanBrollOperationId = withRipple.operations.find((op) => op.instruction.type === "insert_broll" && op.instruction.asset_ref === "assets/broll/span.mp4")?.operation_id ?? "";
+  const withLinkedDuck = appendAuthorityInstructionToGraph({
     graph: withRipple,
+    instruction: {
+      instruction_id: "duck_linked_packet",
+      segment_id: "seg_001",
+      type: "audio_duck",
+      start_sec: 1,
+      end_sec: 7,
+      duck_gain_db: -9,
+      linked_broll_operation_id: spanBrollOperationId,
+      created_at: "2026-03-24T10:00:30.000Z",
+    },
+    fallback: {
+      graphId: baseGraph.graph_id,
+      workspaceId: "ws_demo",
+      workpieceId: "wp_demo",
+      sessionId: "session_demo",
+      sourceTranscriptId: "tx_release_packet",
+    },
+  });
+  const remapped = remapResolvedBrollOperationsForRippleDelete({
+    graph: withLinkedDuck,
     rippleDeleteOperationId: rippleOperationId,
     removedStartSec: 2,
     removedEndSec: 4,
@@ -441,6 +463,8 @@ async function testPacketReflectsRippleDeleteBrollRemapTruth() {
   });
   assert.equal(packet.manifest.editorial_truth?.broll_timeline_remap_summary.removed_binding_operation_ids.length, 1);
   assert.equal(packet.manifest.editorial_truth?.broll_timeline_remap_summary.attention_binding_operation_ids.length, 1);
+  assert.equal(packet.manifest.editorial_truth?.duck_linkage_summary.linked_duck_bindings.length, 1);
+  assert.equal(packet.manifest.editorial_truth?.duck_linkage_summary.orphaned_duck_operation_ids.length, 0);
 }
 
 async function run() {
