@@ -5,6 +5,7 @@ import type {
   HammerFadeAudioInstruction,
   HammerHardCutInstruction,
   HammerInsertBrollInstruction,
+  HammerPodcastMasterPassInstruction,
   HammerRippleDeleteInstruction,
   HammerCrossfadeInstruction,
 } from "../../../../packages/contracts/hammer/edit-instruction.contract";
@@ -857,6 +858,35 @@ export function createFadeAudioInstruction(args: {
       capability: "executable",
       status: "declared",
       target: "preview",
+    },
+  };
+}
+
+export function createPodcastMasterPassInstruction(args: {
+  segmentId: string;
+  nowIso?: string;
+  instructionId?: string;
+  noiseCleanup?: "off" | "light";
+  normalizationLufs?: number;
+  compressionAmount?: "light" | "medium";
+  limiterCeilingDbtp?: number;
+}): HammerPodcastMasterPassInstruction {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  return {
+    instruction_id: args.instructionId ?? createInstructionId("podcast_master_pass"),
+    segment_id: args.segmentId,
+    type: "podcast_master_pass",
+    preset: "podcast_master_v1",
+    noise_cleanup: args.noiseCleanup ?? "light",
+    normalization_lufs: args.normalizationLufs ?? -16,
+    compression_amount: args.compressionAmount ?? "medium",
+    limiter_ceiling_dbtp: args.limiterCeilingDbtp ?? -1,
+    created_at: nowIso,
+    execution: {
+      operation_family: "audio_shaping",
+      capability: "executable",
+      status: "declared",
+      target: "export",
     },
   };
 }
