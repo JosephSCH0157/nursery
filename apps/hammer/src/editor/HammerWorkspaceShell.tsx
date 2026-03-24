@@ -164,6 +164,11 @@ import {
   type HammerRenderRuntimeCapabilities,
 } from "./hammerRenderAssembly";
 import {
+  deriveHammerBoundAttentionQueue,
+  deriveHammerBoundObjects,
+  type HammerBoundObject,
+} from "./hammerBoundObjects";
+import {
   appendAuthorityInstructionToGraph,
   createHearthBrollSuggestionInstruction,
   createAudioDuckInstruction,
@@ -4472,131 +4477,94 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const previewTruthPosture = exportBasis.renderAssembly.preview.posture;
   const exportTruthPosture = exportBasis.renderAssembly.export.posture;
   const handoffTruthPosture = exportBasis.renderAssembly.handoff.posture;
-  const renderOperationById = useMemo(() => {
-    const byId = new Map<string, (typeof exportBasis.renderAssembly.operations)[number]>();
-    for (const operation of exportBasis.renderAssembly.operations) {
-      byId.set(operation.operation_id, operation);
+  const boundObjects = useMemo(
+    () => deriveHammerBoundObjects({
+      canonical_graph: editableEditorialAuthorityGraph,
+      render_assembly: exportBasis.renderAssembly,
+    }),
+    [editableEditorialAuthorityGraph, exportBasis.renderAssembly],
+  );
+  const boundObjectById = useMemo(() => {
+    const byId = new Map<string, HammerBoundObject>();
+    for (const object of boundObjects) {
+      byId.set(object.object_id, object);
     }
     return byId;
-  }, [exportBasis.renderAssembly.operations]);
+  }, [boundObjects]);
   const selectedBoundBrollInspectorState = useMemo<HammerBoundBrollInspectorState | null>(() => {
     const selectedOperationId = selectedBoundBrollOperationId
       ?? resolvedBrollBindingItems[0]?.operationId
       ?? null;
     if (!selectedOperationId) return null;
-    const brollOperation = brollOperationById.get(selectedOperationId) ?? null;
-    if (!brollOperation || brollOperation.instruction.type !== "insert_broll") return null;
-    const brollInstruction = brollOperation.instruction;
-    const renderOperation = renderOperationById.get(selectedOperationId) ?? null;
-    const linkedDuckOperation = (editableEditorialAuthorityGraph?.operations ?? []).find((operation) => {
-      if (operation.instruction.type !== "audio_duck") return false;
-      if (operation.lifecycle !== "active") return false;
-      return operation.instruction.linked_broll_operation_id === selectedOperationId
-        || (
-          brollInstruction.companion_audio_duck_operation_id != null
-          && operation.operation_id === brollInstruction.companion_audio_duck_operation_id
-        );
-    }) ?? null;
-    const linkedDuckRender = linkedDuckOperation
-      ? renderOperationById.get(linkedDuckOperation.operation_id) ?? null
-      : null;
+    const selectedBoundObject = boundObjectById.get(selectedOperationId) ?? null;
+    if (!selectedBoundObject || selectedBoundObject.type !== "broll") return null;
+    const linkedDuckObject = selectedBoundObject.linked_object_ids
+      .map((linkedObjectId) => boundObjectById.get(linkedObjectId) ?? null)
+      .find((linkedObject): linkedObject is HammerBoundObject => Boolean(linkedObject && linkedObject.type === "audio_duck"))
+      ?? null;
     const attentionFlags = [
-      ...(brollOperation.capability_state.reason_codes.includes("operation_conflict")
+      ...(selectedBoundObject.attention_flags.includes("operation_conflict")
         ? ["Adjusted by structural remap; review recommended."]
         : []),
-      ...(brollOperation.lifecycle === "superseded"
+      ...(selectedBoundObject.lifecycle_state === "superseded"
         ? ["Removed by structural edit."]
         : []),
-      ...(brollInstruction.asset_binding_state === "unresolved"
+      ...(selectedBoundObject.binding_state === "unresolved"
         ? ["Unresolved suggestion: not yet media truth."]
         : []),
-      ...(linkedDuckOperation && linkedDuckRender?.capability === "degraded" && linkedDuckRender.reason_codes.includes("operation_conflict")
+      ...(linkedDuckObject && linkedDuckObject.capability === "degraded"
         ? ["Linked duck companion requires review."]
         : []),
     ];
-    const duckAligned = linkedDuckOperation && linkedDuckOperation.instruction.type === "audio_duck"
+    const duckAligned = linkedDuckObject && linkedDuckObject.type === "audio_duck"
       ? (
-        linkedDuckOperation.instruction.start_sec === brollInstruction.start_sec
-        && linkedDuckOperation.instruction.end_sec === brollInstruction.end_sec
+        linkedDuckObject.placement_window.start_sec === selectedBoundObject.placement_window.start_sec
+        && linkedDuckObject.placement_window.end_sec === selectedBoundObject.placement_window.end_sec
       )
       : false;
     return {
       operationId: selectedOperationId,
-      lifecycle: brollOperation.lifecycle,
-      intentSource: brollInstruction.intent_source ?? "manual",
-      intentDescription: brollInstruction.intent_description ?? null,
-      bindingState: brollInstruction.asset_binding_state === "unresolved" ? "unresolved" : "resolved",
-      startSec: brollInstruction.start_sec,
-      endSec: brollInstruction.end_sec,
-      assetRef: brollInstruction.asset_ref,
-      previewPosture: renderOperation?.preview_posture ?? "unavailable",
-      exportPosture: renderOperation?.export_posture ?? "unavailable",
-      handoffPosture: renderOperation?.handoff_posture ?? "unavailable",
+      lifecycle: selectedBoundObject.lifecycle_state,
+      intentSource: selectedBoundObject.intent_source === "system" ? "manual" : selectedBoundObject.intent_source,
+      intentDescription: selectedBoundObject.payload.intent_description ?? null,
+      bindingState: selectedBoundObject.binding_state === "unresolved" ? "unresolved" : "resolved",
+      startSec: selectedBoundObject.placement_window.start_sec,
+      endSec: selectedBoundObject.placement_window.end_sec,
+      assetRef: selectedBoundObject.payload.asset_ref,
+      previewPosture: selectedBoundObject.posture.preview,
+      exportPosture: selectedBoundObject.posture.export,
+      handoffPosture: selectedBoundObject.posture.handoff,
       needsAttention: attentionFlags.length > 0,
       attentionFlags,
-      linkedDuck: linkedDuckOperation && linkedDuckOperation.instruction.type === "audio_duck"
+      linkedDuck: linkedDuckObject && linkedDuckObject.type === "audio_duck"
         ? {
-          operationId: linkedDuckOperation.operation_id,
-          startSec: linkedDuckOperation.instruction.start_sec,
-          endSec: linkedDuckOperation.instruction.end_sec,
+          operationId: linkedDuckObject.object_id,
+          startSec: linkedDuckObject.placement_window.start_sec,
+          endSec: linkedDuckObject.placement_window.end_sec,
           aligned: duckAligned,
-          capability: linkedDuckRender?.capability ?? "unavailable",
-          needsAttention: !duckAligned || (linkedDuckRender?.capability === "degraded"),
+          capability: linkedDuckObject.capability,
+          needsAttention: !duckAligned || linkedDuckObject.attention_flags.length > 0,
         }
         : null,
     };
   }, [
-    brollOperationById,
-    editableEditorialAuthorityGraph?.operations,
-    renderOperationById,
+    boundObjectById,
     resolvedBrollBindingItems,
     selectedBoundBrollOperationId,
   ]);
   const boundAttentionQueue = useMemo<HammerBoundAttentionItem[]>(() => {
-    const operations = editableEditorialAuthorityGraph?.operations ?? [];
-    return operations
-      .filter((operation) => operation.instruction.type === "insert_broll")
-      .sort((left, right) => left.sequence - right.sequence)
-      .flatMap((operation) => {
-        if (operation.instruction.type !== "insert_broll") return [];
-        const reasons: string[] = [];
-        let kind: HammerBoundAttentionItem["kind"] | null = null;
-        if (operation.lifecycle === "superseded") {
-          kind = "superseded_binding";
-          reasons.push("Binding was superseded by a structural edit.");
-        }
-        if (operation.instruction.asset_binding_state === "unresolved") {
-          kind = "unresolved_suggestion";
-          reasons.push("Suggestion remains unresolved and is not media truth yet.");
-        }
-        const renderOperation = renderOperationById.get(operation.operation_id) ?? null;
-        if (
-          operation.lifecycle === "active"
-          && (
-            renderOperation?.capability === "degraded"
-            || renderOperation?.preview_posture !== "authoritative"
-            || renderOperation?.export_posture !== "authoritative"
-            || renderOperation?.handoff_posture !== "authoritative"
-            || operation.capability_state.reason_codes.includes("operation_conflict")
-          )
-        ) {
-          kind = operation.instruction.asset_binding_state === "unresolved"
-            ? kind ?? "unresolved_suggestion"
-            : "degraded_binding";
-          reasons.push("Binding posture is degraded and needs review.");
-        }
-        if (!kind) return [];
-        const dedupedReasons = Array.from(new Set(reasons));
-        return [{
-          operationId: operation.operation_id,
-          kind,
-          label: operation.instruction.intent_description
-            ?? operation.instruction.intent_ref
-            ?? operation.instruction.asset_ref,
-          reasons: dedupedReasons,
-        }];
-      });
-  }, [editableEditorialAuthorityGraph?.operations, renderOperationById]);
+    const queue = deriveHammerBoundAttentionQueue(boundObjects);
+    return queue.map((item) => ({
+      operationId: item.object_id,
+      kind: item.reasons.includes("awaiting_resolution")
+        ? "unresolved_suggestion"
+        : item.reasons.includes("superseded_by_structural_edit")
+        ? "superseded_binding"
+        : "degraded_binding",
+      label: item.label,
+      reasons: item.reasons,
+    }));
+  }, [boundObjects]);
   const boundAttentionSummary = useMemo(() => ({
     total: boundAttentionQueue.length,
     unresolvedCount: boundAttentionQueue.filter((item) => item.kind === "unresolved_suggestion").length,
