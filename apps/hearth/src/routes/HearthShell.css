@@ -1854,7 +1854,7 @@
 
 .hs-thumb-preview.is-widescreen {
   aspect-ratio: 16 / 9;
-  max-width: 520px;
+  max-width: 680px;
 }
 
 .hs-thumb-preview.is-square {
@@ -1870,6 +1870,15 @@
 .hs-thumb-preview-note {
   font-size: 12px;
   opacity: 0.72;
+}
+
+.hs-thumb-prompt-section {
+  display: grid;
+  gap: 8px;
+}
+
+.hs-thumb-prompt-input {
+  min-height: 108px;
 }
 
 .hs-thumb-title-source {
@@ -1913,6 +1922,25 @@
 .hs-thumb-title-help {
   font-size: 12px;
   opacity: 0.75;
+}
+
+.hs-thumb-advanced-options {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.02);
+}
+
+.hs-thumb-advanced-options > summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hs-thumb-advanced-options-body {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
 }
 
 .hs-thumb-template-meta {
