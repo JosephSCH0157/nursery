@@ -5,6 +5,7 @@ import {
   previewRemoveFillers,
   previewRemoveRetakes,
   previewShortenGaps,
+  previewSpeakerSolo,
   previewTightenSelection,
 } from "../src/editor/hammerCleanupTools";
 
@@ -124,6 +125,32 @@ async function testTightenSelectionRejectsInlineSpeakerTagAsTextMutationRisk() {
   );
 }
 
+async function testSpeakerSoloSuppressesNonTargetDeterministically() {
+  const segments = [
+    s("a", 0, 1.0, "S1", "Host setup."),
+    s("b", 1.0, 1.6, "S2", "quick interjection"),
+    s("c", 1.6, 2.8, "S1", "Host keeps going."),
+    s("d", 2.8, 4.0, "S2", "Long guest segment."),
+  ];
+  const options = {
+    targetSpeaker: "S1",
+    collapseInterruptions: true,
+    compressGaps: false,
+    maxInterruptionSec: 0.8,
+  } as const;
+  const first = previewSpeakerSolo({ segments, options });
+  const second = previewSpeakerSolo({ segments, options });
+  assert.deepEqual(first, second, "Solo mode preview must be deterministic");
+  assert.equal(first.label, "Solo Mode");
+  assert.equal(first.metadata?.speakerSolo?.targetSpeaker, "S1");
+  assert.equal(first.metadata?.speakerSolo?.suppressedSegments, 2);
+  assert.equal(
+    first.resultSegments.filter((segment) => segment.speaker === "S2").every((segment) => segment.is_disabled === true),
+    true,
+    "Non-target speakers should be suppressed in solo mode",
+  );
+}
+
 async function run() {
   await testShortenGapsDeterministic();
   await testFillerRemovalDeterministic();
@@ -131,6 +158,7 @@ async function run() {
   await testQuickCleanOrderDeterministic();
   await testTightenSelectionPreservesUnselectedSegments();
   await testTightenSelectionRejectsInlineSpeakerTagAsTextMutationRisk();
+  await testSpeakerSoloSuppressesNonTargetDeterministically();
   // eslint-disable-next-line no-console
   console.log("Hammer cleanup tools tests passed.");
 }

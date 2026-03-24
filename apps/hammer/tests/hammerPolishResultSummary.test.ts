@@ -110,11 +110,51 @@ function test_tighten_selection_summary_metadata() {
   assert.equal(summary.notes.includes("Confidence: High"), true);
 }
 
+function test_solo_mode_summary_metadata() {
+  const soloPreview: HammerCleanupPreview = {
+    label: "Solo Mode",
+    resultSegments: [],
+    suggestions: [
+      {
+        id: "solo-1",
+        type: "fragment_merge",
+        segmentId: "s2",
+        description: "Suppressed non-target speaker segment in Solo Mode.",
+        confidence: 0.9,
+        timeSavedSec: 0.7,
+      },
+    ],
+    summary: {
+      changedSegments: 1,
+      removedSegments: 0,
+      timeSavedSec: 0.7,
+    },
+    metadata: {
+      speakerSolo: {
+        intent: "Keep one speaker in focus and suppress non-target voices without touching source truth.",
+        targetSpeaker: "S1",
+        scopeLabel: "full transcript",
+        suppressedSegments: 3,
+        collapsedInterruptions: 1,
+        estimatedDurationSavedSec: 2.4,
+        confidenceLabel: "High",
+        confidenceScore: 0.9,
+        safetyNote: "Source transcript and media remain recoverable. Undo restores the prior state in one step.",
+      },
+    },
+  };
+  const summary = buildPolishResultSummaryFromCleanupPreview(soloPreview);
+  assert.equal(summary.tool, "solo_mode");
+  assert.equal(summary.notes.includes("Target speaker: S1"), true);
+  assert.equal(summary.notes.includes("Suppressed non-target segments: 3"), true);
+}
+
 function run() {
   test_basic_summary_shape();
   test_quick_clean_sequence_is_disclosed();
   test_no_change_preview_sets_note();
   test_tighten_selection_summary_metadata();
+  test_solo_mode_summary_metadata();
   // eslint-disable-next-line no-console
   console.log("Hammer polish result summary tests passed.");
 }

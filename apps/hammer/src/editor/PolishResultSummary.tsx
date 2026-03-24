@@ -9,7 +9,8 @@ export type HammerPolishToolId =
   | "remove_fillers"
   | "remove_retakes"
   | "quick_clean"
-  | "tighten_selection";
+  | "tighten_selection"
+  | "solo_mode";
 
 export type HammerPolishResultSummary = {
   tool: HammerPolishToolId;
@@ -53,6 +54,7 @@ function resolveToolId(label: string): HammerPolishToolId {
   if (normalized === "remove fillers") return "remove_fillers";
   if (normalized === "remove retakes") return "remove_retakes";
   if (normalized === "tighten selection") return "tighten_selection";
+  if (normalized === "solo mode") return "solo_mode";
   return "quick_clean";
 }
 
@@ -90,6 +92,14 @@ export function buildPolishResultSummaryFromCleanupPreview(
     notes.push(`Merged fragments: ${preview.metadata.tightenSelection.mergedFragments}`);
     notes.push(`Confidence: ${preview.metadata.tightenSelection.confidenceLabel}`);
     notes.push(preview.metadata.tightenSelection.safetyNote);
+  }
+  if (preview.metadata?.speakerSolo) {
+    notes.push(`Target speaker: ${preview.metadata.speakerSolo.targetSpeaker}`);
+    notes.push(`Scope: ${preview.metadata.speakerSolo.scopeLabel}`);
+    notes.push(`Suppressed non-target segments: ${preview.metadata.speakerSolo.suppressedSegments}`);
+    notes.push(`Collapsed interruptions: ${preview.metadata.speakerSolo.collapsedInterruptions}`);
+    notes.push(`Confidence: ${preview.metadata.speakerSolo.confidenceLabel}`);
+    notes.push(preview.metadata.speakerSolo.safetyNote);
   }
 
   return {

@@ -19,6 +19,13 @@ export type RetakeCleanupOptions = {
   sameSpeakerOnly: boolean;
 };
 
+export type SpeakerSoloOptions = {
+  targetSpeaker: string;
+  collapseInterruptions: boolean;
+  compressGaps: boolean;
+  maxInterruptionSec: number;
+};
+
 export type CleanupSuggestionType =
   | "gap_trim"
   | "filler_remove"
@@ -46,18 +53,29 @@ export type HammerCleanupPreview = {
     timeSavedSec: number;
   };
   metadata?: {
-    tightenSelection?: {
-      intent: string;
-      beforeText: string;
-      afterText: string;
-      removedFillers: number;
+      tightenSelection?: {
+        intent: string;
+        beforeText: string;
+        afterText: string;
+        removedFillers: number;
       collapsedRepetitions: number;
       mergedFragments: number;
       confidenceLabel: "High" | "Medium" | "Low";
-      confidenceScore: number;
-      safetyNote: string;
+        confidenceScore: number;
+        safetyNote: string;
+      };
+      speakerSolo?: {
+        intent: string;
+        targetSpeaker: string;
+        scopeLabel: string;
+        suppressedSegments: number;
+        collapsedInterruptions: number;
+        estimatedDurationSavedSec: number;
+        confidenceLabel: "High" | "Medium" | "Low";
+        confidenceScore: number;
+        safetyNote: string;
+      };
     };
-  };
 };
 
 function cloneSegments(segments: HammerTranscriptSegment[]): HammerTranscriptSegment[] {
@@ -495,6 +513,111 @@ export function previewTightenSelection(args: {
         confidenceLabel,
         confidenceScore,
         safetyNote: "Original performance preserved. Undo restores fully.",
+      },
+    },
+  };
+}
+
+export function previewSpeakerSolo(args: {
+  segments: HammerTranscriptSegment[];
+  options: SpeakerSoloOptions;
+  segmentIds?: string[];
+}): HammerCleanupPreview {
+  const sorted = cloneSegments(args.segments).sort((a, b) => a.start_sec - b.start_sec);
+  const scopeSet = args.segmentIds && args.segmentIds.length > 0 ? new Set(args.segmentIds) : null;
+  const scopeLabel = scopeSet
+    ? `${scopeSet.size} selected segment${scopeSet.size === 1 ? "" : "s"}`
+    : "full transcript";
+  const suggestions: HammerCleanupSuggestion[] = [];
+  const changed = new Set<string>();
+  const resultSegments = sorted.map((segment) => ({ ...segment }));
+  let suppressedSegments = 0;
+  let collapsedInterruptions = 0;
+  let estimatedDurationSavedSec = 0;
+
+  for (let index = 0; index < resultSegments.length; index += 1) {
+    const segment = resultSegments[index];
+    if (scopeSet && !scopeSet.has(segment.segment_id)) continue;
+    if (segment.speaker === args.options.targetSpeaker) continue;
+
+    const previous = resultSegments[index - 1];
+    const next = resultSegments[index + 1];
+    const durationSec = roundToTenth(Math.max(0.1, segment.end_sec - segment.start_sec));
+    const qualifiesAsInterruption = Boolean(
+      args.options.collapseInterruptions
+      && previous
+      && next
+      && previous.speaker === args.options.targetSpeaker
+      && next.speaker === args.options.targetSpeaker
+      && durationSec <= Math.max(0.2, args.options.maxInterruptionSec),
+    );
+
+    if (qualifiesAsInterruption) {
+      collapsedInterruptions += 1;
+    }
+
+    if (segment.is_disabled === true) continue;
+
+    segment.is_disabled = true;
+    changed.add(segment.segment_id);
+    suppressedSegments += 1;
+    estimatedDurationSavedSec = roundToTenth(estimatedDurationSavedSec + durationSec);
+
+    suggestions.push({
+      id: `solo:${segment.segment_id}`,
+      type: "fragment_merge",
+      segmentId: segment.segment_id,
+      description: qualifiesAsInterruption
+        ? "Collapsed brief interruption from non-target speaker."
+        : "Suppressed non-target speaker segment in Solo Mode.",
+      confidence: qualifiesAsInterruption ? 0.92 : 0.88,
+      timeSavedSec: durationSec,
+    });
+  }
+
+  if (args.options.compressGaps) {
+    let cumulativeShift = 0;
+    for (const segment of resultSegments) {
+      const durationSec = roundToTenth(Math.max(0.1, segment.end_sec - segment.start_sec));
+      if (segment.is_disabled === true && (!scopeSet || scopeSet.has(segment.segment_id))) {
+        cumulativeShift = roundToTenth(cumulativeShift + durationSec);
+        continue;
+      }
+      if (cumulativeShift <= 0) continue;
+      const nextStart = roundToTenth(Math.max(0, segment.start_sec - cumulativeShift));
+      const nextEnd = roundToTenth(nextStart + durationSec);
+      if (nextStart !== segment.start_sec || nextEnd !== segment.end_sec) {
+        segment.start_sec = nextStart;
+        segment.end_sec = nextEnd;
+        changed.add(segment.segment_id);
+      }
+    }
+  }
+
+  const confidencePenalty = Math.min(0.2, suppressedSegments * 0.01) + (args.options.compressGaps ? 0.05 : 0);
+  const confidenceScore = Number(Math.max(0.65, 0.96 - confidencePenalty).toFixed(2));
+  const confidenceLabel = confidenceScore >= 0.85 ? "High" : confidenceScore >= 0.72 ? "Medium" : "Low";
+
+  return {
+    label: "Solo Mode",
+    resultSegments,
+    suggestions,
+    summary: {
+      changedSegments: changed.size,
+      removedSegments: 0,
+      timeSavedSec: estimatedDurationSavedSec,
+    },
+    metadata: {
+      speakerSolo: {
+        intent: "Keep one speaker in focus and suppress non-target voices without touching source truth.",
+        targetSpeaker: args.options.targetSpeaker,
+        scopeLabel,
+        suppressedSegments,
+        collapsedInterruptions,
+        estimatedDurationSavedSec,
+        confidenceLabel,
+        confidenceScore,
+        safetyNote: "Source transcript and media remain recoverable. Undo restores the prior state in one step.",
       },
     },
   };

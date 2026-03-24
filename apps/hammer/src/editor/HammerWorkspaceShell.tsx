@@ -54,12 +54,14 @@ import {
   previewQuickClean,
   previewRemoveFillers,
   previewRemoveRetakes,
+  previewSpeakerSolo,
   previewShortenGaps,
   previewTightenSelection,
   type HammerCleanupPreview,
   type RetakeCleanupOptions,
   type FillerCleanupOptions,
   type GapCleanupOptions,
+  type SpeakerSoloOptions,
 } from "./hammerCleanupTools";
 import PolishResultSummary, {
   buildPolishResultSummaryFromCleanupPreview,
@@ -73,6 +75,7 @@ import {
   cloneEditorState,
   type HammerEditorStateSerializable,
   type HammerHistoryController,
+  type HammerHistoryEntry,
   type HammerHistoryKind,
   type HammerOutputSelectionState,
 } from "./hammerWorkspaceHistory";
@@ -454,6 +457,27 @@ function compactHistoryActionLabel(label: string | null): string {
   return `${trimmed.slice(0, 25)}...`;
 }
 
+function formatHistoryTimestamp(timestamp: string): string {
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) return timestamp;
+  return parsed.toLocaleTimeString();
+}
+
+function formatHistoryEntryScope(entry: HammerHistoryEntry): string {
+  const segmentCount = entry.affectedSegmentIds?.length ?? 0;
+  const placementCount = entry.affectedPlacementIds?.length ?? 0;
+  if (segmentCount > 0 && placementCount > 0) {
+    return `${segmentCount} segment${segmentCount === 1 ? "" : "s"}, ${placementCount} placement${placementCount === 1 ? "" : "s"}`;
+  }
+  if (segmentCount > 0) {
+    return `${segmentCount} segment${segmentCount === 1 ? "" : "s"}`;
+  }
+  if (placementCount > 0) {
+    return `${placementCount} placement${placementCount === 1 ? "" : "s"}`;
+  }
+  return "workspace state";
+}
+
 function formatStudioRackModuleLabel(moduleId: string): string {
   if (moduleId === "eq") return "Parametric EQ";
   if (moduleId === "reverb") return "Reverb";
@@ -578,6 +602,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     honorExplicitRetakePhrases: true,
     sameSpeakerOnly: true,
   });
+  const [speakerSoloOptions, setSpeakerSoloOptions] = useState<SpeakerSoloOptions>(() => ({
+    targetSpeaker: transcriptSegments[0]?.speaker ?? "S1",
+    collapseInterruptions: true,
+    compressGaps: false,
+    maxInterruptionSec: 0.8,
+  }));
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
   const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
@@ -966,6 +996,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return usage;
   }, [sourceImageItems]);
+  const speakerOptions = useMemo(() => {
+    const labels = new Set<string>();
+    for (const segment of editableTranscriptSegments) {
+      const label = segment.speaker.trim();
+      if (label) labels.add(label);
+    }
+    return [...labels];
+  }, [editableTranscriptSegments]);
   const historyController = historyControllerRef.current;
   const canUndo = historyController?.canUndo() ?? false;
   const canRedo = historyController?.canRedo() ?? false;
@@ -973,6 +1011,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const redoLabel = historyController?.peekRedoEntry()?.label ?? null;
   const undoDepth = historyController?.document.undoStack.length ?? 0;
   const redoDepth = historyController?.document.redoStack.length ?? 0;
+  const historyHeadEntryId = historyController?.document.headEntryId ?? null;
+  const recentHistoryEntries = useMemo(
+    () => [...(historyController?.document.entries ?? [])].slice(-12).reverse(),
+    [historyController?.document.entries],
+  );
   const undoLabelCompact = compactHistoryActionLabel(undoLabel);
   const redoLabelCompact = compactHistoryActionLabel(redoLabel);
   const outputLayerCandidates = useMemo(
@@ -1222,6 +1265,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       }),
     });
   }, [editableOutputSelection, outputLayerCandidates]);
+
+  useEffect(() => {
+    if (speakerOptions.length === 0) return;
+    if (speakerOptions.includes(speakerSoloOptions.targetSpeaker)) return;
+    setSpeakerSoloOptions((current) => ({
+      ...current,
+      targetSpeaker: speakerOptions[0] ?? "S1",
+    }));
+  }, [speakerOptions, speakerSoloOptions.targetSpeaker]);
 
   useEffect(() => {
     let active = true;
@@ -3045,6 +3097,38 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               <div className="hammer-source-status hammer-source-status--info" role="status">
                 History: {undoDepth} undo / {redoDepth} redo
               </div>
+              <section className="hammer-history-panel" aria-label="Edit history">
+                <header className="hammer-history-panel__head">
+                  <strong>History</strong>
+                  <span>{recentHistoryEntries.length} shown</span>
+                </header>
+                {recentHistoryEntries.length === 0 ? (
+                  <div className="hammer-history-panel__empty">No edits recorded yet.</div>
+                ) : (
+                  <div className="hammer-history-panel__list">
+                    {recentHistoryEntries.map((entry) => {
+                      const isCurrent = entry.id === historyHeadEntryId;
+                      const derivedLayerCreated = false;
+                      return (
+                        <article
+                          key={entry.id}
+                          className={`hammer-history-panel__item${isCurrent ? " is-current" : ""}`}
+                        >
+                          <div className="hammer-history-panel__row">
+                            <strong>{entry.label}</strong>
+                            <span>{formatHistoryTimestamp(entry.timestamp)}</span>
+                          </div>
+                          <div className="hammer-history-panel__meta">
+                            <span>Scope: {formatHistoryEntryScope(entry)}</span>
+                            <span>Derived layer: {derivedLayerCreated ? "yes" : "no"}</span>
+                            {isCurrent ? <span>Current state</span> : null}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
 
               {selectedSourceTab === "transcript" ? (
                 editableTranscriptSegments.length > 0 ? (
