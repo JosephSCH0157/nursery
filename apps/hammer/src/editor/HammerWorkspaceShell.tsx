@@ -168,6 +168,7 @@ import {
   deriveHammerBoundObjects,
   type HammerBoundObject,
 } from "./hammerBoundObjects";
+import { resolvePodcastMasterUiStatus } from "./hammerPodcastMasterStatus";
 import {
   appendAuthorityInstructionToGraph,
   createHearthBrollSuggestionInstruction,
@@ -4614,6 +4615,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => exportBasis.renderAssembly.export_timeline.audio_layers.find((layer) => layer.kind === "podcast_master_pass") ?? null,
     [exportBasis.renderAssembly.export_timeline.audio_layers],
   );
+  const podcastMasterUiStatus = useMemo(
+    () => resolvePodcastMasterUiStatus({
+      declared: Boolean(podcastMasterLayer),
+      posture: podcastMasterLayer?.posture,
+      capability: podcastMasterLayer?.capability,
+      preview_mode: podcastMasterLayer?.meta?.preview_mode,
+      applied_stages: podcastMasterLayer?.meta?.applied_stages,
+      skipped_stages: podcastMasterLayer?.meta?.skipped_stages,
+    }),
+    [podcastMasterLayer],
+  );
   const boundObjects = useMemo(
     () => deriveHammerBoundObjects({
       canonical_graph: editableEditorialAuthorityGraph,
@@ -7106,6 +7118,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       ? ` · export posture ${podcastMasterLayer.posture} (${podcastMasterLayer.capability})`
                       : ""}
                   </div>
+                  <div className="hammer-tool-hint">
+                    {podcastMasterUiStatus.headline}
+                  </div>
+                  <div className="hammer-tool-hint">
+                    {podcastMasterUiStatus.detail}
+                  </div>
                   {podcastMasterLayer?.meta ? (
                     <div className="hammer-tool-hint">
                       Preset {podcastMasterLayer.meta.preset}
@@ -7122,7 +7140,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </div>
                   ) : null}
                   <button type="button" onClick={applyPodcastMasterPass} disabled={Boolean(podcastMasterLayer)}>
-                    {podcastMasterLayer ? "Podcast Master Applied" : "Apply Podcast Master"}
+                    {podcastMasterUiStatus.action_label}
                   </button>
                   <button
                     type="button"
