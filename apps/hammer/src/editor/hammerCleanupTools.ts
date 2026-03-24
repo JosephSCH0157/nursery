@@ -35,6 +35,15 @@ export type SpeakerInterviewOptions = {
   maxInterruptionSec: number;
 };
 
+export type SpeakerMonologueOptions = {
+  targetSpeaker: string;
+  removeBackchannels: boolean;
+  suppressInterruptions: boolean;
+  maxInterruptionSec: number;
+  tightenTargetRuns: boolean;
+  compressGaps: boolean;
+};
+
 export type CleanupSuggestionType =
   | "gap_trim"
   | "filler_remove"
@@ -93,6 +102,17 @@ export type HammerCleanupPreview = {
         fillersRemoved: number;
         retakesRemoved: number;
         interruptionsSuppressed: number;
+        estimatedDurationSavedSec: number;
+        confidenceLabel: "High" | "Medium" | "Low";
+        confidenceScore: number;
+        safetyNote: string;
+      };
+      speakerMonologue?: {
+        intent: string;
+        targetSpeaker: string;
+        backchannelsRemoved: number;
+        interruptionsSuppressed: number;
+        sameSpeakerRunsTightened: number;
         estimatedDurationSavedSec: number;
         confidenceLabel: "High" | "Medium" | "Low";
         confidenceScore: number;
@@ -648,6 +668,199 @@ export function previewSpeakerSolo(args: {
 
 const INTERVIEW_BACKCHANNEL_RE = /^(?:mm-?hmm|mhm|yeah|yep|right|got it|okay|ok|sure|uh-huh|huh)$/i;
 const INTERVIEW_RETAKE_RE = /\b(?:let me start over|scratch that|take that again|redo|retake)\b/i;
+
+export function previewSpeakerMonologue(args: {
+  segments: HammerTranscriptSegment[];
+  options: SpeakerMonologueOptions;
+  segmentIds?: string[];
+}): HammerCleanupPreview {
+  const sorted = cloneSegments(args.segments).sort((a, b) => a.start_sec - b.start_sec);
+  const scopeSet = args.segmentIds && args.segmentIds.length > 0 ? new Set(args.segmentIds) : null;
+  const suggestions: HammerCleanupSuggestion[] = [];
+  const changed = new Set<string>();
+  const resultSegments = sorted.map((segment) => ({ ...segment }));
+  const fillerDictionary = FILLERS_MEDIUM;
+  const tightenedTargetSegmentIds = new Set<string>();
+  let backchannelsRemoved = 0;
+  let interruptionsSuppressed = 0;
+  let estimatedDurationSavedSec = 0;
+
+  for (let index = 0; index < resultSegments.length; index += 1) {
+    const segment = resultSegments[index];
+    if (scopeSet && !scopeSet.has(segment.segment_id)) continue;
+    const durationSec = roundToTenth(Math.max(0.1, segment.end_sec - segment.start_sec));
+
+    if (segment.speaker !== args.options.targetSpeaker) {
+      const previous = resultSegments[index - 1];
+      const next = resultSegments[index + 1];
+      const normalizedText = normalizeTextSpacing(segment.text);
+      const isBackchannel = args.options.removeBackchannels
+        && tokenCount(normalizedText) <= 4
+        && INTERVIEW_BACKCHANNEL_RE.test(normalizedText);
+      const isShortInterruption = args.options.suppressInterruptions
+        && previous
+        && next
+        && previous.speaker === args.options.targetSpeaker
+        && next.speaker === args.options.targetSpeaker
+        && durationSec <= Math.max(0.2, args.options.maxInterruptionSec);
+
+      if ((isBackchannel || isShortInterruption) && segment.is_disabled !== true) {
+        segment.is_disabled = true;
+        changed.add(segment.segment_id);
+        estimatedDurationSavedSec = roundToTenth(estimatedDurationSavedSec + durationSec);
+        if (isBackchannel) {
+          backchannelsRemoved += 1;
+        } else {
+          interruptionsSuppressed += 1;
+        }
+        suggestions.push({
+          id: `monologue:${segment.segment_id}`,
+          type: "fragment_merge",
+          segmentId: segment.segment_id,
+          description: isBackchannel
+            ? "Removed non-essential backchannel outside the target speaker's through-line."
+            : "Suppressed short interruption between adjacent target-speaker runs.",
+          confidence: isBackchannel ? 0.9 : 0.86,
+          timeSavedSec: durationSec,
+        });
+      }
+      continue;
+    }
+
+    if (!args.options.tightenTargetRuns) {
+      continue;
+    }
+
+    const original = normalizeTextSpacing(segment.text);
+    let working = original;
+    let segmentChanged = false;
+
+    const restart = trimRestartPrefix(working);
+    if (restart.trimmed) {
+      working = restart.text;
+      segmentChanged = true;
+      suggestions.push({
+        id: `monologue:restart:${segment.segment_id}`,
+        type: "restart_trim",
+        segmentId: segment.segment_id,
+        description: "Trimmed restart phrase in target-speaker run.",
+        confidence: 0.88,
+        timeSavedSec: 0.2,
+      });
+    }
+
+    const filler = cleanFillerText(working, fillerDictionary);
+    if (filler.removed > 0) {
+      working = normalizeTextSpacing(filler.text);
+      segmentChanged = true;
+      suggestions.push({
+        id: `monologue:filler:${segment.segment_id}`,
+        type: "filler_remove",
+        segmentId: segment.segment_id,
+        description: `Removed ${filler.removed} filler phrase${filler.removed === 1 ? "" : "s"} in target-speaker run.`,
+        confidence: 0.87,
+        timeSavedSec: roundToTenth(Math.max(0.1, filler.removed * 0.11)),
+      });
+    }
+
+    const repeatedWordCollapse = collapseRepeatedSingleWords(working);
+    if (repeatedWordCollapse.collapsed > 0) {
+      working = normalizeTextSpacing(repeatedWordCollapse.text);
+      segmentChanged = true;
+      suggestions.push({
+        id: `monologue:repeat-word:${segment.segment_id}`,
+        type: "repetition_collapse",
+        segmentId: segment.segment_id,
+        description: `Collapsed repeated words (${repeatedWordCollapse.collapsed}) in target-speaker run.`,
+        confidence: 0.83,
+        timeSavedSec: roundToTenth(Math.max(0.1, repeatedWordCollapse.collapsed * 0.08)),
+      });
+    }
+
+    const repeatedPhraseCollapse = collapseRepeatedShortPhrases(working);
+    if (repeatedPhraseCollapse.collapsed > 0) {
+      working = normalizeTextSpacing(repeatedPhraseCollapse.text);
+      segmentChanged = true;
+      suggestions.push({
+        id: `monologue:repeat-phrase:${segment.segment_id}`,
+        type: "repetition_collapse",
+        segmentId: segment.segment_id,
+        description: `Collapsed repeated short phrase (${repeatedPhraseCollapse.collapsed}) in target-speaker run.`,
+        confidence: 0.79,
+        timeSavedSec: roundToTenth(Math.max(0.1, repeatedPhraseCollapse.collapsed * 0.1)),
+      });
+    }
+
+    const tail = trimWanderingTail(working);
+    if (tail.trimmed) {
+      working = tail.text;
+      segmentChanged = true;
+      suggestions.push({
+        id: `monologue:tail:${segment.segment_id}`,
+        type: "restart_trim",
+        segmentId: segment.segment_id,
+        description: "Trimmed wandering tail in target-speaker run.",
+        confidence: 0.76,
+        timeSavedSec: 0.2,
+      });
+    }
+
+    if (segmentChanged && working && working !== segment.text) {
+      segment.text = working;
+      tightenedTargetSegmentIds.add(segment.segment_id);
+      changed.add(segment.segment_id);
+    }
+  }
+
+  if (args.options.compressGaps) {
+    let cumulativeShift = 0;
+    for (const segment of resultSegments) {
+      const durationSec = roundToTenth(Math.max(0.1, segment.end_sec - segment.start_sec));
+      if (segment.is_disabled === true && (!scopeSet || scopeSet.has(segment.segment_id))) {
+        cumulativeShift = roundToTenth(cumulativeShift + durationSec);
+        continue;
+      }
+      if (cumulativeShift <= 0) continue;
+      const nextStart = roundToTenth(Math.max(0, segment.start_sec - cumulativeShift));
+      const nextEnd = roundToTenth(nextStart + durationSec);
+      if (nextStart !== segment.start_sec || nextEnd !== segment.end_sec) {
+        segment.start_sec = nextStart;
+        segment.end_sec = nextEnd;
+        changed.add(segment.segment_id);
+      }
+    }
+  }
+
+  estimatedDurationSavedSec = roundToTenth(suggestions.reduce((sum, suggestion) => sum + suggestion.timeSavedSec, 0));
+  const sameSpeakerRunsTightened = tightenedTargetSegmentIds.size;
+  const confidencePenalty = Math.min(0.26, (backchannelsRemoved * 0.015) + (interruptionsSuppressed * 0.02) + (args.options.compressGaps ? 0.04 : 0));
+  const confidenceScore = Number(Math.max(0.63, 0.94 - confidencePenalty).toFixed(2));
+  const confidenceLabel = confidenceScore >= 0.85 ? "High" : confidenceScore >= 0.72 ? "Medium" : "Low";
+
+  return {
+    label: "Monologue Cleanup",
+    resultSegments,
+    suggestions,
+    summary: {
+      changedSegments: changed.size,
+      removedSegments: backchannelsRemoved + interruptionsSuppressed,
+      timeSavedSec: estimatedDurationSavedSec,
+    },
+    metadata: {
+      speakerMonologue: {
+        intent: "Keep one speaker's through-line readable by suppressing brief outside interruptions and tightening filler-heavy target runs.",
+        targetSpeaker: args.options.targetSpeaker,
+        backchannelsRemoved,
+        interruptionsSuppressed,
+        sameSpeakerRunsTightened,
+        estimatedDurationSavedSec,
+        confidenceLabel,
+        confidenceScore,
+        safetyNote: "Creates a derived layer only. Source transcript and media remain recoverable. Undo restores the prior state in one step.",
+      },
+    },
+  };
+}
 
 export function previewSpeakerInterview(args: {
   segments: HammerTranscriptSegment[];

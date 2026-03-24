@@ -11,7 +11,8 @@ export type HammerPolishToolId =
   | "quick_clean"
   | "tighten_selection"
   | "solo_mode"
-  | "interview_mode";
+  | "interview_mode"
+  | "monologue_cleanup";
 
 export type HammerPolishResultSummary = {
   tool: HammerPolishToolId;
@@ -57,6 +58,7 @@ function resolveToolId(label: string): HammerPolishToolId {
   if (normalized === "tighten selection") return "tighten_selection";
   if (normalized === "solo mode") return "solo_mode";
   if (normalized === "interview mode") return "interview_mode";
+  if (normalized === "monologue cleanup") return "monologue_cleanup";
   return "quick_clean";
 }
 
@@ -111,6 +113,14 @@ export function buildPolishResultSummaryFromCleanupPreview(
     notes.push(`Interruptions suppressed: ${preview.metadata.speakerInterview.interruptionsSuppressed}`);
     notes.push(`Confidence: ${preview.metadata.speakerInterview.confidenceLabel}`);
     notes.push(preview.metadata.speakerInterview.safetyNote);
+  }
+  if (preview.metadata?.speakerMonologue) {
+    notes.push(`Target speaker: ${preview.metadata.speakerMonologue.targetSpeaker}`);
+    notes.push(`Backchannels removed: ${preview.metadata.speakerMonologue.backchannelsRemoved}`);
+    notes.push(`Interruptions suppressed: ${preview.metadata.speakerMonologue.interruptionsSuppressed}`);
+    notes.push(`Same-speaker runs tightened: ${preview.metadata.speakerMonologue.sameSpeakerRunsTightened}`);
+    notes.push(`Confidence: ${preview.metadata.speakerMonologue.confidenceLabel}`);
+    notes.push(preview.metadata.speakerMonologue.safetyNote);
   }
 
   return {

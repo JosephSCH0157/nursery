@@ -54,6 +54,7 @@ import {
   previewQuickClean,
   previewRemoveFillers,
   previewRemoveRetakes,
+  previewSpeakerMonologue,
   previewSpeakerInterview,
   previewSpeakerSolo,
   previewShortenGaps,
@@ -62,6 +63,7 @@ import {
   type RetakeCleanupOptions,
   type FillerCleanupOptions,
   type GapCleanupOptions,
+  type SpeakerMonologueOptions,
   type SpeakerInterviewOptions,
   type SpeakerSoloOptions,
 } from "./hammerCleanupTools";
@@ -531,6 +533,10 @@ function formatOutputLayerLabel(layer: HammerDerivedTextLayer): string {
     }
     return "Interview Mode";
   }
+  if (recipe.startsWith("speaker_monologue:")) {
+    const speaker = recipe.split(":", 2)[1]?.trim().toUpperCase() || "Speaker";
+    return `Monologue Cleanup - ${speaker}`;
+  }
   return `${recipe} output`;
 }
 
@@ -918,6 +924,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     removeBackchannels: true,
     collapseInterruptions: true,
     maxInterruptionSec: 0.8,
+  }));
+  const [speakerMonologueOptions, setSpeakerMonologueOptions] = useState<SpeakerMonologueOptions>(() => ({
+    targetSpeaker: transcriptSegments[0]?.speaker ?? "S1",
+    removeBackchannels: true,
+    suppressInterruptions: true,
+    maxInterruptionSec: 0.8,
+    tightenTargetRuns: true,
+    compressGaps: false,
   }));
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
@@ -1665,6 +1679,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       targetSpeaker: speakerOptions[0] ?? "S1",
     }));
   }, [speakerOptions, speakerSoloOptions.targetSpeaker]);
+
+  useEffect(() => {
+    if (speakerOptions.length === 0) return;
+    if (speakerOptions.includes(speakerMonologueOptions.targetSpeaker)) return;
+    setSpeakerMonologueOptions((current) => ({
+      ...current,
+      targetSpeaker: speakerOptions[0] ?? "S1",
+    }));
+  }, [speakerMonologueOptions.targetSpeaker, speakerOptions]);
 
   useEffect(() => {
     if (speakerOptions.length === 0) return;
@@ -2921,7 +2944,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     historyControllerRef.current?.createCheckpoint(`Before ${preview.label}`);
     const isSpeakerSoloApply = Boolean(preview.metadata?.speakerSolo);
     const isSpeakerInterviewApply = Boolean(preview.metadata?.speakerInterview);
-    if ((isSpeakerSoloApply || isSpeakerInterviewApply) && workspaceStructuredTranscript) {
+    const isSpeakerMonologueApply = Boolean(preview.metadata?.speakerMonologue);
+    if ((isSpeakerSoloApply || isSpeakerInterviewApply || isSpeakerMonologueApply) && workspaceStructuredTranscript) {
       const nextLayerChanges = editableTranscriptSegments
         .map((segment) => {
           const nextSegment = preview.resultSegments.find((item) => item.segment_id === segment.segment_id) ?? null;
@@ -2944,20 +2968,32 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         })
         .filter((change): change is NonNullable<typeof change> => Boolean(change));
       if (nextLayerChanges.length === 0) {
-        setTranscriptTimingHint(isSpeakerSoloApply
-          ? "Solo Mode found no non-target segments to suppress."
-          : "Interview Mode found no respondent changes to apply.");
+        setTranscriptTimingHint(
+          isSpeakerSoloApply
+            ? "Solo Mode found no non-target segments to suppress."
+            : isSpeakerInterviewApply
+            ? "Interview Mode found no respondent changes to apply."
+            : "Monologue Cleanup found no qualifying interruptions or target-speaker cleanup to apply.",
+        );
         return;
       }
 
       const nowIso = new Date().toISOString();
       const layerLabel = isSpeakerSoloApply
         ? `Solo Mode - ${preview.metadata?.speakerSolo?.targetSpeaker.trim() || "speaker"}`
-        : `Interview Mode - ${preview.metadata?.speakerInterview?.hostSpeaker.trim() || "host"}->${preview.metadata?.speakerInterview?.respondentSpeaker.trim() || "guest"}`;
+        : isSpeakerInterviewApply
+        ? `Interview Mode - ${preview.metadata?.speakerInterview?.hostSpeaker.trim() || "host"}->${preview.metadata?.speakerInterview?.respondentSpeaker.trim() || "guest"}`
+        : `Monologue Cleanup - ${preview.metadata?.speakerMonologue?.targetSpeaker.trim() || "speaker"}`;
       const recipeRef = isSpeakerSoloApply
         ? `speaker_solo:${preview.metadata?.speakerSolo?.targetSpeaker.trim().toLowerCase() || "speaker"}`
-        : `speaker_interview:${preview.metadata?.speakerInterview?.hostSpeaker.trim().toLowerCase() || "host"}->${preview.metadata?.speakerInterview?.respondentSpeaker.trim().toLowerCase() || "guest"}`;
-      const macroKind = isSpeakerSoloApply ? "speaker_solo" as const : "speaker_interview" as const;
+        : isSpeakerInterviewApply
+        ? `speaker_interview:${preview.metadata?.speakerInterview?.hostSpeaker.trim().toLowerCase() || "host"}->${preview.metadata?.speakerInterview?.respondentSpeaker.trim().toLowerCase() || "guest"}`
+        : `speaker_monologue:${preview.metadata?.speakerMonologue?.targetSpeaker.trim().toLowerCase() || "speaker"}`;
+      const macroKind = isSpeakerSoloApply
+        ? "speaker_solo" as const
+        : isSpeakerInterviewApply
+        ? "speaker_interview" as const
+        : "speaker_monologue" as const;
       const layer = createHammerDerivedTextLayer({
         transcriptId: workspaceStructuredTranscript.transcript_id,
         recipeRef,
@@ -3438,7 +3474,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const selectedLayer = transcriptForRelease.derived_text_layers?.layers.find(
       (layer) => layer.layer_id === editableOutputSelection.layerId && layer.status !== "discarded",
     ) ?? null;
-    if (selectedLayer?.macro_kind === "speaker_solo" || selectedLayer?.macro_kind === "speaker_interview") {
+    if (
+      selectedLayer?.macro_kind === "speaker_solo"
+      || selectedLayer?.macro_kind === "speaker_interview"
+      || selectedLayer?.macro_kind === "speaker_monologue"
+    ) {
       const suppressedSegmentIds = new Set(
         selectedLayer.changes
           .filter((change) => change.cleaned_text.trim().length === 0)
@@ -5337,6 +5377,123 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </button>
                   </section>
 
+                  <section className="hammer-cleanup-tool">
+                    <div className="hammer-cleanup-tool__head">
+                      <strong>Monologue Cleanup</strong>
+                      <span>
+                        Intent: Keep one speaker's through-line readable by suppressing brief outside interruptions and tightening filler-heavy target runs.
+                      </span>
+                    </div>
+                    <label className="hammer-tool-field">
+                      <span>Target speaker</span>
+                      <select
+                        value={speakerMonologueOptions.targetSpeaker}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerMonologueOptions((current) => ({
+                            ...current,
+                            targetSpeaker: event.target.value,
+                          }));
+                        }}
+                        disabled={speakerOptions.length === 0}
+                      >
+                        {speakerOptions.length > 0 ? speakerOptions.map((speaker) => (
+                          <option key={`monologue-speaker-${speaker}`} value={speaker}>{speaker}</option>
+                        )) : (
+                          <option value="">No speakers</option>
+                        )}
+                      </select>
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={speakerMonologueOptions.removeBackchannels}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerMonologueOptions((current) => ({
+                            ...current,
+                            removeBackchannels: event.target.checked,
+                          }));
+                        }}
+                      />
+                      <span>Remove short backchannels from others</span>
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={speakerMonologueOptions.suppressInterruptions}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerMonologueOptions((current) => ({
+                            ...current,
+                            suppressInterruptions: event.target.checked,
+                          }));
+                        }}
+                      />
+                      <span>Suppress short interruptions</span>
+                    </label>
+                    <label className="hammer-tool-field">
+                      <span>Interruption max (sec)</span>
+                      <input
+                        type="number"
+                        min={0.2}
+                        max={5}
+                        step={0.1}
+                        value={speakerMonologueOptions.maxInterruptionSec}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerMonologueOptions((current) => ({
+                            ...current,
+                            maxInterruptionSec: Math.max(0.2, Number(event.target.value) || 0.8),
+                          }));
+                        }}
+                        disabled={!speakerMonologueOptions.suppressInterruptions}
+                      />
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={speakerMonologueOptions.tightenTargetRuns}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerMonologueOptions((current) => ({
+                            ...current,
+                            tightenTargetRuns: event.target.checked,
+                          }));
+                        }}
+                      />
+                      <span>Tighten filler-heavy target runs</span>
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={speakerMonologueOptions.compressGaps}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerMonologueOptions((current) => ({
+                            ...current,
+                            compressGaps: event.target.checked,
+                          }));
+                        }}
+                      />
+                      <span>Compress gaps after suppressed interruptions</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("tool-focus");
+                        setCleanupPreview(previewSpeakerMonologue({
+                          segments: editableTranscriptSegments,
+                          options: speakerMonologueOptions,
+                          segmentIds: hasTranscriptSelection ? transcriptSelectionRange.segmentIds : undefined,
+                        }));
+                      }}
+                      disabled={!speakerMonologueOptions.targetSpeaker}
+                    >
+                      Preview Monologue Cleanup
+                    </button>
+                  </section>
+
                   <section className="hammer-cleanup-tool hammer-cleanup-tool--quick">
                     <div className="hammer-cleanup-tool__head">
                       <strong>Quick Clean</strong>
@@ -5440,6 +5597,29 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           </div>
                           <div className="hammer-tighten-preview__safety">
                             {cleanupPreview.metadata.speakerInterview.safetyNote}
+                          </div>
+                        </section>
+                      ) : null}
+                      {cleanupPreview.metadata?.speakerMonologue ? (
+                        <section className="hammer-tighten-preview" aria-label="Monologue cleanup preview">
+                          <div className="hammer-tighten-preview__intent">
+                            <strong>Intent</strong>
+                            <span>{cleanupPreview.metadata.speakerMonologue.intent}</span>
+                          </div>
+                          <div className="hammer-tighten-preview__meta">
+                            <span>Target speaker: {cleanupPreview.metadata.speakerMonologue.targetSpeaker}</span>
+                            <span>Backchannels removed: {cleanupPreview.metadata.speakerMonologue.backchannelsRemoved}</span>
+                            <span>Interruptions suppressed: {cleanupPreview.metadata.speakerMonologue.interruptionsSuppressed}</span>
+                            <span>Same-speaker runs tightened: {cleanupPreview.metadata.speakerMonologue.sameSpeakerRunsTightened}</span>
+                            <span>Estimated time saved: {cleanupPreview.metadata.speakerMonologue.estimatedDurationSavedSec.toFixed(1)} s</span>
+                            <span>
+                              Confidence: {cleanupPreview.metadata.speakerMonologue.confidenceLabel}
+                              {" "}
+                              ({Math.round(cleanupPreview.metadata.speakerMonologue.confidenceScore * 100)}%)
+                            </span>
+                          </div>
+                          <div className="hammer-tighten-preview__safety">
+                            {cleanupPreview.metadata.speakerMonologue.safetyNote}
                           </div>
                         </section>
                       ) : null}
