@@ -10,6 +10,7 @@ import {
   normalizeHammerHistoryDocument,
   type HammerEditorStateSerializable,
 } from "../src/editor/hammerWorkspaceHistory";
+import { createDefaultHammerStudioRackState } from "../src/editor/hammerStudioRack";
 
 function segment(id: string, text: string, start = 0, end = 1): HammerTranscriptSegment {
   return {
@@ -25,6 +26,7 @@ function baseState(): HammerEditorStateSerializable {
   return {
     transcriptSegments: [segment("a", "hello"), segment("b", "world", 1, 2)],
     visualPlacements: null,
+    studioRack: createDefaultHammerStudioRackState(),
     outputSelection: {
       layerId: null,
       sourceRecipeRef: null,
@@ -289,6 +291,62 @@ async function testDisabledAndGainPersistThroughHistory() {
   assert.equal(controller.getState().transcriptSegments[0]?.gain_db, -3);
 }
 
+async function testTranscriptSpanCutMutationUndoRedo() {
+  const initial: HammerEditorStateSerializable = {
+    transcriptSegments: [
+      segment("a", "hello", 0, 1),
+      segment("b", "dead", 1, 2),
+      segment("c", "world", 2, 3),
+    ],
+    visualPlacements: null,
+    studioRack: createDefaultHammerStudioRackState(),
+    outputSelection: {
+      layerId: null,
+      sourceRecipeRef: null,
+    },
+    selectedSegmentId: "b",
+    playheadSec: 1.4,
+    transcriptTimingHint: null,
+  };
+  const controller = createHammerHistoryController({
+    document: createHammerHistoryDocument({
+      workpieceId: "wp-7",
+      sessionId: "session-7",
+      baseRevisionId: hashEditorState(initial),
+    }),
+    initialState: initial,
+  });
+
+  const cut = cloneEditorState(initial);
+  cut.transcriptSegments = [
+    segment("a", "hello", 0, 1),
+    segment("c", "world", 1, 2),
+  ];
+  cut.selectedSegmentId = "c";
+  cut.playheadSec = 1;
+
+  controller.applyMutation({
+    label: "Cut transcript selection",
+    kind: "segment_structure",
+    affectedSegmentIds: ["b"],
+    nextState: cut,
+  });
+
+  assert.equal(controller.getState().transcriptSegments.length, 2);
+  assert.equal(controller.getState().transcriptSegments[1]?.segment_id, "c");
+  assert.equal(controller.getState().transcriptSegments[1]?.start_sec, 1);
+  assert.equal(controller.getState().playheadSec, 1);
+
+  controller.undo();
+  assert.equal(controller.getState().transcriptSegments.length, 3);
+  assert.equal(controller.getState().transcriptSegments[1]?.segment_id, "b");
+  assert.equal(controller.getState().playheadSec, 1.4);
+
+  controller.redo();
+  assert.equal(controller.getState().transcriptSegments.length, 2);
+  assert.equal(controller.getState().transcriptSegments[1]?.segment_id, "c");
+}
+
 async function run() {
   await testPatchRoundTrip();
   await testControllerUndoRedoAndRedoClear();
@@ -297,6 +355,7 @@ async function run() {
   await testOutputSelectionUndoRedo();
   await testReplayFromSnapshotTail();
   await testDisabledAndGainPersistThroughHistory();
+  await testTranscriptSpanCutMutationUndoRedo();
   // eslint-disable-next-line no-console
   console.log("Hammer workspace history tests passed.");
 }

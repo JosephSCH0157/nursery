@@ -18,15 +18,18 @@ import {
   DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
   LARGE_PLAYHEAD_NUDGE_SEC,
   SMALL_PLAYHEAD_NUDGE_SEC,
+  cutSegmentRangeAndRipple,
   deleteSegmentAndRipple,
   moveSegmentTiming,
   resolveAdjacentSegmentSelection,
   resolveEffectivePlaybackTime,
   resolveFocusAfterPlayheadChange,
   resolvePlayheadAfterDelete,
+  resolvePlayheadAfterRangeCut,
   resolvePreviewLabel,
   resolvePlayheadSegment,
   resolveSelectedSegmentAfterDelete,
+  resolveTranscriptSegmentRange,
   resolveTimelineBoundaryTimes,
   resolveWorkspaceFocusMode,
   roundToTenth,
@@ -80,6 +83,7 @@ import {
   loadHammerHistoryDocument,
   saveHammerHistoryDocument,
 } from "../lib/hammerHistoryArtifactApi";
+import { buildHammerDevMediaUrl } from "../lib/previewSource";
 import {
   loadHammerSnapshotManifest,
   loadHammerSnapshotPayload,
@@ -104,6 +108,17 @@ import {
   type HammerIntroOutroSelection,
   type HammerStoredMediaFile,
 } from "../lib/hammerSourceDeskMediaApi";
+import {
+  cloneHammerStudioRackState,
+  createDefaultHammerStudioRackState,
+  normalizeHammerStudioRackState,
+  type HammerStudioRackState,
+} from "./hammerStudioRack";
+import {
+  processDialogueAudioWithBackend,
+  resolveHammerAudioProcessingBackend,
+} from "./hammerAudioProcessingBackend";
+import { buildHammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBackbone";
 import { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
 import { preserveTranscriptMetadata } from "../prep/hammerPrep";
 import { buildHammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
@@ -198,6 +213,7 @@ type HammerTimelineLaneBlock = {
   startSec: number;
   endSec: number;
   selected: boolean;
+  inRange?: boolean;
   disabled?: boolean;
   tone: "dialogue" | "image" | "broll";
   onSelect: () => void;
@@ -335,6 +351,7 @@ function stableHashToken(value: string): string {
 function toEditorState(args: {
   segments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
+  studioRack: HammerStudioRackState;
   outputSelection: HammerOutputSelectionState;
   selectedSegmentId: string | null;
   playheadSec: number;
@@ -354,6 +371,7 @@ function toEditorState(args: {
         })),
       }
       : null,
+    studioRack: cloneHammerStudioRackState(args.studioRack),
     outputSelection: {
       layerId: args.outputSelection.layerId,
       sourceRecipeRef: args.outputSelection.sourceRecipeRef,
@@ -367,6 +385,7 @@ function toEditorState(args: {
 function toShellState(state: HammerEditorStateSerializable): {
   segments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
+  studioRack: HammerStudioRackState;
   outputSelection: HammerOutputSelectionState;
   selectedSegmentId: string | null;
   playheadSec: number;
@@ -386,6 +405,7 @@ function toShellState(state: HammerEditorStateSerializable): {
         })),
       }
       : null,
+    studioRack: cloneHammerStudioRackState(state.studioRack),
     outputSelection: {
       layerId: state.outputSelection.layerId,
       sourceRecipeRef: state.outputSelection.sourceRecipeRef,
@@ -503,7 +523,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [editableOutputSelection, setEditableOutputSelection] = useState<HammerOutputSelectionState>(
     () => resolveOutputSelectionFromTranscript(props.structuredTranscript ?? null),
   );
+  const [editableStudioRack, setEditableStudioRack] = useState<HammerStudioRackState>(
+    () => createDefaultHammerStudioRackState(),
+  );
+  const [studioRackOpen, setStudioRackOpen] = useState(false);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(transcriptSegments[0]?.segment_id ?? null);
+  const [transcriptSelectionAnchorSegmentId, setTranscriptSelectionAnchorSegmentId] = useState<string | null>(
+    transcriptSegments[0]?.segment_id ?? null,
+  );
+  const [transcriptSelectionFocusSegmentId, setTranscriptSelectionFocusSegmentId] = useState<string | null>(
+    transcriptSegments[0]?.segment_id ?? null,
+  );
   const [playheadSec, setPlayheadSec] = useState(0);
   const [isPlaybackActive, setIsPlaybackActive] = useState(false);
   const [focusOverride, setFocusOverride] = useState<HammerWorkspaceFocusOverride>("auto");
@@ -579,8 +609,75 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const mediaSourceLabel = launchContext.media.kind === "dev-tone"
     ? "Dev tone"
     : launchContext.media.label ?? mediaRef?.local_relpath ?? null;
+  const playbackLocalRootAbs = workspaceMapping?.local_root_abs
+    ?? (launchContext.media.kind === "mapped-local" ? (launchContext.media.media_root_abs ?? null) : null);
+  const playbackMediaSrc = useMemo(() => {
+    if (!playbackLocalRootAbs || !mediaRef?.local_relpath) return null;
+    return buildHammerDevMediaUrl(playbackLocalRootAbs, mediaRef.local_relpath);
+  }, [mediaRef?.local_relpath, playbackLocalRootAbs]);
+  const mediaBackboneRuntime = useMemo(
+    () => buildHammerMediaBackboneRuntimeSummary(),
+    [],
+  );
+  const studioRackPlaybackBackendResolution = useMemo(
+    () => resolveHammerAudioProcessingBackend({
+      requestedBackend: editableStudioRack.backend_preference,
+      mode: "playback",
+      runtimeSummary: mediaBackboneRuntime,
+    }),
+    [editableStudioRack.backend_preference, mediaBackboneRuntime],
+  );
+  const studioRackRenderBackendResolution = useMemo(
+    () => resolveHammerAudioProcessingBackend({
+      requestedBackend: editableStudioRack.backend_preference,
+      mode: "render",
+      runtimeSummary: mediaBackboneRuntime,
+    }),
+    [editableStudioRack.backend_preference, mediaBackboneRuntime],
+  );
+  const studioRackPlaybackConfig = useMemo(
+    () => processDialogueAudioWithBackend({
+      rackState: editableStudioRack,
+      mode: "playback",
+      runtimeSummary: mediaBackboneRuntime,
+    }),
+    [editableStudioRack, mediaBackboneRuntime],
+  );
+  const studioRackRenderConfig = useMemo(
+    () => processDialogueAudioWithBackend({
+      rackState: editableStudioRack,
+      mode: "render",
+      runtimeSummary: mediaBackboneRuntime,
+    }),
+    [editableStudioRack, mediaBackboneRuntime],
+  );
 
   const selectedSegment = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId) ?? null;
+  const transcriptSelectionRange = useMemo(
+    () => resolveTranscriptSegmentRange({
+      segments: editableTranscriptSegments,
+      anchorSegmentId: transcriptSelectionAnchorSegmentId,
+      focusSegmentId: transcriptSelectionFocusSegmentId,
+    }),
+    [editableTranscriptSegments, transcriptSelectionAnchorSegmentId, transcriptSelectionFocusSegmentId],
+  );
+  const transcriptSelectionSegmentIdSet = useMemo(
+    () => new Set(transcriptSelectionRange.segmentIds),
+    [transcriptSelectionRange.segmentIds],
+  );
+  const hasTranscriptSelection = transcriptSelectionRange.segmentIds.length > 0;
+  const transcriptSegmentsById = useMemo(() => {
+    const byId = new Map<string, HammerTranscriptSegment>();
+    for (const segment of editableTranscriptSegments) {
+      byId.set(segment.segment_id, segment);
+    }
+    return byId;
+  }, [editableTranscriptSegments]);
+  const transcriptSelectionAllDisabled = useMemo(() => (
+    hasTranscriptSelection && transcriptSelectionRange.segmentIds.every(
+      (segmentId) => transcriptSegmentsById.get(segmentId)?.is_disabled === true,
+    )
+  ), [hasTranscriptSelection, transcriptSelectionRange.segmentIds, transcriptSegmentsById]);
   const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
   const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
   const playheadBoundaryTimesSec = useMemo(
@@ -704,16 +801,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       startSec: segment.start_sec,
       endSec: segment.end_sec,
       selected: segment.segment_id === selectedSegmentId,
+      inRange: transcriptSelectionSegmentIdSet.has(segment.segment_id),
       disabled: segment.is_disabled === true,
       tone: "dialogue",
       onSelect: () => {
         selectionOriginRef.current = "timeline";
         setFocusOverride("time-focus");
         setSelectedSegmentId(segment.segment_id);
-        setPlayheadSec(segment.start_sec);
+        setTranscriptSelectionAnchorSegmentId(segment.segment_id);
+        setTranscriptSelectionFocusSegmentId(segment.segment_id);
+        seekPlayheadToTime(segment.start_sec, "playhead");
       },
     }))
-  ), [editableTranscriptSegments, selectedSegmentId]);
+  ), [editableTranscriptSegments, selectedSegmentId, transcriptSelectionSegmentIdSet]);
   const imageLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
     sourceImageItems.map((item) => ({
       id: `image:${item.id}`,
@@ -726,7 +826,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         selectionOriginRef.current = "timeline";
         setFocusOverride("time-focus");
         setSelectedSegmentId(item.anchorSegmentId);
-        setPlayheadSec(item.startSec);
+        setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
+        setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
+        seekPlayheadToTime(item.startSec, "playhead");
       },
     }))
   ), [sourceImageItems, selectedSegmentId]);
@@ -742,7 +844,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         tone: "broll",
         onSelect: () => {
           setFocusOverride("time-focus");
-          setPlayheadSec(item.firstStartSec);
+          seekPlayheadToTime(item.firstStartSec, "playhead");
         },
       }))
   ), [sourceBrollItems]);
@@ -831,11 +933,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => (cleanupPreview ? buildPolishResultSummaryFromCleanupPreview(cleanupPreview) : null),
     [cleanupPreview],
   );
+  const studioRackEnabledModuleCount = useMemo(
+    () => Object.values(editableStudioRack.modules).filter((module) => module.is_enabled && !module.is_bypassed).length,
+    [editableStudioRack.modules],
+  );
 
   function captureWorkspaceState(): HammerEditorStateSerializable {
     return toEditorState({
       segments: editableTranscriptSegments,
       visualPlacements: editableVisualPlacements,
+      studioRack: editableStudioRack,
       outputSelection: editableOutputSelection,
       selectedSegmentId,
       playheadSec,
@@ -847,6 +954,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const normalized = toShellState(nextState);
     setEditableTranscriptSegments(normalized.segments);
     setEditableVisualPlacements(normalized.visualPlacements);
+    setEditableStudioRack(normalized.studioRack);
     setEditableOutputSelection(normalized.outputSelection);
     setSelectedSegmentId(normalized.selectedSegmentId);
     setPlayheadSec(normalized.playheadSec);
@@ -1045,6 +1153,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const baselineState = toEditorState({
       segments: synced.segments,
       visualPlacements: props.visualPlacements ?? null,
+      studioRack: createDefaultHammerStudioRackState(),
       outputSelection: baselineOutputSelection,
       selectedSegmentId: synced.selectedSegmentId,
       playheadSec: Math.max(0, Math.min(playheadSec, resolveTranscriptDurationSec(synced.segments))),
@@ -1176,7 +1285,34 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (nextSegmentId === selectedSegmentId) return;
     selectionOriginRef.current = "system";
     setSelectedSegmentId(nextSegmentId);
+    setTranscriptSelectionAnchorSegmentId(nextSegmentId);
+    setTranscriptSelectionFocusSegmentId(nextSegmentId);
   }, [editableTranscriptSegments, playheadSec, selectedSegmentId]);
+
+  useEffect(() => {
+    if (!transcriptSelectionAnchorSegmentId && !transcriptSelectionFocusSegmentId) return;
+
+    const anchorExists = transcriptSelectionAnchorSegmentId
+      ? editableTranscriptSegments.some((segment) => segment.segment_id === transcriptSelectionAnchorSegmentId)
+      : false;
+    const focusExists = transcriptSelectionFocusSegmentId
+      ? editableTranscriptSegments.some((segment) => segment.segment_id === transcriptSelectionFocusSegmentId)
+      : false;
+    if (anchorExists && focusExists) return;
+
+    const fallbackSegmentId = selectedSegmentId && editableTranscriptSegments.some(
+      (segment) => segment.segment_id === selectedSegmentId,
+    )
+      ? selectedSegmentId
+      : editableTranscriptSegments[0]?.segment_id ?? null;
+    setTranscriptSelectionAnchorSegmentId(fallbackSegmentId);
+    setTranscriptSelectionFocusSegmentId(fallbackSegmentId);
+  }, [
+    editableTranscriptSegments,
+    selectedSegmentId,
+    transcriptSelectionAnchorSegmentId,
+    transcriptSelectionFocusSegmentId,
+  ]);
 
   useEffect(() => {
     setPlayheadSec((current) => (
@@ -1519,6 +1655,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
 
+    const nextSelection = historyControllerRef.current?.getState().selectedSegmentId ?? null;
+    setTranscriptSelectionAnchorSegmentId(nextSelection);
+    setTranscriptSelectionFocusSegmentId(nextSelection);
     setFocusOverride("time-focus");
   }
 
@@ -1560,6 +1699,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
 
+    const nextSelection = historyControllerRef.current?.getState().selectedSegmentId ?? null;
+    setTranscriptSelectionAnchorSegmentId(nextSelection);
+    setTranscriptSelectionFocusSegmentId(nextSelection);
     setFocusOverride("time-focus");
   }
 
@@ -1573,6 +1715,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const nextSegment = editableTranscriptSegments.find((segment) => segment.segment_id === nextSegmentId) ?? null;
     selectionOriginRef.current = "timeline";
     setSelectedSegmentId(nextSegmentId);
+    setTranscriptSelectionAnchorSegmentId(nextSegmentId);
+    setTranscriptSelectionFocusSegmentId(nextSegmentId);
     if (nextSegment) {
       seekPlayheadToTime(nextSegment.start_sec, "playhead");
     }
@@ -1628,6 +1772,175 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         transcriptTimingHint: null,
       }),
     });
+  }
+
+  function applyStudioRackMutation(
+    label: string,
+    updater: (current: HammerStudioRackState) => HammerStudioRackState,
+  ): void {
+    applyHistoryMutation({
+      label,
+      kind: "editor_state_change",
+      toolId: "audio",
+      immediatePersist: true,
+      computeAfter: (before) => ({
+        ...before,
+        studioRack: normalizeHammerStudioRackState(
+          updater(cloneHammerStudioRackState(before.studioRack)),
+        ),
+      }),
+    });
+    setFocusOverride("tool-focus");
+  }
+
+  function setStudioRackEnabled(nextEnabled: boolean): void {
+    applyStudioRackMutation(nextEnabled ? "Enable Studio Rack" : "Disable Studio Rack", (current) => ({
+      ...current,
+      is_enabled: nextEnabled,
+    }));
+  }
+
+  function setStudioRackBypassed(nextBypassed: boolean): void {
+    applyStudioRackMutation(nextBypassed ? "Bypass Studio Rack" : "Un-bypass Studio Rack", (current) => ({
+      ...current,
+      is_bypassed: nextBypassed,
+    }));
+  }
+
+  function setStudioRackBackend(nextBackend: "native" | "ffmpeg"): void {
+    applyStudioRackMutation(
+      nextBackend === "ffmpeg" ? "Set Studio Rack backend to FFmpeg" : "Set Studio Rack backend to native",
+      (current) => ({
+        ...current,
+        backend_preference: nextBackend,
+      }),
+    );
+  }
+
+  function setStudioRackModuleEnabled(moduleId: keyof HammerStudioRackState["modules"], nextEnabled: boolean): void {
+    applyStudioRackMutation(nextEnabled ? `Enable ${moduleId}` : `Disable ${moduleId}`, (current) => ({
+      ...current,
+      modules: {
+        ...current.modules,
+        [moduleId]: {
+          ...current.modules[moduleId],
+          is_enabled: nextEnabled,
+        },
+      },
+    }));
+  }
+
+  function setStudioRackModuleBypassed(moduleId: keyof HammerStudioRackState["modules"], nextBypassed: boolean): void {
+    applyStudioRackMutation(nextBypassed ? `Bypass ${moduleId}` : `Un-bypass ${moduleId}`, (current) => ({
+      ...current,
+      modules: {
+        ...current.modules,
+        [moduleId]: {
+          ...current.modules[moduleId],
+          is_bypassed: nextBypassed,
+        },
+      },
+    }));
+  }
+
+  function applyTranscriptSelection(segmentId: string, extendRange: boolean): void {
+    const segment = editableTranscriptSegments.find((item) => item.segment_id === segmentId) ?? null;
+    if (!segment) return;
+
+    if (extendRange && transcriptSelectionAnchorSegmentId) {
+      setTranscriptSelectionFocusSegmentId(segmentId);
+    } else {
+      setTranscriptSelectionAnchorSegmentId(segmentId);
+      setTranscriptSelectionFocusSegmentId(segmentId);
+    }
+    selectionOriginRef.current = "transcript";
+    setFocusOverride("source-focus");
+    setSelectedSegmentId(segmentId);
+    setTranscriptTimingHint(null);
+    seekPlayheadToTime(segment.start_sec, "playhead");
+  }
+
+  function clearTranscriptSelection(): void {
+    setTranscriptSelectionAnchorSegmentId(null);
+    setTranscriptSelectionFocusSegmentId(null);
+    setTranscriptTimingHint(null);
+  }
+
+  function disableTranscriptSelection(): void {
+    if (!hasTranscriptSelection) {
+      setTranscriptTimingHint("Select transcript segments to disable.");
+      return;
+    }
+
+    const selectedIdSet = new Set(transcriptSelectionRange.segmentIds);
+    const selectedSegments = editableTranscriptSegments.filter((segment) => selectedIdSet.has(segment.segment_id));
+    const targetDisabled = !selectedSegments.every((segment) => segment.is_disabled === true);
+
+    applyHistoryMutation({
+      label: targetDisabled ? "Disable transcript selection" : "Enable transcript selection",
+      kind: "segment_structure",
+      affectedSegments: transcriptSelectionRange.segmentIds,
+      immediatePersist: true,
+      computeAfter: (before) => ({
+        ...before,
+        transcriptSegments: before.transcriptSegments.map((segment) => (
+          selectedIdSet.has(segment.segment_id)
+            ? { ...segment, is_disabled: targetDisabled }
+            : segment
+        )),
+        transcriptTimingHint: null,
+      }),
+    });
+  }
+
+  function cutTranscriptSelection(): void {
+    if (!hasTranscriptSelection) {
+      setTranscriptTimingHint("Select transcript segments to cut.");
+      return;
+    }
+
+    const applied = applyHistoryMutation({
+      label: "Cut transcript selection",
+      kind: "segment_structure",
+      affectedSegments: transcriptSelectionRange.segmentIds,
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const cut = cutSegmentRangeAndRipple({
+          segments: before.transcriptSegments,
+          segmentIds: transcriptSelectionRange.segmentIds,
+        });
+        if (!cut.changed || cut.removedStartSec == null || cut.removedEndSec == null) return before;
+
+        const nextSelection = resolveSelectedSegmentAfterDelete({
+          segmentsAfterDelete: cut.segments,
+          removedIndex: cut.removedStartIndex,
+        });
+
+        return {
+          ...before,
+          transcriptSegments: cut.segments,
+          selectedSegmentId: nextSelection,
+          playheadSec: resolvePlayheadAfterRangeCut({
+            playheadSec: before.playheadSec,
+            removedStartSec: cut.removedStartSec,
+            removedEndSec: cut.removedEndSec,
+            shiftSec: cut.shiftSec,
+          }),
+          transcriptTimingHint: null,
+        };
+      },
+    });
+
+    if (!applied) {
+      setTranscriptTimingHint("Transcript selection cut did not change the timeline.");
+      return;
+    }
+
+    const state = historyControllerRef.current?.getState();
+    const nextSelection = state?.selectedSegmentId ?? null;
+    setTranscriptSelectionAnchorSegmentId(nextSelection);
+    setTranscriptSelectionFocusSegmentId(nextSelection);
+    setFocusOverride("time-focus");
   }
 
   function togglePlayback(): void {
@@ -1866,6 +2179,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           return;
         }
 
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          clearTranscriptSelection();
+          return;
+        }
+
         if (event.key.toLowerCase() === "m") {
           event.preventDefault();
           event.stopPropagation();
@@ -1904,6 +2224,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     };
   }, [
     adjustSelectedSegmentGain,
+    clearTranscriptSelection,
     deleteSelectedSegmentAndRipple,
     nudgePlayhead,
     redoHistory,
@@ -2384,6 +2705,36 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         </label>
                       </section>
                     ) : null}
+                    <section className="hammer-transcript-selection-actions" aria-label="Transcript structural actions">
+                      {hasTranscriptSelection ? (
+                        <div className="hammer-transcript-selection-actions__meta">
+                          <span>
+                            Selected {transcriptSelectionRange.segmentIds.length} segment
+                            {transcriptSelectionRange.segmentIds.length === 1 ? "" : "s"}
+                            {transcriptSelectionRange.startSec != null && transcriptSelectionRange.endSec != null
+                              ? ` · ${transcriptSelectionRange.startSec.toFixed(1)}s-${transcriptSelectionRange.endSec.toFixed(1)}s`
+                              : ""}
+                          </span>
+                          <span>Affects timeline span and transcript-linked structural edits.</span>
+                        </div>
+                      ) : (
+                        <div className="hammer-transcript-selection-actions__meta">
+                          <span>Select transcript segments to drive timeline edits.</span>
+                          <span>Shift-click extends the range. Escape clears selection.</span>
+                        </div>
+                      )}
+                      <div className="hammer-transcript-selection-actions__buttons">
+                        <button type="button" onClick={cutTranscriptSelection} disabled={!hasTranscriptSelection}>
+                          Cut Selection
+                        </button>
+                        <button type="button" onClick={disableTranscriptSelection} disabled={!hasTranscriptSelection}>
+                          {transcriptSelectionAllDisabled ? "Enable Selection" : "Disable Selection"}
+                        </button>
+                        <button type="button" onClick={clearTranscriptSelection} disabled={!hasTranscriptSelection}>
+                          Clear Selection
+                        </button>
+                      </div>
+                    </section>
                     <div className="hammer-transcript-status-rail" role="status">
                       <span>{editableTranscriptSegments.length} segments</span>
                       <span>{modifiedSegmentCount} modified</span>
@@ -2397,15 +2748,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           className={[
                             "hammer-transcript-line",
                             segment.segment_id === selectedSegmentId ? "is-active" : "",
+                            transcriptSelectionSegmentIdSet.has(segment.segment_id) ? "is-range" : "",
                             modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
                             segment.is_disabled ? "is-disabled" : "",
                           ].filter(Boolean).join(" ")}
-                          onClick={() => {
-                            selectionOriginRef.current = "transcript";
-                            setFocusOverride("source-focus");
-                            setSelectedSegmentId(segment.segment_id);
-                            setTranscriptTimingHint(null);
-                            seekPlayheadToTime(segment.start_sec, "playhead");
+                          onClick={(event) => {
+                            applyTranscriptSelection(segment.segment_id, event.shiftKey);
                           }}
                           ref={(element) => {
                             if (element) {
@@ -2492,7 +2840,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                               selectionOriginRef.current = "timeline";
                               setFocusOverride("time-focus");
                               setSelectedSegmentId(item.anchorSegmentId);
-                              setPlayheadSec(item.startSec);
+                              setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
+                              setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
+                              seekPlayheadToTime(item.startSec, "playhead");
                             }}
                           >
                             Jump to timeline
@@ -2620,7 +2970,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             type="button"
                             onClick={() => {
                               setFocusOverride("time-focus");
-                              setPlayheadSec(item.firstStartSec);
+                              seekPlayheadToTime(item.firstStartSec, "playhead");
                             }}
                           >
                             Reveal in timeline
@@ -2687,7 +3037,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             type="button"
                             onClick={() => {
                               setFocusOverride("time-focus");
-                              setPlayheadSec(item.firstStartSec);
+                              seekPlayheadToTime(item.firstStartSec, "playhead");
                             }}
                           >
                             Cue b-roll window
@@ -2834,6 +3184,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <span>Playhead {playheadSec.toFixed(1)}s</span>
                 <span>{isPlaybackActive ? "Playing" : "Paused"}</span>
                 <span>{mediaSourceLabel ?? "No media source"}</span>
+                <span>Playback lane: {studioRackPlaybackConfig.backend}</span>
+                <span>{playbackMediaSrc ? "Mapped media ready" : "Mapped media unavailable"}</span>
                 <button type="button" onClick={togglePlayback}>
                   {isPlaybackActive ? "Pause (Space)" : "Play (Space)"}
                 </button>
@@ -3034,6 +3386,254 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               {activeTool === "audio" ? (
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Audio Adjustments</header>
+                  <div className="hammer-tool-hint">Current prep status: {props.audioPolish?.status ?? "not_started"}</div>
+                  <div className="hammer-tool-hint">
+                    Playback lane: {studioRackPlaybackConfig.backend} ({studioRackPlaybackBackendResolution.status})
+                  </div>
+                  <div className="hammer-tool-hint">
+                    Render lane: {studioRackRenderConfig.backend} ({studioRackRenderBackendResolution.status})
+                  </div>
+                  <div className="hammer-tool-hint">Active rack modules: {studioRackEnabledModuleCount}</div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusOverride("tool-focus");
+                      setStudioRackOpen((current) => !current);
+                    }}
+                  >
+                    {studioRackOpen ? "Hide Studio Rack" : "Studio Rack ->"}
+                  </button>
+                  {studioRackOpen ? (
+                    <>
+                      <label className="hammer-tool-check">
+                        <input
+                          type="checkbox"
+                          checked={editableStudioRack.is_enabled}
+                          onChange={(event) => setStudioRackEnabled(event.target.checked)}
+                        />
+                        <span>Enable rack</span>
+                      </label>
+                      <label className="hammer-tool-check">
+                        <input
+                          type="checkbox"
+                          checked={editableStudioRack.is_bypassed}
+                          onChange={(event) => setStudioRackBypassed(event.target.checked)}
+                          disabled={!editableStudioRack.is_enabled}
+                        />
+                        <span>Global bypass (A/B)</span>
+                      </label>
+                      <label className="hammer-tool-field">
+                        <span>Processing backend</span>
+                        <select
+                          value={editableStudioRack.backend_preference}
+                          onChange={(event) => setStudioRackBackend(event.target.value === "ffmpeg" ? "ffmpeg" : "native")}
+                        >
+                          <option value="native">Native/editor lane</option>
+                          <option value="ffmpeg">FFmpeg power lane</option>
+                        </select>
+                      </label>
+                      <section className="hammer-cleanup-tool">
+                        <div className="hammer-cleanup-tool__head">
+                          <strong>Gate</strong>
+                          <span>Smooth spoken-word gate.</span>
+                        </div>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={editableStudioRack.modules.gate.is_enabled}
+                            onChange={(event) => setStudioRackModuleEnabled("gate", event.target.checked)}
+                          />
+                          <span>Enable gate</span>
+                        </label>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={editableStudioRack.modules.gate.is_bypassed}
+                            onChange={(event) => setStudioRackModuleBypassed("gate", event.target.checked)}
+                            disabled={!editableStudioRack.modules.gate.is_enabled}
+                          />
+                          <span>Bypass gate</span>
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Threshold (dB)</span>
+                          <input
+                            type="number"
+                            min={-80}
+                            max={0}
+                            step={1}
+                            value={editableStudioRack.modules.gate.threshold_db}
+                            onChange={(event) => applyStudioRackMutation("Adjust gate threshold", (current) => ({
+                              ...current,
+                              modules: {
+                                ...current.modules,
+                                gate: { ...current.modules.gate, threshold_db: Number(event.target.value) },
+                              },
+                            }))}
+                          />
+                        </label>
+                      </section>
+                      <section className="hammer-cleanup-tool">
+                        <div className="hammer-cleanup-tool__head">
+                          <strong>Compressor</strong>
+                          <span>Dialogue dynamics control.</span>
+                        </div>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={editableStudioRack.modules.compressor.is_enabled}
+                            onChange={(event) => setStudioRackModuleEnabled("compressor", event.target.checked)}
+                          />
+                          <span>Enable compressor</span>
+                        </label>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={editableStudioRack.modules.compressor.is_bypassed}
+                            onChange={(event) => setStudioRackModuleBypassed("compressor", event.target.checked)}
+                            disabled={!editableStudioRack.modules.compressor.is_enabled}
+                          />
+                          <span>Bypass compressor</span>
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Ratio</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={20}
+                            step={0.1}
+                            value={editableStudioRack.modules.compressor.ratio}
+                            onChange={(event) => applyStudioRackMutation("Adjust compressor ratio", (current) => ({
+                              ...current,
+                              modules: {
+                                ...current.modules,
+                                compressor: { ...current.modules.compressor, ratio: Number(event.target.value) },
+                              },
+                            }))}
+                          />
+                        </label>
+                      </section>
+                      <section className="hammer-cleanup-tool">
+                        <div className="hammer-cleanup-tool__head">
+                          <strong>Parametric EQ</strong>
+                          <span>Low shelf, mid, and high shelf shaping.</span>
+                        </div>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={editableStudioRack.modules.eq.is_enabled}
+                            onChange={(event) => setStudioRackModuleEnabled("eq", event.target.checked)}
+                          />
+                          <span>Enable EQ</span>
+                        </label>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={editableStudioRack.modules.eq.is_bypassed}
+                            onChange={(event) => setStudioRackModuleBypassed("eq", event.target.checked)}
+                            disabled={!editableStudioRack.modules.eq.is_enabled}
+                          />
+                          <span>Bypass EQ</span>
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Mid gain (dB)</span>
+                          <input
+                            type="number"
+                            min={-12}
+                            max={12}
+                            step={0.1}
+                            value={editableStudioRack.modules.eq.mid_gain_db}
+                            onChange={(event) => applyStudioRackMutation("Adjust EQ mid gain", (current) => ({
+                              ...current,
+                              modules: {
+                                ...current.modules,
+                                eq: { ...current.modules.eq, mid_gain_db: Number(event.target.value) },
+                              },
+                            }))}
+                          />
+                        </label>
+                      </section>
+                      <section className="hammer-cleanup-tool">
+                        <div className="hammer-cleanup-tool__head">
+                          <strong>Reverb</strong>
+                          <span>Subtle space for voice polish.</span>
+                        </div>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={editableStudioRack.modules.reverb.is_enabled}
+                            onChange={(event) => setStudioRackModuleEnabled("reverb", event.target.checked)}
+                          />
+                          <span>Enable reverb</span>
+                        </label>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={editableStudioRack.modules.reverb.is_bypassed}
+                            onChange={(event) => setStudioRackModuleBypassed("reverb", event.target.checked)}
+                            disabled={!editableStudioRack.modules.reverb.is_enabled}
+                          />
+                          <span>Bypass reverb</span>
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Mix</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={0.35}
+                            step={0.01}
+                            value={editableStudioRack.modules.reverb.mix}
+                            onChange={(event) => applyStudioRackMutation("Adjust reverb mix", (current) => ({
+                              ...current,
+                              modules: {
+                                ...current.modules,
+                                reverb: { ...current.modules.reverb, mix: Number(event.target.value) },
+                              },
+                            }))}
+                          />
+                        </label>
+                      </section>
+                      <section className="hammer-cleanup-tool">
+                        <div className="hammer-cleanup-tool__head">
+                          <strong>Tube Mic Character</strong>
+                          <span>Premium condenser-style character layer.</span>
+                        </div>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={editableStudioRack.modules.tubeMicCharacter.is_enabled}
+                            onChange={(event) => setStudioRackModuleEnabled("tubeMicCharacter", event.target.checked)}
+                          />
+                          <span>Enable Tube Mic Character</span>
+                        </label>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={editableStudioRack.modules.tubeMicCharacter.is_bypassed}
+                            onChange={(event) => setStudioRackModuleBypassed("tubeMicCharacter", event.target.checked)}
+                            disabled={!editableStudioRack.modules.tubeMicCharacter.is_enabled}
+                          />
+                          <span>Bypass Tube Mic Character</span>
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Amount</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            value={editableStudioRack.modules.tubeMicCharacter.amount}
+                            onChange={(event) => applyStudioRackMutation("Adjust Tube Mic Character amount", (current) => ({
+                              ...current,
+                              modules: {
+                                ...current.modules,
+                                tubeMicCharacter: { ...current.modules.tubeMicCharacter, amount: Number(event.target.value) },
+                              },
+                            }))}
+                          />
+                        </label>
+                      </section>
+                    </>
+                  ) : null}
                   <label className="hammer-tool-check">
                     <input
                       type="checkbox"
@@ -3043,7 +3643,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         setAudioLevelingEnabled(event.target.checked);
                       }}
                     />
-                    <span>Level dialogue track</span>
+                    <span>Level dialogue track (legacy prep)</span>
                   </label>
                   <label className="hammer-tool-check">
                     <input
@@ -3054,9 +3654,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         setAudioNoiseReductionEnabled(event.target.checked);
                       }}
                     />
-                    <span>Reduce background noise</span>
+                    <span>Reduce background noise (legacy prep)</span>
                   </label>
-                  <div className="hammer-tool-hint">Current prep status: {props.audioPolish?.status ?? "not_started"}</div>
                 </section>
               ) : null}
 
@@ -3499,7 +4098,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <button
                             key={block.id}
                             type="button"
-                            className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}${block.disabled ? " is-disabled" : ""}`}
+                            className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}${block.inRange ? " is-range" : ""}${block.disabled ? " is-disabled" : ""}`}
                             style={{
                               left: `${(block.startSec / timelineDurationSec) * 100}%`,
                               width: `${Math.max(1.4, ((block.endSec - block.startSec) / timelineDurationSec) * 100)}%`,

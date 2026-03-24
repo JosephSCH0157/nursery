@@ -4,12 +4,15 @@ import {
   DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
   LARGE_PLAYHEAD_NUDGE_SEC,
   SMALL_PLAYHEAD_NUDGE_SEC,
+  cutSegmentRangeAndRipple,
   deleteSegmentAndRipple,
   moveSegmentTiming,
   resolveAdjacentSegmentSelection,
   resolveEffectivePlaybackTime,
   resolveFocusAfterPlayheadChange,
+  resolvePlayheadAfterRangeCut,
   resolveSelectedSegmentAfterDelete,
+  resolveTranscriptSegmentRange,
   resolveTimelineBoundaryTimes,
   resolvePlayheadAfterDelete,
   resolvePreviewLabel,
@@ -198,6 +201,52 @@ async function testDisabledSegmentsExcludedFromEffectivePlaybackTime() {
   assert.equal(resolveEffectivePlaybackTime(segments, 1.4), 2);
 }
 
+async function testResolveTranscriptRange() {
+  const segments = [
+    buildSegment({ segment_id: "a", start_sec: 0, end_sec: 1 }),
+    buildSegment({ segment_id: "b", start_sec: 1, end_sec: 2 }),
+    buildSegment({ segment_id: "c", start_sec: 2, end_sec: 3 }),
+  ];
+  const range = resolveTranscriptSegmentRange({
+    segments,
+    anchorSegmentId: "c",
+    focusSegmentId: "b",
+  });
+  assert.deepEqual(range.segmentIds, ["b", "c"]);
+  assert.equal(range.startSec, 1);
+  assert.equal(range.endSec, 3);
+}
+
+async function testCutRangeAndRipple() {
+  const segments = [
+    buildSegment({ segment_id: "a", start_sec: 0, end_sec: 1 }),
+    buildSegment({ segment_id: "b", start_sec: 1, end_sec: 2 }),
+    buildSegment({ segment_id: "c", start_sec: 2, end_sec: 3 }),
+    buildSegment({ segment_id: "d", start_sec: 3, end_sec: 4 }),
+  ];
+  const cut = cutSegmentRangeAndRipple({
+    segments,
+    segmentIds: ["b", "c"],
+  });
+  assert.equal(cut.changed, true);
+  assert.deepEqual(cut.removedSegmentIds, ["b", "c"]);
+  assert.equal(cut.shiftSec, 2);
+  assert.equal(cut.segments.length, 2);
+  assert.equal(cut.segments[0]?.segment_id, "a");
+  assert.equal(cut.segments[1]?.segment_id, "d");
+  assert.equal(cut.segments[1]?.start_sec, 1);
+  assert.equal(cut.segments[1]?.end_sec, 2);
+  assert.equal(
+    resolvePlayheadAfterRangeCut({
+      playheadSec: 2.4,
+      removedStartSec: cut.removedStartSec ?? 0,
+      removedEndSec: cut.removedEndSec ?? 0,
+      shiftSec: cut.shiftSec,
+    }),
+    1,
+  );
+}
+
 async function run() {
   await testFocusModeDefaults();
   await testMoveAndTrimTiming();
@@ -211,6 +260,8 @@ async function run() {
   await testDeleteSelectionHandoff();
   await testDisableAndGainEdits();
   await testDisabledSegmentsExcludedFromEffectivePlaybackTime();
+  await testResolveTranscriptRange();
+  await testCutRangeAndRipple();
   // eslint-disable-next-line no-console
   console.log("Hammer workspace timeline tests passed.");
 }

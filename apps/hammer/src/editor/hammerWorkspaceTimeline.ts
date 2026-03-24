@@ -204,6 +204,14 @@ export type DeleteSegmentRippleResult = {
   shiftSec: number;
 };
 
+export type TranscriptSegmentRange = {
+  segmentIds: string[];
+  startSec: number | null;
+  endSec: number | null;
+  startIndex: number;
+  endIndex: number;
+};
+
 export function deleteSegmentAndRipple(
   segments: HammerTranscriptSegment[],
   segmentId: string,
@@ -252,6 +260,133 @@ export function resolvePlayheadAfterDelete(
   if (playheadSec < removedSegment.start_sec) return playheadSec;
   if (playheadSec <= removedSegment.end_sec) return roundToTenth(removedSegment.start_sec);
   return roundToTenth(Math.max(0, playheadSec - shiftSec));
+}
+
+export function resolveTranscriptSegmentRange(args: {
+  segments: HammerTranscriptSegment[];
+  anchorSegmentId: string | null;
+  focusSegmentId: string | null;
+}): TranscriptSegmentRange {
+  const anchorIndex = args.anchorSegmentId
+    ? args.segments.findIndex((segment) => segment.segment_id === args.anchorSegmentId)
+    : -1;
+  const focusIndex = args.focusSegmentId
+    ? args.segments.findIndex((segment) => segment.segment_id === args.focusSegmentId)
+    : -1;
+  if (anchorIndex < 0 || focusIndex < 0) {
+    return {
+      segmentIds: [],
+      startSec: null,
+      endSec: null,
+      startIndex: -1,
+      endIndex: -1,
+    };
+  }
+
+  const startIndex = Math.min(anchorIndex, focusIndex);
+  const endIndex = Math.max(anchorIndex, focusIndex);
+  const span = args.segments.slice(startIndex, endIndex + 1);
+  return {
+    segmentIds: span.map((segment) => segment.segment_id),
+    startSec: span[0]?.start_sec ?? null,
+    endSec: span[span.length - 1]?.end_sec ?? null,
+    startIndex,
+    endIndex,
+  };
+}
+
+export type CutSegmentRangeResult = {
+  changed: boolean;
+  segments: HammerTranscriptSegment[];
+  removedSegmentIds: string[];
+  removedStartSec: number | null;
+  removedEndSec: number | null;
+  shiftSec: number;
+  removedStartIndex: number;
+};
+
+export function cutSegmentRangeAndRipple(args: {
+  segments: HammerTranscriptSegment[];
+  segmentIds: string[];
+}): CutSegmentRangeResult {
+  if (args.segmentIds.length === 0) {
+    return {
+      changed: false,
+      segments: args.segments,
+      removedSegmentIds: [],
+      removedStartSec: null,
+      removedEndSec: null,
+      shiftSec: 0,
+      removedStartIndex: -1,
+    };
+  }
+
+  const idSet = new Set(args.segmentIds);
+  const firstIndex = args.segments.findIndex((segment) => idSet.has(segment.segment_id));
+  if (firstIndex < 0) {
+    return {
+      changed: false,
+      segments: args.segments,
+      removedSegmentIds: [],
+      removedStartSec: null,
+      removedEndSec: null,
+      shiftSec: 0,
+      removedStartIndex: -1,
+    };
+  }
+
+  const selectedIndices = args.segments
+    .map((segment, index) => (idSet.has(segment.segment_id) ? index : -1))
+    .filter((index) => index >= 0);
+  const lastIndex = selectedIndices[selectedIndices.length - 1] ?? firstIndex;
+  const selectedSegments = args.segments.slice(firstIndex, lastIndex + 1);
+  if (selectedSegments.length === 0) {
+    return {
+      changed: false,
+      segments: args.segments,
+      removedSegmentIds: [],
+      removedStartSec: null,
+      removedEndSec: null,
+      shiftSec: 0,
+      removedStartIndex: -1,
+    };
+  }
+
+  const removedStartSec = selectedSegments[0]?.start_sec ?? 0;
+  const removedEndSec = selectedSegments[selectedSegments.length - 1]?.end_sec ?? removedStartSec;
+  const shiftSec = roundToTenth(Math.max(0, removedEndSec - removedStartSec));
+
+  const prefix = args.segments.slice(0, firstIndex);
+  const suffix = args.segments.slice(lastIndex + 1).map((segment) => {
+    const duration = roundToTenth(Math.max(MIN_SEGMENT_DURATION_SEC, segment.end_sec - segment.start_sec));
+    const nextStart = roundToTenth(Math.max(0, segment.start_sec - shiftSec));
+    return {
+      ...segment,
+      start_sec: nextStart,
+      end_sec: roundToTenth(nextStart + duration),
+    };
+  });
+
+  return {
+    changed: true,
+    segments: [...prefix, ...suffix],
+    removedSegmentIds: selectedSegments.map((segment) => segment.segment_id),
+    removedStartSec,
+    removedEndSec,
+    shiftSec,
+    removedStartIndex: firstIndex,
+  };
+}
+
+export function resolvePlayheadAfterRangeCut(args: {
+  playheadSec: number;
+  removedStartSec: number;
+  removedEndSec: number;
+  shiftSec: number;
+}): number {
+  if (args.playheadSec < args.removedStartSec) return roundToTenth(args.playheadSec);
+  if (args.playheadSec <= args.removedEndSec) return roundToTenth(args.removedStartSec);
+  return roundToTenth(Math.max(0, args.playheadSec - args.shiftSec));
 }
 
 export function resolveTimelineBoundaryTimes(segments: HammerTranscriptSegment[]): number[] {

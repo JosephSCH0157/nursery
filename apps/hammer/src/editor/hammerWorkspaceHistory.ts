@@ -3,6 +3,12 @@ import type {
   HammerPersistedVisualPlacements,
   HammerVisualPlacementRecord,
 } from "../persistence/hammerPersistenceContract";
+import {
+  cloneHammerStudioRackState,
+  createDefaultHammerStudioRackState,
+  normalizeHammerStudioRackState,
+  type HammerStudioRackState,
+} from "./hammerStudioRack";
 
 export type JsonPatchLike = {
   op: "replace" | "add" | "remove";
@@ -28,6 +34,7 @@ export interface HammerOutputSelectionState {
 export interface HammerEditorStateSerializable {
   transcriptSegments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
+  studioRack: HammerStudioRackState;
   outputSelection: HammerOutputSelectionState;
   selectedSegmentId: string | null;
   playheadSec: number;
@@ -158,6 +165,7 @@ export function cloneEditorState(state: HammerEditorStateSerializable): HammerEd
   return {
     transcriptSegments: cloneSegments(state.transcriptSegments),
     visualPlacements: cloneVisualPlacements(state.visualPlacements),
+    studioRack: cloneHammerStudioRackState(state.studioRack),
     outputSelection: {
       layerId: state.outputSelection.layerId,
       sourceRecipeRef: state.outputSelection.sourceRecipeRef,
@@ -511,6 +519,13 @@ function areVisualPlacementsEqual(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function areStudioRackEqual(
+  left: HammerStudioRackState,
+  right: HammerStudioRackState,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function applyPatchToState(state: HammerEditorStateSerializable, patch: JsonPatchLike): HammerEditorStateSerializable {
   const next = cloneEditorState(state);
   const parts = serializePatchPath(patch.path);
@@ -683,6 +698,15 @@ function applyPatchToState(state: HammerEditorStateSerializable, patch: JsonPatc
     return next;
   }
 
+  if (root === "studioRack") {
+    if (patch.op === "remove") {
+      next.studioRack = createDefaultHammerStudioRackState();
+      return next;
+    }
+    next.studioRack = normalizeHammerStudioRackState(patch.value);
+    return next;
+  }
+
   if (root === "outputSelection") {
     if (patch.op === "remove") {
       next.outputSelection = {
@@ -809,6 +833,19 @@ export function buildStatePatches(
       op: "replace",
       path: "/visualPlacements",
       value: clonePatchValue(before.visualPlacements),
+    });
+  }
+
+  if (!areStudioRackEqual(before.studioRack, after.studioRack)) {
+    forward.push({
+      op: "replace",
+      path: "/studioRack",
+      value: clonePatchValue(after.studioRack),
+    });
+    inverse.unshift({
+      op: "replace",
+      path: "/studioRack",
+      value: clonePatchValue(before.studioRack),
     });
   }
 
