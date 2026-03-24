@@ -3382,8 +3382,13 @@ export default function HearthShell() {
       setReleasePrepScriptVersion(null);
       return;
     }
-    void loadLatestReleasePrepPack(approvedScriptVersion);
-  }, [approvedScriptVersion, hasApprovedScript, loadLatestReleasePrepPack]);
+    // Avoid eager fetch spam for pack.json (often legitimately absent).
+    // We load on explicit Refresh or when release_prep_pack generation completes.
+    setLatestReleasePrepRawText(null);
+    setLatestReleasePrepSections([]);
+    setReleasePrepLoadState("idle");
+    setReleasePrepScriptVersion(approvedScriptVersion);
+  }, [approvedScriptVersion, hasApprovedScript]);
 
   const refreshReadyScripts = useCallback(async () => {
     const workspace = normalizeUuid(workspaceId);
