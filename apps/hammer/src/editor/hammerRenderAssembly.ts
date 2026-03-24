@@ -201,21 +201,27 @@ export function buildHammerRenderAssembly(args: {
       const previewPosture = aggregatePosture([baseline.preview_posture, explicitPreview]);
       const exportPosture = aggregatePosture([baseline.export_posture, explicitExport]);
       const handoffPosture = aggregatePosture([baseline.handoff_posture, explicitHandoff]);
+      const unresolvedBroll = operation.instruction.type === "insert_broll"
+        && operation.instruction.asset_binding_state === "unresolved";
+      const unresolvedReasonCodes: HammerEditorialDegradationReasonCode[] = unresolvedBroll
+        ? ["preview_not_supported", "handoff_deferred"]
+        : [];
       const reasonCodes = [
         ...operation.capability_state.reason_codes,
         ...operation.truth_posture.preview.reason_codes,
         ...operation.truth_posture.export.reason_codes,
         ...operation.truth_posture.handoff.reason_codes,
+        ...unresolvedReasonCodes,
       ];
       return {
         operation_id: operation.operation_id,
         instruction_id: operation.instruction.instruction_id,
         type: operation.instruction.type,
         lifecycle: operation.lifecycle,
-        preview_posture: previewPosture,
-        export_posture: exportPosture,
-        handoff_posture: handoffPosture,
-        capability: operation.capability_state.capability,
+        preview_posture: unresolvedBroll ? "unavailable" : previewPosture,
+        export_posture: unresolvedBroll ? "degraded" : exportPosture,
+        handoff_posture: unresolvedBroll ? "degraded" : handoffPosture,
+        capability: unresolvedBroll ? "degraded" : operation.capability_state.capability,
         reason_codes: Array.from(new Set(reasonCodes)),
       } satisfies HammerRenderAssemblyOperationResolution;
     });

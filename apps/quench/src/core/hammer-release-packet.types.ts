@@ -65,6 +65,17 @@ export interface HammerQuenchReleasePacketManifest {
       visuals_path: string;
       operation_ids: string[];
     };
+    broll_resolution_summary: {
+      unresolved_intents: Array<{
+        operation_id: string;
+        intent_ref: string | null;
+        intent_description: string | null;
+      }>;
+      resolved_bindings: Array<{
+        operation_id: string;
+        asset_ref: string;
+      }>;
+    };
   };
 }
 

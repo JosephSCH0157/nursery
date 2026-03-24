@@ -10,6 +10,7 @@ import {
 import type { HammerPersistedStructuredTranscript } from "../src/persistence/hammerPersistenceContract";
 import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammerRenderAssembly";
 import { buildHammerRenderAssembly } from "../src/editor/hammerRenderAssembly";
+import { createHearthBrollSuggestionInstruction, appendAuthorityInstructionToGraph } from "../src/editor/hammerAuthorityOps";
 
 const transcript: HammerPersistedStructuredTranscript = {
   schema_version: 1,
@@ -207,10 +208,70 @@ async function testPacketIncludesEditorialTruthExtensionWhenProvided() {
   assert.equal(packet.manifest.editorial_truth?.active_operations.length, 1);
 }
 
+async function testPacketDistinguishesUnresolvedVsResolvedBroll() {
+  const prep = buildHammerReleasePrepPackage({
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    prepStatus: "prepared",
+    alignmentStatus: "aligned",
+    structuredTranscript: transcript,
+    visualPlacements: null,
+    audioPolish: null,
+    editorSession: null,
+  });
+  const baseGraph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_packet_ext_02",
+      version: "1",
+      created_at: "2026-03-24T10:00:00.000Z",
+      updated_at: "2026-03-24T10:00:00.000Z",
+      source_transcript_id: "tx_release_packet",
+      instructions: [],
+    },
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    sessionId: "session_demo",
+  });
+  const graph = appendAuthorityInstructionToGraph({
+    graph: baseGraph,
+    instruction: createHearthBrollSuggestionInstruction({
+      segmentId: "seg_001",
+      intentRef: "hearth-suggestion-02",
+      intentDescription: "insert cutaway shot",
+      startSec: 0.2,
+      endSec: 1.8,
+    }),
+    fallback: {
+      graphId: baseGraph.graph_id,
+      workspaceId: "ws_demo",
+      workpieceId: "wp_demo",
+      sessionId: "session_demo",
+      sourceTranscriptId: "tx_release_packet",
+    },
+  });
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph: graph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: ["insert_broll"],
+      export_supported_operation_types: ["insert_broll"],
+      handoff_supported_operation_types: ["insert_broll"],
+    },
+  });
+  const packet = buildHammerQuenchReleasePacket({
+    releasePrepPackage: prep,
+    canonicalGraph: graph,
+    renderAssembly: assembly,
+    preparedAt: "2026-03-24T10:01:00.000Z",
+  });
+  assert.equal(packet.manifest.editorial_truth?.broll_resolution_summary.unresolved_intents.length, 1);
+  assert.equal(packet.manifest.editorial_truth?.broll_resolution_summary.resolved_bindings.length, 0);
+}
+
 async function run() {
   await testBuildQuenchPacketManifest();
   await testManifestPathConstant();
   await testPacketIncludesEditorialTruthExtensionWhenProvided();
+  await testPacketDistinguishesUnresolvedVsResolvedBroll();
   // eslint-disable-next-line no-console
   console.log("Hammer Quench release packet tests passed.");
 }
