@@ -1,4 +1,4 @@
-import { ALL_CANONICAL_TAGS } from "./anvilScriptTagTypes";
+import { ALL_CANONICAL_TAGS } from "./anvilScriptTagTypes.js";
 
 const PACE_ALIAS_TO_CANONICAL: Record<string, string> = {
   "[reflective-pause]": "[reflective pause]",

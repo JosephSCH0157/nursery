@@ -1,8 +1,8 @@
-# QUENCH V1 MANIFEST
+# QUENCH MANIFEST
 
 Release baseline: **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
-Status: Canonical Design Document
+Status: Canonical Design Document (Phase-aligned)
 
 ## Identity
 
@@ -20,7 +20,7 @@ Quench removes the time and friction required to publish creator content.
 
 After recording, editing, and preparing a project within the Forge pipeline, Quench allows creators to release their content to multiple platforms through a single interface with minimal decisions.
 
-North star:
+North star (long-term):
 
 Three clicks to publish everywhere.
 
@@ -42,12 +42,12 @@ It converts a completed workpiece into a public release.
 
 Quench is responsible for:
 
-- publishing media to external platforms
-- managing release scheduling
-- generating and maintaining RSS feeds
-- executing platform uploads
-- tracking release status
-- managing distribution workflows
+- ingesting canonical release artifacts from Hammer/Tongs
+- validating ingest readiness truthfully
+- publishing media to external platforms (future slice)
+- managing release scheduling (future slice)
+- generating and maintaining RSS feeds (future slice)
+- tracking release status and distribution workflows (future slice)
 
 Quench orchestrates the final release packet created from Forge assets.
 
@@ -72,7 +72,15 @@ Tongs remains the canonical SSOT for persisted release state, platform connectio
 
 Quench reads from Tongs, which is the canonical storage layer.
 
-Required assets may include:
+Current ingest slice assets:
+
+- packet manifest (authority)
+- transcript text artifact
+- captions artifact(s)
+- visual placements artifact (optional)
+- canonical audio reference
+
+Future publish slice assets may include:
 
 - final video export
 - final audio export
@@ -84,29 +92,31 @@ Required assets may include:
 - transcript
 - shorts/clips (optional)
 
-All metadata is expected to be finalized prior to Quench.
+Metadata may be partial during ingest. Publish-specific completeness is a later readiness layer.
 
-## Release Packet
+## Current Release Packet Contract (Hammer -> Quench Ingest)
 
-A release packet is the bundle of assets required to publish an episode.
+A release packet is the canonical bundle Quench ingests first.
 
-Example:
+Current authority:
 
-```json
-{
-  "episode_id": "ep042",
-  "title": "Episode Title",
-  "description": "Episode description",
-  "tags": ["podcast", "topic"],
-  "video_asset": "tongs://exports/video.mp4",
-  "audio_asset": "tongs://exports/audio.mp3",
-  "thumbnail": "tongs://assets/thumb.jpg"
-}
-```
+- `hammer/release-packet/manifest.v1.json`
 
-Quench assembles and deploys this packet.
+Manifest declares the packet shape and payload references. Quench must treat manifest fields as authority and must not infer structure from filename conventions.
 
-## Distribution Targets
+Current ingest verdicts:
+
+- `Ready for publish`
+- `Needs attention: audio reference unresolved`
+- `Needs attention: captions missing`
+- `Needs attention: transcript missing`
+- `Needs attention: packet invalid`
+
+## Future Publish Packet Projection (Deferred)
+
+Quench will later project publish-oriented data (title/description/tags/thumbnail/platform overrides/schedule choices) for adapter execution. That projection is out of scope for the current ingest slice.
+
+## Distribution Targets (Future)
 
 Quench supports publishing to multiple external destinations.
 
@@ -127,7 +137,7 @@ Podcast distribution:
 
 Additional platforms may be added via adapters.
 
-## Platform Adapter Architecture
+## Platform Adapter Architecture (Future)
 
 Each platform is implemented as a Quench adapter.
 
@@ -151,7 +161,7 @@ Adapters handle:
 
 This architecture allows Quench to expand without altering its core engine.
 
-## Publishing Modes
+## Publishing Modes (Future)
 
 Quench supports several release strategies.
 
@@ -181,7 +191,7 @@ Example:
 - Day 2: Spotify
 - Day 3: RSS
 
-## Shorts Distribution
+## Shorts Distribution (Future)
 
 If shorts or clips exist in the release packet, Quench may distribute them using automated schedules.
 
@@ -193,7 +203,7 @@ Example cadence options:
 
 Shorts are drawn from assets generated earlier in the pipeline.
 
-## A/B Testing Support
+## A/B Testing Support (Future)
 
 Quench may optionally support title and thumbnail testing.
 
@@ -215,9 +225,9 @@ Possible sources include:
 - Forge cloud hosting
 - external hosting URL
 
-Quench requires only a valid media URL or resolvable media source according to the workspace contract.
+For the ingest slice, Quench requires a resolvable audio reference from the packet manifest contract.
 
-## RSS Generation
+## RSS Generation (Future)
 
 Quench generates and maintains RSS feeds when enabled.
 
@@ -237,6 +247,14 @@ Users may submit the RSS URL to external podcast directories.
 ## User Interface Model
 
 Quench uses a three-column console layout.
+
+Current ingest UI must prioritize:
+
+- packet manifest status
+- asset resolution status
+- truthful ready/attention messaging
+
+Future release console model:
 
 Left column:
 
@@ -277,7 +295,7 @@ Top bar:
 
 Quench does not require AI indicators.
 
-## Initial Setup
+## Initial Setup (Future)
 
 Users must configure platform integrations.
 
@@ -294,7 +312,14 @@ After configuration, publishing requires minimal input.
 
 ## Release Flow
 
-Typical workflow:
+Current ingest workflow:
+
+1. Open packet from canonical manifest path.
+2. Validate packet shape.
+3. Resolve audio reference and load artifacts.
+4. Render truthful ready/attention state.
+
+Future publish workflow:
 
 1. Select episode.
 2. Choose destinations.
@@ -315,7 +340,13 @@ Sensitive credentials are never exposed to the client UI.
 
 Quench tracks the status of each platform upload.
 
-Possible states:
+Current ingest states:
+
+- ready
+- attention
+- invalid
+
+Possible future publish states:
 
 - pending
 - uploading
@@ -336,7 +367,7 @@ Possible Quench expansions include:
 - cross-platform scheduling automation
 - notification systems
 
-These features are outside the v1 scope.
+These features are outside the current ingest MVP scope.
 
 ## Design Philosophy
 

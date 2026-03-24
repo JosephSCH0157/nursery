@@ -3,10 +3,25 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
     "./script-tags": {
-      "types": "./script-tags/index.ts",
-      "default": "./script-tags/index.ts"
+      "types": "./dist/script-tags/index.d.ts",
+      "import": "./dist/script-tags/index.js",
+      "default": "./dist/script-tags/index.js"
     }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "types": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
   }
 }

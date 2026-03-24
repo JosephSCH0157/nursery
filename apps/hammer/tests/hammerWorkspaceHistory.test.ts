@@ -223,6 +223,54 @@ async function testOutputSelectionUndoRedo() {
   assert.equal(controller.getState().outputSelection.sourceRecipeRef, "filler_cleanup");
 }
 
+async function testOutputSelectionMultipleDerivedAppliesRestoreInOrder() {
+  const initial = baseState();
+  const controller = createHammerHistoryController({
+    document: createHammerHistoryDocument({
+      workpieceId: "wp-4b",
+      sessionId: "session-4b",
+      baseRevisionId: hashEditorState(initial),
+    }),
+    initialState: initial,
+  });
+
+  const panelSelection = cloneEditorState(initial);
+  panelSelection.outputSelection = {
+    layerId: "macro_run_panel",
+    sourceRecipeRef: "speaker_panel:balanced",
+  };
+  controller.applyMutation({
+    label: "Set export output to Panel Mode",
+    kind: "output_selection",
+    nextState: panelSelection,
+  });
+
+  const soloSelection = cloneEditorState(panelSelection);
+  soloSelection.outputSelection = {
+    layerId: "macro_run_solo",
+    sourceRecipeRef: "speaker_solo:s2",
+  };
+  controller.applyMutation({
+    label: "Set export output to Solo Mode - S2",
+    kind: "output_selection",
+    nextState: soloSelection,
+  });
+
+  assert.equal(controller.getState().outputSelection.sourceRecipeRef, "speaker_solo:s2");
+
+  controller.undo();
+  assert.equal(controller.getState().outputSelection.sourceRecipeRef, "speaker_panel:balanced");
+
+  controller.undo();
+  assert.equal(controller.getState().outputSelection.sourceRecipeRef, null);
+
+  controller.redo();
+  assert.equal(controller.getState().outputSelection.sourceRecipeRef, "speaker_panel:balanced");
+
+  controller.redo();
+  assert.equal(controller.getState().outputSelection.sourceRecipeRef, "speaker_solo:s2");
+}
+
 async function testReplayFromSnapshotTail() {
   const initial = baseState();
   const controller = createHammerHistoryController({
@@ -353,6 +401,7 @@ async function run() {
   await testCoalescedTextEdits();
   await testNormalizeAndReplay();
   await testOutputSelectionUndoRedo();
+  await testOutputSelectionMultipleDerivedAppliesRestoreInOrder();
   await testReplayFromSnapshotTail();
   await testDisabledAndGainPersistThroughHistory();
   await testTranscriptSpanCutMutationUndoRedo();

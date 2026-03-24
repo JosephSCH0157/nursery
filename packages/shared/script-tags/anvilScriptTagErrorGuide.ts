@@ -1,4 +1,4 @@
-import type { ScriptValidationCode } from "./anvilScriptTagTypes";
+import type { ScriptValidationCode } from "./anvilScriptTagTypes.js";
 
 export const SCRIPT_TAG_ERROR_GUIDE: Record<ScriptValidationCode, string> = {
   UNSUPPORTED_TAG: "Replace unsupported tags with canonical Anvil tags.",

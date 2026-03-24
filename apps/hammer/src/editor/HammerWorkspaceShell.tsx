@@ -151,6 +151,11 @@ import {
   saveHammerPreparedReleasePackage,
 } from "../lib/hammerPreparedReleasePackageApi";
 import {
+  HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH,
+  buildHammerQuenchReleasePacket,
+} from "../lib/hammerQuenchReleasePacket";
+import { saveHammerQuenchReleasePacket } from "../lib/hammerQuenchReleasePacketApi";
+import {
   buildHammerCaptionPreviewModel,
   type HammerCaptionPreviewChunk,
 } from "../lib/hammerCaptionPreview";
@@ -3664,19 +3669,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     ? "current"
     : "stale";
   const exportStatusLabel = exportTruthState === "never_prepared"
-    ? "Never prepared"
+    ? "Never exported"
     : exportTruthState === "current"
-    ? "Prepared and current"
-    : "Prepared, but stale";
+    ? "Exported and current"
+    : "Exported, but stale";
   const prepareButtonLabel = exportTruthState === "stale"
-    ? "Prepare Updated Package"
-    : "Prepare Release Package";
+    ? "Export Updated Packet to Quench"
+    : "Export to Quench";
   const releasePrepOpenHref = useMemo(() => {
     if (!props.releasePrepHref || !loadedPreparedPackage) return null;
     try {
       const parsed = new URL(props.releasePrepHref, "https://forge.local");
       parsed.searchParams.set("quench_open", "prepared_release");
       parsed.searchParams.set("prepared_package_path", HAMMER_PREPARED_RELEASE_PACKAGE_PATH);
+      parsed.searchParams.set("release_packet_manifest_path", HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH);
       parsed.searchParams.set("prepared_package_version", String(loadedPreparedPackage.version));
       parsed.searchParams.set(
         "prepared_package_fingerprint",
@@ -4127,6 +4133,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         throw new Error(result.error);
       }
 
+      const quenchPacket = buildHammerQuenchReleasePacket({
+        releasePrepPackage: exportBasis.currentReleasePackage,
+        preparedAt: preparedPackage.preparedAt,
+      });
+      const packetSave = await saveHammerQuenchReleasePacket({
+        workpieceId: launchContext.workpiece_id,
+        packet: quenchPacket,
+      });
+      if (!packetSave.ok) {
+        throw new Error(packetSave.error);
+      }
+
       const subtitleArtifactCount = Number(Boolean(preparedPackage.subtitles.srt.artifactPath))
         + Number(Boolean(preparedPackage.subtitles.vtt.artifactPath));
 
@@ -4137,7 +4155,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       });
       setLoadedPreparedPackage(result.data ?? preparedPackage);
     } catch (error) {
-      setReleasePrepError(toErrorMessage(error, "Hammer could not prepare the release package."));
+      setReleasePrepError(toErrorMessage(error, "Hammer could not export the Quench release packet."));
     } finally {
       setReleasePrepSaving(false);
     }
@@ -6551,11 +6569,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   ) : null}
                   <div className="hammer-tool-hint">Layer selection lives in the Layer State block.</div>
                   {releasePrepLoading ? (
-                    <div className="hammer-tool-hint">Checking prepared package state...</div>
+                    <div className="hammer-tool-hint">Checking Quench packet state...</div>
                   ) : null}
                   {loadedPreparedPackage?.preparedAt ? (
                     <div className="hammer-tool-hint">
-                      Last prepared {new Date(loadedPreparedPackage.preparedAt).toLocaleString()}.
+                      Last exported {new Date(loadedPreparedPackage.preparedAt).toLocaleString()}.
                     </div>
                   ) : null}
                   {loadedPreparedPackage?.transcript.fingerprint ? (
@@ -6579,7 +6597,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   </button>
                   {releasePrepSaved ? (
                     <div className="hammer-tool-hint">
-                      Prepared {new Date(releasePrepSaved.preparedAt).toLocaleString()}.
+                      Ready for Quench. Exported {new Date(releasePrepSaved.preparedAt).toLocaleString()}.
                       Status {releasePrepSaved.overallStatus}.
                       Subtitle artifacts {releasePrepSaved.subtitleArtifactCount}.
                     </div>
@@ -6591,7 +6609,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   ) : null}
                   {releasePrepOpenHref && exportTruthState !== "never_prepared" ? (
                     <a href={releasePrepOpenHref}>
-                      {exportTruthState === "current" ? "Open Release Prep" : "Open Release Prep (stale)"}
+                      {exportTruthState === "current" ? "Open in Quench" : "Open in Quench (stale)"}
                     </a>
                   ) : null}
                 </section>

@@ -1,6 +1,6 @@
-import { normalizeScriptTags } from "./anvilScriptTagNormalizer";
-import { validateScriptTags } from "./anvilScriptTagValidator";
-import type { ScriptRepairResult, ScriptValidationCode } from "./anvilScriptTagTypes";
+import { normalizeScriptTags } from "./anvilScriptTagNormalizer.js";
+import { validateScriptTags } from "./anvilScriptTagValidator.js";
+import type { ScriptRepairResult, ScriptValidationCode } from "./anvilScriptTagTypes.js";
 
 const INVISIBLE_CHARS_RE = /[\u200B-\u200D\uFEFF]/g;
 

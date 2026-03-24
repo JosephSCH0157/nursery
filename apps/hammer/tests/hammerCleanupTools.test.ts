@@ -208,6 +208,60 @@ async function testSpeakerPanelSuppressesLowSignalCrossTalkDeterministically() {
   assert.equal(first.resultSegments.find((segment) => segment.segment_id === "d")?.is_disabled === true, true);
 }
 
+async function testSpeakerPanelPreservesLegitBackAndForth() {
+  const segments = [
+    s("a", 0, 1.2, "S1", "I want to ground this in the actual timeline."),
+    s("b", 1.2, 1.6, "S3", "yeah"),
+    s("c", 1.6, 2.8, "S1", "The release window shifted after the test cut."),
+    s("d", 2.8, 3.6, "S2", "Wait, can I push back on that assumption?"),
+    s("e", 3.6, 4.8, "S1", "Yes, but let's keep the sequence clear."),
+  ];
+
+  const preview = previewSpeakerPanel({
+    segments,
+    options: {
+      hostSpeaker: "S1",
+      primarySpeakerBias: "balanced",
+      removeShortBackchannels: true,
+      suppressShortCrossTalk: true,
+      maxInterruptionSec: 0.5,
+    },
+  });
+
+  assert.equal(
+    preview.resultSegments.find((segment) => segment.segment_id === "d")?.is_disabled === true,
+    false,
+    "Legitimate back-and-forth should remain when it exceeds conservative interruption threshold",
+  );
+  assert.equal(preview.metadata?.speakerPanel?.backchannelsRemoved, 1);
+}
+
+async function testSpeakerPanelHostFavoringKeepsHostPresence() {
+  const segments = [
+    s("a", 0, 0.4, "S1", "yeah"),
+    s("b", 0.4, 1.2, "S2", "Here is the long answer start."),
+    s("c", 1.2, 1.5, "S1", "mm-hmm"),
+    s("d", 1.5, 2.5, "S2", "And here is the continuation."),
+  ];
+
+  const preview = previewSpeakerPanel({
+    segments,
+    options: {
+      hostSpeaker: "S1",
+      primarySpeakerBias: "host_favoring",
+      removeShortBackchannels: true,
+      suppressShortCrossTalk: true,
+      maxInterruptionSec: 0.8,
+    },
+  });
+
+  assert.equal(
+    preview.resultSegments.filter((segment) => segment.speaker === "S1").every((segment) => segment.is_disabled !== true),
+    true,
+    "Host-favoring mode should preserve host-presence turns",
+  );
+}
+
 async function run() {
   await testShortenGapsDeterministic();
   await testFillerRemovalDeterministic();
@@ -218,6 +272,8 @@ async function run() {
   await testSpeakerSoloSuppressesNonTargetDeterministically();
   await testSpeakerInterviewTightensRespondentOnly();
   await testSpeakerPanelSuppressesLowSignalCrossTalkDeterministically();
+  await testSpeakerPanelPreservesLegitBackAndForth();
+  await testSpeakerPanelHostFavoringKeepsHostPresence();
   // eslint-disable-next-line no-console
   console.log("Hammer cleanup tools tests passed.");
 }

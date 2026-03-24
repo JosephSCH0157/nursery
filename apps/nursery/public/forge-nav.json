@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated_at": "2026-03-24T13:18:59.674Z",
+  "generated_at": "2026-03-24T19:15:36.616Z",
   "tree": [
     {
       "id": "forge",
@@ -34,22 +34,26 @@
         {
           "id": "bellows",
           "label": "Bellows",
-          "to": "/apps/bellows"
+          "to": "/apps/bellows",
+          "badge": "UC"
         },
         {
           "id": "hammer",
           "label": "Hammer",
-          "to": "/app/hammer"
+          "to": "/app/hammer",
+          "badge": "UC"
         },
         {
           "id": "quench",
           "label": "Quench",
-          "to": "/app/quench"
+          "to": "/app/quench",
+          "badge": "UC"
         },
         {
           "id": "ledger",
           "label": "Ledger",
-          "to": "/app/ledger"
+          "to": "/app/ledger",
+          "badge": "UC"
         },
         {
           "id": "iron-mine",

@@ -6,8 +6,8 @@ import {
   SPEAKER_OPEN_TAGS,
   type ScriptValidationIssue,
   type ScriptValidationResult,
-} from "./anvilScriptTagTypes";
-import { normalizeScriptTags } from "./anvilScriptTagNormalizer";
+} from "./anvilScriptTagTypes.js";
+import { normalizeScriptTags } from "./anvilScriptTagNormalizer.js";
 
 function canonicalizeToken(raw: string): string {
   const inner = raw.slice(1, -1).trim().toLowerCase().replace(/\s+/g, " ");

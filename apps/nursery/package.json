@@ -6,9 +6,9 @@
   "scripts": {
     "sync:anvil": "node scripts/sync-anvil-dist.mjs",
     "gen:forge-nav": "tsx scripts/generate-forge-nav.ts",
-    "predev": "pnpm sync:anvil && pnpm gen:forge-nav && pnpm --filter @forge/tongs build",
+    "predev": "pnpm sync:anvil && pnpm gen:forge-nav && pnpm --filter @forge/shared build && pnpm --filter @forge/tongs build",
     "dev": "vite",
-    "prebuild": "pnpm sync:anvil && pnpm gen:forge-nav",
+    "prebuild": "pnpm sync:anvil && pnpm gen:forge-nav && pnpm --filter @forge/shared build",
     "build": "tsc -b && vite build",
     "types": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
