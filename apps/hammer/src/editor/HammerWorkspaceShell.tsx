@@ -4,6 +4,7 @@ import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/con
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { MediaRef, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
 import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import type {
@@ -156,6 +157,11 @@ import {
 } from "../lib/hammerQuenchReleasePacket";
 import { saveHammerQuenchReleasePacket } from "../lib/hammerQuenchReleasePacketApi";
 import {
+  buildHammerRenderAssembly,
+  projectEditorialAuthorityGraphFromEditPlan,
+  type HammerRenderRuntimeCapabilities,
+} from "./hammerRenderAssembly";
+import {
   buildHammerCaptionPreviewModel,
   type HammerCaptionPreviewChunk,
 } from "../lib/hammerCaptionPreview";
@@ -172,6 +178,23 @@ const POST_ROLL_SEC = 1;
 const SCRUB_SEEK_THRESHOLD_SEC = 0.05;
 const SCRUB_RATE_OPTIONS = [1, 0.75, 0.5] as const;
 const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
+const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
+  preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge"],
+  export_supported_operation_types: ["delete", "mute", "trim", "split", "merge"],
+  handoff_supported_operation_types: [
+    "delete",
+    "mute",
+    "trim",
+    "split",
+    "merge",
+    "cut_range",
+    "ripple_delete",
+    "insert_broll",
+    "overlay_graphic",
+    "crossfade",
+    "audio_duck",
+  ],
+};
 
 type HammerToolId = HammerWorkspaceToolId;
 type HammerSourceTabId = "transcript" | "images" | "assets" | "broll" | "introoutro";
@@ -450,6 +473,7 @@ function toEditorState(args: {
   segments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
   studioRack: HammerStudioRackState;
+  editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   outputSelection: HammerOutputSelectionState;
   selectedSegmentId: string | null;
   playheadSec: number;
@@ -470,6 +494,35 @@ function toEditorState(args: {
       }
       : null,
     studioRack: cloneHammerStudioRackState(args.studioRack),
+    editorialAuthorityGraph: args.editorialAuthorityGraph
+      ? {
+        ...args.editorialAuthorityGraph,
+        operation_order: [...args.editorialAuthorityGraph.operation_order],
+        operations: args.editorialAuthorityGraph.operations.map((operation) => ({
+          ...operation,
+          instruction: { ...operation.instruction },
+          capability_state: {
+            ...operation.capability_state,
+            reason_codes: [...operation.capability_state.reason_codes],
+          },
+          truth_posture: {
+            preview: {
+              ...operation.truth_posture.preview,
+              reason_codes: [...operation.truth_posture.preview.reason_codes],
+            },
+            export: {
+              ...operation.truth_posture.export,
+              reason_codes: [...operation.truth_posture.export.reason_codes],
+            },
+            handoff: {
+              ...operation.truth_posture.handoff,
+              reason_codes: [...operation.truth_posture.handoff.reason_codes],
+            },
+          },
+          provenance: { ...operation.provenance },
+        })),
+      }
+      : null,
     outputSelection: {
       layerId: args.outputSelection.layerId,
       sourceRecipeRef: args.outputSelection.sourceRecipeRef,
@@ -484,6 +537,7 @@ function toShellState(state: HammerEditorStateSerializable): {
   segments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
   studioRack: HammerStudioRackState;
+  editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   outputSelection: HammerOutputSelectionState;
   selectedSegmentId: string | null;
   playheadSec: number;
@@ -504,6 +558,35 @@ function toShellState(state: HammerEditorStateSerializable): {
       }
       : null,
     studioRack: cloneHammerStudioRackState(state.studioRack),
+    editorialAuthorityGraph: state.editorialAuthorityGraph
+      ? {
+        ...state.editorialAuthorityGraph,
+        operation_order: [...state.editorialAuthorityGraph.operation_order],
+        operations: state.editorialAuthorityGraph.operations.map((operation) => ({
+          ...operation,
+          instruction: { ...operation.instruction },
+          capability_state: {
+            ...operation.capability_state,
+            reason_codes: [...operation.capability_state.reason_codes],
+          },
+          truth_posture: {
+            preview: {
+              ...operation.truth_posture.preview,
+              reason_codes: [...operation.truth_posture.preview.reason_codes],
+            },
+            export: {
+              ...operation.truth_posture.export,
+              reason_codes: [...operation.truth_posture.export.reason_codes],
+            },
+            handoff: {
+              ...operation.truth_posture.handoff,
+              reason_codes: [...operation.truth_posture.handoff.reason_codes],
+            },
+          },
+          provenance: { ...operation.provenance },
+        })),
+      }
+      : null,
     outputSelection: {
       layerId: state.outputSelection.layerId,
       sourceRecipeRef: state.outputSelection.sourceRecipeRef,
@@ -893,6 +976,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   );
   const [editableOutputSelection, setEditableOutputSelection] = useState<HammerOutputSelectionState>(
     () => resolveOutputSelectionFromTranscript(props.structuredTranscript ?? null),
+  );
+  const [editableEditorialAuthorityGraph, setEditableEditorialAuthorityGraph] = useState<HammerEditorialAuthorityGraph | null>(
+    () => {
+      const initialPreviewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
+      const editPlan = launchContext.edit_plan
+        ? {
+          ...launchContext.edit_plan,
+          instructions: launchContext.edit_plan.instructions.map((instruction) => ({ ...instruction })),
+        }
+        : createFallbackEditPlan(launchContext, transcriptSourceId, initialPreviewMode);
+      return projectEditorialAuthorityGraphFromEditPlan({
+        editPlan,
+        workspaceId: launchContext.workspace_id,
+        workpieceId: launchContext.workpiece_id,
+        sessionId: launchContext.session_id ?? editPlan.session_id ?? `${launchContext.workpiece_id}:session`,
+      });
+    },
   );
   const [editableStudioRack, setEditableStudioRack] = useState<HammerStudioRackState>(
     () => createDefaultHammerStudioRackState(),
@@ -1462,6 +1562,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       segments: editableTranscriptSegments,
       visualPlacements: editableVisualPlacements,
       studioRack: editableStudioRack,
+      editorialAuthorityGraph: editableEditorialAuthorityGraph,
       outputSelection: editableOutputSelection,
       selectedSegmentId,
       playheadSec,
@@ -1474,6 +1575,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setEditableTranscriptSegments(normalized.segments);
     setEditableVisualPlacements(normalized.visualPlacements);
     setEditableStudioRack(normalized.studioRack);
+    setEditableEditorialAuthorityGraph(normalized.editorialAuthorityGraph);
     setEditableOutputSelection(normalized.outputSelection);
     setSelectedSegmentId(normalized.selectedSegmentId);
     setPlayheadSec(normalized.playheadSec);
@@ -1752,10 +1854,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     const synced = syncEditableTranscriptSegments(transcriptSegments, selectedSegmentId);
     const baselineOutputSelection = resolveOutputSelectionFromTranscript(props.structuredTranscript ?? null);
+    const baselineEditPlan = launchContext.edit_plan
+      ? {
+        ...launchContext.edit_plan,
+        instructions: launchContext.edit_plan.instructions.map((instruction) => ({ ...instruction })),
+      }
+      : createFallbackEditPlan(launchContext, transcriptSourceId, previewMode);
+    const baselineAuthorityGraph = projectEditorialAuthorityGraphFromEditPlan({
+      editPlan: baselineEditPlan,
+      workspaceId: launchContext.workspace_id,
+      workpieceId: launchContext.workpiece_id,
+      sessionId: launchContext.session_id ?? baselineEditPlan.session_id ?? `${launchContext.workpiece_id}:session`,
+    });
     const baselineState = toEditorState({
       segments: synced.segments,
       visualPlacements: props.visualPlacements ?? null,
       studioRack: createDefaultHammerStudioRackState(),
+      editorialAuthorityGraph: baselineAuthorityGraph,
       outputSelection: baselineOutputSelection,
       selectedSegmentId: synced.selectedSegmentId,
       playheadSec: Math.max(0, Math.min(playheadSec, resolveTranscriptDurationSec(synced.segments))),
@@ -3592,6 +3707,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       previewMode,
       editPlan.instructions,
     );
+    const canonicalGraph = editableEditorialAuthorityGraph
+      ? {
+        ...editableEditorialAuthorityGraph,
+        updated_at: new Date().toISOString(),
+      }
+      : projectEditorialAuthorityGraphFromEditPlan({
+        editPlan,
+        workspaceId: launchContext.workspace_id,
+        workpieceId: launchContext.workpiece_id,
+        sessionId: launchContext.session_id ?? editPlan.session_id ?? `${launchContext.workpiece_id}:session`,
+      });
+    const renderAssembly = buildHammerRenderAssembly({
+      canonicalGraph,
+      runtimeCapabilities: HAMMER_RENDER_RUNTIME_CAPABILITIES,
+    });
     const currentReleasePackage = buildHammerReleasePrepPackage({
       workspaceId: launchContext.workspace_id,
       workpieceId: launchContext.workpiece_id,
@@ -3619,6 +3749,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       transcriptForRelease,
       currentReleasePackage,
       timelineRevision,
+      canonicalGraph,
+      renderAssembly,
       subtitles: {
         srt: currentReleasePackage.text_outputs?.subtitles.srt.artifact?.content ?? null,
         vtt: currentReleasePackage.text_outputs?.subtitles.vtt.artifact?.content ?? null,
@@ -3642,6 +3774,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     selectedSegmentId,
     transcriptSourceId,
     workspaceMapping,
+    editableEditorialAuthorityGraph,
   ]);
 
   const releasePrepComparison = useMemo(
@@ -3676,6 +3809,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const prepareButtonLabel = exportTruthState === "stale"
     ? "Export Updated Packet to Quench"
     : "Export to Quench";
+  const previewTruthPosture = exportBasis.renderAssembly.preview.posture;
+  const exportTruthPosture = exportBasis.renderAssembly.export.posture;
+  const handoffTruthPosture = exportBasis.renderAssembly.handoff.posture;
   const releasePrepOpenHref = useMemo(() => {
     if (!props.releasePrepHref || !loadedPreparedPackage) return null;
     try {
@@ -4136,6 +4272,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       const quenchPacket = buildHammerQuenchReleasePacket({
         releasePrepPackage: exportBasis.currentReleasePackage,
         preparedAt: preparedPackage.preparedAt,
+        canonicalGraph: exportBasis.canonicalGraph,
+        renderAssembly: exportBasis.renderAssembly,
       });
       const packetSave = await saveHammerQuenchReleasePacket({
         workpieceId: launchContext.workpiece_id,
@@ -4220,6 +4358,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       lastMacroRunRef: props.lastMacroRunRef ?? null,
       structuredTranscript: exportBasis.transcriptForRelease,
       editPlan,
+      editorialAuthorityGraph: exportBasis.canonicalGraph,
       visualPlacements: editableVisualPlacements,
       audioPolish: props.audioPolish ?? null,
     };
@@ -6533,6 +6672,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   </div>
                   <div className="hammer-tool-hint">Export status: {exportStatusLabel}</div>
                   <div className="hammer-tool-hint">Output source: {outputSelectionSummary}</div>
+                  <div className="hammer-tool-hint">Preview truth: {previewTruthPosture}</div>
+                  <div className="hammer-tool-hint">Export truth: {exportTruthPosture}</div>
+                  <div className="hammer-tool-hint">Handoff truth: {handoffTruthPosture}</div>
                   <div className={`hammer-caption-release-summary hammer-caption-release-summary--${captionReleasePrepSafetyState}`}>
                     <div className="hammer-caption-release-summary__head">
                       <strong>Caption release truth</strong>
@@ -6622,6 +6764,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <div>Viewing: {viewingModeSummary}</div>
                 <div>Output source: {outputSelectionSummary}</div>
                 <div>Release prep: {releasePrepOpenHref ? "available" : "unavailable"}</div>
+                <div>Preview truth: {previewTruthPosture}</div>
               </div>
             </div>
           </section>

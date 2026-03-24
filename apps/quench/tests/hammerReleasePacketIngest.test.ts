@@ -184,6 +184,41 @@ async function testAttentionWhenTranscriptMissing() {
   assert.equal(result.issues.some((issue) => issue.code === "TRANSCRIPT_MISSING"), true);
 }
 
+async function testManifestAcceptsEditorialTruthExtension() {
+  const manifest = buildManifest({
+    editorial_truth: {
+      schema_version: 1,
+      authority_graph_id: "graph_01",
+      authority_graph_version: 1,
+      active_operations: [],
+      posture_summary: {
+        preview: "authoritative",
+        export: "authoritative",
+        handoff: "authoritative",
+      },
+      deferred_or_unsupported_operation_ids: [],
+      artifact_operation_links: {
+        transcript_text_path: "hammer/release-packet/transcript/transcript.txt",
+        captions_srt_path: "hammer/release-packet/captions/episode.srt",
+        captions_vtt_path: null,
+        visuals_path: "hammer/release-packet/visuals/placements.json",
+        operation_ids: [],
+      },
+    },
+  });
+  const store: MemoryStore = {
+    [HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH]: manifest,
+    [manifest.transcript.text_path]: "Resolved transcript text.",
+    [manifest.captions.srt_path]: "1\n00:00:00,000 --> 00:00:01,000\nhello\n",
+    [manifest.visuals.placements_path]: [],
+  };
+  const result = await ingestHammerReleasePacket({
+    reader: createReader(store),
+  });
+  assert.equal(result.state, "ready");
+  assert.equal(result.manifest?.editorial_truth?.authority_graph_id, "graph_01");
+}
+
 async function run() {
   await testReadyPacket();
   await testAttentionWhenAudioUnresolved();
@@ -192,6 +227,7 @@ async function run() {
   await testInvalidManifestShape();
   await testInvalidWhenManifestNotFound();
   await testAttentionWhenTranscriptMissing();
+  await testManifestAcceptsEditorialTruthExtension();
   // eslint-disable-next-line no-console
   console.log("Quench hammer release packet ingest tests passed.");
 }

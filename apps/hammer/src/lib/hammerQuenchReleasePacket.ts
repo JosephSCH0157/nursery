@@ -1,4 +1,6 @@
 import type { HammerReleasePrepPackage } from "./hammerReleasePrepPackage";
+import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
+import type { HammerRenderAssemblyResult } from "../editor/hammerRenderAssembly";
 
 export const HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH = "hammer/release-packet/manifest.v1.json";
 export const HAMMER_QUENCH_RELEASE_PACKET_TRANSCRIPT_PATH = "hammer/release-packet/transcript/transcript.txt";
@@ -52,6 +54,34 @@ export interface HammerQuenchReleasePacketManifest {
     ready_for_quench: boolean;
     overall_status: HammerReleasePrepPackage["readiness"]["blocking_statuses"][number] | "ready";
     reasons: string[];
+  };
+  editorial_truth?: {
+    schema_version: 1;
+    authority_graph_id: string | null;
+    authority_graph_version: number | null;
+    active_operations: Array<{
+      operation_id: string;
+      instruction_id: string;
+      type: string;
+      capability: "executable" | "degraded" | "unavailable";
+      preview_posture: "authoritative" | "degraded" | "unavailable";
+      export_posture: "authoritative" | "degraded" | "unavailable";
+      handoff_posture: "authoritative" | "degraded" | "unavailable";
+      reason_codes: string[];
+    }>;
+    posture_summary: {
+      preview: "authoritative" | "degraded" | "unavailable";
+      export: "authoritative" | "degraded" | "unavailable";
+      handoff: "authoritative" | "degraded" | "unavailable";
+    };
+    deferred_or_unsupported_operation_ids: string[];
+    artifact_operation_links: {
+      transcript_text_path: string | null;
+      captions_srt_path: string | null;
+      captions_vtt_path: string | null;
+      visuals_path: string;
+      operation_ids: string[];
+    };
   };
 }
 
@@ -112,6 +142,8 @@ function resolveReadiness(pkg: HammerReleasePrepPackage): HammerQuenchReleasePac
 export function buildHammerQuenchReleasePacket(args: {
   releasePrepPackage: HammerReleasePrepPackage;
   preparedAt?: string;
+  canonicalGraph?: HammerEditorialAuthorityGraph | null;
+  renderAssembly?: HammerRenderAssemblyResult | null;
 }): HammerQuenchReleasePacketArtifacts {
   const pkg = args.releasePrepPackage;
   const transcriptText = normalizeText(pkg.text_outputs?.resolved_output.full_text ?? null);
@@ -158,6 +190,40 @@ export function buildHammerQuenchReleasePacket(args: {
       count: visuals.length,
     },
     readiness: resolveReadiness(pkg),
+    ...(args.renderAssembly
+      ? {
+        editorial_truth: {
+          schema_version: 1 as const,
+          authority_graph_id: args.canonicalGraph?.graph_id ?? args.renderAssembly.graph_id ?? null,
+          authority_graph_version: args.canonicalGraph?.graph_version ?? args.renderAssembly.graph_version ?? null,
+          active_operations: args.renderAssembly.operations.map((operation) => ({
+            operation_id: operation.operation_id,
+            instruction_id: operation.instruction_id,
+            type: operation.type,
+            capability: operation.capability,
+            preview_posture: operation.preview_posture,
+            export_posture: operation.export_posture,
+            handoff_posture: operation.handoff_posture,
+            reason_codes: operation.reason_codes,
+          })),
+          posture_summary: {
+            preview: args.renderAssembly.preview.posture,
+            export: args.renderAssembly.export.posture,
+            handoff: args.renderAssembly.handoff.posture,
+          },
+          deferred_or_unsupported_operation_ids: args.renderAssembly.operations
+            .filter((operation) => operation.capability !== "executable")
+            .map((operation) => operation.operation_id),
+          artifact_operation_links: {
+            transcript_text_path: transcriptText ? HAMMER_QUENCH_RELEASE_PACKET_TRANSCRIPT_PATH : null,
+            captions_srt_path: srtText ? HAMMER_QUENCH_RELEASE_PACKET_SRT_PATH : null,
+            captions_vtt_path: vttText ? HAMMER_QUENCH_RELEASE_PACKET_VTT_PATH : null,
+            visuals_path: HAMMER_QUENCH_RELEASE_PACKET_VISUALS_PATH,
+            operation_ids: args.renderAssembly.operations.map((operation) => operation.operation_id),
+          },
+        },
+      }
+      : {}),
   };
 
   return {

@@ -20,6 +20,7 @@ const editorState = {
   ],
   visualPlacements: null,
   studioRack: createDefaultHammerStudioRackState(),
+  editorialAuthorityGraph: null,
   outputSelection: {
     layerId: null,
     sourceRecipeRef: null,

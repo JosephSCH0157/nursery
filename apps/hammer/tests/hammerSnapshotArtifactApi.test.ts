@@ -69,6 +69,7 @@ function buildSnapshot(): HammerHistorySnapshotV1 {
       ],
       visualPlacements: null,
       studioRack: createDefaultHammerStudioRackState(),
+      editorialAuthorityGraph: null,
       outputSelection: {
         layerId: null,
         sourceRecipeRef: null,

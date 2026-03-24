@@ -38,6 +38,34 @@ export interface HammerQuenchReleasePacketManifest {
     overall_status: HammerQuenchPacketReadinessStatus;
     reasons: string[];
   };
+  editorial_truth?: {
+    schema_version: 1;
+    authority_graph_id: string | null;
+    authority_graph_version: number | null;
+    active_operations: Array<{
+      operation_id: string;
+      instruction_id: string;
+      type: string;
+      capability: "executable" | "degraded" | "unavailable";
+      preview_posture: "authoritative" | "degraded" | "unavailable";
+      export_posture: "authoritative" | "degraded" | "unavailable";
+      handoff_posture: "authoritative" | "degraded" | "unavailable";
+      reason_codes: string[];
+    }>;
+    posture_summary: {
+      preview: "authoritative" | "degraded" | "unavailable";
+      export: "authoritative" | "degraded" | "unavailable";
+      handoff: "authoritative" | "degraded" | "unavailable";
+    };
+    deferred_or_unsupported_operation_ids: string[];
+    artifact_operation_links: {
+      transcript_text_path: string | null;
+      captions_srt_path: string | null;
+      captions_vtt_path: string | null;
+      visuals_path: string;
+      operation_ids: string[];
+    };
+  };
 }
 
 export interface HammerQuenchVisualPlacement {
@@ -92,4 +120,3 @@ export interface QuenchPacketIngestResult {
   audio: QuenchPacketAudioResolution;
   issues: QuenchPacketIssue[];
 }
-

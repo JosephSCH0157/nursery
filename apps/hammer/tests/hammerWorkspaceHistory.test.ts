@@ -27,6 +27,7 @@ function baseState(): HammerEditorStateSerializable {
     transcriptSegments: [segment("a", "hello"), segment("b", "world", 1, 2)],
     visualPlacements: null,
     studioRack: createDefaultHammerStudioRackState(),
+    editorialAuthorityGraph: null,
     outputSelection: {
       layerId: null,
       sourceRecipeRef: null,
@@ -348,6 +349,7 @@ async function testTranscriptSpanCutMutationUndoRedo() {
     ],
     visualPlacements: null,
     studioRack: createDefaultHammerStudioRackState(),
+    editorialAuthorityGraph: null,
     outputSelection: {
       layerId: null,
       sourceRecipeRef: null,

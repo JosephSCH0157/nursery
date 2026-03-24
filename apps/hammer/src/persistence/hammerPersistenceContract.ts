@@ -2,6 +2,7 @@ import type {
   HammerEditPlan,
   HammerPreviewMode,
 } from "../../../../packages/contracts/hammer/edit-plan.contract";
+import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import type {
   HammerLaunchContext,
   HammerLaunchSourceMode,
@@ -216,6 +217,7 @@ export interface HammerPersistedStateRecord {
   visual_placement_artifact_path: string | null;
   audio_polish_artifact_path: string | null;
   edit_plan_artifact_path: string | null;
+  editorial_authority_artifact_path: string | null;
   edit_plan_signature: string | null;
   prep_status: HammerPrepStatus;
   alignment_status: HammerAlignmentStatus;
@@ -235,6 +237,7 @@ export interface HammerPersistenceSnapshot {
   visual_placements: HammerPersistedArtifact<HammerPersistedVisualPlacements>;
   audio_polish: HammerPersistedArtifact<HammerPersistedAudioPolish>;
   edit_plan: HammerPersistedArtifact<HammerEditPlan>;
+  editorial_authority: HammerPersistedArtifact<HammerEditorialAuthorityGraph>;
   macro_hooks: HammerPersistedMacroHooks;
 }
 
@@ -263,6 +266,7 @@ export interface HammerPersistenceSaveRequest {
   visual_placements?: HammerArtifactWriteRequest<HammerPersistedVisualPlacements>;
   audio_polish?: HammerArtifactWriteRequest<HammerPersistedAudioPolish>;
   edit_plan?: HammerArtifactWriteRequest<HammerEditPlan>;
+  editorial_authority?: HammerArtifactWriteRequest<HammerEditorialAuthorityGraph>;
 }
 
 export interface HammerPresenceRow {

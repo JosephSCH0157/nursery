@@ -4,6 +4,7 @@ import {
   buildHammerPersistenceSaveRequest,
   readHammerPersistenceTarget,
 } from "../src/persistence/hammerPersistence";
+import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammerRenderAssembly";
 import type { HammerWorkspaceSnapshot } from "../src/editor/hammerWorkspaceSnapshot";
 import type { HammerPersistenceSnapshot } from "../src/persistence/hammerPersistenceContract";
 
@@ -152,6 +153,21 @@ const snapshot: HammerWorkspaceSnapshot = {
     preview_mode: "edit-aware",
     instructions: [],
   },
+  editorialAuthorityGraph: projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_01",
+      version: "1",
+      created_at: "2026-03-13T10:00:00.000Z",
+      updated_at: "2026-03-13T10:05:00.000Z",
+      source_transcript_id: "transcript_01",
+      preview_mode: "edit-aware",
+      instructions: [],
+    },
+    workspaceId: target.workspaceId,
+    workpieceId: target.workpieceId,
+    sessionId: "session_hammer_01",
+    nowIso: "2026-03-13T10:05:00.000Z",
+  }),
   visualPlacements: {
     schema_version: 1,
     status: "prepared",
@@ -234,6 +250,7 @@ assert.deepEqual(
   saveRequest.visual_placements?.data.uncertainty_flags,
   ["match_missing:image-map-02"],
 );
+assert.equal(saveRequest.editorial_authority?.data.graph_id, "plan_01:authority");
 
 const persistedSnapshot: HammerPersistenceSnapshot = {
   schema_version: 1,
@@ -247,6 +264,7 @@ const persistedSnapshot: HammerPersistenceSnapshot = {
     visual_placement_artifact_path: "hammer/prep/visual-placements.v1.json",
     audio_polish_artifact_path: "hammer/prep/audio-polish.v1.json",
     edit_plan_artifact_path: "hammer/edit-plan/current.v1.json",
+    editorial_authority_artifact_path: "hammer/session/editorial-authority.v1.json",
     edit_plan_signature: "sig_abc",
     prep_status: "prepared",
     alignment_status: "aligned",
@@ -286,6 +304,11 @@ const persistedSnapshot: HammerPersistenceSnapshot = {
     updated_at: "2026-03-13T10:10:06.000Z",
     data: saveRequest.edit_plan?.data ?? null,
   },
+  editorial_authority: {
+    path: "hammer/session/editorial-authority.v1.json",
+    updated_at: "2026-03-13T10:10:06.500Z",
+    data: saveRequest.editorial_authority?.data ?? null,
+  },
   macro_hooks: {
     recipe_ref: "macro:podcast_cleanup.v1",
     last_run_ref: null,
@@ -299,6 +322,27 @@ assert.equal(hydrated?.launchContext.session_id, "session_hammer_01");
 assert.equal(hydrated?.launchContext.transcript.kind, "tongs-stub");
 assert.equal(hydrated?.launchContext.media.kind, "tongs-stub");
 assert.equal(hydrated?.launchContext.edit_plan?.edit_plan_id, "plan_01");
+assert.equal(hydrated?.launchContext.edit_plan?.instructions.length, 0);
+
+const legacyOnlySnapshot: HammerPersistenceSnapshot = {
+  ...persistedSnapshot,
+  edit_plan: { ...persistedSnapshot.edit_plan, data: snapshot.editPlan },
+  editorial_authority: { path: null, updated_at: null, data: null },
+};
+const hydratedLegacyOnly = buildHammerLaunchContextFromPersistence(target, legacyOnlySnapshot);
+assert.equal(hydratedLegacyOnly?.launchContext.edit_plan?.edit_plan_id, "plan_01");
+
+const canonicalOnlySnapshot: HammerPersistenceSnapshot = {
+  ...persistedSnapshot,
+  edit_plan: { path: null, updated_at: null, data: null },
+  editorial_authority: {
+    path: "hammer/session/editorial-authority.v1.json",
+    updated_at: "2026-03-13T10:10:06.500Z",
+    data: saveRequest.editorial_authority?.data ?? null,
+  },
+};
+const hydratedCanonicalOnly = buildHammerLaunchContextFromPersistence(target, canonicalOnlySnapshot);
+assert.equal(hydratedCanonicalOnly?.launchContext.edit_plan?.source_transcript_id, "transcript_01");
 
 assert.deepEqual(
   readHammerPersistenceTarget("?workspace_id=aaa&workpiece_id=bbb"),

@@ -1,4 +1,5 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import type {
   HammerPersistedVisualPlacements,
   HammerVisualPlacementRecord,
@@ -31,10 +32,18 @@ export interface HammerOutputSelectionState {
   sourceRecipeRef: string | null;
 }
 
+export interface HammerCanonicalOperationDelta {
+  operation_id: string;
+  action: "add" | "update" | "remove";
+  before_lifecycle: "active" | "reverted" | "superseded" | null;
+  after_lifecycle: "active" | "reverted" | "superseded" | null;
+}
+
 export interface HammerEditorStateSerializable {
   transcriptSegments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
   studioRack: HammerStudioRackState;
+  editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   outputSelection: HammerOutputSelectionState;
   selectedSegmentId: string | null;
   playheadSec: number;
@@ -51,6 +60,7 @@ export interface HammerHistoryEntry {
   inversePatch: JsonPatchLike[];
   affectedSegmentIds?: string[];
   affectedPlacementIds?: string[];
+  canonicalOperationDeltas?: HammerCanonicalOperationDelta[];
   toolId?: string | null;
   baseStateHash?: string;
   resultStateHash?: string;
@@ -161,11 +171,45 @@ function cloneVisualPlacements(
   };
 }
 
+function cloneEditorialAuthorityGraph(
+  graph: HammerEditorialAuthorityGraph | null,
+): HammerEditorialAuthorityGraph | null {
+  if (!graph) return null;
+  return {
+    ...graph,
+    operation_order: [...graph.operation_order],
+    operations: graph.operations.map((operation) => ({
+      ...operation,
+      instruction: { ...operation.instruction },
+      capability_state: {
+        ...operation.capability_state,
+        reason_codes: [...operation.capability_state.reason_codes],
+      },
+      truth_posture: {
+        preview: {
+          ...operation.truth_posture.preview,
+          reason_codes: [...operation.truth_posture.preview.reason_codes],
+        },
+        export: {
+          ...operation.truth_posture.export,
+          reason_codes: [...operation.truth_posture.export.reason_codes],
+        },
+        handoff: {
+          ...operation.truth_posture.handoff,
+          reason_codes: [...operation.truth_posture.handoff.reason_codes],
+        },
+      },
+      provenance: { ...operation.provenance },
+    })),
+  };
+}
+
 export function cloneEditorState(state: HammerEditorStateSerializable): HammerEditorStateSerializable {
   return {
     transcriptSegments: cloneSegments(state.transcriptSegments),
     visualPlacements: cloneVisualPlacements(state.visualPlacements),
     studioRack: cloneHammerStudioRackState(state.studioRack),
+    editorialAuthorityGraph: cloneEditorialAuthorityGraph(state.editorialAuthorityGraph),
     outputSelection: {
       layerId: state.outputSelection.layerId,
       sourceRecipeRef: state.outputSelection.sourceRecipeRef,
@@ -254,6 +298,30 @@ function normalizeHistoryEntry(value: unknown): HammerHistoryEntry | null {
       : undefined,
     affectedPlacementIds: Array.isArray(row.affectedPlacementIds)
       ? row.affectedPlacementIds.map((item) => readString(item)).filter((item): item is string => Boolean(item))
+      : undefined,
+    canonicalOperationDeltas: Array.isArray(row.canonicalOperationDeltas)
+      ? row.canonicalOperationDeltas
+        .map((item) => {
+          const delta = readJsonObject(item);
+          if (!delta) return null;
+          const operationId = readString(delta.operation_id);
+          const action = readString(delta.action);
+          const beforeLifecycle = readString(delta.before_lifecycle);
+          const afterLifecycle = readString(delta.after_lifecycle);
+          if (!operationId || !action) return null;
+          if (action !== "add" && action !== "update" && action !== "remove") return null;
+          return {
+            operation_id: operationId,
+            action,
+            before_lifecycle: beforeLifecycle === "active" || beforeLifecycle === "reverted" || beforeLifecycle === "superseded"
+              ? beforeLifecycle
+              : null,
+            after_lifecycle: afterLifecycle === "active" || afterLifecycle === "reverted" || afterLifecycle === "superseded"
+              ? afterLifecycle
+              : null,
+          } as HammerCanonicalOperationDelta;
+        })
+        .filter((delta): delta is HammerCanonicalOperationDelta => Boolean(delta))
       : undefined,
     toolId: row.toolId == null ? null : readString(row.toolId),
     baseStateHash: readString(row.baseStateHash) ?? undefined,
@@ -526,6 +594,57 @@ function areStudioRackEqual(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function areEditorialAuthorityGraphsEqual(
+  left: HammerEditorialAuthorityGraph | null,
+  right: HammerEditorialAuthorityGraph | null,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function buildCanonicalOperationDeltas(
+  before: HammerEditorialAuthorityGraph | null,
+  after: HammerEditorialAuthorityGraph | null,
+): HammerCanonicalOperationDelta[] {
+  const beforeOperations = new Map((before?.operations ?? []).map((operation) => [operation.operation_id, operation]));
+  const afterOperations = new Map((after?.operations ?? []).map((operation) => [operation.operation_id, operation]));
+  const operationIds = new Set<string>([
+    ...beforeOperations.keys(),
+    ...afterOperations.keys(),
+  ]);
+  const deltas: HammerCanonicalOperationDelta[] = [];
+  for (const operationId of operationIds) {
+    const beforeOperation = beforeOperations.get(operationId) ?? null;
+    const afterOperation = afterOperations.get(operationId) ?? null;
+    if (!beforeOperation && afterOperation) {
+      deltas.push({
+        operation_id: operationId,
+        action: "add",
+        before_lifecycle: null,
+        after_lifecycle: afterOperation.lifecycle,
+      });
+      continue;
+    }
+    if (beforeOperation && !afterOperation) {
+      deltas.push({
+        operation_id: operationId,
+        action: "remove",
+        before_lifecycle: beforeOperation.lifecycle,
+        after_lifecycle: null,
+      });
+      continue;
+    }
+    if (!beforeOperation || !afterOperation) continue;
+    if (JSON.stringify(beforeOperation) === JSON.stringify(afterOperation)) continue;
+    deltas.push({
+      operation_id: operationId,
+      action: "update",
+      before_lifecycle: beforeOperation.lifecycle,
+      after_lifecycle: afterOperation.lifecycle,
+    });
+  }
+  return deltas;
+}
+
 function applyPatchToState(state: HammerEditorStateSerializable, patch: JsonPatchLike): HammerEditorStateSerializable {
   const next = cloneEditorState(state);
   const parts = serializePatchPath(patch.path);
@@ -707,6 +826,20 @@ function applyPatchToState(state: HammerEditorStateSerializable, patch: JsonPatc
     return next;
   }
 
+  if (root === "editorialAuthorityGraph") {
+    if (patch.op === "remove") {
+      next.editorialAuthorityGraph = null;
+      return next;
+    }
+    const row = readJsonObject(patch.value);
+    if (!row) {
+      next.editorialAuthorityGraph = null;
+      return next;
+    }
+    next.editorialAuthorityGraph = cloneEditorialAuthorityGraph(row as unknown as HammerEditorialAuthorityGraph);
+    return next;
+  }
+
   if (root === "outputSelection") {
     if (patch.op === "remove") {
       next.outputSelection = {
@@ -849,6 +982,19 @@ export function buildStatePatches(
     });
   }
 
+  if (!areEditorialAuthorityGraphsEqual(before.editorialAuthorityGraph, after.editorialAuthorityGraph)) {
+    forward.push({
+      op: "replace",
+      path: "/editorialAuthorityGraph",
+      value: clonePatchValue(after.editorialAuthorityGraph),
+    });
+    inverse.unshift({
+      op: "replace",
+      path: "/editorialAuthorityGraph",
+      value: clonePatchValue(before.editorialAuthorityGraph),
+    });
+  }
+
   if (!areOutputSelectionsEqual(before.outputSelection, after.outputSelection)) {
     forward.push({
       op: "replace",
@@ -977,6 +1123,10 @@ export function createHammerHistoryController(args: {
     applyMutation(argsMutation) {
       const previousState = cloneEditorState(state);
       const nextState = cloneEditorState(argsMutation.nextState);
+      const canonicalOperationDeltas = buildCanonicalOperationDeltas(
+        previousState.editorialAuthorityGraph,
+        nextState.editorialAuthorityGraph,
+      );
       const patchSet = buildStatePatches(previousState, nextState);
       if (!patchSet.forward.length || !patchSet.inverse.length) {
         return null;
@@ -1004,6 +1154,9 @@ export function createHammerHistoryController(args: {
               previousEntry.forwardPatch = clonePatches(mergedPatchSet.forward);
               previousEntry.resultStateHash = hashEditorState(nextState);
               previousEntry.timestamp = new Date().toISOString();
+              previousEntry.canonicalOperationDeltas = canonicalOperationDeltas.length > 0
+                ? canonicalOperationDeltas
+                : undefined;
               state = nextState;
               updateHead();
               return previousEntry;
@@ -1021,7 +1174,13 @@ export function createHammerHistoryController(args: {
         affectedSegmentIds: argsMutation.affectedSegmentIds,
         affectedPlacementIds: argsMutation.affectedPlacementIds,
       });
-      return controller.commitTransaction(argsMutation.transactionId ?? txnId);
+      const entry = controller.commitTransaction(argsMutation.transactionId ?? txnId);
+      if (entry) {
+        entry.canonicalOperationDeltas = canonicalOperationDeltas.length > 0
+          ? canonicalOperationDeltas
+          : undefined;
+      }
+      return entry;
     },
 
     canUndo() {

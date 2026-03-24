@@ -152,6 +152,67 @@ function readInstruction(input: unknown): HammerEditInstruction | null {
         created_at: createdAt,
       };
     }
+    case "cut_range":
+    case "ripple_delete": {
+      const startSec = readNumber(row.start_sec);
+      const endSec = readNumber(row.end_sec);
+      if (startSec == null || endSec == null || endSec <= startSec) return null;
+      return {
+        instruction_id: instructionId,
+        segment_id: segmentId,
+        type,
+        start_sec: startSec,
+        end_sec: endSec,
+        created_at: createdAt,
+      };
+    }
+    case "insert_broll":
+    case "overlay_graphic": {
+      const assetRef = readString(row.asset_ref);
+      const startSec = readNumber(row.start_sec);
+      const endSec = readNumber(row.end_sec);
+      if (!assetRef || startSec == null || endSec == null || endSec <= startSec) return null;
+      return {
+        instruction_id: instructionId,
+        segment_id: segmentId,
+        type,
+        asset_ref: assetRef,
+        start_sec: startSec,
+        end_sec: endSec,
+        ...(type === "insert_broll"
+          ? { replace_clip_id: readString(row.replace_clip_id) ?? undefined }
+          : {}),
+        created_at: createdAt,
+      };
+    }
+    case "crossfade": {
+      const nextSegmentId = readString(row.next_segment_id);
+      const durationSec = readNumber(row.duration_sec);
+      if (!nextSegmentId || durationSec == null || durationSec <= 0) return null;
+      return {
+        instruction_id: instructionId,
+        segment_id: segmentId,
+        type,
+        next_segment_id: nextSegmentId,
+        duration_sec: durationSec,
+        created_at: createdAt,
+      };
+    }
+    case "audio_duck": {
+      const startSec = readNumber(row.start_sec);
+      const endSec = readNumber(row.end_sec);
+      const duckGainDb = readNumber(row.duck_gain_db);
+      if (startSec == null || endSec == null || endSec <= startSec || duckGainDb == null) return null;
+      return {
+        instruction_id: instructionId,
+        segment_id: segmentId,
+        type,
+        start_sec: startSec,
+        end_sec: endSec,
+        duck_gain_db: duckGainDb,
+        created_at: createdAt,
+      };
+    }
     default:
       return null;
   }

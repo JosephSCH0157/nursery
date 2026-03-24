@@ -8,6 +8,8 @@ import {
   buildHammerQuenchReleasePacket,
 } from "../src/lib/hammerQuenchReleasePacket";
 import type { HammerPersistedStructuredTranscript } from "../src/persistence/hammerPersistenceContract";
+import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammerRenderAssembly";
+import { buildHammerRenderAssembly } from "../src/editor/hammerRenderAssembly";
 
 const transcript: HammerPersistedStructuredTranscript = {
   schema_version: 1,
@@ -156,9 +158,59 @@ async function testManifestPathConstant() {
   assert.equal(HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH, "hammer/release-packet/manifest.v1.json");
 }
 
+async function testPacketIncludesEditorialTruthExtensionWhenProvided() {
+  const prep = buildHammerReleasePrepPackage({
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    prepStatus: "prepared",
+    alignmentStatus: "aligned",
+    structuredTranscript: transcript,
+    visualPlacements: null,
+    audioPolish: null,
+    editorSession: null,
+  });
+  const canonicalGraph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_packet_ext_01",
+      version: "1",
+      created_at: "2026-03-24T10:00:00.000Z",
+      updated_at: "2026-03-24T10:00:00.000Z",
+      source_transcript_id: "tx_release_packet",
+      instructions: [
+        {
+          instruction_id: "ins_01",
+          segment_id: "seg_001",
+          type: "delete",
+          created_at: "2026-03-24T10:00:00.000Z",
+        },
+      ],
+    },
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    sessionId: "session_demo",
+  });
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: ["delete"],
+      export_supported_operation_types: ["delete"],
+      handoff_supported_operation_types: ["delete"],
+    },
+  });
+  const packet = buildHammerQuenchReleasePacket({
+    releasePrepPackage: prep,
+    canonicalGraph,
+    renderAssembly: assembly,
+    preparedAt: "2026-03-24T10:01:00.000Z",
+  });
+  assert.equal(packet.manifest.editorial_truth?.authority_graph_id, canonicalGraph.graph_id);
+  assert.equal(packet.manifest.editorial_truth?.active_operations.length, 1);
+}
+
 async function run() {
   await testBuildQuenchPacketManifest();
   await testManifestPathConstant();
+  await testPacketIncludesEditorialTruthExtensionWhenProvided();
   // eslint-disable-next-line no-console
   console.log("Hammer Quench release packet tests passed.");
 }
