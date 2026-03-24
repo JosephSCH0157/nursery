@@ -1,8 +1,12 @@
 import type {
   HammerAudioDuckInstruction,
+  HammerDipToBlackInstruction,
   HammerEditInstruction,
+  HammerFadeAudioInstruction,
+  HammerHardCutInstruction,
   HammerInsertBrollInstruction,
   HammerRippleDeleteInstruction,
+  HammerCrossfadeInstruction,
 } from "../../../../packages/contracts/hammer/edit-instruction.contract";
 import type {
   HammerEditorialAuthorityGraph,
@@ -361,6 +365,9 @@ export interface RippleDeleteRemapSummary {
   adjustedDuckOperationIds: string[];
   removedDuckOperationIds: string[];
   orphanedDuckOperationIds: string[];
+  adjustedTransitionOperationIds: string[];
+  removedTransitionOperationIds: string[];
+  degradedTransitionOperationIds: string[];
 }
 
 function mergeReasonCodes(
@@ -388,6 +395,9 @@ export function remapResolvedBrollOperationsForRippleDelete(args: {
     adjustedDuckOperationIds: [],
     removedDuckOperationIds: [],
     orphanedDuckOperationIds: [],
+    adjustedTransitionOperationIds: [],
+    removedTransitionOperationIds: [],
+    degradedTransitionOperationIds: [],
   };
   let changed = false;
 
@@ -553,6 +563,133 @@ export function remapResolvedBrollOperationsForRippleDelete(args: {
     };
   });
 
+  operations = operations.map((operation) => {
+    if (operation.lifecycle !== "active") return operation;
+    const instruction = operation.instruction;
+    const transitionType = instruction.type;
+    const isTransitionType = (
+      transitionType === "hard_cut"
+      || transitionType === "crossfade"
+      || transitionType === "dip_to_black"
+      || transitionType === "fade_audio"
+    );
+    if (!isTransitionType) return operation;
+
+    const hasWindow = (
+      (transitionType === "hard_cut" || transitionType === "dip_to_black" || transitionType === "fade_audio")
+      || (
+        transitionType === "crossfade"
+        && typeof instruction.start_sec === "number"
+        && typeof instruction.end_sec === "number"
+      )
+    );
+    if (transitionType === "crossfade" && !hasWindow) {
+      changed = true;
+      summary.degradedTransitionOperationIds.push(operation.operation_id);
+      return {
+        ...operation,
+        capability_state: {
+          ...operation.capability_state,
+          capability: "degraded" as const,
+          reason_codes: mergeReasonCodes(operation.capability_state.reason_codes, ["operation_conflict"]),
+        },
+        truth_posture: {
+          preview: {
+            ...operation.truth_posture.preview,
+            posture: "degraded" as const,
+            capability: "degraded" as const,
+            reason_codes: mergeReasonCodes(operation.truth_posture.preview.reason_codes, ["operation_conflict"]),
+          },
+          export: {
+            ...operation.truth_posture.export,
+            posture: "degraded" as const,
+            capability: "degraded" as const,
+            reason_codes: mergeReasonCodes(operation.truth_posture.export.reason_codes, ["operation_conflict"]),
+          },
+          handoff: {
+            ...operation.truth_posture.handoff,
+            posture: "degraded" as const,
+            capability: "degraded" as const,
+            reason_codes: mergeReasonCodes(operation.truth_posture.handoff.reason_codes, ["operation_conflict"]),
+          },
+        },
+        updated_at: nowIso,
+      };
+    }
+    if (!hasWindow) return operation;
+
+    let startSec: number;
+    let endSec: number;
+    if (transitionType === "crossfade") {
+      startSec = instruction.start_sec!;
+      endSec = instruction.end_sec!;
+    } else {
+      startSec = instruction.start_sec;
+      endSec = instruction.end_sec;
+    }
+
+    const remap = remapPlacementForRippleDelete({
+      startSec,
+      endSec,
+      removedStartSec: args.removedStartSec,
+      removedEndSec: args.removedEndSec,
+    });
+    if (remap.kind === "unchanged") return operation;
+    changed = true;
+    if (remap.kind === "removed") {
+      summary.removedTransitionOperationIds.push(operation.operation_id);
+      return {
+        ...operation,
+        lifecycle: "superseded" as const,
+        superseded_by_operation_id: args.rippleDeleteOperationId,
+        updated_at: nowIso,
+      };
+    }
+    summary.adjustedTransitionOperationIds.push(operation.operation_id);
+    if (remap.needsAttention) {
+      summary.degradedTransitionOperationIds.push(operation.operation_id);
+    }
+    const nextInstruction = {
+      ...operation.instruction,
+      start_sec: remap.startSec,
+      end_sec: remap.endSec,
+    } as typeof operation.instruction;
+    return {
+      ...operation,
+      instruction: nextInstruction,
+      capability_state: remap.needsAttention
+        ? {
+          ...operation.capability_state,
+          capability: "degraded" as const,
+          reason_codes: mergeReasonCodes(operation.capability_state.reason_codes, ["operation_conflict"]),
+        }
+        : operation.capability_state,
+      truth_posture: remap.needsAttention
+        ? {
+          preview: {
+            ...operation.truth_posture.preview,
+            posture: "degraded" as const,
+            capability: "degraded" as const,
+            reason_codes: mergeReasonCodes(operation.truth_posture.preview.reason_codes, ["operation_conflict"]),
+          },
+          export: {
+            ...operation.truth_posture.export,
+            posture: "degraded" as const,
+            capability: "degraded" as const,
+            reason_codes: mergeReasonCodes(operation.truth_posture.export.reason_codes, ["operation_conflict"]),
+          },
+          handoff: {
+            ...operation.truth_posture.handoff,
+            posture: "degraded" as const,
+            capability: "degraded" as const,
+            reason_codes: mergeReasonCodes(operation.truth_posture.handoff.reason_codes, ["operation_conflict"]),
+          },
+        }
+        : operation.truth_posture,
+      updated_at: nowIso,
+    };
+  });
+
   return {
     graph: changed
       ? {
@@ -611,6 +748,109 @@ export function createAudioDuckInstruction(args: {
     end_sec: args.endSec,
     duck_gain_db: args.duckGainDb,
     linked_broll_operation_id: args.linkedBrollOperationId ?? null,
+    created_at: nowIso,
+    execution: {
+      operation_family: "audio_shaping",
+      capability: "executable",
+      status: "declared",
+      target: "preview",
+    },
+  };
+}
+
+export function createHardCutInstruction(args: {
+  segmentId: string;
+  startSec: number;
+  endSec: number;
+  nowIso?: string;
+  instructionId?: string;
+}): HammerHardCutInstruction {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  return {
+    instruction_id: args.instructionId ?? createInstructionId("hard_cut"),
+    segment_id: args.segmentId,
+    type: "hard_cut",
+    start_sec: args.startSec,
+    end_sec: args.endSec,
+    created_at: nowIso,
+    execution: {
+      operation_family: "timeline_structural",
+      capability: "executable",
+      status: "declared",
+      target: "preview",
+    },
+  };
+}
+
+export function createCrossfadeInstruction(args: {
+  segmentId: string;
+  nextSegmentId: string;
+  durationSec: number;
+  startSec?: number;
+  endSec?: number;
+  nowIso?: string;
+  instructionId?: string;
+}): HammerCrossfadeInstruction {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  return {
+    instruction_id: args.instructionId ?? createInstructionId("crossfade"),
+    segment_id: args.segmentId,
+    type: "crossfade",
+    next_segment_id: args.nextSegmentId,
+    duration_sec: args.durationSec,
+    ...(typeof args.startSec === "number" && typeof args.endSec === "number"
+      ? { start_sec: args.startSec, end_sec: args.endSec }
+      : {}),
+    created_at: nowIso,
+    execution: {
+      operation_family: "timeline_structural",
+      capability: "executable",
+      status: "declared",
+      target: "preview",
+    },
+  };
+}
+
+export function createDipToBlackInstruction(args: {
+  segmentId: string;
+  startSec: number;
+  endSec: number;
+  nowIso?: string;
+  instructionId?: string;
+}): HammerDipToBlackInstruction {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  return {
+    instruction_id: args.instructionId ?? createInstructionId("dip_to_black"),
+    segment_id: args.segmentId,
+    type: "dip_to_black",
+    start_sec: args.startSec,
+    end_sec: args.endSec,
+    created_at: nowIso,
+    execution: {
+      operation_family: "timeline_structural",
+      capability: "executable",
+      status: "declared",
+      target: "preview",
+    },
+  };
+}
+
+export function createFadeAudioInstruction(args: {
+  segmentId: string;
+  startSec: number;
+  endSec: number;
+  fadeCurve?: "linear" | "log";
+  nowIso?: string;
+  instructionId?: string;
+}): HammerFadeAudioInstruction {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  return {
+    instruction_id: args.instructionId ?? createInstructionId("fade_audio"),
+    segment_id: args.segmentId,
+    type: "fade_audio",
+    start_sec: args.startSec,
+    end_sec: args.endSec,
+    fade_curve: args.fadeCurve ?? "linear",
     created_at: nowIso,
     execution: {
       operation_family: "audio_shaping",

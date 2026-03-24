@@ -152,6 +152,7 @@ function readInstruction(input: unknown): HammerEditInstruction | null {
         created_at: createdAt,
       };
     }
+    case "hard_cut":
     case "cut_range":
     case "ripple_delete": {
       const startSec = readNumber(row.start_sec);
@@ -201,12 +202,44 @@ function readInstruction(input: unknown): HammerEditInstruction | null {
       const nextSegmentId = readString(row.next_segment_id);
       const durationSec = readNumber(row.duration_sec);
       if (!nextSegmentId || durationSec == null || durationSec <= 0) return null;
+      const startSec = readNumber(row.start_sec);
+      const endSec = readNumber(row.end_sec);
       return {
         instruction_id: instructionId,
         segment_id: segmentId,
         type,
         next_segment_id: nextSegmentId,
         duration_sec: durationSec,
+        ...(startSec != null && endSec != null && endSec > startSec
+          ? { start_sec: startSec, end_sec: endSec }
+          : {}),
+        created_at: createdAt,
+      };
+    }
+    case "dip_to_black": {
+      const startSec = readNumber(row.start_sec);
+      const endSec = readNumber(row.end_sec);
+      if (startSec == null || endSec == null || endSec <= startSec) return null;
+      return {
+        instruction_id: instructionId,
+        segment_id: segmentId,
+        type,
+        start_sec: startSec,
+        end_sec: endSec,
+        created_at: createdAt,
+      };
+    }
+    case "fade_audio": {
+      const startSec = readNumber(row.start_sec);
+      const endSec = readNumber(row.end_sec);
+      if (startSec == null || endSec == null || endSec <= startSec) return null;
+      return {
+        instruction_id: instructionId,
+        segment_id: segmentId,
+        type,
+        start_sec: startSec,
+        end_sec: endSec,
+        fade_curve: readString(row.fade_curve) === "log" ? "log" : "linear",
         created_at: createdAt,
       };
     }

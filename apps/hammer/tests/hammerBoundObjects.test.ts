@@ -107,9 +107,50 @@ async function testAttentionQueueIncludesUnresolvedAndDegraded() {
   assert.equal(queue[0]?.reasons.includes("awaiting_resolution"), true);
 }
 
+async function testTransitionBoundObjectAppearsInAttentionQueueWhenUnsupported() {
+  const graph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_transition_queue",
+      version: "1",
+      created_at: "2026-03-24T10:00:00.000Z",
+      updated_at: "2026-03-24T10:00:00.000Z",
+      source_transcript_id: "tx_transition_queue",
+      preview_mode: "edit-aware",
+      instructions: [
+        {
+          instruction_id: "ins_dip_transition",
+          segment_id: "seg_01",
+          type: "dip_to_black",
+          start_sec: 2,
+          end_sec: 2.6,
+          created_at: "2026-03-24T10:00:00.000Z",
+        },
+      ],
+    },
+    workspaceId: "ws_transition_queue",
+    workpieceId: "wp_transition_queue",
+    sessionId: "session_transition_queue",
+  });
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph: graph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: ["hard_cut"],
+      export_supported_operation_types: ["hard_cut"],
+      handoff_supported_operation_types: ["dip_to_black"],
+    },
+  });
+  const queue = deriveHammerBoundAttentionQueue(deriveHammerBoundObjects({
+    canonical_graph: graph,
+    render_assembly: assembly,
+  }));
+  assert.equal(queue.length, 1);
+  assert.equal(queue[0]?.object_type, "transition");
+}
+
 async function run() {
   await testDeriveBoundObjectsForBrollAndDuck();
   await testAttentionQueueIncludesUnresolvedAndDegraded();
+  await testTransitionBoundObjectAppearsInAttentionQueueWhenUnsupported();
   // eslint-disable-next-line no-console
   console.log("Hammer bound objects tests passed.");
 }

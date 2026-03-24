@@ -172,6 +172,10 @@ import {
   appendAuthorityInstructionToGraph,
   createHearthBrollSuggestionInstruction,
   createAudioDuckInstruction,
+  createCrossfadeInstruction,
+  createDipToBlackInstruction,
+  createFadeAudioInstruction,
+  createHardCutInstruction,
   createInsertBrollInstruction,
   createRippleDeleteInstruction,
   remapResolvedBrollOperationsForRippleDelete,
@@ -198,19 +202,22 @@ const SCRUB_SEEK_THRESHOLD_SEC = 0.05;
 const SCRUB_RATE_OPTIONS = [1, 0.75, 0.5] as const;
 const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
 const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
-  preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge"],
-  export_supported_operation_types: ["delete", "mute", "trim", "split", "merge"],
+  preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut"],
+  export_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut"],
   handoff_supported_operation_types: [
     "delete",
     "mute",
     "trim",
     "split",
     "merge",
+    "hard_cut",
     "cut_range",
     "ripple_delete",
     "insert_broll",
     "overlay_graphic",
     "crossfade",
+    "dip_to_black",
+    "fade_audio",
     "audio_duck",
   ],
 };
@@ -334,7 +341,7 @@ type HammerBoundBrollInspectorState = {
 
 type HammerBoundAttentionItem = {
   operationId: string;
-  kind: "unresolved_suggestion" | "degraded_binding" | "superseded_binding";
+  kind: "unresolved_suggestion" | "degraded_binding" | "superseded_binding" | "transition_attention";
   label: string;
   reasons: string[];
 };
@@ -1439,14 +1446,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         };
       });
   }, [brollSuggestionItems, editableVisualPlacements?.placements]);
-  const brollOperationById = useMemo(() => {
-    const byId = new Map<string, HammerEditorialAuthorityGraph["operations"][number]>();
-    for (const operation of editableEditorialAuthorityGraph?.operations ?? []) {
-      if (operation.instruction.type !== "insert_broll") continue;
-      byId.set(operation.operation_id, operation);
-    }
-    return byId;
-  }, [editableEditorialAuthorityGraph?.operations]);
   const sourceImageLibraryItems = useMemo(
     () => storedMediaFiles.filter((file) => file.kind === "image"),
     [storedMediaFiles],
@@ -3152,12 +3151,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           : {
             graph: withRippleDelete,
             summary: {
-              adjustedOperationIds: [],
-              removedOperationIds: [],
-              attentionOperationIds: [],
-              adjustedDuckOperationIds: [],
-              removedDuckOperationIds: [],
-              orphanedDuckOperationIds: [],
+              adjustedOperationIds: [] as string[],
+              removedOperationIds: [] as string[],
+              attentionOperationIds: [] as string[],
+              adjustedDuckOperationIds: [] as string[],
+              removedDuckOperationIds: [] as string[],
+              orphanedDuckOperationIds: [] as string[],
+              adjustedTransitionOperationIds: [] as string[],
+              removedTransitionOperationIds: [] as string[],
+              degradedTransitionOperationIds: [] as string[],
             },
           };
 
@@ -3972,9 +3974,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setActiveTool("video");
     setFocusOverride("tool-focus");
     setSelectedBoundBrollOperationId(operationId);
-    const operation = brollOperationById.get(operationId) ?? null;
-    if (operation && operation.instruction.type === "insert_broll") {
-      seekPlayheadToTime(operation.instruction.start_sec, "playhead");
+    const object = boundObjectById.get(operationId) ?? null;
+    if (object) {
+      seekPlayheadToTime(object.placement_window.start_sec, "playhead");
     }
   }
 
@@ -3987,6 +3989,57 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const target = boundAttentionQueue[nextIndex] ?? null;
     if (!target) return;
     focusBoundAttentionOperation(target.operationId);
+  }
+
+  function addMinimalTransition(transitionType: "hard_cut" | "crossfade" | "dip_to_black" | "fade_audio"): void {
+    applyHistoryMutation({
+      label: `Add ${transitionType.replace("_", " ")}`,
+      kind: "visual_adjustment",
+      toolId: "video",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const graph = before.editorialAuthorityGraph;
+        if (!graph) return before;
+        const segment = before.selectedSegmentId
+          ? before.transcriptSegments.find((item) => item.segment_id === before.selectedSegmentId) ?? null
+          : before.transcriptSegments[0] ?? null;
+        if (!segment) return before;
+        const startSec = Math.max(0, roundToTenth(before.playheadSec));
+        const defaultDuration = transitionType === "hard_cut" ? 0.1 : transitionType === "crossfade" ? 0.6 : 0.5;
+        const endSec = Math.min(transcriptDurationSec, roundToTenth(startSec + defaultDuration));
+        const instruction = transitionType === "hard_cut"
+          ? createHardCutInstruction({
+            segmentId: segment.segment_id,
+            startSec,
+            endSec: Math.max(startSec + 0.1, endSec),
+          })
+          : transitionType === "crossfade"
+          ? createCrossfadeInstruction({
+            segmentId: segment.segment_id,
+            nextSegmentId: before.transcriptSegments.find((item) => item.start_sec >= segment.end_sec)?.segment_id ?? segment.segment_id,
+            durationSec: Math.max(0.1, endSec - startSec),
+            startSec,
+            endSec: Math.max(startSec + 0.1, endSec),
+          })
+          : transitionType === "dip_to_black"
+          ? createDipToBlackInstruction({
+            segmentId: segment.segment_id,
+            startSec,
+            endSec: Math.max(startSec + 0.1, endSec),
+          })
+          : createFadeAudioInstruction({
+            segmentId: segment.segment_id,
+            startSec,
+            endSec: Math.max(startSec + 0.1, endSec),
+            fadeCurve: "linear",
+          });
+        const nextGraph = appendAuthorityInstructionForState(before, instruction);
+        return {
+          ...before,
+          editorialAuthorityGraph: nextGraph,
+        };
+      },
+    });
   }
 
   function selectOutputLayerForExport(layerId: string | null): void {
@@ -4552,11 +4605,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     resolvedBrollBindingItems,
     selectedBoundBrollOperationId,
   ]);
+  const selectedTransitionBoundObject = useMemo(() => {
+    const selectedOperationId = selectedBoundBrollOperationId ?? null;
+    if (!selectedOperationId) return null;
+    const selectedBoundObject = boundObjectById.get(selectedOperationId) ?? null;
+    if (!selectedBoundObject || selectedBoundObject.type !== "transition") return null;
+    return selectedBoundObject;
+  }, [boundObjectById, selectedBoundBrollOperationId]);
   const boundAttentionQueue = useMemo<HammerBoundAttentionItem[]>(() => {
     const queue = deriveHammerBoundAttentionQueue(boundObjects);
     return queue.map((item) => ({
       operationId: item.object_id,
-      kind: item.reasons.includes("awaiting_resolution")
+      kind: item.object_type === "transition"
+        ? "transition_attention"
+        : item.reasons.includes("awaiting_resolution")
         ? "unresolved_suggestion"
         : item.reasons.includes("superseded_by_structural_edit")
         ? "superseded_binding"
@@ -4570,13 +4632,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     unresolvedCount: boundAttentionQueue.filter((item) => item.kind === "unresolved_suggestion").length,
     degradedCount: boundAttentionQueue.filter((item) => item.kind === "degraded_binding").length,
     supersededCount: boundAttentionQueue.filter((item) => item.kind === "superseded_binding").length,
+    transitionCount: boundAttentionQueue.filter((item) => item.kind === "transition_attention").length,
   }), [boundAttentionQueue]);
   const selectedAttentionIndex = useMemo(
     () => boundAttentionQueue.findIndex((item) => item.operationId === selectedBoundBrollOperationId),
     [boundAttentionQueue, selectedBoundBrollOperationId],
   );
   useEffect(() => {
-    if ((editableEditorialAuthorityGraph?.operations ?? []).filter((operation) => operation.instruction.type === "insert_broll").length === 0) {
+    const selectableObjects = boundObjects.filter((object) => object.type === "broll" || object.type === "transition");
+    if (selectableObjects.length === 0) {
       if (selectedBoundBrollOperationId != null) {
         setSelectedBoundBrollOperationId(null);
       }
@@ -4584,17 +4648,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     if (!selectedBoundBrollOperationId) {
       const preferredAttention = boundAttentionQueue[0]?.operationId ?? null;
-      const firstBroll = [...brollOperationById.keys()][0] ?? null;
-      setSelectedBoundBrollOperationId(preferredAttention ?? firstBroll);
+      const firstObject = selectableObjects[0]?.object_id ?? null;
+      setSelectedBoundBrollOperationId(preferredAttention ?? firstObject);
       return;
     }
-    const stillExists = brollOperationById.has(selectedBoundBrollOperationId);
+    const stillExists = selectableObjects.some((object) => object.object_id === selectedBoundBrollOperationId);
     if (!stillExists) {
       const preferredAttention = boundAttentionQueue[0]?.operationId ?? null;
-      const firstBroll = [...brollOperationById.keys()][0] ?? null;
-      setSelectedBoundBrollOperationId(preferredAttention ?? firstBroll);
+      const firstObject = selectableObjects[0]?.object_id ?? null;
+      setSelectedBoundBrollOperationId(preferredAttention ?? firstObject);
     }
-  }, [boundAttentionQueue, brollOperationById, editableEditorialAuthorityGraph?.operations, selectedBoundBrollOperationId]);
+  }, [boundAttentionQueue, boundObjects, selectedBoundBrollOperationId]);
   const releasePrepOpenHref = useMemo(() => {
     if (!props.releasePrepHref || !loadedPreparedPackage) return null;
     try {
@@ -7248,7 +7312,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   </div>
                   <div className="hammer-tool-hint">
                     Needs review: {boundAttentionSummary.total}
-                    {` (unresolved ${boundAttentionSummary.unresolvedCount}, degraded ${boundAttentionSummary.degradedCount}, superseded ${boundAttentionSummary.supersededCount})`}
+                    {` (unresolved ${boundAttentionSummary.unresolvedCount}, degraded ${boundAttentionSummary.degradedCount}, superseded ${boundAttentionSummary.supersededCount}, transitions ${boundAttentionSummary.transitionCount})`}
+                  </div>
+                  <div className="hammer-source-card__actions">
+                    <button type="button" onClick={() => addMinimalTransition("hard_cut")}>Add Hard Cut</button>
+                    <button type="button" onClick={() => addMinimalTransition("crossfade")}>Add Crossfade</button>
+                    <button type="button" onClick={() => addMinimalTransition("dip_to_black")}>Add Dip To Black</button>
+                    <button type="button" onClick={() => addMinimalTransition("fade_audio")}>Add Fade Audio</button>
                   </div>
                   <div className="hammer-source-card__actions">
                     <button
@@ -7408,9 +7478,31 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         </div>
                       ) : null}
                     </section>
+                  ) : selectedTransitionBoundObject ? (
+                    <section className="hammer-cleanup-tool">
+                      <div className="hammer-cleanup-tool__head">
+                        <strong>Transition Inspector</strong>
+                        <span>{selectedTransitionBoundObject.object_id}</span>
+                      </div>
+                      <div className="hammer-tool-hint">
+                        Type: {selectedTransitionBoundObject.payload.transition_kind}
+                      </div>
+                      <div className="hammer-tool-hint">
+                        Window: {selectedTransitionBoundObject.placement_window.start_sec.toFixed(1)}s - {selectedTransitionBoundObject.placement_window.end_sec.toFixed(1)}s
+                      </div>
+                      <div className="hammer-tool-hint">
+                        Posture: preview {selectedTransitionBoundObject.posture.preview}
+                        {` · export ${selectedTransitionBoundObject.posture.export} · handoff ${selectedTransitionBoundObject.posture.handoff}`}
+                      </div>
+                      <div className="hammer-tool-hint">
+                        Attention: {selectedTransitionBoundObject.attention_flags.length > 0
+                          ? selectedTransitionBoundObject.attention_flags.join(", ")
+                          : "none"}
+                      </div>
+                    </section>
                   ) : (
                     <div className="hammer-tool-hint">
-                      Select a resolved B-roll binding from Source Desk to inspect canonical linkage and attention state.
+                      Select a bound object from the queue or Source Desk to inspect canonical linkage and attention state.
                     </div>
                   )}
                 </section>

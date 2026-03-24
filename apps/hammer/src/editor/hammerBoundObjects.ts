@@ -2,7 +2,7 @@ import type { HammerEditInstruction } from "../../../../packages/contracts/hamme
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import type { HammerRenderAssemblyResult } from "./hammerRenderAssembly";
 
-export type HammerBoundObjectType = "broll" | "audio_duck";
+export type HammerBoundObjectType = "broll" | "audio_duck" | "transition";
 export type HammerBoundObjectLifecycle = "active" | "reverted" | "superseded";
 export type HammerBoundObjectBindingState = "resolved" | "unresolved" | "not_applicable";
 export type HammerBoundObjectPosture = "authoritative" | "degraded" | "unavailable";
@@ -42,9 +42,18 @@ export interface HammerBoundDuckPayload {
   linked_broll_operation_id: string | null;
 }
 
+export interface HammerBoundTransitionPayload {
+  segment_id: string;
+  transition_kind: "hard_cut" | "crossfade" | "dip_to_black" | "fade_audio";
+  next_segment_id: string | null;
+  duration_sec: number | null;
+  fade_curve: "linear" | "log" | null;
+}
+
 export type HammerBoundObject =
   | (HammerBoundObjectCore & { type: "broll"; payload: HammerBoundBrollPayload })
-  | (HammerBoundObjectCore & { type: "audio_duck"; payload: HammerBoundDuckPayload });
+  | (HammerBoundObjectCore & { type: "audio_duck"; payload: HammerBoundDuckPayload })
+  | (HammerBoundObjectCore & { type: "transition"; payload: HammerBoundTransitionPayload });
 
 export interface HammerBoundObjectBuildContext {
   canonical_graph: HammerEditorialAuthorityGraph | null;
@@ -178,8 +187,76 @@ function buildDuckAdapter(): HammerBoundObjectAdapter {
   };
 }
 
+function buildTransitionAdapter(): HammerBoundObjectAdapter {
+  return {
+    type: "transition",
+    can_adapt: (instruction) => (
+      instruction.type === "hard_cut"
+      || instruction.type === "crossfade"
+      || instruction.type === "dip_to_black"
+      || instruction.type === "fade_audio"
+    ),
+    adapt: ({ operation, render_operation }) => {
+      if (
+        operation.instruction.type !== "hard_cut"
+        && operation.instruction.type !== "crossfade"
+        && operation.instruction.type !== "dip_to_black"
+        && operation.instruction.type !== "fade_audio"
+      ) {
+        return null;
+      }
+      const startSec = typeof operation.instruction.start_sec === "number"
+        ? operation.instruction.start_sec
+        : 0;
+      const fallbackEnd = operation.instruction.type === "crossfade"
+        ? startSec + operation.instruction.duration_sec
+        : startSec;
+      const endSec = typeof operation.instruction.end_sec === "number"
+        ? operation.instruction.end_sec
+        : fallbackEnd;
+      return {
+        object_id: operation.operation_id,
+        authority_operation_id: operation.operation_id,
+        type: "transition",
+        lifecycle_state: operation.lifecycle,
+        intent_source: "system",
+        placement_window: {
+          start_sec: startSec,
+          end_sec: endSec,
+        },
+        binding_state: "not_applicable",
+        posture: {
+          preview: render_operation?.preview_posture ?? "unavailable",
+          export: render_operation?.export_posture ?? "unavailable",
+          handoff: render_operation?.handoff_posture ?? "unavailable",
+        },
+        capability: render_operation?.capability ?? operation.capability_state.capability,
+        attention_flags: resolveAttentionFlags({
+          operation,
+          renderOperation: render_operation,
+          bindingState: "not_applicable",
+        }),
+        linked_object_ids: [],
+        payload: {
+          segment_id: operation.instruction.segment_id,
+          transition_kind: operation.instruction.type,
+          next_segment_id: operation.instruction.type === "crossfade"
+            ? operation.instruction.next_segment_id
+            : null,
+          duration_sec: operation.instruction.type === "crossfade"
+            ? operation.instruction.duration_sec
+            : endSec - startSec,
+          fade_curve: operation.instruction.type === "fade_audio"
+            ? operation.instruction.fade_curve ?? "linear"
+            : null,
+        },
+      };
+    },
+  };
+}
+
 export function createHammerBoundObjectRegistry(): HammerBoundObjectAdapter[] {
-  return [buildBrollAdapter(), buildDuckAdapter()];
+  return [buildBrollAdapter(), buildDuckAdapter(), buildTransitionAdapter()];
 }
 
 export function deriveHammerBoundObjects(args: HammerBoundObjectBuildContext): HammerBoundObject[] {
@@ -189,7 +266,7 @@ export function deriveHammerBoundObjects(args: HammerBoundObjectBuildContext): H
     renderByOperationId.set(operation.operation_id, operation);
   }
   const registry = createHammerBoundObjectRegistry();
-  return args.canonical_graph.operations
+  return [...args.canonical_graph.operations]
     .sort((left, right) => left.sequence - right.sequence)
     .flatMap((operation) => {
       const adapter = registry.find((candidate) => candidate.can_adapt(operation.instruction));
@@ -211,7 +288,7 @@ export function deriveHammerBoundAttentionQueue(boundObjects: HammerBoundObject[
   label: string;
 }> {
   return boundObjects
-    .filter((object) => object.type === "broll")
+    .filter((object) => object.type === "broll" || object.type === "transition")
     .flatMap((object) => {
       const reasons = [...object.attention_flags];
       if (
@@ -229,7 +306,7 @@ export function deriveHammerBoundAttentionQueue(boundObjects: HammerBoundObject[
         reasons: unique(reasons),
         label: object.type === "broll"
           ? object.payload.intent_description ?? object.payload.intent_ref ?? object.payload.asset_ref
-          : object.object_id,
+          : object.payload.transition_kind,
       }];
     });
 }

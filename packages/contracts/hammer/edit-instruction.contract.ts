@@ -4,11 +4,14 @@ export type HammerEditInstructionType =
   | "trim"
   | "split"
   | "merge"
+  | "hard_cut"
   | "cut_range"
   | "ripple_delete"
   | "insert_broll"
   | "overlay_graphic"
   | "crossfade"
+  | "dip_to_black"
+  | "fade_audio"
   | "audio_duck";
 
 export type HammerEditInstructionOperationFamily =
@@ -79,6 +82,12 @@ export interface HammerCutRangeInstruction extends HammerEditInstructionBase {
   end_sec: number;
 }
 
+export interface HammerHardCutInstruction extends HammerEditInstructionBase {
+  type: "hard_cut";
+  start_sec: number;
+  end_sec: number;
+}
+
 export interface HammerRippleDeleteInstruction extends HammerEditInstructionBase {
   type: "ripple_delete";
   start_sec: number;
@@ -110,6 +119,21 @@ export interface HammerCrossfadeInstruction extends HammerEditInstructionBase {
   type: "crossfade";
   next_segment_id: string;
   duration_sec: number;
+  start_sec?: number;
+  end_sec?: number;
+}
+
+export interface HammerDipToBlackInstruction extends HammerEditInstructionBase {
+  type: "dip_to_black";
+  start_sec: number;
+  end_sec: number;
+}
+
+export interface HammerFadeAudioInstruction extends HammerEditInstructionBase {
+  type: "fade_audio";
+  start_sec: number;
+  end_sec: number;
+  fade_curve?: "linear" | "log";
 }
 
 export interface HammerAudioDuckInstruction extends HammerEditInstructionBase {
@@ -126,11 +150,14 @@ export type HammerEditInstruction =
   | HammerTrimInstruction
   | HammerSplitInstruction
   | HammerMergeInstruction
+  | HammerHardCutInstruction
   | HammerCutRangeInstruction
   | HammerRippleDeleteInstruction
   | HammerInsertBrollInstruction
   | HammerOverlayGraphicInstruction
   | HammerCrossfadeInstruction
+  | HammerDipToBlackInstruction
+  | HammerFadeAudioInstruction
   | HammerAudioDuckInstruction;
 
 export type HammerCutInstructionType = HammerEditInstructionType;
