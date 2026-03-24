@@ -15,17 +15,27 @@ import type {
 } from "../persistence/hammerPersistenceContract";
 import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import {
+  DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
+  LARGE_PLAYHEAD_NUDGE_SEC,
+  SMALL_PLAYHEAD_NUDGE_SEC,
   deleteSegmentAndRipple,
   moveSegmentTiming,
+  resolveAdjacentSegmentSelection,
+  resolveEffectivePlaybackTime,
   resolveFocusAfterPlayheadChange,
   resolvePlayheadAfterDelete,
   resolvePreviewLabel,
   resolvePlayheadSegment,
+  resolveSelectedSegmentAfterDelete,
+  resolveTimelineBoundaryTimes,
   resolveWorkspaceFocusMode,
   roundToTenth,
+  snapPlayheadToBoundary,
   splitSegmentAtTime,
+  toggleSegmentDisabled,
   trimSegmentEndTiming,
   trimSegmentStartTiming,
+  updateSegmentGain,
   updateSegmentInTimeline,
   type HammerWorkspaceFocusOverride,
   type HammerWorkspaceToolId,
@@ -119,6 +129,7 @@ const SOURCE_DESK_PREVIEW_MAX_ITEMS = 48;
 const HISTORY_MAX_SIZE = 100;
 const HISTORY_PERSIST_DEBOUNCE_MS = 900;
 const TEXT_EDIT_COALESCE_MS = 1500;
+const PLAYHEAD_SNAP_TOLERANCE_SEC = DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC;
 
 type HammerToolId = HammerWorkspaceToolId;
 type HammerSourceTabId = "transcript" | "images" | "assets" | "broll" | "introoutro";
@@ -187,6 +198,7 @@ type HammerTimelineLaneBlock = {
   startSec: number;
   endSec: number;
   selected: boolean;
+  disabled?: boolean;
   tone: "dialogue" | "image" | "broll";
   onSelect: () => void;
 };
@@ -571,6 +583,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const selectedSegment = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId) ?? null;
   const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
   const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
+  const playheadBoundaryTimesSec = useMemo(
+    () => resolveTimelineBoundaryTimes(editableTranscriptSegments),
+    [editableTranscriptSegments],
+  );
   const sourceImageItems = useMemo<HammerSourceImageItem[]>(() => (
     (editableVisualPlacements?.placements ?? []).map((placement) => ({
       id: placement.placement_id,
@@ -684,10 +700,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const dialogueLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
     editableTranscriptSegments.map((segment) => ({
       id: `dialogue:${segment.segment_id}`,
-      label: segment.speaker,
+      label: segment.is_disabled ? `${segment.speaker} (disabled)` : segment.speaker,
       startSec: segment.start_sec,
       endSec: segment.end_sec,
       selected: segment.segment_id === selectedSegmentId,
+      disabled: segment.is_disabled === true,
       tone: "dialogue",
       onSelect: () => {
         selectionOriginRef.current = "timeline";
@@ -1147,11 +1164,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [launchContext.workpiece_id, transcriptSourceId]);
 
   useEffect(() => {
-    const segment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
-    if (!segment) return;
-    if (segment.segment_id === selectedSegmentId) return;
-    selectionOriginRef.current = "playhead";
-    setSelectedSegmentId(segment.segment_id);
+    const selectedStillExists = selectedSegmentId
+      ? editableTranscriptSegments.some((segment) => segment.segment_id === selectedSegmentId)
+      : false;
+    if (selectedStillExists) return;
+
+    const fallbackSegment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec)
+      ?? editableTranscriptSegments[0]
+      ?? null;
+    const nextSegmentId = fallbackSegment?.segment_id ?? null;
+    if (nextSegmentId === selectedSegmentId) return;
+    selectionOriginRef.current = "system";
+    setSelectedSegmentId(nextSegmentId);
   }, [editableTranscriptSegments, playheadSec, selectedSegmentId]);
 
   useEffect(() => {
@@ -1169,20 +1193,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     const intervalId = window.setInterval(() => {
       setPlayheadSec((current) => {
-        const next = roundToTenth(current + 0.1);
-        if (next >= transcriptDurationSec) {
+        const next = roundToTenth(current + SMALL_PLAYHEAD_NUDGE_SEC);
+        const effectiveNext = resolveEffectivePlaybackTime(editableTranscriptSegments, next);
+        if (effectiveNext >= transcriptDurationSec) {
           window.clearInterval(intervalId);
           setIsPlaybackActive(false);
           return roundToTenth(transcriptDurationSec);
         }
-        return next;
+        return effectiveNext;
       });
     }, 100);
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isPlaybackActive, transcriptDurationSec]);
+  }, [editableTranscriptSegments, isPlaybackActive, transcriptDurationSec]);
 
   useEffect(() => {
     if (!selectedSegmentId) return;
@@ -1439,8 +1464,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   function seekPlayheadToTime(nextTimeSec: number, origin: "timeline" | "playhead" = "timeline"): void {
     const clamped = Math.max(0, Math.min(timelineDurationSec, roundToTenth(nextTimeSec)));
+    const snapped = snapPlayheadToBoundary({
+      nextPlayheadSec: clamped,
+      boundaryTimesSec: playheadBoundaryTimesSec,
+      toleranceSec: PLAYHEAD_SNAP_TOLERANCE_SEC,
+    });
     selectionOriginRef.current = origin;
-    setPlayheadSec(clamped);
+    setPlayheadSec(snapped);
     setFocusOverride(resolveFocusAfterPlayheadChange(focusOverride));
   }
 
@@ -1466,7 +1496,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       affectedSegments: [selectedSegmentId],
       immediatePersist: true,
       computeAfter: (before) => {
-        const split = splitSegmentAtTime(before.transcriptSegments, selectedSegmentId, before.playheadSec);
+        const boundaries = resolveTimelineBoundaryTimes(before.transcriptSegments);
+        const snappedPlayhead = snapPlayheadToBoundary({
+          nextPlayheadSec: before.playheadSec,
+          boundaryTimesSec: boundaries,
+          toleranceSec: PLAYHEAD_SNAP_TOLERANCE_SEC,
+        });
+        const split = splitSegmentAtTime(before.transcriptSegments, selectedSegmentId, snappedPlayhead);
         if (!split.changed || split.splitSec == null) return before;
         return {
           ...before,
@@ -1501,8 +1537,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         const deleted = deleteSegmentAndRipple(before.transcriptSegments, selectedSegmentId);
         if (!deleted.changed || !deleted.removedSegment) return before;
 
-        const fallbackIndex = Math.min(deleted.removedIndex, Math.max(0, deleted.segments.length - 1));
-        const fallbackSelection = deleted.segments[fallbackIndex]?.segment_id ?? null;
+        const fallbackSelection = resolveSelectedSegmentAfterDelete({
+          segmentsAfterDelete: deleted.segments,
+          removedIndex: deleted.removedIndex,
+        });
         const nextSelection = before.selectedSegmentId === selectedSegmentId
           ? fallbackSelection
           : before.selectedSegmentId;
@@ -1523,6 +1561,73 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
 
     setFocusOverride("time-focus");
+  }
+
+  function selectAdjacentSegment(direction: "previous" | "next"): void {
+    const nextSegmentId = resolveAdjacentSegmentSelection(
+      editableTranscriptSegments,
+      selectedSegmentId,
+      direction,
+    );
+    if (!nextSegmentId || nextSegmentId === selectedSegmentId) return;
+    const nextSegment = editableTranscriptSegments.find((segment) => segment.segment_id === nextSegmentId) ?? null;
+    selectionOriginRef.current = "timeline";
+    setSelectedSegmentId(nextSegmentId);
+    if (nextSegment) {
+      seekPlayheadToTime(nextSegment.start_sec, "playhead");
+    }
+    setFocusOverride("time-focus");
+  }
+
+  function nudgePlayhead(deltaSec: number): void {
+    seekPlayheadToTime(playheadSec + deltaSec, "playhead");
+  }
+
+  function toggleSelectedSegmentDisabled(): void {
+    if (!selectedSegmentId) {
+      setTranscriptTimingHint("Select a segment to disable.");
+      return;
+    }
+
+    applyHistoryMutation({
+      label: "Toggle segment disable",
+      kind: "segment_structure",
+      affectedSegments: [selectedSegmentId],
+      immediatePersist: true,
+      computeAfter: (before) => ({
+        ...before,
+        transcriptSegments: updateSegmentInTimeline(
+          before.transcriptSegments,
+          selectedSegmentId,
+          (segment) => toggleSegmentDisabled(segment),
+        ),
+        transcriptTimingHint: null,
+      }),
+    });
+  }
+
+  function adjustSelectedSegmentGain(deltaDb: number): void {
+    if (!selectedSegmentId) {
+      setTranscriptTimingHint("Select a segment to adjust gain.");
+      return;
+    }
+
+    applyHistoryMutation({
+      label: deltaDb > 0 ? "Increase segment gain" : "Decrease segment gain",
+      kind: "editor_state_change",
+      toolId: "audio",
+      affectedSegments: [selectedSegmentId],
+      immediatePersist: true,
+      computeAfter: (before) => ({
+        ...before,
+        transcriptSegments: updateSegmentInTimeline(
+          before.transcriptSegments,
+          selectedSegmentId,
+          (segment) => updateSegmentGain(segment, deltaDb),
+        ),
+        transcriptTimingHint: null,
+      }),
+    });
   }
 
   function togglePlayback(): void {
@@ -1712,6 +1817,34 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       if (isKeyboardEditingTarget(event.target)) return;
 
       if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          event.stopPropagation();
+          nudgePlayhead(event.shiftKey ? -LARGE_PLAYHEAD_NUDGE_SEC : -SMALL_PLAYHEAD_NUDGE_SEC);
+          return;
+        }
+
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          event.stopPropagation();
+          nudgePlayhead(event.shiftKey ? LARGE_PLAYHEAD_NUDGE_SEC : SMALL_PLAYHEAD_NUDGE_SEC);
+          return;
+        }
+
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          event.stopPropagation();
+          selectAdjacentSegment("previous");
+          return;
+        }
+
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          event.stopPropagation();
+          selectAdjacentSegment("next");
+          return;
+        }
+
         if (event.key === " " || event.code === "Space") {
           event.preventDefault();
           event.stopPropagation();
@@ -1730,6 +1863,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           event.preventDefault();
           event.stopPropagation();
           deleteSelectedSegmentAndRipple();
+          return;
+        }
+
+        if (event.key.toLowerCase() === "m") {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleSelectedSegmentDisabled();
+          return;
+        }
+
+        if (event.key === "[" || event.key === "]") {
+          event.preventDefault();
+          event.stopPropagation();
+          adjustSelectedSegmentGain(event.key === "]" ? 1 : -1);
           return;
         }
       }
@@ -1755,11 +1902,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return () => {
       window.removeEventListener("keydown", handleKeyboardHistory);
     };
-  }, [deleteSelectedSegmentAndRipple, redoHistory, splitSelectedSegmentAtPlayhead, togglePlayback, undoHistory]);
+  }, [
+    adjustSelectedSegmentGain,
+    deleteSelectedSegmentAndRipple,
+    nudgePlayhead,
+    redoHistory,
+    selectAdjacentSegment,
+    splitSelectedSegmentAtPlayhead,
+    togglePlayback,
+    toggleSelectedSegmentDisabled,
+    undoHistory,
+  ]);
 
   const exportBasis = useMemo(() => {
+    const exportTranscriptSegments = editableTranscriptSegments.filter((segment) => !segment.is_disabled);
     const transcriptForReleaseBase = preserveTranscriptMetadata(
-      editableTranscriptSegments,
+      exportTranscriptSegments,
       props.structuredTranscript ?? null,
       mediaRef,
       transcriptSourceId,
@@ -2240,13 +2398,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             "hammer-transcript-line",
                             segment.segment_id === selectedSegmentId ? "is-active" : "",
                             modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
+                            segment.is_disabled ? "is-disabled" : "",
                           ].filter(Boolean).join(" ")}
                           onClick={() => {
                             selectionOriginRef.current = "transcript";
                             setFocusOverride("source-focus");
                             setSelectedSegmentId(segment.segment_id);
                             setTranscriptTimingHint(null);
-                            setPlayheadSec(segment.start_sec);
+                            seekPlayheadToTime(segment.start_sec, "playhead");
                           }}
                           ref={(element) => {
                             if (element) {
@@ -2261,6 +2420,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             {" · "}
                             {(segment.end_sec - segment.start_sec).toFixed(1)}s
                             {modifiedTranscriptSegmentIds.has(segment.segment_id) ? " · modified" : ""}
+                            {segment.is_disabled ? " · disabled" : ""}
+                            {segment.gain_db != null && segment.gain_db !== 0 ? ` · gain ${segment.gain_db.toFixed(1)}dB` : ""}
                           </span>
                           <span className="hammer-transcript-line__speaker">{segment.speaker}:</span>
                           <span className="hammer-transcript-line__text">{segment.text}</span>
@@ -3125,11 +3286,26 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               <button type="button" onClick={togglePlayback}>
                 {isPlaybackActive ? "Pause" : "Play"}
               </button>
+              <button type="button" onClick={() => selectAdjacentSegment("previous")} disabled={!selectedSegment}>
+                Prev (↑)
+              </button>
+              <button type="button" onClick={() => selectAdjacentSegment("next")} disabled={!selectedSegment}>
+                Next (↓)
+              </button>
+              <button type="button" onClick={() => nudgePlayhead(-SMALL_PLAYHEAD_NUDGE_SEC)}>
+                -0.1s (←)
+              </button>
+              <button type="button" onClick={() => nudgePlayhead(SMALL_PLAYHEAD_NUDGE_SEC)}>
+                +0.1s (→)
+              </button>
               <button type="button" onClick={splitSelectedSegmentAtPlayhead} disabled={!selectedSegment}>
                 Split (S)
               </button>
               <button type="button" onClick={deleteSelectedSegmentAndRipple} disabled={!selectedSegment}>
                 Delete (Del)
+              </button>
+              <button type="button" onClick={toggleSelectedSegmentDisabled} disabled={!selectedSegment}>
+                {selectedSegment?.is_disabled ? "Enable (M)" : "Disable (M)"}
               </button>
             </div>
             <input
@@ -3148,6 +3324,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <div className="hammer-timeline-editor__meta">
                   <span>{selectedSegment.speaker}</span>
                   <span>{selectedSegment.start_sec.toFixed(1)}s - {selectedSegment.end_sec.toFixed(1)}s</span>
+                  <span>{selectedSegment.is_disabled ? "Disabled" : "Enabled"}</span>
+                  <span>Gain {(selectedSegment.gain_db ?? 0).toFixed(1)} dB</span>
+                </div>
+                <div className="hammer-timeline-editor__meta">
+                  <span>Split/Delete target: {selectedSegment.segment_id}</span>
                 </div>
                 <div className="hammer-timeline-editor__controls">
                   <div className="hammer-timeline-editor__control-group">
@@ -3211,6 +3392,39 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       }}
                     >
                       +0.1s
+                    </button>
+                  </div>
+                  <div className="hammer-timeline-editor__control-group">
+                    <span>Segment</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("time-focus");
+                        toggleSelectedSegmentDisabled();
+                      }}
+                    >
+                      {selectedSegment.is_disabled ? "Enable" : "Disable"}
+                    </button>
+                  </div>
+                  <div className="hammer-timeline-editor__control-group">
+                    <span>Gain</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("time-focus");
+                        adjustSelectedSegmentGain(-1);
+                      }}
+                    >
+                      -1dB
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("time-focus");
+                        adjustSelectedSegmentGain(1);
+                      }}
+                    >
+                      +1dB
                     </button>
                   </div>
                 </div>
@@ -3285,7 +3499,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <button
                             key={block.id}
                             type="button"
-                            className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}`}
+                            className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}${block.disabled ? " is-disabled" : ""}`}
                             style={{
                               left: `${(block.startSec / timelineDurationSec) * 100}%`,
                               width: `${Math.max(1.4, ((block.endSec - block.startSec) / timelineDurationSec) * 100)}%`,

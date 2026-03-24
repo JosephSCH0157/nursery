@@ -254,6 +254,41 @@ async function testReplayFromSnapshotTail() {
   assert.equal(tailReplayed.transcriptSegments[1]?.text, "second");
 }
 
+async function testDisabledAndGainPersistThroughHistory() {
+  const initial = baseState();
+  const controller = createHammerHistoryController({
+    document: createHammerHistoryDocument({
+      workpieceId: "wp-6",
+      sessionId: "session-6",
+      baseRevisionId: hashEditorState(initial),
+    }),
+    initialState: initial,
+  });
+
+  const disabled = cloneEditorState(initial);
+  disabled.transcriptSegments[0] = {
+    ...disabled.transcriptSegments[0],
+    is_disabled: true,
+    gain_db: -3,
+  };
+  controller.applyMutation({
+    label: "Disable segment",
+    kind: "segment_structure",
+    nextState: disabled,
+  });
+
+  assert.equal(controller.getState().transcriptSegments[0]?.is_disabled, true);
+  assert.equal(controller.getState().transcriptSegments[0]?.gain_db, -3);
+
+  controller.undo();
+  assert.equal(controller.getState().transcriptSegments[0]?.is_disabled, undefined);
+  assert.equal(controller.getState().transcriptSegments[0]?.gain_db, undefined);
+
+  controller.redo();
+  assert.equal(controller.getState().transcriptSegments[0]?.is_disabled, true);
+  assert.equal(controller.getState().transcriptSegments[0]?.gain_db, -3);
+}
+
 async function run() {
   await testPatchRoundTrip();
   await testControllerUndoRedoAndRedoClear();
@@ -261,6 +296,7 @@ async function run() {
   await testNormalizeAndReplay();
   await testOutputSelectionUndoRedo();
   await testReplayFromSnapshotTail();
+  await testDisabledAndGainPersistThroughHistory();
   // eslint-disable-next-line no-console
   console.log("Hammer workspace history tests passed.");
 }

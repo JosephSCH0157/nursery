@@ -534,6 +534,8 @@ function applyPatchToState(state: HammerEditorStateSerializable, patch: JsonPatc
           const text = readString(row.text);
           const startSec = Number(row.start_sec);
           const endSec = Number(row.end_sec);
+          const gainDb = Number(row.gain_db);
+          const isDisabled = typeof row.is_disabled === "boolean" ? row.is_disabled : undefined;
           if (!segmentId || !speaker || text == null || !Number.isFinite(startSec) || !Number.isFinite(endSec)) {
             return null;
           }
@@ -543,6 +545,8 @@ function applyPatchToState(state: HammerEditorStateSerializable, patch: JsonPatc
             text,
             start_sec: startSec,
             end_sec: endSec,
+            ...(isDisabled == null ? {} : { is_disabled: isDisabled }),
+            ...(Number.isFinite(gainDb) ? { gain_db: gainDb } : {}),
           } as HammerTranscriptSegment;
         })
         .filter((segment): segment is HammerTranscriptSegment => Boolean(segment));
@@ -569,6 +573,8 @@ function applyPatchToState(state: HammerEditorStateSerializable, patch: JsonPatc
         text: readString(row.text) ?? "",
         start_sec: Number.isFinite(Number(row.start_sec)) ? Number(row.start_sec) : 0,
         end_sec: Number.isFinite(Number(row.end_sec)) ? Number(row.end_sec) : 0.1,
+        ...(typeof row.is_disabled === "boolean" ? { is_disabled: row.is_disabled } : {}),
+        ...(Number.isFinite(Number(row.gain_db)) ? { gain_db: Number(row.gain_db) } : {}),
       } as HammerTranscriptSegment;
       if (patch.op === "add") {
         next.transcriptSegments.splice(index, 0, replacement);
@@ -615,6 +621,26 @@ function applyPatchToState(state: HammerEditorStateSerializable, patch: JsonPatc
           target.start_sec = numeric;
         } else {
           target.end_sec = numeric;
+        }
+        break;
+      }
+      case "is_disabled": {
+        if (patch.op === "remove" || patch.value == null) {
+          target.is_disabled = undefined;
+        } else {
+          target.is_disabled = Boolean(patch.value);
+        }
+        break;
+      }
+      case "gain_db": {
+        if (patch.op === "remove" || patch.value == null) {
+          target.gain_db = undefined;
+        } else {
+          const numeric = Number(patch.value);
+          if (!Number.isFinite(numeric)) {
+            throw new Error("Patch value for gain_db must be numeric.");
+          }
+          target.gain_db = numeric;
         }
         break;
       }
@@ -691,6 +717,8 @@ function areSegmentsEqual(left: HammerTranscriptSegment[], right: HammerTranscri
       || lhs.text !== rhs.text
       || lhs.start_sec !== rhs.start_sec
       || lhs.end_sec !== rhs.end_sec
+      || lhs.is_disabled !== rhs.is_disabled
+      || lhs.gain_db !== rhs.gain_db
     ) {
       return false;
     }
@@ -730,6 +758,8 @@ function buildSegmentPatches(
       "text",
       "start_sec",
       "end_sec",
+      "is_disabled",
+      "gain_db",
     ];
     for (const field of fields) {
       if (lhs[field] === rhs[field]) continue;

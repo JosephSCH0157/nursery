@@ -11,6 +11,14 @@ export type HammerWorkspaceToolId =
 
 export type HammerWorkspaceFocusMode = "balanced" | "source-focus" | "tool-focus" | "time-focus";
 export type HammerWorkspaceFocusOverride = HammerWorkspaceFocusMode | "auto";
+export type SegmentNavigationDirection = "previous" | "next";
+
+export const SMALL_PLAYHEAD_NUDGE_SEC = 0.1;
+export const LARGE_PLAYHEAD_NUDGE_SEC = 1;
+export const DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC = 0.2;
+export const MIN_SEGMENT_DURATION_SEC = 0.1;
+export const SEGMENT_GAIN_MIN_DB = -24;
+export const SEGMENT_GAIN_MAX_DB = 24;
 
 export function resolveWorkspaceFocusMode(activeTool: HammerWorkspaceToolId): HammerWorkspaceFocusMode {
   switch (activeTool) {
@@ -60,6 +68,9 @@ export function resolvePreviewLabel(
   playheadSec: number,
 ): string {
   if (!playheadSegment) return `Timeline gap at ${playheadSec.toFixed(1)}s`;
+  if (playheadSegment.is_disabled) {
+    return `[Disabled] ${playheadSegment.speaker}: ${playheadSegment.text}`;
+  }
   return `${playheadSegment.speaker}: ${playheadSegment.text}`;
 }
 
@@ -146,8 +157,8 @@ export function splitSegmentAtTime(
   }
 
   const source = segments[index];
-  const minimumRightStart = roundToTenth(source.start_sec + 0.1);
-  const maximumLeftEnd = roundToTenth(source.end_sec - 0.1);
+  const minimumRightStart = roundToTenth(source.start_sec + MIN_SEGMENT_DURATION_SEC);
+  const maximumLeftEnd = roundToTenth(source.end_sec - MIN_SEGMENT_DURATION_SEC);
   const splitSec = roundToTenth(Math.max(minimumRightStart, Math.min(maximumLeftEnd, splitTimeSec)));
   if (splitSec <= source.start_sec || splitSec >= source.end_sec) {
     return {
@@ -209,13 +220,13 @@ export function deleteSegmentAndRipple(
   }
 
   const removedSegment = segments[index];
-  const shiftSec = roundToTenth(Math.max(0.1, removedSegment.end_sec - removedSegment.start_sec));
+  const shiftSec = roundToTenth(Math.max(MIN_SEGMENT_DURATION_SEC, removedSegment.end_sec - removedSegment.start_sec));
 
   const remaining = segments
     .filter((segment) => segment.segment_id !== segmentId)
     .map((segment, remainingIndex) => {
       if (remainingIndex < index) return segment;
-      const duration = roundToTenth(Math.max(0.1, segment.end_sec - segment.start_sec));
+      const duration = roundToTenth(Math.max(MIN_SEGMENT_DURATION_SEC, segment.end_sec - segment.start_sec));
       const nextStart = roundToTenth(Math.max(0, segment.start_sec - shiftSec));
       return {
         ...segment,
@@ -241,4 +252,89 @@ export function resolvePlayheadAfterDelete(
   if (playheadSec < removedSegment.start_sec) return playheadSec;
   if (playheadSec <= removedSegment.end_sec) return roundToTenth(removedSegment.start_sec);
   return roundToTenth(Math.max(0, playheadSec - shiftSec));
+}
+
+export function resolveTimelineBoundaryTimes(segments: HammerTranscriptSegment[]): number[] {
+  return [...new Set(
+    segments.flatMap((segment) => [roundToTenth(segment.start_sec), roundToTenth(segment.end_sec)]),
+  )].sort((a, b) => a - b);
+}
+
+export function snapPlayheadToBoundary(args: {
+  nextPlayheadSec: number;
+  boundaryTimesSec: number[];
+  toleranceSec?: number;
+}): number {
+  const toleranceSec = args.toleranceSec ?? DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC;
+  let nearestBoundary: number | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  for (const boundary of args.boundaryTimesSec) {
+    const distance = Math.abs(boundary - args.nextPlayheadSec);
+    if (distance < nearestDistance) {
+      nearestBoundary = boundary;
+      nearestDistance = distance;
+    }
+  }
+
+  if (nearestBoundary != null && nearestDistance <= toleranceSec) {
+    return roundToTenth(nearestBoundary);
+  }
+  return roundToTenth(args.nextPlayheadSec);
+}
+
+export function resolveSelectedSegmentAfterDelete(args: {
+  segmentsAfterDelete: HammerTranscriptSegment[];
+  removedIndex: number;
+}): string | null {
+  if (args.segmentsAfterDelete.length === 0) return null;
+  const index = Math.min(args.removedIndex, args.segmentsAfterDelete.length - 1);
+  return args.segmentsAfterDelete[index]?.segment_id ?? null;
+}
+
+export function resolveAdjacentSegmentSelection(
+  segments: HammerTranscriptSegment[],
+  currentSegmentId: string | null,
+  direction: SegmentNavigationDirection,
+): string | null {
+  if (segments.length === 0) return null;
+  if (!currentSegmentId) return segments[0]?.segment_id ?? null;
+  const currentIndex = segments.findIndex((segment) => segment.segment_id === currentSegmentId);
+  if (currentIndex < 0) return segments[0]?.segment_id ?? null;
+
+  if (direction === "previous") {
+    return segments[Math.max(0, currentIndex - 1)]?.segment_id ?? currentSegmentId;
+  }
+  return segments[Math.min(segments.length - 1, currentIndex + 1)]?.segment_id ?? currentSegmentId;
+}
+
+export function toggleSegmentDisabled(segment: HammerTranscriptSegment): HammerTranscriptSegment {
+  return {
+    ...segment,
+    is_disabled: !segment.is_disabled,
+  };
+}
+
+export function updateSegmentGain(
+  segment: HammerTranscriptSegment,
+  deltaDb: number,
+): HammerTranscriptSegment {
+  const currentGainDb = segment.gain_db ?? 0;
+  const nextGainDb = Math.max(
+    SEGMENT_GAIN_MIN_DB,
+    Math.min(SEGMENT_GAIN_MAX_DB, roundToTenth(currentGainDb + deltaDb)),
+  );
+  return {
+    ...segment,
+    gain_db: nextGainDb,
+  };
+}
+
+export function resolveEffectivePlaybackTime(
+  segments: HammerTranscriptSegment[],
+  playheadSec: number,
+): number {
+  const segment = resolvePlayheadSegment(segments, playheadSec);
+  if (!segment || !segment.is_disabled) return roundToTenth(playheadSec);
+  return roundToTenth(segment.end_sec);
 }

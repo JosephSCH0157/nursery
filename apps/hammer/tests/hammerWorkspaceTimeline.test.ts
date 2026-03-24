@@ -1,16 +1,26 @@
 import assert from "node:assert/strict";
 import type { HammerTranscriptSegment } from "../../../packages/contracts/hammer/transcript.contract";
 import {
+  DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
+  LARGE_PLAYHEAD_NUDGE_SEC,
+  SMALL_PLAYHEAD_NUDGE_SEC,
   deleteSegmentAndRipple,
   moveSegmentTiming,
+  resolveAdjacentSegmentSelection,
+  resolveEffectivePlaybackTime,
   resolveFocusAfterPlayheadChange,
+  resolveSelectedSegmentAfterDelete,
+  resolveTimelineBoundaryTimes,
   resolvePlayheadAfterDelete,
   resolvePreviewLabel,
   resolvePlayheadSegment,
   resolveWorkspaceFocusMode,
+  snapPlayheadToBoundary,
   splitSegmentAtTime,
+  toggleSegmentDisabled,
   trimSegmentEndTiming,
   trimSegmentStartTiming,
+  updateSegmentGain,
   updateSegmentInTimeline,
 } from "../src/editor/hammerWorkspaceTimeline";
 
@@ -127,6 +137,67 @@ async function testResolvePlayheadAfterDelete() {
   assert.equal(resolvePlayheadAfterDelete(4.2, removed, 1), 3.2);
 }
 
+async function testPlayheadSnapAndNavigation() {
+  const segments = [
+    buildSegment({ segment_id: "a", start_sec: 0, end_sec: 1 }),
+    buildSegment({ segment_id: "b", start_sec: 1, end_sec: 2 }),
+    buildSegment({ segment_id: "c", start_sec: 2, end_sec: 3 }),
+  ];
+  const boundaries = resolveTimelineBoundaryTimes(segments);
+  assert.deepEqual(boundaries, [0, 1, 2, 3]);
+  assert.equal(
+    snapPlayheadToBoundary({
+      nextPlayheadSec: 1.16,
+      boundaryTimesSec: boundaries,
+      toleranceSec: DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
+    }),
+    1,
+  );
+  assert.equal(
+    snapPlayheadToBoundary({
+      nextPlayheadSec: 1.6,
+      boundaryTimesSec: boundaries,
+      toleranceSec: 0.1,
+    }),
+    1.6,
+  );
+  assert.equal(resolveAdjacentSegmentSelection(segments, "b", "previous"), "a");
+  assert.equal(resolveAdjacentSegmentSelection(segments, "b", "next"), "c");
+}
+
+async function testDeleteSelectionHandoff() {
+  const segments = [
+    buildSegment({ segment_id: "a", start_sec: 0, end_sec: 1 }),
+    buildSegment({ segment_id: "c", start_sec: 1, end_sec: 2 }),
+  ];
+  assert.equal(resolveSelectedSegmentAfterDelete({ segmentsAfterDelete: segments, removedIndex: 0 }), "a");
+  assert.equal(resolveSelectedSegmentAfterDelete({ segmentsAfterDelete: segments, removedIndex: 1 }), "c");
+  assert.equal(resolveSelectedSegmentAfterDelete({ segmentsAfterDelete: [], removedIndex: 0 }), null);
+}
+
+async function testDisableAndGainEdits() {
+  const segment = buildSegment({ segment_id: "a", start_sec: 0, end_sec: 1 });
+  const toggled = toggleSegmentDisabled(segment);
+  assert.equal(toggled.is_disabled, true);
+  const untoggled = toggleSegmentDisabled(toggled);
+  assert.equal(untoggled.is_disabled, false);
+
+  const louder = updateSegmentGain(segment, LARGE_PLAYHEAD_NUDGE_SEC);
+  assert.equal(louder.gain_db, LARGE_PLAYHEAD_NUDGE_SEC);
+  const quieter = updateSegmentGain(louder, -SMALL_PLAYHEAD_NUDGE_SEC);
+  assert.equal(quieter.gain_db, 0.9);
+}
+
+async function testDisabledSegmentsExcludedFromEffectivePlaybackTime() {
+  const segments = [
+    buildSegment({ segment_id: "a", start_sec: 0, end_sec: 1 }),
+    buildSegment({ segment_id: "b", start_sec: 1, end_sec: 2, is_disabled: true }),
+    buildSegment({ segment_id: "c", start_sec: 2, end_sec: 3 }),
+  ];
+  assert.equal(resolveEffectivePlaybackTime(segments, 0.5), 0.5);
+  assert.equal(resolveEffectivePlaybackTime(segments, 1.4), 2);
+}
+
 async function run() {
   await testFocusModeDefaults();
   await testMoveAndTrimTiming();
@@ -136,6 +207,10 @@ async function run() {
   await testSplitSegmentAtPlayhead();
   await testDeleteSegmentAndRipple();
   await testResolvePlayheadAfterDelete();
+  await testPlayheadSnapAndNavigation();
+  await testDeleteSelectionHandoff();
+  await testDisableAndGainEdits();
+  await testDisabledSegmentsExcludedFromEffectivePlaybackTime();
   // eslint-disable-next-line no-console
   console.log("Hammer workspace timeline tests passed.");
 }
