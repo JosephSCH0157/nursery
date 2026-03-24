@@ -8053,6 +8053,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     {releasePrepOpenHref ? "Handoff path available." : "Handoff path unavailable."}
                   </div>
                   <div className="hammer-tool-hint">Export status: {exportStatusLabel}</div>
+                  <div className="hammer-tool-hint">
+                    Readiness gate: {readinessStatusLabel}
+                    {` · blockers ${readinessGate.blocker_count} · review ${readinessGate.review_count}`}
+                  </div>
                   <div className="hammer-tool-hint">Output source: {outputSelectionSummary}</div>
                   <div className="hammer-tool-hint">Preview truth: {previewTruthPosture}</div>
                   <div className="hammer-tool-hint">Export truth: {exportTruthPosture}</div>
@@ -8066,6 +8070,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     <div className="hammer-tool-hint">
                       {unresolvedBrollSuggestionItems.length} unresolved B-roll intent(s) need binding before authoritative visual handoff.
                     </div>
+                  ) : null}
+                  {readinessGate.blocking_reasons.length > 0 ? (
+                    <div className="hammer-tool-hint">
+                      Blocking reasons: {readinessGate.blocking_reasons.slice(0, 3).map((reason) => reason.label).join(" ")}
+                    </div>
+                  ) : null}
+                  {readinessGate.review_reasons.length > 0 ? (
+                    <div className="hammer-tool-hint">
+                      Review reasons: {readinessGate.review_reasons.slice(0, 3).map((reason) => reason.label).join(" ")}
+                    </div>
+                  ) : null}
+                  {(readinessGate.blocker_count > 0 || readinessGate.review_count > 0) ? (
+                    <button type="button" onClick={focusReadinessIssue}>
+                      Review Next Issue
+                    </button>
                   ) : null}
                   <div className={`hammer-caption-release-summary hammer-caption-release-summary--${captionReleasePrepSafetyState}`}>
                     <div className="hammer-caption-release-summary__head">
@@ -8131,7 +8150,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   </button>
                   {releasePrepSaved ? (
                     <div className="hammer-tool-hint">
-                      Ready for Quench. Exported {new Date(releasePrepSaved.preparedAt).toLocaleString()}.
+                      {readinessGate.status === "ready" ? "Ready for Quench." : readinessGate.status === "blocked" ? "Prepared packet is blocked for handoff." : "Prepared packet needs review before handoff."}
+                      {" "}Exported {new Date(releasePrepSaved.preparedAt).toLocaleString()}.
                       Status {releasePrepSaved.overallStatus}.
                       Subtitle artifacts {releasePrepSaved.subtitleArtifactCount}.
                     </div>
@@ -8143,7 +8163,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   ) : null}
                   {releasePrepOpenHref && exportTruthState !== "never_prepared" ? (
                     <a href={releasePrepOpenHref}>
-                      {exportTruthState === "current" ? "Open in Quench" : "Open in Quench (stale)"}
+                      {readinessGate.status === "blocked"
+                        ? "Open in Quench (blocked)"
+                        : exportTruthState === "current"
+                        ? "Open in Quench"
+                        : "Open in Quench (stale)"}
                     </a>
                   ) : null}
                 </section>
