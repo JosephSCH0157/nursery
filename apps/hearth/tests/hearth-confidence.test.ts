@@ -3269,6 +3269,32 @@ async function testAnvilTagValidatorAndFormatter() {
     true,
     "Formatter healing should produce a valid script without introducing invalid nesting",
   );
+
+  const inlineCueAndNoteScript = [
+    "[s1]",
+    "That was the moment it hit me [beat] and I knew we were in trouble [pause].",
+    "Land the line [note]slow down here[/note] then keep moving.",
+    "Style cue [b]bold[/b], [i]lean in[/i], [u]underline[/u], [color=red]alert[/color], [bg=#112233]bg[/bg].",
+    "[/s1]",
+  ].join("\n");
+  const inlineCueAndNoteValidation = validateAnvilTagContract(inlineCueAndNoteScript);
+  assert.equal(
+    inlineCueAndNoteValidation.ok,
+    true,
+    "Inline cue/style/note tags should be valid inside speaker text",
+  );
+  assert.ok(
+    inlineCueAndNoteValidation.problems.every((item) => !item.includes("Speaker tags must be on their own line")),
+    "Inline tags should not trigger speaker standalone-line errors",
+  );
+
+  const inlineSpeakerTagScript = "[s1] Hello there";
+  const inlineSpeakerValidation = validateAnvilTagContract(inlineSpeakerTagScript);
+  assert.equal(inlineSpeakerValidation.ok, false, "Inline speaker tag usage should fail validation");
+  assert.ok(
+    inlineSpeakerValidation.problems.some((item) => item.includes("Speaker tags must be on their own line")),
+    "Inline speaker tags should still be blocked as structural tags",
+  );
 }
 
 async function run() {

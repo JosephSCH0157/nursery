@@ -32,6 +32,10 @@ function canonicalizeToken(raw: string): string {
   return `[${inner}]`;
 }
 
+function normalizeTagTokenForValidation(token: string): string {
+  return token.replace(/\s*=\s*/g, "=");
+}
+
 function isBlockToken(token: string): token is BlockToken {
   return (
     token === NOTE_OPEN_TOKEN
@@ -61,11 +65,18 @@ function buildAuditFromProblems(problems: string[]): AnvilTagAudit {
   return {
     speakerBlocksClosed: !includes("Unclosed") && !includes("Unexpected closing") && !includes("Mismatched closing"),
     speakerTagsStandaloneLines: !includes("Speaker tags must be on their own line"),
-    noteBlocksStandaloneLines: !includes("[note] tags must be on their own line"),
+    noteBlocksStandaloneLines: true,
     noCrossTagging: !includes("Mismatched closing") && !includes("[note] cannot be nested"),
     noUnknownTags: !includes("Unknown tag"),
     noForbiddenMarkup: !includes("Forbidden markup"),
   };
+}
+
+function isAllowedInlineToken(token: string): boolean {
+  if (/^\[\/?(?:b|i|u|speaker|guest)\]$/.test(token)) return true;
+  if (/^\[(?:color|bg)=[^\]]+\]$/.test(token)) return true;
+  if (/^\[\/(?:color|bg)\]$/.test(token)) return true;
+  return false;
 }
 
 export function validateAnvilTagContract(input: string): AnvilTagValidation {
@@ -91,9 +102,9 @@ export function validateAnvilTagContract(input: string): AnvilTagValidation {
   const unknownTags = new Set<string>();
   const tagMatches = text.match(/\[[^\]]+\]/g) ?? [];
   for (const raw of tagMatches) {
-    const token = canonicalizeToken(raw);
+    const token = normalizeTagTokenForValidation(canonicalizeToken(raw));
     const allowedCue = (CUE_TOKENS as readonly string[]).includes(token);
-    if (!allowedCue && !isBlockToken(token)) {
+    if (!allowedCue && !isBlockToken(token) && !isAllowedInlineToken(token)) {
       unknownTags.add(raw);
     }
   }
@@ -118,7 +129,8 @@ export function validateAnvilTagContract(input: string): AnvilTagValidation {
   }
 
   const lines = text.split("\n");
-  const stack: BlockToken[] = [];
+  const speakerStack: (typeof SPEAKER_OPEN_TOKENS)[number][] = [];
+  let noteDepth = 0;
 
   for (let idx = 0; idx < lines.length; idx += 1) {
     const lineNo = idx + 1;
@@ -127,58 +139,46 @@ export function validateAnvilTagContract(input: string): AnvilTagValidation {
     if (!trimmed) continue;
 
     const rawTokens = line.match(/\[[^\]]+\]/g) ?? [];
-    const normalizedTokens = rawTokens.map(canonicalizeToken);
-    const blockTokensOnLine = normalizedTokens.filter(isBlockToken);
+    const normalizedTokens = rawTokens.map((raw) => normalizeTagTokenForValidation(canonicalizeToken(raw)));
+    const speakerTokensOnLine = normalizedTokens.filter((token) => isSpeakerOpenToken(token) || isSpeakerCloseToken(token));
 
-    if (blockTokensOnLine.length > 0) {
+    for (const speakerToken of speakerTokensOnLine) {
       if (
-        blockTokensOnLine.length !== 1
-        || normalizedTokens.length !== 1
-        || trimmed.toLowerCase().replace(/\s+/g, " ") !== blockTokensOnLine[0]
+        normalizedTokens.length !== 1
+        || speakerTokensOnLine.length !== 1
+        || trimmed.toLowerCase().replace(/\s+/g, " ") !== speakerToken
       ) {
-        const includesNote = blockTokensOnLine.includes(NOTE_OPEN_TOKEN) || blockTokensOnLine.includes(NOTE_CLOSE_TOKEN);
-        if (includesNote) {
-          problems.push(`[line ${lineNo}] [note] tags must be on their own line.`);
-        } else {
-          problems.push(`[line ${lineNo}] Speaker tags must be on their own line.`);
-        }
-        continue;
+        problems.push(`[line ${lineNo}] Speaker tags must be on their own line.`);
       }
+    }
 
-      const token = blockTokensOnLine[0];
+    for (const token of normalizedTokens) {
       if (token === NOTE_OPEN_TOKEN) {
-        if (stack.length > 0) {
-          problems.push(`[line ${lineNo}] [note] cannot be nested inside speaker blocks.`);
-        }
-        stack.push(token);
+        noteDepth += 1;
         continue;
       }
 
       if (token === NOTE_CLOSE_TOKEN) {
-        const top = stack.pop();
-        if (top !== NOTE_OPEN_TOKEN) {
-          problems.push(`[line ${lineNo}] Unexpected closing [/note].`);
-          if (top) stack.push(top);
+        if (noteDepth <= 0) {
+          problems.push(`[line ${lineNo}] Unexpected closing ${NOTE_CLOSE_TOKEN}.`);
+          continue;
         }
+        noteDepth -= 1;
         continue;
       }
 
       if (isSpeakerOpenToken(token)) {
-        if (stack.length > 0) {
+        if (speakerStack.length > 0) {
           problems.push(`[line ${lineNo}] Speaker block cannot start while another block is open.`);
         }
-        stack.push(token);
+        speakerStack.push(token);
         continue;
       }
 
       if (isSpeakerCloseToken(token)) {
-        const top = stack.pop();
+        const top = speakerStack.pop();
         if (!top) {
           problems.push(`[line ${lineNo}] Unexpected closing ${token}.`);
-          continue;
-        }
-        if (!isSpeakerOpenToken(top)) {
-          problems.push(`[line ${lineNo}] Mismatched closing ${token} (expected ${NOTE_CLOSE_TOKEN}).`);
           continue;
         }
         const expected = expectedCloseFor(top);
@@ -190,13 +190,22 @@ export function validateAnvilTagContract(input: string): AnvilTagValidation {
     }
 
     const isCueOnly = (CUE_TOKENS as readonly string[]).includes(trimmed.toLowerCase().replace(/\s+/g, " "));
-    if (stack.length === 0 && !isCueOnly) {
+    const hasPlainTextOnLine = line.replace(/\[[^\]]+\]/g, "").trim().length > 0;
+    if (speakerStack.length === 0 && noteDepth === 0 && hasPlainTextOnLine && !isCueOnly) {
       problems.push(`[line ${lineNo}] Text must be inside [s1]/[s2]/[g1]/[g2] or [note] blocks.`);
     }
   }
 
-  if (stack.length > 0) {
-    const unclosed = stack.join(", ");
+  const unclosed: string[] = [];
+  if (speakerStack.length > 0) {
+    unclosed.push(...speakerStack);
+  }
+  if (noteDepth > 0) {
+    for (let i = 0; i < noteDepth; i += 1) {
+      unclosed.push(NOTE_OPEN_TOKEN);
+    }
+  }
+  if (unclosed.length > 0) {
     problems.push(`Unclosed tag(s): ${unclosed}`);
   }
 
