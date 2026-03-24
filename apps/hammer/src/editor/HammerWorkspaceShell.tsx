@@ -21,7 +21,7 @@ import {
   cutSegmentRangeAndRipple,
   deleteSegmentAndRipple,
   moveSegmentTiming,
-  resolveAdjacentBoundaryTime,
+  resolveAdjacentJumpPointTime,
   resolveAdjacentSegmentSelection,
   resolveEffectivePlaybackTime,
   resolveFocusAfterPlayheadChange,
@@ -155,6 +155,7 @@ const PLAYHEAD_SNAP_TOLERANCE_SEC = DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC;
 const PRE_ROLL_SEC = 2;
 const POST_ROLL_SEC = 1;
 const SCRUB_SEEK_THRESHOLD_SEC = 0.05;
+const SCRUB_RATE_OPTIONS = [1, 0.75, 0.5] as const;
 
 type HammerToolId = HammerWorkspaceToolId;
 type HammerSourceTabId = "transcript" | "images" | "assets" | "broll" | "introoutro";
@@ -165,6 +166,12 @@ type HammerPlaybackWindow = {
   endSec: number;
   label: string;
 };
+type HammerTimelineMarker = {
+  id: string;
+  label: string;
+  timeSec: number;
+};
+type HammerScrubRate = (typeof SCRUB_RATE_OPTIONS)[number];
 
 type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
@@ -494,6 +501,13 @@ function createVisualPlacementId(): string {
   return `placement:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function createTimelineMarkerId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `marker:${crypto.randomUUID()}`;
+  }
+  return `marker:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function buildPreparedPackageIdentityFingerprint(pkg: HammerPreparedReleasePackage): string {
   const basis = [
     `v:${String(pkg.version)}`,
@@ -585,6 +599,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [isPlaybackActive, setIsPlaybackActive] = useState(false);
   const [playbackWindow, setPlaybackWindow] = useState<HammerPlaybackWindow | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
+  const [timelineMarkers, setTimelineMarkers] = useState<HammerTimelineMarker[]>([]);
+  const [scrubRate, setScrubRate] = useState<HammerScrubRate>(1);
   const [focusOverride, setFocusOverride] = useState<HammerWorkspaceFocusOverride>("auto");
   const [polishStrength, setPolishStrength] = useState(60);
   const [gapCleanupOptions, setGapCleanupOptions] = useState<GapCleanupOptions>({
@@ -771,6 +787,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const playheadBoundaryTimesSec = useMemo(
     () => resolveTimelineBoundaryTimes(editableTranscriptSegments),
     [editableTranscriptSegments],
+  );
+  const sortedTimelineMarkers = useMemo(
+    () => [...timelineMarkers].sort((left, right) => left.timeSec - right.timeSec),
+    [timelineMarkers],
+  );
+  const markerTimesSec = useMemo(
+    () => sortedTimelineMarkers.map((marker) => marker.timeSec),
+    [sortedTimelineMarkers],
   );
   const sourceImageItems = useMemo<HammerSourceImageItem[]>(() => (
     (editableVisualPlacements?.placements ?? []).map((placement) => ({
@@ -1306,6 +1330,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     applyWorkspaceState(baselineState);
     selectionOriginRef.current = "system";
+    setTimelineMarkers([]);
 
     void (async () => {
       const [historyResult, snapshotManifestResult] = await Promise.all([
@@ -1454,6 +1479,31 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [timelineDurationSec]);
 
   useEffect(() => {
+    setTimelineMarkers((current) => {
+      const seen = new Set<number>();
+      let changed = false;
+      const next = current
+        .map((marker) => {
+          const clamped = Math.max(0, Math.min(timelineDurationSec, roundToTenth(marker.timeSec)));
+          if (clamped !== marker.timeSec) changed = true;
+          return {
+            ...marker,
+            timeSec: clamped,
+          };
+        })
+        .filter((marker) => {
+          if (seen.has(marker.timeSec)) {
+            changed = true;
+            return false;
+          }
+          seen.add(marker.timeSec);
+          return true;
+        });
+      return changed ? next : current;
+    });
+  }, [timelineDurationSec]);
+
+  useEffect(() => {
     let active = true;
     let objectUrlToRevoke: string | null = null;
 
@@ -1527,6 +1577,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       setIsPlaybackActive(false);
     });
   }, [isPlaybackActive, playbackMediaSrc, playheadSec, transcriptDurationSec, playbackWindow]);
+
+  useEffect(() => {
+    const previewAudio = previewAudioRef.current;
+    if (!previewAudio) return;
+    previewAudio.playbackRate = isScrubbing ? scrubRate : 1;
+  }, [isScrubbing, scrubRate]);
 
   useEffect(() => {
     if (!isPlaybackActive) return;
@@ -1932,12 +1988,59 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   function jumpToEditPoint(direction: "previous" | "next"): void {
     if (playheadBoundaryTimesSec.length === 0) return;
-    const target = resolveAdjacentBoundaryTime({
-      boundaryTimesSec: playheadBoundaryTimesSec,
+    const target = resolveAdjacentJumpPointTime({
+      jumpPointsSec: playheadBoundaryTimesSec,
       playheadSec,
       direction,
     });
     seekPlayheadToTime(target, "playhead");
+  }
+
+  function addMarkerAtPlayhead(): void {
+    const markerTimeSec = roundToTenth(playheadSec);
+    const markerAtTime = timelineMarkers.find((marker) => marker.timeSec === markerTimeSec) ?? null;
+    if (markerAtTime) {
+      setTranscriptTimingHint(`Marker already exists at ${markerTimeSec.toFixed(1)}s.`);
+      return;
+    }
+
+    setTimelineMarkers((current) => {
+      const nextIndex = current.length + 1;
+      return [
+        ...current,
+        {
+          id: createTimelineMarkerId(),
+          label: `M${nextIndex}`,
+          timeSec: markerTimeSec,
+        },
+      ];
+    });
+    setTranscriptTimingHint(`Added marker at ${markerTimeSec.toFixed(1)}s.`);
+  }
+
+  function removeMarker(markerId: string): void {
+    setTimelineMarkers((current) => current.filter((marker) => marker.id !== markerId));
+  }
+
+  function jumpToMarker(direction: "previous" | "next"): void {
+    if (markerTimesSec.length === 0) {
+      setTranscriptTimingHint("No timeline markers are set.");
+      return;
+    }
+    const target = resolveAdjacentJumpPointTime({
+      jumpPointsSec: markerTimesSec,
+      playheadSec,
+      direction,
+    });
+    seekPlayheadToTime(target, "playhead");
+    setTranscriptTimingHint(null);
+  }
+
+  function jumpToMarkerById(markerId: string): void {
+    const marker = sortedTimelineMarkers.find((item) => item.id === markerId) ?? null;
+    if (!marker) return;
+    seekPlayheadToTime(marker.timeSec, "playhead");
+    setTranscriptTimingHint(null);
   }
 
   function toggleSelectionLoopPlayback(): void {
@@ -2014,6 +2117,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     if (!isPlaybackActive && playbackMediaSrc && previewAudioRef.current) {
       const previewAudio = previewAudioRef.current;
+      previewAudio.playbackRate = scrubRate;
       void previewAudio.play()
         .then(() => {
           scrubAutoPlayRef.current = true;
@@ -2027,6 +2131,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   function endTimelineScrub(): void {
     setIsScrubbing(false);
     scrubRectRef.current = null;
+    if (previewAudioRef.current) {
+      previewAudioRef.current.playbackRate = 1;
+    }
     if (scrubAutoPlayRef.current && scrubReturnToPausedRef.current) {
       previewAudioRef.current?.pause();
       setIsPlaybackActive(false);
@@ -2648,6 +2755,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           return;
         }
 
+        if (event.key === "PageUp") {
+          event.preventDefault();
+          event.stopPropagation();
+          jumpToMarker("previous");
+          return;
+        }
+
+        if (event.key === "PageDown") {
+          event.preventDefault();
+          event.stopPropagation();
+          jumpToMarker("next");
+          return;
+        }
+
         if (event.key === " " || event.code === "Space") {
           event.preventDefault();
           event.stopPropagation();
@@ -2673,6 +2794,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           event.preventDefault();
           event.stopPropagation();
           playSelectionWithRoll();
+          return;
+        }
+
+        if (event.key.toLowerCase() === "k") {
+          event.preventDefault();
+          event.stopPropagation();
+          addMarkerAtPlayhead();
           return;
         }
 
@@ -2727,10 +2855,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       window.removeEventListener("keydown", handleKeyboardHistory);
     };
   }, [
+    addMarkerAtPlayhead,
     adjustSelectedSegmentGain,
     clearTranscriptSelection,
     deleteSelectedSegmentAndRipple,
     jumpToEditPoint,
+    jumpToMarker,
     jumpToSelectionBoundary,
     nudgePlayhead,
     playSelectionWithRoll,
@@ -3946,6 +4076,95 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </button>
                   </section>
 
+                  <section className="hammer-cleanup-tool">
+                    <div className="hammer-cleanup-tool__head">
+                      <strong>Solo Mode</strong>
+                      <span>
+                        Intent: Keep one speaker in focus while suppressing non-target voices for rapid monologue-style review.
+                      </span>
+                    </div>
+                    <label className="hammer-tool-field">
+                      <span>Target speaker</span>
+                      <select
+                        value={speakerSoloOptions.targetSpeaker}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerSoloOptions((current) => ({
+                            ...current,
+                            targetSpeaker: event.target.value,
+                          }));
+                        }}
+                        disabled={speakerOptions.length === 0}
+                      >
+                        {speakerOptions.length > 0 ? speakerOptions.map((speaker) => (
+                          <option key={`solo-speaker-${speaker}`} value={speaker}>{speaker}</option>
+                        )) : (
+                          <option value="">No speakers</option>
+                        )}
+                      </select>
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={speakerSoloOptions.collapseInterruptions}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerSoloOptions((current) => ({
+                            ...current,
+                            collapseInterruptions: event.target.checked,
+                          }));
+                        }}
+                      />
+                      <span>Collapse short interruptions</span>
+                    </label>
+                    <label className="hammer-tool-field">
+                      <span>Interruption max (sec)</span>
+                      <input
+                        type="number"
+                        min={0.2}
+                        max={5}
+                        step={0.1}
+                        value={speakerSoloOptions.maxInterruptionSec}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerSoloOptions((current) => ({
+                            ...current,
+                            maxInterruptionSec: Math.max(0.2, Number(event.target.value) || 0.8),
+                          }));
+                        }}
+                        disabled={!speakerSoloOptions.collapseInterruptions}
+                      />
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={speakerSoloOptions.compressGaps}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSpeakerSoloOptions((current) => ({
+                            ...current,
+                            compressGaps: event.target.checked,
+                          }));
+                        }}
+                      />
+                      <span>Compress gaps around suppressed segments</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("tool-focus");
+                        setCleanupPreview(previewSpeakerSolo({
+                          segments: editableTranscriptSegments,
+                          options: speakerSoloOptions,
+                          segmentIds: hasTranscriptSelection ? transcriptSelectionRange.segmentIds : undefined,
+                        }));
+                      }}
+                      disabled={!speakerSoloOptions.targetSpeaker}
+                    >
+                      Preview Solo Mode
+                    </button>
+                  </section>
+
                   <section className="hammer-cleanup-tool hammer-cleanup-tool--quick">
                     <div className="hammer-cleanup-tool__head">
                       <strong>Quick Clean</strong>
@@ -4000,6 +4219,29 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           </div>
                           <div className="hammer-tighten-preview__safety">
                             {cleanupPreview.metadata.tightenSelection.safetyNote}
+                          </div>
+                        </section>
+                      ) : null}
+                      {cleanupPreview.metadata?.speakerSolo ? (
+                        <section className="hammer-tighten-preview" aria-label="Solo mode preview">
+                          <div className="hammer-tighten-preview__intent">
+                            <strong>Intent</strong>
+                            <span>{cleanupPreview.metadata.speakerSolo.intent}</span>
+                          </div>
+                          <div className="hammer-tighten-preview__meta">
+                            <span>Target speaker: {cleanupPreview.metadata.speakerSolo.targetSpeaker}</span>
+                            <span>Scope: {cleanupPreview.metadata.speakerSolo.scopeLabel}</span>
+                            <span>Suppressed segments: {cleanupPreview.metadata.speakerSolo.suppressedSegments}</span>
+                            <span>Collapsed interruptions: {cleanupPreview.metadata.speakerSolo.collapsedInterruptions}</span>
+                            <span>Estimated time saved: {cleanupPreview.metadata.speakerSolo.estimatedDurationSavedSec.toFixed(1)} s</span>
+                            <span>
+                              Confidence: {cleanupPreview.metadata.speakerSolo.confidenceLabel}
+                              {" "}
+                              ({Math.round(cleanupPreview.metadata.speakerSolo.confidenceScore * 100)}%)
+                            </span>
+                          </div>
+                          <div className="hammer-tighten-preview__safety">
+                            {cleanupPreview.metadata.speakerSolo.safetyNote}
                           </div>
                         </section>
                       ) : null}
@@ -4599,6 +4841,32 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               <button type="button" onClick={() => jumpToEditPoint("next")}>
                 Next Edit (.)
               </button>
+              <button type="button" onClick={() => jumpToMarker("previous")} disabled={sortedTimelineMarkers.length === 0}>
+                Prev Marker (PgUp)
+              </button>
+              <button type="button" onClick={() => jumpToMarker("next")} disabled={sortedTimelineMarkers.length === 0}>
+                Next Marker (PgDn)
+              </button>
+              <button type="button" onClick={addMarkerAtPlayhead}>
+                Add Marker (K)
+              </button>
+              <label className="hammer-timeline-tools__field" aria-label="Scrub rate control">
+                <span>Scrub</span>
+                <select
+                  value={String(scrubRate)}
+                  onChange={(event) => {
+                    const parsed = Number(event.target.value);
+                    if (!SCRUB_RATE_OPTIONS.includes(parsed as HammerScrubRate)) return;
+                    setScrubRate(parsed as HammerScrubRate);
+                  }}
+                >
+                  {SCRUB_RATE_OPTIONS.map((rate) => (
+                    <option key={`scrub-rate-${rate}`} value={String(rate)}>
+                      {rate}x
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button type="button" onClick={() => nudgePlayhead(-SMALL_PLAYHEAD_NUDGE_SEC)}>
                 -0.1s (←)
               </button>
@@ -4626,6 +4894,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               }}
               aria-label="Timeline playhead"
             />
+            {sortedTimelineMarkers.length > 0 ? (
+              <div className="hammer-timeline-markers" role="group" aria-label="Timeline markers">
+                {sortedTimelineMarkers.map((marker) => (
+                  <div key={marker.id} className="hammer-timeline-marker-pill">
+                    <button
+                      type="button"
+                      onClick={() => jumpToMarkerById(marker.id)}
+                    >
+                      {marker.label} {marker.timeSec.toFixed(1)}s
+                    </button>
+                    <button
+                      type="button"
+                      className="hammer-timeline-marker-pill__remove"
+                      onClick={() => removeMarker(marker.id)}
+                      aria-label={`Remove ${marker.label}`}
+                    >
+                      x
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {selectedSegment ? (
               <section className="hammer-timeline-editor" aria-label="Selected segment timing inspector">
                 <div className="hammer-timeline-editor__meta">
@@ -4761,6 +5051,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       >
                         <span>{tick.timeSec.toFixed(0)}s</span>
                       </div>
+                    ))}
+                    {sortedTimelineMarkers.map((marker) => (
+                      <div
+                        key={marker.id}
+                        className="hammer-timeline-ruler__marker"
+                        style={{ left: `${(marker.timeSec / timelineDurationSec) * 100}%` }}
+                        title={`${marker.label} ${marker.timeSec.toFixed(1)}s`}
+                      />
                     ))}
                     <div
                       className="hammer-timeline-ruler__time-readout"

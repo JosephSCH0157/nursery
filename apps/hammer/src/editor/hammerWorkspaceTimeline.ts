@@ -13,6 +13,7 @@ export type HammerWorkspaceFocusMode = "balanced" | "source-focus" | "tool-focus
 export type HammerWorkspaceFocusOverride = HammerWorkspaceFocusMode | "auto";
 export type SegmentNavigationDirection = "previous" | "next";
 export type BoundaryNavigationDirection = "previous" | "next";
+export type JumpPointNavigationDirection = "previous" | "next";
 
 export const SMALL_PLAYHEAD_NUDGE_SEC = 0.1;
 export const LARGE_PLAYHEAD_NUDGE_SEC = 1;
@@ -396,34 +397,48 @@ export function resolveTimelineBoundaryTimes(segments: HammerTranscriptSegment[]
   )].sort((a, b) => a - b);
 }
 
+export function resolveAdjacentJumpPointTime(args: {
+  jumpPointsSec: number[];
+  playheadSec: number;
+  direction: JumpPointNavigationDirection;
+  epsilonSec?: number;
+}): number {
+  const points = [...new Set(args.jumpPointsSec.map((timeSec) => roundToTenth(timeSec)))]
+    .sort((left, right) => left - right);
+  if (points.length === 0) return roundToTenth(args.playheadSec);
+
+  const epsilonSec = args.epsilonSec ?? 0.0001;
+  if (args.direction === "previous") {
+    for (let index = points.length - 1; index >= 0; index -= 1) {
+      const point = points[index] ?? 0;
+      if (point < args.playheadSec - epsilonSec) {
+        return roundToTenth(point);
+      }
+    }
+    return points[0] ?? 0;
+  }
+
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index] ?? 0;
+    if (point > args.playheadSec + epsilonSec) {
+      return roundToTenth(point);
+    }
+  }
+  return points[points.length - 1] ?? roundToTenth(args.playheadSec);
+}
+
 export function resolveAdjacentBoundaryTime(args: {
   boundaryTimesSec: number[];
   playheadSec: number;
   direction: BoundaryNavigationDirection;
   epsilonSec?: number;
 }): number {
-  const boundaries = [...new Set(args.boundaryTimesSec.map((timeSec) => roundToTenth(timeSec)))]
-    .sort((left, right) => left - right);
-  if (boundaries.length === 0) return roundToTenth(args.playheadSec);
-
-  const epsilonSec = args.epsilonSec ?? 0.0001;
-  if (args.direction === "previous") {
-    for (let index = boundaries.length - 1; index >= 0; index -= 1) {
-      const boundary = boundaries[index] ?? 0;
-      if (boundary < args.playheadSec - epsilonSec) {
-        return roundToTenth(boundary);
-      }
-    }
-    return boundaries[0] ?? 0;
-  }
-
-  for (let index = 0; index < boundaries.length; index += 1) {
-    const boundary = boundaries[index] ?? 0;
-    if (boundary > args.playheadSec + epsilonSec) {
-      return roundToTenth(boundary);
-    }
-  }
-  return boundaries[boundaries.length - 1] ?? roundToTenth(args.playheadSec);
+  return resolveAdjacentJumpPointTime({
+    jumpPointsSec: args.boundaryTimesSec,
+    playheadSec: args.playheadSec,
+    direction: args.direction,
+    epsilonSec: args.epsilonSec,
+  });
 }
 
 export function snapPlayheadToBoundary(args: {

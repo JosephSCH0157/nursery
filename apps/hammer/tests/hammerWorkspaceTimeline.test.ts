@@ -8,6 +8,7 @@ import {
   deleteSegmentAndRipple,
   moveSegmentTiming,
   resolveAdjacentBoundaryTime,
+  resolveAdjacentJumpPointTime,
   resolveAdjacentSegmentSelection,
   resolveEffectivePlaybackTime,
   resolveFocusAfterPlayheadChange,
@@ -177,6 +178,14 @@ async function testBoundaryNavigation() {
   assert.equal(resolveAdjacentBoundaryTime({ boundaryTimesSec: boundaries, playheadSec: 3.9, direction: "next" }), 4);
 }
 
+async function testGenericJumpPointNavigation() {
+  const points = [0.5, 1.2, 1.2, 3.7];
+  assert.equal(resolveAdjacentJumpPointTime({ jumpPointsSec: points, playheadSec: 1.2, direction: "previous" }), 0.5);
+  assert.equal(resolveAdjacentJumpPointTime({ jumpPointsSec: points, playheadSec: 1.2, direction: "next" }), 3.7);
+  assert.equal(resolveAdjacentJumpPointTime({ jumpPointsSec: points, playheadSec: 0, direction: "previous" }), 0.5);
+  assert.equal(resolveAdjacentJumpPointTime({ jumpPointsSec: points, playheadSec: 9, direction: "next" }), 3.7);
+}
+
 async function testDeleteSelectionHandoff() {
   const segments = [
     buildSegment({ segment_id: "a", start_sec: 0, end_sec: 1 }),
@@ -267,6 +276,7 @@ async function run() {
   await testResolvePlayheadAfterDelete();
   await testPlayheadSnapAndNavigation();
   await testBoundaryNavigation();
+  await testGenericJumpPointNavigation();
   await testDeleteSelectionHandoff();
   await testDisableAndGainEdits();
   await testDisabledSegmentsExcludedFromEffectivePlaybackTime();
