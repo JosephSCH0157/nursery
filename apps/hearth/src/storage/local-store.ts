@@ -2,6 +2,7 @@ import type {
   Draft,
   DraftId,
   PersistedScriptValidationMeta,
+  ScriptAuthoringMeta,
   ScriptValidationCode,
   ScriptValidationIssue,
   ScriptValidationSeverity,
@@ -87,6 +88,32 @@ function normalizeScriptValidationMeta(value: unknown): PersistedScriptValidatio
   };
 }
 
+function normalizeScriptAuthoringMeta(value: unknown): ScriptAuthoringMeta | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const composeMode = typeof row.composeMode === "string" ? row.composeMode : null;
+  const targetSpeaker = typeof row.targetSpeaker === "string" ? row.targetSpeaker : null;
+  const speakers = Array.isArray(row.speakers)
+    ? row.speakers.filter((speaker): speaker is "s1" | "s2" | "g1" | "g2" => (
+      speaker === "s1" || speaker === "s2" || speaker === "g1" || speaker === "g2"
+    ))
+    : [];
+  const speakerCount = typeof row.speakerCount === "number" && Number.isFinite(row.speakerCount)
+    ? Math.max(1, Math.min(4, Math.trunc(row.speakerCount)))
+    : null;
+  if (!composeMode || !speakerCount || speakers.length === 0) return null;
+  return {
+    composeMode: composeMode as ScriptAuthoringMeta["composeMode"],
+    targetSpeaker: (targetSpeaker === "s1" || targetSpeaker === "s2" || targetSpeaker === "g1" || targetSpeaker === "g2")
+      ? targetSpeaker
+      : null,
+    speakers: speakers.slice(0, speakerCount),
+    speakerCount: speakerCount as 1 | 2 | 3 | 4,
+    isOverrideFromProductionDefault: row.isOverrideFromProductionDefault === true,
+    lastComposedAt: typeof row.lastComposedAt === "string" ? row.lastComposedAt : null,
+  };
+}
+
 function normalizeDraft(value: unknown): Draft | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
@@ -101,6 +128,7 @@ function normalizeDraft(value: unknown): Draft | null {
   const archived = typeof row.archived === "boolean" ? row.archived : undefined;
   const pinned = typeof row.pinned === "boolean" ? row.pinned : undefined;
   const scriptValidationMeta = normalizeScriptValidationMeta(row.scriptValidationMeta);
+  const scriptAuthoringMeta = normalizeScriptAuthoringMeta(row.scriptAuthoringMeta);
 
   return {
     id,
@@ -113,6 +141,7 @@ function normalizeDraft(value: unknown): Draft | null {
     archived,
     pinned,
     scriptValidationMeta,
+    scriptAuthoringMeta,
   };
 }
 

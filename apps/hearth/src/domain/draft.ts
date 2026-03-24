@@ -1,3 +1,4 @@
+import type { CanonicalSpeakerId, ComposeMode } from "./compose";
 export type DraftId = string;
 
 export type DraftAttribution = {
@@ -36,6 +37,15 @@ export interface PersistedScriptValidationMeta {
   validatedAt: string;
 }
 
+export interface ScriptAuthoringMeta {
+  composeMode: ComposeMode;
+  targetSpeaker: CanonicalSpeakerId | null;
+  speakers: CanonicalSpeakerId[];
+  speakerCount: 1 | 2 | 3 | 4;
+  isOverrideFromProductionDefault: boolean;
+  lastComposedAt: string | null;
+}
+
 export interface Draft {
   id: DraftId;
   title: string;
@@ -49,6 +59,7 @@ export interface Draft {
   createdBy?: DraftAttribution | null;
   updatedBy?: DraftAttribution | null;
   scriptValidationMeta?: PersistedScriptValidationMeta | null;
+  scriptAuthoringMeta?: ScriptAuthoringMeta | null;
 }
 
 function generateDraftId(): DraftId {
@@ -78,5 +89,6 @@ export function createDraft(partial?: { title?: string; body?: string }): Draft 
     createdBy: null,
     updatedBy: null,
     scriptValidationMeta: null,
+    scriptAuthoringMeta: null,
   };
 }

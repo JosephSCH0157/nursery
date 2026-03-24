@@ -112,6 +112,17 @@ import {
   type ScriptValidationResult,
   type ScriptValidationIssue,
 } from "@forge/shared/script-tags";
+import type {
+  ComposeSetup,
+  ProductionDefaults,
+  ScriptCompletionBadge,
+} from "../domain/compose";
+import { buildComposeScriptRequest } from "../lib/build-compose-request";
+import { resolveComposeConflicts } from "../lib/compose-conflicts";
+import { buildSetupFromDefaults, readProductionDefaults } from "../lib/compose-defaults";
+import { inferSpeakersFromScript, validateComposeContent } from "../lib/compose-content-validation";
+import { buildComposePrompt } from "../lib/compose-prompt";
+import ComposeSetupModal from "../ui/ComposeSetupModal";
 import {
   commitWorkpieceProductionArtifact,
   readWorkpieceProductionArtifact,
@@ -2217,6 +2228,11 @@ export default function HearthShell() {
   const [showManualDraft, setShowManualDraft] = useState(false);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [isVisualScriptMode, setIsVisualScriptMode] = useState(false);
+  const [composeModalOpen, setComposeModalOpen] = useState(false);
+  const [productionDefaults] = useState<ProductionDefaults>(() => readProductionDefaults());
+  const [composeSetupDraft, setComposeSetupDraft] = useState<ComposeSetup>(() => buildSetupFromDefaults(readProductionDefaults()));
+  const [scriptCompletionBadge, setScriptCompletionBadge] = useState<ScriptCompletionBadge | null>(null);
+  const [scriptCompletionReasons, setScriptCompletionReasons] = useState<string[]>([]);
   const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(() =>
     readScriptApprovalState(incomingBarStockIntakeRoute ? null : resolveWorkpieceId()),
   );
@@ -2377,10 +2393,54 @@ export default function HearthShell() {
     };
   }, [activeDraft, draftSnapshot?.body]);
 
+  const effectiveComposeSetup = useMemo<ComposeSetup | null>(() => {
+    const meta = activeDraft?.scriptAuthoringMeta;
+    if (meta) {
+      return {
+        speakerCount: meta.speakerCount,
+        speakers: meta.speakers,
+        mode: meta.composeMode,
+        targetSpeaker: meta.targetSpeaker,
+        usesProductionDefault: !meta.isOverrideFromProductionDefault,
+        isOverrideFromProductionDefault: meta.isOverrideFromProductionDefault,
+      };
+    }
+    return null;
+  }, [activeDraft?.scriptAuthoringMeta]);
+
+  const composeContentValidation = useMemo(() => {
+    if (!activeDraft || !hearthScriptState) {
+      return {
+        ok: false,
+        badge: "outline_draft" as ScriptCompletionBadge,
+        reasons: ["No draft selected."],
+      };
+    }
+    return validateComposeContent({
+      setup: effectiveComposeSetup,
+      scriptText: hearthScriptState.normalizedText,
+      tagValidation: hearthScriptState.validation,
+    });
+  }, [activeDraft, effectiveComposeSetup, hearthScriptState]);
+
+  useEffect(() => {
+    setScriptCompletionBadge(composeContentValidation.badge);
+    setScriptCompletionReasons(composeContentValidation.reasons);
+  }, [composeContentValidation.badge, composeContentValidation.reasons]);
+
   const scriptReadiness = useMemo(() => getScriptReadiness({
-    validation: hearthScriptState?.validation ?? validateScriptTags(""),
     hasScriptText: Boolean((activeDraft?.body ?? "").trim()),
-  }), [activeDraft?.body, hearthScriptState?.validation]);
+    tagValidationOk: hearthScriptState?.validation.ok ?? false,
+    composeSetup: effectiveComposeSetup,
+    contentValidationOk: composeContentValidation.ok,
+    completionBadge: composeContentValidation.badge,
+  }), [
+    activeDraft?.body,
+    composeContentValidation.badge,
+    composeContentValidation.ok,
+    effectiveComposeSetup,
+    hearthScriptState?.validation.ok,
+  ]);
   const approvalBlocked = !scriptReadiness.ready;
   const handoffBlocked = !scriptReadiness.ready;
 
@@ -8721,6 +8781,58 @@ export default function HearthShell() {
     chatInputRef.current?.focus();
   }
 
+  function onOpenComposeScript() {
+    const inferredSpeakers = activeDraft?.body ? inferSpeakersFromScript(activeDraft.body) : [];
+    const conflict = resolveComposeConflicts({
+      defaults: productionDefaults,
+      userRequestedCustomize: false,
+      isSpecialEpisode: activeEpisodeSparks.length > 0,
+      importedImpliedSpeakers: inferredSpeakers.length > 0 ? inferredSpeakers : null,
+      selectedMode: productionDefaults.defaultMode,
+      selectedTargetSpeaker: productionDefaults.defaultTargetSpeaker,
+    });
+    if (!conflict.shouldPrompt && productionDefaults.assumeStandardUnlessOverridden) {
+      const setup = buildSetupFromDefaults(productionDefaults);
+      setComposeSetupDraft(setup);
+      const request = buildComposeScriptRequest({
+        setup,
+        sourceText: "Compose from current episode context.",
+        existingDraftText: activeDraft?.body ?? "",
+      });
+      setChatDraft(buildComposePrompt(request));
+      chatInputRef.current?.focus();
+      return;
+    }
+    setComposeSetupDraft(buildSetupFromDefaults(productionDefaults));
+    setComposeModalOpen(true);
+  }
+
+  function onComposeSetupSubmit(setup: ComposeSetup) {
+    setComposeSetupDraft(setup);
+    setComposeModalOpen(false);
+    setActiveDraft((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        scriptAuthoringMeta: {
+          composeMode: setup.mode,
+          targetSpeaker: setup.targetSpeaker,
+          speakers: setup.speakers,
+          speakerCount: setup.speakerCount,
+          isOverrideFromProductionDefault: setup.isOverrideFromProductionDefault,
+          lastComposedAt: new Date().toISOString(),
+        },
+      };
+    });
+    const request = buildComposeScriptRequest({
+      setup,
+      sourceText: "Compose from current episode context.",
+      existingDraftText: activeDraft?.body ?? "",
+    });
+    setChatDraft(buildComposePrompt(request));
+    chatInputRef.current?.focus();
+  }
+
   function clearSttNoticeTimer() {
     if (sttNoticeTimerRef.current) {
       window.clearTimeout(sttNoticeTimerRef.current);
@@ -9556,6 +9668,18 @@ export default function HearthShell() {
     const approvedAtText = scriptApprovalState.approvedAt
       ? formatUpdatedAt(scriptApprovalState.approvedAt)
       : "Unknown";
+    const composeModeLabel = effectiveComposeSetup
+      ? (effectiveComposeSetup.mode === "outline_by_speaker"
+        ? "Outline by speaker"
+        : effectiveComposeSetup.mode === "full_script_single_speaker"
+          ? `Full script for ${effectiveComposeSetup.targetSpeaker ?? "speaker"}`
+          : "Full script for all speakers")
+      : "Not set";
+    const completionBadgeLabel = scriptCompletionBadge === "approval_ready"
+      ? "Approval Ready"
+      : scriptCompletionBadge === "partial_script"
+        ? "Partial Script"
+        : "Outline Draft";
 
     return (
       <section className="hs-draft hs-draft-chat-first">
@@ -9567,6 +9691,10 @@ export default function HearthShell() {
             </div>
             <div className="hs-draft-updated">
               Editing as {activeUserDisplayName} · Last edited by {resolveDraftEditorName(activeDraft)}
+            </div>
+            <div className="hs-draft-updated">
+              Mode: {composeModeLabel} · Badge: {completionBadgeLabel}
+              {scriptCompletionReasons.length > 0 ? ` · ${scriptCompletionReasons.join(" ")}` : ""}
             </div>
           </div>
           <label className="hs-project-title">
@@ -10020,8 +10148,8 @@ export default function HearthShell() {
               <button type="button" onClick={() => onUseChatShortcut("Find strong sources I should cite for this Episode.")}>
                 Find sources
               </button>
-              <button type="button" onClick={() => onUseChatShortcut("Write a record-ready script using canonical Anvil tags.")}>
-                Write script
+              <button type="button" onClick={onOpenComposeScript}>
+                Compose
               </button>
             </div>
 
@@ -11526,6 +11654,13 @@ export default function HearthShell() {
           </MobilePage>
         </div>
       ) : null}
+
+      <ComposeSetupModal
+        open={composeModalOpen}
+        defaults={productionDefaults}
+        onClose={() => setComposeModalOpen(false)}
+        onCompose={onComposeSetupSubmit}
+      />
 
       {revisionModalOpen ? (
         <div
