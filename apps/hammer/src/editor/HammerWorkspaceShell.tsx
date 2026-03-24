@@ -3403,6 +3403,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           assetRef: args.assetPath,
           startSec: nextStart,
           endSec: nextEnd,
+          intentSource: "manual",
+          intentDescription: args.label,
+          assetBindingState: "resolved",
+          duckPreference: "auto",
         });
         const duckInstruction = createAudioDuckInstruction({
           segmentId: anchorSegment.segment_id,

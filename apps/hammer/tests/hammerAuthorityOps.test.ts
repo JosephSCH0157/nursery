@@ -132,6 +132,13 @@ async function testFirstAuthorityOpsAffectAssemblyDeterministically() {
   });
   assert.deepEqual(assemblyA, assemblyB);
   assert.equal(assemblyA.operations.length, 3);
+  const brollOp = withDuck.operations.find((operation) => operation.instruction.type === "insert_broll");
+  assert.equal(brollOp?.instruction.type, "insert_broll");
+  if (brollOp?.instruction.type === "insert_broll") {
+    assert.equal(brollOp.instruction.intent_source, "manual");
+    assert.equal(brollOp.instruction.asset_binding_state, "resolved");
+    assert.equal(brollOp.instruction.duck_preference, "auto");
+  }
 }
 
 async function testUndoRedoPreservesCanonicalOperationIdentity() {
