@@ -164,9 +164,12 @@ import {
 } from "./hammerRenderAssembly";
 import {
   appendAuthorityInstructionToGraph,
+  createHearthBrollSuggestionInstruction,
   createAudioDuckInstruction,
   createInsertBrollInstruction,
   createRippleDeleteInstruction,
+  resolveInsertBrollSuggestionInGraph,
+  setAuthorityOperationLifecycle,
 } from "./hammerAuthorityOps";
 import {
   buildHammerCaptionPreviewModel,
@@ -275,6 +278,17 @@ type HammerSourceAssetItem = {
   usageCount: number;
   firstStartSec: number;
   lastEndSec: number;
+};
+
+type HammerBrollSuggestionItem = {
+  operationId: string;
+  segmentId: string;
+  startSec: number;
+  endSec: number;
+  intentRef: string | null;
+  intentDescription: string | null;
+  bindingState: "resolved" | "unresolved";
+  duckPreference: "auto" | "none" | "manual";
 };
 
 type HammerTimelineLaneBlock = {
@@ -1335,6 +1349,27 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const sourceBrollItems = useMemo(
     () => sourceAssetItems.filter((item) => item.kind === "broll"),
     [sourceAssetItems],
+  );
+  const brollSuggestionItems = useMemo<HammerBrollSuggestionItem[]>(() => {
+    const operations = editableEditorialAuthorityGraph?.operations ?? [];
+    return operations.flatMap((operation) => {
+      if (operation.lifecycle !== "active") return [];
+      if (operation.instruction.type !== "insert_broll") return [];
+      return [{
+        operationId: operation.operation_id,
+        segmentId: operation.instruction.segment_id,
+        startSec: operation.instruction.start_sec,
+        endSec: operation.instruction.end_sec,
+        intentRef: operation.instruction.intent_ref ?? null,
+        intentDescription: operation.instruction.intent_description ?? null,
+        bindingState: operation.instruction.asset_binding_state === "unresolved" ? "unresolved" : "resolved",
+        duckPreference: operation.instruction.duck_preference ?? "auto",
+      }];
+    });
+  }, [editableEditorialAuthorityGraph?.operations]);
+  const unresolvedBrollSuggestionItems = useMemo(
+    () => brollSuggestionItems.filter((item) => item.bindingState === "unresolved"),
+    [brollSuggestionItems],
   );
   const sourceImageLibraryItems = useMemo(
     () => storedMediaFiles.filter((file) => file.kind === "image"),
@@ -3440,6 +3475,143 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
+  function ingestHearthBrollSuggestion(): void {
+    const anchorSegment = selectedSegment ?? editableTranscriptSegments[0] ?? null;
+    if (!anchorSegment) {
+      setTranscriptTimingHint("Cannot ingest B-roll suggestion without transcript segments.");
+      return;
+    }
+    const suggestionStart = Math.max(0, roundToTenth(playheadSec));
+    const suggestionEnd = Math.max(suggestionStart + 0.5, Math.min(transcriptDurationSec, roundToTenth(suggestionStart + 3)));
+    const suggestion = createHearthBrollSuggestionInstruction({
+      segmentId: anchorSegment.segment_id,
+      intentRef: `hearth-suggestion:${Date.now().toString(36)}`,
+      intentDescription: `B-roll suggestion near "${anchorSegment.text.slice(0, 48)}"`,
+      startSec: suggestionStart,
+      endSec: suggestionEnd,
+      duckPreference: "auto",
+    });
+    applyHistoryMutation({
+      label: "Ingest Hearth B-roll suggestion",
+      kind: "visual_adjustment",
+      toolId: "video",
+      immediatePersist: true,
+      computeAfter: (before) => ({
+        ...before,
+        editorialAuthorityGraph: appendAuthorityInstructionForState(before, suggestion),
+      }),
+    });
+  }
+
+  function resolveHearthBrollSuggestion(args: {
+    operationId: string;
+    assetPath: string;
+    label: string;
+  }): void {
+    const placementId = createVisualPlacementId();
+    applyHistoryMutation({
+      label: "Resolve Hearth B-roll suggestion",
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedPlacementIds: [placementId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const current = before.visualPlacements;
+        const graph = before.editorialAuthorityGraph;
+        if (!current || !graph) return before;
+        const operation = graph.operations.find((item) => item.operation_id === args.operationId) ?? null;
+        if (!operation || operation.instruction.type !== "insert_broll") return before;
+        const startSec = Math.max(0, roundToTenth(operation.instruction.start_sec));
+        const endSec = Math.max(startSec + 0.5, Math.min(transcriptDurationSec, roundToTenth(operation.instruction.end_sec)));
+        const resolvedGraph = resolveInsertBrollSuggestionInGraph({
+          graph,
+          operationId: args.operationId,
+          assetRef: args.assetPath,
+          startSec,
+          endSec,
+        });
+        if (!resolvedGraph) return before;
+        const anchorSegment = before.transcriptSegments.find((segment) => segment.segment_id === operation.instruction.segment_id)
+          ?? before.transcriptSegments[0]
+          ?? null;
+        if (!anchorSegment) return before;
+
+        let nextGraph = resolvedGraph;
+        if ((operation.instruction.duck_preference ?? "auto") === "auto") {
+          nextGraph = appendAuthorityInstructionToGraph({
+            graph: nextGraph,
+            instruction: createAudioDuckInstruction({
+              segmentId: anchorSegment.segment_id,
+              startSec,
+              endSec,
+              duckGainDb: -9,
+            }),
+            fallback: {
+              graphId: `${launchContext.workpiece_id}:authority`,
+              workspaceId: launchContext.workspace_id,
+              workpieceId: launchContext.workpiece_id,
+              sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
+              sourceTranscriptId: transcriptSourceId,
+            },
+          });
+        }
+
+        const brollPlacement: HammerVisualPlacementRecord = {
+          placement_id: placementId,
+          entry_id: `manual:${placementId}`,
+          anchor_segment_id: anchorSegment.segment_id,
+          matched_segment_ids: [anchorSegment.segment_id],
+          anchor_text: anchorSegment.text,
+          asset_ref: args.assetPath,
+          asset_id: null,
+          asset_path: args.assetPath,
+          storage_key: args.assetPath,
+          label: args.label,
+          visual_mode: "broll",
+          start_sec: startSec,
+          end_sec: endSec,
+          confidence: null,
+          timing_source: "ordered_fallback",
+          status: "placed",
+          ingest_state: "approved",
+          uncertainty_flags: [],
+        };
+
+        return {
+          ...before,
+          editorialAuthorityGraph: nextGraph,
+          visualPlacements: {
+            ...current,
+            placements: [...current.placements, brollPlacement],
+          },
+        };
+      },
+    });
+  }
+
+  function discardHearthBrollSuggestion(operationId: string): void {
+    applyHistoryMutation({
+      label: "Discard Hearth B-roll suggestion",
+      kind: "visual_adjustment",
+      toolId: "video",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const graph = before.editorialAuthorityGraph;
+        if (!graph) return before;
+        const next = setAuthorityOperationLifecycle({
+          graph,
+          operationId,
+          lifecycle: "reverted",
+        });
+        if (!next) return before;
+        return {
+          ...before,
+          editorialAuthorityGraph: next,
+        };
+      },
+    });
+  }
+
   function selectOutputLayerForExport(layerId: string | null): void {
     const targetLayer = layerId
       ? outputLayerCandidates.find((layer) => layer.layer_id === layerId) ?? null
@@ -5111,6 +5283,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <>
                     <div className="hammer-source-summary">
                       <span>{sourceBrollItems.length} b-roll assets</span>
+                      <span>{unresolvedBrollSuggestionItems.length} unresolved Hearth suggestions</span>
                       <button
                         type="button"
                         className="hammer-source-upload-button is-secondary"
@@ -5119,7 +5292,58 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       >
                         {uploadingCategory === "broll" ? "Uploading..." : "Upload B-roll"}
                       </button>
+                      <button
+                        type="button"
+                        className="hammer-source-upload-button is-secondary"
+                        onClick={() => {
+                          setFocusOverride("tool-focus");
+                          ingestHearthBrollSuggestion();
+                        }}
+                      >
+                        Ingest Hearth Suggestion
+                      </button>
                     </div>
+                    {unresolvedBrollSuggestionItems.map((suggestion) => (
+                      <article key={suggestion.operationId} className="hammer-source-card">
+                        <header className="hammer-source-card__head">
+                          <strong>{suggestion.intentDescription ?? "Hearth B-roll suggestion"}</strong>
+                          <span>unresolved</span>
+                        </header>
+                        <div className="hammer-source-card__meta">
+                          <span>Intent source: hearth_suggestion</span>
+                          <span>{suggestion.startSec.toFixed(1)}s - {suggestion.endSec.toFixed(1)}s</span>
+                          <span>Duck: {suggestion.duckPreference}</span>
+                        </div>
+                        <div className="hammer-source-card__path">{suggestion.intentRef ?? "intent ref unavailable"}</div>
+                        <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const candidate = sourceBrollItems.find((item) => item.assetPath)?.assetPath ?? null;
+                              if (!candidate) {
+                                setTranscriptTimingHint("Upload B-roll before resolving Hearth suggestions.");
+                                return;
+                              }
+                              resolveHearthBrollSuggestion({
+                                operationId: suggestion.operationId,
+                                assetPath: candidate,
+                                label: "Resolved from Hearth suggestion",
+                              });
+                            }}
+                          >
+                            Resolve with first B-roll asset
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              discardHearthBrollSuggestion(suggestion.operationId);
+                            }}
+                          >
+                            Discard suggestion
+                          </button>
+                        </div>
+                      </article>
+                    ))}
                     <input
                       ref={brollUploadInputRef}
                       type="file"
@@ -5174,6 +5398,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <>
                     <div className="hammer-source-summary">
                       <span>No b-roll assets are currently linked.</span>
+                      <span>{unresolvedBrollSuggestionItems.length} unresolved Hearth suggestions</span>
                       <button
                         type="button"
                         className="hammer-source-upload-button is-secondary"
@@ -5182,7 +5407,39 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       >
                         {uploadingCategory === "broll" ? "Uploading..." : "Upload B-roll"}
                       </button>
+                      <button
+                        type="button"
+                        className="hammer-source-upload-button is-secondary"
+                        onClick={() => {
+                          setFocusOverride("tool-focus");
+                          ingestHearthBrollSuggestion();
+                        }}
+                      >
+                        Ingest Hearth Suggestion
+                      </button>
                     </div>
+                    {unresolvedBrollSuggestionItems.map((suggestion) => (
+                      <article key={suggestion.operationId} className="hammer-source-card">
+                        <header className="hammer-source-card__head">
+                          <strong>{suggestion.intentDescription ?? "Hearth B-roll suggestion"}</strong>
+                          <span>unresolved</span>
+                        </header>
+                        <div className="hammer-source-card__meta">
+                          <span>Intent source: hearth_suggestion</span>
+                          <span>{suggestion.startSec.toFixed(1)}s - {suggestion.endSec.toFixed(1)}s</span>
+                          <span>Duck: {suggestion.duckPreference}</span>
+                        </div>
+                        <div className="hammer-source-card__path">{suggestion.intentRef ?? "intent ref unavailable"}</div>
+                        <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => discardHearthBrollSuggestion(suggestion.operationId)}
+                          >
+                            Discard suggestion
+                          </button>
+                        </div>
+                      </article>
+                    ))}
                     <input
                       ref={brollUploadInputRef}
                       type="file"
@@ -6806,6 +7063,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   {previewTruthPosture !== "authoritative" ? (
                     <div className="hammer-tool-hint">
                       Preview is {previewTruthPosture}; at least one active operation is not fully previewable in this runtime.
+                    </div>
+                  ) : null}
+                  {unresolvedBrollSuggestionItems.length > 0 ? (
+                    <div className="hammer-tool-hint">
+                      {unresolvedBrollSuggestionItems.length} unresolved B-roll intent(s) need binding before authoritative visual handoff.
                     </div>
                   ) : null}
                   <div className={`hammer-caption-release-summary hammer-caption-release-summary--${captionReleasePrepSafetyState}`}>

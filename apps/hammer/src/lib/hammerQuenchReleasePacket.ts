@@ -82,6 +82,17 @@ export interface HammerQuenchReleasePacketManifest {
       visuals_path: string;
       operation_ids: string[];
     };
+    broll_resolution_summary: {
+      unresolved_intents: Array<{
+        operation_id: string;
+        intent_ref: string | null;
+        intent_description: string | null;
+      }>;
+      resolved_bindings: Array<{
+        operation_id: string;
+        asset_ref: string;
+      }>;
+    };
   };
 }
 
@@ -220,6 +231,27 @@ export function buildHammerQuenchReleasePacket(args: {
             captions_vtt_path: vttText ? HAMMER_QUENCH_RELEASE_PACKET_VTT_PATH : null,
             visuals_path: HAMMER_QUENCH_RELEASE_PACKET_VISUALS_PATH,
             operation_ids: args.renderAssembly.operations.map((operation) => operation.operation_id),
+          },
+          broll_resolution_summary: {
+            unresolved_intents: (args.canonicalGraph?.operations ?? []).flatMap((operation) => {
+              if (operation.lifecycle !== "active") return [];
+              if (operation.instruction.type !== "insert_broll") return [];
+              if (operation.instruction.asset_binding_state !== "unresolved") return [];
+              return [{
+                operation_id: operation.operation_id,
+                intent_ref: operation.instruction.intent_ref ?? null,
+                intent_description: operation.instruction.intent_description ?? null,
+              }];
+            }),
+            resolved_bindings: (args.canonicalGraph?.operations ?? []).flatMap((operation) => {
+              if (operation.lifecycle !== "active") return [];
+              if (operation.instruction.type !== "insert_broll") return [];
+              if (operation.instruction.asset_binding_state === "unresolved") return [];
+              return [{
+                operation_id: operation.operation_id,
+                asset_ref: operation.instruction.asset_ref,
+              }];
+            }),
           },
         },
       }

@@ -75,8 +75,52 @@ async function testAssemblyDeterminismAndPosture() {
   assert.equal(degradedPreview.export.posture, "authoritative");
 }
 
+async function testUnresolvedBrollIsNeverTreatedAsBoundMediaTruth() {
+  const graph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_render_02",
+      version: "1",
+      created_at: "2026-03-24T12:10:00.000Z",
+      updated_at: "2026-03-24T12:10:00.000Z",
+      source_transcript_id: "transcript_render_02",
+      preview_mode: "edit-aware",
+      instructions: [
+        {
+          instruction_id: "ins_broll_unresolved",
+          segment_id: "seg_10",
+          type: "insert_broll",
+          asset_ref: "unresolved:hearth-suggestion-01",
+          start_sec: 4,
+          end_sec: 8,
+          intent_source: "hearth_suggestion",
+          intent_ref: "hearth-suggestion-01",
+          intent_description: "city establishing shot",
+          asset_binding_state: "unresolved",
+          duck_preference: "auto",
+          created_at: "2026-03-24T12:10:00.000Z",
+        },
+      ],
+    },
+    workspaceId: "ws_render",
+    workpieceId: "wp_render",
+    sessionId: "session_render",
+  });
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph: graph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: ["insert_broll"],
+      export_supported_operation_types: ["insert_broll"],
+      handoff_supported_operation_types: ["insert_broll"],
+    },
+  });
+  assert.equal(assembly.preview.posture, "unavailable");
+  assert.equal(assembly.export.posture, "degraded");
+  assert.equal(assembly.handoff.posture, "degraded");
+}
+
 async function run() {
   await testAssemblyDeterminismAndPosture();
+  await testUnresolvedBrollIsNeverTreatedAsBoundMediaTruth();
   // eslint-disable-next-line no-console
   console.log("Hammer render assembly tests passed.");
 }

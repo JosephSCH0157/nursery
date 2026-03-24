@@ -195,6 +195,93 @@ export function createInsertBrollInstruction(args: {
   };
 }
 
+export function createHearthBrollSuggestionInstruction(args: {
+  segmentId: string;
+  intentRef: string;
+  intentDescription: string;
+  startSec: number;
+  endSec: number;
+  duckPreference?: "auto" | "none" | "manual";
+  nowIso?: string;
+  instructionId?: string;
+}): HammerInsertBrollInstruction {
+  return createInsertBrollInstruction({
+    segmentId: args.segmentId,
+    assetRef: `unresolved:${args.intentRef}`,
+    startSec: args.startSec,
+    endSec: args.endSec,
+    intentSource: "hearth_suggestion",
+    intentRef: args.intentRef,
+    intentDescription: args.intentDescription,
+    assetBindingState: "unresolved",
+    duckPreference: args.duckPreference ?? "auto",
+    nowIso: args.nowIso,
+    instructionId: args.instructionId,
+  });
+}
+
+export function resolveInsertBrollSuggestionInGraph(args: {
+  graph: HammerEditorialAuthorityGraph;
+  operationId: string;
+  assetRef: string;
+  startSec: number;
+  endSec: number;
+  nowIso?: string;
+}): HammerEditorialAuthorityGraph | null {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  let changed = false;
+  const operations = args.graph.operations.map((operation) => {
+    if (operation.operation_id !== args.operationId) return operation;
+    if (operation.instruction.type !== "insert_broll") return operation;
+    changed = true;
+    return {
+      ...operation,
+      instruction: {
+        ...operation.instruction,
+        asset_ref: args.assetRef,
+        start_sec: args.startSec,
+        end_sec: args.endSec,
+        asset_binding_state: "resolved" as const,
+      },
+      updated_at: nowIso,
+    };
+  });
+  if (!changed) return null;
+  return {
+    ...args.graph,
+    operations,
+    graph_version: args.graph.graph_version + 1,
+    updated_at: nowIso,
+  };
+}
+
+export function setAuthorityOperationLifecycle(args: {
+  graph: HammerEditorialAuthorityGraph;
+  operationId: string;
+  lifecycle: "active" | "reverted" | "superseded";
+  nowIso?: string;
+}): HammerEditorialAuthorityGraph | null {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  let changed = false;
+  const operations = args.graph.operations.map((operation) => {
+    if (operation.operation_id !== args.operationId) return operation;
+    if (operation.lifecycle === args.lifecycle) return operation;
+    changed = true;
+    return {
+      ...operation,
+      lifecycle: args.lifecycle,
+      updated_at: nowIso,
+    };
+  });
+  if (!changed) return null;
+  return {
+    ...args.graph,
+    operations,
+    graph_version: args.graph.graph_version + 1,
+    updated_at: nowIso,
+  };
+}
+
 export function createAudioDuckInstruction(args: {
   segmentId: string;
   startSec: number;

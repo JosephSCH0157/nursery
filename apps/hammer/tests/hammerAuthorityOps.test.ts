@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { createDefaultHammerStudioRackState } from "../src/editor/hammerStudioRack";
 import {
   appendAuthorityInstructionToGraph,
+  createHearthBrollSuggestionInstruction,
   createAudioDuckInstruction,
   createInsertBrollInstruction,
   createRippleDeleteInstruction,
+  resolveInsertBrollSuggestionInGraph,
 } from "../src/editor/hammerAuthorityOps";
 import {
   buildHammerRenderAssembly,
@@ -186,9 +188,50 @@ async function testUndoRedoPreservesCanonicalOperationIdentity() {
   assert.equal(redoOperationId, appendedOperationId);
 }
 
+async function testSuggestionResolutionPreservesOperationIdentity() {
+  const initial = baseState();
+  const suggestion = createHearthBrollSuggestionInstruction({
+    segmentId: "seg_01",
+    intentRef: "hearth-suggestion-01",
+    intentDescription: "Insert skyline cutaway",
+    startSec: 0.4,
+    endSec: 2.6,
+    instructionId: "suggestion_01",
+  });
+  const withSuggestion = appendAuthorityInstructionToGraph({
+    graph: initial.editorialAuthorityGraph,
+    instruction: suggestion,
+    fallback: {
+      graphId: "fallback",
+      workspaceId: "ws_ops",
+      workpieceId: "wp_ops",
+      sessionId: "session_ops",
+      sourceTranscriptId: "tx_ops",
+    },
+  });
+  const suggestionOperationId = withSuggestion.operations.at(-1)?.operation_id ?? null;
+  assert.ok(suggestionOperationId);
+  const resolved = resolveInsertBrollSuggestionInGraph({
+    graph: withSuggestion,
+    operationId: suggestionOperationId!,
+    assetRef: "assets/broll/skyline.mp4",
+    startSec: 0.5,
+    endSec: 2.7,
+  });
+  assert.ok(resolved);
+  const sameOperation = resolved?.operations.find((operation) => operation.operation_id === suggestionOperationId) ?? null;
+  assert.equal(sameOperation?.instruction.type, "insert_broll");
+  if (sameOperation?.instruction.type === "insert_broll") {
+    assert.equal(sameOperation.instruction.asset_binding_state, "resolved");
+    assert.equal(sameOperation.instruction.intent_source, "hearth_suggestion");
+    assert.equal(sameOperation.instruction.asset_ref, "assets/broll/skyline.mp4");
+  }
+}
+
 async function run() {
   await testFirstAuthorityOpsAffectAssemblyDeterministically();
   await testUndoRedoPreservesCanonicalOperationIdentity();
+  await testSuggestionResolutionPreservesOperationIdentity();
   // eslint-disable-next-line no-console
   console.log("Hammer authority ops tests passed.");
 }
