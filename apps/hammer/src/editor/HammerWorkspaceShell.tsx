@@ -31,6 +31,7 @@ import {
   resolvePlayheadAfterRangeCut,
   resolvePreviewLabel,
   resolvePlayheadSegment,
+  remapPlacementForRippleDelete,
   resolveSelectedSegmentAfterDelete,
   resolveTranscriptSegmentRange,
   resolveTimelineBoundaryTimes,
@@ -168,6 +169,7 @@ import {
   createAudioDuckInstruction,
   createInsertBrollInstruction,
   createRippleDeleteInstruction,
+  remapResolvedBrollOperationsForRippleDelete,
   resolveInsertBrollSuggestionInGraph,
   setAuthorityOperationLifecycle,
   updateResolvedInsertBrollOperationInGraph,
@@ -3092,7 +3094,55 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           startSec: cut.removedStartSec,
           endSec: cut.removedEndSec,
         });
-        const nextAuthorityGraph = appendAuthorityInstructionForState(before, authorityInstruction);
+        const withRippleDelete = appendAuthorityInstructionForState(before, authorityInstruction);
+        const rippleDeleteOperationId = withRippleDelete.operations.at(-1)?.operation_id ?? null;
+        const remapped = rippleDeleteOperationId
+          ? remapResolvedBrollOperationsForRippleDelete({
+            graph: withRippleDelete,
+            rippleDeleteOperationId,
+            removedStartSec: cut.removedStartSec,
+            removedEndSec: cut.removedEndSec,
+          })
+          : {
+            graph: withRippleDelete,
+            summary: {
+              adjustedOperationIds: [],
+              removedOperationIds: [],
+              attentionOperationIds: [],
+            },
+          };
+
+        const currentPlacements = before.visualPlacements;
+        const remappedPlacements = currentPlacements
+          ? currentPlacements.placements.flatMap((placement) => {
+            const operationId = placement.authority_operation_id;
+            if (!operationId) return [placement];
+            if (remapped.summary.removedOperationIds.includes(operationId)) {
+              return [];
+            }
+            if (!remapped.summary.adjustedOperationIds.includes(operationId)) {
+              return [placement];
+            }
+            const placementRemap = remapPlacementForRippleDelete({
+              startSec: placement.start_sec,
+              endSec: placement.end_sec,
+              removedStartSec: cut.removedStartSec ?? 0,
+              removedEndSec: cut.removedEndSec ?? 0,
+            });
+            if (placementRemap.kind === "removed") {
+              return [];
+            }
+            return [{
+              ...placement,
+              start_sec: placementRemap.startSec,
+              end_sec: placementRemap.endSec,
+              status: placementRemap.needsAttention ? "uncertain" : placement.status,
+              uncertainty_flags: placementRemap.needsAttention
+                ? Array.from(new Set([...placement.uncertainty_flags, "timeline_remap_review"]))
+                : placement.uncertainty_flags,
+            }];
+          })
+          : null;
 
         const nextSelection = resolveSelectedSegmentAfterDelete({
           segmentsAfterDelete: cut.segments,
@@ -3102,8 +3152,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         return {
           ...before,
           transcriptSegments: cut.segments,
-          editorialAuthorityGraph: nextAuthorityGraph,
+          editorialAuthorityGraph: remapped.graph,
           selectedSegmentId: nextSelection,
+          visualPlacements: currentPlacements
+            ? {
+              ...currentPlacements,
+              placements: remappedPlacements ?? currentPlacements.placements,
+            }
+            : before.visualPlacements,
           playheadSec: resolvePlayheadAfterRangeCut({
             playheadSec: before.playheadSec,
             removedStartSec: cut.removedStartSec,

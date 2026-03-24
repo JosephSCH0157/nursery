@@ -13,6 +13,7 @@ import {
   resolveEffectivePlaybackTime,
   resolveFocusAfterPlayheadChange,
   resolvePlayheadAfterRangeCut,
+  remapPlacementForRippleDelete,
   resolveSelectedSegmentAfterDelete,
   resolveTranscriptSegmentRange,
   resolveTimelineBoundaryTimes,
@@ -265,6 +266,70 @@ async function testCutRangeAndRipple() {
   );
 }
 
+async function testRippleDeletePlacementRemapMatrix() {
+  const removedStartSec = 10;
+  const removedEndSec = 14;
+
+  const before = remapPlacementForRippleDelete({
+    startSec: 6,
+    endSec: 9,
+    removedStartSec,
+    removedEndSec,
+  });
+  assert.equal(before.kind, "unchanged");
+  assert.equal(before.startSec, 6);
+  assert.equal(before.endSec, 9);
+
+  const after = remapPlacementForRippleDelete({
+    startSec: 16,
+    endSec: 18,
+    removedStartSec,
+    removedEndSec,
+  });
+  assert.equal(after.kind, "shifted");
+  assert.equal(after.startSec, 12);
+  assert.equal(after.endSec, 14);
+
+  const inside = remapPlacementForRippleDelete({
+    startSec: 10.2,
+    endSec: 13.5,
+    removedStartSec,
+    removedEndSec,
+  });
+  assert.equal(inside.kind, "removed");
+
+  const leftOverlap = remapPlacementForRippleDelete({
+    startSec: 8,
+    endSec: 11,
+    removedStartSec,
+    removedEndSec,
+  });
+  assert.equal(leftOverlap.kind, "trimmed");
+  assert.equal(leftOverlap.startSec, 8);
+  assert.equal(leftOverlap.endSec, 10);
+
+  const rightOverlap = remapPlacementForRippleDelete({
+    startSec: 12,
+    endSec: 16,
+    removedStartSec,
+    removedEndSec,
+  });
+  assert.equal(rightOverlap.kind, "trimmed");
+  assert.equal(rightOverlap.startSec, 10);
+  assert.equal(rightOverlap.endSec, 12);
+
+  const spanning = remapPlacementForRippleDelete({
+    startSec: 7,
+    endSec: 18,
+    removedStartSec,
+    removedEndSec,
+  });
+  assert.equal(spanning.kind, "bridged");
+  assert.equal(spanning.startSec, 7);
+  assert.equal(spanning.endSec, 14);
+  assert.equal(spanning.needsAttention, true);
+}
+
 async function run() {
   await testFocusModeDefaults();
   await testMoveAndTrimTiming();
@@ -282,6 +347,7 @@ async function run() {
   await testDisabledSegmentsExcludedFromEffectivePlaybackTime();
   await testResolveTranscriptRange();
   await testCutRangeAndRipple();
+  await testRippleDeletePlacementRemapMatrix();
   // eslint-disable-next-line no-console
   console.log("Hammer workspace timeline tests passed.");
 }

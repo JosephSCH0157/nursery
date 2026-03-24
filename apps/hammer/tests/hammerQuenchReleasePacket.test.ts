@@ -14,6 +14,8 @@ import {
   appendAuthorityInstructionToGraph,
   createHearthBrollSuggestionInstruction,
   createInsertBrollInstruction,
+  remapResolvedBrollOperationsForRippleDelete,
+  createRippleDeleteInstruction,
   updateResolvedInsertBrollOperationInGraph,
 } from "../src/editor/hammerAuthorityOps";
 
@@ -340,6 +342,105 @@ async function testPacketReflectsResolvedBindingEdits() {
   assert.equal(packet.manifest.editorial_truth?.broll_resolution_summary.unresolved_intents.length, 0);
   assert.equal(packet.manifest.editorial_truth?.broll_resolution_summary.resolved_bindings.length, 1);
   assert.equal(packet.manifest.editorial_truth?.broll_resolution_summary.resolved_bindings[0]?.asset_ref, "assets/broll/replaced.mp4");
+  assert.equal(packet.manifest.editorial_truth?.broll_timeline_remap_summary.adjusted_bindings.length, 1);
+}
+
+async function testPacketReflectsRippleDeleteBrollRemapTruth() {
+  const prep = buildHammerReleasePrepPackage({
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    prepStatus: "prepared",
+    alignmentStatus: "aligned",
+    structuredTranscript: transcript,
+    visualPlacements: null,
+    audioPolish: null,
+    editorSession: null,
+  });
+  const baseGraph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_packet_ext_04",
+      version: "1",
+      created_at: "2026-03-24T10:00:00.000Z",
+      updated_at: "2026-03-24T10:00:00.000Z",
+      source_transcript_id: "tx_release_packet",
+      instructions: [],
+    },
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    sessionId: "session_demo",
+  });
+  const withSpan = appendAuthorityInstructionToGraph({
+    graph: baseGraph,
+    instruction: createInsertBrollInstruction({
+      segmentId: "seg_001",
+      assetRef: "assets/broll/span.mp4",
+      startSec: 1,
+      endSec: 7,
+      assetBindingState: "resolved",
+    }),
+    fallback: {
+      graphId: baseGraph.graph_id,
+      workspaceId: "ws_demo",
+      workpieceId: "wp_demo",
+      sessionId: "session_demo",
+      sourceTranscriptId: "tx_release_packet",
+    },
+  });
+  const withInside = appendAuthorityInstructionToGraph({
+    graph: withSpan,
+    instruction: createInsertBrollInstruction({
+      segmentId: "seg_001",
+      assetRef: "assets/broll/inside.mp4",
+      startSec: 2.2,
+      endSec: 3.5,
+      assetBindingState: "resolved",
+    }),
+    fallback: {
+      graphId: baseGraph.graph_id,
+      workspaceId: "ws_demo",
+      workpieceId: "wp_demo",
+      sessionId: "session_demo",
+      sourceTranscriptId: "tx_release_packet",
+    },
+  });
+  const withRipple = appendAuthorityInstructionToGraph({
+    graph: withInside,
+    instruction: createRippleDeleteInstruction({
+      segmentId: "seg_001",
+      startSec: 2,
+      endSec: 4,
+    }),
+    fallback: {
+      graphId: baseGraph.graph_id,
+      workspaceId: "ws_demo",
+      workpieceId: "wp_demo",
+      sessionId: "session_demo",
+      sourceTranscriptId: "tx_release_packet",
+    },
+  });
+  const rippleOperationId = withRipple.operations.at(-1)?.operation_id ?? "";
+  const remapped = remapResolvedBrollOperationsForRippleDelete({
+    graph: withRipple,
+    rippleDeleteOperationId: rippleOperationId,
+    removedStartSec: 2,
+    removedEndSec: 4,
+  }).graph;
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph: remapped,
+    runtimeCapabilities: {
+      preview_supported_operation_types: ["insert_broll", "ripple_delete"],
+      export_supported_operation_types: ["insert_broll", "ripple_delete"],
+      handoff_supported_operation_types: ["insert_broll", "ripple_delete"],
+    },
+  });
+  const packet = buildHammerQuenchReleasePacket({
+    releasePrepPackage: prep,
+    canonicalGraph: remapped,
+    renderAssembly: assembly,
+    preparedAt: "2026-03-24T10:01:00.000Z",
+  });
+  assert.equal(packet.manifest.editorial_truth?.broll_timeline_remap_summary.removed_binding_operation_ids.length, 1);
+  assert.equal(packet.manifest.editorial_truth?.broll_timeline_remap_summary.attention_binding_operation_ids.length, 1);
 }
 
 async function run() {
@@ -348,6 +449,7 @@ async function run() {
   await testPacketIncludesEditorialTruthExtensionWhenProvided();
   await testPacketDistinguishesUnresolvedVsResolvedBroll();
   await testPacketReflectsResolvedBindingEdits();
+  await testPacketReflectsRippleDeleteBrollRemapTruth();
   // eslint-disable-next-line no-console
   console.log("Hammer Quench release packet tests passed.");
 }
