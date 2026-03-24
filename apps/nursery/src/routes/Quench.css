@@ -34,6 +34,27 @@
   color: rgba(255, 210, 119, 0.82);
 }
 
+.quench-console__eyebrow-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quench-console__title-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 210, 119, 0.38);
+  background: rgba(255, 210, 119, 0.11);
+  color: rgba(255, 240, 207, 0.9);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .quench-console__title {
   margin: 0;
   font-size: clamp(28px, 4vw, 42px);

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Link } from "react-router-dom";
 import type { ForgeNavItem, ForgeNavSection } from "./forgeNavTree";
+import "./ForgeNav.css";
 
 type Props = {
   tree: ForgeNavSection[];
@@ -23,6 +24,21 @@ export function ForgeNav({
   getNavStyle,
   getItemStyle,
 }: Props) {
+  function renderItemContent(item: ForgeNavItem): React.ReactNode {
+    if (!item.badge) {
+      return item.label;
+    }
+
+    return (
+      <span className="forge-nav__item-content">
+        <span>{item.label}</span>
+        <span className="forge-nav__item-badge" aria-label="Under construction" title="Under construction">
+          {item.badge}
+        </span>
+      </span>
+    );
+  }
+
   return (
     <>
       {tree.map((section, idx) => {
@@ -78,7 +94,7 @@ export function ForgeNav({
                         font: "inherit",
                       }}
                     >
-                      {item.label}
+                      {renderItemContent(item)}
                     </button>
                   );
                 }
@@ -91,7 +107,7 @@ export function ForgeNav({
                       onClick={onNavigate}
                       style={itemStyle}
                     >
-                      {item.label}
+                      {renderItemContent(item)}
                     </a>
                   );
                 }
@@ -103,7 +119,7 @@ export function ForgeNav({
                     onClick={onNavigate}
                     style={itemStyle}
                   >
-                    {item.label}
+                    {renderItemContent(item)}
                   </Link>
                 );
               })}

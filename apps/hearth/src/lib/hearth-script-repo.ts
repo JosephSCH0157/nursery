@@ -156,7 +156,11 @@ export async function readHearthPrimaryScript(
 export async function commitHearthPrimaryScript(
   workpieceId: string,
   scriptText: string,
+  options?: {
+    validatorVersion?: string;
+  },
 ): Promise<CommitResult> {
+  const validatorVersion = readString(options?.validatorVersion) ?? "shared-script-tags-v1";
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
     method: "POST",
     json: {
@@ -168,6 +172,7 @@ export async function commitHearthPrimaryScript(
       event_payload: {
         path: PRIMARY_SCRIPT_PATH,
         chars: scriptText.length,
+        validator_version: validatorVersion,
       },
       correlation_id: nextCorrelationId("hearth-script"),
     },

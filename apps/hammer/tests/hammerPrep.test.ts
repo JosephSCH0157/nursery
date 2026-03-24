@@ -114,6 +114,7 @@ const persistedPreparedSnapshot = {
     visual_placement_artifact_path: null,
     audio_polish_artifact_path: null,
     edit_plan_artifact_path: null,
+    editorial_authority_artifact_path: null,
     edit_plan_signature: null,
     prep_status: "prepared" as const,
     alignment_status: "aligned" as const,
@@ -216,6 +217,11 @@ const persistedPreparedSnapshot = {
     data: null,
   },
   edit_plan: {
+    path: null,
+    updated_at: null,
+    data: null,
+  },
+  editorial_authority: {
     path: null,
     updated_at: null,
     data: null,

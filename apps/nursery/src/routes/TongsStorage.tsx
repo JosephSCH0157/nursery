@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useOutletContext } from "react-router-dom";
 import { useLayoutMode } from "@forge/ui-mobile";
 import {
@@ -407,6 +407,15 @@ export default function TongsStorage() {
     nodes: [],
     message: null,
   });
+  const applyWorkpieceTreeState = useCallback((nextState: TreeState) => {
+    setWorkpieceTreeState(nextState);
+  }, []);
+  const applyRoleRootTreeState = useCallback((nextState: TreeState) => {
+    setRoleRootTreeState(nextState);
+  }, []);
+  const applyCanonicalRecordingsTreeState = useCallback((nextState: TreeState) => {
+    setCanonicalRecordingsTreeState(nextState);
+  }, []);
 
   const roots = useMemo<RootViewModel[]>(() => {
     return ALL_MOUNT_ROLES.map((role) => {
@@ -438,15 +447,13 @@ export default function TongsStorage() {
 
   useEffect(() => {
     if (!workpieceId) {
-      queueMicrotask(() => {
-        setWorkpieceTreeState({
-          status: "unavailable",
-          source: null,
-          nodes: [],
-          message: routeContext.hasInvalidWorkpieceId
-            ? "Route contains an invalid workpiece_id. Provide a valid workpiece UUID to inspect canonical workpiece storage."
-            : "No workpiece is selected in the current route. Add workpiece_id to inspect canonical workpiece storage.",
-        });
+      applyWorkpieceTreeState({
+        status: "unavailable",
+        source: null,
+        nodes: [],
+        message: routeContext.hasInvalidWorkpieceId
+          ? "Route contains an invalid workpiece_id. Provide a valid workpiece UUID to inspect canonical workpiece storage."
+          : "No workpiece is selected in the current route. Add workpiece_id to inspect canonical workpiece storage.",
       });
       return;
     }
@@ -458,13 +465,11 @@ export default function TongsStorage() {
     };
 
     let cancelled = false;
-    queueMicrotask(() => {
-      setWorkpieceTreeState({
-        status: "loading",
-        source: workpieceSource,
-        nodes: [],
-        message: "Loading canonical workpiece listing...",
-      });
+    applyWorkpieceTreeState({
+      status: "loading",
+      source: workpieceSource,
+      nodes: [],
+      message: "Loading canonical workpiece listing...",
     });
 
     void (async () => {
@@ -482,7 +487,7 @@ export default function TongsStorage() {
           rootPath: data.listing.source.root_path,
         };
         const nodes = mapCloudNodes(data.listing.nodes);
-        setWorkpieceTreeState({
+        applyWorkpieceTreeState({
           status: "ready",
           source,
           nodes,
@@ -490,7 +495,7 @@ export default function TongsStorage() {
         });
       } catch (error: unknown) {
         if (cancelled) return;
-        setWorkpieceTreeState({
+        applyWorkpieceTreeState({
           status: "error",
           source: workpieceSource,
           nodes: [],
@@ -502,30 +507,26 @@ export default function TongsStorage() {
     return () => {
       cancelled = true;
     };
-  }, [routeContext.hasInvalidWorkpieceId, workpieceId]);
+  }, [applyWorkpieceTreeState, routeContext.hasInvalidWorkpieceId, workpieceId]);
 
   useEffect(() => {
     if (!selectedRoot) {
-      queueMicrotask(() => {
-        setRoleRootTreeState({
-          status: "unavailable",
-          source: null,
-          nodes: [],
-          message: "Workspace role root unavailable.",
-        });
+      applyRoleRootTreeState({
+        status: "unavailable",
+        source: null,
+        nodes: [],
+        message: "Workspace role root unavailable.",
       });
       return;
     }
 
     if (selectedRoot.resolvedTargetType === "tongs_cloud") {
       if (!workspaceId) {
-        queueMicrotask(() => {
-          setRoleRootTreeState({
-            status: "unavailable",
-            source: null,
-            nodes: [],
-            message: "Workspace context is required to inspect workspace role roots.",
-          });
+        applyRoleRootTreeState({
+          status: "unavailable",
+          source: null,
+          nodes: [],
+          message: "Workspace context is required to inspect workspace role roots.",
         });
         return;
       }
@@ -537,13 +538,11 @@ export default function TongsStorage() {
       };
 
       let cancelled = false;
-      queueMicrotask(() => {
-        setRoleRootTreeState({
-          status: "loading",
-          source: cloudSource,
-          nodes: [],
-          message: "Loading workspace role-root listing...",
-        });
+      applyRoleRootTreeState({
+        status: "loading",
+        source: cloudSource,
+        nodes: [],
+        message: "Loading workspace role-root listing...",
       });
 
       void (async () => {
@@ -561,7 +560,7 @@ export default function TongsStorage() {
             rootPath: data.listing.source.root_path,
           };
           const nodes = mapCloudNodes(data.listing.nodes);
-          setRoleRootTreeState({
+          applyRoleRootTreeState({
             status: "ready",
             source,
             nodes,
@@ -569,7 +568,7 @@ export default function TongsStorage() {
           });
         } catch (error: unknown) {
           if (cancelled) return;
-          setRoleRootTreeState({
+          applyRoleRootTreeState({
             status: "error",
             source: cloudSource,
             nodes: [],
@@ -585,39 +584,33 @@ export default function TongsStorage() {
 
     const listing = buildListingSource(selectedRoot);
     if (!listing.source) {
-      queueMicrotask(() => {
-        setRoleRootTreeState({
-          status: "unavailable",
-          source: null,
-          nodes: [],
-          message: listing.message,
-        });
+      applyRoleRootTreeState({
+        status: "unavailable",
+        source: null,
+        nodes: [],
+        message: listing.message,
       });
       return;
     }
 
     const source = listing.source;
     if (!source.vaultKey) {
-      queueMicrotask(() => {
-        setRoleRootTreeState({
-          status: "unavailable",
-          source,
-          nodes: [],
-          message: "Local listing is unavailable because no vault key is configured for this root.",
-        });
+      applyRoleRootTreeState({
+        status: "unavailable",
+        source,
+        nodes: [],
+        message: "Local listing is unavailable because no vault key is configured for this root.",
       });
       return;
     }
     const sourceVaultKey = source.vaultKey;
 
     let cancelled = false;
-    queueMicrotask(() => {
-      setRoleRootTreeState({
-        status: "loading",
-        source,
-        nodes: [],
-        message: "Loading read-only listing...",
-      });
+    applyRoleRootTreeState({
+      status: "loading",
+      source,
+      nodes: [],
+      message: "Loading read-only listing...",
     });
 
     void (async () => {
@@ -625,7 +618,7 @@ export default function TongsStorage() {
         const handle = await getHandle(sourceVaultKey);
         if (!handle) {
           if (!cancelled) {
-            setRoleRootTreeState({
+            applyRoleRootTreeState({
               status: "unavailable",
               source,
               nodes: [],
@@ -638,7 +631,7 @@ export default function TongsStorage() {
 
         const nodes = await listDirectoryTree(handle, selectedRoot.role, 0);
         if (cancelled) return;
-        setRoleRootTreeState({
+        applyRoleRootTreeState({
           status: "ready",
           source,
           nodes,
@@ -646,7 +639,7 @@ export default function TongsStorage() {
         });
       } catch (error: unknown) {
         if (cancelled) return;
-        setRoleRootTreeState({
+        applyRoleRootTreeState({
           status: "error",
           source,
           nodes: [],
@@ -661,17 +654,15 @@ export default function TongsStorage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedRoot, workspaceId]);
+  }, [applyRoleRootTreeState, selectedRoot, workspaceId]);
 
   useEffect(() => {
     if (!workspaceId || selectedRoot?.role !== "recordings") {
-      queueMicrotask(() => {
-        setCanonicalRecordingsTreeState({
-          status: "unavailable",
-          source: null,
-          nodes: [],
-          message: "Select the Recordings role root to inspect canonical kept takes across workpieces.",
-        });
+      applyCanonicalRecordingsTreeState({
+        status: "unavailable",
+        source: null,
+        nodes: [],
+        message: "Select the Recordings role root to inspect canonical kept takes across workpieces.",
       });
       return;
     }
@@ -683,13 +674,11 @@ export default function TongsStorage() {
     };
 
     let cancelled = false;
-    queueMicrotask(() => {
-      setCanonicalRecordingsTreeState({
-        status: "loading",
-        source: canonicalRecordingSource,
-        nodes: [],
-        message: "Loading canonical recording inventory...",
-      });
+    applyCanonicalRecordingsTreeState({
+      status: "loading",
+      source: canonicalRecordingSource,
+      nodes: [],
+      message: "Loading canonical recording inventory...",
     });
 
     void (async () => {
@@ -707,7 +696,7 @@ export default function TongsStorage() {
           rootPath: data.listing.source.root_path,
         };
         const nodes = mapCloudNodes(data.listing.nodes);
-        setCanonicalRecordingsTreeState({
+        applyCanonicalRecordingsTreeState({
           status: "ready",
           source,
           nodes,
@@ -715,7 +704,7 @@ export default function TongsStorage() {
         });
       } catch (error: unknown) {
         if (cancelled) return;
-        setCanonicalRecordingsTreeState({
+        applyCanonicalRecordingsTreeState({
           status: "error",
           source: canonicalRecordingSource,
           nodes: [],
@@ -730,7 +719,7 @@ export default function TongsStorage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedRoot?.role, workspaceId]);
+  }, [applyCanonicalRecordingsTreeState, selectedRoot?.role, workspaceId]);
 
   if (!workspaceId) {
     return <WorkspaceRequiredNotice toolName="Tongs Storage" />;

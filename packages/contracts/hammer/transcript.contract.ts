@@ -4,6 +4,8 @@ export interface HammerTranscriptSegment {
   end_sec: number;
   speaker: string;
   text: string;
+  is_disabled?: boolean;
+  gain_db?: number;
 }
 
 export interface HammerTranscript {

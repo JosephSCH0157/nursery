@@ -118,12 +118,16 @@ export type EpisodeImageMapEntry = {
   id: string;
   anchor: string;
   script_anchor: EpisodeImageMapScriptAnchor | null;
+  anchor_scope?: EpisodeImageMapAnchorScope;
   description: string;
   visual_intent: string;
   prompt_basis: string;
   style_preset?: HearthVisualStyleValue | null;
   intent: string;
   source_type: string;
+  visual_priority?: EpisodeImageMapVisualPriority;
+  visual_type?: EpisodeImageMapVisualType;
+  section_intent_note?: string | null;
   beat_order: number;
   paragraph_beat_order: number;
   candidate_assets: EpisodeImageMapAssetRef[];
@@ -158,9 +162,33 @@ export const EPISODE_IMAGE_MAP_STATUS_VALUES = [
   "selected",
 ] as const;
 
+export const EPISODE_IMAGE_MAP_ANCHOR_SCOPE_VALUES = [
+  "attached",
+  "orphaned",
+  "global",
+] as const;
+
+export const EPISODE_IMAGE_MAP_VISUAL_PRIORITY_VALUES = [
+  "primary",
+  "supporting",
+  "optional",
+] as const;
+
+export const EPISODE_IMAGE_MAP_VISUAL_TYPE_VALUES = [
+  "b_roll",
+  "still_image",
+  "text_overlay",
+  "diagram",
+  "archival",
+  "motion_graphic",
+] as const;
+
 export type EpisodeImageMapIntent = (typeof EPISODE_IMAGE_MAP_INTENT_VALUES)[number];
 export type EpisodeImageMapSourceType = (typeof EPISODE_IMAGE_MAP_SOURCE_TYPE_VALUES)[number];
 export type EpisodeImageMapStatus = (typeof EPISODE_IMAGE_MAP_STATUS_VALUES)[number];
+export type EpisodeImageMapAnchorScope = (typeof EPISODE_IMAGE_MAP_ANCHOR_SCOPE_VALUES)[number];
+export type EpisodeImageMapVisualPriority = (typeof EPISODE_IMAGE_MAP_VISUAL_PRIORITY_VALUES)[number];
+export type EpisodeImageMapVisualType = (typeof EPISODE_IMAGE_MAP_VISUAL_TYPE_VALUES)[number];
 
 export type EpisodePackageV2 = {
   schema: typeof EPISODE_PACKAGE_V2_SCHEMA;
@@ -444,12 +472,16 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
       id: readString(entry.id) ?? `image-map-${String(i + 1).padStart(2, "0")}`,
       anchor,
       script_anchor: scriptAnchor,
+      anchor_scope: normalizeImageMapAnchorScope(readString(entry.anchor_scope), scriptAnchor),
       description,
       visual_intent: readString(entry.visual_intent) ?? description,
       prompt_basis: readString(entry.prompt_basis) ?? readString(entry.prompt) ?? description,
       style_preset: normalizeHearthVisualStyle(readString(entry.style_preset) ?? readString(entry.visual_style) ?? null),
       intent: normalizeImageMapIntent(readString(entry.intent)),
       source_type: normalizeImageMapSourceType(sourceType),
+      visual_priority: normalizeImageMapVisualPriority(readString(entry.visual_priority)),
+      visual_type: normalizeImageMapVisualType(readString(entry.visual_type)),
+      section_intent_note: readString(entry.section_intent_note),
       beat_order: readInteger(entry.beat_order) ?? (i + 1),
       paragraph_beat_order: readInteger(entry.paragraph_beat_order) ?? 1,
       candidate_assets: candidateAssets,
@@ -498,6 +530,33 @@ function normalizeImageMapStatus(value: string | null | undefined): EpisodeImage
     return normalized as EpisodeImageMapStatus;
   }
   return "draft";
+}
+
+function normalizeImageMapAnchorScope(
+  value: string | null | undefined,
+  scriptAnchor: EpisodeImageMapScriptAnchor | null,
+): EpisodeImageMapAnchorScope {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized && EPISODE_IMAGE_MAP_ANCHOR_SCOPE_VALUES.includes(normalized as EpisodeImageMapAnchorScope)) {
+    return normalized as EpisodeImageMapAnchorScope;
+  }
+  return scriptAnchor ? "attached" : "orphaned";
+}
+
+function normalizeImageMapVisualPriority(value: string | null | undefined): EpisodeImageMapVisualPriority {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized && EPISODE_IMAGE_MAP_VISUAL_PRIORITY_VALUES.includes(normalized as EpisodeImageMapVisualPriority)) {
+    return normalized as EpisodeImageMapVisualPriority;
+  }
+  return "supporting";
+}
+
+function normalizeImageMapVisualType(value: string | null | undefined): EpisodeImageMapVisualType {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized && EPISODE_IMAGE_MAP_VISUAL_TYPE_VALUES.includes(normalized as EpisodeImageMapVisualType)) {
+    return normalized as EpisodeImageMapVisualType;
+  }
+  return "still_image";
 }
 
 function normalizeImageMapAssetRefs(value: unknown): EpisodeImageMapAssetRef[] {
@@ -640,12 +699,16 @@ function normalizeImageMapEntryPatch(args: {
     id,
     anchor,
     script_anchor: scriptAnchor,
+    anchor_scope: normalizeImageMapAnchorScope(readString(args.entry.anchor_scope), scriptAnchor),
     description,
     visual_intent: readString(args.entry.visual_intent) ?? description,
     prompt_basis: readString(args.entry.prompt_basis) ?? description,
     style_preset: normalizeHearthVisualStyle(args.entry.style_preset ?? null),
     intent: normalizeImageMapIntent(readString(args.entry.intent)),
     source_type: normalizeImageMapSourceType(readString(args.entry.source_type)),
+    visual_priority: normalizeImageMapVisualPriority(readString(args.entry.visual_priority)),
+    visual_type: normalizeImageMapVisualType(readString(args.entry.visual_type)),
+    section_intent_note: readString(args.entry.section_intent_note),
     beat_order: readInteger(args.entry.beat_order) ?? args.fallbackBeatOrder ?? 1,
     paragraph_beat_order: readInteger(args.entry.paragraph_beat_order) ?? args.fallbackParagraphBeatOrder ?? 1,
     candidate_assets: candidateAssets,
@@ -811,12 +874,16 @@ export function parseImageMapEntriesFromText(rawText: string): EpisodeImageMapEn
       id: `image-map-${currentId.toLowerCase()}`,
       anchor,
       script_anchor: null,
+      anchor_scope: "orphaned",
       description,
       visual_intent: description,
       prompt_basis: prompt,
       style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
       intent: "graphic",
       source_type: "stock",
+      visual_priority: "supporting",
+      visual_type: "still_image",
+      section_intent_note: null,
       beat_order: entries.length + 1,
       paragraph_beat_order: 1,
       candidate_assets: [],

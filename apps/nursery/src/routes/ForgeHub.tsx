@@ -9,6 +9,7 @@ type HubLink = {
   name: string;
   hint: string;
   desc: string;
+  underConstruction?: boolean;
 };
 
 const TOOL_META: Record<ForgeAppId, Omit<HubLink, "to" | "href">> = {
@@ -72,9 +73,25 @@ const LINKS: HubLink[] = [
     to: "/app/anvil",
     ...TOOL_META.anvil,
   },
-  linkFor("hammer"),
-  linkFor("quench"),
-  linkFor("ledger"),
+  {
+    to: "/apps/bellows",
+    name: "Bellows",
+    hint: "Remote Production Studio",
+    desc: "Run live remote recording sessions with role-based controls.",
+    underConstruction: true,
+  },
+  {
+    ...linkFor("hammer"),
+    underConstruction: true,
+  },
+  {
+    ...linkFor("quench"),
+    underConstruction: true,
+  },
+  {
+    ...linkFor("ledger"),
+    underConstruction: true,
+  },
   {
     to: "/app/iron-mine",
     name: "Iron Mine",
@@ -116,6 +133,9 @@ export default function ForgeHub() {
                 <div className="forge-hub__card-title">{x.name}</div>
                 <div className="forge-hub__card-hint">{x.hint}</div>
               </div>
+              {x.underConstruction ? (
+                <div className="forge-hub__card-status" aria-label="Under Construction" title="Under Construction">UC</div>
+              ) : null}
               <div className="forge-hub__card-desc">{x.desc}</div>
             </a>
           ) : (
@@ -129,6 +149,9 @@ export default function ForgeHub() {
                 <div className="forge-hub__card-title">{x.name}</div>
                 <div className="forge-hub__card-hint">{x.hint}</div>
               </div>
+              {x.underConstruction ? (
+                <div className="forge-hub__card-status" aria-label="Under Construction" title="Under Construction">UC</div>
+              ) : null}
               <div className="forge-hub__card-desc">{x.desc}</div>
             </Link>
           )

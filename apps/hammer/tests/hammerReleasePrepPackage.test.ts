@@ -137,6 +137,7 @@ function buildSnapshot(args?: {
       visual_placement_artifact_path: "hammer/prep/visual-placements.v1.json",
       audio_polish_artifact_path: "hammer/prep/audio-polish.v1.json",
       edit_plan_artifact_path: null,
+      editorial_authority_artifact_path: null,
       edit_plan_signature: null,
       prep_status: "prepared",
       alignment_status: "aligned",
@@ -213,6 +214,11 @@ function buildSnapshot(args?: {
       data: audioPolish,
     },
     edit_plan: {
+      path: null,
+      updated_at: null,
+      data: null,
+    },
+    editorial_authority: {
       path: null,
       updated_at: null,
       data: null,

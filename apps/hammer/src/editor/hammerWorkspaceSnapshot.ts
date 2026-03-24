@@ -13,6 +13,7 @@ import type {
   HammerPersistedStructuredTranscript,
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
+import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 
 export type HammerWorkspaceEditPlanStatus = "clean" | "dirty" | "reloaded";
 
@@ -35,6 +36,7 @@ export interface HammerWorkspaceSnapshot {
   lastMacroRunRef: string | null;
   structuredTranscript: HammerPersistedStructuredTranscript | null;
   editPlan: HammerEditPlan;
+  editorialAuthorityGraph?: HammerEditorialAuthorityGraph | null;
   visualPlacements: HammerPersistedVisualPlacements | null;
   audioPolish: HammerPersistedAudioPolish | null;
 }

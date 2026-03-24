@@ -1,4 +1,12 @@
-import type { Draft, DraftId } from "../domain/draft";
+import type {
+  Draft,
+  DraftId,
+  PersistedScriptValidationMeta,
+  ScriptAuthoringMeta,
+  ScriptValidationCode,
+  ScriptValidationIssue,
+  ScriptValidationSeverity,
+} from "../domain/draft";
 import type { Revision, RevisionId } from "../domain/revision";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
 import {
@@ -39,6 +47,73 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function normalizeValidationIssue(value: unknown): ScriptValidationIssue | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const code = typeof row.code === "string" ? row.code : null;
+  const severity = typeof row.severity === "string" ? row.severity : null;
+  const message = typeof row.message === "string" ? row.message : null;
+  const line = typeof row.line === "number" && Number.isFinite(row.line) ? Math.max(1, Math.trunc(row.line)) : null;
+  const column = typeof row.column === "number" && Number.isFinite(row.column) ? Math.max(1, Math.trunc(row.column)) : null;
+  if (!code || !severity || !message || !line || !column) return null;
+  return {
+    code: code as ScriptValidationCode,
+    severity: severity as ScriptValidationSeverity,
+    message,
+    line,
+    column,
+    ...(typeof row.tag === "string" ? { tag: row.tag } : {}),
+  };
+}
+
+function normalizeScriptValidationMeta(value: unknown): PersistedScriptValidationMeta | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.ok !== "boolean") return null;
+  const issues = Array.isArray(row.issues)
+    ? row.issues.map((issue) => normalizeValidationIssue(issue)).filter((issue): issue is ScriptValidationIssue => Boolean(issue))
+    : [];
+  const issueCount = typeof row.issueCount === "number" && Number.isFinite(row.issueCount)
+    ? Math.max(0, Math.trunc(row.issueCount))
+    : issues.length;
+  const validatorVersion = typeof row.validatorVersion === "string" ? row.validatorVersion.trim() : "";
+  const validatedAt = typeof row.validatedAt === "string" ? row.validatedAt.trim() : "";
+  if (!validatorVersion || !validatedAt) return null;
+  return {
+    ok: row.ok,
+    issueCount,
+    issues,
+    validatorVersion,
+    validatedAt,
+  };
+}
+
+function normalizeScriptAuthoringMeta(value: unknown): ScriptAuthoringMeta | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const composeMode = typeof row.composeMode === "string" ? row.composeMode : null;
+  const targetSpeaker = typeof row.targetSpeaker === "string" ? row.targetSpeaker : null;
+  const speakers = Array.isArray(row.speakers)
+    ? row.speakers.filter((speaker): speaker is "s1" | "s2" | "g1" | "g2" => (
+      speaker === "s1" || speaker === "s2" || speaker === "g1" || speaker === "g2"
+    ))
+    : [];
+  const speakerCount = typeof row.speakerCount === "number" && Number.isFinite(row.speakerCount)
+    ? Math.max(1, Math.min(4, Math.trunc(row.speakerCount)))
+    : null;
+  if (!composeMode || !speakerCount || speakers.length === 0) return null;
+  return {
+    composeMode: composeMode as ScriptAuthoringMeta["composeMode"],
+    targetSpeaker: (targetSpeaker === "s1" || targetSpeaker === "s2" || targetSpeaker === "g1" || targetSpeaker === "g2")
+      ? targetSpeaker
+      : null,
+    speakers: speakers.slice(0, speakerCount),
+    speakerCount: speakerCount as 1 | 2 | 3 | 4,
+    isOverrideFromProductionDefault: row.isOverrideFromProductionDefault === true,
+    lastComposedAt: typeof row.lastComposedAt === "string" ? row.lastComposedAt : null,
+  };
+}
+
 function normalizeDraft(value: unknown): Draft | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
@@ -52,6 +127,8 @@ function normalizeDraft(value: unknown): Draft | null {
   const lastRevisionAt = isFiniteNumber(row.lastRevisionAt) ? row.lastRevisionAt : undefined;
   const archived = typeof row.archived === "boolean" ? row.archived : undefined;
   const pinned = typeof row.pinned === "boolean" ? row.pinned : undefined;
+  const scriptValidationMeta = normalizeScriptValidationMeta(row.scriptValidationMeta);
+  const scriptAuthoringMeta = normalizeScriptAuthoringMeta(row.scriptAuthoringMeta);
 
   return {
     id,
@@ -63,6 +140,8 @@ function normalizeDraft(value: unknown): Draft | null {
     lastRevisionAt,
     archived,
     pinned,
+    scriptValidationMeta,
+    scriptAuthoringMeta,
   };
 }
 

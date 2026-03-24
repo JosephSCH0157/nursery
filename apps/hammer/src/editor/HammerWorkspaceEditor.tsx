@@ -1,7 +1,7 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
-import TranscriptSeekMock from "../dev/TranscriptSeekMock";
+import HammerWorkspaceShell from "./HammerWorkspaceShell";
 import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import "./HammerWorkspaceEditor.css";
 import {
@@ -152,6 +152,7 @@ export default function HammerWorkspaceEditor(
   const prepExecutionIdRef = useRef(0);
   const isMountedRef = useRef(true);
   const dynamicStyleScopeIdRef = useRef(`hammer-workspace-editor-${Math.random().toString(36).slice(2, 10)}`);
+  const handoffPanelRef = useRef<HTMLElement | null>(null);
 
   const clearReadyTransitionTimer = (): void => {
     if (readyTransitionTimerRef.current != null) {
@@ -806,6 +807,36 @@ export default function HammerWorkspaceEditor(
     setShowPreparedHandoff(false);
   }
 
+  function handlePreparedSummaryClick(summaryId: "transcript" | "visuals" | "audio"): void {
+    if (summaryId === "transcript") {
+      handlePreparedHandoffAction("review_transcript");
+      return;
+    }
+    if (summaryId === "visuals") {
+      handlePreparedHandoffAction("review_visuals");
+      return;
+    }
+    handlePreparedHandoffAction("review_audio");
+  }
+
+  useEffect(() => {
+    if (!showPreparedHandoff || !shouldRenderEditor) return;
+
+    const dismissOnFirstInteraction = (event: PointerEvent | KeyboardEvent) => {
+      const target = event.target as Node | null;
+      if (target && handoffPanelRef.current?.contains(target)) return;
+      setShowPreparedHandoff(false);
+    };
+
+    window.addEventListener("pointerdown", dismissOnFirstInteraction, true);
+    window.addEventListener("keydown", dismissOnFirstInteraction, true);
+
+    return () => {
+      window.removeEventListener("pointerdown", dismissOnFirstInteraction, true);
+      window.removeEventListener("keydown", dismissOnFirstInteraction, true);
+    };
+  }, [showPreparedHandoff, shouldRenderEditor]);
+
   if (persistenceMode === "canonical" && prepState.status === "prep_failed") {
     return (
       <section className="hammer-prep-shell__failure">
@@ -836,21 +867,20 @@ export default function HammerWorkspaceEditor(
   }
 
   return (
-    <div className="hammer-prep-shell">
+    <div className="hammer-prep-shell hammer-workspace-editor-host">
       {shouldRenderEditor ? (
         <div className="hammer-prep-shell__editor">
-            <TranscriptSeekMock
-              launchContext={effectiveLaunchContext}
-              structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
-              visualPlacements={visualPlacementData}
-              audioPolish={audioPolishData}
-              releasePrepHref={props.releasePrepHref}
-              selectedMacroRecipeRef={loadedPersistenceSnapshot?.macro_hooks.recipe_ref ?? null}
-              lastMacroRunRef={loadedPersistenceSnapshot?.macro_hooks.last_run_ref ?? null}
-              prepHandoffAction={preparedActionIntent}
-              allowDevLaunchFallback={props.allowDevLaunchFallback}
-              onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
-            />
+          <HammerWorkspaceShell
+            launchContext={effectiveLaunchContext}
+            structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
+            visualPlacements={visualPlacementData}
+            audioPolish={audioPolishData}
+            releasePrepHref={props.releasePrepHref}
+            selectedMacroRecipeRef={loadedPersistenceSnapshot?.macro_hooks.recipe_ref ?? null}
+            lastMacroRunRef={loadedPersistenceSnapshot?.macro_hooks.last_run_ref ?? null}
+            prepHandoffAction={preparedActionIntent}
+            onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
+          />
         </div>
       ) : null}
 
@@ -910,21 +940,25 @@ export default function HammerWorkspaceEditor(
       ) : null}
 
       {showPreparedHandoff ? (
-        <section className="hammer-prep-shell__handoff" aria-label="Hammer prep handoff">
+        <section
+          ref={handoffPanelRef}
+          className="hammer-prep-shell__handoff"
+          aria-label="Hammer prep handoff"
+        >
           <div className="hammer-prep-shell__handoff-title">{handoffModel.title}</div>
           <div className="hammer-prep-shell__handoff-body">{handoffModel.body}</div>
-          <div className="hammer-prep-shell__handoff-summary-grid">
+          <div className="hammer-prep-shell__handoff-summary-list">
             {handoffModel.summaries.map((summary) => (
-              <article
+              <button
                 key={summary.id}
-                className={`hammer-prep-shell__handoff-summary hammer-prep-shell__handoff-summary--${summary.tone}`}
+                type="button"
+                className={`hammer-prep-shell__handoff-summary-row hammer-prep-shell__handoff-summary-row--${summary.tone}`}
+                onClick={() => handlePreparedSummaryClick(summary.id)}
               >
-                <div className="hammer-prep-shell__handoff-summary-head">
-                  <span className="hammer-prep-shell__handoff-summary-label">{summary.label}</span>
-                  <span className="hammer-prep-shell__handoff-summary-status">{summary.status_label}</span>
-                </div>
-                <div className="hammer-prep-shell__handoff-summary-detail">{summary.detail}</div>
-              </article>
+                <span className="hammer-prep-shell__handoff-summary-label">{summary.label}</span>
+                <span className="hammer-prep-shell__handoff-summary-status">{summary.status_label}</span>
+                <span className="hammer-prep-shell__handoff-summary-detail">{summary.detail}</span>
+              </button>
             ))}
           </div>
           <div className="hammer-prep-shell__handoff-actions">
@@ -943,6 +977,14 @@ export default function HammerWorkspaceEditor(
                 <span className="hammer-prep-shell__action-detail">{action.detail}</span>
               </button>
             ))}
+            <button
+              type="button"
+              className="hammer-prep-shell__action-button hammer-prep-shell__action-button--dismiss"
+              onClick={() => setShowPreparedHandoff(false)}
+            >
+              <span className="hammer-prep-shell__action-label">Continue Editing</span>
+              <span className="hammer-prep-shell__action-detail">Dismiss this briefing and enter the workspace.</span>
+            </button>
           </div>
         </section>
       ) : null}

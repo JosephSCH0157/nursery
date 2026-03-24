@@ -24,11 +24,12 @@ type ScriptParagraphSpan = {
   sentences: ScriptSentenceSpan[];
 };
 
-export type ImageMapAnchorStatus = "anchored" | "needs_reanchor" | "missing_anchor";
+export type ImageMapAnchorStatus = "attached" | "weak_match" | "orphaned" | "global";
 
 export type ImageMapAnchorAssessment = {
   status: ImageMapAnchorStatus;
   exactAnchor: EpisodeImageMapScriptAnchor | null;
+  weakAnchor: EpisodeImageMapScriptAnchor | null;
   message: string;
 };
 
@@ -309,12 +310,16 @@ function buildEntry(args: {
     id: args.id,
     anchor: resolveImageMapDisplayAnchor(null, args.anchor),
     script_anchor: args.anchor,
+    anchor_scope: "attached",
     description: args.anchor.span_text,
     visual_intent: args.anchor.span_text,
     prompt_basis: args.anchor.span_text,
     style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
     intent: "cutaway",
     source_type: "stock",
+    visual_priority: "supporting",
+    visual_type: "still_image",
+    section_intent_note: null,
     beat_order: args.beatOrder,
     paragraph_beat_order: args.paragraphBeatOrder,
     candidate_assets: [],
@@ -415,6 +420,61 @@ function normalizeSpanTextForComparison(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+function tokenizeForOverlap(text: string): string[] {
+  return normalizeSpanTextForComparison(text)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+}
+
+function computeWordOverlapRatio(left: string, right: string): number {
+  const leftTokens = tokenizeForOverlap(left);
+  const rightTokens = tokenizeForOverlap(right);
+  if (leftTokens.length === 0 || rightTokens.length === 0) return 0;
+  const rightSet = new Set(rightTokens);
+  let overlap = 0;
+  for (const token of leftTokens) {
+    if (rightSet.has(token)) overlap += 1;
+  }
+  return overlap / leftTokens.length;
+}
+
+function resolveNearestParagraph(paragraphs: ScriptParagraphSpan[], anchor: EpisodeImageMapScriptAnchor): ScriptParagraphSpan | null {
+  if (paragraphs.length === 0) return null;
+  const byId = paragraphs.find((paragraph) => paragraph.paragraphId === anchor.paragraph_id) ?? null;
+  if (byId) return byId;
+
+  let best: ScriptParagraphSpan | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const paragraph of paragraphs) {
+    const distance = Math.abs(paragraph.paragraphOrder - anchor.paragraph_order);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = paragraph;
+    }
+  }
+  return best;
+}
+
+function resolveWeakAnchor(scriptText: string, anchor: EpisodeImageMapScriptAnchor): EpisodeImageMapScriptAnchor | null {
+  const paragraphs = extractParagraphs(scriptText);
+  const nearestParagraph = resolveNearestParagraph(paragraphs, anchor);
+  if (!nearestParagraph) return null;
+
+  const normalizedSpan = normalizeSpanTextForComparison(anchor.span_text);
+  if (normalizedSpan && normalizeSpanTextForComparison(nearestParagraph.text).includes(normalizedSpan)) {
+    return buildParagraphAnchor(nearestParagraph);
+  }
+
+  const overlapRatio = computeWordOverlapRatio(anchor.span_text, nearestParagraph.text);
+  if (overlapRatio >= 0.45) {
+    return buildParagraphAnchor(nearestParagraph);
+  }
+
+  return null;
+}
+
 export function resolveExactImageMapScriptAnchor(
   scriptText: string,
   anchor: EpisodeImageMapScriptAnchor | null | undefined,
@@ -452,28 +512,67 @@ export function resolveExactImageMapScriptAnchor(
 export function assessImageMapScriptAnchor(
   scriptText: string,
   anchor: EpisodeImageMapScriptAnchor | null | undefined,
+  anchorScope: "attached" | "orphaned" | "global" = "attached",
 ): ImageMapAnchorAssessment {
+  if (anchorScope === "global") {
+    return {
+      status: "global",
+      exactAnchor: null,
+      weakAnchor: null,
+      message: "This visual intent is global and intentionally not attached to a specific script span.",
+    };
+  }
+
   if (!anchor) {
     return {
-      status: "missing_anchor",
+      status: "orphaned",
       exactAnchor: null,
-      message: "This visual beat does not have a structured exact anchor yet.",
+      weakAnchor: null,
+      message: "This visual anchor is orphaned and needs explicit repair or conversion to global intent.",
     };
   }
 
   const exactAnchor = resolveExactImageMapScriptAnchor(scriptText, anchor);
   if (exactAnchor) {
     return {
-      status: "anchored",
+      status: "attached",
       exactAnchor,
-      message: "This visual beat is anchored to an exact span in the current canonical script.",
+      weakAnchor: null,
+      message: "This visual anchor is attached to an exact span in the canonical script.",
+    };
+  }
+
+  const weakAnchor = resolveWeakAnchor(scriptText, anchor);
+  if (weakAnchor) {
+    return {
+      status: "weak_match",
+      exactAnchor: null,
+      weakAnchor,
+      message: "This anchor no longer has an exact match, but a deterministic nearest-paragraph repair is available.",
     };
   }
 
   return {
-    status: "needs_reanchor",
+    status: "orphaned",
     exactAnchor: null,
-    message: "This structured anchor no longer matches the current canonical script.",
+    weakAnchor: null,
+    message: "This structured anchor no longer matches the canonical script and is now orphaned.",
+  };
+}
+
+export function resolveNearestParagraphSelection(
+  scriptText: string,
+  anchor: EpisodeImageMapScriptAnchor | null | undefined,
+): ImageMapScriptSelection | null {
+  if (!anchor) return null;
+  const paragraphs = extractParagraphs(scriptText);
+  const nearestParagraph = resolveNearestParagraph(paragraphs, anchor);
+  const paragraphAnchor = nearestParagraph ? buildParagraphAnchor(nearestParagraph) : null;
+  if (!nearestParagraph || !paragraphAnchor) return null;
+  return {
+    paragraphId: nearestParagraph.paragraphId,
+    sentenceStart: paragraphAnchor.sentence_start,
+    sentenceEnd: paragraphAnchor.sentence_end,
   };
 }
 
@@ -543,6 +642,7 @@ export function reanchorImageMapEntry(
     ...entry,
     anchor: resolveImageMapDisplayAnchor(null, anchor),
     script_anchor: anchor,
+    anchor_scope: "attached",
     status: entry.status === "draft" ? "mapped" : entry.status,
   };
 }

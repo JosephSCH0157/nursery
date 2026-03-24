@@ -7,6 +7,11 @@ import {
   handleHammerAudioPolishRequest,
 } from "./hammer-audio-polish";
 import { HAMMER_AUDIO_POLISH_ROUTE } from "../../hammer/src/prep/hammerAudioPolishApi";
+import { HAMMER_STUDIO_RACK_RENDER_ROUTE } from "../../hammer/src/editor/hammerStudioRackRenderApi";
+import {
+  createHammerStudioRackRenderRequestContext,
+  handleHammerStudioRackRenderRequest,
+} from "./hammer-studio-rack-render";
 import {
   HAMMER_TRANSCRIPT_PREP_ROUTE,
   type HammerTranscriptPrepRequest,
@@ -338,7 +343,11 @@ export function createHammerPrepMiddleware() {
       const rawUrl = req.url || "";
       const origin = `http://${req.headers.host || "localhost"}`;
       const url = new URL(rawUrl, origin);
-      if (url.pathname !== HAMMER_TRANSCRIPT_PREP_ROUTE && url.pathname !== HAMMER_AUDIO_POLISH_ROUTE) {
+      if (
+        url.pathname !== HAMMER_TRANSCRIPT_PREP_ROUTE
+        && url.pathname !== HAMMER_AUDIO_POLISH_ROUTE
+        && url.pathname !== HAMMER_STUDIO_RACK_RENDER_ROUTE
+      ) {
         next();
         return;
       }
@@ -351,6 +360,12 @@ export function createHammerPrepMiddleware() {
       const body = await readJsonBody(req);
       if (url.pathname === HAMMER_AUDIO_POLISH_ROUTE) {
         const result = await handleHammerAudioPolishRequest(body, createHammerAudioPolishRequestContext(req));
+        sendJson(res, result.status, result.payload);
+        return;
+      }
+
+      if (url.pathname === HAMMER_STUDIO_RACK_RENDER_ROUTE) {
+        const result = await handleHammerStudioRackRenderRequest(body, createHammerStudioRackRenderRequestContext(req));
         sendJson(res, result.status, result.payload);
         return;
       }

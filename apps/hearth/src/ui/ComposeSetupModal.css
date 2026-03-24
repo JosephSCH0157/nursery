@@ -1,0 +1,67 @@
+.hs-compose-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 70;
+}
+
+.hs-compose-modal {
+  width: min(560px, 92vw);
+  background: #171717;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.hs-compose-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.hs-compose-modal-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.hs-compose-modal-panel label {
+  display: grid;
+  gap: 6px;
+}
+
+.hs-compose-modal-panel select {
+  background: #111;
+  color: #f3f3f3;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.hs-compose-modal-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.hs-compose-modal-checkbox {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #2f2f2f;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #131313;
+}
+
+.hs-compose-modal-checkbox input {
+  margin-right: 6px;
+}
+
+.hs-compose-modal-checkbox span {
+  font-size: 0.92rem;
+}
+
+.hs-compose-modal-checkbox small {
+  color: #a9a9a9;
+}

@@ -1,10 +1,18 @@
 import type { HammerEditPlan } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import {
+  cloneHammerEditorialAuthorityGraph,
+  type HammerEditorialAuthorityGraph,
+} from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import { tongsFetch } from "../lib/tongsFetch";
 import { cloneHammerStructuredTranscript } from "../macros/hammerDerivedTranscriptLayers";
 import { cloneVisualPlacements } from "../lib/hammerVisualPlacements";
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
+import {
+  projectEditPlanFromEditorialAuthorityGraph,
+  projectEditorialAuthorityGraphFromEditPlan,
+} from "../editor/hammerRenderAssembly";
 import {
   DEFAULT_FORGE_NEUTRAL_SPEAKER_LABELS,
   HAMMER_RUNTIME_WRITTEN_BY,
@@ -56,6 +64,12 @@ function cloneEditPlan(plan: HammerEditPlan): HammerEditPlan {
     ...plan,
     instructions: plan.instructions.map((instruction) => ({ ...instruction })),
   };
+}
+
+function cloneEditorialAuthorityGraph(
+  graph: HammerEditorialAuthorityGraph,
+): HammerEditorialAuthorityGraph {
+  return cloneHammerEditorialAuthorityGraph(graph);
 }
 
 function cloneLaunchContext(context: HammerLaunchContext): HammerLaunchContext {
@@ -201,6 +215,19 @@ export function buildHammerPersistenceSaveRequest(
   existingAudioPolish?: HammerPersistedAudioPolish | null,
   lastOpenedAt = new Date().toISOString(),
 ): HammerPersistenceSaveRequest {
+  const canonicalGraph = snapshot.editorialAuthorityGraph
+    ? cloneEditorialAuthorityGraph(snapshot.editorialAuthorityGraph)
+    : projectEditorialAuthorityGraphFromEditPlan({
+      editPlan: snapshot.editPlan,
+      workspaceId: snapshot.workspaceId,
+      workpieceId: snapshot.workpieceId,
+      sessionId: snapshot.sessionId,
+    });
+  const compatibilityEditPlan = projectEditPlanFromEditorialAuthorityGraph({
+    graph: canonicalGraph,
+    fallback: cloneEditPlan(snapshot.editPlan),
+  });
+
   return {
     written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
     active_session_id: snapshot.sessionId,
@@ -226,7 +253,10 @@ export function buildHammerPersistenceSaveRequest(
       data: toAudioPolish(snapshot, existingAudioPolish),
     },
     edit_plan: {
-      data: cloneEditPlan(snapshot.editPlan),
+      data: compatibilityEditPlan,
+    },
+    editorial_authority: {
+      data: canonicalGraph,
     },
   };
 }
@@ -238,7 +268,25 @@ export function buildHammerLaunchContextFromPersistence(
 ): HammerHydratedLaunchContext | null {
   const editorSession = snapshot.editor_session.data;
   const transcript = snapshot.structured_transcript.data;
-  const editPlan = snapshot.edit_plan.data;
+  const canonicalGraph = snapshot.editorial_authority.data;
+  const projectedEditPlan = canonicalGraph
+    ? projectEditPlanFromEditorialAuthorityGraph({
+      graph: canonicalGraph,
+      fallback: snapshot.edit_plan.data ?? fallbackLaunchContext?.edit_plan ?? {
+        edit_plan_id: `${target.workpieceId}:legacy-fallback-plan`,
+        version: "1",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        source_transcript_id: transcript?.transcript_id ?? "unknown-transcript",
+        instructions: [],
+        preview_mode: editorSession?.preview_mode ?? "edit-aware",
+        workspace_id: target.workspaceId,
+        workpiece_id: target.workpieceId,
+        session_id: editorSession?.session_id ?? undefined,
+      },
+    })
+    : snapshot.edit_plan.data;
+  const editPlan = projectedEditPlan;
   const hasPersistedState = Boolean(snapshot.state || editorSession || transcript || editPlan);
 
   let launchContext = fallbackLaunchContext ? cloneLaunchContext(fallbackLaunchContext) : null;
@@ -399,6 +447,11 @@ function normalizeSnapshot(payload: unknown): HammerPersistenceSnapshot | null {
       path: normalizeArtifact<HammerEditPlan>(snapshot.edit_plan).path,
       updated_at: normalizeArtifact<HammerEditPlan>(snapshot.edit_plan).file_updated_at,
       data: normalizeArtifact<HammerEditPlan>(snapshot.edit_plan).data,
+    },
+    editorial_authority: {
+      path: normalizeArtifact<HammerEditorialAuthorityGraph>(snapshot.editorial_authority).path,
+      updated_at: normalizeArtifact<HammerEditorialAuthorityGraph>(snapshot.editorial_authority).file_updated_at,
+      data: normalizeArtifact<HammerEditorialAuthorityGraph>(snapshot.editorial_authority).data,
     },
     macro_hooks: {
       recipe_ref: readString(readJsonObject(snapshot.macro_hooks)?.recipe_ref),

@@ -18,6 +18,10 @@ export type ProductionCommitResult =
   | { ok: true }
   | { ok: false; status?: number; reason: string };
 
+export type ProductionArtifactReadResult =
+  | { ok: true; payload: unknown }
+  | { ok: false; status?: number; reason: "not_found" | "request_failed" | "invalid_response" };
+
 const DEFAULT_LANE = "forge-managed";
 const DEFAULT_TOOL_VERSION = "0.0.0";
 let correlationSeq = 0;
@@ -124,6 +128,29 @@ function artifactPath(kind: ProductionArtifactKind, scriptVersion: number): stri
   if (kind === "thumbnails") return `${base}/thumbnails.json`;
   if (kind === "image_beat_sheet") return `${base}/image-beat-sheet.json`;
   return `${base}/pack.json`;
+}
+
+export async function readWorkpieceProductionArtifact(args: {
+  workpieceId: string;
+  scriptVersion: number;
+  kind: ProductionArtifactKind;
+}): Promise<ProductionArtifactReadResult> {
+  const url = `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent(
+    artifactPath(args.kind, args.scriptVersion),
+  )}`;
+  const response = await tongsFetch(url, { method: "GET" });
+  const body = await readJsonBody(response);
+
+  if (response.status === 404) {
+    return { ok: false, status: response.status, reason: "not_found" };
+  }
+  if (!response.ok) {
+    return { ok: false, status: response.status, reason: "request_failed" };
+  }
+  if (!isRecord(body) || body.ok !== true || !isRecord(body.data)) {
+    return { ok: false, status: response.status, reason: "invalid_response" };
+  }
+  return { ok: true, payload: body.data };
 }
 
 async function readWorkpieceMetadata(workpieceId: string): Promise<Record<string, unknown> | null> {

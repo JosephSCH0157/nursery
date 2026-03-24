@@ -188,6 +188,40 @@ export function listHammerDerivedTextLayers(
   return layers;
 }
 
+export interface HammerOutputSelectionRef {
+  layerId: string | null;
+  sourceRecipeRef: string | null;
+}
+
+export function normalizeHammerOutputSelectionRef(args: {
+  selection: {
+    layerId: string | null | undefined;
+    sourceRecipeRef?: string | null | undefined;
+  };
+  layers: HammerDerivedTextLayer[];
+}): HammerOutputSelectionRef {
+  const layerId = args.selection.layerId;
+  if (!layerId) {
+    return {
+      layerId: null,
+      sourceRecipeRef: null,
+    };
+  }
+
+  const layer = args.layers.find((item) => item.layer_id === layerId && item.status !== "discarded") ?? null;
+  if (!layer) {
+    return {
+      layerId: null,
+      sourceRecipeRef: null,
+    };
+  }
+
+  return {
+    layerId: layer.layer_id,
+    sourceRecipeRef: layer.recipe_ref,
+  };
+}
+
 export function getHammerActiveDerivedTextLayer(
   transcript: HammerPersistedStructuredTranscript | null | undefined,
 ): HammerDerivedTextLayer | null {

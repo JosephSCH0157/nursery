@@ -132,6 +132,7 @@ const snapshot: HammerPersistenceSnapshot = {
     },
   },
   edit_plan: { path: null, updated_at: null, data: null },
+  editorial_authority: { path: null, updated_at: null, data: null },
   macro_hooks: {
     recipe_ref: null,
     last_run_ref: null,

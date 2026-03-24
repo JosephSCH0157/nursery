@@ -1,4 +1,8 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import {
+  createClient,
+  type SupabaseClient,
+  type SupabaseClientOptions,
+} from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -7,9 +11,11 @@ const AUTH_STORAGE_KEY = "forge-auth";
 
 const GLOBAL_KEY = "__forge_supabase_client__";
 const TONGS_GLOBAL_KEY = "__forge_supabase_tongs_client__";
+export type TongsSupabaseClient = SupabaseClient<Database, "tongs", "tongs">;
+
 const globalStore = globalThis as typeof globalThis & {
   [GLOBAL_KEY]?: SupabaseClient<Database>;
-  [TONGS_GLOBAL_KEY]?: SupabaseClient<Database>;
+  [TONGS_GLOBAL_KEY]?: TongsSupabaseClient;
 };
 
 if (!url || !anon) {
@@ -33,12 +39,13 @@ export const supabase: SupabaseClient<Database> =
     auth: sharedAuthOptions,
   });
 
-export const tongsSupabase: SupabaseClient<Database> =
-  existingTongs ??
-  createClient<Database>(url, anon, {
-    db: { schema: "tongs" },
-    auth: sharedAuthOptions,
-  });
+const tongsOptions: SupabaseClientOptions<"tongs"> = {
+  db: { schema: "tongs" },
+  auth: sharedAuthOptions,
+};
+
+export const tongsSupabase: TongsSupabaseClient =
+  existingTongs ?? createClient<Database, "tongs">(url, anon, tongsOptions);
 
 globalStore[GLOBAL_KEY] = supabase as SupabaseClient<Database>;
-globalStore[TONGS_GLOBAL_KEY] = tongsSupabase as SupabaseClient<Database>;
+globalStore[TONGS_GLOBAL_KEY] = tongsSupabase;

@@ -199,6 +199,7 @@ type HammerProjectAsset = {
   id: string;
   title: string;
   kindLabel: string;
+  kind: "image" | "video" | "audio" | "other";
   sourceLabel: string;
   detail: string;
   status: string;
@@ -206,20 +207,7 @@ type HammerProjectAsset = {
   workpieceId: string;
   durationLabel: string | null;
   placementId?: string | null;
-};
-
-type HammerPaneLayout = {
-  left_px: number;
-  center_px: number;
-  right_px: number;
-};
-
-type HammerPaneResizeHandle = "left-center" | "center-right";
-
-type HammerPaneResizeState = {
-  handle: HammerPaneResizeHandle;
-  startClientX: number;
-  startLayout: HammerPaneLayout;
+  thumbnailUrl?: string | null;
 };
 
 type HammerPreviewVisualDraft = {
@@ -298,22 +286,14 @@ type WorkPanelView = "script" | "assets";
 type AssetPanelView = "transcript" | "video" | "images" | "music";
 type HammerToolId = "polish" | "audio" | "video" | "captions" | "details" | "finishing" | "export";
 type TimelineToolId = "select" | "hand" | "cut" | "marker" | "comment" | "text";
+type HammerWorkspaceFocusMode = "balanced" | "source-focus" | "tool-focus";
+type HammerWorkspaceFocusOverride = "auto" | Exclude<HammerWorkspaceFocusMode, "balanced">;
 
-const LEFT_PANEL_MIN_PX = 320;
-const LEFT_PANEL_MAX_PX = 540;
-const CENTER_PANEL_MIN_PX = 360;
-const CENTER_PANEL_MAX_PX = 760;
-const RIGHT_PANEL_MIN_PX = 300;
-const RIGHT_PANEL_MAX_PX = 520;
-const PANE_DIVIDER_WIDTH_PX = 10;
-const TOOL_STRIP_WIDTH_PX = 72;
-const SESSION_PANE_LAYOUT_VERSION = "v1";
 const TRANSCRIPT_REVEAL_TOP_PADDING_PX = 18;
-const DEFAULT_PANE_LAYOUT: HammerPaneLayout = {
-  left_px: 380,
-  center_px: 440,
-  right_px: 360,
-};
+const LEFT_PANEL_BASE_PX = 360;
+const PREVIEW_PANEL_BASE_PX = 520;
+const RIGHT_PANEL_BASE_PX = 360;
+const FOCUS_PANEL_SHIFT_PX = 70;
 
 const WORK_PANEL_VIEWS: Array<{ id: WorkPanelView; label: string }> = [
   { id: "script", label: "Transcript" },
@@ -323,7 +303,7 @@ const WORK_PANEL_VIEWS: Array<{ id: WorkPanelView; label: string }> = [
 const ASSET_PANEL_VIEWS: Array<{ id: AssetPanelView; label: string }> = [
   { id: "transcript", label: "Transcript" },
   { id: "video", label: "Video" },
-  { id: "images", label: "Images" },
+  { id: "images", label: "Stills" },
   { id: "music", label: "Audio" },
 ];
 
@@ -339,8 +319,8 @@ const HAMMER_TOOL_ORDER: Array<{ id: HammerToolId; label: string; shortLabel: st
 
 const TIMELINE_TOOL_ORDER: Array<{ id: TimelineToolId; label: string }> = [
   { id: "select", label: "Select" },
-  { id: "hand", label: "Hand / Move" },
-  { id: "cut", label: "Cut / Split" },
+  { id: "hand", label: "Move" },
+  { id: "cut", label: "Cut Mode" },
   { id: "marker", label: "Marker" },
   { id: "comment", label: "Comment" },
   { id: "text", label: "Text" },
@@ -606,10 +586,6 @@ function getToggleButtonClassName(active: boolean): string {
 
 function getToolStripButtonClassName(active: boolean): string {
   return cx("hammer-tool-button", active && "is-active");
-}
-
-function getPaneDividerClassName(active: boolean): string {
-  return cx("hammer-editor-shell__divider", active && "is-active");
 }
 
 function getTimelineClipLayoutKey(trackId: string, clipId: string): string {
@@ -933,15 +909,15 @@ function formatPreparedPackageStatusLabel(status: "current" | "stale" | "partial
 function getTimelineTrackRoleLabel(trackId: string): string {
   switch (trackId) {
     case "video-main":
-      return "primary picture";
+      return "main track";
     case "visual-suggestions":
-      return "suggested image placements";
+      return "overlay track";
     case "video-pip":
-      return "secondary picture";
+      return "inset track";
     case "audio-dialogue":
-      return "spoken audio";
+      return "dialogue track";
     case "audio-bed":
-      return "music / ambience";
+      return "bed track";
     case "text":
       return "titles / overlays";
     case "captions":
@@ -954,9 +930,9 @@ function getTimelineTrackRoleLabel(trackId: string): string {
 function getTimelineTrackEmptyMessage(trackId: string, hasSelectedRow: boolean): string {
   switch (trackId) {
     case "visual-suggestions":
-      return "No reviewable image suggestions are staged yet. Hammer will seed this lane when visual anchors can be aligned.";
+      return "No overlays are staged yet. Hammer will seed this lane when visual anchors are ready.";
     case "video-pip":
-      return "No picture-in-picture clip is staged on this edit yet.";
+      return "No inset clip is staged on this edit yet.";
     case "audio-bed":
       return "No music bed is staged yet. Audio work will place bed clips here.";
     case "text":
@@ -980,52 +956,6 @@ function buildTimelineRulerTicks(durationSec: number): TimelineRulerTick[] {
   });
 }
 
-function clampPaneLayout(layout: HammerPaneLayout): HammerPaneLayout {
-  return {
-    left_px: clamp(layout.left_px, LEFT_PANEL_MIN_PX, LEFT_PANEL_MAX_PX),
-    center_px: clamp(layout.center_px, CENTER_PANEL_MIN_PX, CENTER_PANEL_MAX_PX),
-    right_px: clamp(layout.right_px, RIGHT_PANEL_MIN_PX, RIGHT_PANEL_MAX_PX),
-  };
-}
-
-function readSessionPaneLayout(storageKey: string): HammerPaneLayout | null {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const raw = window.sessionStorage.getItem(storageKey);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<HammerPaneLayout> | null;
-    if (!parsed) return null;
-    if (
-      typeof parsed.left_px !== "number"
-      || typeof parsed.center_px !== "number"
-      || typeof parsed.right_px !== "number"
-    ) {
-      return null;
-    }
-    return clampPaneLayout({
-      left_px: parsed.left_px,
-      center_px: parsed.center_px,
-      right_px: parsed.right_px,
-    });
-  } catch {
-    return null;
-  }
-}
-
-function writeSessionPaneLayout(
-  storageKey: string,
-  layout: HammerPaneLayout,
-): void {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.sessionStorage.setItem(storageKey, JSON.stringify(clampPaneLayout(layout)));
-  } catch {
-    // Session-level pane caching is convenience-only. Ignore storage failures.
-  }
-}
-
 function formatOverlayRowLabel(row: TranscriptOverlayRow | null): string {
   if (!row) return "none";
   const primaryBlock = row.blocks[0] ?? null;
@@ -1044,6 +974,41 @@ function formatPlaybackRangeLabel(range: TranscriptPlaybackRange | null): string
 function formatVisualApprovalStateLabel(state: "suggested" | "approved" | null | undefined): string {
   if (state === "approved") return "Approved";
   return "Suggested";
+}
+
+function resolveHammerWorkspaceFocusMode(tool: HammerToolId): HammerWorkspaceFocusMode {
+  switch (tool) {
+    case "polish":
+      return "source-focus";
+    case "audio":
+    case "video":
+    case "captions":
+    case "finishing":
+    case "export":
+      return "tool-focus";
+    case "details":
+    default:
+      return "balanced";
+  }
+}
+
+function getTimelineToolIcon(tool: TimelineToolId): string {
+  switch (tool) {
+    case "select":
+      return "S";
+    case "hand":
+      return "H";
+    case "cut":
+      return "C";
+    case "marker":
+      return "M";
+    case "comment":
+      return "N";
+    case "text":
+      return "T";
+    default:
+      return "?";
+  }
 }
 
 function getReviewStateClassName(status: HammerProposedChangeStatus | string | null | undefined): string | null {
@@ -1274,7 +1239,6 @@ export default function TranscriptSeekMock(
   const transcriptRevealTimeoutRef = useRef<number | null>(null);
   const lastHandledPrepHandoffTokenRef = useRef<number | null>(null);
   const suppressNextPreviewBoundaryActionRef = useRef(false);
-  const paneResizeStateRef = useRef<HammerPaneResizeState | null>(null);
   const visualTimelineDragStateRef = useRef<HammerVisualTimelineDragState | null>(null);
   const visualPreviewDragStateRef = useRef<HammerVisualPreviewDragState | null>(null);
   const monitorSurfaceRef = useRef<HTMLDivElement | null>(null);
@@ -1300,18 +1264,6 @@ export default function TranscriptSeekMock(
   const resolvedLaunch = useMemo(
     () => resolveHammerLaunchContext(launchContext, { getFixtureSegments: getDevTranscriptSegments }),
     [launchContext],
-  );
-  const paneLayoutStorageKey = useMemo(
-    () => [
-      "hammer-pane-layout",
-      SESSION_PANE_LAYOUT_VERSION,
-      resolvedLaunch.launch_context.workspace_id,
-      resolvedLaunch.launch_context.workpiece_id,
-    ].join(":"),
-    [
-      resolvedLaunch.launch_context.workpiece_id,
-      resolvedLaunch.launch_context.workspace_id,
-    ],
   );
   const transcriptLoad = resolvedLaunch.transcript;
   const rawTranscriptSegments = transcriptLoad.segments;
@@ -1410,14 +1362,14 @@ export default function TranscriptSeekMock(
   const [preparedReleasePackageFeedback, setPreparedReleasePackageFeedback] = useState<string | null>(null);
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
   const [timelineZoomId, setTimelineZoomId] = useState<TimelineZoomId>("fit");
+  const [workspaceFocusOverride, setWorkspaceFocusOverride] = useState<HammerWorkspaceFocusOverride>("auto");
   const [selectedProposedChangeId, setSelectedProposedChangeId] = useState<string | null>(null);
+  const [assetThumbnailUrlsById, setAssetThumbnailUrlsById] = useState<Record<string, string>>({});
   const [proposedChangeStatusOverrides, setProposedChangeStatusOverrides] = useState<Record<string, HammerProposedChangeStatus>>({});
   const [autoAdvancePolishReview, setAutoAdvancePolishReview] = useState(true);
   const [showDebugPanels, setShowDebugPanels] = useState(false);
   const [isTranscriptControlsCollapsed, setIsTranscriptControlsCollapsed] = useState(false);
   const [isPreviewMonitorCollapsed, setIsPreviewMonitorCollapsed] = useState(true);
-  const [paneLayout, setPaneLayout] = useState<HammerPaneLayout>(DEFAULT_PANE_LAYOUT);
-  const [activeResizeHandle, setActiveResizeHandle] = useState<HammerPaneResizeHandle | null>(null);
   const [visualDragSessionToken, setVisualDragSessionToken] = useState(0);
   const transcriptControlsPanelId = useId();
   const previewMonitorPanelId = useId();
@@ -1516,78 +1468,6 @@ export default function TranscriptSeekMock(
       ? "Sidecar found. Hammer is still using the current transcript until import is wired."
       : "No transcript sidecar was found, so Hammer is keeping the current transcript loaded."
     : "Attach a recording below while Hammer keeps the current transcript stable.";
-
-  useEffect(() => {
-    const persistedLayout = readSessionPaneLayout(paneLayoutStorageKey);
-    setPaneLayout(persistedLayout ?? DEFAULT_PANE_LAYOUT);
-  }, [paneLayoutStorageKey]);
-
-  useEffect(() => {
-    writeSessionPaneLayout(paneLayoutStorageKey, paneLayout);
-  }, [paneLayout, paneLayoutStorageKey]);
-
-  useEffect(() => {
-    if (!activeResizeHandle) return;
-
-    const onMouseMove = (event: MouseEvent) => {
-      const resizeState = paneResizeStateRef.current;
-      if (!resizeState) return;
-
-      const delta = event.clientX - resizeState.startClientX;
-
-      if (resizeState.handle === "left-center") {
-        const lowerBound = Math.max(
-          LEFT_PANEL_MIN_PX - resizeState.startLayout.left_px,
-          resizeState.startLayout.center_px - CENTER_PANEL_MAX_PX,
-        );
-        const upperBound = Math.min(
-          LEFT_PANEL_MAX_PX - resizeState.startLayout.left_px,
-          resizeState.startLayout.center_px - CENTER_PANEL_MIN_PX,
-        );
-        const boundedDelta = clamp(delta, lowerBound, upperBound);
-        setPaneLayout(clampPaneLayout({
-          ...resizeState.startLayout,
-          left_px: resizeState.startLayout.left_px + boundedDelta,
-          center_px: resizeState.startLayout.center_px - boundedDelta,
-        }));
-        return;
-      }
-
-      const lowerBound = Math.max(
-        CENTER_PANEL_MIN_PX - resizeState.startLayout.center_px,
-        resizeState.startLayout.right_px - RIGHT_PANEL_MAX_PX,
-      );
-      const upperBound = Math.min(
-        CENTER_PANEL_MAX_PX - resizeState.startLayout.center_px,
-        resizeState.startLayout.right_px - RIGHT_PANEL_MIN_PX,
-      );
-      const boundedDelta = clamp(delta, lowerBound, upperBound);
-      setPaneLayout(clampPaneLayout({
-        ...resizeState.startLayout,
-        center_px: resizeState.startLayout.center_px + boundedDelta,
-        right_px: resizeState.startLayout.right_px - boundedDelta,
-      }));
-    };
-
-    const onMouseUp = () => {
-      paneResizeStateRef.current = null;
-      setActiveResizeHandle(null);
-    };
-
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-
-    return () => {
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-  }, [activeResizeHandle]);
 
   useEffect(() => {
     let active = true;
@@ -3413,15 +3293,6 @@ export default function TranscriptSeekMock(
     setEditPlanFeedbackTone("warning");
   }
 
-  function beginPaneResize(handle: HammerPaneResizeHandle, clientX: number) {
-    paneResizeStateRef.current = {
-      handle,
-      startClientX: clientX,
-      startLayout: paneLayout,
-    };
-    setActiveResizeHandle(handle);
-  }
-
   function removeInstruction(instructionId: string) {
     setEditInstructions((prev) => prev.filter((instruction) => instruction.instruction_id !== instructionId));
   }
@@ -3865,6 +3736,13 @@ export default function TranscriptSeekMock(
           id: activeMediaRef?.media_id ?? "media_dev_tone_preview",
           title: activeDevRecording ? "Attached recording" : activeMediaRef?.media_id ? "Primary source media" : "Fallback preview source",
           kindLabel: activeMediaRef ? formatMediaKindLabel(activeMediaRef.kind) : "Fallback source",
+          kind: activeMediaRef?.kind === "asset_image" || activeMediaRef?.kind === "asset_broll"
+            ? "image"
+            : activeMediaRef?.kind === "asset_audio" || activeMediaRef?.kind === "recording_audio" || activeMediaRef?.kind === "export_audio"
+            ? "audio"
+            : activeMediaRef?.kind === "recording_video" || activeMediaRef?.kind === "export_video"
+            ? "video"
+            : "other",
           sourceLabel: sourceModeLabel,
           detail: activeMediaDetailLabel,
           status: activeMediaUsesDevTone
@@ -3888,6 +3766,7 @@ export default function TranscriptSeekMock(
           workpieceId: resolvedLaunch.launch_context.workpiece_id,
           durationLabel: primaryAssetDurationLabel,
           placementId: null,
+          thumbnailUrl: null,
       };
 
       if (!activeMediaRef || activeMediaRef.kind === "recording_video" || activeMediaRef.kind === "export_video" || activeMediaRef.kind === "recording_audio" || activeMediaRef.kind === "export_audio" || activeMediaUsesDevTone) {
@@ -3909,6 +3788,7 @@ export default function TranscriptSeekMock(
           id: imageAssetId,
           title: placement.label ?? placement.visual_mode ?? placement.entry_id,
           kindLabel: "Anchored Image",
+          kind: "image",
           sourceLabel: "Tongs image-map",
           detail: placement.anchor_text
             ? `Anchored to: ${placement.anchor_text}`
@@ -3920,6 +3800,7 @@ export default function TranscriptSeekMock(
           workpieceId: resolvedLaunch.launch_context.workpiece_id,
           durationLabel: formatClock(Math.max(0, placement.end_sec - placement.start_sec)),
           placementId: placement.placement_id,
+          thumbnailUrl: assetThumbnailUrlsById[imageAssetId] ?? null,
         });
       }
 
@@ -3935,8 +3816,54 @@ export default function TranscriptSeekMock(
       resolveResult?.status,
       resolvedLaunch.launch_context.workpiece_id,
       sourceModeLabel,
+      assetThumbnailUrlsById,
     ],
   );
+
+  useEffect(() => {
+    const placements = currentVisualPlacements?.placements ?? [];
+    const pending = placements
+      .map((placement) => {
+        const assetId = placement.asset_id ?? placement.asset_ref ?? placement.placement_id;
+        const path = placement.asset_path ?? placement.storage_key ?? null;
+        if (!path || assetThumbnailUrlsById[assetId]) {
+          return null;
+        }
+        return { assetId, path };
+      })
+      .filter((entry): entry is { assetId: string; path: string } => Boolean(entry));
+
+    if (pending.length === 0) return;
+
+    let isActive = true;
+    void Promise.all(
+      pending.map(async (entry) => {
+        const result = await loadHammerPreviewAssetDataUrl({
+          workpieceId: resolvedLaunch.launch_context.workpiece_id,
+          path: entry.path,
+        });
+        return result.ok ? { assetId: entry.assetId, dataUrl: result.dataUrl } : null;
+      }),
+    ).then((results) => {
+      if (!isActive) return;
+      const updates = results.filter((entry): entry is { assetId: string; dataUrl: string } => Boolean(entry));
+      if (updates.length === 0) return;
+      setAssetThumbnailUrlsById((current) => {
+        const next = { ...current };
+        let changed = false;
+        for (const update of updates) {
+          if (next[update.assetId] === update.dataUrl) continue;
+          next[update.assetId] = update.dataUrl;
+          changed = true;
+        }
+        return changed ? next : current;
+      });
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [assetThumbnailUrlsById, currentVisualPlacements, resolvedLaunch.launch_context.workpiece_id]);
 
   const activeAssetItems = activeAssetPanel === "transcript" ? [] : projectAssets[activeAssetPanel];
   const activeAssetViewDefinition = ASSET_PANEL_VIEWS.find((panel) => panel.id === activeAssetPanel) ?? ASSET_PANEL_VIEWS[0];
@@ -4021,7 +3948,7 @@ export default function TranscriptSeekMock(
     playbackSourceKind,
     playbackSrc,
   ]);
-  const selectionSummaryTitle = selectedSegment ? "Primary segment" : "No active selection";
+  const selectionSummaryTitle = selectedSegment ? "Active Clip" : "No active selection";
   const selectionSummaryCountLabel = selectedSegment ? "1 segment selected" : "No segment selected";
   const selectionSummaryScopeLabel = selectedOverlayRow
     ? formatOverlayRowLabel(selectedOverlayRow)
@@ -6169,13 +6096,40 @@ export default function TranscriptSeekMock(
   const playheadPercent = clamp((currentTimeSec / effectiveDurationSec) * 100, 0, 100);
   const activeToolDefinition = HAMMER_TOOL_ORDER.find((tool) => tool.id === activeTool) ?? HAMMER_TOOL_ORDER[0];
   const activeToolHint = getHammerToolHint(activeTool);
+  const autoWorkspaceFocusMode = useMemo(
+    () => resolveHammerWorkspaceFocusMode(activeTool),
+    [activeTool],
+  );
+  const workspaceFocusMode = workspaceFocusOverride === "auto"
+    ? autoWorkspaceFocusMode
+    : workspaceFocusOverride;
   const activeTimelineToolDefinition = TIMELINE_TOOL_ORDER.find((tool) => tool.id === activeTimelineTool) ?? TIMELINE_TOOL_ORDER[0];
   const activeTimelineZoom = TIMELINE_ZOOM_OPTIONS.find((option) => option.id === timelineZoomId) ?? TIMELINE_ZOOM_OPTIONS[0];
-  const upperPaneMinWidth = paneLayout.left_px
-    + paneLayout.center_px
-    + paneLayout.right_px
-    + TOOL_STRIP_WIDTH_PX
-    + (PANE_DIVIDER_WIDTH_PX * 2);
+  const timelinePointerTools = useMemo(
+    () => TIMELINE_TOOL_ORDER.filter((tool) => tool.id === "select" || tool.id === "hand"),
+    [],
+  );
+  const timelineEditTools = useMemo(
+    () => TIMELINE_TOOL_ORDER.filter((tool) => tool.id === "cut" || tool.id === "marker" || tool.id === "comment" || tool.id === "text"),
+    [],
+  );
+  const timelineNavigationZoomOptions = useMemo(
+    () => TIMELINE_ZOOM_OPTIONS.filter((option) => option.id === "fit" || option.id === "close"),
+    [],
+  );
+  const timelineViewZoomOptions = useMemo(
+    () => TIMELINE_ZOOM_OPTIONS.filter((option) => option.id === "detail" || option.id === "micro"),
+    [],
+  );
+  const sourceFocusLeftWidth = LEFT_PANEL_BASE_PX + FOCUS_PANEL_SHIFT_PX;
+  const sourceFocusRightWidth = RIGHT_PANEL_BASE_PX - FOCUS_PANEL_SHIFT_PX;
+  const toolFocusLeftWidth = LEFT_PANEL_BASE_PX - FOCUS_PANEL_SHIFT_PX;
+  const toolFocusRightWidth = RIGHT_PANEL_BASE_PX + FOCUS_PANEL_SHIFT_PX;
+  const upperPaneMinWidth = workspaceFocusMode === "source-focus"
+    ? sourceFocusLeftWidth + PREVIEW_PANEL_BASE_PX + sourceFocusRightWidth
+    : workspaceFocusMode === "tool-focus"
+    ? toolFocusLeftWidth + PREVIEW_PANEL_BASE_PX + toolFocusRightWidth
+    : LEFT_PANEL_BASE_PX + PREVIEW_PANEL_BASE_PX + RIGHT_PANEL_BASE_PX;
   const timelineRulerTicks = useMemo(
     () => buildTimelineRulerTicks(effectiveDurationSec),
     [effectiveDurationSec],
@@ -6251,17 +6205,6 @@ export default function TranscriptSeekMock(
       return className;
     };
 
-    const upperLayoutClassName = addRule("upper-layout", {
-      gridTemplateColumns: [
-        `${paneLayout.left_px}px`,
-        `${PANE_DIVIDER_WIDTH_PX}px`,
-        `minmax(${paneLayout.center_px}px, 1fr)`,
-        `${PANE_DIVIDER_WIDTH_PX}px`,
-        `${paneLayout.right_px}px`,
-        `${TOOL_STRIP_WIDTH_PX}px`,
-      ].join(" "),
-      minWidth: upperPaneMinWidth,
-    });
     const monitorSurfaceClassName = addRule("monitor-surface", {
       aspectRatio: previewMonitorAspectRatio,
     });
@@ -6334,14 +6277,10 @@ export default function TranscriptSeekMock(
       proposedChangeLayoutClassNames,
       rulerTickClassNames,
       timelineCanvasClassName,
-      upperLayoutClassName,
     };
   }, [
     effectiveDurationSec,
     activePreviewPlacementDraft,
-    paneLayout.center_px,
-    paneLayout.left_px,
-    paneLayout.right_px,
     playheadPercent,
     previewMonitorAspectRatio,
     progressPercent,
@@ -6357,30 +6296,113 @@ export default function TranscriptSeekMock(
     <HammerPaneSection
       title="Timeline"
       action={(
-        <div className="hammer-action-row">
-          <div className="hammer-tab-row">
-            {TIMELINE_TOOL_ORDER.map((tool) => (
-              <button
-                key={tool.id}
-                type="button"
-                onClick={() => setActiveTimelineTool(tool.id)}
-                className={getToggleButtonClassName(activeTimelineTool === tool.id)}
-              >
-                {tool.label}
-              </button>
-            ))}
+        <div className="hammer-timeline-controls">
+          <div className="hammer-timeline-controls__group">
+            <div className="hammer-timeline-controls__label">Pointer</div>
+            <div className="hammer-timeline-controls__buttons">
+              {timelinePointerTools.map((tool) => (
+                <button
+                  key={tool.id}
+                  type="button"
+                  onClick={() => setActiveTimelineTool(tool.id)}
+                  className={cx("hammer-timeline-control-button", activeTimelineTool === tool.id && "is-active")}
+                  title={getTimelineToolHint(tool.id)}
+                >
+                  <span className="hammer-timeline-control-button__icon">{getTimelineToolIcon(tool.id)}</span>
+                  <span>{tool.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="hammer-tab-row">
-            {TIMELINE_ZOOM_OPTIONS.map((option) => (
+          <div className="hammer-timeline-controls__group">
+            <div className="hammer-timeline-controls__label">Edit</div>
+            <div className="hammer-timeline-controls__buttons">
+              {timelineEditTools.map((tool) => (
+                <button
+                  key={tool.id}
+                  type="button"
+                  onClick={() => setActiveTimelineTool(tool.id)}
+                  className={cx("hammer-timeline-control-button", activeTimelineTool === tool.id && "is-active")}
+                  title={getTimelineToolHint(tool.id)}
+                >
+                  <span className="hammer-timeline-control-button__icon">{getTimelineToolIcon(tool.id)}</span>
+                  <span>{tool.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="hammer-timeline-controls__group">
+            <div className="hammer-timeline-controls__label">Navigation</div>
+            <div className="hammer-timeline-controls__buttons">
+              {timelineNavigationZoomOptions.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setTimelineZoomId(option.id)}
+                  className={cx("hammer-timeline-control-button", timelineZoomId === option.id && "is-active")}
+                >
+                  <span className="hammer-timeline-control-button__icon">Z</span>
+                  <span>{option.label}</span>
+                </button>
+              ))}
               <button
-                key={option.id}
                 type="button"
-                onClick={() => setTimelineZoomId(option.id)}
-                className={getToggleButtonClassName(timelineZoomId === option.id)}
+                onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
+                disabled={jumpToActiveTarget.timeSec == null}
+                className="hammer-timeline-control-button"
               >
-                {option.label}
+                <span className="hammer-timeline-control-button__icon">J</span>
+                <span>Jump</span>
               </button>
-            ))}
+            </div>
+          </div>
+          <div className="hammer-timeline-controls__group">
+            <div className="hammer-timeline-controls__label">View</div>
+            <div className="hammer-timeline-controls__buttons">
+              {timelineViewZoomOptions.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setTimelineZoomId(option.id)}
+                  className={cx("hammer-timeline-control-button", timelineZoomId === option.id && "is-active")}
+                >
+                  <span className="hammer-timeline-control-button__icon">V</span>
+                  <span>{option.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="hammer-timeline-controls__group">
+            <div className="hammer-timeline-controls__label">Workspace</div>
+            <div className="hammer-timeline-controls__buttons">
+              <button
+                type="button"
+                onClick={() => setWorkspaceFocusOverride("auto")}
+                className={cx("hammer-timeline-control-button", workspaceFocusOverride === "auto" && "is-active")}
+                title={`Auto follows tool mode (${workspaceFocusMode})`}
+              >
+                <span className="hammer-timeline-control-button__icon">A</span>
+                <span>Auto</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setWorkspaceFocusOverride("source-focus")}
+                className={cx("hammer-timeline-control-button", workspaceFocusOverride === "source-focus" && "is-active")}
+                title="Pin source workspace focus"
+              >
+                <span className="hammer-timeline-control-button__icon">S</span>
+                <span>Source Focus</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setWorkspaceFocusOverride("tool-focus")}
+                className={cx("hammer-timeline-control-button", workspaceFocusOverride === "tool-focus" && "is-active")}
+                title="Pin tool workspace focus"
+              >
+                <span className="hammer-timeline-control-button__icon">T</span>
+                <span>Tool Focus</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -6393,6 +6415,7 @@ export default function TranscriptSeekMock(
         <span className="hammer-pill">playhead {formatClock(currentTimeSec)}</span>
         <span className="hammer-pill">focus {timelineFocusLabel}</span>
         <span className="hammer-pill">zoom {activeTimelineZoom.label}</span>
+        <span className="hammer-pill">workspace {workspaceFocusMode}</span>
       </div>
       <div className="hammer-timeline-focus-strip">
         <span className={cx("hammer-pill", activeOverlayRow && "hammer-pill--playing")}>
@@ -6404,7 +6427,7 @@ export default function TranscriptSeekMock(
         </span>
         <span className="hammer-pill">ripple {timelineRippleLabel}</span>
         <span className="hammer-pill">
-          edit {selectedRowHasTimelineEditCue ? selectedRowEffects : "none"}
+          staged {selectedRowHasTimelineEditCue ? selectedRowEffects : "none"}
         </span>
       </div>
       <div className="hammer-timeline-ruler">
@@ -6786,11 +6809,21 @@ export default function TranscriptSeekMock(
   );
 
   return (
-    <section className="hammer-editor-shell">
-      <div className="hammer-editor-shell__upper-wrap">
-        <div className={cx("hammer-editor-shell__upper", dynamicStyles.upperLayoutClassName)}>
+    <section
+      className={cx(
+        "hammer-editor-shell",
+        "hammer-workspace-editor-shell",
+        workspaceFocusMode === "source-focus" && "is-source-focus",
+        workspaceFocusMode === "tool-focus" && "is-tool-focus",
+        workspaceFocusMode === "balanced" && "is-balanced",
+      )}
+    >
+      <div className="hammer-editor-shell__workspace-grid">
+        <div className="hammer-editor-shell__main-workspace">
+          <div className="hammer-editor-shell__upper-wrap">
+            <div className={cx("hammer-editor-shell__upper", "hammer-top-workspace")}>
           <div
-            className="hammer-pane hammer-pane--left is-assets-view"
+            className="hammer-pane hammer-pane--left hammer-left-workspace is-assets-view"
           >
             <div className="hammer-pane__scroll">
         {false ? (
@@ -7155,10 +7188,10 @@ export default function TranscriptSeekMock(
         ) : (
           <>
             <HammerPaneSection
-              title="Source Browser"
-              subtitle="Transcript stays semantic and editable. Video, images, and audio stay as linked source material."
+              title="Source Bin"
+              subtitle="Transcript stays editable while video, images, and audio remain linked source material."
               action={(
-                <span className="hammer-pane-badge">Source rail</span>
+                <span className="hammer-pane-badge">Support panel</span>
               )}
               sectionClassName="hammer-pane-section--overflow-hidden"
               bodyClassName="hammer-pane-section__body--scroll"
@@ -7176,11 +7209,11 @@ export default function TranscriptSeekMock(
                 ))}
               </div>
               <div className="hammer-meta-strip">
-                <span className="hammer-pane-badge">{overlayRows.length} transcript lines</span>
+                <span className="hammer-pane-badge">{overlayRows.length} lines</span>
                 <span className="hammer-pane-badge">{projectAssets.video.length} video</span>
                 <span className="hammer-pane-badge">{projectAssets.images.length} images</span>
                 <span className="hammer-pane-badge">{projectAssets.music.length} audio</span>
-                <span className="hammer-pane-badge">{linkedAssetCount} linked</span>
+                <span className="hammer-pane-badge">{linkedAssetCount} links</span>
               </div>
             </HammerPaneSection>
             {activeAssetPanel === "transcript" ? (
@@ -7233,6 +7266,21 @@ export default function TranscriptSeekMock(
                           asset.placementId && selectedProposedChange?.linkedAssetId === asset.placementId && "is-selected",
                         )}
                       >
+                        <div className={cx("hammer-asset-card__thumb", `is-${asset.kind}`)}>
+                          {asset.thumbnailUrl ? (
+                            <img src={asset.thumbnailUrl} alt="" className="hammer-asset-card__thumb-image" />
+                          ) : (
+                            <span className="hammer-asset-card__thumb-fallback">
+                              {asset.kind === "image"
+                                ? "Image"
+                                : asset.kind === "video"
+                                ? "Video"
+                                : asset.kind === "audio"
+                                ? "Audio"
+                                : "Asset"}
+                            </span>
+                          )}
+                        </div>
                         <div className="hammer-asset-card__header">
                           <div className="hammer-stack-4">
                             <strong className="hammer-copy-strong">{asset.title}</strong>
@@ -7310,23 +7358,12 @@ export default function TranscriptSeekMock(
             </div>
       </div>
 
-      <button
-        type="button"
-        aria-label="Resize left and center Hammer panes"
-        title="Drag to resize the left and center panes"
-        onMouseDown={(event) => {
-          event.preventDefault();
-          beginPaneResize("left-center", event.clientX);
-        }}
-        className={getPaneDividerClassName(activeResizeHandle === "left-center")}
-      />
-
-      <div className="hammer-pane hammer-pane--center">
+      <div className="hammer-pane hammer-pane--center hammer-preview-workspace">
         <div className="hammer-center-stack">
         <div className="hammer-preview-surface-shell">
           <div className="hammer-monitor">
             <div className="hammer-monitor__chrome">
-              <div className="hammer-copy-sm hammer-copy-strong">Preview Surface</div>
+              <div className="hammer-copy-sm hammer-copy-strong">Main Preview</div>
               <div className="hammer-meta-strip">
                 <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
                   {isPlaying ? "Playing" : "Paused"}
@@ -7408,7 +7445,7 @@ export default function TranscriptSeekMock(
               ) : (
                 <div className="hammer-monitor__center">
                   <div className="hammer-monitor__eyebrow">Preview</div>
-                  <h4 className="hammer-monitor__title">No active visual</h4>
+                  <h4 className="hammer-monitor__title">No visual selected</h4>
                   <div className="hammer-meta-strip">
                     <span className="hammer-pill">
                       {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
@@ -7476,73 +7513,79 @@ export default function TranscriptSeekMock(
               </div>
             </div>
 
-            <div className="hammer-action-row">
-              <button
-                type="button"
-                onClick={stepToPreviousSegment}
-                disabled={!previousSegmentRow}
-                className="hammer-button-xs"
-                title="Previous segment (Alt+Up)"
-              >
-                Prev segment
-              </button>
-              <button
-                type="button"
-                onClick={() => seekToResolvedTarget(previousPlayableTarget)}
-                disabled={previousPlayableTarget.timeSec == null}
-                className="hammer-button-xs"
-              >
-                Prev playable
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void onTogglePlayback();
-                }}
-                disabled={!canControlPlayback}
-                className="hammer-button-xs"
-              >
-                {isPlaying ? "Pause" : "Play"}
-              </button>
-              <button
-                type="button"
-                onClick={() => seekToResolvedTarget(nextPlayableTarget)}
-                disabled={nextPlayableTarget.timeSec == null}
-                className="hammer-button-xs"
-              >
-                Next playable
-              </button>
-              <button
-                type="button"
-                onClick={stepToNextSegment}
-                disabled={!nextSegmentRow}
-                className="hammer-button-xs"
-                title="Next segment (Alt+Down)"
-              >
-                Next segment
-              </button>
-              <button
-                type="button"
-                onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
-                disabled={jumpToActiveTarget.timeSec == null}
-                className="hammer-button-xs"
-              >
-                Jump to active
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewMode((current) => (current === "raw" ? "edit-aware" : "raw"))}
-                className="hammer-button-xs"
-              >
-                {sessionState.previewMode === "raw" ? "Edit-aware" : "Raw"}
-              </button>
-              <button
-                type="button"
-                onClick={resetPreview}
-                className="hammer-button-xs"
-              >
-                Reset
-              </button>
+            <div className="hammer-action-row hammer-action-row--transport">
+              <div className="hammer-action-cluster" aria-label="Line navigation">
+                <button
+                  type="button"
+                  onClick={stepToPreviousSegment}
+                  disabled={!previousSegmentRow}
+                  className="hammer-button-xs"
+                  title="Previous segment (Alt+Up)"
+                >
+                  Prev line
+                </button>
+                <button
+                  type="button"
+                  onClick={stepToNextSegment}
+                  disabled={!nextSegmentRow}
+                  className="hammer-button-xs"
+                  title="Next segment (Alt+Down)"
+                >
+                  Next line
+                </button>
+              </div>
+              <div className="hammer-action-cluster" aria-label="Playback controls">
+                <button
+                  type="button"
+                  onClick={() => seekToResolvedTarget(previousPlayableTarget)}
+                  disabled={previousPlayableTarget.timeSec == null}
+                  className="hammer-button-xs"
+                >
+                  Prev cue
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void onTogglePlayback();
+                  }}
+                  disabled={!canControlPlayback}
+                  className="hammer-button-xs"
+                >
+                  {isPlaying ? "Pause" : "Play"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => seekToResolvedTarget(nextPlayableTarget)}
+                  disabled={nextPlayableTarget.timeSec == null}
+                  className="hammer-button-xs"
+                >
+                  Next cue
+                </button>
+                <button
+                  type="button"
+                  onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
+                  disabled={jumpToActiveTarget.timeSec == null}
+                  className="hammer-button-xs"
+                >
+                  Jump to focus
+                </button>
+              </div>
+              <div className="hammer-action-cluster" aria-label="Preview mode controls">
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode((current) => (current === "raw" ? "edit-aware" : "raw"))}
+                  className="hammer-button-xs"
+                >
+                  {sessionState.previewMode === "raw" ? "Edit-aware" : "Raw"}
+                </button>
+                <button
+                  type="button"
+                  onClick={resetPreview}
+                  className="hammer-button-xs"
+                >
+                  Reset
+                </button>
+              </div>
             </div>
 
             <div className="hammer-copy-sm hammer-copy-muted">
@@ -7796,25 +7839,14 @@ export default function TranscriptSeekMock(
         </div>
       </div>
 
-      <button
-        type="button"
-        aria-label="Resize center and right Hammer panes"
-        title="Drag to resize the center and right panes"
-        onMouseDown={(event) => {
-          event.preventDefault();
-          beginPaneResize("center-right", event.clientX);
-        }}
-        className={getPaneDividerClassName(activeResizeHandle === "center-right")}
-      />
-
-      <div className="hammer-pane hammer-pane--right">
+      <div className="hammer-pane hammer-pane--right hammer-tool-workspace">
         <div className="hammer-pane__scroll">
         <HammerPaneSection
           title={activeToolDefinition.label}
           subtitle={activeToolHint}
           action={(
             <div className="hammer-action-row">
-              <span className="hammer-pill">{activeToolDefinition.label}</span>
+              <span className="hammer-pill">active {activeToolDefinition.label}</span>
               {activeTool === "details" ? (
                 <button
                   type="button"
@@ -7835,33 +7867,36 @@ export default function TranscriptSeekMock(
         </div>
       </div>
 
-      <div className="hammer-pane hammer-pane--tool-strip">
-        <div className="hammer-tool-strip__head">
-          <strong className="hammer-tool-strip__title">
-            Tools
-          </strong>
-            <span className="hammer-tool-strip__caption">
-              Available controls
-            </span>
-        </div>
-        {HAMMER_TOOL_ORDER.map((tool) => (
-          <button
-            key={tool.id}
-            type="button"
-            onClick={() => setActiveTool(tool.id)}
-            className={getToolStripButtonClassName(activeTool === tool.id)}
-            title={`${tool.label} workspace`}
-          >
-            <strong className="hammer-tool-button__short-label">{tool.shortLabel}</strong>
-            <span className="hammer-tool-button__label">{tool.label}</span>
-          </button>
-        ))}
-      </div>
-        </div>
-      </div>
+            </div>
+          </div>
 
-      <div className="hammer-editor-shell__edit-band">
-        {timelineWorkspaceContent}
+          <div className="hammer-editor-shell__edit-band hammer-timeline-workspace">
+            {timelineWorkspaceContent}
+          </div>
+        </div>
+
+        <div className="hammer-pane hammer-pane--tool-strip hammer-patch-bay">
+          <div className="hammer-tool-strip__head">
+            <strong className="hammer-tool-strip__title">
+              Tools
+            </strong>
+              <span className="hammer-tool-strip__caption">
+                Editing modes
+              </span>
+          </div>
+          {HAMMER_TOOL_ORDER.map((tool) => (
+            <button
+              key={tool.id}
+              type="button"
+              onClick={() => setActiveTool(tool.id)}
+              className={getToolStripButtonClassName(activeTool === tool.id)}
+              title={`${tool.label} workspace`}
+            >
+              <strong className="hammer-tool-button__short-label">{tool.shortLabel}</strong>
+              <span className="hammer-tool-button__label">{tool.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
     </section>
   );

@@ -21,6 +21,32 @@ type SemanticEditInstruction =
     type: "merge";
     segment_id: string;
     merge_with_segment_id: string;
+  }
+  | {
+    type: "cut_range" | "ripple_delete";
+    segment_id: string;
+    start_sec: number;
+    end_sec: number;
+  }
+  | {
+    type: "insert_broll" | "overlay_graphic";
+    segment_id: string;
+    asset_ref: string;
+    start_sec: number;
+    end_sec: number;
+  }
+  | {
+    type: "crossfade";
+    segment_id: string;
+    next_segment_id: string;
+    duration_sec: number;
+  }
+  | {
+    type: "audio_duck";
+    segment_id: string;
+    start_sec: number;
+    end_sec: number;
+    duck_gain_db: number;
   };
 
 function toSemanticEditInstruction(
@@ -52,10 +78,38 @@ function toSemanticEditInstruction(
         segment_id: instruction.segment_id,
         merge_with_segment_id: instruction.merge_with_segment_id,
       };
-    default: {
-      const exhaustivenessCheck: never = instruction;
-      return exhaustivenessCheck;
-    }
+    case "cut_range":
+    case "ripple_delete":
+      return {
+        type: instruction.type,
+        segment_id: instruction.segment_id,
+        start_sec: instruction.start_sec,
+        end_sec: instruction.end_sec,
+      };
+    case "insert_broll":
+    case "overlay_graphic":
+      return {
+        type: instruction.type,
+        segment_id: instruction.segment_id,
+        asset_ref: instruction.asset_ref,
+        start_sec: instruction.start_sec,
+        end_sec: instruction.end_sec,
+      };
+    case "crossfade":
+      return {
+        type: instruction.type,
+        segment_id: instruction.segment_id,
+        next_segment_id: instruction.next_segment_id,
+        duration_sec: instruction.duration_sec,
+      };
+    case "audio_duck":
+      return {
+        type: instruction.type,
+        segment_id: instruction.segment_id,
+        start_sec: instruction.start_sec,
+        end_sec: instruction.end_sec,
+        duck_gain_db: instruction.duck_gain_db,
+      };
   }
 }
 

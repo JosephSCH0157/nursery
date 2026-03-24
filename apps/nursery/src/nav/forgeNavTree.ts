@@ -6,6 +6,7 @@ export type ForgeNavItem = {
   to?: string;
   href?: string;
   actionId?: string;
+  badge?: string;
 };
 
 export const FORGE_NAV_ACTION_AI_CONTROLS = "ai-controls";
@@ -30,10 +31,10 @@ export const forgeNavTree: ForgeNavSection[] = [
       { id: "hearth", label: "Hearth", to: "/app/hearth" },
       { id: "tongs", label: "Tongs", to: "/app/tongs" },
       { id: "anvil", label: "Anvil", to: "/app/anvil" },
-      { id: "bellows", label: "Bellows", to: "/apps/bellows" },
-      { id: "hammer", label: "Hammer", to: "/app/hammer" },
-      { id: "quench", label: "Quench", to: "/app/quench" },
-      { id: "ledger", label: "Ledger", to: "/app/ledger" },
+      { id: "bellows", label: "Bellows", to: "/apps/bellows", badge: "UC" },
+      { id: "hammer", label: "Hammer", to: "/app/hammer", badge: "UC" },
+      { id: "quench", label: "Quench", to: "/app/quench", badge: "UC" },
+      { id: "ledger", label: "Ledger", to: "/app/ledger", badge: "UC" },
       { id: "iron-mine", label: "Iron Mine", to: "/app/iron-mine" },
     ],
   },

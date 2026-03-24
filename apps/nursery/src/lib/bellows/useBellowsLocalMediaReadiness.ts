@@ -214,26 +214,10 @@ export function useBellowsLocalMediaReadiness(
 
   useEffect(() => {
     if (!enabled) {
-      queueMicrotask(() => {
-        setRequestState((current) => {
-          stopStream(current.stream);
-          return DISABLED_BELLOWS_LOCAL_MEDIA_REQUEST_STATE;
-        });
-        setAudioSample({
-          audioLevelPct: 0,
-          audioActivity: "unknown",
-        });
-      });
       return;
     }
 
     let active = true;
-    queueMicrotask(() => {
-      setAudioSample({
-        audioLevelPct: 0,
-        audioActivity: "unknown",
-      });
-    });
 
     void requestLocalMedia()
       .then((result) => {
@@ -276,6 +260,11 @@ export function useBellowsLocalMediaReadiness(
       active = false;
     };
   }, [enabled, retryToken]);
+
+  useEffect(() => {
+    if (enabled) return;
+    stopStream(stream);
+  }, [enabled, stream]);
 
   useEffect(() => {
     if (audioTracks.length === 0) {

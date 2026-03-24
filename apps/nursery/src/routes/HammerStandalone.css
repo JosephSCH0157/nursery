@@ -267,6 +267,11 @@
   padding: 14px;
 }
 
+.hammer-standalone__main--editor {
+  overflow: hidden;
+  padding: 0;
+}
+
 .hammer-standalone__drawer-close:focus-visible,
 .hammer-standalone__menu-trigger:focus-visible,
 .hammer-standalone__drawer-body a:focus-visible,

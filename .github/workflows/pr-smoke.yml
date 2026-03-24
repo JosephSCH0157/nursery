@@ -6,11 +6,134 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 concurrency:
   group: pr-smoke-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  vsm-evolution-check:
+    name: vsm:evolution-check
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Warn when VSM section is missing for VSM-touching PRs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- vsm-evolution-check -->';
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.info('No PR context; skipping.');
+              return;
+            }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+
+            const vsmFileMatchers = [
+              /(^|\/)apps\/hearth\//i,
+              /(^|\/)packages\/shared\/script-tags\//i,
+              /(^|\/)HEARTH_VSM_/i,
+              /(^|\/)docs\/HEARTH_ANVIL_SCRIPT_TAG_CONTRACT\.md$/i,
+              /(^|\/)\.github\/pull_request_template\.md$/i,
+            ];
+
+            const touchesVsm = files.some((file) =>
+              vsmFileMatchers.some((matcher) => matcher.test(file.filename))
+            );
+            core.info(`touchesVsm=${touchesVsm}`);
+            if (!touchesVsm) return;
+
+            const body = (pr.body || '').toLowerCase();
+            const hasNotRelatedChecked = /\-\s*\[[xX]\]\s*not related to vsm/i.test(pr.body || '');
+            const hasExpansionLane =
+              /\-\s*\[[xX]\]\s*suggestion scaffolds/i.test(pr.body || '') ||
+              /\-\s*\[[xX]\]\s*ai assistance/i.test(pr.body || '') ||
+              /\-\s*\[[xX]\]\s*organization\/navigation/i.test(pr.body || '') ||
+              /\-\s*\[[xX]\]\s*style systems/i.test(pr.body || '') ||
+              /\-\s*\[[xX]\]\s*other \(explain\)/i.test(pr.body || '');
+            const hasDeterministic =
+              /\-\s*\[[xX]\]\s*yes/i.test(pr.body || '') ||
+              /\-\s*\[[xX]\]\s*no/i.test(pr.body || '') ||
+              /\-\s*\[[xX]\]\s*unclear/i.test(pr.body || '');
+            const hasTrustRisk =
+              /\-\s*\[[xX]\]\s*low/i.test(pr.body || '') ||
+              /\-\s*\[[xX]\]\s*medium/i.test(pr.body || '') ||
+              /\-\s*\[[xX]\]\s*high/i.test(pr.body || '');
+            const hasMatrixClass =
+              /\-\s*\[[xX]\]\s*proceed$/im.test(pr.body || '') ||
+              /\-\s*\[[xX]\]\s*proceed with constraints/i.test(pr.body || '') ||
+              /\-\s*\[[xX]\]\s*defer/i.test(pr.body || '') ||
+              /\-\s*\[[xX]\]\s*reject/i.test(pr.body || '');
+            const hasManualOverride = /vsm check intentionally not applicable/i.test(body);
+
+            const sectionComplete =
+              hasNotRelatedChecked ||
+              (hasExpansionLane && hasDeterministic && hasTrustRisk && hasMatrixClass) ||
+              hasManualOverride;
+
+            core.info(`sectionComplete=${sectionComplete}`);
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              per_page: 100,
+            });
+            const existing = comments.find((comment) => (comment.body || '').includes(marker));
+
+            if (sectionComplete) {
+              if (existing) {
+                const completeBody = [
+                  marker,
+                  "✅ VSM evolution check complete for VSM-touching changes. No action needed.",
+                ].join("\n");
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body: completeBody,
+                });
+              }
+              return;
+            }
+
+            const warningBody = [
+              marker,
+              "⚠️ **VSM Evolution Check Missing**",
+              "",
+              "This PR modifies Visual Script Mode related files, but the **VSM Evolution Check** section in the PR body looks incomplete.",
+              "",
+              "Please classify the change using the matrix at:",
+              "`HEARTH_VSM_2_FEATURE_REVIEW_MATRIX.md`",
+              "",
+              "If not applicable, mark **Not related to VSM** in the PR template.",
+            ].join("\n");
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: warningBody,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: warningBody,
+              });
+            }
+
   smoke-core:
     name: smoke:core
     runs-on: ubuntu-latest

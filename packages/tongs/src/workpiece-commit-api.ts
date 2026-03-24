@@ -17,6 +17,7 @@ import {
   resolveWorkspaceCloudReadCandidates,
   resolveWorkspaceCloudWriteTarget,
 } from "./storage/cloud-prefix.js";
+import { validateScriptTags } from "@forge/shared/script-tags";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
@@ -32,6 +33,10 @@ const BOOTSTRAP_WORKPIECE_PATHS = new Set([
   "hearth/drafts.v1.json",
   "hearth/chat.v1.json",
   "hearth/revisions.v1.json",
+  "hammer/session/intro-outro.v1.json",
+  "hammer/snapshots/manifest.v1.json",
+  "hammer/history/history.v1.json",
+  "hammer/release-prep/package.v1.json",
 ]);
 const BOOTSTRAP_WORKSPACE_PATHS = new Set(["sources/index.json"]);
 const READY_SCRIPT_PATH_CANDIDATES = [
@@ -43,6 +48,7 @@ const READY_SCRIPT_PATH_CANDIDATES = [
 const READY_SCRIPT_PATH_SET = new Set<string>(READY_SCRIPT_PATH_CANDIDATES as readonly string[]);
 const TAKE_KEPT_EVENT = "take_kept";
 const CONTENT_CATEGORY_EVENT = "hearth.content_category.set.v1";
+const HEARTH_APPROVED_SCRIPT_EVENT = "hearth.script.published.v1";
 const CONTENT_CATEGORY_VALUES = [
   "evergreen",
   "hot_topic",
@@ -1207,6 +1213,18 @@ function stripBom(text: string): string {
 
 function normalizeLf(text: string): string {
   return text.replace(/\r\n?/g, "\n");
+}
+
+function assertApprovedScriptTagContract(path: string, eventName: string | undefined, bytes: Uint8Array): void {
+  const normalizedEventName = (eventName ?? "").trim();
+  if (path !== "script/script.md" || normalizedEventName !== HEARTH_APPROVED_SCRIPT_EVENT) return;
+  const text = normalizeLf(stripBom(textDecoder.decode(bytes)));
+  const validation = validateScriptTags(text);
+  if (validation.ok) return;
+  throw new HttpError(400, "invalid_script_tags", "Approved script tag contract failed.", {
+    validator_version: "shared-script-tags-v1",
+    issues: validation.issues,
+  });
 }
 
 function normalizeWrittenBy(input: unknown): WrittenBy {
@@ -5141,6 +5159,8 @@ export class TongsCommitService {
     } else {
       bytes = canonicalizeReplaceBytes(path, contentType, input);
     }
+
+    assertApprovedScriptTagContract(path, input.event_name, bytes);
 
     const hash = await sha256Hex(bytes);
     await uploadStorageObject(this.supabase, this.bucket, storageKey, bytes, contentType);

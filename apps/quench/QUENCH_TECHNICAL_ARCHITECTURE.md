@@ -1,6 +1,6 @@
 # QUENCH Technical Architecture Companion
 
-Status: Draft
+Status: Draft (Phase-aligned)
 
 Scope: Developer-facing architecture note for Quench v1
 
@@ -88,53 +88,63 @@ Quench may maintain transient UI/runtime state for:
 
 This state is not canonical unless committed back to Tongs.
 
-## 5. Release Packet Contract
+## 5. Phase Split: Current Ingest vs Future Publish
 
-Quench operates on a normalized release packet derived from Tongs.
+Quench architecture has two explicit phases:
 
-The release packet is a publish-ready projection, not a new source of truth.
+- Current executable MVP: ingest Hammer release packets and render truthful readiness/attention state.
+- Future release orchestration: platform adapters, scheduling, RSS execution, and publish receipts.
 
-### 5.1 Required fields
+Both phases keep the same core boundary:
 
-Minimum v1 packet shape:
+- manifest is authority for packet shape
+- payload files are referenced artifacts
+- Tongs remains canonical SSOT
 
-```json
-{
-  "release_packet_id": "rp_001",
-  "workspace_id": "ws_001",
-  "workpiece_id": "wp_001",
-  "episode_id": "ep_001",
-  "title": "Episode Title",
-  "description": "Long-form description",
-  "tags": ["podcast", "topic"],
-  "thumbnail_asset_id": "asset_thumb_001",
-  "video_export_id": "exp_vid_001",
-  "audio_export_id": "exp_aud_001",
-  "shorts": [{ "asset_id": "short_001", "title": "Clip 1" }],
-  "asset_source": "local",
-  "rss_ready": true,
-  "platform_overrides": {}
-}
-```
+### 5.1 Current Hammer Packet Contract (ingest authority)
 
-### 5.2 Derived fields
+The current packet contract is the Hammer-exported canonical bundle rooted at:
 
-Quench may derive runtime fields such as:
+- `hammer/release-packet/manifest.v1.json`
 
-- video_url
-- audio_url
-- thumbnail_url
-- release_readiness
-- missing_requirements
-- capabilities_by_platform
+The manifest references packet payloads:
 
-These can be cached, but should be treated as computed values.
+- transcript artifact (text path)
+- captions artifacts (SRT required for current Hammer export, VTT optional)
+- visual placements artifact (optional at ingest)
+- canonical audio authority (workpiece path/media reference fields)
 
-## 6. Release Readiness Validation
+Quench ingest must validate this contract directly and must not infer packet structure from filenames outside manifest references.
 
-Before any publish action, Quench should run a deterministic readiness pass.
+### 5.2 Future publish projection (deferred)
 
-### 6.1 Validation categories
+A broader publish projection (title/description/tags/thumbnail/platform overrides/shorts) remains valid architecture direction, but is out of scope for the current ingest slice.
+
+## 6. Readiness Model (Split)
+
+Readiness is explicitly split into ingest readiness now and publish readiness later.
+
+### 6.1 Ingest readiness (current slice)
+
+Quench ingest must deterministically classify:
+
+- packet invalid
+- needs attention
+- ready for publish
+
+Current ingest checks:
+
+- manifest readable and shape-valid
+- audio reference resolvable
+- transcript artifact loadable
+- captions present or missing (attention state, not invalid packet)
+- visual placements loadable or truthfully missing (warning path)
+
+### 6.2 Publish readiness (future slice)
+
+Before publish execution exists, Quench will add publish readiness checks for platform metadata, thumbnails, exports, capability constraints, and schedule validity.
+
+### 6.3 Future validation categories (publish execution)
 
 Core identity:
 
@@ -160,7 +170,7 @@ Platform suitability:
 - audio URL exists for RSS or Spotify flows that require it
 - publish mode supported by selected adapter
 
-### 6.2 Validation result shape
+### 6.4 Example publish-readiness result shape
 
 ```json
 {
@@ -741,10 +751,32 @@ These events become the operational trail for debugging, support, and Ledger int
 
 ## 23. MVP Boundary
 
-Quench v1 should include:
+Current executable MVP should include:
+
+- ingest Hammer release packet from Tongs/canonical artifact paths
+- discover and read manifest
+- validate manifest shape
+- resolve canonical audio reference
+- load transcript/captions/visual placements
+- render truthful state:
+  - Ready for publish
+  - Needs attention: audio reference unresolved
+  - Needs attention: captions missing
+  - Needs attention: transcript missing
+  - Needs attention: packet invalid
+
+Current executable MVP should exclude:
+
+- platform adapters
+- scheduling
+- RSS execution
+- connection/auth setup
+- publish orchestration
+- publish receipts
+
+Future Quench v1+ release orchestration may include:
 
 - episode selection from Tongs
-- readiness validation
 - manual platform selection
 - YouTube adapter
 - Rumble adapter
@@ -755,7 +787,7 @@ Quench v1 should include:
 - platform connection setup
 - receipt persistence
 
-Quench v1 should exclude:
+All future slices should continue to exclude:
 
 - social autoposting
 - advanced analytics dashboards

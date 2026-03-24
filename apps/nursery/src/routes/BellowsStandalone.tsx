@@ -1,6 +1,6 @@
 import type { RealtimeChannel, User } from "@supabase/supabase-js";
 import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import type {
   BellowsDeviceReadinessState,
@@ -51,7 +51,7 @@ import {
   type BellowsParticipantPresencePayload,
 } from "../lib/bellows/bellowsSessionPresence";
 import { useBellowsLocalMediaReadiness } from "../lib/bellows/useBellowsLocalMediaReadiness";
-import { supabase } from "../lib/supabase";
+import { supabase, tongsSupabase } from "../lib/supabase";
 import "./BellowsStandalone.css";
 
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
@@ -1130,7 +1130,7 @@ function formatDispatchSummary(
 
 export default function BellowsStandalone() {
   const repository = useMemo<NurseryBellowsTongsRepository>(
-    () => createBellowsTongsRepository(supabase),
+    () => createBellowsTongsRepository(tongsSupabase),
     [],
   );
   const location = useLocation();
@@ -1205,6 +1205,83 @@ export default function BellowsStandalone() {
   const backHref = buildForgeRouteHref("/app", {
     workspaceId,
   });
+  const resetWorkspaceContextState = useCallback(() => {
+    setWorkspaces([]);
+    setWorkspaceError(null);
+    setLoadingWorkspaces(false);
+    setHasLoadedWorkspaces(true);
+  }, []);
+  const beginWorkspaceContextLoad = useCallback(() => {
+    setLoadingWorkspaces(true);
+    setHasLoadedWorkspaces(false);
+    setWorkspaceError(null);
+  }, []);
+  const syncStoredWorkspaceContext = useCallback((nextWorkspaceId: string | null) => {
+    setStoredWorkspaceId((current) => current === nextWorkspaceId ? current : nextWorkspaceId);
+  }, []);
+  const applyRuntimeBootstrapIdleState = useCallback((message: string, error: string | null = null) => {
+    setRuntimeShell(null);
+    setSnapshot(null);
+    setLoadingRuntime(false);
+    setBootstrapError(error);
+    setBootstrapMessage(message);
+  }, []);
+  const beginRuntimeBootstrapLoad = useCallback((message: string) => {
+    setLoadingRuntime(true);
+    setBusyAction(null);
+    setErrorMessage(null);
+    setBootstrapError(null);
+    setBootstrapMessage(message);
+  }, []);
+  const applyRuntimeBootstrapSuccess = useCallback((
+    nextRuntimeShell: BellowsRuntimeShell,
+    nextSnapshot: BellowsOperatorConsoleSnapshot,
+    nextStatusMessage: string,
+  ) => {
+    setRuntimeShell(nextRuntimeShell);
+    setSnapshot(nextSnapshot);
+    setDraftTitle(nextSnapshot.session.draft.title);
+    setStatusMessage(nextStatusMessage);
+    setBootstrapMessage(nextStatusMessage);
+  }, []);
+  const resetRecoveryTargetsState = useCallback((error: string | null = null) => {
+    setRecoveryTargets({
+      latest: null,
+      baseline: null,
+      previousPhase: null,
+    });
+    setRecoveryTargetsError(error);
+    setLoadingRecoveryTargets(false);
+  }, []);
+  const beginRecoveryTargetsLoad = useCallback(() => {
+    setLoadingRecoveryTargets(true);
+    setRecoveryTargetsError(null);
+  }, []);
+  const resetJoinLinksState = useCallback(() => {
+    setJoinLinks([]);
+    setJoinLinksError(null);
+    setLoadingJoinLinks(false);
+    setJoinLinkUrls({});
+  }, []);
+  const beginJoinLinksLoad = useCallback((sessionId: SessionId) => {
+    setLoadingJoinLinks(true);
+    setJoinLinksError(null);
+    setJoinLinkUrls(readBellowsHostInviteUrls(sessionId));
+  }, []);
+  const clearHostPresenceState = useCallback((args?: {
+    participantEntries?: readonly BellowsParticipantPresencePayload[];
+    invitePresenceError?: string | null;
+    hostSessionSignalError?: string | null;
+  }) => {
+    setParticipantPresenceEntries(args?.participantEntries ?? []);
+    setInvitePresenceError(args?.invitePresenceError ?? null);
+    setHostSessionSignalError(args?.hostSessionSignalError ?? null);
+    setHostPresenceConnected(false);
+    hostPresenceChannelRef.current = null;
+    hostPresenceJoinedAtRef.current = null;
+    publishedHostPresenceRef.current = "";
+    publishedHostSessionSignalRef.current = "";
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1230,16 +1307,12 @@ export default function BellowsStandalone() {
 
   useEffect(() => {
     if (!authUser?.id) {
-      setWorkspaces([]);
-      setWorkspaceError(null);
-      setHasLoadedWorkspaces(true);
+      resetWorkspaceContextState();
       return;
     }
 
     let active = true;
-    setLoadingWorkspaces(true);
-    setHasLoadedWorkspaces(false);
-    setWorkspaceError(null);
+    beginWorkspaceContextLoad();
 
     void listMyWorkspaces()
       .then((nextWorkspaces) => {
@@ -1259,7 +1332,7 @@ export default function BellowsStandalone() {
     return () => {
       active = false;
     };
-  }, [authUser?.id]);
+  }, [authUser?.id, beginWorkspaceContextLoad, resetWorkspaceContextState]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -1279,8 +1352,8 @@ export default function BellowsStandalone() {
   useEffect(() => {
     if (!workspaceId) return;
     persistStoredWorkspaceId(workspaceId);
-    setStoredWorkspaceId((current) => current === workspaceId ? current : workspaceId);
-  }, [workspaceId]);
+    syncStoredWorkspaceContext(workspaceId);
+  }, [syncStoredWorkspaceContext, workspaceId]);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -1303,29 +1376,17 @@ export default function BellowsStandalone() {
 
   useEffect(() => {
     if (!authUser?.id) {
-      setRuntimeShell(null);
-      setSnapshot(null);
-      setLoadingRuntime(false);
-      setBootstrapError(null);
-      setBootstrapMessage("Sign in to load Bellows from Tongs.");
+      applyRuntimeBootstrapIdleState("Sign in to load Bellows from Tongs.");
       return;
     }
 
     if (!hasLoadedWorkspaces && !workspaceError) {
-      setRuntimeShell(null);
-      setSnapshot(null);
-      setLoadingRuntime(false);
-      setBootstrapError(null);
-      setBootstrapMessage("Loading workspace context...");
+      applyRuntimeBootstrapIdleState("Loading workspace context...");
       return;
     }
 
     if (!workspaceId) {
-      setRuntimeShell(null);
-      setSnapshot(null);
-      setLoadingRuntime(false);
-      setBootstrapError(null);
-      setBootstrapMessage(
+      applyRuntimeBootstrapIdleState(
         loadingWorkspaces
           ? "Loading workspace context..."
           : workspaceError
@@ -1341,11 +1402,7 @@ export default function BellowsStandalone() {
     const loadMode = pendingLoadModeRef.current;
     pendingLoadModeRef.current = "auto";
 
-    setLoadingRuntime(true);
-    setBusyAction(null);
-    setErrorMessage(null);
-    setBootstrapError(null);
-    setBootstrapMessage(
+    beginRuntimeBootstrapLoad(
       loadMode === "forceFresh"
         ? "Creating a fresh Bellows session in Tongs..."
         : "Loading Bellows from Tongs...",
@@ -1444,19 +1501,16 @@ export default function BellowsStandalone() {
 
         if (!active) return;
 
-        setRuntimeShell({
+        applyRuntimeBootstrapSuccess({
           ...harnessState,
           sessionOriginLabel,
-        });
-        setSnapshot(nextSnapshot);
-        setDraftTitle(nextSnapshot.session.draft.title);
-        setStatusMessage(nextStatusMessage);
-        setBootstrapMessage(nextStatusMessage);
+        }, nextSnapshot, nextStatusMessage);
       } catch (error) {
         if (!active) return;
-        setRuntimeShell(null);
-        setSnapshot(null);
-        setBootstrapError(getErrorMessage(error, "Bellows could not load persisted runtime truth."));
+        applyRuntimeBootstrapIdleState(
+          "Bellows is waiting for persisted runtime truth.",
+          getErrorMessage(error, "Bellows could not load persisted runtime truth."),
+        );
       } finally {
         if (active) {
           setLoadingRuntime(false);
@@ -1469,6 +1523,9 @@ export default function BellowsStandalone() {
     };
   }, [
     authUser?.id,
+    applyRuntimeBootstrapIdleState,
+    applyRuntimeBootstrapSuccess,
+    beginRuntimeBootstrapLoad,
     hasLoadedWorkspaces,
     loadingWorkspaces,
     reloadToken,
@@ -1531,19 +1588,12 @@ export default function BellowsStandalone() {
 
   useEffect(() => {
     if (!session) {
-      setRecoveryTargets({
-        latest: null,
-        baseline: null,
-        previousPhase: null,
-      });
-      setRecoveryTargetsError(null);
-      setLoadingRecoveryTargets(false);
+      resetRecoveryTargetsState();
       return;
     }
 
     let active = true;
-    setLoadingRecoveryTargets(true);
-    setRecoveryTargetsError(null);
+    beginRecoveryTargetsLoad();
 
     void repository.loadRecoveryStream(session.sessionId)
       .then((checkpoints) => {
@@ -1567,21 +1617,16 @@ export default function BellowsStandalone() {
     return () => {
       active = false;
     };
-  }, [repository, session, session?.sessionId, session?.events.length]);
+  }, [beginRecoveryTargetsLoad, repository, resetRecoveryTargetsState, session, session?.sessionId, session?.events.length]);
 
   useEffect(() => {
     if (!session) {
-      setJoinLinks([]);
-      setJoinLinksError(null);
-      setLoadingJoinLinks(false);
-      setJoinLinkUrls({});
+      resetJoinLinksState();
       return;
     }
 
     let active = true;
-    setLoadingJoinLinks(true);
-    setJoinLinksError(null);
-    setJoinLinkUrls(readBellowsHostInviteUrls(session.sessionId));
+    beginJoinLinksLoad(session.sessionId);
 
     void repository.loadJoinLinks(session.sessionId)
       .then((links) => {
@@ -1601,18 +1646,11 @@ export default function BellowsStandalone() {
     return () => {
       active = false;
     };
-  }, [repository, session, session?.sessionId]);
+  }, [beginJoinLinksLoad, repository, resetJoinLinksState, session, session?.sessionId]);
 
   useEffect(() => {
     if (!session || !currentHostParticipantId) {
-      setParticipantPresenceEntries([]);
-      setInvitePresenceError(null);
-      setHostSessionSignalError(null);
-      setHostPresenceConnected(false);
-      hostPresenceChannelRef.current = null;
-      hostPresenceJoinedAtRef.current = null;
-      publishedHostPresenceRef.current = "";
-      publishedHostSessionSignalRef.current = "";
+      clearHostPresenceState();
       return;
     }
 
@@ -1635,9 +1673,7 @@ export default function BellowsStandalone() {
       setParticipantPresenceEntries(listBellowsParticipantPresencePayloads(channel.presenceState?.() ?? {}));
     };
 
-    setInvitePresenceError(null);
-    setHostSessionSignalError(null);
-    setHostPresenceConnected(false);
+    clearHostPresenceState();
     channel.on("presence", { event: "sync" }, syncPresence);
     channel.on("presence", { event: "join" }, syncPresence);
     channel.on("presence", { event: "leave" }, syncPresence);
@@ -1679,15 +1715,10 @@ export default function BellowsStandalone() {
 
     return () => {
       active = false;
-      setHostPresenceConnected(false);
-      setHostSessionSignalError(null);
-      hostPresenceChannelRef.current = null;
-      hostPresenceJoinedAtRef.current = null;
-      publishedHostPresenceRef.current = "";
-      publishedHostSessionSignalRef.current = "";
+      clearHostPresenceState();
       void channel.unsubscribe();
     };
-  }, [currentHostParticipantId, currentHostRoleCode, session, session?.sessionId, viewerLabel]);
+  }, [clearHostPresenceState, currentHostParticipantId, currentHostRoleCode, session, session?.sessionId, viewerLabel]);
 
   useEffect(() => {
     if (
@@ -2095,7 +2126,10 @@ export default function BellowsStandalone() {
       <header className="bellows-standalone__header">
         <div>
           <div className="bellows-standalone__eyebrow">Forge Tool Surface</div>
-          <h1 className="bellows-standalone__title">Bellows</h1>
+          <div className="bellows-standalone__title-row">
+            <h1 className="bellows-standalone__title">Bellows</h1>
+            <span className="bellows-standalone__title-badge">Under Construction</span>
+          </div>
           <p className="bellows-standalone__subtitle">
             Thin operator console over the real Bellows runtime, rehydrated from canonical Tongs recovery truth.
           </p>

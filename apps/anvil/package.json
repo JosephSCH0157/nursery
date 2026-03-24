@@ -83,6 +83,7 @@
     ]
   },
   "dependencies": {
+    "@forge/shared": "workspace:*",
     "@supabase/supabase-js": "^2.98.0",
     "jszip": "^3.10.1",
     "obs-websocket-js": "^5.0.6",
