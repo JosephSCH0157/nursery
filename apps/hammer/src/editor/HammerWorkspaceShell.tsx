@@ -519,8 +519,8 @@ function resolveOutputSelectionFromTranscript(
   });
 }
 
-function formatOutputLayerLabel(layer: HammerDerivedTextLayer): string {
-  const recipe = layer.recipe_ref.trim() || "derived";
+function formatOutputLayerLabelFromRecipeRef(recipeRef: string): string {
+  const recipe = recipeRef.trim() || "derived";
   if (recipe.startsWith("speaker_solo:")) {
     const speaker = recipe.split(":", 2)[1]?.trim().toUpperCase() || "Speaker";
     return `Solo Mode - ${speaker}`;
@@ -538,6 +538,10 @@ function formatOutputLayerLabel(layer: HammerDerivedTextLayer): string {
     return `Monologue Cleanup - ${speaker}`;
   }
   return `${recipe} output`;
+}
+
+function formatOutputLayerLabel(layer: HammerDerivedTextLayer): string {
+  return formatOutputLayerLabelFromRecipeRef(layer.recipe_ref);
 }
 
 function compactHistoryActionLabel(label: string | null): string {
@@ -2979,16 +2983,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       }
 
       const nowIso = new Date().toISOString();
-      const layerLabel = isSpeakerSoloApply
-        ? `Solo Mode - ${preview.metadata?.speakerSolo?.targetSpeaker.trim() || "speaker"}`
-        : isSpeakerInterviewApply
-        ? `Interview Mode - ${preview.metadata?.speakerInterview?.hostSpeaker.trim() || "host"}->${preview.metadata?.speakerInterview?.respondentSpeaker.trim() || "guest"}`
-        : `Monologue Cleanup - ${preview.metadata?.speakerMonologue?.targetSpeaker.trim() || "speaker"}`;
       const recipeRef = isSpeakerSoloApply
         ? `speaker_solo:${preview.metadata?.speakerSolo?.targetSpeaker.trim().toLowerCase() || "speaker"}`
         : isSpeakerInterviewApply
         ? `speaker_interview:${preview.metadata?.speakerInterview?.hostSpeaker.trim().toLowerCase() || "host"}->${preview.metadata?.speakerInterview?.respondentSpeaker.trim().toLowerCase() || "guest"}`
         : `speaker_monologue:${preview.metadata?.speakerMonologue?.targetSpeaker.trim().toLowerCase() || "speaker"}`;
+      const layerLabel = formatOutputLayerLabelFromRecipeRef(recipeRef);
       const macroKind = isSpeakerSoloApply
         ? "speaker_solo" as const
         : isSpeakerInterviewApply
@@ -3190,7 +3190,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     applyHistoryMutation({
       label: targetLayer
-        ? `Set export output to ${targetLayer.recipe_ref}`
+        ? `Set export output to ${formatOutputLayerLabel(targetLayer)}`
         : "Set export output to raw transcript",
       kind: "output_selection",
       toolId: "export",
