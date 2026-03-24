@@ -4,6 +4,8 @@ import {
   appendAuthorityInstructionToGraph,
   createHearthBrollSuggestionInstruction,
   createAudioDuckInstruction,
+  createCrossfadeInstruction,
+  createDipToBlackInstruction,
   createInsertBrollInstruction,
   createRippleDeleteInstruction,
   remapResolvedBrollOperationsForRippleDelete,
@@ -490,6 +492,71 @@ async function testLinkedDuckSynchronizesWithBrollMoveTrim() {
   }
 }
 
+async function testRippleDeleteRemapsTransitionsWithoutSilentDrift() {
+  const initial = baseState();
+  const withDip = appendAuthorityInstructionToGraph({
+    graph: initial.editorialAuthorityGraph,
+    instruction: createDipToBlackInstruction({
+      segmentId: "seg_01",
+      startSec: 3,
+      endSec: 3.6,
+      instructionId: "dip_transition_01",
+    }),
+    fallback: {
+      graphId: "fallback",
+      workspaceId: "ws_ops",
+      workpieceId: "wp_ops",
+      sessionId: "session_ops",
+      sourceTranscriptId: "tx_ops",
+    },
+  });
+  const withCrossfade = appendAuthorityInstructionToGraph({
+    graph: withDip,
+    instruction: createCrossfadeInstruction({
+      segmentId: "seg_01",
+      nextSegmentId: "seg_02",
+      durationSec: 0.6,
+      instructionId: "crossfade_no_window_01",
+    }),
+    fallback: {
+      graphId: "fallback",
+      workspaceId: "ws_ops",
+      workpieceId: "wp_ops",
+      sessionId: "session_ops",
+      sourceTranscriptId: "tx_ops",
+    },
+  });
+  const withRipple = appendAuthorityInstructionToGraph({
+    graph: withCrossfade,
+    instruction: createRippleDeleteInstruction({
+      segmentId: "seg_01",
+      startSec: 2,
+      endSec: 4,
+      instructionId: "ripple_transition_01",
+    }),
+    fallback: {
+      graphId: "fallback",
+      workspaceId: "ws_ops",
+      workpieceId: "wp_ops",
+      sessionId: "session_ops",
+      sourceTranscriptId: "tx_ops",
+    },
+  });
+  const rippleOpId = withRipple.operations.at(-1)?.operation_id ?? "";
+  const remapped = remapResolvedBrollOperationsForRippleDelete({
+    graph: withRipple,
+    rippleDeleteOperationId: rippleOpId,
+    removedStartSec: 2,
+    removedEndSec: 4,
+  });
+  const dipOp = remapped.graph.operations.find((operation) => operation.instruction.instruction_id === "dip_transition_01") ?? null;
+  assert.equal(dipOp?.lifecycle, "superseded");
+  const crossfadeOp = remapped.graph.operations.find((operation) => operation.instruction.instruction_id === "crossfade_no_window_01") ?? null;
+  assert.equal(crossfadeOp?.capability_state.capability, "degraded");
+  assert.equal(remapped.summary.removedTransitionOperationIds.length, 1);
+  assert.equal(remapped.summary.degradedTransitionOperationIds.length, 1);
+}
+
 async function run() {
   await testFirstAuthorityOpsAffectAssemblyDeterministically();
   await testUndoRedoPreservesCanonicalOperationIdentity();
@@ -497,6 +564,7 @@ async function run() {
   await testResolvedBindingMoveTrimReplacePreserveOperationIdentity();
   await testRippleDeleteRemapsResolvedBrollDeterministically();
   await testLinkedDuckSynchronizesWithBrollMoveTrim();
+  await testRippleDeleteRemapsTransitionsWithoutSilentDrift();
   // eslint-disable-next-line no-console
   console.log("Hammer authority ops tests passed.");
 }

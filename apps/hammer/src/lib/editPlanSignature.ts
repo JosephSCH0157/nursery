@@ -23,10 +23,11 @@ type SemanticEditInstruction =
     merge_with_segment_id: string;
   }
   | {
-    type: "cut_range" | "ripple_delete";
+    type: "hard_cut" | "cut_range" | "ripple_delete" | "dip_to_black" | "fade_audio";
     segment_id: string;
     start_sec: number;
     end_sec: number;
+    fade_curve?: "linear" | "log";
   }
   | {
     type: "insert_broll" | "overlay_graphic";
@@ -86,12 +87,18 @@ function toSemanticEditInstruction(
         merge_with_segment_id: instruction.merge_with_segment_id,
       };
     case "cut_range":
+    case "hard_cut":
     case "ripple_delete":
+    case "dip_to_black":
+    case "fade_audio":
       return {
         type: instruction.type,
         segment_id: instruction.segment_id,
         start_sec: instruction.start_sec,
         end_sec: instruction.end_sec,
+        ...(instruction.type === "fade_audio"
+          ? { fade_curve: instruction.fade_curve ?? "linear" }
+          : {}),
       };
     case "insert_broll":
     case "overlay_graphic":
