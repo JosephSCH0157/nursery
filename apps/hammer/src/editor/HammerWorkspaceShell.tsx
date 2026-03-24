@@ -298,6 +298,22 @@ type HammerCaptionBuildState = {
   vtt: string;
 };
 
+type HammerCaptionEditedState = {
+  createdAt: string;
+  updatedAt: string;
+  baseFingerprint: string;
+  sourceLayerId: string | null;
+  sourceLabel: string;
+  chunkCount: number;
+  segmentCount: number;
+  approximateTiming: boolean;
+  chunks: HammerCaptionBuiltChunk[];
+  srt: string;
+  vtt: string;
+};
+
+type HammerCaptionArtifactMode = "built" | "edited";
+
 type HammerExportTruthState = "never_prepared" | "current" | "stale";
 type DerivedLayerHistoryTransition = {
   before: HammerPersistedStructuredTranscript["derived_text_layers"];
@@ -5376,13 +5392,42 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               {activeTool === "captions" ? (
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Caption Output</header>
+                  <section className="hammer-caption-source-card">
+                    <div className="hammer-caption-source-card__head">
+                      <strong>Caption Source</strong>
+                      <span>{captionBuildStatusLabel}</span>
+                    </div>
+                    <div className="hammer-tool-hint">Source: {captionSourceLabel}</div>
+                    <div className="hammer-tool-hint">
+                      Export basis authority: captions follow Export Basis, not current Viewing layer.
+                    </div>
+                    {captionBuildState ? (
+                      <div className="hammer-tool-hint">
+                        Last build {new Date(captionBuildState.builtAt).toLocaleTimeString()} ·
+                        {` ${captionBuildState.chunkCount} rows`}
+                        {captionBuildState.approximateTiming ? " · approximate timing" : ""}
+                      </div>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusOverride("tool-focus");
+                        handleRebuildCaptionArtifacts();
+                      }}
+                    >
+                      {captionBuildFreshness === "current" ? "Refresh Captions" : "Generate Captions"}
+                    </button>
+                  </section>
                   <label className="hammer-tool-field">
                     <span>Caption Style</span>
                     <select
-                      value={captionStyle}
+                      value={captionFormatting.style}
                       onChange={(event) => {
                         setFocusOverride("tool-focus");
-                        setCaptionStyle(event.target.value as "sentence" | "title" | "upper");
+                        setCaptionFormatting((current) => ({
+                          ...current,
+                          style: event.target.value as "sentence" | "title" | "upper",
+                        }));
                       }}
                     >
                       <option value="sentence">Sentence case</option>
@@ -5390,6 +5435,125 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       <option value="upper">UPPERCASE</option>
                     </select>
                   </label>
+                  <label className="hammer-tool-field">
+                    <span>Max chars per line</span>
+                    <input
+                      type="number"
+                      min={24}
+                      max={80}
+                      step={1}
+                      value={captionFormatting.maxCharsPerLine}
+                      onChange={(event) => {
+                        setFocusOverride("tool-focus");
+                        const nextValue = Math.max(24, Math.min(80, Number(event.target.value) || 42));
+                        setCaptionFormatting((current) => ({ ...current, maxCharsPerLine: nextValue }));
+                      }}
+                    />
+                  </label>
+                  <label className="hammer-tool-field">
+                    <span>Max lines per caption</span>
+                    <select
+                      value={captionFormatting.maxLinesPerCaption}
+                      onChange={(event) => {
+                        setFocusOverride("tool-focus");
+                        setCaptionFormatting((current) => ({
+                          ...current,
+                          maxLinesPerCaption: Number(event.target.value) || 2,
+                        }));
+                      }}
+                    >
+                      <option value={1}>1 line</option>
+                      <option value={2}>2 lines</option>
+                      <option value={3}>3 lines</option>
+                    </select>
+                  </label>
+                  <label className="hammer-tool-field">
+                    <span>Reading speed</span>
+                    <select
+                      value={captionFormatting.readingSpeed}
+                      onChange={(event) => {
+                        setFocusOverride("tool-focus");
+                        setCaptionFormatting((current) => ({
+                          ...current,
+                          readingSpeed: event.target.value as HammerCaptionReadingSpeed,
+                        }));
+                      }}
+                    >
+                      <option value="slow">Slow</option>
+                      <option value="standard">Standard</option>
+                      <option value="fast">Fast</option>
+                    </select>
+                  </label>
+                  <label className="hammer-tool-field">
+                    <span>Punctuation</span>
+                    <select
+                      value={captionFormatting.punctuationMode}
+                      onChange={(event) => {
+                        setFocusOverride("tool-focus");
+                        setCaptionFormatting((current) => ({
+                          ...current,
+                          punctuationMode: event.target.value as HammerCaptionPunctuationMode,
+                        }));
+                      }}
+                    >
+                      <option value="preserve">Preserve</option>
+                      <option value="normalize">Normalize</option>
+                    </select>
+                  </label>
+                  <label className="hammer-tool-check">
+                    <input
+                      type="checkbox"
+                      checked={captionFormatting.includeSpeakerLabels}
+                      onChange={(event) => {
+                        setFocusOverride("tool-focus");
+                        setCaptionFormatting((current) => ({
+                          ...current,
+                          includeSpeakerLabels: event.target.checked,
+                        }));
+                      }}
+                    />
+                    <span>Include speaker labels</span>
+                  </label>
+                  <div className="hammer-caption-preview-card">
+                    <div className="hammer-caption-preview-card__head">
+                      <strong>Caption Preview</strong>
+                      <select
+                        value={selectedCaptionArtifactFormat}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setSelectedCaptionArtifactFormat(event.target.value as "srt" | "vtt");
+                        }}
+                      >
+                        <option value="srt">SRT</option>
+                        <option value="vtt">VTT</option>
+                      </select>
+                    </div>
+                    {captionBuildFeedback ? (
+                      <div className="hammer-tool-hint">{captionBuildFeedback}</div>
+                    ) : null}
+                    {captionBuildState ? (
+                      <>
+                        <div className="hammer-caption-preview-list">
+                          {captionBuildState.chunks.slice(0, 12).map((chunk) => (
+                            <article key={chunk.id} className="hammer-caption-preview-list__row">
+                              <div className="hammer-caption-preview-list__time">
+                                {chunk.startSec.toFixed(1)}s - {chunk.endSec.toFixed(1)}s
+                              </div>
+                              <pre className="hammer-caption-preview-list__text">{chunk.text}</pre>
+                            </article>
+                          ))}
+                        </div>
+                        <details>
+                          <summary>{selectedCaptionArtifactFormat.toUpperCase()} output</summary>
+                          <pre className="hammer-caption-preview-card__artifact">{activeCaptionArtifactText}</pre>
+                        </details>
+                      </>
+                    ) : (
+                      <div className="hammer-tool-hint">
+                        No caption artifact yet. Generate captions to preview deterministic output from Export Basis.
+                      </div>
+                    )}
+                  </div>
                 </section>
               ) : null}
 

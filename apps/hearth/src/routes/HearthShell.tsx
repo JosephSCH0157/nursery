@@ -1452,14 +1452,14 @@ function createThumbnailClientId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function buildImageMapExportDocument(
+function buildVisualScriptIntentExportDocument(
   workpieceId: string | null,
   entries: EpisodeImageMapEntry[],
 ): Record<string, unknown> {
   return {
-    schema: "forge.image-map.v1",
+    schema: "forge.hearth.visual-script-intent.v1",
     ...(workpieceId ? { workpiece_id: workpieceId } : {}),
-    entries,
+    anchors: entries,
   };
 }
 
@@ -2169,6 +2169,7 @@ export default function HearthShell() {
   const [sttPreview, setSttPreview] = useState<string | null>(null);
   const [showManualDraft, setShowManualDraft] = useState(false);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
+  const [isVisualScriptMode, setIsVisualScriptMode] = useState(false);
   const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(() =>
     readScriptApprovalState(incomingBarStockIntakeRoute ? null : resolveWorkpieceId()),
   );
@@ -2543,7 +2544,7 @@ export default function HearthShell() {
     const anchor = selectedImageMapExactAnchor?.exactAnchor ?? selectedImageMapEntry?.script_anchor ?? null;
     return buildImageMapAnchorLabel(anchor);
   }, [selectedImageMapEntry?.script_anchor, selectedImageMapExactAnchor]);
-  const isCanonicalImageMapScriptPanel = isImageMapReanchorMode && showScriptPanel;
+  const isCanonicalImageMapScriptPanel = (isImageMapReanchorMode || isVisualScriptMode) && showScriptPanel;
   const scriptPanelBodyText = useMemo(
     () => (isCanonicalImageMapScriptPanel ? (canonicalImageMapScriptState.text ?? "") : (activeDraft?.body ?? "")),
     [activeDraft?.body, canonicalImageMapScriptState.text, isCanonicalImageMapScriptPanel],
@@ -2594,7 +2595,7 @@ export default function HearthShell() {
     ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
     : "Ready";
   const thumbnailPanelMeta = `${thumbnailConcepts.length} concepts · ${thumbnailVersions.length} versions`;
-  const imageMapPanelMeta = `${imageMapEntries.length} beat${imageMapEntries.length === 1 ? "" : "s"}`;
+  const imageMapPanelMeta = `${imageMapEntries.length} anchor${imageMapEntries.length === 1 ? "" : "s"}`;
   const metadataPanelMeta = `${thumbnailTitleOptions.length} title${thumbnailTitleOptions.length === 1 ? "" : "s"} · ${metadataTagsDraft.length} tag${metadataTagsDraft.length === 1 ? "" : "s"}`;
   const hasBrowserSpeech = (
     typeof window !== "undefined"
@@ -7829,6 +7830,23 @@ export default function HearthShell() {
     setIsImageMapReanchorMode(true);
   }
 
+  function onToggleVisualScriptMode() {
+    if (!hasApprovedScript || !approvedScriptVersion) return;
+    setIsVisualScriptMode((prev) => {
+      const next = !prev;
+      if (next) {
+        setMode("focus");
+        setShowManualDraft(false);
+        setShowScriptPanel(true);
+        setFocusPanelLayout((layout) => ({
+          ...layout,
+          imageMap: false,
+        }));
+      }
+      return next;
+    });
+  }
+
   function onCancelImageMapReanchor() {
     if (isImageMapReanchorSaving) return;
     setIsImageMapReanchorMode(false);
@@ -8223,25 +8241,25 @@ export default function HearthShell() {
 
   async function onCopyImageMapExportJson() {
     const entries = resolveImageMapEntriesForExport();
-    const payload = buildImageMapExportDocument(workpieceId?.trim() ?? null, entries);
+    const payload = buildVisualScriptIntentExportDocument(workpieceId?.trim() ?? null, entries);
     const text = JSON.stringify(payload, null, 2);
     const copied = await writeTextToClipboard(text);
-    setImageMapExportMessage(copied ? "Image map JSON copied." : "Clipboard write failed.");
+    setImageMapExportMessage(copied ? "Visual script intent JSON copied." : "Clipboard write failed.");
   }
 
   function onDownloadImageMapExportJson() {
     const entries = resolveImageMapEntriesForExport();
-    const payload = buildImageMapExportDocument(workpieceId?.trim() ?? null, entries);
+    const payload = buildVisualScriptIntentExportDocument(workpieceId?.trim() ?? null, entries);
     const text = JSON.stringify(payload, null, 2);
     const blob = new Blob([text], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     const suffix = (workpieceId?.slice(0, 8) ?? "episode").toLowerCase();
     anchor.href = url;
-    anchor.download = `image-map-${suffix}.json`;
+    anchor.download = `visual-script-intent-${suffix}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
-    setImageMapExportMessage("Image map JSON downloaded.");
+    setImageMapExportMessage("Visual script intent JSON downloaded.");
   }
 
   function markMetadataEditing(): void {
@@ -9400,6 +9418,14 @@ export default function HearthShell() {
                 {showScriptPanel ? "Hide Script panel" : "Script panel"}
               </button>
             ) : null}
+            {hasApprovedScript && approvedScriptVersion ? (
+              <button
+                type="button"
+                onClick={onToggleVisualScriptMode}
+              >
+                {isVisualScriptMode ? "Exit Visual Script Mode" : "Visual Script Mode"}
+              </button>
+            ) : null}
           </div>
           <div className="hs-field-label-muted">Write without AI (just a text editor)</div>
         </div>
@@ -9869,12 +9895,14 @@ export default function HearthShell() {
             {hasApprovedScript && approvedScriptVersion ? (
               <CollapsibleFocusPanel
                 panelId="hearth-image-map-panel"
-                title="Timeline Images"
+                title="Visual Script Mode"
                 meta={imageMapPanelMeta}
                 collapsed={focusPanelLayout.imageMap}
                 onToggle={() => onToggleFocusPanel("imageMap")}
               >
                 <ImageMapPanel
+                  panelTitle="Visual Script Mode"
+                  manualOnly
                   entries={imageMapEntries}
                   selectedEntryId={selectedImageMapEntryId}
                   draftAnchor={imageMapAnchorDraft}

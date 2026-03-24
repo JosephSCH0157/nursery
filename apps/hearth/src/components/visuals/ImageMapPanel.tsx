@@ -24,6 +24,8 @@ type ImageMapCandidateCard = {
 };
 
 type ImageMapPanelProps = {
+  panelTitle?: string;
+  manualOnly?: boolean;
   entries: EpisodeImageMapEntry[];
   selectedEntryId: string | null;
   draftAnchor: string;
@@ -95,6 +97,8 @@ function resolveInitialPreviewCandidateId(candidateCards: ImageMapCandidateCard[
 }
 
 export default function ImageMapPanel({
+  panelTitle,
+  manualOnly = false,
   entries,
   selectedEntryId,
   draftAnchor,
@@ -143,6 +147,8 @@ export default function ImageMapPanel({
   onCancelReanchor,
   onPickReanchor,
 }: ImageMapPanelProps) {
+  const resolvedPanelTitle = panelTitle?.trim() || (manualOnly ? "Visual Script Mode" : "Image Map");
+  const entryLabel = manualOnly ? "Anchor" : "Entry";
   const hasSelection = Boolean(selectedEntryId);
   const selectedCandidateId = candidateCards.find((candidate) => candidate.isSelected)?.id ?? null;
   const [previewCandidateId, setPreviewCandidateId] = useState<string | null>(
@@ -169,9 +175,9 @@ export default function ImageMapPanel({
   const previewCandidate = candidateCards.find((candidate) => candidate.id === previewCandidateId) ?? null;
 
   return (
-    <section className="hs-imap-panel" aria-label="Image map panel">
+    <section className="hs-imap-panel" aria-label={`${resolvedPanelTitle} panel`}>
       <header className="hs-imap-header">
-        <div className="hs-imap-title">Image Map</div>
+        <div className="hs-imap-title">{resolvedPanelTitle}</div>
         <div className={`hs-imap-save-state is-${saveState}`}>{formatSaveState(saveState)}</div>
       </header>
 
@@ -181,7 +187,7 @@ export default function ImageMapPanel({
           onClick={onCreateEntry}
           disabled={disabled}
         >
-          New Entry
+          New {entryLabel}
         </button>
         <button
           type="button"
@@ -197,13 +203,15 @@ export default function ImageMapPanel({
         >
           Delete
         </button>
-        <button
-          type="button"
-          onClick={onSeedFromScript}
-          disabled={disabled}
-        >
-          Generate from Script
-        </button>
+        {!manualOnly ? (
+          <button
+            type="button"
+            onClick={onSeedFromScript}
+            disabled={disabled}
+          >
+            Generate from Script
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onCopyExport}
@@ -221,7 +229,7 @@ export default function ImageMapPanel({
       </div>
 
       <div className="hs-imap-layout">
-        <section className="hs-imap-list" aria-label="Image map entries list">
+        <section className="hs-imap-list" aria-label={`${resolvedPanelTitle} entries list`}>
           {entries.length === 0 ? (
             <div className="hs-imap-empty">No entries yet.</div>
           ) : (
@@ -235,7 +243,9 @@ export default function ImageMapPanel({
               >
                 <div className="hs-imap-row-anchor">{entry.anchor}</div>
                 <div className="hs-imap-row-meta">
-                  {entry.intent} · {entry.source_type} · {entry.candidate_assets.length} candidates
+                  {manualOnly
+                    ? `${entry.intent} · ${entry.source_type}`
+                    : `${entry.intent} · ${entry.source_type} · ${entry.candidate_assets.length} candidates`}
                 </div>
                 <div className="hs-imap-row-desc">{summarizeDescription(entry.description)}</div>
               </button>
@@ -243,9 +253,9 @@ export default function ImageMapPanel({
           )}
         </section>
 
-        <section className="hs-imap-editor" aria-label="Image map entry editor">
+        <section className="hs-imap-editor" aria-label={`${resolvedPanelTitle} entry editor`}>
           {!hasSelection ? (
-            <div className="hs-imap-empty">Select or create an entry to edit.</div>
+            <div className="hs-imap-empty">Select or create an {entryLabel.toLowerCase()} to edit.</div>
           ) : (
             <>
               <label className="hs-field">
@@ -266,7 +276,9 @@ export default function ImageMapPanel({
                   ) : null}
                 </div>
                 <div className="hs-field-label-muted">
-                  Candidate generation only trusts a structured anchor bound to the current canonical script.
+                  {manualOnly
+                    ? "Visual Script Mode binds each anchor to an exact structured span in the canonical script."
+                    : "Candidate generation only trusts a structured anchor bound to the current canonical script."}
                 </div>
                 {anchorStatusDetail ? (
                   <div className="hs-imap-anchor-detail">{anchorStatusDetail}</div>
@@ -409,122 +421,125 @@ export default function ImageMapPanel({
                   disabled={disabled}
                 />
               </label>
-              <div className="hs-imap-candidate-toolbar">
-                <button
-                  type="button"
-                  onClick={onGenerateCandidates}
-                  disabled={disabled || candidateGenerateBusy}
-                >
-                  {candidateGenerateBusy ? "Generating..." : "Generate Candidates"}
-                </button>
-                <span className="hs-field-label-muted">
-                  Generates two still-image variants for this exact visual beat.
-                </span>
-              </div>
-              <section className="hs-imap-preview" aria-label="Still preview">
-                <div className="hs-imap-section-heading">
-                  <div className="hs-thumb-section-title">Preview</div>
-                  {previewCandidate ? (
-                    <div className="hs-field-label-muted">
-                      Viewing {previewCandidate.variantLabel} · {previewCandidate.visualMode ?? "editorial"}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="hs-imap-preview-frame">
-                  {!previewCandidate ? (
-                    <div className="hs-imap-preview-empty">No still candidates generated yet.</div>
-                  ) : previewCandidate.previewState === "ready" && previewCandidate.previewDataUrl ? (
-                    <img
-                      src={previewCandidate.previewDataUrl}
-                      alt={`${previewCandidate.variantLabel} still candidate preview`}
-                      className="hs-imap-preview-image"
-                    />
-                  ) : (
-                    <div className={`hs-imap-preview-empty${previewCandidate.previewState === "error" ? " is-error" : ""}`}>
-                      {previewCandidate.previewState === "loading"
-                        ? "Loading preview..."
-                        : previewCandidate.previewError || "Preview unavailable"}
-                    </div>
-                  )}
-                </div>
-                {previewCandidate ? (
-                  <div className="hs-imap-preview-actions">
-                    <span className="hs-field-label-muted">
-                      Preview a candidate below, then use the button to assign it to this visual beat.
-                    </span>
+              {!manualOnly ? (
+                <>
+                  <div className="hs-imap-candidate-toolbar">
                     <button
                       type="button"
-                      onClick={() => onSelectCandidate(previewCandidate.id)}
-                      disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
+                      onClick={onGenerateCandidates}
+                      disabled={disabled || candidateGenerateBusy}
                     >
-                      {previewCandidate.isSelected
-                        ? "Selected for Beat"
-                        : candidateSelectBusy
-                          ? "Saving..."
-                          : "Use This Image"}
+                      {candidateGenerateBusy ? "Generating..." : "Generate Candidates"}
                     </button>
+                    <span className="hs-field-label-muted">
+                      Generates two still-image variants for this exact visual beat.
+                    </span>
                   </div>
-                ) : null}
-              </section>
-              <section className="hs-imap-candidates" aria-label="Still candidates">
-                {candidateCards.length === 0 ? (
-                  <div className="hs-imap-empty">No still candidates generated yet.</div>
-                ) : (
-                  candidateCards.map((candidate) => (
-                    <article
-                      key={candidate.id}
-                      className={`hs-imap-candidate-card${candidate.isSelected ? " is-selected" : ""}${candidate.id === previewCandidateId ? " is-previewing" : ""}`}
-                    >
-                      <button
-                        type="button"
-                        className="hs-imap-candidate-preview-trigger"
-                        onClick={() => setPreviewCandidateId(candidate.id)}
-                        disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
-                        aria-pressed={candidate.id === previewCandidateId}
-                      >
-                        <div className="hs-imap-candidate-media">
-                          {candidate.previewState === "ready" && candidate.previewDataUrl ? (
-                            <img
-                              src={candidate.previewDataUrl}
-                              alt={`${candidate.variantLabel} still candidate`}
-                              className="hs-imap-candidate-image"
-                            />
-                          ) : (
-                            <div className={`hs-imap-candidate-placeholder is-${candidate.previewState}`}>
-                              {candidate.previewState === "loading" ? "Loading preview..." : "Preview unavailable"}
-                            </div>
-                          )}
+                  <section className="hs-imap-preview" aria-label="Still preview">
+                    <div className="hs-imap-section-heading">
+                      <div className="hs-thumb-section-title">Preview</div>
+                      {previewCandidate ? (
+                        <div className="hs-field-label-muted">
+                          Viewing {previewCandidate.variantLabel} · {previewCandidate.visualMode ?? "editorial"}
                         </div>
-                        <div className="hs-imap-candidate-meta">
-                          <div className="hs-imap-candidate-title">
-                            {candidate.variantLabel}
-                            {candidate.id === previewCandidateId ? (
-                              <span className="hs-imap-candidate-badge is-preview">Previewing</span>
-                            ) : null}
-                            {candidate.isSelected ? <span className="hs-imap-candidate-badge">Selected</span> : null}
-                          </div>
-                          <div className="hs-imap-candidate-subtitle">
-                            {candidate.visualMode ?? "editorial"}
-                          </div>
-                          {candidate.previewError ? (
-                            <div className="hs-error-text-small">{candidate.previewError}</div>
-                          ) : null}
+                      ) : null}
+                    </div>
+                    <div className="hs-imap-preview-frame">
+                      {!previewCandidate ? (
+                        <div className="hs-imap-preview-empty">No still candidates generated yet.</div>
+                      ) : previewCandidate.previewState === "ready" && previewCandidate.previewDataUrl ? (
+                        <img
+                          src={previewCandidate.previewDataUrl}
+                          alt={`${previewCandidate.variantLabel} still candidate preview`}
+                          className="hs-imap-preview-image"
+                        />
+                      ) : (
+                        <div className={`hs-imap-preview-empty${previewCandidate.previewState === "error" ? " is-error" : ""}`}>
+                          {previewCandidate.previewState === "loading"
+                            ? "Loading preview..."
+                            : previewCandidate.previewError || "Preview unavailable"}
                         </div>
-                      </button>
-                      <div className="hs-imap-candidate-actions">
+                      )}
+                    </div>
+                    {previewCandidate ? (
+                      <div className="hs-imap-preview-actions">
+                        <span className="hs-field-label-muted">
+                          Preview a candidate below, then use the button to assign it to this visual beat.
+                        </span>
                         <button
                           type="button"
-                          className="hs-imap-candidate-apply"
-                          onClick={() => onSelectCandidate(candidate.id)}
+                          onClick={() => onSelectCandidate(previewCandidate.id)}
                           disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
                         >
-                          {candidate.isSelected ? "Selected for Beat" : "Use This Image"}
+                          {previewCandidate.isSelected
+                            ? "Selected for Beat"
+                            : candidateSelectBusy
+                              ? "Saving..."
+                              : "Use This Image"}
                         </button>
                       </div>
-                    </article>
-                  ))
-                )}
-              </section>
+                    ) : null}
+                  </section>
+                  <section className="hs-imap-candidates" aria-label="Still candidates">
+                    {candidateCards.length === 0 ? (
+                      <div className="hs-imap-empty">No still candidates generated yet.</div>
+                    ) : (
+                      candidateCards.map((candidate) => (
+                        <article
+                          key={candidate.id}
+                          className={`hs-imap-candidate-card${candidate.isSelected ? " is-selected" : ""}${candidate.id === previewCandidateId ? " is-previewing" : ""}`}
+                        >
+                          <button
+                            type="button"
+                            className="hs-imap-candidate-preview-trigger"
+                            onClick={() => setPreviewCandidateId(candidate.id)}
+                            disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
+                          >
+                            <div className="hs-imap-candidate-media">
+                              {candidate.previewState === "ready" && candidate.previewDataUrl ? (
+                                <img
+                                  src={candidate.previewDataUrl}
+                                  alt={`${candidate.variantLabel} still candidate`}
+                                  className="hs-imap-candidate-image"
+                                />
+                              ) : (
+                                <div className={`hs-imap-candidate-placeholder is-${candidate.previewState}`}>
+                                  {candidate.previewState === "loading" ? "Loading preview..." : "Preview unavailable"}
+                                </div>
+                              )}
+                            </div>
+                            <div className="hs-imap-candidate-meta">
+                              <div className="hs-imap-candidate-title">
+                                {candidate.variantLabel}
+                                {candidate.id === previewCandidateId ? (
+                                  <span className="hs-imap-candidate-badge is-preview">Previewing</span>
+                                ) : null}
+                                {candidate.isSelected ? <span className="hs-imap-candidate-badge">Selected</span> : null}
+                              </div>
+                              <div className="hs-imap-candidate-subtitle">
+                                {candidate.visualMode ?? "editorial"}
+                              </div>
+                              {candidate.previewError ? (
+                                <div className="hs-error-text-small">{candidate.previewError}</div>
+                              ) : null}
+                            </div>
+                          </button>
+                          <div className="hs-imap-candidate-actions">
+                            <button
+                              type="button"
+                              className="hs-imap-candidate-apply"
+                              onClick={() => onSelectCandidate(candidate.id)}
+                              disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
+                            >
+                              {candidate.isSelected ? "Selected for Beat" : "Use This Image"}
+                            </button>
+                          </div>
+                        </article>
+                      ))
+                    )}
+                  </section>
+                </>
+              ) : null}
             </>
           )}
         </section>
@@ -533,10 +548,10 @@ export default function ImageMapPanel({
       {saveError ? (
         <div className="hs-error-text-small">{saveError}</div>
       ) : null}
-      {candidateGenerateError ? (
+      {!manualOnly && candidateGenerateError ? (
         <div className="hs-error-text-small">{candidateGenerateError}</div>
       ) : null}
-      {candidateSelectionError ? (
+      {!manualOnly && candidateSelectionError ? (
         <div className="hs-error-text-small">{candidateSelectionError}</div>
       ) : null}
       {exportMessage ? (
