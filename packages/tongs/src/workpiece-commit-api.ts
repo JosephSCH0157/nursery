@@ -32,6 +32,10 @@ const BOOTSTRAP_WORKPIECE_PATHS = new Set([
   "hearth/drafts.v1.json",
   "hearth/chat.v1.json",
   "hearth/revisions.v1.json",
+  "hammer/session/intro-outro.v1.json",
+  "hammer/snapshots/manifest.v1.json",
+  "hammer/history/history.v1.json",
+  "hammer/release-prep/package.v1.json",
 ]);
 const BOOTSTRAP_WORKSPACE_PATHS = new Set(["sources/index.json"]);
 const READY_SCRIPT_PATH_CANDIDATES = [
