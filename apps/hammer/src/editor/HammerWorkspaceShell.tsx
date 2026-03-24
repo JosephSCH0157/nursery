@@ -162,6 +162,7 @@ const PRE_ROLL_SEC = 2;
 const POST_ROLL_SEC = 1;
 const SCRUB_SEEK_THRESHOLD_SEC = 0.05;
 const SCRUB_RATE_OPTIONS = [1, 0.75, 0.5] as const;
+const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
 
 type HammerToolId = HammerWorkspaceToolId;
 type HammerSourceTabId = "transcript" | "images" | "assets" | "broll" | "introoutro";
@@ -276,6 +277,7 @@ type HammerCaptionFormattingState = {
 
 type HammerCaptionBuiltChunk = {
   id: string;
+  speaker: string;
   startSec: number;
   endSec: number;
   text: string;
@@ -681,6 +683,7 @@ function buildCaptionChunksFromPreview(args: {
       const lines = wrapped.split("\n").filter(Boolean);
       results.push({
         id: `${chunk.chunk_id}:${index}:${cursor}`,
+        speaker: chunk.speaker,
         startSec: offset,
         endSec: Math.max(nextEnd, offset + 0.05),
         text: wrapped,
@@ -720,6 +723,20 @@ function renderBuiltVtt(chunks: HammerCaptionBuiltChunk[]): string {
     chunk.text,
   ].join("\n")).join("\n\n");
   return body ? `WEBVTT\n\n${body}` : "WEBVTT\n";
+}
+
+function rebuildCaptionArtifactsFromChunks(chunks: HammerCaptionBuiltChunk[]): {
+  chunkCount: number;
+  approximateTiming: boolean;
+  srt: string;
+  vtt: string;
+} {
+  return {
+    chunkCount: chunks.length,
+    approximateTiming: chunks.some((chunk) => chunk.approximateTiming),
+    srt: renderBuiltSrt(chunks),
+    vtt: renderBuiltVtt(chunks),
+  };
 }
 
 function buildCaptionBasisFingerprint(args: {
@@ -886,6 +903,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   });
   const [selectedCaptionArtifactFormat, setSelectedCaptionArtifactFormat] = useState<"srt" | "vtt">("srt");
   const [captionBuildState, setCaptionBuildState] = useState<HammerCaptionBuildState | null>(null);
+  const [captionEditedState, setCaptionEditedState] = useState<HammerCaptionEditedState | null>(null);
+  const [activeCaptionArtifactMode, setActiveCaptionArtifactMode] = useState<HammerCaptionArtifactMode>("built");
   const [captionBuildFeedback, setCaptionBuildFeedback] = useState<string | null>(null);
   const [detailTag, setDetailTag] = useState("main-edit");
   const [finishingChecklist, setFinishingChecklist] = useState({
@@ -918,6 +937,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const captionEditorRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const lastHandledHandoffTokenRef = useRef<number | null>(null);
   const transcriptLineRefs = useRef(new Map<string, HTMLButtonElement>());
   const timelineTrackScrollRef = useRef<HTMLDivElement | null>(null);
@@ -1673,6 +1693,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setTimelineMarkers([]);
     setEditableDerivedTextLayers(cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers));
     derivedLayerHistoryRef.current.clear();
+    setCaptionBuildState(null);
+    setCaptionEditedState(null);
+    setActiveCaptionArtifactMode("built");
+    setCaptionBuildFeedback(null);
 
     void (async () => {
       const [historyResult, snapshotManifestResult] = await Promise.all([
@@ -3401,7 +3425,25 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       formatting: captionFormatting,
     });
     const hasCurrentCaptionBuild = captionBuildState?.fingerprint === captionBasisFingerprint;
-    if (hasCurrentCaptionBuild && captionBuildState) {
+    const hasCurrentEditedCaptions = captionEditedState?.baseFingerprint === captionBasisFingerprint;
+    const captionForRelease = hasCurrentEditedCaptions && captionEditedState
+      ? {
+        generatedAt: captionEditedState.updatedAt,
+        approximateTiming: captionEditedState.approximateTiming,
+        entryCount: captionEditedState.chunkCount,
+        srt: captionEditedState.srt,
+        vtt: captionEditedState.vtt,
+      }
+      : hasCurrentCaptionBuild && captionBuildState
+      ? {
+        generatedAt: captionBuildState.builtAt,
+        approximateTiming: captionBuildState.approximateTiming,
+        entryCount: captionBuildState.chunkCount,
+        srt: captionBuildState.srt,
+        vtt: captionBuildState.vtt,
+      }
+      : null;
+    if (captionForRelease) {
       transcriptForRelease = {
         ...transcriptForRelease,
         subtitle_outputs: {
@@ -3409,25 +3451,25 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           last_generated_format: selectedCaptionArtifactFormat,
           srt: {
             format: "srt",
-            generated_at: captionBuildState.builtAt,
+            generated_at: captionForRelease.generatedAt,
             source_transcript_id: transcriptForRelease.transcript_id,
             source_layer_id: editableOutputSelection.layerId ?? null,
             source_kind: editableOutputSelection.layerId ? "derived" : "raw",
             source_recipe_ref: editableOutputSelection.sourceRecipeRef ?? null,
-            approximate_timing: captionBuildState.approximateTiming,
-            entry_count: captionBuildState.chunkCount,
-            content: captionBuildState.srt,
+            approximate_timing: captionForRelease.approximateTiming,
+            entry_count: captionForRelease.entryCount,
+            content: captionForRelease.srt,
           },
           vtt: {
             format: "vtt",
-            generated_at: captionBuildState.builtAt,
+            generated_at: captionForRelease.generatedAt,
             source_transcript_id: transcriptForRelease.transcript_id,
             source_layer_id: editableOutputSelection.layerId ?? null,
             source_kind: editableOutputSelection.layerId ? "derived" : "raw",
             source_recipe_ref: editableOutputSelection.sourceRecipeRef ?? null,
-            approximate_timing: captionBuildState.approximateTiming,
-            entry_count: captionBuildState.chunkCount,
-            content: captionBuildState.vtt,
+            approximate_timing: captionForRelease.approximateTiming,
+            entry_count: captionForRelease.entryCount,
+            content: captionForRelease.vtt,
           },
         },
       };
@@ -3477,6 +3519,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     };
   }, [
     captionBuildState,
+    captionEditedState,
     captionFormatting,
     editableOutputSelection.layerId,
     editableOutputSelection.sourceRecipeRef,
@@ -3576,6 +3619,234 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setCaptionBuildFeedback(`Built ${formattedChunks.length} caption rows from ${captionSourceLabel}.`);
   }
 
+  function handleEnableCaptionEdits(): void {
+    if (!captionBuildState) return;
+    const now = new Date().toISOString();
+    setCaptionEditedState({
+      createdAt: now,
+      updatedAt: now,
+      baseFingerprint: captionBasisFingerprint,
+      sourceLayerId: captionBuildState.sourceLayerId,
+      sourceLabel: captionBuildState.sourceLabel,
+      chunkCount: captionBuildState.chunkCount,
+      segmentCount: captionBuildState.segmentCount,
+      approximateTiming: captionBuildState.approximateTiming,
+      chunks: captionBuildState.chunks.map((chunk) => ({ ...chunk, sourceSegmentIds: [...chunk.sourceSegmentIds] })),
+      srt: captionBuildState.srt,
+      vtt: captionBuildState.vtt,
+    });
+    setActiveCaptionArtifactMode("edited");
+    setCaptionBuildFeedback("Created editable caption artifact from the current build.");
+  }
+
+  function handleEditCaptionChunkText(chunkId: string, nextText: string): void {
+    setCaptionEditedState((current) => {
+      if (!current) return current;
+      const normalized = nextText.replace(/\r\n/g, "\n").trim();
+      const nextChunks = current.chunks.map((chunk) => (
+        chunk.id === chunkId
+          ? {
+            ...chunk,
+            text: normalized,
+            lineCount: normalized ? normalized.split("\n").filter(Boolean).length : 0,
+            charCount: normalized.replace(/\n/g, "").length,
+          }
+          : chunk
+      ));
+      const rebuilt = rebuildCaptionArtifactsFromChunks(nextChunks);
+      return {
+        ...current,
+        updatedAt: new Date().toISOString(),
+        chunkCount: rebuilt.chunkCount,
+        approximateTiming: rebuilt.approximateTiming,
+        chunks: nextChunks,
+        srt: rebuilt.srt,
+        vtt: rebuilt.vtt,
+      };
+    });
+  }
+
+  function handleSplitEditedCaptionChunk(chunkId: string): void {
+    setCaptionEditedState((current) => {
+      if (!current) return current;
+      const index = current.chunks.findIndex((chunk) => chunk.id === chunkId);
+      if (index < 0) return current;
+      const chunk = current.chunks[index];
+      const editor = captionEditorRefs.current.get(chunkId) ?? null;
+      const caret = editor ? Math.max(0, Math.min(chunk.text.length, editor.selectionStart ?? 0)) : Math.floor(chunk.text.length / 2);
+      const leftRaw = chunk.text.slice(0, caret).trim();
+      const rightRaw = chunk.text.slice(caret).trim();
+      if (!leftRaw || !rightRaw) {
+        setCaptionBuildFeedback("Split needs text on both sides of the caret.");
+        return current;
+      }
+
+      const duration = Math.max(chunk.endSec - chunk.startSec, CAPTION_MIN_BLOCK_DURATION_SEC * 2);
+      const leftWeight = Math.max(leftRaw.replace(/\s+/g, "").length, 1);
+      const rightWeight = Math.max(rightRaw.replace(/\s+/g, "").length, 1);
+      const totalWeight = leftWeight + rightWeight;
+      let splitSec = chunk.startSec + (duration * (leftWeight / totalWeight));
+      const minSplit = chunk.startSec + CAPTION_MIN_BLOCK_DURATION_SEC;
+      const maxSplit = chunk.endSec - CAPTION_MIN_BLOCK_DURATION_SEC;
+      splitSec = Math.max(minSplit, Math.min(maxSplit, splitSec));
+      if (!(splitSec > chunk.startSec && splitSec < chunk.endSec)) {
+        setCaptionBuildFeedback("Split skipped because the block is too short.");
+        return current;
+      }
+
+      const leftChunk: HammerCaptionBuiltChunk = {
+        ...chunk,
+        id: `${chunk.id}:a`,
+        text: leftRaw,
+        startSec: chunk.startSec,
+        endSec: splitSec,
+        lineCount: leftRaw.split("\n").filter(Boolean).length,
+        charCount: leftRaw.replace(/\n/g, "").length,
+        approximateTiming: true,
+      };
+      const rightChunk: HammerCaptionBuiltChunk = {
+        ...chunk,
+        id: `${chunk.id}:b`,
+        text: rightRaw,
+        startSec: splitSec,
+        endSec: chunk.endSec,
+        lineCount: rightRaw.split("\n").filter(Boolean).length,
+        charCount: rightRaw.replace(/\n/g, "").length,
+        approximateTiming: true,
+      };
+      const nextChunks = [
+        ...current.chunks.slice(0, index),
+        leftChunk,
+        rightChunk,
+        ...current.chunks.slice(index + 1),
+      ];
+      const rebuilt = rebuildCaptionArtifactsFromChunks(nextChunks);
+      setCaptionBuildFeedback("Split caption block in edited captions.");
+      return {
+        ...current,
+        updatedAt: new Date().toISOString(),
+        chunkCount: rebuilt.chunkCount,
+        approximateTiming: rebuilt.approximateTiming,
+        chunks: nextChunks,
+        srt: rebuilt.srt,
+        vtt: rebuilt.vtt,
+      };
+    });
+  }
+
+  function handleMergeEditedCaptionChunk(args: { chunkId: string; direction: "up" | "down" }): void {
+    setCaptionEditedState((current) => {
+      if (!current) return current;
+      const index = current.chunks.findIndex((chunk) => chunk.id === args.chunkId);
+      if (index < 0) return current;
+      const primary = current.chunks[index];
+      const neighborIndex = args.direction === "up" ? index - 1 : index + 1;
+      const neighbor = current.chunks[neighborIndex];
+      if (!neighbor) {
+        setCaptionBuildFeedback("No adjacent block available to merge.");
+        return current;
+      }
+
+      const first = args.direction === "up" ? neighbor : primary;
+      const second = args.direction === "up" ? primary : neighbor;
+      const mergedText = `${first.text.trim()} ${second.text.trim()}`.replace(/\s+/g, " ").trim();
+      const mergedChunk: HammerCaptionBuiltChunk = {
+        ...first,
+        id: `${first.id}:${second.id}:m`,
+        text: mergedText,
+        startSec: first.startSec,
+        endSec: second.endSec,
+        lineCount: mergedText.split("\n").filter(Boolean).length,
+        charCount: mergedText.replace(/\n/g, "").length,
+        sourceSegmentIds: [...new Set([...first.sourceSegmentIds, ...second.sourceSegmentIds])],
+        approximateTiming: true,
+      };
+
+      const startIndex = Math.min(index, neighborIndex);
+      const nextChunks = [
+        ...current.chunks.slice(0, startIndex),
+        mergedChunk,
+        ...current.chunks.slice(startIndex + 2),
+      ];
+      const rebuilt = rebuildCaptionArtifactsFromChunks(nextChunks);
+      setCaptionBuildFeedback(args.direction === "up"
+        ? "Merged caption block with previous."
+        : "Merged caption block with next.");
+      return {
+        ...current,
+        updatedAt: new Date().toISOString(),
+        chunkCount: rebuilt.chunkCount,
+        approximateTiming: rebuilt.approximateTiming,
+        chunks: nextChunks,
+        srt: rebuilt.srt,
+        vtt: rebuilt.vtt,
+      };
+    });
+  }
+
+  function handleNormalizeEditedCaptionChunkPunctuation(chunkId: string): void {
+    setCaptionEditedState((current) => {
+      if (!current) return current;
+      const nextChunks = current.chunks.map((chunk) => (
+        chunk.id === chunkId
+          ? {
+            ...chunk,
+            text: normalizeCaptionPunctuation(chunk.text),
+            lineCount: normalizeCaptionPunctuation(chunk.text).split("\n").filter(Boolean).length,
+            charCount: normalizeCaptionPunctuation(chunk.text).replace(/\n/g, "").length,
+          }
+          : chunk
+      ));
+      const rebuilt = rebuildCaptionArtifactsFromChunks(nextChunks);
+      setCaptionBuildFeedback("Normalized punctuation for selected caption block.");
+      return {
+        ...current,
+        updatedAt: new Date().toISOString(),
+        chunkCount: rebuilt.chunkCount,
+        approximateTiming: rebuilt.approximateTiming,
+        chunks: nextChunks,
+        srt: rebuilt.srt,
+        vtt: rebuilt.vtt,
+      };
+    });
+  }
+
+  function handleToggleEditedCaptionChunkSpeakerLabel(chunkId: string): void {
+    setCaptionEditedState((current) => {
+      if (!current) return current;
+      const nextChunks = current.chunks.map((chunk) => {
+        if (chunk.id !== chunkId) return chunk;
+        const prefix = `${chunk.speaker}: `;
+        const nextText = chunk.text.startsWith(prefix)
+          ? chunk.text.slice(prefix.length).trimStart()
+          : `${prefix}${chunk.text}`.trim();
+        return {
+          ...chunk,
+          text: nextText,
+          lineCount: nextText.split("\n").filter(Boolean).length,
+          charCount: nextText.replace(/\n/g, "").length,
+        };
+      });
+      const rebuilt = rebuildCaptionArtifactsFromChunks(nextChunks);
+      setCaptionBuildFeedback("Toggled speaker label for selected caption block.");
+      return {
+        ...current,
+        updatedAt: new Date().toISOString(),
+        chunkCount: rebuilt.chunkCount,
+        approximateTiming: rebuilt.approximateTiming,
+        chunks: nextChunks,
+        srt: rebuilt.srt,
+        vtt: rebuilt.vtt,
+      };
+    });
+  }
+
+  function handleDiscardEditedCaptions(): void {
+    setCaptionEditedState(null);
+    setActiveCaptionArtifactMode("built");
+    setCaptionBuildFeedback("Discarded edited caption artifact. Built captions remain available.");
+  }
+
   const captionBasisFingerprint = useMemo(
     () => buildCaptionBasisFingerprint({
       transcript: exportBasis.transcriptForRelease,
@@ -3600,9 +3871,32 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : captionBuildFreshness === "current"
     ? "Up to date"
     : "Needs refresh";
+  const captionEditedFreshness: "missing" | "current" | "stale" = !captionEditedState
+    ? "missing"
+    : captionEditedState.baseFingerprint === captionBasisFingerprint
+    ? "current"
+    : "stale";
+  const captionEditedStatusLabel = captionEditedFreshness === "missing"
+    ? "No edits"
+    : captionEditedFreshness === "current"
+    ? "Current"
+    : "Stale";
+  const hasEditableCaptionArtifact = Boolean(captionEditedState);
+  const activeCaptionMode: HammerCaptionArtifactMode = hasEditableCaptionArtifact
+    ? activeCaptionArtifactMode
+    : "built";
+  const activeCaptionState = activeCaptionMode === "edited" ? captionEditedState : captionBuildState;
   const activeCaptionArtifactText = selectedCaptionArtifactFormat === "srt"
-    ? (captionBuildState?.srt ?? "")
-    : (captionBuildState?.vtt ?? "");
+    ? (activeCaptionState?.srt ?? "")
+    : (activeCaptionState?.vtt ?? "");
+  const captionArtifactStatusLabel = activeCaptionMode === "edited"
+    ? `Edited captions (${captionEditedStatusLabel})`
+    : `Built captions (${captionBuildStatusLabel})`;
+  const captionReleaseSourceLabel = captionEditedFreshness === "current"
+    ? "Edited captions"
+    : captionBuildFreshness === "current"
+    ? "Built captions"
+    : "No current caption artifact";
 
   async function handlePrepareReleasePackage(): Promise<void> {
     if (releasePrepSaving) return;
@@ -5395,12 +5689,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <section className="hammer-caption-source-card">
                     <div className="hammer-caption-source-card__head">
                       <strong>Caption Source</strong>
-                      <span>{captionBuildStatusLabel}</span>
+                      <span>{captionArtifactStatusLabel}</span>
                     </div>
                     <div className="hammer-tool-hint">Source: {captionSourceLabel}</div>
                     <div className="hammer-tool-hint">
                       Export basis authority: captions follow Export Basis, not current Viewing layer.
                     </div>
+                    <div className="hammer-tool-hint">
+                      Build status: {captionBuildStatusLabel}
+                      {captionEditedState ? ` · Edited status: ${captionEditedStatusLabel}` : ""}
+                    </div>
+                    <div className="hammer-tool-hint">Release prep caption source: {captionReleaseSourceLabel}</div>
                     {captionBuildState ? (
                       <div className="hammer-tool-hint">
                         Last build {new Date(captionBuildState.builtAt).toLocaleTimeString()} ·
@@ -5417,6 +5716,50 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     >
                       {captionBuildFreshness === "current" ? "Refresh Captions" : "Generate Captions"}
                     </button>
+                    {captionBuildState && !captionEditedState ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFocusOverride("tool-focus");
+                          handleEnableCaptionEdits();
+                        }}
+                      >
+                        Enable Manual Caption Edits
+                      </button>
+                    ) : null}
+                    {captionEditedState ? (
+                      <div className="hammer-caption-source-card__mode-row">
+                        <button
+                          type="button"
+                          className={activeCaptionMode === "built" ? "is-active" : ""}
+                          onClick={() => {
+                            setFocusOverride("tool-focus");
+                            setActiveCaptionArtifactMode("built");
+                          }}
+                        >
+                          Built captions
+                        </button>
+                        <button
+                          type="button"
+                          className={activeCaptionMode === "edited" ? "is-active" : ""}
+                          onClick={() => {
+                            setFocusOverride("tool-focus");
+                            setActiveCaptionArtifactMode("edited");
+                          }}
+                        >
+                          Edited captions
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFocusOverride("tool-focus");
+                            handleDiscardEditedCaptions();
+                          }}
+                        >
+                          Discard edits
+                        </button>
+                      </div>
+                    ) : null}
                   </section>
                   <label className="hammer-tool-field">
                     <span>Caption Style</span>
@@ -5531,15 +5874,82 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     {captionBuildFeedback ? (
                       <div className="hammer-tool-hint">{captionBuildFeedback}</div>
                     ) : null}
-                    {captionBuildState ? (
+                    {activeCaptionState ? (
                       <>
                         <div className="hammer-caption-preview-list">
-                          {captionBuildState.chunks.slice(0, 12).map((chunk) => (
+                          {activeCaptionState.chunks.slice(0, 12).map((chunk) => (
                             <article key={chunk.id} className="hammer-caption-preview-list__row">
                               <div className="hammer-caption-preview-list__time">
                                 {chunk.startSec.toFixed(1)}s - {chunk.endSec.toFixed(1)}s
                               </div>
-                              <pre className="hammer-caption-preview-list__text">{chunk.text}</pre>
+                              {activeCaptionMode === "edited" ? (
+                                <>
+                                  <textarea
+                                    className="hammer-caption-preview-list__editor"
+                                    value={chunk.text}
+                                    ref={(node) => {
+                                      if (node) {
+                                        captionEditorRefs.current.set(chunk.id, node);
+                                      } else {
+                                        captionEditorRefs.current.delete(chunk.id);
+                                      }
+                                    }}
+                                    onChange={(event) => {
+                                      setFocusOverride("tool-focus");
+                                      handleEditCaptionChunkText(chunk.id, event.target.value);
+                                    }}
+                                  />
+                                  <div className="hammer-caption-preview-list__actions">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setFocusOverride("tool-focus");
+                                        handleSplitEditedCaptionChunk(chunk.id);
+                                      }}
+                                    >
+                                      Split
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setFocusOverride("tool-focus");
+                                        handleMergeEditedCaptionChunk({ chunkId: chunk.id, direction: "up" });
+                                      }}
+                                    >
+                                      Merge Up
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setFocusOverride("tool-focus");
+                                        handleMergeEditedCaptionChunk({ chunkId: chunk.id, direction: "down" });
+                                      }}
+                                    >
+                                      Merge Down
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setFocusOverride("tool-focus");
+                                        handleNormalizeEditedCaptionChunkPunctuation(chunk.id);
+                                      }}
+                                    >
+                                      Normalize
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setFocusOverride("tool-focus");
+                                        handleToggleEditedCaptionChunkSpeakerLabel(chunk.id);
+                                      }}
+                                    >
+                                      Toggle Label
+                                    </button>
+                                  </div>
+                                </>
+                              ) : (
+                                <pre className="hammer-caption-preview-list__text">{chunk.text}</pre>
+                              )}
                             </article>
                           ))}
                         </div>
@@ -5630,6 +6040,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   </div>
                   <div className="hammer-tool-hint">Export status: {exportStatusLabel}</div>
                   <div className="hammer-tool-hint">Output source: {outputSelectionSummary}</div>
+                  <div className="hammer-tool-hint">Caption artifact source: {captionReleaseSourceLabel}</div>
                   {studioRackRenderStatus ? (
                     <div className="hammer-tool-hint">
                       Studio Rack render: {studioRackRenderStatus.message}

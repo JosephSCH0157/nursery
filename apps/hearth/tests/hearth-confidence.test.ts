@@ -1992,10 +1992,10 @@ function testAssessImageMapScriptAnchorDetectsMissingAndStaleAnchors() {
   assert.ok(exactAnchor, "Selection should resolve to an exact structured anchor");
 
   const missing = assessImageMapScriptAnchor(scriptText, null);
-  assert.equal(missing.status, "missing_anchor");
+  assert.equal(missing.status, "orphaned");
 
   const anchored = assessImageMapScriptAnchor(scriptText, exactAnchor);
-  assert.equal(anchored.status, "anchored");
+  assert.equal(anchored.status, "attached");
   assert.equal(anchored.exactAnchor?.paragraph_id, "s1:p1");
 
   const stale = assessImageMapScriptAnchor([
@@ -2003,7 +2003,7 @@ function testAssessImageMapScriptAnchorDetectsMissingAndStaleAnchors() {
     "",
     "A convoy slipped through the harbor at dusk. The bridge burned behind them.",
   ].join("\n"), exactAnchor);
-  assert.equal(stale.status, "needs_reanchor");
+  assert.equal(stale.status, "orphaned");
   assert.equal(stale.exactAnchor, null);
 }
 

@@ -134,13 +134,17 @@ import {
   buildImageMapAnchorPickerParagraphs,
   generateImageMapEntriesFromScript,
   reanchorImageMapEntry,
+  resolveNearestParagraphSelection,
   resolveImageMapAnchorContext,
 } from "../lib/hearth-image-map-beats";
 import type {
   EpisodePackageV2,
+  EpisodeImageMapAnchorScope,
   EpisodeLaunchVariant,
   EpisodeLaunchVariantStatus,
   EpisodeThumbnailConcept,
+  EpisodeImageMapVisualPriority,
+  EpisodeImageMapVisualType,
   EpisodeThumbnailVersion,
   EpisodeImageMapEntry,
   EpisodeSeoTitle,
@@ -390,41 +394,48 @@ function normalizeTonePreset(value: unknown): string | null {
 }
 
 function resolveImageMapAnchorStatusView(args: {
-  status: "anchored" | "needs_reanchor" | "missing_anchor";
+  status: "attached" | "weak_match" | "orphaned" | "global";
   scriptState: CanonicalImageMapScriptState;
 }): { label: string; tone: "neutral" | "ok" | "warning" | "danger"; detail: string } {
-  if (args.status === "missing_anchor") {
+  if (args.status === "global") {
     return {
-      label: "Missing anchor",
+      label: "global",
+      tone: "neutral",
+      detail: "This visual intent is global and intentionally not attached to a single script span.",
+    };
+  }
+  if (args.status === "orphaned") {
+    return {
+      label: "orphaned",
       tone: "danger",
-      detail: "This visual beat only has a display label. Re-anchor it to bind an exact structured span from the current canonical script.",
+      detail: "This visual anchor is orphaned. Repair it deterministically or convert it to a global visual intent.",
     };
   }
   if (args.scriptState.status === "loading") {
     return {
-      label: args.status === "needs_reanchor" ? "Needs re-anchor" : "Anchored",
+      label: args.status === "weak_match" ? "weak match" : "attached",
       tone: "neutral",
       detail: "Validating this structured anchor against the current canonical script.",
     };
   }
   if (args.scriptState.status === "error") {
     return {
-      label: "Needs re-anchor",
+      label: "weak match",
       tone: "warning",
       detail: args.scriptState.error ?? "Hearth could not load the current canonical script to verify this anchor.",
     };
   }
-  if (args.status === "anchored") {
+  if (args.status === "attached") {
     return {
-      label: "Anchored",
+      label: "attached",
       tone: "ok",
       detail: "This visual beat is anchored to an exact span in the current canonical script.",
     };
   }
   return {
-    label: "Needs re-anchor",
+    label: "weak match",
     tone: "warning",
-    detail: "This structured anchor no longer matches the current canonical script. Re-anchor it before generating candidates.",
+    detail: "This structured anchor no longer has an exact match, but deterministic repair options are available.",
   };
 }
 
@@ -2221,6 +2232,10 @@ export default function HearthShell() {
   const [imageMapStyleDraft, setImageMapStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
   const [imageMapIntentDraft, setImageMapIntentDraft] = useState("cutaway");
   const [imageMapSourceTypeDraft, setImageMapSourceTypeDraft] = useState("stock");
+  const [imageMapAnchorScopeDraft, setImageMapAnchorScopeDraft] = useState<EpisodeImageMapAnchorScope>("attached");
+  const [imageMapVisualPriorityDraft, setImageMapVisualPriorityDraft] = useState<EpisodeImageMapVisualPriority>("supporting");
+  const [imageMapVisualTypeDraft, setImageMapVisualTypeDraft] = useState<EpisodeImageMapVisualType>("still_image");
+  const [imageMapSectionIntentNoteDraft, setImageMapSectionIntentNoteDraft] = useState("");
   const [imageMapPlacementHintDraft, setImageMapPlacementHintDraft] = useState("");
   const [imageMapMetadataUpdatedAt, setImageMapMetadataUpdatedAt] = useState<string | null>(null);
   const [imageMapSaveState, setImageMapSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
@@ -2524,12 +2539,18 @@ export default function HearthShell() {
     if (!selectedImageMapEntry || canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
       return null;
     }
-    return assessImageMapScriptAnchor(canonicalImageMapScriptState.text, selectedImageMapEntry.script_anchor);
+    return assessImageMapScriptAnchor(
+      canonicalImageMapScriptState.text,
+      selectedImageMapEntry.script_anchor,
+      selectedImageMapEntry.anchor_scope ?? (selectedImageMapEntry.script_anchor ? "attached" : "orphaned"),
+    );
   }, [canonicalImageMapScriptState.status, canonicalImageMapScriptState.text, selectedImageMapEntry]);
   const imageMapAnchorStatusView = useMemo(() => {
     if (!selectedImageMapEntry) return null;
     const status = selectedImageMapExactAnchor?.status
-      ?? (selectedImageMapEntry.script_anchor ? "anchored" : "missing_anchor");
+      ?? ((selectedImageMapEntry.anchor_scope === "global")
+        ? "global"
+        : (selectedImageMapEntry.script_anchor ? "attached" : "orphaned"));
     return resolveImageMapAnchorStatusView({
       status,
       scriptState: canonicalImageMapScriptState,
@@ -2540,8 +2561,48 @@ export default function HearthShell() {
       ? buildImageMapAnchorPickerParagraphs(canonicalImageMapScriptState.text)
       : []
   ), [canonicalImageMapScriptState.status, canonicalImageMapScriptState.text]);
+  const visualScriptParagraphRail = useMemo(() => {
+    const countByParagraphId = new Map<string, number>();
+    let globalCount = 0;
+    let orphanedCount = 0;
+
+    for (const entry of imageMapEntries) {
+      const scope = entry.anchor_scope ?? (entry.script_anchor ? "attached" : "orphaned");
+      if (scope === "global") {
+        globalCount += 1;
+        continue;
+      }
+      if (scope === "orphaned" || !entry.script_anchor?.paragraph_id) {
+        orphanedCount += 1;
+        continue;
+      }
+      countByParagraphId.set(
+        entry.script_anchor.paragraph_id,
+        (countByParagraphId.get(entry.script_anchor.paragraph_id) ?? 0) + 1,
+      );
+    }
+
+    const paragraphs = imageMapAnchorPickerParagraphs.map((paragraph) => {
+      const count = countByParagraphId.get(paragraph.key) ?? 0;
+      return {
+        paragraphId: paragraph.key,
+        label: paragraph.label,
+        count,
+        density: count === 0 ? "none" : count >= 3 ? "dense" : "normal",
+      };
+    });
+
+    return {
+      paragraphs,
+      globalCount,
+      orphanedCount,
+    };
+  }, [imageMapAnchorPickerParagraphs, imageMapEntries]);
   const imageMapActiveAnchorLabel = useMemo(() => {
-    const anchor = selectedImageMapExactAnchor?.exactAnchor ?? selectedImageMapEntry?.script_anchor ?? null;
+    const anchor = selectedImageMapExactAnchor?.exactAnchor
+      ?? selectedImageMapExactAnchor?.weakAnchor
+      ?? selectedImageMapEntry?.script_anchor
+      ?? null;
     return buildImageMapAnchorLabel(anchor);
   }, [selectedImageMapEntry?.script_anchor, selectedImageMapExactAnchor]);
   const isCanonicalImageMapScriptPanel = (isImageMapReanchorMode || isVisualScriptMode) && showScriptPanel;
@@ -2570,6 +2631,20 @@ export default function HearthShell() {
     imageMapSaveState,
     isImageMapCandidateGenerating,
     isImageMapCandidateSelecting,
+    selectedImageMapEntry,
+  ]);
+  const isImageMapNearestRepairAvailable = useMemo(() => (
+    Boolean(
+      selectedImageMapEntry
+      && canonicalImageMapScriptState.status === "ready"
+      && canonicalImageMapScriptState.text
+      && imageMapAnchorScopeDraft !== "global"
+      && resolveNearestParagraphSelection(canonicalImageMapScriptState.text, selectedImageMapEntry.script_anchor),
+    )
+  ), [
+    canonicalImageMapScriptState.status,
+    canonicalImageMapScriptState.text,
+    imageMapAnchorScopeDraft,
     selectedImageMapEntry,
   ]);
   const dirtyProposalBodyCount = useMemo(
@@ -4939,6 +5014,10 @@ export default function HearthShell() {
       setImageMapStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
       setImageMapIntentDraft("cutaway");
       setImageMapSourceTypeDraft("stock");
+      setImageMapAnchorScopeDraft("attached");
+      setImageMapVisualPriorityDraft("supporting");
+      setImageMapVisualTypeDraft("still_image");
+      setImageMapSectionIntentNoteDraft("");
       setImageMapPlacementHintDraft("");
       setImageMapSaveState("saved");
       return;
@@ -4948,6 +5027,10 @@ export default function HearthShell() {
     setImageMapStyleDraft(normalizeHearthVisualStyle(selectedImageMapEntry.style_preset));
     setImageMapIntentDraft(selectedImageMapEntry.intent || "cutaway");
     setImageMapSourceTypeDraft(selectedImageMapEntry.source_type || "stock");
+    setImageMapAnchorScopeDraft(selectedImageMapEntry.anchor_scope ?? (selectedImageMapEntry.script_anchor ? "attached" : "orphaned"));
+    setImageMapVisualPriorityDraft(selectedImageMapEntry.visual_priority ?? "supporting");
+    setImageMapVisualTypeDraft(selectedImageMapEntry.visual_type ?? "still_image");
+    setImageMapSectionIntentNoteDraft(selectedImageMapEntry.section_intent_note ?? "");
     setImageMapPlacementHintDraft(selectedImageMapEntry.placement_hint ?? "");
     setImageMapSaveState("saved");
     setImageMapCandidateError(null);
@@ -4955,6 +5038,7 @@ export default function HearthShell() {
   }, [selectedImageMapEntry]);
 
   useEffect(() => {
+    setIsVisualScriptMode(false);
     setIsImageMapReanchorMode(false);
     setIsImageMapReanchorSaving(false);
     setImageMapReanchorError(null);
@@ -5099,6 +5183,10 @@ export default function HearthShell() {
     const nextStylePreset = normalizeHearthVisualStyle(imageMapStyleDraft);
     const nextIntent = imageMapIntentDraft.trim().toLowerCase();
     const nextSourceType = imageMapSourceTypeDraft.trim().toLowerCase();
+    const nextAnchorScope = imageMapAnchorScopeDraft;
+    const nextVisualPriority = imageMapVisualPriorityDraft;
+    const nextVisualType = imageMapVisualTypeDraft;
+    const nextSectionIntentNote = imageMapSectionIntentNoteDraft.trim() || null;
     const nextPlacementHint = imageMapPlacementHintDraft.trim() || null;
 
     const hasChanges = (
@@ -5109,6 +5197,10 @@ export default function HearthShell() {
       || normalizeHearthVisualStyle(current.style_preset) !== nextStylePreset
       || current.intent !== nextIntent
       || current.source_type !== nextSourceType
+      || (current.anchor_scope ?? (current.script_anchor ? "attached" : "orphaned")) !== nextAnchorScope
+      || (current.visual_priority ?? "supporting") !== nextVisualPriority
+      || (current.visual_type ?? "still_image") !== nextVisualType
+      || (current.section_intent_note ?? null) !== nextSectionIntentNote
       || (current.placement_hint ?? null) !== nextPlacementHint
     );
 
@@ -5140,9 +5232,16 @@ export default function HearthShell() {
             style_preset: nextStylePreset,
             intent: nextIntent,
             source_type: nextSourceType,
+            anchor_scope: nextAnchorScope,
+            visual_priority: nextVisualPriority,
+            visual_type: nextVisualType,
+            section_intent_note: nextSectionIntentNote,
             candidate_assets: [],
             selected_asset_id: null,
-            status: current.script_anchor ? "mapped" : "draft",
+            status: nextAnchorScope === "global"
+              ? "draft"
+              : (current.script_anchor ? "mapped" : "draft"),
+            script_anchor: nextAnchorScope === "global" ? null : current.script_anchor,
             placement_hint: nextPlacementHint,
           },
         );
@@ -5179,6 +5278,10 @@ export default function HearthShell() {
     imageMapDescriptionDraft,
     imageMapStyleDraft,
     imageMapIntentDraft,
+    imageMapAnchorScopeDraft,
+    imageMapVisualPriorityDraft,
+    imageMapVisualTypeDraft,
+    imageMapSectionIntentNoteDraft,
     imageMapPlacementHintDraft,
     imageMapSaveState,
     imageMapSourceTypeDraft,
@@ -7755,6 +7858,10 @@ export default function HearthShell() {
         style_preset: normalizeHearthVisualStyle(imageMapStyleDraft),
         intent: imageMapIntentDraft.trim().toLowerCase(),
         source_type: imageMapSourceTypeDraft.trim().toLowerCase(),
+        anchor_scope: imageMapAnchorScopeDraft,
+        visual_priority: imageMapVisualPriorityDraft,
+        visual_type: imageMapVisualTypeDraft,
+        section_intent_note: imageMapSectionIntentNoteDraft.trim() || null,
         placement_hint: imageMapPlacementHintDraft.trim() || null,
       };
     });
@@ -7853,6 +7960,75 @@ export default function HearthShell() {
     setImageMapReanchorError(null);
   }
 
+  async function onRepairImageMapNearestParagraph() {
+    if (!episodePackage || !selectedImageMapEntry) return;
+    if (canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
+      setImageMapReanchorError("Current canonical script is not ready to repair anchors.");
+      return;
+    }
+    const selection = resolveNearestParagraphSelection(
+      canonicalImageMapScriptState.text,
+      selectedImageMapEntry.script_anchor,
+    );
+    if (!selection) {
+      setImageMapReanchorError("No deterministic nearest paragraph repair target is available.");
+      return;
+    }
+    await onPickImageMapReanchor(selection);
+  }
+
+  async function onConvertImageMapToGlobalVisual() {
+    if (!episodePackage || !selectedImageMapEntry) return;
+    setImageMapSaveState("saving");
+    setImageMapSaveError(null);
+    setImageMapReanchorError(null);
+    const saved = await persistImageMapEntries({
+      entries: episodePackage.image_map.entries.map((entry) => (
+        entry.id === selectedImageMapEntry.id
+          ? {
+              ...entry,
+              anchor_scope: "global",
+              script_anchor: null,
+              status: "draft",
+            }
+          : entry
+      )),
+    });
+    if (!saved.ok) {
+      setImageMapSaveState("error");
+      setImageMapSaveError(saved.error);
+      return;
+    }
+    setImageMapSaveState("saved");
+    setImageMapExportMessage("Visual anchor converted to global intent.");
+  }
+
+  async function onLeaveImageMapOrphaned() {
+    if (!episodePackage || !selectedImageMapEntry) return;
+    setImageMapSaveState("saving");
+    setImageMapSaveError(null);
+    setImageMapReanchorError(null);
+    const saved = await persistImageMapEntries({
+      entries: episodePackage.image_map.entries.map((entry) => (
+        entry.id === selectedImageMapEntry.id
+          ? {
+              ...entry,
+              anchor_scope: "orphaned",
+              script_anchor: null,
+              status: "draft",
+            }
+          : entry
+      )),
+    });
+    if (!saved.ok) {
+      setImageMapSaveState("error");
+      setImageMapSaveError(saved.error);
+      return;
+    }
+    setImageMapSaveState("saved");
+    setImageMapExportMessage("Visual anchor left orphaned for manual review.");
+  }
+
   async function onPickImageMapReanchor(selection: {
     paragraphId: string;
     sentenceStart: number;
@@ -7890,6 +8066,7 @@ export default function HearthShell() {
           entry.id === selectedImageMapEntry.id
             ? {
                 ...nextEntry,
+                anchor_scope: "attached",
                 script_anchor: nextAnchor,
               }
             : entry
@@ -8112,9 +8289,13 @@ export default function HearthShell() {
       description: "",
       visual_intent: "",
       prompt_basis: "",
+      anchor_scope: "orphaned",
       style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
       intent: "cutaway",
       source_type: "stock",
+      visual_priority: "supporting",
+      visual_type: "still_image",
+      section_intent_note: null,
       beat_order: episodePackage.image_map.entries.length + 1,
       paragraph_beat_order: 1,
       candidate_assets: [],
@@ -8148,12 +8329,16 @@ export default function HearthShell() {
     const nextEpisodePackage = addImageMapEntry(episodePackage, {
       anchor: selectedImageMapEntry.anchor,
       script_anchor: selectedImageMapEntry.script_anchor,
+      anchor_scope: selectedImageMapEntry.anchor_scope ?? (selectedImageMapEntry.script_anchor ? "attached" : "orphaned"),
       description: selectedImageMapEntry.description,
       visual_intent: selectedImageMapEntry.visual_intent,
       prompt_basis: selectedImageMapEntry.prompt_basis,
       style_preset: normalizeHearthVisualStyle(selectedImageMapEntry.style_preset),
       intent: selectedImageMapEntry.intent,
       source_type: selectedImageMapEntry.source_type,
+      visual_priority: selectedImageMapEntry.visual_priority ?? "supporting",
+      visual_type: selectedImageMapEntry.visual_type ?? "still_image",
+      section_intent_note: selectedImageMapEntry.section_intent_note ?? null,
       beat_order: selectedImageMapEntry.beat_order,
       paragraph_beat_order: selectedImageMapEntry.paragraph_beat_order,
       candidate_assets: [],
@@ -9910,6 +10095,9 @@ export default function HearthShell() {
                   draftStylePreset={imageMapStyleDraft}
                   draftIntent={imageMapIntentDraft}
                   draftSourceType={imageMapSourceTypeDraft}
+                  draftVisualPriority={imageMapVisualPriorityDraft}
+                  draftVisualType={imageMapVisualTypeDraft}
+                  draftSectionIntentNote={imageMapSectionIntentNoteDraft}
                   draftPlacementHint={imageMapPlacementHintDraft}
                   saveState={imageMapSaveState}
                   saveError={imageMapSaveError}
@@ -9925,6 +10113,7 @@ export default function HearthShell() {
                   reanchorMode={isImageMapReanchorMode}
                   reanchorBusy={isImageMapReanchorSaving}
                   reanchorDisabledReason={imageMapReanchorDisabledReason}
+                  nearestRepairAvailable={isImageMapNearestRepairAvailable}
                   reanchorError={imageMapReanchorError}
                   reanchorScriptSourceLabel={resolveCanonicalImageMapScriptSourceLabel(canonicalImageMapScriptState)}
                   reanchorScriptHint={resolveCanonicalImageMapScriptHint(canonicalImageMapScriptState)}
@@ -9959,6 +10148,21 @@ export default function HearthShell() {
                     setImageMapSaveState("editing");
                     setImageMapSaveError(null);
                   }}
+                  onDraftVisualPriorityChange={(value) => {
+                    setImageMapVisualPriorityDraft(value as EpisodeImageMapVisualPriority);
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
+                  onDraftVisualTypeChange={(value) => {
+                    setImageMapVisualTypeDraft(value as EpisodeImageMapVisualType);
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
+                  onDraftSectionIntentNoteChange={(value) => {
+                    setImageMapSectionIntentNoteDraft(value);
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
                   onDraftPlacementHintChange={(value) => {
                     setImageMapPlacementHintDraft(value);
                     setImageMapSaveState("editing");
@@ -9972,6 +10176,9 @@ export default function HearthShell() {
                   onCopyExport={() => void onCopyImageMapExportJson()}
                   onDownloadExport={onDownloadImageMapExportJson}
                   onStartReanchor={onStartImageMapReanchor}
+                  onRepairNearestParagraph={() => void onRepairImageMapNearestParagraph()}
+                  onConvertToGlobalVisual={() => void onConvertImageMapToGlobalVisual()}
+                  onLeaveOrphaned={() => void onLeaveImageMapOrphaned()}
                   onCancelReanchor={onCancelImageMapReanchor}
                   onPickReanchor={(selection) => void onPickImageMapReanchor(selection)}
                 />
@@ -10038,6 +10245,29 @@ export default function HearthShell() {
                   </button>
                 </div>
               </header>
+
+              {isVisualScriptMode ? (
+                <section className="hs-vsm-rail" aria-label="Visual anchor rail">
+                  <div className="hs-vsm-rail-head">
+                    <span>Paragraph anchors</span>
+                    <span>
+                      global {visualScriptParagraphRail.globalCount} · orphaned {visualScriptParagraphRail.orphanedCount}
+                    </span>
+                  </div>
+                  <div className="hs-vsm-chip-grid">
+                    {visualScriptParagraphRail.paragraphs.map((paragraph) => (
+                      <div
+                        key={paragraph.paragraphId}
+                        className={`hs-vsm-chip is-${paragraph.density}`}
+                        title={`${paragraph.label}: ${paragraph.count} visual${paragraph.count === 1 ? "" : "s"}`}
+                      >
+                        <span>{paragraph.label}</span>
+                        <strong>{paragraph.count}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
 
               <label className="hs-field">
                 <span className="hs-field-label">Body</span>

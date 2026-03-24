@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import {
+  EPISODE_IMAGE_MAP_VISUAL_PRIORITY_VALUES,
+  EPISODE_IMAGE_MAP_VISUAL_TYPE_VALUES,
   EPISODE_IMAGE_MAP_INTENT_VALUES,
   EPISODE_IMAGE_MAP_SOURCE_TYPE_VALUES,
   buildImageMapAnchorLabel,
@@ -33,6 +35,9 @@ type ImageMapPanelProps = {
   draftStylePreset: string;
   draftIntent: string;
   draftSourceType: string;
+  draftVisualPriority: string;
+  draftVisualType: string;
+  draftSectionIntentNote: string;
   draftPlacementHint: string;
   saveState: ImageMapSaveState;
   saveError: string | null;
@@ -48,6 +53,7 @@ type ImageMapPanelProps = {
   reanchorMode: boolean;
   reanchorBusy: boolean;
   reanchorDisabledReason: string | null;
+  nearestRepairAvailable: boolean;
   reanchorError: string | null;
   reanchorScriptSourceLabel: string | null;
   reanchorScriptHint: string | null;
@@ -61,6 +67,9 @@ type ImageMapPanelProps = {
   onDraftStylePresetChange: (value: string) => void;
   onDraftIntentChange: (value: string) => void;
   onDraftSourceTypeChange: (value: string) => void;
+  onDraftVisualPriorityChange: (value: string) => void;
+  onDraftVisualTypeChange: (value: string) => void;
+  onDraftSectionIntentNoteChange: (value: string) => void;
   onDraftPlacementHintChange: (value: string) => void;
   onCreateEntry: () => void;
   onDuplicateEntry: () => void;
@@ -71,6 +80,9 @@ type ImageMapPanelProps = {
   onCopyExport: () => void;
   onDownloadExport: () => void;
   onStartReanchor: () => void;
+  onRepairNearestParagraph: () => void;
+  onConvertToGlobalVisual: () => void;
+  onLeaveOrphaned: () => void;
   onCancelReanchor: () => void;
   onPickReanchor: (selection: ImageMapScriptSelection) => void;
 };
@@ -106,6 +118,9 @@ export default function ImageMapPanel({
   draftStylePreset,
   draftIntent,
   draftSourceType,
+  draftVisualPriority,
+  draftVisualType,
+  draftSectionIntentNote,
   draftPlacementHint,
   saveState,
   saveError,
@@ -121,6 +136,7 @@ export default function ImageMapPanel({
   reanchorMode,
   reanchorBusy,
   reanchorDisabledReason,
+  nearestRepairAvailable,
   reanchorError,
   reanchorScriptSourceLabel,
   reanchorScriptHint,
@@ -134,6 +150,9 @@ export default function ImageMapPanel({
   onDraftStylePresetChange,
   onDraftIntentChange,
   onDraftSourceTypeChange,
+  onDraftVisualPriorityChange,
+  onDraftVisualTypeChange,
+  onDraftSectionIntentNoteChange,
   onDraftPlacementHintChange,
   onCreateEntry,
   onDuplicateEntry,
@@ -144,6 +163,9 @@ export default function ImageMapPanel({
   onCopyExport,
   onDownloadExport,
   onStartReanchor,
+  onRepairNearestParagraph,
+  onConvertToGlobalVisual,
+  onLeaveOrphaned,
   onCancelReanchor,
   onPickReanchor,
 }: ImageMapPanelProps) {
@@ -244,7 +266,7 @@ export default function ImageMapPanel({
                 <div className="hs-imap-row-anchor">{entry.anchor}</div>
                 <div className="hs-imap-row-meta">
                   {manualOnly
-                    ? `${entry.intent} · ${entry.source_type}`
+                    ? `${entry.intent} · ${entry.source_type} · ${entry.visual_priority ?? "supporting"} · ${entry.visual_type ?? "still_image"}`
                     : `${entry.intent} · ${entry.source_type} · ${entry.candidate_assets.length} candidates`}
                 </div>
                 <div className="hs-imap-row-desc">{summarizeDescription(entry.description)}</div>
@@ -297,6 +319,29 @@ export default function ImageMapPanel({
                   <span className="hs-field-label-muted">
                     Editing the anchor label alone does not rebuild the canonical script anchor.
                   </span>
+                </div>
+                <div className="hs-imap-anchor-actions">
+                  <button
+                    type="button"
+                    onClick={onRepairNearestParagraph}
+                    disabled={disabled || !nearestRepairAvailable || reanchorBusy}
+                  >
+                    Reattach nearest paragraph
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onConvertToGlobalVisual}
+                    disabled={disabled || reanchorBusy}
+                  >
+                    Convert to global visual
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onLeaveOrphaned}
+                    disabled={disabled || reanchorBusy}
+                  >
+                    Leave orphaned
+                  </button>
                 </div>
                 {reanchorMode ? (
                   <div className="hs-imap-anchor-picker">
@@ -410,6 +455,44 @@ export default function ImageMapPanel({
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className="hs-field">
+                <span className="hs-field-label">Visual Priority</span>
+                <select
+                  value={draftVisualPriority}
+                  onChange={(event) => onDraftVisualPriorityChange(event.target.value)}
+                  disabled={disabled}
+                >
+                  {EPISODE_IMAGE_MAP_VISUAL_PRIORITY_VALUES.map((priority) => (
+                    <option key={priority} value={priority}>
+                      {priority}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="hs-field">
+                <span className="hs-field-label">Visual Type</span>
+                <select
+                  value={draftVisualType}
+                  onChange={(event) => onDraftVisualTypeChange(event.target.value)}
+                  disabled={disabled}
+                >
+                  {EPISODE_IMAGE_MAP_VISUAL_TYPE_VALUES.map((visualType) => (
+                    <option key={visualType} value={visualType}>
+                      {visualType}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="hs-field">
+                <span className="hs-field-label">Section Intent Note</span>
+                <textarea
+                  value={draftSectionIntentNote}
+                  onChange={(event) => onDraftSectionIntentNoteChange(event.target.value)}
+                  rows={3}
+                  placeholder="Section-level visual direction"
+                  disabled={disabled}
+                />
               </label>
               <label className="hs-field">
                 <span className="hs-field-label">Placement Hint</span>
