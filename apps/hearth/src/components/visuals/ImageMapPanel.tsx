@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   EPISODE_IMAGE_MAP_VISUAL_PRIORITY_VALUES,
   EPISODE_IMAGE_MAP_VISUAL_TYPE_VALUES,
@@ -75,7 +75,8 @@ type ImageMapPanelProps = {
   onDuplicateEntry: () => void;
   onDeleteEntry: () => void;
   onSeedFromScript: () => void;
-  onGenerateCandidates: () => void;
+  onGenerateCandidates: (mode?: "ai" | "stock") => void;
+  onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
   onCopyExport: () => void;
   onDownloadExport: () => void;
@@ -159,6 +160,7 @@ export default function ImageMapPanel({
   onDeleteEntry,
   onSeedFromScript,
   onGenerateCandidates,
+  onUploadAsset,
   onSelectCandidate,
   onCopyExport,
   onDownloadExport,
@@ -195,6 +197,7 @@ export default function ImageMapPanel({
   }, [candidateCards, previewCandidateId, selectedCandidateId]);
 
   const previewCandidate = candidateCards.find((candidate) => candidate.id === previewCandidateId) ?? null;
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   return (
     <section className="hs-imap-panel" aria-label={`${resolvedPanelTitle} panel`}>
@@ -319,6 +322,48 @@ export default function ImageMapPanel({
                     className="hs-imap-description-input"
                   />
                 </label>
+                <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
+                  <div className="hs-imap-candidate-action-group">
+                    <button
+                      type="button"
+                      onClick={() => onGenerateCandidates("ai")}
+                      disabled={disabled || candidateGenerateBusy}
+                    >
+                      {candidateGenerateBusy ? "Generating..." : "Generate Image"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onGenerateCandidates("stock")}
+                      disabled={disabled || candidateGenerateBusy}
+                    >
+                      {candidateGenerateBusy ? "Searching..." : "Find Stock"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => uploadInputRef.current?.click()}
+                      disabled={disabled || candidateSelectBusy}
+                    >
+                      {candidateSelectBusy ? "Saving..." : "Upload Asset"}
+                    </button>
+                    <input
+                      ref={uploadInputRef}
+                      type="file"
+                      accept="image/*,video/*"
+                      className="hs-imap-upload-input"
+                      onChange={(event) => {
+                        const file = event.currentTarget.files?.[0] ?? null;
+                        if (file) {
+                          onUploadAsset(file);
+                        }
+                        event.currentTarget.value = "";
+                      }}
+                      disabled={disabled || candidateSelectBusy}
+                    />
+                  </div>
+                  <span className="hs-field-label-muted">
+                    Hearth authors the visual asset plan. Hammer consumes selected assets for deterministic placement.
+                  </span>
+                </div>
                 <div className="hs-imap-beat-selects">
                   <label className="hs-field">
                     <span className="hs-field-label">Visual Style</span>
@@ -533,7 +578,7 @@ export default function ImageMapPanel({
 
               {/* ── MEDIA SOURCE (collapsible advanced) ──────────────── */}
               <details className="hs-imap-collapsible-section">
-                <summary className="hs-imap-collapsible-title">Media Source</summary>
+                <summary className="hs-imap-collapsible-title">Visual Asset</summary>
                 <div className="hs-imap-collapsible-body">
                   <div className="hs-field-label-muted">How this visual will be sourced for production.</div>
                   <label className="hs-field">
@@ -552,21 +597,8 @@ export default function ImageMapPanel({
                   </label>
                 </div>
               </details>
-              {!manualOnly ? (
-                <>
-                  <div className="hs-imap-candidate-toolbar">
-                    <button
-                      type="button"
-                      onClick={onGenerateCandidates}
-                      disabled={disabled || candidateGenerateBusy}
-                    >
-                      {candidateGenerateBusy ? "Generating..." : "Generate Candidates"}
-                    </button>
-                    <span className="hs-field-label-muted">
-                      Generates two still-image variants for this exact visual beat.
-                    </span>
-                  </div>
-                  <section className="hs-imap-preview" aria-label="Still preview">
+              <>
+                <section className="hs-imap-preview" aria-label="Still preview">
                     <div className="hs-imap-section-heading">
                       <div className="hs-thumb-section-title">Preview</div>
                       {previewCandidate ? (
@@ -610,8 +642,8 @@ export default function ImageMapPanel({
                         </button>
                       </div>
                     ) : null}
-                  </section>
-                  <section className="hs-imap-candidates" aria-label="Still candidates">
+                </section>
+                <section className="hs-imap-candidates" aria-label="Still candidates">
                     {candidateCards.length === 0 ? (
                       <div className="hs-imap-empty">No still candidates generated yet.</div>
                     ) : (
@@ -668,9 +700,8 @@ export default function ImageMapPanel({
                         </article>
                       ))
                     )}
-                  </section>
-                </>
-              ) : null}
+                </section>
+              </>
             </>
           )}
         </section>
@@ -679,10 +710,10 @@ export default function ImageMapPanel({
       {saveError ? (
         <div className="hs-error-text-small">{saveError}</div>
       ) : null}
-      {!manualOnly && candidateGenerateError ? (
+      {candidateGenerateError ? (
         <div className="hs-error-text-small">{candidateGenerateError}</div>
       ) : null}
-      {!manualOnly && candidateSelectionError ? (
+      {candidateSelectionError ? (
         <div className="hs-error-text-small">{candidateSelectionError}</div>
       ) : null}
       {exportMessage ? (

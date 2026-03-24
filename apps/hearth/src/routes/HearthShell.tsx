@@ -146,6 +146,7 @@ import {
   loadImageMapCandidatePreviewDataUrl,
   saveWorkpieceImageMap,
   selectWorkpieceImageMapCandidate,
+  uploadWorkpieceImageMapCandidateAsset,
 } from "../lib/hearth-image-map-repo";
 import {
   assessImageMapScriptAnchor,
@@ -8279,7 +8280,7 @@ export default function HearthShell() {
     }
   }
 
-  async function onGenerateImageMapCandidates() {
+  async function onGenerateImageMapCandidates(mode: "ai" | "stock" = "ai") {
     if (isAiProcessing || isApprovingScript || isImageMapCandidateGenerating) return;
     if (!episodePackage || !selectedImageMapEntry) return;
 
@@ -8296,6 +8297,25 @@ export default function HearthShell() {
     if (aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
       setImageMapCandidateError("No AI credits remaining.");
       return;
+    }
+
+    const requestedSourceType = mode === "stock" ? "stock" : "ai";
+    if (selectedImageMapEntry.source_type !== requestedSourceType) {
+      const updatedEntries = episodePackage.image_map.entries.map((entry) => (
+        entry.id === selectedImageMapEntry.id
+          ? {
+              ...entry,
+              source_type: requestedSourceType,
+              origin: "hearth" as const,
+            }
+          : entry
+      ));
+      const sourceSaved = await persistImageMapEntries({ entries: updatedEntries });
+      if (!sourceSaved.ok) {
+        setImageMapCandidateError(sourceSaved.error);
+        return;
+      }
+      setImageMapSourceTypeDraft(requestedSourceType);
     }
 
     const canonicalScript = await readCanonicalScriptForImageMapGeneration();
@@ -8322,7 +8342,11 @@ export default function HearthShell() {
     const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
     const confirmed = alwaysApproveSpend
       ? true
-      : window.confirm("Generate two still candidates for this visual beat? This will spend AI credits.");
+      : window.confirm(
+          mode === "stock"
+            ? "Find stock-style still candidates for this visual beat? This will spend AI credits."
+            : "Generate two still candidates for this visual beat? This will spend AI credits.",
+        );
     if (!confirmed) return;
 
     setIsImageMapCandidateGenerating(true);
@@ -8366,7 +8390,11 @@ export default function HearthShell() {
       }
       setImageMapMetadataUpdatedAt(generated.imageMap.metadataUpdatedAt);
       setImageMapCandidateSelectionError(null);
-      setImageMapExportMessage(`Generated ${generated.generatedAssets.length} still candidates for the selected visual beat.`);
+      setImageMapExportMessage(
+        mode === "stock"
+          ? `Found ${generated.generatedAssets.length} stock-style still candidates for the selected visual beat.`
+          : `Generated ${generated.generatedAssets.length} still candidates for the selected visual beat.`,
+      );
       if (typeof generated.tokenBalance === "number") {
         setAiTokenBalance(generated.tokenBalance);
       }
@@ -8375,8 +8403,8 @@ export default function HearthShell() {
       }
       publishForgeNotice({
         job: "image-generated",
-        title: "Timeline images ready",
-        message: `Generated ${generated.generatedAssets.length} still candidate${generated.generatedAssets.length === 1 ? "" : "s"} for the selected visual beat.`,
+        title: mode === "stock" ? "Stock candidates ready" : "Timeline images ready",
+        message: `${mode === "stock" ? "Found" : "Generated"} ${generated.generatedAssets.length} still candidate${generated.generatedAssets.length === 1 ? "" : "s"} for the selected visual beat.`,
         severity: "success",
       });
     } catch (error) {
@@ -8459,6 +8487,69 @@ export default function HearthShell() {
       setImageMapExportMessage("Selected still candidate saved canonically for this visual beat.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to save the selected still candidate.";
+      setImageMapCandidateSelectionError(message);
+    } finally {
+      setIsImageMapCandidateSelecting(false);
+    }
+  }
+
+  async function onUploadImageMapAsset(file: File) {
+    if (!episodePackage || !selectedImageMapEntry) return;
+    if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
+      setImageMapCandidateSelectionError("Save or finish editing this visual beat before uploading an asset.");
+      return;
+    }
+    const workspace = workspaceId?.trim() ?? "";
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!workspace || !episodeId) {
+      setImageMapCandidateSelectionError("Workspace or workpiece is missing.");
+      return;
+    }
+
+    setIsImageMapCandidateSelecting(true);
+    setImageMapCandidateSelectionError(null);
+    setImageMapCandidateError(null);
+    try {
+      const uploaded = await uploadWorkpieceImageMapCandidateAsset({
+        workpieceId: episodeId,
+        entryId: selectedImageMapEntry.id,
+        file,
+        source: "upload",
+      });
+      if (!uploaded.ok) {
+        setImageMapCandidateSelectionError(uploaded.error);
+        return;
+      }
+
+      const updatedEntries = episodePackage.image_map.entries.map((entry) => {
+        if (entry.id !== selectedImageMapEntry.id) return entry;
+        const existing = entry.candidate_assets.filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id);
+        const nextOrigin: "hearth" | "mixed" = entry.origin === "hammer" ? "mixed" : "hearth";
+        return {
+          ...entry,
+          source_type: "upload",
+          origin: nextOrigin,
+          candidate_assets: [...existing, uploaded.candidateAsset],
+          selected_asset_id: uploaded.candidateAsset.asset_id,
+          status: "selected" as const,
+        };
+      });
+
+      const saved = await persistImageMapEntries({ entries: updatedEntries });
+      if (!saved.ok) {
+        setImageMapCandidateSelectionError(saved.error);
+        return;
+      }
+      setImageMapSourceTypeDraft("upload");
+      setImageMapExportMessage("Uploaded visual asset attached and selected for this beat.");
+      publishForgeNotice({
+        job: "image-generated",
+        title: "Visual asset uploaded",
+        message: "Uploaded asset is now selected for this visual beat.",
+        severity: "success",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to upload this visual asset.";
       setImageMapCandidateSelectionError(message);
     } finally {
       setIsImageMapCandidateSelecting(false);
@@ -10441,7 +10532,8 @@ export default function HearthShell() {
                   onDuplicateEntry={() => void onDuplicateImageMapEntry()}
                   onDeleteEntry={() => void onDeleteImageMapEntry()}
                   onSeedFromScript={() => void onSeedImageMapFromScript()}
-                  onGenerateCandidates={() => void onGenerateImageMapCandidates()}
+                  onGenerateCandidates={(mode) => void onGenerateImageMapCandidates(mode)}
+                  onUploadAsset={(file) => void onUploadImageMapAsset(file)}
                   onCopyExport={() => void onCopyImageMapExportJson()}
                   onDownloadExport={onDownloadImageMapExportJson}
                   onStartReanchor={onStartImageMapReanchor}
@@ -11722,4 +11814,3 @@ export default function HearthShell() {
     </section>
   );
 }
-

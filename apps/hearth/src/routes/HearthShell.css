@@ -2912,6 +2912,21 @@ details[open] > .hs-imap-collapsible-title::before {
   padding-top: 4px;
 }
 
+.hs-imap-candidate-toolbar-actions {
+  margin-top: 2px;
+  margin-bottom: 2px;
+}
+
+.hs-imap-candidate-action-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hs-imap-upload-input {
+  display: none;
+}
+
 .hs-imap-section-heading {
   display: flex;
   flex-wrap: wrap;

@@ -118,7 +118,26 @@ export type EpisodeImageMapAssetRef = {
   variant_label?: string | null;
   visual_mode?: EpisodeImageMapVisualMode | null;
   mime_type?: string | null;
+  source?: EpisodeImageMapAssetSource | null;
 };
+
+export const EPISODE_IMAGE_MAP_ASSET_SOURCE_VALUES = [
+  "ai",
+  "stock",
+  "upload",
+  "external",
+  "hammer_upload",
+] as const;
+
+export type EpisodeImageMapAssetSource = (typeof EPISODE_IMAGE_MAP_ASSET_SOURCE_VALUES)[number];
+
+export const EPISODE_IMAGE_MAP_ORIGIN_VALUES = [
+  "hearth",
+  "hammer",
+  "mixed",
+] as const;
+
+export type EpisodeImageMapOrigin = (typeof EPISODE_IMAGE_MAP_ORIGIN_VALUES)[number];
 
 export type EpisodeImageMapEntry = {
   id: string;
@@ -131,6 +150,7 @@ export type EpisodeImageMapEntry = {
   style_preset?: HearthVisualStyleValue | null;
   intent: string;
   source_type: string;
+  origin?: EpisodeImageMapOrigin;
   visual_priority?: EpisodeImageMapVisualPriority;
   visual_type?: EpisodeImageMapVisualType;
   section_intent_note?: string | null;
@@ -160,6 +180,9 @@ export const EPISODE_IMAGE_MAP_SOURCE_TYPE_VALUES = [
   "stock",
   "archival",
   "custom",
+  "upload",
+  "external",
+  "hammer_upload",
 ] as const;
 export const EPISODE_IMAGE_MAP_STATUS_VALUES = [
   "draft",
@@ -506,6 +529,7 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
       style_preset: normalizeHearthVisualStyle(readString(entry.style_preset) ?? readString(entry.visual_style) ?? null),
       intent: normalizeImageMapIntent(readString(entry.intent)),
       source_type: normalizeImageMapSourceType(sourceType),
+      origin: normalizeImageMapOrigin(readString(entry.origin)),
       visual_priority: normalizeImageMapVisualPriority(readString(entry.visual_priority)),
       visual_type: normalizeImageMapVisualType(readString(entry.visual_type)),
       section_intent_note: readString(entry.section_intent_note),
@@ -586,6 +610,23 @@ function normalizeImageMapVisualType(value: string | null | undefined): EpisodeI
   return "still_image";
 }
 
+function normalizeImageMapAssetSource(value: string | null | undefined): EpisodeImageMapAssetSource | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (EPISODE_IMAGE_MAP_ASSET_SOURCE_VALUES.includes(normalized as EpisodeImageMapAssetSource)) {
+    return normalized as EpisodeImageMapAssetSource;
+  }
+  return null;
+}
+
+function normalizeImageMapOrigin(value: string | null | undefined): EpisodeImageMapOrigin {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized && EPISODE_IMAGE_MAP_ORIGIN_VALUES.includes(normalized as EpisodeImageMapOrigin)) {
+    return normalized as EpisodeImageMapOrigin;
+  }
+  return "hearth";
+}
+
 function normalizeImageMapAssetRefs(value: unknown): EpisodeImageMapAssetRef[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
@@ -601,6 +642,7 @@ function normalizeImageMapAssetRefs(value: unknown): EpisodeImageMapAssetRef[] {
         variant_label: readString(entry.variant_label),
         visual_mode: normalizeImageMapVisualMode(readString(entry.visual_mode)),
         mime_type: readString(entry.mime_type),
+        source: normalizeImageMapAssetSource(readString(entry.source)),
       });
       continue;
     }
@@ -613,6 +655,7 @@ function normalizeImageMapAssetRefs(value: unknown): EpisodeImageMapAssetRef[] {
       variant_label: null,
       visual_mode: null,
       mime_type: null,
+      source: null,
     });
   }
   return out;
@@ -733,6 +776,7 @@ function normalizeImageMapEntryPatch(args: {
     style_preset: normalizeHearthVisualStyle(args.entry.style_preset ?? null),
     intent: normalizeImageMapIntent(readString(args.entry.intent)),
     source_type: normalizeImageMapSourceType(readString(args.entry.source_type)),
+    origin: normalizeImageMapOrigin(readString(args.entry.origin)),
     visual_priority: normalizeImageMapVisualPriority(readString(args.entry.visual_priority)),
     visual_type: normalizeImageMapVisualType(readString(args.entry.visual_type)),
     section_intent_note: readString(args.entry.section_intent_note),
