@@ -123,6 +123,9 @@ export interface HammerQuenchReleasePacketManifest {
         posture: "authoritative" | "degraded" | "unavailable";
         capability: "executable" | "degraded" | "unavailable";
         reason_codes: string[];
+        applied_stages?: Array<"normalize" | "compress" | "limit" | "noise_cleanup_light">;
+        skipped_stages?: Array<"normalize" | "compress" | "limit" | "noise_cleanup_light">;
+        preview_mode?: "previewable" | "export_only";
       }>;
       visual_layers: Array<{
         kind: "primary_video" | "broll" | "dip_to_black";
@@ -168,6 +171,10 @@ export interface HammerQuenchReleasePacketManifest {
       normalization_lufs: number | null;
       compression_amount: "light" | "medium" | null;
       limiter_ceiling_dbtp: number | null;
+      applied_stages: Array<"normalize" | "compress" | "limit" | "noise_cleanup_light">;
+      skipped_stages: Array<"normalize" | "compress" | "limit" | "noise_cleanup_light">;
+      reason_codes: string[];
+      preview_mode: "previewable" | "export_only" | null;
     };
   };
 }
@@ -401,6 +408,13 @@ export function buildHammerQuenchReleasePacket(args: {
               posture: layer.posture,
               capability: layer.capability,
               reason_codes: layer.reason_codes,
+              ...(layer.kind === "podcast_master_pass"
+                ? {
+                  applied_stages: layer.meta?.applied_stages ?? [],
+                  skipped_stages: layer.meta?.skipped_stages ?? [],
+                  preview_mode: layer.meta?.preview_mode ?? "export_only",
+                }
+                : {}),
             })),
             visual_layers: args.renderAssembly.export_timeline.visual_layers.map((layer) => ({
               kind: layer.kind,
@@ -447,6 +461,10 @@ export function buildHammerQuenchReleasePacket(args: {
               normalization_lufs: podcastMasterLayer.meta?.normalization_lufs ?? null,
               compression_amount: podcastMasterLayer.meta?.compression_amount ?? null,
               limiter_ceiling_dbtp: podcastMasterLayer.meta?.limiter_ceiling_dbtp ?? null,
+              applied_stages: podcastMasterLayer.meta?.applied_stages ?? [],
+              skipped_stages: podcastMasterLayer.meta?.skipped_stages ?? [],
+              reason_codes: [...podcastMasterLayer.reason_codes],
+              preview_mode: podcastMasterLayer.meta?.preview_mode ?? "export_only",
             }
             : {
               applied: false,
@@ -458,6 +476,10 @@ export function buildHammerQuenchReleasePacket(args: {
               normalization_lufs: null,
               compression_amount: null,
               limiter_ceiling_dbtp: null,
+              applied_stages: [],
+              skipped_stages: [],
+              reason_codes: [],
+              preview_mode: null,
             },
         },
       }

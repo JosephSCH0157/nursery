@@ -16,6 +16,16 @@ export interface HammerRenderRuntimeCapabilities {
   preview_supported_operation_types: HammerEditInstruction["type"][];
   export_supported_operation_types: HammerEditInstruction["type"][];
   handoff_supported_operation_types: HammerEditInstruction["type"][];
+  podcast_master?: {
+    available: boolean;
+    preview_supported: boolean;
+    stages: {
+      normalize: boolean;
+      compress: boolean;
+      limit: boolean;
+      noise_cleanup_light: boolean;
+    };
+  };
 }
 
 export interface HammerRenderAssemblyOperationResolution {
@@ -79,6 +89,10 @@ export interface HammerExportTimelineAudioLayer {
     normalization_lufs?: number;
     compression_amount?: "light" | "medium";
     limiter_ceiling_dbtp?: number;
+    applied_stages?: Array<"normalize" | "compress" | "limit" | "noise_cleanup_light">;
+    skipped_stages?: Array<"normalize" | "compress" | "limit" | "noise_cleanup_light">;
+    stage_posture?: HammerRenderAssemblyTruthPosture;
+    preview_mode?: "previewable" | "export_only";
   };
 }
 
@@ -184,6 +198,80 @@ function baseOperationPosture(args: {
     preview_posture: postureFromSupport(previewSupported),
     export_posture: postureFromSupport(exportSupported),
     handoff_posture: postureFromSupport(handoffSupported),
+  };
+}
+
+type PodcastMasterStage = "normalize" | "compress" | "limit" | "noise_cleanup_light";
+type PodcastMasterSupportResult = {
+  preview_posture: HammerRenderAssemblyTruthPosture;
+  export_posture: HammerRenderAssemblyTruthPosture;
+  handoff_posture: HammerRenderAssemblyTruthPosture;
+  capability: HammerEditorialCapability;
+  reason_codes: HammerEditorialDegradationReasonCode[];
+  applied_stages: PodcastMasterStage[];
+  skipped_stages: PodcastMasterStage[];
+  preview_mode: "previewable" | "export_only";
+};
+
+function resolvePodcastMasterSupport(args: {
+  instruction: Extract<HammerEditInstruction, { type: "podcast_master_pass" }>;
+  capabilities: HammerRenderRuntimeCapabilities;
+}): PodcastMasterSupportResult {
+  const profile = args.capabilities.podcast_master;
+  const allStages: PodcastMasterStage[] = ["normalize", "compress", "limit", "noise_cleanup_light"];
+  if (!profile?.available) {
+    return {
+      preview_posture: "unavailable",
+      export_posture: "unavailable",
+      handoff_posture: "degraded",
+      capability: "unavailable",
+      reason_codes: ["runtime_missing_capability", "handoff_deferred"],
+      applied_stages: [],
+      skipped_stages: allStages,
+      preview_mode: "export_only",
+    };
+  }
+  const applied_stages: PodcastMasterStage[] = [];
+  const skipped_stages: PodcastMasterStage[] = [];
+  if (profile.stages.normalize) applied_stages.push("normalize"); else skipped_stages.push("normalize");
+  if (profile.stages.compress) applied_stages.push("compress"); else skipped_stages.push("compress");
+  if (profile.stages.limit) applied_stages.push("limit"); else skipped_stages.push("limit");
+  if (args.instruction.noise_cleanup === "light") {
+    if (profile.stages.noise_cleanup_light) applied_stages.push("noise_cleanup_light");
+    else skipped_stages.push("noise_cleanup_light");
+  }
+  const hasCoreStages = profile.stages.normalize || profile.stages.compress || profile.stages.limit;
+  const allCoreStages = profile.stages.normalize && profile.stages.compress && profile.stages.limit;
+  const reasons: HammerEditorialDegradationReasonCode[] = [];
+  let export_posture: HammerRenderAssemblyTruthPosture = "authoritative";
+  let capability: HammerEditorialCapability = "executable";
+  if (!hasCoreStages) {
+    export_posture = "unavailable";
+    capability = "unavailable";
+    reasons.push("runtime_missing_capability");
+  } else if (!allCoreStages || (args.instruction.noise_cleanup === "light" && !profile.stages.noise_cleanup_light)) {
+    export_posture = "degraded";
+    capability = "degraded";
+    reasons.push("runtime_partial_capability");
+  }
+  const preview_supported = profile.preview_supported && args.capabilities.preview_supported_operation_types.includes("podcast_master_pass");
+  const preview_posture = preview_supported ? export_posture : export_posture === "unavailable" ? "unavailable" : "degraded";
+  if (!preview_supported) reasons.push("preview_not_supported");
+  const handoff_posture = export_posture === "unavailable"
+    ? "degraded"
+    : args.capabilities.handoff_supported_operation_types.includes("podcast_master_pass")
+    ? export_posture
+    : "degraded";
+  if (handoff_posture !== export_posture) reasons.push("handoff_deferred");
+  return {
+    preview_posture,
+    export_posture,
+    handoff_posture,
+    capability,
+    reason_codes: Array.from(new Set(reasons)),
+    applied_stages,
+    skipped_stages,
+    preview_mode: preview_supported ? "previewable" : "export_only",
   };
 }
 
@@ -296,6 +384,12 @@ export function buildHammerRenderAssembly(args: {
       const previewPosture = aggregatePosture([baseline.preview_posture, explicitPreview]);
       const exportPosture = aggregatePosture([baseline.export_posture, explicitExport]);
       const handoffPosture = aggregatePosture([baseline.handoff_posture, explicitHandoff]);
+      const podcastMasterSupport = operation.instruction.type === "podcast_master_pass"
+        ? resolvePodcastMasterSupport({
+          instruction: operation.instruction,
+          capabilities: args.runtimeCapabilities,
+        })
+        : null;
       const unresolvedBroll = operation.instruction.type === "insert_broll"
         && operation.instruction.asset_binding_state === "unresolved";
       const orphanedLinkedDuck = operation.instruction.type === "audio_duck"
@@ -314,16 +408,39 @@ export function buildHammerRenderAssembly(args: {
         ...operation.truth_posture.handoff.reason_codes,
         ...unresolvedReasonCodes,
         ...orphanedDuckReasonCodes,
+        ...(podcastMasterSupport?.reason_codes ?? []),
       ];
       return {
         operation_id: operation.operation_id,
         instruction_id: operation.instruction.instruction_id,
         type: operation.instruction.type,
         lifecycle: operation.lifecycle,
-        preview_posture: unresolvedBroll ? "unavailable" : orphanedLinkedDuck ? "degraded" : previewPosture,
-        export_posture: unresolvedBroll ? "degraded" : orphanedLinkedDuck ? "degraded" : exportPosture,
-        handoff_posture: unresolvedBroll ? "degraded" : orphanedLinkedDuck ? "degraded" : handoffPosture,
-        capability: unresolvedBroll || orphanedLinkedDuck ? "degraded" : operation.capability_state.capability,
+        preview_posture: unresolvedBroll
+          ? "unavailable"
+          : orphanedLinkedDuck
+          ? "degraded"
+          : podcastMasterSupport
+          ? aggregatePosture([podcastMasterSupport.preview_posture, explicitPreview])
+          : previewPosture,
+        export_posture: unresolvedBroll
+          ? "degraded"
+          : orphanedLinkedDuck
+          ? "degraded"
+          : podcastMasterSupport
+          ? aggregatePosture([podcastMasterSupport.export_posture, explicitExport])
+          : exportPosture,
+        handoff_posture: unresolvedBroll
+          ? "degraded"
+          : orphanedLinkedDuck
+          ? "degraded"
+          : podcastMasterSupport
+          ? aggregatePosture([podcastMasterSupport.handoff_posture, explicitHandoff])
+          : handoffPosture,
+        capability: unresolvedBroll || orphanedLinkedDuck
+          ? "degraded"
+          : podcastMasterSupport
+          ? podcastMasterSupport.capability
+          : operation.capability_state.capability,
         reason_codes: Array.from(new Set(reasonCodes)),
       } satisfies HammerRenderAssemblyOperationResolution;
     });
@@ -376,6 +493,7 @@ export function buildHammerRenderAssembly(args: {
       transcriptSegments: args.transcriptSegments ?? null,
       captionChunks: args.captionChunks ?? null,
       exportPosture: exportPlan.posture,
+      runtimeCapabilities: args.runtimeCapabilities,
     }),
   };
 }
@@ -452,6 +570,7 @@ function buildHammerExportTimelineAssembly(args: {
   transcriptSegments: HammerRenderAssemblyTranscriptSegmentInput[] | null;
   captionChunks: HammerRenderAssemblyCaptionChunkInput[] | null;
   exportPosture: HammerRenderAssemblyTruthPosture;
+  runtimeCapabilities: HammerRenderRuntimeCapabilities;
 }): HammerExportTimelineAssembly {
   const operationResolutionById = new Map(args.operations.map((operation) => [operation.operation_id, operation] as const));
   const activeOperations = args.graph.operations
@@ -571,6 +690,10 @@ function buildHammerExportTimelineAssembly(args: {
         break;
       }
       case "podcast_master_pass": {
+        const support = resolvePodcastMasterSupport({
+          instruction: operation.instruction,
+          capabilities: args.runtimeCapabilities,
+        });
         audioLayers.push({
           kind: "podcast_master_pass",
           operation_id: operation.operation_id,
@@ -585,6 +708,10 @@ function buildHammerExportTimelineAssembly(args: {
             normalization_lufs: operation.instruction.normalization_lufs,
             compression_amount: operation.instruction.compression_amount,
             limiter_ceiling_dbtp: operation.instruction.limiter_ceiling_dbtp,
+            applied_stages: support.applied_stages,
+            skipped_stages: support.skipped_stages,
+            stage_posture: support.export_posture,
+            preview_mode: support.preview_mode,
           },
         });
         break;

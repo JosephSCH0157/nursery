@@ -281,6 +281,16 @@ async function testPodcastMasterPassPostureTracksRuntimeCapability() {
       preview_supported_operation_types: [],
       export_supported_operation_types: ["podcast_master_pass"],
       handoff_supported_operation_types: ["podcast_master_pass"],
+      podcast_master: {
+        available: true,
+        preview_supported: false,
+        stages: {
+          normalize: true,
+          compress: true,
+          limit: true,
+          noise_cleanup_light: true,
+        },
+      },
     },
     transcriptSegments: [{ segment_id: "seg_01", start_sec: 0, end_sec: 10 }],
     captionChunks: [{ chunk_id: "cap_01", start_sec: 0, end_sec: 1, segment_ids: ["seg_01"] }],
@@ -291,13 +301,47 @@ async function testPodcastMasterPassPostureTracksRuntimeCapability() {
       preview_supported_operation_types: [],
       export_supported_operation_types: [],
       handoff_supported_operation_types: ["podcast_master_pass"],
+      podcast_master: {
+        available: false,
+        preview_supported: false,
+        stages: {
+          normalize: false,
+          compress: false,
+          limit: false,
+          noise_cleanup_light: false,
+        },
+      },
+    },
+    transcriptSegments: [{ segment_id: "seg_01", start_sec: 0, end_sec: 10 }],
+    captionChunks: [{ chunk_id: "cap_01", start_sec: 0, end_sec: 1, segment_ids: ["seg_01"] }],
+  });
+  const partial = buildHammerRenderAssembly({
+    canonicalGraph: graph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: [],
+      export_supported_operation_types: ["podcast_master_pass"],
+      handoff_supported_operation_types: ["podcast_master_pass"],
+      podcast_master: {
+        available: true,
+        preview_supported: false,
+        stages: {
+          normalize: true,
+          compress: false,
+          limit: true,
+          noise_cleanup_light: false,
+        },
+      },
     },
     transcriptSegments: [{ segment_id: "seg_01", start_sec: 0, end_sec: 10 }],
     captionChunks: [{ chunk_id: "cap_01", start_sec: 0, end_sec: 1, segment_ids: ["seg_01"] }],
   });
   assert.equal(available.export_timeline.audio_layers.some((layer) => layer.kind === "podcast_master_pass"), true);
   assert.equal(available.export_timeline.export_posture, "authoritative");
-  assert.equal(unavailable.export_timeline.export_posture, "degraded");
+  assert.equal(partial.export_timeline.export_posture, "degraded");
+  const partialLayer = partial.export_timeline.audio_layers.find((layer) => layer.kind === "podcast_master_pass");
+  assert.equal(partialLayer?.meta?.skipped_stages?.includes("compress"), true);
+  assert.equal(unavailable.export_timeline.export_posture, "unavailable");
+  assert.equal(unavailable.operations[0]?.export_posture, "unavailable");
 }
 
 async function run() {

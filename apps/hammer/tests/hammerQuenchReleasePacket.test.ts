@@ -513,8 +513,19 @@ async function testPacketReflectsPodcastMasterSummary() {
       preview_supported_operation_types: [],
       export_supported_operation_types: ["podcast_master_pass"],
       handoff_supported_operation_types: ["podcast_master_pass"],
+      podcast_master: {
+        available: true,
+        preview_supported: false,
+        stages: {
+          normalize: true,
+          compress: true,
+          limit: true,
+          noise_cleanup_light: true,
+        },
+      },
     },
     transcriptSegments: [{ segment_id: "seg_001", start_sec: 0, end_sec: 6 }],
+    captionChunks: [{ chunk_id: "cap_001", start_sec: 0, end_sec: 1, segment_ids: ["seg_001"] }],
   });
   const packet = buildHammerQuenchReleasePacket({
     releasePrepPackage: prep,
@@ -524,6 +535,75 @@ async function testPacketReflectsPodcastMasterSummary() {
   });
   assert.equal(packet.manifest.editorial_truth?.podcast_master_summary.applied, true);
   assert.equal(packet.manifest.editorial_truth?.podcast_master_summary.preset, "podcast_master_v1");
+  assert.equal(packet.manifest.editorial_truth?.podcast_master_summary.posture, "authoritative");
+}
+
+async function testPacketReflectsPodcastMasterUnavailable() {
+  const prep = buildHammerReleasePrepPackage({
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    prepStatus: "prepared",
+    alignmentStatus: "aligned",
+    structuredTranscript: transcript,
+    visualPlacements: null,
+    audioPolish: null,
+    editorSession: null,
+  });
+  const canonicalGraph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_packet_ext_07",
+      version: "1",
+      created_at: "2026-03-24T10:00:00.000Z",
+      updated_at: "2026-03-24T10:00:00.000Z",
+      source_transcript_id: "tx_release_packet",
+      instructions: [{
+        instruction_id: "ins_master_02",
+        segment_id: "seg_001",
+        type: "podcast_master_pass",
+        preset: "podcast_master_v1",
+        noise_cleanup: "light",
+        normalization_lufs: -16,
+        compression_amount: "medium",
+        limiter_ceiling_dbtp: -1,
+        created_at: "2026-03-24T10:00:00.000Z",
+      }],
+    },
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    sessionId: "session_demo",
+  });
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: [],
+      export_supported_operation_types: [],
+      handoff_supported_operation_types: ["podcast_master_pass"],
+      podcast_master: {
+        available: false,
+        preview_supported: false,
+        stages: {
+          normalize: false,
+          compress: false,
+          limit: false,
+          noise_cleanup_light: false,
+        },
+      },
+    },
+    transcriptSegments: [{ segment_id: "seg_001", start_sec: 0, end_sec: 6 }],
+    captionChunks: [{ chunk_id: "cap_001", start_sec: 0, end_sec: 1, segment_ids: ["seg_001"] }],
+  });
+  const packet = buildHammerQuenchReleasePacket({
+    releasePrepPackage: prep,
+    canonicalGraph,
+    renderAssembly: assembly,
+    preparedAt: "2026-03-24T10:01:00.000Z",
+  });
+  assert.equal(packet.manifest.editorial_truth?.podcast_master_summary.applied, true);
+  assert.equal(packet.manifest.editorial_truth?.podcast_master_summary.posture, "unavailable");
+  assert.equal(
+    packet.manifest.editorial_truth?.podcast_master_summary.reason_codes.includes("runtime_missing_capability"),
+    true,
+  );
 }
 
 async function run() {
@@ -534,6 +614,7 @@ async function run() {
   await testPacketReflectsResolvedBindingEdits();
   await testPacketReflectsRippleDeleteBrollRemapTruth();
   await testPacketReflectsPodcastMasterSummary();
+  await testPacketReflectsPodcastMasterUnavailable();
   // eslint-disable-next-line no-console
   console.log("Hammer Quench release packet tests passed.");
 }

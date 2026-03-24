@@ -4493,6 +4493,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         export_supported_operation_types: studioRackRenderBackendResolution.ffmpegAvailable
           ? [...HAMMER_RENDER_RUNTIME_CAPABILITIES.export_supported_operation_types, "podcast_master_pass"]
           : HAMMER_RENDER_RUNTIME_CAPABILITIES.export_supported_operation_types,
+        podcast_master: {
+          available: studioRackRenderBackendResolution.ffmpegAvailable,
+          preview_supported: false,
+          stages: {
+            normalize: studioRackRenderBackendResolution.ffmpegAvailable,
+            compress: studioRackRenderBackendResolution.ffmpegAvailable,
+            limit: studioRackRenderBackendResolution.ffmpegAvailable,
+            noise_cleanup_light: studioRackRenderBackendResolution.ffmpegAvailable,
+          },
+        },
       },
       transcriptSegments: transcriptForRelease.segments.map((segment) => ({
         segment_id: segment.segment_id,
@@ -7102,6 +7112,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       {` · loudness ${podcastMasterLayer.meta.normalization_lufs} LUFS`}
                       {` · compression ${podcastMasterLayer.meta.compression_amount}`}
                       {` · limiter ${podcastMasterLayer.meta.limiter_ceiling_dbtp} dBTP`}
+                      {` · preview ${podcastMasterLayer.meta.preview_mode === "previewable" ? "supported" : "export-only"}`}
+                      {podcastMasterLayer.meta.applied_stages?.length
+                        ? ` · applied ${podcastMasterLayer.meta.applied_stages.join(", ")}`
+                        : ""}
+                      {podcastMasterLayer.meta.skipped_stages?.length
+                        ? ` · skipped ${podcastMasterLayer.meta.skipped_stages.join(", ")}`
+                        : ""}
                     </div>
                   ) : null}
                   <button type="button" onClick={applyPodcastMasterPass} disabled={Boolean(podcastMasterLayer)}>
