@@ -7,6 +7,22 @@
 
 ---
 
+## Scope
+
+**This RC validates:**
+- VSM 1.5 anchor management behavior within the Hearth AI runtime contract
+- AI-enabled vs AI-disabled lane parity for the Hearth phase 4 runtime test suite
+- Hammer provenance label consistency (provenance micro-pass, `41007dfe`)
+
+**This RC does not certify:**
+- Integration with downstream Hammer, Quench, or Anvil modules
+- Interactive anchor flows, repair workflows, or calm UX behavior (not yet executed)
+- Export contract conformance (not yet executed)
+- Performance characterization or load behavior
+- Production deployment readiness
+
+---
+
 ## Final Decision Documents
 
 | Document | Role | Decision |
