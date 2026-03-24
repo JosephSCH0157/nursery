@@ -32,6 +32,7 @@ Guardrails:
   --hammer-shell-left-min-width: 360px;
   --hammer-shell-right-min-width: 340px;
   --hammer-shell-preview-min-width: 360px;
+  --hammer-shell-preview-width: 520px;
   --hammer-shell-timeline-height: 376px;
   --hammer-shell-timeline-time-focus-height: 504px;
   display: grid;
