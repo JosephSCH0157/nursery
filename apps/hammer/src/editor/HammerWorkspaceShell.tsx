@@ -43,6 +43,10 @@ import {
   type FillerCleanupOptions,
   type GapCleanupOptions,
 } from "./hammerCleanupTools";
+import PolishResultSummary, {
+  buildPolishResultSummaryFromCleanupPreview,
+  type HammerPolishResultSummary,
+} from "./PolishResultSummary";
 import {
   createHammerHistoryController,
   createHammerHistoryDocument,
@@ -484,6 +488,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     sameSpeakerOnly: true,
   });
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
+  const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
   const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
   const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
   const [videoSnapMode, setVideoSnapMode] = useState<"timeline" | "segment">("timeline");
@@ -779,6 +784,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const outputSelectionSummary = selectedOutputLayer
     ? formatOutputLayerLabel(selectedOutputLayer)
     : "Raw transcript output";
+  const cleanupPreviewSummary = useMemo(
+    () => (cleanupPreview ? buildPolishResultSummaryFromCleanupPreview(cleanupPreview) : null),
+    [cleanupPreview],
+  );
 
   function captureWorkspaceState(): HammerEditorStateSerializable {
     return toEditorState({
@@ -1265,8 +1274,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   function applyCleanup(preview: HammerCleanupPreview): void {
     const toolId = preview.label.toLowerCase().replace(/\s+/g, "-");
+    const summary = buildPolishResultSummaryFromCleanupPreview(preview);
     historyControllerRef.current?.createCheckpoint(`Before ${preview.label}`);
-    applyHistoryMutation({
+    const applied = applyHistoryMutation({
       label: preview.label,
       kind: "cleanup_tool",
       affectedSegments: preview.suggestions.map((suggestion) => suggestion.segmentId),
@@ -1286,6 +1296,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         };
       },
     });
+    if (applied) {
+      setCleanupReceipt(summary);
+    }
   }
 
   function updateVisualPlacementTiming(placementId: string, deltaSec: number): void {
@@ -2398,7 +2411,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <section className="hammer-cleanup-tool">
                     <div className="hammer-cleanup-tool__head">
                       <strong>Shorten Gaps</strong>
-                      <span>Tighten dead air without changing spoken content.</span>
+                      <span>
+                        Intent: Tighten dead air between adjacent lines without changing spoken words.
+                      </span>
                     </div>
                     <label className="hammer-tool-field">
                       <span>Max allowed gap (sec)</span>
@@ -2441,7 +2456,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <section className="hammer-cleanup-tool">
                     <div className="hammer-cleanup-tool__head">
                       <strong>Remove Fillers</strong>
-                      <span>Cut ums, uhs, and verbal clutter deterministically.</span>
+                      <span>
+                        Intent: Remove filler phrases such as uh, um, you know, and like without rewriting surrounding content.
+                      </span>
                     </div>
                     <label className="hammer-tool-field">
                       <span>Aggressiveness</span>
@@ -2482,7 +2499,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <section className="hammer-cleanup-tool">
                     <div className="hammer-cleanup-tool__head">
                       <strong>Remove Retakes</strong>
-                      <span>Remove false starts and repeated takes with confidence scoring.</span>
+                      <span>
+                        Intent: Remove explicit retake lines or adjacent repeated takes using deterministic overlap rules.
+                      </span>
                     </div>
                     <label className="hammer-tool-field">
                       <span>Detection mode</span>
@@ -2523,7 +2542,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <section className="hammer-cleanup-tool hammer-cleanup-tool--quick">
                     <div className="hammer-cleanup-tool__head">
                       <strong>Quick Clean</strong>
-                      <span>Run Retakes → Fillers → Gaps in one deterministic pass.</span>
+                      <span>
+                        Intent: Run deterministic polish in order: Remove Retakes {"->"} Remove Fillers {"->"} Shorten Gaps.
+                      </span>
                     </div>
                     <button
                       type="button"
@@ -2541,30 +2562,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </button>
                   </section>
 
-                  {cleanupPreview ? (
-                    <section className="hammer-cleanup-preview" aria-label="Cleanup preview">
-                      <div className="hammer-cleanup-preview__head">
-                        <strong>{cleanupPreview.label}</strong>
-                        <span>
-                          {cleanupPreview.summary.changedSegments} segments affected · {cleanupPreview.summary.removedSegments} removed ·{" "}
-                          {cleanupPreview.summary.timeSavedSec.toFixed(1)}s saved
-                        </span>
-                      </div>
-                      <div className="hammer-cleanup-preview__list">
-                        {cleanupPreview.suggestions.slice(0, 8).map((suggestion) => (
-                          <div key={suggestion.id}>
-                            {suggestion.description} ({Math.round(suggestion.confidence * 100)}% confidence)
-                          </div>
-                        ))}
-                        {cleanupPreview.suggestions.length > 8 ? (
-                          <div>+{cleanupPreview.suggestions.length - 8} more suggestions</div>
-                        ) : null}
-                      </div>
-                      <div className="hammer-cleanup-preview__actions">
-                        <button type="button" onClick={() => applyCleanup(cleanupPreview)}>Apply</button>
-                        <button type="button" onClick={() => setCleanupPreview(null)}>Discard</button>
-                      </div>
-                    </section>
+                  {cleanupPreview && cleanupPreviewSummary ? (
+                    <PolishResultSummary phase="preview" summary={cleanupPreviewSummary}>
+                      <button type="button" onClick={() => applyCleanup(cleanupPreview)}>Apply</button>
+                      <button type="button" onClick={() => setCleanupPreview(null)}>Discard</button>
+                    </PolishResultSummary>
+                  ) : null}
+                  {cleanupReceipt ? (
+                    <PolishResultSummary phase="applied" summary={cleanupReceipt} />
                   ) : null}
                   <div className="hammer-tool-hint">Deterministic cleanup only. No AI inference path.</div>
                 </section>

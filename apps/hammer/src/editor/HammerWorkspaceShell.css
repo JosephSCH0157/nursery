@@ -567,6 +567,73 @@ Guardrails:
   gap: 6px;
 }
 
+.hammer-polish-result-summary {
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  border-radius: 9px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  background: rgba(30, 64, 175, 0.14);
+}
+
+.hammer-polish-result-summary--applied {
+  border-color: rgba(74, 222, 128, 0.35);
+  background: rgba(21, 128, 61, 0.14);
+}
+
+.hammer-polish-result-summary__head {
+  display: grid;
+  gap: 2px;
+}
+
+.hammer-polish-result-summary__head strong {
+  color: #dbeafe;
+  font-size: 12px;
+}
+
+.hammer-polish-result-summary__head span {
+  color: #bfdbfe;
+  font-size: 11px;
+}
+
+.hammer-polish-result-summary__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 11px;
+  color: #cbd5e1;
+}
+
+.hammer-polish-result-summary__categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 11px;
+  color: #bfdbfe;
+}
+
+.hammer-polish-result-summary__sequence {
+  font-size: 11px;
+  color: #93c5fd;
+}
+
+.hammer-polish-result-summary__notes {
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+  color: #bfdbfe;
+}
+
+.hammer-polish-result-summary__undo {
+  font-size: 11px;
+  color: #86efac;
+}
+
+.hammer-polish-result-summary__actions {
+  display: flex;
+  gap: 6px;
+}
+
 .hammer-timeline-tools {
   display: flex;
   gap: 6px;
