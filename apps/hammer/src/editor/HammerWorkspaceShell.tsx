@@ -739,6 +739,37 @@ function rebuildCaptionArtifactsFromChunks(chunks: HammerCaptionBuiltChunk[]): {
   };
 }
 
+function countChangedCaptionBlocks(
+  baseChunks: readonly HammerCaptionBuiltChunk[],
+  nextChunks: readonly HammerCaptionBuiltChunk[],
+): number {
+  const comparisonLength = Math.max(baseChunks.length, nextChunks.length);
+  let changedBlocks = 0;
+
+  for (let index = 0; index < comparisonLength; index += 1) {
+    const base = baseChunks[index] ?? null;
+    const next = nextChunks[index] ?? null;
+    if (!base || !next) {
+      changedBlocks += 1;
+      continue;
+    }
+
+    if (
+      base.id !== next.id
+      || base.speaker !== next.speaker
+      || base.startSec !== next.startSec
+      || base.endSec !== next.endSec
+      || base.text !== next.text
+      || base.lineCount !== next.lineCount
+      || base.charCount !== next.charCount
+    ) {
+      changedBlocks += 1;
+    }
+  }
+
+  return changedBlocks;
+}
+
 function buildCaptionBasisFingerprint(args: {
   transcript: HammerPersistedStructuredTranscript;
   outputLayerId: string | null;
@@ -3897,6 +3928,75 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : captionBuildFreshness === "current"
     ? "Built captions"
     : "No current caption artifact";
+  const captionBuiltSummary = captionBuildFreshness === "current"
+    ? "Up to date"
+    : captionBuildFreshness === "stale"
+    ? "Stale"
+    : "Missing";
+  const captionEditedSummary = captionEditedFreshness === "current"
+    ? "Valid"
+    : captionEditedFreshness === "stale"
+    ? "Stale"
+    : "No edits";
+  const captionBuiltTone = captionBuildFreshness === "current"
+    ? "safe"
+    : captionBuildFreshness === "stale"
+    ? "warn"
+    : "neutral";
+  const captionEditedTone = captionEditedFreshness === "current"
+    ? "safe"
+    : captionEditedFreshness === "stale"
+    ? "warn"
+    : "neutral";
+  const captionEditedComparisonBase = useMemo(
+    () => captionBuildState && captionEditedState && captionBuildState.fingerprint === captionEditedState.baseFingerprint
+      ? captionBuildState
+      : null,
+    [captionBuildState, captionEditedState],
+  );
+  const captionEditedModifiedBlockCount = useMemo(
+    () => captionEditedState && captionEditedComparisonBase
+      ? countChangedCaptionBlocks(captionEditedComparisonBase.chunks, captionEditedState.chunks)
+      : null,
+    [captionEditedComparisonBase, captionEditedState],
+  );
+  const captionEditedChangeSummary = !captionEditedState
+    ? "No edited caption artifact."
+    : captionEditedModifiedBlockCount == null
+    ? "Manual changes present."
+    : captionEditedModifiedBlockCount > 0
+    ? `Manual changes present (${captionEditedModifiedBlockCount} blocks modified).`
+    : "Edited artifact created. No manual changes yet.";
+  const captionActiveModeLabel = activeCaptionMode === "edited"
+    ? "Editing: Edited captions"
+    : "Viewing: Built captions (read-only)";
+  const captionActiveModeSourceLabel = `Source: ${activeCaptionState?.sourceLabel ?? captionSourceLabel}`;
+  const captionRebuildConsequenceLabel = captionEditedState
+    ? "Rebuild replaces built captions. Edited captions are preserved."
+    : "Rebuild replaces built captions.";
+  const captionDiscardConsequenceLabel = captionEditedState
+    ? "Discard edits returns to built captions."
+    : null;
+  const captionReleasePrepSafetyState: "safe" | "blocked" = captionEditedFreshness === "current" || captionBuildFreshness === "current"
+    ? "safe"
+    : "blocked";
+  const captionReleasePrepSafetyLabel = captionReleasePrepSafetyState === "safe"
+    ? "Safe for release prep"
+    : "Not safe for release prep";
+  const captionReleasePrepSafetyDetail = captionEditedFreshness === "current"
+    ? "Edited captions match the current export basis and will be used for release prep."
+    : captionBuildFreshness === "current" && captionEditedFreshness === "stale"
+    ? "Edited captions do not match the current export basis. Release prep will use built captions until edits are refreshed."
+    : captionBuildFreshness === "current"
+    ? "Built captions match the current export basis and are safe to ship."
+    : captionEditedFreshness === "stale"
+    ? "Edited captions do not match the current export basis. Refresh captions or discard edits to proceed."
+    : "Generate captions from the current export basis to proceed."
+  const captionEditedBasisDetail = captionEditedFreshness === "current"
+    ? "Matches export basis"
+    : captionEditedFreshness === "stale"
+    ? "Basis changed"
+    : "No edited artifact";
 
   async function handlePrepareReleasePackage(): Promise<void> {
     if (releasePrepSaving) return;
@@ -5691,13 +5791,34 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       <strong>Caption Source</strong>
                       <span>{captionArtifactStatusLabel}</span>
                     </div>
-                    <div className="hammer-tool-hint">Source: {captionSourceLabel}</div>
+                    <div className="hammer-caption-source-card__status-line">
+                      <article className={`hammer-caption-status-pill hammer-caption-status-pill--${captionBuiltTone}`}>
+                        <span className="hammer-caption-status-pill__label">Built</span>
+                        <strong>{captionBuiltSummary}</strong>
+                      </article>
+                      <article className={`hammer-caption-status-pill hammer-caption-status-pill--${captionEditedTone}`}>
+                        <span className="hammer-caption-status-pill__label">Edited</span>
+                        <strong>{captionEditedSummary}</strong>
+                        <span className="hammer-caption-status-pill__detail">{captionEditedBasisDetail}</span>
+                      </article>
+                      <article className="hammer-caption-status-pill hammer-caption-status-pill--basis">
+                        <span className="hammer-caption-status-pill__label">Basis</span>
+                        <strong>{captionSourceLabel}</strong>
+                      </article>
+                    </div>
+                    <div className={`hammer-caption-mode-banner hammer-caption-mode-banner--${activeCaptionMode === "edited" ? "editing" : "viewing"}`}>
+                      <strong>{captionActiveModeLabel}</strong>
+                      <span>{captionActiveModeSourceLabel}</span>
+                    </div>
+                    <div className={`hammer-caption-release-signal hammer-caption-release-signal--${captionReleasePrepSafetyState}`}>
+                      <strong>{captionReleasePrepSafetyLabel}</strong>
+                      <span>{captionReleasePrepSafetyDetail}</span>
+                    </div>
+                    {captionEditedState ? (
+                      <div className="hammer-caption-manual-summary">{captionEditedChangeSummary}</div>
+                    ) : null}
                     <div className="hammer-tool-hint">
                       Export basis authority: captions follow Export Basis, not current Viewing layer.
-                    </div>
-                    <div className="hammer-tool-hint">
-                      Build status: {captionBuildStatusLabel}
-                      {captionEditedState ? ` · Edited status: ${captionEditedStatusLabel}` : ""}
                     </div>
                     <div className="hammer-tool-hint">Release prep caption source: {captionReleaseSourceLabel}</div>
                     {captionBuildState ? (
@@ -5716,6 +5837,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     >
                       {captionBuildFreshness === "current" ? "Refresh Captions" : "Generate Captions"}
                     </button>
+                    <div className="hammer-caption-source-card__action-note">{captionRebuildConsequenceLabel}</div>
                     {captionBuildState && !captionEditedState ? (
                       <button
                         type="button"
@@ -5724,7 +5846,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           handleEnableCaptionEdits();
                         }}
                       >
-                        Enable Manual Caption Edits
+                        Create Edited Captions
                       </button>
                     ) : null}
                     {captionEditedState ? (
@@ -5759,6 +5881,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           Discard edits
                         </button>
                       </div>
+                    ) : null}
+                    {captionDiscardConsequenceLabel ? (
+                      <div className="hammer-caption-source-card__action-note">{captionDiscardConsequenceLabel}</div>
                     ) : null}
                   </section>
                   <label className="hammer-tool-field">
@@ -5859,8 +5984,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   </label>
                   <div className="hammer-caption-preview-card">
                     <div className="hammer-caption-preview-card__head">
-                      <strong>Caption Preview</strong>
+                      <div className="hammer-caption-preview-card__head-copy">
+                        <strong>Caption Preview</strong>
+                        <span>{captionActiveModeLabel}</span>
+                      </div>
                       <select
+                        aria-label="Caption artifact format"
+                        title="Caption artifact format"
                         value={selectedCaptionArtifactFormat}
                         onChange={(event) => {
                           setFocusOverride("tool-focus");
@@ -5886,6 +6016,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                 <>
                                   <textarea
                                     className="hammer-caption-preview-list__editor"
+                                    aria-label={`Edit caption block ${chunk.startSec.toFixed(1)} to ${chunk.endSec.toFixed(1)} seconds`}
+                                    title="Edit caption block"
                                     value={chunk.text}
                                     ref={(node) => {
                                       if (node) {
