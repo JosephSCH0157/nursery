@@ -151,3 +151,211 @@ test("Netlify status function matches direct handler output", async () => {
 
   assert.deepEqual(deployedJson, directJson);
 });
+
+test("createHearthAiHandler sends collaborator-style system prompt to upstream model", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  let capturedSystemPrompt = "";
+
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url !== "https://api.openai.com/v1/chat/completions") {
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }
+
+    const rawBody = init?.body;
+    const body = JSON.parse(String(rawBody)) as {
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    capturedSystemPrompt = body.messages?.[0]?.content ?? "";
+
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: "That version lands better. I tightened the middle.",
+              ops: [],
+              script_text: null,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 123 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "I've got too many directions and none of them are landing." }],
+        episode_context: buildEpisodeContext(),
+        lane: "forge",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.match(capturedSystemPrompt, /smart producer \+ trusted writing partner \+ calm friend in the room/i);
+    assert.match(capturedSystemPrompt, /Avoid assistant filler and stale lead-ins/i);
+    assert.match(capturedSystemPrompt, /Ask fewer follow-up questions/i);
+    assert.match(capturedSystemPrompt, /Voice examples \(style calibration\)/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler asks fewer clarify gates for directional requests", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  let openAiCalled = false;
+
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url !== "https://api.openai.com/v1/chat/completions") {
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    }
+    openAiCalled = true;
+
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: "There's something here. I'd anchor it to one sharp claim, then build out.",
+              ops: [],
+              script_text: null,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 88 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "I have a rough idea on creator burnout and where to take it next." }],
+        episode_context: buildEpisodeContext(),
+        lane: "forge",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.gate, undefined);
+    assert.equal(openAiCalled, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler keeps clarify gate for very short ambiguous asks", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  let openAiCalled = false;
+
+  globalThis.fetch = async () => {
+    openAiCalled = true;
+    throw new Error("OpenAI should not be called during clarify gate");
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "episode about burnout?" }],
+        episode_context: buildEpisodeContext(),
+        lane: "forge",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.gate, "clarify");
+    assert.match(String(payload.assistant_text), /Quick unblock before I draft/i);
+    assert.equal(openAiCalled, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler acceptance prompts route to drafting flow instead of checklist gating", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  let openAiCallCount = 0;
+
+  globalThis.fetch = async () => {
+    openAiCallCount += 1;
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: "We can tighten this and keep your voice.",
+              ops: [],
+              script_text: null,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 66 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const acceptancePrompts = [
+    "I've got a rough idea but I don't know if there's actually a full episode in it.",
+    "This script feels stiff and I'm starting to hate it.",
+    "I've got too many directions and none of them are landing.",
+    "Okay, now we're onto something.",
+    "This section is too long but I still need the point to land.",
+  ];
+
+  try {
+    for (const content of acceptancePrompts) {
+      const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          messages: [{ role: "user", content }],
+          episode_context: buildEpisodeContext(),
+          lane: "forge",
+          behavior: "careful",
+        }),
+      }));
+
+      assert.equal(response.status, 200);
+      const payload = await response.json();
+      assert.equal(payload.ok, true);
+      assert.equal(payload.gate, undefined);
+    }
+
+    assert.equal(openAiCallCount, acceptancePrompts.length);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

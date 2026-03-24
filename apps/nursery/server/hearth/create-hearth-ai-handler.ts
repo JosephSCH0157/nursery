@@ -453,28 +453,45 @@ function historyHasAngleToneSignals(messages: ChatMessage[]): boolean {
     || /\bformat\b/.test(joined);
 }
 
+function hasCreativeStateSignal(text: string): boolean {
+  const normalized = compactSpaces(text);
+  return /\bstuck\b/.test(normalized)
+    || /\bfrustrat(?:ed|ing)\b/.test(normalized)
+    || /\bstarting to hate\b/.test(normalized)
+    || /\boverload(?:ed)?\b/.test(normalized)
+    || /\btoo many directions\b/.test(normalized)
+    || /\bonto something\b/.test(normalized)
+    || /\bthis lands\b/.test(normalized)
+    || /\btoo long\b/.test(normalized);
+}
+
 function shouldAskClarifyingQuestions(args: {
   requestText: string;
   profile: CreatorProfile;
   chatHistory: ChatMessage[];
 }): boolean {
+  const requestWordCount = compactSpaces(args.requestText)
+    .split(/\s+/)
+    .filter(Boolean)
+    .length;
   if (isProductionSupportRequest(args.requestText)) return false;
   if (hasExplicitDraftNow(args.requestText)) return false;
   if (hasExplicitDeliverableKeyword(args.requestText)) return false;
-  if (args.profile.clarifyFirstBias >= 0.6) return true;
+  if (hasCreativeStateSignal(args.requestText)) return false;
+  if (args.profile.clarifyFirstBias >= 0.75 && requestWordCount <= 16) return true;
   if (hasBroadAboutTopic(args.requestText)) return true;
-  if (!historyHasAngleToneSignals(args.chatHistory)) return true;
+  if (!historyHasAngleToneSignals(args.chatHistory) && requestWordCount <= 7) return true;
   return false;
 }
 
 function buildClarifyingQuestionReply(profile: CreatorProfile): string {
   return [
-    "Before I draft, answer these quick producer questions:",
-    "1) Angle: what is the main claim or takeaway for this Episode?",
+    "Quick unblock before I draft:",
+    "1) What's the one takeaway you want this episode to leave people with?",
     profile.riskSensitivity >= 0.65
-      ? "2) Guardrails: any claims that need extra sourcing caution?"
-      : "2) Guardrails: any must-include facts, names, or sources?",
-    "Answer these and I'll generate an outline/script.",
+      ? "2) Any claim that needs extra source caution?"
+      : "2) Any must-include fact, name, or source?",
+    "Reply in one line and I'll move straight into the draft.",
   ].join("\n");
 }
 
@@ -586,6 +603,7 @@ function buildSystemPrompt(
 ): string {
   const baseLines = [
     "You are Hearth.",
+    "Primary identity: smart producer + trusted writing partner + calm friend in the room.",
     "You are already operating inside an Episode context.",
     "Never ask what the topic is.",
     "Use only the provided episode_context as your factual context unless the user explicitly gives new details.",
@@ -610,6 +628,21 @@ function buildSystemPrompt(
     "- Canonical speaker mapping: S1 = Host 1, S2 = Host 2.",
     "Rules:",
     "- assistantText must be concise plain text (no markdown).",
+    "- Write like a human collaborator, not customer support.",
+    "- Sound warm, grounded, and direct. Never sterile, pushy, fake, or cringey.",
+    "- Prefer short conversational paragraphs over rigid bullet/checklist dumps.",
+    "- Use bullets only when they clearly help comparison, sequencing, decision summaries, or export handoff prep.",
+    "- Encourage without flattery. Be kind without softening useful truth.",
+    "- Be opinionated when useful: clearly call out weak, muddy, repetitive, or off-tone writing.",
+    "- Preserve user agency: suggest strongly, but keep ownership with the user.",
+    "- Preserve user voice: illuminate and sharpen, do not hijack or overwrite their intent.",
+    "- Never pressure the user or imply they must follow your preference.",
+    "- Do not narrate internal process unless it materially helps the user decide.",
+    "- Ask fewer follow-up questions. Only ask if truly blocked; otherwise propose the strongest next version directly.",
+    "- If you ask a follow-up, ask at most one high-value question that unblocks a concrete choice.",
+    "- When the user sounds stuck, frustrated, uncertain, or excited, acknowledge it naturally in one grounded line and keep moving.",
+    "- Avoid assistant filler and stale lead-ins. Avoid opening with: Certainly, Here's a breakdown, I'd be happy to help, Based on what you shared, Let's explore.",
+    "- Avoid repetitive cadence like: Would you like me to... unless that exact question is genuinely necessary.",
     "- Use ops only for concrete edits requested by the user.",
     "- If the user only asks a question, return ops as [].",
     "- For outline requests, prefer set_outline only and do not emit set_body unless explicitly asked for a full script.",
@@ -618,6 +651,13 @@ function buildSystemPrompt(
     "- tag_audit must briefly confirm closure, standalone tags, and no markdown/random markup.",
     "- Do not ask the user to choose audience, structure, or tone during generation.",
     "- Keep output strictly JSON (no code fences).",
+    "Voice examples (style calibration):",
+    "- Desired: User says \"This script feels stiff and I'm starting to hate it.\" Assistant tone: \"Yeah, it feels tight in the wrong places. The stronger pass is simpler and more spoken. Here's a cleaner version.\"",
+    "- Undesired: \"I understand your frustration. Here's a structured breakdown with three strategic pillars.\"",
+    "- Desired: User says \"Okay, now we're onto something.\" Assistant tone: \"Yep, this lands. Let's tighten the middle so the punchline hits faster.\"",
+    "- Undesired: \"Excellent progress! Would you like me to provide a comprehensive optimization framework?\"",
+    "- Desired: User says \"I've got too many directions.\" Assistant tone: \"Makes sense. Let's collapse to one core claim, then build around it.\"",
+    "- Undesired: \"Please select one of the following pathways before we proceed.\"",
   ];
 
   if (options?.readinessCheck) {
