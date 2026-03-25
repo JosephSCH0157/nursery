@@ -12,9 +12,13 @@
  */
 
 import type { ReactNode } from "react";
+import { useLocation } from "react-router-dom";
+import { parseForgeRouteContext } from "../lib/forge-route-context";
+import { EPISODE_PHASE_LABELS, resolvePhaseFromPathname } from "../workspace/episodePhases";
 import { useOptionalEpisodeWorkspace } from "../workspace/EpisodeWorkspaceContext";
 import EpisodeWorkspaceHeader from "./EpisodeWorkspaceHeader";
 import EpisodeContextDebugOverlay from "./EpisodeContextDebugOverlay";
+import "./EpisodeWorkspacePrimitives.css";
 import "./EpisodeWorkspaceShell.css";
 
 interface EpisodeWorkspaceShellProps {
@@ -28,14 +32,38 @@ export default function EpisodeWorkspaceShell({
   workpieceId,
 }: EpisodeWorkspaceShellProps) {
   const ctx = useOptionalEpisodeWorkspace();
-  const hasEpisode = Boolean(ctx?.episode?.episodeId);
+  const location = useLocation();
+  const routeContext = parseForgeRouteContext(location.search);
+  const requestedEpisodeId = workpieceId ?? routeContext.workpieceId;
+  const hasEpisode = Boolean(
+    requestedEpisodeId
+    && ctx?.episode?.episodeId
+    && ctx.episode.episodeId === requestedEpisodeId
+    && ctx.episode.contextState === "active",
+  );
+  const isLoading = Boolean(
+    requestedEpisodeId
+    && ctx?.episode?.episodeId
+    && ctx.episode.episodeId === requestedEpisodeId
+    && ctx.episode.contextState === "loading",
+  );
+  const routePhase = resolvePhaseFromPathname(location.pathname);
 
   return (
     <>
+      {isLoading && (
+        <div className="ew-header ew-header--loading" role="status" aria-live="polite">
+          <div className="ew-header__loading">
+            <span className="forge-phase-badge">{EPISODE_PHASE_LABELS[routePhase]}</span>
+            <span className="ew-header__loading-title">Loading episode context...</span>
+            <span className="ew-header__loading-copy">The current tool is resolving title and status from its own loader.</span>
+          </div>
+        </div>
+      )}
       {hasEpisode && ctx?.episode && (
         <EpisodeWorkspaceHeader
           episode={ctx.episode}
-          workpieceId={workpieceId}
+          workpieceId={requestedEpisodeId}
         />
       )}
       {children}

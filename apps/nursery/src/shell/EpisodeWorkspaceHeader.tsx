@@ -45,8 +45,8 @@ export default function EpisodeWorkspaceHeader({
 
   // P2.5: Title fallback order — context title → safe placeholder
   const displayTitle = episode.title?.trim() || "Episode";
-  const statusLabel = formatEpisodeStatusLabel(episode.status ?? null);
-  const statusTone = getEpisodeStatusTone(episode.status ?? null);
+  const statusLabel = formatEpisodeStatusLabel(episode.displayStatus ?? null);
+  const statusTone = getEpisodeStatusTone(episode.displayStatus ?? null);
 
   // P2.2: Smart primary action (may be null if workflow is complete)
   const nextAction = signals
@@ -62,9 +62,9 @@ export default function EpisodeWorkspaceHeader({
         <span className="ew-header__label" aria-label="Active episode title" title={displayTitle}>
           {displayTitle}
         </span>
-        {episode.seriesId && (
+        {episode.seriesTitle && (
           <span className="ew-header__series" aria-label="Series">
-            {episode.seriesId}
+            {episode.seriesTitle}
           </span>
         )}
         {statusLabel && (

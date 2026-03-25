@@ -1,15 +1,16 @@
 /**
  * EpisodeWorkspaceContext — global episode identity layer.
  *
- * Lives ABOVE all tool shells. Provides the active episode state across
- * navigation without owning canonical persistence (Tongs is SSOT).
+ * Lives above all tool shells. Provides the active episode UI continuity state
+ * across navigation without owning canonical persistence (Tongs remains SSOT).
  *
- * Storage strategy:
- *   1. In-memory (primary, instant)
- *   2. sessionStorage under `forge.activeEpisode` (fallback on remount)
- *   3. URL hydration via useWorkspaceBootstrap hook (per tool entry point)
+ * Storage precedence:
+ *   1. Loader-native read models
+ *   2. Bootstrap payloads from route entry points
+ *   3. sessionStorage fallback on remount
  */
 
+import type { EpisodeWorkspaceReadModel } from "@forge/shared";
 import {
   createContext,
   useCallback,
@@ -18,69 +19,146 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { EpisodePhase } from "./episodePhases";
 
 const SESSION_STORAGE_KEY = "forge.activeEpisode";
 
-export type EpisodeWorkspaceStatus =
-  | "draft"
-  | "ready"
-  | "scheduled"
-  | "recorded"
-  | "edited"
-  | "released";
+type EpisodeWorkspaceSource = "session" | "bootstrap" | "loader";
+export type EpisodeWorkspaceContextState = "none" | "loading" | "active";
+type EpisodeWorkspaceField = "title" | "seriesTitle" | "phase" | "displayStatus" | "sessionId";
+
+const SOURCE_STRENGTH: Record<EpisodeWorkspaceSource, number> = {
+  session: 0,
+  bootstrap: 1,
+  loader: 2,
+};
+
+type EpisodeFieldStrengths = Record<EpisodeWorkspaceField, number>;
+
+const EMPTY_FIELD_STRENGTHS: EpisodeFieldStrengths = {
+  title: -1,
+  seriesTitle: -1,
+  phase: -1,
+  displayStatus: -1,
+  sessionId: -1,
+};
 
 export interface EpisodeWorkspaceState {
   episodeId: string | null;
-  /** Display title — can be empty while loading */
   title: string;
-  seriesId?: string | null;
-  status?: EpisodeWorkspaceStatus | null;
+  phase?: EpisodePhase | null;
+  displayStatus?: string | null;
+  seriesTitle?: string | null;
   sessionId?: string | null;
+  contextState: EpisodeWorkspaceContextState;
+  source: EpisodeWorkspaceSource;
 }
+
+type EpisodeWorkspaceInternalState = {
+  episode: EpisodeWorkspaceState;
+  fieldStrengths: EpisodeFieldStrengths;
+};
 
 export const EMPTY_EPISODE_STATE: EpisodeWorkspaceState = {
   episodeId: null,
   title: "",
-  seriesId: null,
-  status: null,
+  phase: null,
+  displayStatus: null,
+  seriesTitle: null,
   sessionId: null,
+  contextState: "none",
+  source: "session",
 };
 
 export interface EpisodeWorkspaceContextValue {
   episode: EpisodeWorkspaceState;
-  setActiveEpisode: (state: EpisodeWorkspaceState) => void;
+  setActiveEpisode: (state: Partial<EpisodeWorkspaceState> & { episodeId: string }) => void;
   clearEpisode: () => void;
-  /**
-   * Hydrates from a launch payload. Does NOT override an already-set episode
-   * with a matching ID, so callers can call this idempotently without wiping
-   * enriched state that loaded afterward.
-   */
-  hydrateEpisodeFromPayload: (
-    payload: Partial<EpisodeWorkspaceState> & { episodeId: string },
-  ) => void;
+  hydrateEpisodeFromPayload: (payload: Partial<EpisodeWorkspaceState> & { episodeId: string }) => void;
+  hydrateEpisodeFromReadModel: (readModel: EpisodeWorkspaceReadModel) => void;
+  setEpisodeContextLoading: (episodeId: string | null) => void;
 }
 
 const EpisodeWorkspaceContext = createContext<EpisodeWorkspaceContextValue | null>(null);
 
-// ---------------------------------------------------------------------------
-// sessionStorage helpers
-// ---------------------------------------------------------------------------
+function readTrimmedString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
 
-function readStoredState(): EpisodeWorkspaceState | null {
+function hasMeaningfulField(
+  field: EpisodeWorkspaceField,
+  value: unknown,
+  source: EpisodeWorkspaceSource,
+): boolean {
+  if (field === "phase") return typeof value === "string" && value.length > 0;
+  const text = readTrimmedString(value);
+  if (!text) return false;
+  if (field === "title" && source !== "loader" && text === "Episode") return false;
+  return true;
+}
+
+function deriveContextState(state: EpisodeWorkspaceState): EpisodeWorkspaceContextState {
+  if (!state.episodeId) return "none";
+  if (
+    hasMeaningfulField("title", state.title, "loader")
+    || hasMeaningfulField("seriesTitle", state.seriesTitle, "loader")
+    || hasMeaningfulField("displayStatus", state.displayStatus, "loader")
+    || hasMeaningfulField("sessionId", state.sessionId, "loader")
+    || hasMeaningfulField("phase", state.phase, "loader")
+  ) {
+    return "active";
+  }
+  return "loading";
+}
+
+function normalizeStoredState(value: unknown): EpisodeWorkspaceState | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const episodeId = readTrimmedString(row.episodeId);
+  if (!episodeId) return null;
+
+  const normalized: EpisodeWorkspaceState = {
+    episodeId,
+    title: readTrimmedString(row.title) ?? "",
+    phase: (readTrimmedString(row.phase) as EpisodePhase | null) ?? null,
+    displayStatus: readTrimmedString(row.displayStatus) ?? readTrimmedString(row.status),
+    seriesTitle: readTrimmedString(row.seriesTitle) ?? readTrimmedString(row.seriesId),
+    sessionId: readTrimmedString(row.sessionId),
+    contextState: "loading",
+    source: row.source === "loader" || row.source === "bootstrap" ? row.source : "session",
+  };
+
+  return {
+    ...normalized,
+    contextState: deriveContextState(normalized),
+  };
+}
+
+function buildStoredFieldStrengths(state: EpisodeWorkspaceState): EpisodeFieldStrengths {
+  const source = state.source ?? "session";
+  const strength = SOURCE_STRENGTH[source];
+  return {
+    title: hasMeaningfulField("title", state.title, source) ? strength : -1,
+    seriesTitle: hasMeaningfulField("seriesTitle", state.seriesTitle, source) ? strength : -1,
+    phase: hasMeaningfulField("phase", state.phase, source) ? strength : -1,
+    displayStatus: hasMeaningfulField("displayStatus", state.displayStatus, source) ? strength : -1,
+    sessionId: hasMeaningfulField("sessionId", state.sessionId, source) ? strength : -1,
+  };
+}
+
+function readStoredState(): EpisodeWorkspaceInternalState | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as unknown;
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      typeof (parsed as { episodeId?: unknown }).episodeId !== "string" ||
-      !(parsed as { episodeId: string }).episodeId
-    ) {
-      return null;
-    }
-    return parsed as EpisodeWorkspaceState;
+    const episode = normalizeStoredState(JSON.parse(raw) as unknown);
+    if (!episode) return null;
+    return {
+      episode,
+      fieldStrengths: buildStoredFieldStrengths(episode),
+    };
   } catch {
     return null;
   }
@@ -95,62 +173,141 @@ function writeStoredState(state: EpisodeWorkspaceState | null): void {
     }
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state));
   } catch {
-    // Swallow storage quota / security errors — in-memory is still live
+    // Ignore storage failures — in-memory state stays live.
   }
 }
 
-// ---------------------------------------------------------------------------
-// Provider
-// ---------------------------------------------------------------------------
+function mergeEpisodeState(
+  prev: EpisodeWorkspaceInternalState,
+  episodeId: string,
+  patch: Partial<EpisodeWorkspaceState>,
+  source: EpisodeWorkspaceSource,
+): EpisodeWorkspaceInternalState {
+  const replacingEpisode = prev.episode.episodeId !== episodeId;
+  const nextEpisode: EpisodeWorkspaceState = replacingEpisode
+    ? {
+      ...EMPTY_EPISODE_STATE,
+      episodeId,
+      contextState: "loading",
+      source,
+    }
+    : { ...prev.episode, episodeId, source: prev.episode.source === "loader" ? prev.episode.source : source };
+  const nextFieldStrengths = replacingEpisode ? { ...EMPTY_FIELD_STRENGTHS } : { ...prev.fieldStrengths };
+  const strength = SOURCE_STRENGTH[source];
+
+  const applyField = <K extends EpisodeWorkspaceField>(field: K) => {
+    const value = patch[field];
+    if (!hasMeaningfulField(field, value, source)) return;
+    if (strength < nextFieldStrengths[field]) return;
+    nextEpisode[field] = value as EpisodeWorkspaceState[K];
+    nextFieldStrengths[field] = strength;
+  };
+
+  applyField("title");
+  applyField("seriesTitle");
+  applyField("phase");
+  applyField("displayStatus");
+  applyField("sessionId");
+
+  nextEpisode.contextState = deriveContextState(nextEpisode);
+  return {
+    episode: nextEpisode,
+    fieldStrengths: nextFieldStrengths,
+  };
+}
 
 export function EpisodeWorkspaceProvider({ children }: { children: ReactNode }) {
-  const [episode, setEpisodeRaw] = useState<EpisodeWorkspaceState>(
-    () => readStoredState() ?? EMPTY_EPISODE_STATE,
+  const [state, setState] = useState<EpisodeWorkspaceInternalState>(
+    () => readStoredState() ?? { episode: EMPTY_EPISODE_STATE, fieldStrengths: { ...EMPTY_FIELD_STRENGTHS } },
   );
 
-  const setActiveEpisode = useCallback((state: EpisodeWorkspaceState) => {
-    setEpisodeRaw(state);
-    writeStoredState(state);
+  const setActiveEpisode = useCallback((input: Partial<EpisodeWorkspaceState> & { episodeId: string }) => {
+    const next = mergeEpisodeState(
+      { episode: EMPTY_EPISODE_STATE, fieldStrengths: { ...EMPTY_FIELD_STRENGTHS } },
+      input.episodeId,
+      input,
+      "loader",
+    );
+    setState(next);
+    writeStoredState(next.episode);
   }, []);
 
   const clearEpisode = useCallback(() => {
-    setEpisodeRaw(EMPTY_EPISODE_STATE);
+    const next = { episode: EMPTY_EPISODE_STATE, fieldStrengths: { ...EMPTY_FIELD_STRENGTHS } };
+    setState(next);
     writeStoredState(null);
   }, []);
 
-  const hydrateEpisodeFromPayload = useCallback(
-    (payload: Partial<EpisodeWorkspaceState> & { episodeId: string }) => {
-      setEpisodeRaw((prev) => {
-        // If the same episode is already set, only backfill missing fields
-        if (prev.episodeId === payload.episodeId) {
-          const enriched: EpisodeWorkspaceState = {
-            ...prev,
-            title: prev.title || payload.title || "",
-            seriesId: prev.seriesId ?? payload.seriesId ?? null,
-            status: prev.status ?? payload.status ?? null,
-            sessionId: prev.sessionId ?? payload.sessionId ?? null,
-          };
-          const changed = JSON.stringify(enriched) !== JSON.stringify(prev);
-          if (changed) writeStoredState(enriched);
-          return changed ? enriched : prev;
-        }
-        const next: EpisodeWorkspaceState = {
-          episodeId: payload.episodeId,
-          title: payload.title ?? "",
-          seriesId: payload.seriesId ?? null,
-          status: payload.status ?? null,
-          sessionId: payload.sessionId ?? null,
+  const hydrateEpisodeFromPayload = useCallback((payload: Partial<EpisodeWorkspaceState> & { episodeId: string }) => {
+    setState((prev) => {
+      const next = mergeEpisodeState(prev, payload.episodeId, payload, "bootstrap");
+      writeStoredState(next.episode);
+      return next;
+    });
+  }, []);
+
+  const hydrateEpisodeFromReadModel = useCallback((readModel: EpisodeWorkspaceReadModel) => {
+    setState((prev) => {
+      const next = mergeEpisodeState(
+        prev,
+        readModel.episodeId,
+        {
+          title: readModel.title,
+          phase: readModel.phase as EpisodePhase,
+          displayStatus: readModel.displayStatus,
+          sessionId: readModel.sessionId ?? null,
+          seriesTitle: readModel.seriesTitle ?? null,
+        },
+        "loader",
+      );
+      writeStoredState(next.episode);
+      return next;
+    });
+  }, []);
+
+  const setEpisodeContextLoading = useCallback((episodeId: string | null) => {
+    setState((prev) => {
+      if (!episodeId) {
+        if (prev.episode.contextState === "none") return prev;
+        const cleared = { episode: EMPTY_EPISODE_STATE, fieldStrengths: { ...EMPTY_FIELD_STRENGTHS } };
+        writeStoredState(null);
+        return cleared;
+      }
+
+      if (prev.episode.episodeId === episodeId) {
+        if (prev.episode.contextState === "active") return prev;
+        const nextEpisode: EpisodeWorkspaceState = {
+          ...prev.episode,
+          episodeId,
+          contextState: deriveContextState(prev.episode) === "active" ? "active" : "loading",
         };
-        writeStoredState(next);
+        const next = { ...prev, episode: nextEpisode };
+        writeStoredState(nextEpisode);
         return next;
-      });
-    },
-    [],
-  );
+      }
+
+      const nextEpisode: EpisodeWorkspaceState = {
+        ...EMPTY_EPISODE_STATE,
+        episodeId,
+        contextState: "loading",
+        source: "bootstrap",
+      };
+      const next = { episode: nextEpisode, fieldStrengths: { ...EMPTY_FIELD_STRENGTHS } };
+      writeStoredState(nextEpisode);
+      return next;
+    });
+  }, []);
 
   const value = useMemo<EpisodeWorkspaceContextValue>(
-    () => ({ episode, setActiveEpisode, clearEpisode, hydrateEpisodeFromPayload }),
-    [episode, setActiveEpisode, clearEpisode, hydrateEpisodeFromPayload],
+    () => ({
+      episode: state.episode,
+      setActiveEpisode,
+      clearEpisode,
+      hydrateEpisodeFromPayload,
+      hydrateEpisodeFromReadModel,
+      setEpisodeContextLoading,
+    }),
+    [state.episode, setActiveEpisode, clearEpisode, hydrateEpisodeFromPayload, hydrateEpisodeFromReadModel, setEpisodeContextLoading],
   );
 
   return (
@@ -160,11 +317,6 @@ export function EpisodeWorkspaceProvider({ children }: { children: ReactNode }) 
   );
 }
 
-// ---------------------------------------------------------------------------
-// Consumer hooks
-// ---------------------------------------------------------------------------
-
-/** Use inside any component that requires an active episode context. */
 export function useEpisodeWorkspace(): EpisodeWorkspaceContextValue {
   const ctx = useContext(EpisodeWorkspaceContext);
   if (!ctx) {
@@ -173,11 +325,6 @@ export function useEpisodeWorkspace(): EpisodeWorkspaceContextValue {
   return ctx;
 }
 
-/**
- * Use inside components that may render without an episode context (e.g. tools
- * opened standalone without a workpiece). Returns null when no provider is present
- * or when no episode is active.
- */
 export function useOptionalEpisodeWorkspace(): EpisodeWorkspaceContextValue | null {
   return useContext(EpisodeWorkspaceContext);
 }

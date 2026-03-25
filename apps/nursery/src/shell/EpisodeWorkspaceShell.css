@@ -175,6 +175,27 @@
   opacity: 0.8;
 }
 
+.ew-header--loading {
+  min-height: 54px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.ew-header__loading {
+  display: grid;
+  gap: 4px;
+}
+
+.ew-header__loading-title {
+  color: var(--forge-episode-title);
+  font-weight: 700;
+}
+
+.ew-header__loading-copy {
+  color: var(--forge-episode-muted);
+  font-size: 11px;
+}
+
 /* ── Responsive ─────────────────────────────────────── */
 @media (max-width: 700px) {
   .ew-header {

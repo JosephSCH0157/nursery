@@ -29,10 +29,12 @@ export default function EpisodeContinuityStrip({
   const episode = ctx?.episode;
 
   if (!episode?.episodeId) return null;
+  if (workpieceId && episode.episodeId !== workpieceId) return null;
 
-  const title = episode.title?.trim() || "Episode";
-  const statusLabel = formatEpisodeStatusLabel(episode.status ?? null);
-  const statusTone = getEpisodeStatusTone(episode.status ?? null);
+  const isLoading = episode.contextState === "loading";
+  const title = isLoading ? "Loading episode context..." : episode.title?.trim() || "Episode";
+  const statusLabel = isLoading ? null : formatEpisodeStatusLabel(episode.displayStatus ?? null);
+  const statusTone = getEpisodeStatusTone(episode.displayStatus ?? null);
   const workpieceRef = workpieceId ?? episode.episodeId;
   const ctaHref = ctaLabel && ctaPhase
     ? buildGoToPhaseHref(ctaPhase, { workpieceId: workpieceRef })
@@ -48,7 +50,7 @@ export default function EpisodeContinuityStrip({
             <span className={`forge-status-pill forge-status-pill--${statusTone}`}>{statusLabel}</span>
           ) : null}
         </div>
-        {detail ? <p className="forge-episode-strip__detail">{detail}</p> : null}
+        <p className="forge-episode-strip__detail">{detail ?? (isLoading ? "Waiting for the tool loader to resolve title and status." : "")}</p>
       </div>
       {ctaHref && ctaLabel ? (
         <a className="forge-workflow-link" href={ctaHref}>{ctaLabel}</a>

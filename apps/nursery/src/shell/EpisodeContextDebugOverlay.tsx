@@ -22,11 +22,7 @@ function EpisodeContextDebugOverlayDev() {
   const [collapsed, setCollapsed] = useState(true);
   const phase = resolvePhaseFromPathname(location.pathname);
 
-  const sourceLabel = ctx?.episode.episodeId
-    ? typeof window !== "undefined" && window.sessionStorage.getItem("forge.activeEpisode")
-      ? "sessionStorage"
-      : "memory"
-    : "none";
+  const sourceLabel = ctx?.episode.episodeId ? ctx.episode.source : "none";
 
   return (
     <div
@@ -85,8 +81,10 @@ function EpisodeContextDebugOverlayDev() {
         <div style={{ padding: "0 10px 8px", display: "grid", rowGap: 3 }}>
           <Row label="episodeId" value={ctx?.episode.episodeId ?? "—"} />
           <Row label="title" value={ctx?.episode.title || "—"} />
-          <Row label="status" value={ctx?.episode.status ?? "—"} />
+          <Row label="displayStatus" value={ctx?.episode.displayStatus ?? "—"} />
+          <Row label="contextState" value={ctx?.episode.contextState ?? "—"} />
           <Row label="sessionId" value={ctx?.episode.sessionId ?? "—"} />
+          <Row label="phase (context)" value={ctx?.episode.phase ?? "—"} />
           <Row label="phase (route)" value={phase} />
           <Row label="source" value={sourceLabel} />
           <Row label="pathname" value={location.pathname} />

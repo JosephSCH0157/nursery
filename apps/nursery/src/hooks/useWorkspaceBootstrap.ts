@@ -18,9 +18,13 @@ import { useOptionalEpisodeWorkspace } from "../workspace/EpisodeWorkspaceContex
 import type { EpisodeWorkspaceState } from "../workspace/EpisodeWorkspaceContext";
 
 export interface WorkspaceBootstrapPayload
-  extends Partial<Pick<EpisodeWorkspaceState, "title" | "seriesId" | "status" | "sessionId">> {
+  extends Partial<Pick<EpisodeWorkspaceState, "title" | "seriesTitle" | "displayStatus" | "sessionId" | "phase">> {
   /** Explicit episodeId override. If not provided, falls back to URL workpiece_id. */
   episodeId?: string | null;
+  /** Legacy alias; maps to seriesTitle. */
+  seriesId?: string | null;
+  /** Legacy alias; maps to displayStatus. */
+  status?: string | null;
 }
 
 /**
@@ -42,11 +46,14 @@ export function useWorkspaceBootstrap(payload?: WorkspaceBootstrapPayload): void
 
     if (!episodeId) return;
 
+    ctx.setEpisodeContextLoading(episodeId);
+
     ctx.hydrateEpisodeFromPayload({
       episodeId,
       title: payload?.title ?? undefined,
-      seriesId: payload?.seriesId ?? undefined,
-      status: payload?.status ?? undefined,
+      seriesTitle: payload?.seriesTitle ?? payload?.seriesId ?? undefined,
+      displayStatus: payload?.displayStatus ?? payload?.status ?? undefined,
+      phase: payload?.phase ?? undefined,
       sessionId: payload?.sessionId ?? undefined,
     });
     // Intentionally omit ctx from deps — hydrateEpisodeFromPayload is stable
@@ -55,8 +62,11 @@ export function useWorkspaceBootstrap(payload?: WorkspaceBootstrapPayload): void
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     location.search,
+    payload?.displayStatus,
     payload?.episodeId,
+    payload?.phase,
     payload?.seriesId,
+    payload?.seriesTitle,
     payload?.sessionId,
     payload?.status,
     payload?.title,

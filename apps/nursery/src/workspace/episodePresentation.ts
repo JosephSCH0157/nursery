@@ -1,7 +1,6 @@
-import type { EpisodeWorkspaceStatus } from "./EpisodeWorkspaceContext";
 import type { EpisodeDisplayStatus } from "./resolveEpisodeStatus";
 
-export type EpisodeUiStatus = EpisodeWorkspaceStatus | EpisodeDisplayStatus;
+export type EpisodeUiStatus = EpisodeDisplayStatus | "ready";
 
 export type EpisodeUiTone = "muted" | "ready" | "active" | "done";
 
