@@ -157,7 +157,15 @@ import {
   resolveNearestParagraphSelection,
   resolveImageMapAnchorContext,
 } from "../lib/hearth-image-map-beats";
+import {
+  buildBrollPlanFromScript,
+  buildStockCandidatesForBrollBeat,
+  regenerateBrollBeatFromDescription,
+} from "../lib/hearth-broll-plan";
+import { uploadBrollBeatAsset } from "../lib/hearth-broll-plan-repo";
 import type {
+  EpisodeBrollPlan,
+  EpisodeBrollPlanBeat,
   EpisodePackageV2,
   EpisodeImageMapAnchorScope,
   EpisodeLaunchVariant,
@@ -172,6 +180,7 @@ import type {
 import {
   addImageMapEntry,
   buildImageMapAnchorLabel,
+  ensureBrollPlanV2,
   ensureLaunchVariantsV2,
   ensureSeoV2,
   normalizeSeoTags,
@@ -206,6 +215,7 @@ import {
 } from "../lib/hearth-thumbnail-title-contract";
 import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
 import ImageMapPanel from "../components/visuals/ImageMapPanel";
+import BrollPlanPanel from "../components/visuals/BrollPlanPanel";
 import MetadataPanel from "../components/metadata/MetadataPanel";
 import CollapsibleFocusPanel from "../components/focus/CollapsibleFocusPanel";
 import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
@@ -245,7 +255,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 
 type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
 type FocusTab = "draft" | "planning" | "sources" | "revisions";
-type FocusPanelId = "chat" | "thumbnail" | "imageMap" | "metadata";
+type FocusPanelId = "chat" | "thumbnail" | "imageMap" | "brollPlan" | "metadata";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
 type SttLane = "browser" | "ai";
 type SttState = "idle" | "listening" | "transcribing";
@@ -360,6 +370,7 @@ const DEFAULT_FOCUS_PANEL_LAYOUT: Record<FocusPanelId, boolean> = {
   chat: false,
   thumbnail: false,
   imageMap: false,
+  brollPlan: false,
   metadata: false,
 };
 const FORGE_NOTICE_EVENT = "forge:notice";
@@ -794,6 +805,7 @@ function readFocusPanelLayout(workpieceId: string | null): Record<FocusPanelId, 
       chat: row.chat === true,
       thumbnail: row.thumbnail === true,
       imageMap: row.imageMap === true,
+      brollPlan: row.brollPlan === true,
       metadata: row.metadata === true,
     };
   } catch {
@@ -2316,6 +2328,21 @@ export default function HearthShell() {
   const [isImageMapReanchorMode, setIsImageMapReanchorMode] = useState(false);
   const [isImageMapReanchorSaving, setIsImageMapReanchorSaving] = useState(false);
   const [imageMapReanchorError, setImageMapReanchorError] = useState<string | null>(null);
+  const [selectedBrollBeatId, setSelectedBrollBeatId] = useState<string | null>(null);
+  const [brollAnchorDraft, setBrollAnchorDraft] = useState("");
+  const [brollDescriptionDraft, setBrollDescriptionDraft] = useState("");
+  const [brollMotionIntentDraft, setBrollMotionIntentDraft] = useState("broll");
+  const [brollPriorityDraft, setBrollPriorityDraft] = useState("supporting");
+  const [brollKeywordsDraft, setBrollKeywordsDraft] = useState("");
+  const [brollMoodDraft, setBrollMoodDraft] = useState("");
+  const [brollShotTypeDraft, setBrollShotTypeDraft] = useState("mixed");
+  const [brollMotionSuggestionDraft, setBrollMotionSuggestionDraft] = useState("");
+  const [brollSuggestedDurationDraft, setBrollSuggestedDurationDraft] = useState("");
+  const [brollPlacementHintDraft, setBrollPlacementHintDraft] = useState("first_occurrence");
+  const [brollSaveState, setBrollSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
+  const [brollSaveError, setBrollSaveError] = useState<string | null>(null);
+  const [brollMessage, setBrollMessage] = useState<string | null>(null);
+  const [isBrollBusy, setIsBrollBusy] = useState(false);
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
   const episodePackageRequestSeqRef = useRef(0);
   const thumbnailPreviewRequestSeqRef = useRef(0);
@@ -2657,6 +2684,9 @@ export default function HearthShell() {
   const selectedThumbnailVersion = thumbnailVersions.find((version) => version.id === selectedThumbnailVersionId) ?? null;
   const imageMapEntries = episodePackage?.image_map.entries ?? [];
   const selectedImageMapEntry = imageMapEntries.find((entry) => entry.id === selectedImageMapEntryId) ?? null;
+  const brollPlan: EpisodeBrollPlan | null = episodePackage?.broll_plan ?? null;
+  const brollBeats: EpisodeBrollPlanBeat[] = brollPlan?.beats ?? [];
+  const selectedBrollBeat = brollBeats.find((beat) => beat.id === selectedBrollBeatId) ?? null;
   const selectedImageMapExactAnchor = useMemo(() => {
     if (!selectedImageMapEntry || canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
       return null;
@@ -2793,6 +2823,7 @@ export default function HearthShell() {
     : "Ready";
   const thumbnailPanelMeta = `${thumbnailConcepts.length} concepts · ${thumbnailVersions.length} versions`;
   const imageMapPanelMeta = `${imageMapEntries.length} anchor${imageMapEntries.length === 1 ? "" : "s"}`;
+  const brollPanelMeta = `${brollBeats.length} beat${brollBeats.length === 1 ? "" : "s"} · coverage ${brollPlan?.coverage_strength ?? "low"}`;
   const metadataPanelMeta = `${thumbnailTitleOptions.length} title${thumbnailTitleOptions.length === 1 ? "" : "s"} · ${metadataTagsDraft.length} tag${metadataTagsDraft.length === 1 ? "" : "s"}`;
   const hasBrowserSpeech = (
     typeof window !== "undefined"
@@ -3277,6 +3308,7 @@ export default function HearthShell() {
       setSelectedThumbnailVersionId(null);
       setSelectedLaunchVariantId(null);
       setSelectedImageMapEntryId(null);
+      setSelectedBrollBeatId(null);
       setThumbnailGenerateError(null);
       setThumbnailUploadError(null);
       setThumbnailPairingError(null);
@@ -3286,6 +3318,9 @@ export default function HearthShell() {
       setImageMapSaveState("saved");
       setImageMapSaveError(null);
       setImageMapExportMessage(null);
+      setBrollSaveState("saved");
+      setBrollSaveError(null);
+      setBrollMessage(null);
       setLatestReleasePrepRawText(null);
       setLatestReleasePrepSections([]);
       setReleasePrepLoadState("idle");
@@ -5105,6 +5140,13 @@ export default function HearthShell() {
   }, [workpieceId]);
 
   useEffect(() => {
+    setSelectedBrollBeatId(null);
+    setBrollSaveState("saved");
+    setBrollSaveError(null);
+    setBrollMessage(null);
+  }, [workpieceId]);
+
+  useEffect(() => {
     const episodeId = workpieceId?.trim() ?? "";
     const previewSeq = thumbnailPreviewRequestSeqRef.current + 1;
     thumbnailPreviewRequestSeqRef.current = previewSeq;
@@ -5197,6 +5239,48 @@ export default function HearthShell() {
     setImageMapCandidateError(null);
     setImageMapCandidateSelectionError(null);
   }, [selectedImageMapEntry]);
+
+  useEffect(() => {
+    if (brollBeats.length === 0) {
+      setSelectedBrollBeatId(null);
+      return;
+    }
+    if (selectedBrollBeatId && brollBeats.some((beat) => beat.id === selectedBrollBeatId)) {
+      return;
+    }
+    setSelectedBrollBeatId(brollBeats[0]?.id ?? null);
+  }, [brollBeats, selectedBrollBeatId]);
+
+  useEffect(() => {
+    if (!selectedBrollBeat) {
+      setBrollAnchorDraft("");
+      setBrollDescriptionDraft("");
+      setBrollMotionIntentDraft("broll");
+      setBrollPriorityDraft("supporting");
+      setBrollKeywordsDraft("");
+      setBrollMoodDraft("");
+      setBrollShotTypeDraft("mixed");
+      setBrollMotionSuggestionDraft("");
+      setBrollSuggestedDurationDraft("");
+      setBrollPlacementHintDraft("first_occurrence");
+      setBrollSaveState("saved");
+      return;
+    }
+    setBrollAnchorDraft(selectedBrollBeat.anchor_text);
+    setBrollDescriptionDraft(selectedBrollBeat.description);
+    setBrollMotionIntentDraft(selectedBrollBeat.motion_intent);
+    setBrollPriorityDraft(selectedBrollBeat.priority);
+    setBrollKeywordsDraft((selectedBrollBeat.keywords ?? []).join(", "));
+    setBrollMoodDraft(selectedBrollBeat.mood ?? "");
+    setBrollShotTypeDraft(selectedBrollBeat.shot_type ?? "mixed");
+    setBrollMotionSuggestionDraft(selectedBrollBeat.motion_suggestion ?? "");
+    setBrollSuggestedDurationDraft(
+      selectedBrollBeat.suggested_duration_ms != null ? String(selectedBrollBeat.suggested_duration_ms) : "",
+    );
+    setBrollPlacementHintDraft(selectedBrollBeat.placement_hint ?? "first_occurrence");
+    setBrollSaveState("saved");
+    setBrollSaveError(null);
+  }, [selectedBrollBeat]);
 
   useEffect(() => {
     setIsVisualScriptMode(false);
@@ -5456,6 +5540,12 @@ export default function HearthShell() {
     const timer = window.setTimeout(() => setImageMapExportMessage(null), 2600);
     return () => window.clearTimeout(timer);
   }, [imageMapExportMessage]);
+
+  useEffect(() => {
+    if (!brollMessage) return;
+    const timer = window.setTimeout(() => setBrollMessage(null), 2600);
+    return () => window.clearTimeout(timer);
+  }, [brollMessage]);
 
   useEffect(() => {
     if (!scriptPanelCopyMessage) return;
@@ -7543,6 +7633,352 @@ export default function HearthShell() {
       episodePackage: nextEpisodePackage,
       metadataUpdatedAt: saved.imageMap.metadataUpdatedAt,
     };
+  }
+
+  async function persistBrollPlan(args: {
+    plan: EpisodeBrollPlan;
+    eventName: string;
+    eventPayload: Record<string, unknown>;
+  }): Promise<
+    | { ok: true; episodePackage: EpisodePackageV2 }
+    | { ok: false; error: string }
+  > {
+    if (!episodePackage) {
+      return { ok: false, error: "Unable to save B-roll plan for this episode." };
+    }
+    const episodeId = workpieceId?.trim() ?? "";
+    const workspace = workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      return { ok: false, error: "Workspace or workpiece is missing." };
+    }
+    const nextEpisodePackage = ensureBrollPlanV2({
+      ...episodePackage,
+      broll_plan: {
+        ...args.plan,
+        workpiece_id: episodeId,
+      },
+    });
+    const saved = await saveEpisodePackageForWorkpiece({
+      workpieceId: episodeId,
+      workspaceId: workspace,
+      episodePackage: ensureLaunchVariantsV2(nextEpisodePackage),
+      eventName: args.eventName,
+      eventPayload: args.eventPayload,
+    });
+    if (!saved.ok) {
+      return { ok: false, error: saved.error };
+    }
+    setEpisodePackage(saved.episodePackage);
+    setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
+    return { ok: true, episodePackage: saved.episodePackage };
+  }
+
+  function setBrollDraftEditing(fieldSetter: (value: string) => void, value: string): void {
+    fieldSetter(value);
+    if (brollSaveState !== "editing") {
+      setBrollSaveState("editing");
+    }
+    setBrollSaveError(null);
+  }
+
+  async function onGenerateBrollPlan() {
+    if (isApprovingScript || isAiProcessing || isBrollBusy) return;
+    if (!episodePackage) return;
+    const canonicalScript = await readCanonicalScriptForImageMapGeneration();
+    if (!canonicalScript.ok) {
+      setBrollSaveError(canonicalScript.message);
+      setBrollSaveState("error");
+      return;
+    }
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!episodeId) {
+      setBrollSaveError("Select an Episode before generating a B-roll plan.");
+      setBrollSaveState("error");
+      return;
+    }
+    setIsBrollBusy(true);
+    setBrollSaveState("saving");
+    setBrollSaveError(null);
+    try {
+      const plan = buildBrollPlanFromScript({
+        workpieceId: episodeId,
+        scriptText: canonicalScript.text,
+        previousPlan: episodePackage.broll_plan,
+      });
+      const saved = await persistBrollPlan({
+        plan,
+        eventName: "hearth.broll_plan.generated.v1",
+        eventPayload: {
+          beat_count: plan.beats.length,
+          coverage_strength: plan.coverage_strength ?? null,
+          source: canonicalScript.source,
+        },
+      });
+      if (!saved.ok) {
+        setBrollSaveError(saved.error);
+        setBrollSaveState("error");
+        return;
+      }
+      setSelectedBrollBeatId(plan.beats[0]?.id ?? null);
+      setBrollSaveState("saved");
+      setBrollMessage(`Generated ${plan.beats.length} B-roll beats from the canonical script.`);
+    } finally {
+      setIsBrollBusy(false);
+    }
+  }
+
+  async function onSaveBrollBeat() {
+    if (!episodePackage || !selectedBrollBeat) return;
+    if (isBrollBusy) return;
+    const nextKeywords = brollKeywordsDraft
+      .split(",")
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean);
+    const nextBeat: EpisodeBrollPlanBeat = {
+      ...selectedBrollBeat,
+      anchor_text: brollAnchorDraft.trim(),
+      description: brollDescriptionDraft.trim(),
+      motion_intent: brollMotionIntentDraft as EpisodeBrollPlanBeat["motion_intent"],
+      priority: brollPriorityDraft as EpisodeBrollPlanBeat["priority"],
+      keywords: nextKeywords,
+      mood: brollMoodDraft.trim() || null,
+      shot_type: (brollShotTypeDraft.trim() || "mixed") as EpisodeBrollPlanBeat["shot_type"],
+      motion_suggestion: brollMotionSuggestionDraft.trim() || null,
+      suggested_duration_ms: Number.isFinite(Number(brollSuggestedDurationDraft))
+        ? Math.max(0, Math.trunc(Number(brollSuggestedDurationDraft)))
+        : null,
+      placement_hint: (brollPlacementHintDraft.trim() || "first_occurrence") as EpisodeBrollPlanBeat["placement_hint"],
+      updated_at: new Date().toISOString(),
+      fulfillment_state: selectedBrollBeat.selected_asset_id ? "stale" : selectedBrollBeat.fulfillment_state,
+    };
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
+      generated_at: new Date().toISOString(),
+    };
+    setIsBrollBusy(true);
+    setBrollSaveState("saving");
+    setBrollSaveError(null);
+    const saved = await persistBrollPlan({
+      plan: nextPlan,
+      eventName: "hearth.broll_plan.beat_updated.v1",
+      eventPayload: { beat_id: selectedBrollBeat.id },
+    });
+    setIsBrollBusy(false);
+    if (!saved.ok) {
+      setBrollSaveError(saved.error);
+      setBrollSaveState("error");
+      return;
+    }
+    setBrollSaveState("saved");
+    setBrollMessage("B-roll beat saved.");
+  }
+
+  async function onDeleteBrollBeat() {
+    if (!episodePackage || !selectedBrollBeat) return;
+    if (isBrollBusy) return;
+    const confirmed = window.confirm("Delete this B-roll beat?");
+    if (!confirmed) return;
+    const nextBeats = episodePackage.broll_plan.beats.filter((beat) => beat.id !== selectedBrollBeat.id);
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: nextBeats,
+      generated_at: new Date().toISOString(),
+    };
+    setIsBrollBusy(true);
+    setBrollSaveState("saving");
+    setBrollSaveError(null);
+    const saved = await persistBrollPlan({
+      plan: nextPlan,
+      eventName: "hearth.broll_plan.beat_deleted.v1",
+      eventPayload: { beat_id: selectedBrollBeat.id },
+    });
+    setIsBrollBusy(false);
+    if (!saved.ok) {
+      setBrollSaveError(saved.error);
+      setBrollSaveState("error");
+      return;
+    }
+    setSelectedBrollBeatId(nextBeats[0]?.id ?? null);
+    setBrollSaveState("saved");
+    setBrollMessage("B-roll beat removed.");
+  }
+
+  async function onRegenerateBrollBeat() {
+    if (!episodePackage || !selectedBrollBeat) return;
+    if (isBrollBusy) return;
+    const regenerated = regenerateBrollBeatFromDescription({
+      ...selectedBrollBeat,
+      description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
+    });
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? regenerated : beat)),
+      generated_at: new Date().toISOString(),
+    };
+    setIsBrollBusy(true);
+    setBrollSaveState("saving");
+    setBrollSaveError(null);
+    const saved = await persistBrollPlan({
+      plan: nextPlan,
+      eventName: "hearth.broll_plan.beat_regenerated.v1",
+      eventPayload: { beat_id: selectedBrollBeat.id },
+    });
+    setIsBrollBusy(false);
+    if (!saved.ok) {
+      setBrollSaveError(saved.error);
+      setBrollSaveState("error");
+      return;
+    }
+    setBrollSaveState("saved");
+    setBrollMessage("B-roll beat regenerated.");
+  }
+
+  async function onFindStockForBrollBeat() {
+    if (!episodePackage || !selectedBrollBeat) return;
+    if (isBrollBusy) return;
+    const baseBeat = {
+      ...selectedBrollBeat,
+      description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
+      keywords: brollKeywordsDraft
+        .split(",")
+        .map((entry) => entry.trim().toLowerCase())
+        .filter(Boolean),
+      motion_intent: brollMotionIntentDraft as EpisodeBrollPlanBeat["motion_intent"],
+      mood: brollMoodDraft.trim() || selectedBrollBeat.mood,
+    };
+    const stockCandidates = buildStockCandidatesForBrollBeat(baseBeat);
+    const nextBeat: EpisodeBrollPlanBeat = {
+      ...baseBeat,
+      source_type: "stock",
+      candidate_assets: stockCandidates,
+      selected_asset_id: stockCandidates[0]?.asset_id ?? null,
+      fulfillment_state: stockCandidates.length > 0 ? "resolved" : "unresolved",
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
+      generated_at: new Date().toISOString(),
+    };
+    setIsBrollBusy(true);
+    setBrollSaveState("saving");
+    setBrollSaveError(null);
+    const saved = await persistBrollPlan({
+      plan: nextPlan,
+      eventName: "hearth.broll_plan.stock_candidates.generated.v1",
+      eventPayload: { beat_id: selectedBrollBeat.id, candidate_count: stockCandidates.length },
+    });
+    setIsBrollBusy(false);
+    if (!saved.ok) {
+      setBrollSaveError(saved.error);
+      setBrollSaveState("error");
+      return;
+    }
+    setBrollSaveState("saved");
+    setBrollMessage(`Attached ${stockCandidates.length} stock candidate links.`);
+  }
+
+  async function onUploadBrollBeatAsset(file: File) {
+    if (!episodePackage || !selectedBrollBeat) return;
+    if (isBrollBusy) return;
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!episodeId) {
+      setBrollSaveError("Select an Episode before uploading B-roll assets.");
+      setBrollSaveState("error");
+      return;
+    }
+    setIsBrollBusy(true);
+    setBrollSaveState("saving");
+    setBrollSaveError(null);
+    const uploaded = await uploadBrollBeatAsset({
+      workpieceId: episodeId,
+      beatId: selectedBrollBeat.id,
+      file,
+      source: "upload",
+    });
+    if (!uploaded.ok) {
+      setIsBrollBusy(false);
+      setBrollSaveError(uploaded.error);
+      setBrollSaveState("error");
+      return;
+    }
+    const nextBeat: EpisodeBrollPlanBeat = {
+      ...selectedBrollBeat,
+      source_type: "upload",
+      origin: selectedBrollBeat.origin === "hammer" ? "mixed" : "hearth",
+      candidate_assets: [
+        ...(selectedBrollBeat.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
+        uploaded.candidateAsset,
+      ],
+      selected_asset_id: uploaded.candidateAsset.asset_id,
+      fulfillment_state: "resolved",
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
+      generated_at: new Date().toISOString(),
+    };
+    const saved = await persistBrollPlan({
+      plan: nextPlan,
+      eventName: "hearth.broll_plan.asset_uploaded.v1",
+      eventPayload: { beat_id: selectedBrollBeat.id, source: "upload" },
+    });
+    setIsBrollBusy(false);
+    if (!saved.ok) {
+      setBrollSaveError(saved.error);
+      setBrollSaveState("error");
+      return;
+    }
+    setBrollSaveState("saved");
+    setBrollMessage("Uploaded asset selected for this B-roll beat.");
+  }
+
+  async function onSelectBrollCandidate(candidateId: string) {
+    if (!episodePackage || !selectedBrollBeat) return;
+    if (isBrollBusy) return;
+    if (selectedBrollBeat.selected_asset_id === candidateId) return;
+    const candidate = (selectedBrollBeat.candidate_assets ?? []).find((asset) => asset.asset_id === candidateId) ?? null;
+    if (!candidate) {
+      setBrollSaveError("Selected candidate is no longer attached to this beat.");
+      setBrollSaveState("error");
+      return;
+    }
+    const nextBeat: EpisodeBrollPlanBeat = {
+      ...selectedBrollBeat,
+      source_type: candidate.source,
+      selected_asset_id: candidate.asset_id,
+      fulfillment_state: "resolved",
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
+      generated_at: new Date().toISOString(),
+    };
+    setIsBrollBusy(true);
+    setBrollSaveState("saving");
+    setBrollSaveError(null);
+    const saved = await persistBrollPlan({
+      plan: nextPlan,
+      eventName: "hearth.broll_plan.asset_selected.v1",
+      eventPayload: { beat_id: selectedBrollBeat.id, candidate_id: candidate.asset_id },
+    });
+    setIsBrollBusy(false);
+    if (!saved.ok) {
+      setBrollSaveError(saved.error);
+      setBrollSaveState("error");
+      return;
+    }
+    setBrollSaveState("saved");
+    setBrollMessage("Selected asset attached to B-roll beat.");
   }
 
   async function onCreateThumbnailConcept() {
@@ -10548,6 +10984,59 @@ export default function HearthShell() {
                   onLeaveOrphaned={() => void onLeaveImageMapOrphaned()}
                   onCancelReanchor={onCancelImageMapReanchor}
                   onPickReanchor={(selection) => void onPickImageMapReanchor(selection)}
+                />
+              </CollapsibleFocusPanel>
+            ) : null}
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <CollapsibleFocusPanel
+                panelId="hearth-broll-plan-panel"
+                title="B-roll Plan"
+                meta={brollPanelMeta}
+                collapsed={focusPanelLayout.brollPlan}
+                onToggle={() => onToggleFocusPanel("brollPlan")}
+              >
+                <BrollPlanPanel
+                  beats={brollBeats}
+                  selectedBeatId={selectedBrollBeatId}
+                  coverageStrength={brollPlan?.coverage_strength ?? null}
+                  saveState={brollSaveState}
+                  saveError={brollSaveError}
+                  message={brollMessage}
+                  disabled={isApprovingScript || isBrollBusy || !episodePackage}
+                  draft={{
+                    anchorText: brollAnchorDraft,
+                    description: brollDescriptionDraft,
+                    motionIntent: brollMotionIntentDraft,
+                    priority: brollPriorityDraft,
+                    keywords: brollKeywordsDraft,
+                    mood: brollMoodDraft,
+                    shotType: brollShotTypeDraft,
+                    motionSuggestion: brollMotionSuggestionDraft,
+                    suggestedDurationMs: brollSuggestedDurationDraft,
+                    placementHint: brollPlacementHintDraft,
+                  }}
+                  selectedCandidateId={selectedBrollBeat?.selected_asset_id ?? null}
+                  onSelectBeat={setSelectedBrollBeatId}
+                  onDraftChange={(field, value) => {
+                    if (field === "anchorText") setBrollDraftEditing(setBrollAnchorDraft, value);
+                    else if (field === "description") setBrollDraftEditing(setBrollDescriptionDraft, value);
+                    else if (field === "motionIntent") setBrollDraftEditing(setBrollMotionIntentDraft, value);
+                    else if (field === "priority") setBrollDraftEditing(setBrollPriorityDraft, value);
+                    else if (field === "keywords") setBrollDraftEditing(setBrollKeywordsDraft, value);
+                    else if (field === "mood") setBrollDraftEditing(setBrollMoodDraft, value);
+                    else if (field === "shotType") setBrollDraftEditing(setBrollShotTypeDraft, value);
+                    else if (field === "motionSuggestion") setBrollDraftEditing(setBrollMotionSuggestionDraft, value);
+                    else if (field === "suggestedDurationMs") setBrollDraftEditing(setBrollSuggestedDurationDraft, value);
+                    else if (field === "placementHint") setBrollDraftEditing(setBrollPlacementHintDraft, value);
+                  }}
+                  onSaveBeat={() => void onSaveBrollBeat()}
+                  onDeleteBeat={() => void onDeleteBrollBeat()}
+                  onRegenerateBeat={() => void onRegenerateBrollBeat()}
+                  onGeneratePlan={() => void onGenerateBrollPlan()}
+                  onFindStock={() => void onFindStockForBrollBeat()}
+                  onUploadAsset={(file) => void onUploadBrollBeatAsset(file)}
+                  onSelectCandidate={(candidateId) => void onSelectBrollCandidate(candidateId)}
                 />
               </CollapsibleFocusPanel>
             ) : null}

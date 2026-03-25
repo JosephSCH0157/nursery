@@ -3104,6 +3104,16 @@ details[open] > .hs-imap-collapsible-title::before {
   color: rgb(14, 116, 144);
 }
 
+.hs-imap-link-inline {
+  color: rgb(29, 78, 216);
+  font-size: 11px;
+  text-decoration: underline;
+}
+
+.hs-hidden-input {
+  display: none;
+}
+
 .hs-meta-panel {
   border: 1px solid var(--forge-border, #ddd);
   border-radius: 10px;
