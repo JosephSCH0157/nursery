@@ -560,7 +560,7 @@ export default function HammerStandalone() {
           onClick={() => setAiControlsOpen(false)}
         >
           <div onClick={(event) => event.stopPropagation()}>
-            <Suspense fallback={<div style={{ padding: 24 }}>Loading AI controls...</div>}>
+            <Suspense fallback={<div className="hammer-standalone__ai-controls-loading">Loading AI controls...</div>}>
               <AiControlsPanel onClose={() => setAiControlsOpen(false)} workspaceId={workspaceId} />
             </Suspense>
           </div>

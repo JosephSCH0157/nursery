@@ -18,6 +18,10 @@
   padding: 16px;
 }
 
+.hammer-standalone__ai-controls-loading {
+  padding: 24px;
+}
+
 .hammer-standalone__drawer {
   position: absolute;
   top: 12px;
