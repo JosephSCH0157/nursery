@@ -1233,10 +1233,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const scrubReturnToPausedRef = useRef(false);
 
   const pauseAuxiliaryMediaPlayback = useCallback((): void => {
-    const shell = workspaceShellRef.current;
-    if (!shell) return;
     const primaryPreviewAudio = previewAudioRef.current;
-    const mediaNodes = shell.querySelectorAll("audio,video");
+    const mediaNodes = document.querySelectorAll("audio,video");
     mediaNodes.forEach((node) => {
       if (!(node instanceof HTMLMediaElement)) return;
       if (primaryPreviewAudio && node === primaryPreviewAudio) return;
