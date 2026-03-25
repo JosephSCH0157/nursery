@@ -7,32 +7,16 @@ type WorkpieceTabBarProps = {
   onChangeTab: (tab: WorkpieceWorkspaceTab) => void;
 };
 
-function renderTabButton(args: {
+const WORKPIECE_TAB_ITEMS: Array<{
   tab: WorkpieceWorkspaceTab;
   label: string;
-  activeTab: WorkpieceWorkspaceTab;
-  tabSummaryById: Record<WorkpieceWorkspaceTab, string>;
-  tabDirtyById: Record<WorkpieceWorkspaceTab, boolean>;
-  onChangeTab: (tab: WorkpieceWorkspaceTab) => void;
-}) {
-  const isActive = args.activeTab === args.tab;
-  const isDirty = args.tabDirtyById[args.tab];
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={isActive}
-      className={`hs-workpiece-tab${isActive ? " is-active" : ""}`}
-      onClick={() => args.onChangeTab(args.tab)}
-    >
-      <span className="hs-workpiece-tab-label">
-        {args.label}
-        {isDirty ? <span className="hs-workpiece-tab-dirty" aria-label="Unsaved changes" /> : null}
-      </span>
-      <span className="hs-workpiece-tab-summary">{args.tabSummaryById[args.tab]}</span>
-    </button>
-  );
-}
+}> = [
+  { tab: "script", label: "Script" },
+  { tab: "visuals", label: "Visuals" },
+  { tab: "metadata", label: "Metadata" },
+  { tab: "release", label: "Release" },
+  { tab: "history", label: "History" },
+];
 
 export default function WorkpieceTabBar({
   activeTab,
@@ -42,45 +26,27 @@ export default function WorkpieceTabBar({
 }: WorkpieceTabBarProps) {
   return (
     <div className="hs-workpiece-tabs" role="tablist" aria-label="Workpiece workspace tabs">
-      {renderTabButton({
-        tab: "script",
-        label: "Script",
-        activeTab,
-        tabSummaryById,
-        tabDirtyById,
-        onChangeTab,
-      })}
-      {renderTabButton({
-        tab: "visuals",
-        label: "Visuals",
-        activeTab,
-        tabSummaryById,
-        tabDirtyById,
-        onChangeTab,
-      })}
-      {renderTabButton({
-        tab: "metadata",
-        label: "Metadata",
-        activeTab,
-        tabSummaryById,
-        tabDirtyById,
-        onChangeTab,
-      })}
-      {renderTabButton({
-        tab: "release",
-        label: "Release",
-        activeTab,
-        tabSummaryById,
-        tabDirtyById,
-        onChangeTab,
-      })}
-      {renderTabButton({
-        tab: "history",
-        label: "History",
-        activeTab,
-        tabSummaryById,
-        tabDirtyById,
-        onChangeTab,
+      {WORKPIECE_TAB_ITEMS.map((item) => {
+        const isActive = activeTab === item.tab;
+        const isDirty = tabDirtyById[item.tab];
+        return (
+          <button
+            key={item.tab}
+            id={`hearth-workpiece-tab-${item.tab}`}
+            type="button"
+            role="tab"
+            aria-selected={isActive ? "true" : "false"}
+            aria-controls={`hearth-workpiece-panel-${item.tab}`}
+            className={`hs-workpiece-tab${isActive ? " is-active" : ""}`}
+            onClick={() => onChangeTab(item.tab)}
+          >
+            <span className="hs-workpiece-tab-label">
+              {item.label}
+              {isDirty ? <span className="hs-workpiece-tab-dirty" aria-label="Unsaved changes" /> : null}
+            </span>
+            <span className="hs-workpiece-tab-summary">{tabSummaryById[item.tab]}</span>
+          </button>
+        );
       })}
     </div>
   );

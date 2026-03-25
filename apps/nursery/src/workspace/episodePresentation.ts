@@ -30,6 +30,14 @@ export const EPISODE_UI_STATUS_TONES: Record<EpisodeUiStatus, EpisodeUiTone> = {
   released: "done",
 };
 
+export function isEpisodeUiStatus(value: unknown): value is EpisodeUiStatus {
+  return typeof value === "string" && value in EPISODE_UI_STATUS_LABELS;
+}
+
+export function toEpisodeUiStatus(value: unknown): EpisodeUiStatus | null {
+  return isEpisodeUiStatus(value) ? value : null;
+}
+
 export function formatEpisodeStatusLabel(status?: EpisodeUiStatus | null): string | null {
   if (!status) return null;
   return EPISODE_UI_STATUS_LABELS[status] ?? null;

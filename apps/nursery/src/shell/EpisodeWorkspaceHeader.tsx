@@ -19,6 +19,7 @@ import { buildGoToPhaseHref } from "../workspace/episodeNavigation";
 import {
   formatEpisodeStatusLabel,
   getEpisodeStatusTone,
+  toEpisodeUiStatus,
 } from "../workspace/episodePresentation";
 import type { EpisodeStatusSignals } from "../workspace/resolveEpisodeStatus";
 import { resolveNextEpisodeAction } from "../workspace/resolveNextEpisodeAction";
@@ -46,8 +47,9 @@ export default function EpisodeWorkspaceHeader({
 
   // P2.5: Title fallback order — context title → safe placeholder
   const displayTitle = episode.title?.trim() || "Episode";
-  const statusLabel = formatEpisodeStatusLabel(episode.displayStatus ?? null);
-  const statusTone = getEpisodeStatusTone(episode.displayStatus ?? null);
+  const uiStatus = toEpisodeUiStatus(episode.displayStatus);
+  const statusLabel = formatEpisodeStatusLabel(uiStatus);
+  const statusTone = getEpisodeStatusTone(uiStatus);
 
   // P2.2: Smart primary action (may be null if workflow is complete)
   const nextAction = signals
