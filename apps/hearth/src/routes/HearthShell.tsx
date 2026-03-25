@@ -128,6 +128,7 @@ import {
 import { inferSpeakersFromScript, validateComposeContent } from "../lib/compose-content-validation";
 import { buildComposePrompt } from "../lib/compose-prompt";
 import ComposeSetupModal from "../ui/ComposeSetupModal";
+import ChatSurface from "../views/surfaces/ChatSurface";
 import HistorySurface from "../views/surfaces/HistorySurface";
 import MetadataSurface from "../views/surfaces/MetadataSurface";
 import ReleaseSurface from "../views/surfaces/ReleaseSurface";
@@ -253,7 +254,6 @@ import {
   resolveHearthThumbnailOverlayText,
 } from "../lib/hearth-thumbnail-title-contract";
 import ImageMapPanel from "../components/visuals/ImageMapPanel";
-import CollapsibleFocusPanel from "../components/focus/CollapsibleFocusPanel";
 import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
 import {
   getMyWritingProfile,
@@ -11947,284 +11947,61 @@ export default function HearthShell() {
 
         <div className={`hs-draft-stage${showScriptEditor ? " has-script-panel" : ""}`}>
           <div className="hs-focus-stack">
-            {isScriptWorkspaceTab ? (
-              <CollapsibleFocusPanel
-              panelId="hearth-chat-panel"
-              title="Chat"
-              meta={chatPanelMeta}
-              collapsed={false}
-              onToggle={() => {}}
-              collapsible={false}
-            >
-              <section className="hs-ai-chat" aria-label="Hearth AI chat">
-            <div className="hs-ai-chat-header">
-              <div className="hs-ai-chat-title">Conversation</div>
-              <button
-                type="button"
-                onClick={() => {
-                  setChatMessages([]);
-                  setChatError(null);
-                  setPendingAiProposal(null);
-                }}
-                disabled={isAiProcessing || chatMessages.length === 0}
-              >
-                Clear
-              </button>
-            </div>
-
-            <div className="hs-ai-chat-log" role="log" aria-live="polite">
-              {chatMessages.length === 0 ? (
-                <div className="hs-ai-chat-empty">
-                  Ask a question about this Episode. Context is attached automatically.
-                </div>
-              ) : (
-                chatMessages.map((message, index) => (
-                  <div key={`${message.role}-${index}`} className={`hs-ai-chat-msg is-${message.role}`}>
-                    <span className="hs-ai-chat-role">{message.role === "assistant" ? "Hearth" : "You"}</span>
-                    <span className="hs-ai-chat-content">{message.content}</span>
-                  </div>
-                ))
-              )}
-            </div>
-
-            {pendingAiProposal && pendingAiProposal.ops.length > 0 ? (
-              <div className="hs-ai-proposal" aria-label="Proposed AI changes">
-                <div className="hs-ai-proposal-header">
-                  <div className="hs-ai-proposal-title">Proposed changes</div>
-                  <div className="hs-ai-proposal-meta">
-                    {pendingAiProposal.selected.filter(Boolean).length} selected · {pendingAiProposal.ops.length} total
-                    {dirtyProposalBodyCount > 0 ? ` · ${dirtyProposalBodyCount} edited from AI` : ""}
-                  </div>
-                </div>
-
-                <div className="hs-ai-proposal-list">
-                  {pendingAiProposal.ops.map((op, index) => {
-                    const diff = buildProposalDiff(op);
-                    const proposalBodyValidation = op.op === "set_body"
-                      ? validateScriptTags(normalizeScriptTags(op.value))
-                      : null;
-                    const proposalBodyDirty = op.op === "set_body"
-                      ? isHearthProposalBodyOpDirty(pendingAiProposal.ops, pendingAiProposal.originalOps, index)
-                      : false;
-                    const inputId = `ai-op-${index}`;
-                    return (
-                      <div key={inputId} className="hs-ai-op-row">
-                        <input
-                          id={inputId}
-                          type="checkbox"
-                          checked={Boolean(pendingAiProposal.selected[index])}
-                          onChange={() => onToggleAiProposalOp(index)}
-                          disabled={isApplyingAiOps}
-                        />
-                        <div className="hs-ai-op-body">
-                          <label htmlFor={inputId} className="hs-ai-op-title">
-                            {describeHearthOp(op)}
-                          </label>
-                          {op.op === "set_body" ? (
-                            <div className="hs-ai-op-editor">
-                              {diff ? (
-                                <div className="hs-ai-op-diff">
-                                  <pre>{`- ${diff.before || "(empty)"}`}</pre>
-                                </div>
-                              ) : null}
-                              <label className="hs-field">
-                                <span className="hs-field-label">
-                                  Editable proposed draft
-                                  {proposalBodyDirty ? (
-                                    <span className="hs-ai-op-dirty-badge">Edited from AI</span>
-                                  ) : null}
-                                </span>
-                                <textarea
-                                  value={op.value}
-                                  onChange={(event) => onEditAiProposalBody(index, event.target.value)}
-                                  className="hs-ai-op-textarea"
-                                  rows={12}
-                                  disabled={isApplyingAiOps}
-                                />
-                              </label>
-                              {proposalBodyDirty ? (
-                                <div className="hs-ai-op-dirty-actions">
-                                  <div className="hs-field-label-muted">
-                                    This proposal now differs from the original AI suggestion.
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => onResetAiProposalBody(index)}
-                                    disabled={isApplyingAiOps}
-                                  >
-                                    Reset to AI version
-                                  </button>
-                                </div>
-                              ) : null}
-                              <div className={`hs-ai-op-validation${proposalBodyValidation?.ok ? " is-valid" : " is-invalid"}`}>
-                                {proposalBodyValidation?.ok
-                                  ? "Tag contract OK."
-                                  : proposalBodyValidation ? buildValidationReport(proposalBodyValidation) : "Tag contract check unavailable."}
-                              </div>
-                            </div>
-                          ) : diff ? (
-                            <div className="hs-ai-op-diff">
-                              <pre>{`- ${diff.before || "(empty)"}`}</pre>
-                              <pre>{`+ ${diff.after || "(empty)"}`}</pre>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="hs-ai-proposal-actions">
-                  <button
-                    type="button"
-                    onClick={() => void onApplyAiProposal("all")}
-                    disabled={isApplyingAiOps}
-                  >
-                    {isApplyingAiOps ? "Applying..." : "Apply"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void onApplyAiProposal("selected")}
-                    disabled={isApplyingAiOps || pendingAiProposal.selected.every((value) => !value)}
-                  >
-                    Apply selected
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onDiscardAiProposal}
-                    disabled={isApplyingAiOps}
-                  >
-                    Discard
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            {chatError ? (
-              <div className="hs-error-text-small">{chatError}</div>
-            ) : null}
-
-            {aiRuntimeWarning ? (
-              <div className="hs-error-text-small">{aiRuntimeWarning}</div>
-            ) : null}
-
-            {aiCreditsDepleted ? (
-              <div className="hs-error-text-small">No AI credits remaining.</div>
-            ) : null}
-
-            {hasApprovedScript && approvedScriptVersion ? (
-              <div className="hs-production-mode-status">
-                Script v{approvedScriptVersion} approved · {approvedAtText}
-              </div>
-            ) : null}
-
-            {approvalPersistenceStatus ? (
-              <div className="hs-field-label-muted">
-                Saved to: Cloud [OK] · Local{" "}
-                {approvalPersistenceStatus.local === "ok"
-                  ? `[OK] ${approvalPersistenceStatus.localPath ?? ""}`.trim()
-                  : `[WARN] ${approvalPersistenceStatus.localMessage ?? "mirror failed"}`}
-              </div>
-            ) : null}
-
-            <div className="hs-ai-shortcut-row" role="group" aria-label="Chat shortcuts">
-              <button type="button" onClick={() => onUseChatShortcut("Create a clear outline for this Episode.")}>
-                Outline
-              </button>
-              <button type="button" onClick={() => onUseChatShortcut("Find strong sources I should cite for this Episode.")}>
-                Find sources
-              </button>
-              <button type="button" onClick={onOpenComposeScript}>
-                Compose
-              </button>
-            </div>
-
-            <div className="hs-ai-chat-compose">
-              <select
-                aria-label="Voice lane"
-                value={sttLane}
-                onChange={(event) => setSttLane(event.target.value as SttLane)}
-                className="stt-lane-select"
-                disabled={sttState !== "idle"}
-                title={
-                  sttState !== "idle"
-                    ? "Voice lane is locked while listening/transcribing."
-                    : !hasBrowserSpeech
-                      ? "Browser speech not supported"
-                      : undefined
-                }
-              >
-                <option value="browser" disabled={!hasBrowserSpeech}>
-                  Browser (Free)
-                </option>
-                <option value="ai">AI</option>
-              </select>
-              <button
-                type="button"
-                onClick={onToggleMic}
-                className={`mic-button ${sttState}`}
-                title={
-                  sttState === "idle"
-                    ? sttLane === "browser"
-                      ? "Voice (Free)"
-                      : "Voice (AI)"
-                    : sttState === "listening"
-                      ? "Listening... tap to stop"
-                      : "Transcribing..."
-                }
-              >
-                {sttState === "idle" ? "🎙️" : null}
-                {sttState === "listening" ? "🔴🎙️" : null}
-                {sttState === "transcribing" ? "⏳🎙️" : null}
-              </button>
-              <div className="hs-ai-chat-inputWrap">
-                {sttState === "listening" ? (
-                  <div className="hs-stt-inputPanel" role="status" aria-live="polite">
-                    <OscilloscopeFill stream={mediaStreamRef.current} active />
-                    <div className="hs-stt-hint">Listening... tap 🎙️ to stop</div>
-                  </div>
-                ) : (
-                  <textarea
-                    ref={chatInputRef}
-                    value={chatDraft}
-                    onChange={(event) => setChatDraft(event.target.value)}
-                    placeholder={aiEpisodeReady ? "Talk it out... paste links... ask for an outline..." : "Select an Episode or Spark to start."}
-                    className="hs-ai-chat-input"
-                    rows={2}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" || event.shiftKey) return;
-                      event.preventDefault();
-                      void onSendChat();
-                    }}
-                    disabled={isAiProcessing || aiCreditsDepleted || !aiEpisodeReady}
-                  />
-                )}
-              </div>
-              {isAiProcessing ? (
-                <button type="button" onClick={onCancelAiRequest}>
-                  Cancel
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => void onSendChat()}
-                disabled={isAiProcessing || aiCreditsDepleted || !aiEpisodeReady || !chatDraft.trim()}
-              >
-                {isAiProcessing ? "Sending..." : "Send"}
-              </button>
-            </div>
-            {devMode && sttPreview ? (
-              <div className="hs-field-label-muted">{sttPreview}</div>
-            ) : null}
-            {sttNotice ? (
-              <div className="hs-field-label-muted">{sttNotice}</div>
-            ) : null}
-            {sttError ? (
-              <div className="hs-error-text-small">{sttError}</div>
-            ) : null}
-              </section>
-              </CollapsibleFocusPanel>
-            ) : null}
+            <ChatSurface
+              visible={isScriptWorkspaceTab}
+              chatPanelMeta={chatPanelMeta}
+              chatMessages={chatMessages}
+              chatDraft={chatDraft}
+              chatError={chatError}
+              aiRuntimeWarning={aiRuntimeWarning}
+              aiCreditsDepleted={aiCreditsDepleted}
+              hasApprovedScript={hasApprovedScript}
+              approvedScriptVersion={approvedScriptVersion}
+              approvedAtText={approvedAtText}
+              approvalPersistenceStatus={approvalPersistenceStatus}
+              pendingAiProposal={pendingAiProposal}
+              dirtyProposalBodyCount={dirtyProposalBodyCount}
+              isApplyingAiOps={isApplyingAiOps}
+              isAiProcessing={isAiProcessing}
+              aiEpisodeReady={aiEpisodeReady}
+              sttLane={sttLane}
+              sttState={sttState}
+              hasBrowserSpeech={hasBrowserSpeech}
+              sttPreview={sttPreview}
+              sttNotice={sttNotice}
+              sttError={sttError}
+              devMode={devMode}
+              chatInputRef={chatInputRef}
+              listeningIndicator={<OscilloscopeFill stream={mediaStreamRef.current} active />}
+              onClearChat={() => {
+                setChatMessages([]);
+                setChatError(null);
+                setPendingAiProposal(null);
+              }}
+              onToggleAiProposalOp={onToggleAiProposalOp}
+              onEditAiProposalBody={onEditAiProposalBody}
+              onResetAiProposalBody={onResetAiProposalBody}
+              onApplyAiProposalAll={() => void onApplyAiProposal("all")}
+              onApplyAiProposalSelected={() => void onApplyAiProposal("selected")}
+              onDiscardAiProposal={onDiscardAiProposal}
+              onUseChatShortcutOutline={() => onUseChatShortcut("Create a clear outline for this Episode.")}
+              onUseChatShortcutSources={() => onUseChatShortcut("Find strong sources I should cite for this Episode.")}
+              onOpenComposeScript={onOpenComposeScript}
+              onSetSttLane={(lane) => setSttLane(lane)}
+              onToggleMic={onToggleMic}
+              onChatDraftChange={setChatDraft}
+              onSendChat={() => void onSendChat()}
+              onCancelAiRequest={onCancelAiRequest}
+              describeProposalOp={describeHearthOp}
+              getProposalDiff={buildProposalDiff}
+              validateProposalBody={(value) => validateScriptTags(normalizeScriptTags(value))}
+              isProposalBodyDirty={(index) => {
+                const proposal = pendingAiProposal;
+                if (!proposal) return false;
+                return isHearthProposalBodyOpDirty(proposal.ops, proposal.originalOps, index);
+              }}
+              buildValidationReport={buildValidationReport}
+            />
 
             {isReleaseWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
               <ReleaseSurface
