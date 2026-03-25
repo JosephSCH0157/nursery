@@ -101,7 +101,11 @@ import {
   loadHammerHistoryDocument,
   saveHammerHistoryDocument,
 } from "../lib/hammerHistoryArtifactApi";
-import { buildHammerDevMediaUrl } from "../lib/previewSource";
+import {
+  buildHammerDevMediaUrl,
+  loadCanonicalAudioPolishPreviewUrl,
+} from "../lib/previewSource";
+import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import {
   loadHammerSnapshotManifest,
   loadHammerSnapshotPayload,
@@ -1680,6 +1684,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       derived_text_layers: cloneHammerDerivedTextLayers(editableDerivedTextLayers),
     };
   }, [editableDerivedTextLayers, props.structuredTranscript]);
+  const mediaPrepOutputs = useMemo(
+    () => buildHammerMediaPrepOutputsPackage({
+      structuredTranscript: workspaceStructuredTranscript ?? null,
+      visualPlacements: null,
+      audioPolish: props.audioPolish ?? null,
+      mediaRef,
+      mediaSourceLabel,
+    }),
+    [
+      mediaRef,
+      mediaSourceLabel,
+      props.audioPolish,
+      workspaceStructuredTranscript,
+    ],
+  );
+  const preferredPlayback = mediaPrepOutputs.audio.preferred_playback;
   const historyController = historyControllerRef.current;
   const canUndo = historyController?.canUndo() ?? false;
   const canRedo = historyController?.canRedo() ?? false;
@@ -2286,18 +2306,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     let active = true;
     let objectUrlToRevoke: string | null = null;
 
-    const localRelpath = mediaRef?.local_relpath ?? null;
-    if (!localRelpath) {
-      setPlaybackMediaSrc(null);
-      return () => {};
-    }
+    const resolveRawPlaybackSrc = async (): Promise<void> => {
+      const localRelpath = mediaRef?.local_relpath ?? null;
+      if (!localRelpath) {
+        setPlaybackMediaSrc(null);
+        return;
+      }
 
-    if (playbackLocalRootAbs) {
-      setPlaybackMediaSrc(buildHammerDevMediaUrl(playbackLocalRootAbs, localRelpath));
-      return () => {};
-    }
+      if (playbackLocalRootAbs) {
+        setPlaybackMediaSrc(buildHammerDevMediaUrl(playbackLocalRootAbs, localRelpath));
+        return;
+      }
 
-    (async () => {
       try {
         const previewUrl = await loadWorkpieceMediaPreviewUrl({
           workpieceId: launchContext.workpiece_id,
@@ -2314,6 +2334,38 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         if (!active) return;
         setPlaybackMediaSrc(null);
       }
+    };
+
+    (async () => {
+      if (preferredPlayback.kind === "polished") {
+        if (preferredPlayback.local_relpath && playbackLocalRootAbs) {
+          setPlaybackMediaSrc(
+            buildHammerDevMediaUrl(playbackLocalRootAbs, preferredPlayback.local_relpath),
+          );
+          return;
+        }
+
+        if (preferredPlayback.workpiece_path) {
+          try {
+            const previewUrl = await loadCanonicalAudioPolishPreviewUrl({
+              workpieceId: launchContext.workpiece_id,
+              workpiecePath: preferredPlayback.workpiece_path,
+              mimeType: preferredPlayback.mime_type,
+            });
+            if (!active) {
+              URL.revokeObjectURL(previewUrl);
+              return;
+            }
+            objectUrlToRevoke = previewUrl;
+            setPlaybackMediaSrc(previewUrl);
+            return;
+          } catch {
+            if (!active) return;
+          }
+        }
+      }
+
+      await resolveRawPlaybackSrc();
     })();
 
     return () => {
@@ -2327,6 +2379,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     mediaRef?.kind,
     mediaRef?.local_relpath,
     playbackLocalRootAbs,
+    preferredPlayback.kind,
+    preferredPlayback.local_relpath,
+    preferredPlayback.mime_type,
+    preferredPlayback.workpiece_path,
   ]);
 
   useEffect(() => {
