@@ -9,6 +9,7 @@ import { useState } from "react";
 import { useOptionalEpisodeWorkspace } from "../workspace/EpisodeWorkspaceContext";
 import { useLocation } from "react-router-dom";
 import { resolvePhaseFromPathname } from "../workspace/episodePhases";
+import "./EpisodeWorkspacePrimitives.css";
 
 export default function EpisodeContextDebugOverlay() {
   if (!import.meta.env.DEV) return null;
@@ -25,72 +26,26 @@ function EpisodeContextDebugOverlayDev() {
   const sourceLabel = ctx?.episode.episodeId ? ctx.episode.source : "none";
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        bottom: 12,
-        right: 12,
-        zIndex: 9999,
-        fontFamily: "monospace",
-        fontSize: 11,
-        background: "rgba(0,0,0,0.88)",
-        color: "#c0ffc0",
-        border: "1px solid rgba(0,255,0,0.3)",
-        borderRadius: 6,
-        minWidth: 220,
-        maxWidth: 340,
-        boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
-        userSelect: "text",
-      }}
-    >
+    <div className="episode-debug-overlay">
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
-        style={{
-          width: "100%",
-          background: "none",
-          border: "none",
-          color: "#80ff80",
-          fontFamily: "monospace",
-          fontSize: 11,
-          padding: "6px 10px",
-          textAlign: "left",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
+        className="episode-debug-overlay__toggle"
       >
-        <span style={{ opacity: 0.5 }}>▼</span>
+        <span className="episode-debug-overlay__caret">▼</span>
         EpisodeWorkspaceCtx
         {ctx?.episode.contextState === "missing" ? (
-          <span
-            style={{
-              background: "rgba(200,80,80,0.4)",
-              borderRadius: 3,
-              padding: "1px 4px",
-              color: "#ffd0c8",
-              marginLeft: "auto",
-            }}
-          >
+          <span className="episode-debug-overlay__pill episode-debug-overlay__pill--missing">
             missing
           </span>
         ) : ctx?.episode.episodeId && (
-          <span
-            style={{
-              background: "rgba(108,99,255,0.5)",
-              borderRadius: 3,
-              padding: "1px 4px",
-              color: "#e0d8ff",
-              marginLeft: "auto",
-            }}
-          >
+          <span className="episode-debug-overlay__pill episode-debug-overlay__pill--active">
             active
           </span>
         )}
       </button>
       {!collapsed && (
-        <div style={{ padding: "0 10px 8px", display: "grid", rowGap: 3 }}>
+        <div className="episode-debug-overlay__content">
           <Row label="episodeId" value={ctx?.episode.episodeId ?? "—"} />
           <Row label="title" value={ctx?.episode.title || "—"} />
           <Row label="displayStatus" value={ctx?.episode.displayStatus ?? "—"} />
@@ -108,19 +63,9 @@ function EpisodeContextDebugOverlayDev() {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: "flex", gap: 8 }}>
-      <span style={{ color: "#6c6c8a", minWidth: 80, flexShrink: 0 }}>{label}:</span>
-      <span
-        style={{
-          color: "#c0ffc0",
-          wordBreak: "break-all",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          maxWidth: 200,
-        }}
-        title={value}
-      >
+    <div className="episode-debug-overlay__row">
+      <span className="episode-debug-overlay__label">{label}:</span>
+      <span className="episode-debug-overlay__value" title={value}>
         {value}
       </span>
     </div>
