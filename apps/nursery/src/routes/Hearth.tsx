@@ -3,6 +3,7 @@ import { useLocation, useOutletContext } from "react-router-dom";
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 import { buildForgeRouteHref, parseForgeRouteContext } from "../lib/forge-route-context";
+import "./Hearth.css";
 
 const HEARTH_FULL_PAGE_URL = "/apps/hearth";
 
@@ -44,9 +45,9 @@ export default function HearthRoute() {
 
   if (waitingForWorkspaceResolution) {
     return (
-      <section style={{ padding: 24, display: "grid", gap: 8 }}>
-        <h2 style={{ margin: 0 }}>Resolving workspace access...</h2>
-        <p style={{ margin: 0 }}>Validating the requested Hearth workspace before opening the full app.</p>
+      <section className="hearth-route-shell">
+        <h2 className="hearth-route-shell__title">Resolving workspace access...</h2>
+        <p className="hearth-route-shell__copy">Validating the requested Hearth workspace before opening the full app.</p>
       </section>
     );
   }
@@ -56,8 +57,8 @@ export default function HearthRoute() {
   }
 
   return (
-    <section style={{ padding: 24, display: "grid", gap: 8 }}>
-      <h2 style={{ margin: 0 }}>Opening Hearth...</h2>
+    <section className="hearth-route-shell">
+      <h2 className="hearth-route-shell__title">Opening Hearth...</h2>
       <a href={hearthHref}>Continue to Hearth</a>
     </section>
   );
