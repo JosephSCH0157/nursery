@@ -52,9 +52,10 @@ import {
     sourceExtension: ".mp4",
   });
   assert.equal(runtime.ffmpeg.install_state, "ready");
-  assert.equal(plan.readiness, "requires_future_ffmpeg");
+  assert.equal(plan.readiness, "ready_now");
   assert.equal(plan.backend, "ffmpeg");
-  assert.equal(plan.executable, false);
+  assert.equal(plan.executable, true);
+  assert.equal(plan.current_strategy, "ffmpeg_working_audio_v1");
 }
 
 {

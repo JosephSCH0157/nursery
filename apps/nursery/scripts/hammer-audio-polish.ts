@@ -59,6 +59,14 @@ type LoadedSourceMedia = {
   localRelpath: string | null;
 };
 
+type HammerFfprobeMediaTruth = {
+  durationMs: number | null;
+  sampleRate: number | null;
+  channelCount: number | null;
+  bitDepth: number | null;
+  timebase: string | null;
+};
+
 const OUTPUT_MIME_TYPE = "audio/wav";
 const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
   ".mp4": "video/mp4",
@@ -71,6 +79,7 @@ const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
 const MAX_AUDIO_POLISH_SOURCE_BYTES = 256 * 1024 * 1024;
 const CANONICAL_MEDIA_FETCH_TIMEOUT_MS = 60_000;
 const FFMPEG_PROCESS_TIMEOUT_MS = 2 * 60 * 1000;
+const FFPROBE_PROCESS_TIMEOUT_MS = 30_000;
 
 function readTrimmed(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -195,7 +204,7 @@ function resolveSourceRelpath(request: NormalizedHammerAudioPolishRequest): stri
     ?? "source";
 }
 
-function buildArtifactRelpath(
+export function buildArtifactRelpath(
   category: "audio-polish" | "working-audio",
   request: NormalizedHammerAudioPolishRequest,
 ): string {
@@ -453,8 +462,6 @@ async function renderWorkingAudioWaveBufferWithFfmpeg(args: {
           "pcm_s16le",
           "-ar",
           "48000",
-          "-ac",
-          "2",
           outputPath,
         ],
         {
@@ -496,6 +503,112 @@ async function renderWorkingAudioWaveBufferWithFfmpeg(args: {
       });
     });
     return await fsPromises.readFile(outputPath);
+  } finally {
+    await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+function toFiniteNumberOrNull(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function readBitDepth(stream: Record<string, unknown>): number | null {
+  const raw = toFiniteNumberOrNull(stream.bits_per_raw_sample);
+  if (raw && raw > 0) return raw;
+  const bits = toFiniteNumberOrNull(stream.bits_per_sample);
+  return bits && bits > 0 ? bits : null;
+}
+
+async function probeMediaTruthWithFfprobe(args: {
+  ffprobeBin: string;
+  bytes: Buffer;
+  sourceExtension: string;
+  sourceLabel: string;
+}): Promise<HammerFfprobeMediaTruth> {
+  const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-ffprobe-media-truth-"));
+  const safeExtension = args.sourceExtension || ".bin";
+  const inputPath = path.join(tempRoot, `input${safeExtension}`);
+  try {
+    await fsPromises.writeFile(inputPath, args.bytes);
+    const probeJson = await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        args.ffprobeBin,
+        [
+          "-v",
+          "error",
+          "-select_streams",
+          "a:0",
+          "-show_entries",
+          "stream=sample_rate,channels,bits_per_raw_sample,bits_per_sample,time_base,duration:format=duration",
+          "-of",
+          "json",
+          inputPath,
+        ],
+        {
+          windowsHide: true,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+
+      let stdout = "";
+      let stderr = "";
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        child.kill();
+      }, FFPROBE_PROCESS_TIMEOUT_MS);
+
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString("utf8");
+      });
+      child.stderr.on("data", (chunk) => {
+        const next = chunk.toString("utf8");
+        if (stderr.length < 16_384) {
+          stderr += next.slice(0, 16_384 - stderr.length);
+        }
+      });
+      child.on("error", (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+      child.on("close", (code) => {
+        clearTimeout(timeoutId);
+        if (timedOut) {
+          reject(new Error("Hammer FFprobe media truth probe timed out."));
+          return;
+        }
+        if (code === 0) {
+          resolve(stdout);
+          return;
+        }
+        reject(new Error(stderr.trim() || `Hammer FFprobe media truth probe failed for ${args.sourceLabel}.`));
+      });
+    });
+
+    const parsed = JSON.parse(probeJson) as {
+      streams?: Array<Record<string, unknown>>;
+      format?: Record<string, unknown>;
+    };
+    const stream = Array.isArray(parsed.streams) ? parsed.streams[0] ?? {} : {};
+    const format = parsed.format ?? {};
+    const streamDuration = toFiniteNumberOrNull(stream.duration);
+    const formatDuration = toFiniteNumberOrNull(format.duration);
+    const durationSec = streamDuration ?? formatDuration;
+
+    return {
+      durationMs: durationSec != null && durationSec >= 0
+        ? Math.round(durationSec * 1000)
+        : null,
+      sampleRate: toFiniteNumberOrNull(stream.sample_rate),
+      channelCount: toFiniteNumberOrNull(stream.channels),
+      bitDepth: readBitDepth(stream),
+      timebase: readTrimmed(typeof stream.time_base === "string" ? stream.time_base : null),
+    };
   } finally {
     await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -844,6 +957,34 @@ export async function handleHammerAudioPolishRequest(
     let workingWaveBytes = sourceMedia.sourceBytes;
     const sourceArtifactPaths = [sourceMedia.canonicalWorkpiecePath];
     let workingAudioWorkpiecePath: string | null = null;
+    let sourceMediaTruth: HammerFfprobeMediaTruth = {
+      durationMs: null,
+      sampleRate: null,
+      channelCount: null,
+      bitDepth: null,
+      timebase: null,
+    };
+    let workingMediaTruth: HammerFfprobeMediaTruth = {
+      durationMs: null,
+      sampleRate: null,
+      channelCount: null,
+      bitDepth: null,
+      timebase: null,
+    };
+    const ffprobeBin = readTrimmed(mediaRuntime.ffmpeg.ffprobe_bin);
+
+    if (ffprobeBin) {
+      try {
+        sourceMediaTruth = await probeMediaTruthWithFfprobe({
+          ffprobeBin,
+          bytes: sourceMedia.sourceBytes,
+          sourceExtension: sourceMedia.sourceExtension,
+          sourceLabel: sourceMedia.sourceLabel,
+        });
+      } catch {
+        // Keep source truth optional when ffprobe probe fails.
+      }
+    }
 
     if (executionPlan.current_strategy === "ffmpeg_working_audio_v1") {
       const ffmpegBin = readTrimmed(mediaRuntime.ffmpeg.ffmpeg_bin);
@@ -875,9 +1016,37 @@ export async function handleHammerAudioPolishRequest(
         },
       });
       sourceArtifactPaths.push(workingAudioWorkpiecePath);
+
+      if (ffprobeBin) {
+        try {
+          workingMediaTruth = await probeMediaTruthWithFfprobe({
+            ffprobeBin,
+            bytes: workingWaveBytes,
+            sourceExtension: ".wav",
+            sourceLabel: workingAudioWorkpiecePath,
+          });
+        } catch {
+          // Keep working truth optional when ffprobe probe fails.
+        }
+      }
     }
 
     const parsedWave = parseWaveBuffer(workingWaveBytes);
+    if (workingMediaTruth.durationMs == null) {
+      workingMediaTruth.durationMs = Math.round((parsedWave.sampleCount / parsedWave.sampleRate) * 1000);
+    }
+    if (workingMediaTruth.sampleRate == null) {
+      workingMediaTruth.sampleRate = parsedWave.sampleRate;
+    }
+    if (workingMediaTruth.channelCount == null) {
+      workingMediaTruth.channelCount = parsedWave.channelCount;
+    }
+    if (workingMediaTruth.bitDepth == null) {
+      workingMediaTruth.bitDepth = 16;
+    }
+    if (!workingMediaTruth.timebase) {
+      workingMediaTruth.timebase = `1/${parsedWave.sampleRate}`;
+    }
     const polishedWaveBytes = renderPolishedWaveBuffer(parsedWave);
     const outputWorkpiecePath = buildArtifactRelpath("audio-polish", request);
     if (!canUseCanonicalTongsContext(context)) {
@@ -926,9 +1095,17 @@ export async function handleHammerAudioPolishRequest(
             source_kind: sourceMedia.sourceKind,
             source_extension: sourceMedia.sourceExtension,
             source_canonical_workpiece_path: sourceMedia.canonicalWorkpiecePath,
+            source_duration_ms: sourceMediaTruth.durationMs,
+            source_sample_rate: sourceMediaTruth.sampleRate,
+            source_channel_count: sourceMediaTruth.channelCount,
+            source_bit_depth: sourceMediaTruth.bitDepth,
+            source_timebase: sourceMediaTruth.timebase,
             source_format: parsedWave.formatLabel,
-            sample_rate: parsedWave.sampleRate,
-            channel_count: parsedWave.channelCount,
+            sample_rate: workingMediaTruth.sampleRate,
+            channel_count: workingMediaTruth.channelCount,
+            bit_depth: workingMediaTruth.bitDepth,
+            timebase: workingMediaTruth.timebase,
+            working_duration_ms: workingMediaTruth.durationMs,
             working_audio_workpiece_path: workingAudioWorkpiecePath,
             local_output_write_failed: localArtifactWrite.writeFailed,
             local_output_write_failure_reason: localArtifactWrite.writeFailureReason,

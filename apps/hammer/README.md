@@ -114,6 +114,36 @@ Canonical persistence ownership:
 - Hammer artifact bodies live in canonical `tongs.workpiece_files` paths such as `hammer/session/editor-state.v1.json` and `hammer/edit-plan/current.v1.json`.
 - Production Hammer reads and writes through the Hammer persistence seam in `apps/hammer/src/persistence/hammerPersistence.ts`; dev JSON import/export in the prototype surface remains secondary only.
 
+## Week 1 Media Reality Check
+
+This runtime slice is real-media first. Hammer prep is expected to process real local/canonical media and persist canonical artifacts in Tongs.
+
+- FFmpeg/ffprobe detection:
+  - preferred explicit env: `HAMMER_FFMPEG_BIN`, `HAMMER_FFPROBE_BIN`
+  - fallback probe on PATH: `ffmpeg`, `ffprobe`
+- Working-audio behavior:
+  - non-WAV and video sources normalize to deterministic working WAV artifacts
+  - output format: `pcm_s16le` at `48kHz`
+  - mono/stereo channel layout is preserved
+- Canonical truth fields are written into `audio_polish.settings_summary`, including:
+  - source and working duration
+  - sample rate, channels, bit depth
+  - timebase
+  - source extension and working-audio artifact path
+
+Run this slice through Nursery:
+
+```bash
+pnpm --filter nursery dev
+```
+
+Expected prep outcomes:
+
+- `prepared`: audio polish artifact committed, preview can use real prepared media
+- `failed` with `source_unavailable`: media pointer/path not resolvable
+- `failed` with `processing_failed`: media processed path errored during extraction/polish
+- `failed` with `unsupported_source`: source format/layout cannot run through current baseline path
+
 ## Future Work (V2+)
 
 - Cloud media storage

@@ -10,7 +10,7 @@ export interface HammerEditorRuntimeProps {
 
 export default function HammerEditorRuntime(props: HammerEditorRuntimeProps): JSX.Element {
   const location = useLocation();
-  const allowStubScenario = import.meta.env.DEV;
+  const allowStubScenario = false;
   const routeSelection = useMemo(
     () => resolveHammerRouteSelection(location.search, location.state, { allowStubScenario }),
     [allowStubScenario, location.search, location.state],
