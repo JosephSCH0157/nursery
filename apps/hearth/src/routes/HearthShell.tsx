@@ -91,6 +91,7 @@ import {
   useChatWorkspace,
   useChatWorkspaceHistory,
   useChatWorkspaceRuntime,
+  useChatWorkspaceStt,
   useChatWorkspaceState,
 } from "../hooks/useChatWorkspace";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
@@ -3068,6 +3069,44 @@ export default function HearthShell({
     refreshMyAiCredits,
     recordInteractionEvent,
     publishForgeNotice,
+  });
+  const { onToggleMic } = useChatWorkspaceStt({
+    workpieceId,
+    devMode,
+    hasBrowserSpeech,
+    isAiProcessing,
+    aiTokenBalance,
+    sttLane,
+    sttState,
+    setSttLane,
+    setSttState,
+    setSttError,
+    setSttNotice,
+    setSttPreview,
+    setAiRuntimeWarning,
+    setAiBillingMode,
+    setAiTokenBalance,
+    speechRecognitionRef,
+    mediaRecorderRef,
+    mediaStreamRef,
+    aiSttChunksRef,
+    aiSttStartedAtRef,
+    aiSttMimeTypeRef,
+    aiSttEpisodeIdRef,
+    aiSttStopTimerRef,
+    aiSttDiscardNextStopRef,
+    aiSttTranscribeControllerRef,
+    sttNoticeTimerRef,
+    sttPreviewTimerRef,
+    sttInlineFeedbackMs: STT_INLINE_FEEDBACK_MS,
+    sttPreviewMaxChars: STT_PREVIEW_MAX_CHARS,
+    aiSttMaxDurationMs: AI_STT_MAX_DURATION_MS,
+    aiSttMaxBytes: AI_STT_MAX_BYTES,
+    resolveAiLaneFromStorage,
+    resolveAiSttMimeType,
+    uploadHearthSttAudio,
+    requestHearthSttTranscript,
+    sendChatMessage,
   });
   const chatWorkspace = useChatWorkspace({
     chatSurfaceProps: {
@@ -6239,64 +6278,6 @@ export default function HearthShell({
     gateAwaitingAnswersRef.current = false;
     pendingShortcutIntentRef.current = null;
   }, [activeDraft?.id]);
-
-  useEffect(() => {
-    if (hasBrowserSpeech || sttLane !== "browser") return;
-    setSttLane("ai");
-    setSttState("idle");
-    setSttError("Browser speech not supported.");
-  }, [hasBrowserSpeech, sttLane]);
-
-  useEffect(() => {
-    return () => {
-      try {
-        speechRecognitionRef.current?.abort?.();
-      } catch {
-        // ignore
-      }
-      speechRecognitionRef.current = null;
-
-      aiSttTranscribeControllerRef.current?.abort();
-      aiSttTranscribeControllerRef.current = null;
-
-      if (sttNoticeTimerRef.current) {
-        window.clearTimeout(sttNoticeTimerRef.current);
-        sttNoticeTimerRef.current = null;
-      }
-      if (sttPreviewTimerRef.current) {
-        window.clearTimeout(sttPreviewTimerRef.current);
-        sttPreviewTimerRef.current = null;
-      }
-      if (aiSttStopTimerRef.current) {
-        window.clearTimeout(aiSttStopTimerRef.current);
-        aiSttStopTimerRef.current = null;
-      }
-      const recorder = mediaRecorderRef.current;
-      if (recorder && recorder.state !== "inactive") {
-        aiSttDiscardNextStopRef.current = true;
-        try {
-          recorder.stop();
-        } catch {
-          // ignore
-        }
-      }
-      mediaRecorderRef.current = null;
-      aiSttChunksRef.current = [];
-      aiSttStartedAtRef.current = null;
-      aiSttEpisodeIdRef.current = null;
-      const stream = mediaStreamRef.current;
-      if (stream) {
-        for (const track of stream.getTracks()) {
-          try {
-            track.stop();
-          } catch {
-            // ignore
-          }
-        }
-      }
-      mediaStreamRef.current = null;
-    };
-  }, []);
 
   useEffect(() => {
     if (isCanonicalImageMapScriptPanel) return;
@@ -10470,433 +10451,6 @@ export default function HearthShell({
     });
     setChatDraft(buildComposePrompt(request));
     chatInputRef.current?.focus();
-  }
-
-  function clearSttNoticeTimer() {
-    if (sttNoticeTimerRef.current) {
-      window.clearTimeout(sttNoticeTimerRef.current);
-      sttNoticeTimerRef.current = null;
-    }
-  }
-
-  function clearSttPreviewTimer() {
-    if (sttPreviewTimerRef.current) {
-      window.clearTimeout(sttPreviewTimerRef.current);
-      sttPreviewTimerRef.current = null;
-    }
-  }
-
-  function showSttNotice(message: string) {
-    const text = message.trim();
-    if (!text) return;
-    clearSttNoticeTimer();
-    setSttNotice(text);
-    sttNoticeTimerRef.current = window.setTimeout(() => {
-      setSttNotice(null);
-      sttNoticeTimerRef.current = null;
-    }, STT_INLINE_FEEDBACK_MS);
-  }
-
-  function showSttPreviewLine(transcript: string) {
-    if (!devMode) return;
-    const normalized = transcript.replace(/\s+/g, " ").trim();
-    if (!normalized) return;
-    const snippet = normalized.length > STT_PREVIEW_MAX_CHARS
-      ? `${normalized.slice(0, STT_PREVIEW_MAX_CHARS).trimEnd()}...`
-      : normalized;
-    clearSttPreviewTimer();
-    setSttPreview(`STT: "${snippet}"`);
-    sttPreviewTimerRef.current = window.setTimeout(() => {
-      setSttPreview(null);
-      sttPreviewTimerRef.current = null;
-    }, STT_INLINE_FEEDBACK_MS);
-  }
-
-  async function commitVoiceTranscript(rawTranscript: string) {
-    const text = rawTranscript.trim();
-    if (!text) {
-      setSttError(null);
-      showSttNotice("No speech detected.");
-      return;
-    }
-    showSttPreviewLine(text);
-    await sendChatMessage({ requestContent: text, source: "voice" });
-  }
-
-  function clearAiSttStopTimer() {
-    if (aiSttStopTimerRef.current) {
-      window.clearTimeout(aiSttStopTimerRef.current);
-      aiSttStopTimerRef.current = null;
-    }
-  }
-
-  function stopAiSttStream() {
-    const stream = mediaStreamRef.current;
-    if (!stream) return;
-    for (const track of stream.getTracks()) {
-      try {
-        track.stop();
-      } catch {
-        // ignore
-      }
-    }
-    mediaStreamRef.current = null;
-  }
-
-  async function commitAiSttBlob(args: {
-    episodeId: string;
-    blob: Blob;
-    mimeType: string;
-  }) {
-    const episodeId = args.episodeId.trim();
-    if (!episodeId) {
-      setSttError("Select an Episode or Spark to start.");
-      return;
-    }
-
-    const uploaded = await uploadHearthSttAudio({
-      workpieceId: episodeId,
-      blob: args.blob,
-    });
-    if (!uploaded.ok) {
-      setSttError(uploaded.error);
-      return;
-    }
-
-    const controller = new AbortController();
-    aiSttTranscribeControllerRef.current = controller;
-    let transcriptResult: Awaited<ReturnType<typeof requestHearthSttTranscript>>;
-    try {
-      transcriptResult = await requestHearthSttTranscript({
-        workpieceId: episodeId,
-        storageKey: uploaded.storageKey,
-        mimeType: uploaded.mimeType || args.mimeType,
-        signal: controller.signal,
-      });
-    } finally {
-      if (aiSttTranscribeControllerRef.current === controller) {
-        aiSttTranscribeControllerRef.current = null;
-      }
-    }
-
-    setAiBillingMode(transcriptResult.runtime.billingMode);
-    if (transcriptResult.runtime.billingMode === "byo") {
-      setAiTokenBalance(null);
-    } else {
-      setAiTokenBalance(transcriptResult.runtime.tokenBalance);
-    }
-
-    if (!transcriptResult.ok) {
-      if (!transcriptResult.cancelled) {
-        setSttError(transcriptResult.error);
-      }
-      if (transcriptResult.creditsWarning) {
-        setAiRuntimeWarning(transcriptResult.creditsWarning);
-      }
-      return;
-    }
-
-    if (transcriptResult.creditsWarning) {
-      setAiRuntimeWarning(transcriptResult.creditsWarning);
-    }
-
-    await commitVoiceTranscript(transcriptResult.text);
-  }
-
-  async function startAiStt() {
-    if (typeof window === "undefined") return;
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setSttError("Microphone capture is not supported in this browser.");
-      setSttState("idle");
-      return;
-    }
-    if (typeof MediaRecorder === "undefined") {
-      setSttError("MediaRecorder is not available in this browser.");
-      setSttState("idle");
-      return;
-    }
-    const episodeId = workpieceId?.trim();
-    if (!episodeId) {
-      setSttError("Select an Episode or Spark to start.");
-      setSttState("idle");
-      return;
-    }
-    if (isAiProcessing) {
-      setSttError("Wait for the current AI request to finish.");
-      setSttState("idle");
-      return;
-    }
-
-    const lane = resolveAiLaneFromStorage();
-    if (lane === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
-      setSttError("No AI credits remaining.");
-      setSttState("idle");
-      return;
-    }
-
-    clearSttNoticeTimer();
-    setSttNotice(null);
-    clearSttPreviewTimer();
-    setSttPreview(null);
-    setSttError(null);
-
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to access microphone.";
-      setSttError(message);
-      setSttState("idle");
-      return;
-    }
-
-    const mimeType = resolveAiSttMimeType();
-    let recorder: MediaRecorder;
-    try {
-      recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-    } catch (error) {
-      for (const track of stream.getTracks()) {
-        try {
-          track.stop();
-        } catch {
-          // ignore
-        }
-      }
-      const message = error instanceof Error ? error.message : "Unable to start recorder.";
-      setSttError(message);
-      setSttState("idle");
-      return;
-    }
-
-    mediaStreamRef.current = stream;
-    mediaRecorderRef.current = recorder;
-    aiSttChunksRef.current = [];
-    aiSttStartedAtRef.current = Date.now();
-    aiSttEpisodeIdRef.current = episodeId;
-    aiSttMimeTypeRef.current = recorder.mimeType || mimeType || "audio/webm";
-    aiSttDiscardNextStopRef.current = false;
-
-    recorder.ondataavailable = (event: BlobEvent) => {
-      if (event.data && event.data.size > 0) {
-        aiSttChunksRef.current.push(event.data);
-      }
-    };
-
-    recorder.onerror = () => {
-      aiSttDiscardNextStopRef.current = true;
-      clearAiSttStopTimer();
-      mediaRecorderRef.current = null;
-      aiSttChunksRef.current = [];
-      aiSttStartedAtRef.current = null;
-      aiSttEpisodeIdRef.current = null;
-      stopAiSttStream();
-      setSttState("idle");
-      setSttError("Recording failed.");
-    };
-
-    recorder.onstop = async () => {
-      const shouldDiscard = aiSttDiscardNextStopRef.current;
-      const chunks = aiSttChunksRef.current.slice();
-      const startedAt = aiSttStartedAtRef.current;
-      const durationMs = startedAt ? Date.now() - startedAt : 0;
-      const recordedMimeType = aiSttMimeTypeRef.current || "audio/webm";
-      const episodeId = aiSttEpisodeIdRef.current;
-
-      aiSttDiscardNextStopRef.current = false;
-      mediaRecorderRef.current = null;
-      aiSttChunksRef.current = [];
-      aiSttStartedAtRef.current = null;
-      aiSttEpisodeIdRef.current = null;
-      clearAiSttStopTimer();
-      stopAiSttStream();
-
-      if (shouldDiscard) {
-        setSttState("idle");
-        return;
-      }
-
-      const blob = new Blob(chunks, { type: recordedMimeType });
-      if (!blob.size) {
-        await commitVoiceTranscript("");
-        setSttState("idle");
-        return;
-      }
-      if (!episodeId) {
-        setSttState("idle");
-        setSttError("Select an Episode or Spark to start.");
-        return;
-      }
-      if (durationMs > AI_STT_MAX_DURATION_MS + 1500) {
-        setSttState("idle");
-        setSttError("Recording exceeded the 5 minute limit.");
-        return;
-      }
-      if (blob.size > AI_STT_MAX_BYTES) {
-        setSttState("idle");
-        setSttError("Recording exceeds the 10MB limit.");
-        return;
-      }
-
-      setSttState("transcribing");
-      try {
-        await commitAiSttBlob({
-          episodeId,
-          blob,
-          mimeType: recordedMimeType,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Transcription failed.";
-        setSttError(message);
-      } finally {
-        setSttState("idle");
-      }
-    };
-
-    try {
-      recorder.start(1000);
-      setSttState("listening");
-      clearAiSttStopTimer();
-      aiSttStopTimerRef.current = window.setTimeout(() => {
-        if (mediaRecorderRef.current !== recorder) return;
-        if (recorder.state === "inactive") return;
-        stopAiStt();
-      }, AI_STT_MAX_DURATION_MS);
-    } catch (error) {
-      mediaRecorderRef.current = null;
-      aiSttChunksRef.current = [];
-      aiSttStartedAtRef.current = null;
-      aiSttEpisodeIdRef.current = null;
-      clearAiSttStopTimer();
-      stopAiSttStream();
-      const message = error instanceof Error ? error.message : "Unable to start recorder.";
-      setSttState("idle");
-      setSttError(message);
-    }
-  }
-
-  function stopAiStt() {
-    const recorder = mediaRecorderRef.current;
-    if (!recorder) {
-      setSttState("idle");
-      return;
-    }
-    if (recorder.state === "inactive") {
-      setSttState("idle");
-      return;
-    }
-    setSttState("transcribing");
-    clearAiSttStopTimer();
-    try {
-      recorder.stop();
-    } catch {
-      aiSttDiscardNextStopRef.current = true;
-      mediaRecorderRef.current = null;
-      aiSttChunksRef.current = [];
-      aiSttStartedAtRef.current = null;
-      aiSttEpisodeIdRef.current = null;
-      stopAiSttStream();
-      setSttState("idle");
-      setSttError("Unable to stop recorder.");
-    }
-  }
-
-  async function startBrowserStt() {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setSttError("Browser speech not supported.");
-      setSttState("idle");
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
-
-    let finalTranscript = "";
-
-    recognition.onresult = (event: any) => {
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          const chunk = result[0]?.transcript;
-          if (typeof chunk === "string" && chunk.trim()) {
-            finalTranscript += `${chunk.trim()} `;
-          }
-        }
-      }
-    };
-
-    recognition.onerror = () => {
-      speechRecognitionRef.current = null;
-      stopAiSttStream();
-      setSttState("idle");
-      setSttError("Speech recognition error.");
-    };
-
-    recognition.onend = async () => {
-      speechRecognitionRef.current = null;
-      stopAiSttStream();
-      setSttState("idle");
-      await commitVoiceTranscript(finalTranscript);
-    };
-
-    stopAiSttStream();
-    if (navigator.mediaDevices?.getUserMedia) {
-      try {
-        const previewStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaStreamRef.current = previewStream;
-      } catch {
-        mediaStreamRef.current = null;
-      }
-    }
-
-    speechRecognitionRef.current = recognition;
-    clearSttNoticeTimer();
-    setSttNotice(null);
-    clearSttPreviewTimer();
-    setSttPreview(null);
-    setSttError(null);
-    setSttState("listening");
-    try {
-      recognition.start();
-    } catch {
-      speechRecognitionRef.current = null;
-      stopAiSttStream();
-      setSttState("idle");
-      setSttError("Unable to start speech recognition.");
-    }
-  }
-
-  function stopBrowserStt() {
-    stopAiSttStream();
-    try {
-      speechRecognitionRef.current?.stop();
-    } catch {
-      // onend will settle state
-    }
-  }
-
-  function onToggleMic() {
-    if (sttState === "transcribing") return;
-    if (sttState === "idle") {
-      setSttError(null);
-      clearSttNoticeTimer();
-      setSttNotice(null);
-      if (sttLane === "browser") {
-        void startBrowserStt();
-        return;
-      }
-      void startAiStt();
-      return;
-    }
-    if (sttState === "listening") {
-      if (sttLane === "browser") {
-        stopBrowserStt();
-        return;
-      }
-      stopAiStt();
-    }
   }
 
   function formatSourceDiffText(source: {
