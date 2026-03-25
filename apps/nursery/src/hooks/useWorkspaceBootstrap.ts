@@ -53,5 +53,12 @@ export function useWorkspaceBootstrap(payload?: WorkspaceBootstrapPayload): void
     // (useCallback with no deps in provider). Re-running when location changes
     // handles navigating to a different workpiece.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.search, payload?.episodeId, payload?.title]);
+  }, [
+    location.search,
+    payload?.episodeId,
+    payload?.seriesId,
+    payload?.sessionId,
+    payload?.status,
+    payload?.title,
+  ]);
 }

@@ -51,7 +51,7 @@ export default function HammerLaunchStubRoute() {
           onClick={openScenarioInHammer}
           disabled={!selectedScenario}
         >
-          Open In Hammer
+          Continue to Editing
         </button>
       </header>
 

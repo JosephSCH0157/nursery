@@ -4137,16 +4137,16 @@ export default function HearthShell() {
     const workspace = workspaceId?.trim() ?? "";
     const episodeId = workpieceId?.trim() ?? "";
     if (!workspace || !episodeId) {
-      setError("Open in Anvil requires a valid workspace and workpiece.");
+      setError("Start Recording needs a valid workspace and episode.");
       return;
     }
     if (activeWorkpieceIsArchived) {
-      setError("This workpiece is archived. Restore it in Hearth before opening in Anvil.");
+      setError("This episode is archived. Restore it in Hearth before recording.");
       return;
     }
     const href = buildOpenInAnvilHref(workspace, episodeId);
     if (!href) {
-      setError("Open in Anvil is unavailable until context is resolved.");
+      setError("Start Recording is unavailable until episode context finishes loading.");
       return;
     }
     setError(null);

@@ -15,8 +15,13 @@ import {
 } from "../workspace/episodePhases";
 import type { EpisodeWorkspaceState } from "../workspace/EpisodeWorkspaceContext";
 import { buildGoToPhaseHref } from "../workspace/episodeNavigation";
+import {
+  formatEpisodeStatusLabel,
+  getEpisodeStatusTone,
+} from "../workspace/episodePresentation";
 import type { EpisodeStatusSignals } from "../workspace/resolveEpisodeStatus";
 import { resolveNextEpisodeAction } from "../workspace/resolveNextEpisodeAction";
+import "./EpisodeWorkspacePrimitives.css";
 
 // Phase order for the stepper
 const PHASE_ORDER: EpisodePhase[] = ["script", "record", "edit", "release", "analytics"];
@@ -40,6 +45,8 @@ export default function EpisodeWorkspaceHeader({
 
   // P2.5: Title fallback order — context title → safe placeholder
   const displayTitle = episode.title?.trim() || "Episode";
+  const statusLabel = formatEpisodeStatusLabel(episode.status ?? null);
+  const statusTone = getEpisodeStatusTone(episode.status ?? null);
 
   // P2.2: Smart primary action (may be null if workflow is complete)
   const nextAction = signals
@@ -58,6 +65,11 @@ export default function EpisodeWorkspaceHeader({
         {episode.seriesId && (
           <span className="ew-header__series" aria-label="Series">
             {episode.seriesId}
+          </span>
+        )}
+        {statusLabel && (
+          <span className={`forge-status-pill forge-status-pill--${statusTone}`} aria-label="Episode status">
+            {statusLabel}
           </span>
         )}
       </div>

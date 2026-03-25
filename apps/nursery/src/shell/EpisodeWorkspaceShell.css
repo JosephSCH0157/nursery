@@ -10,10 +10,10 @@
   align-items: center;
   gap: 0;
   padding: 0 16px;
-  background: #12121f;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--forge-episode-surface);
+  border-bottom: 1px solid var(--forge-episode-border);
   font-size: 12px;
-  color: #e0e0e0;
+  color: var(--forge-episode-muted);
   min-height: 38px;
   flex-shrink: 0;
   z-index: 200;
@@ -27,7 +27,7 @@
   gap: 8px;
   min-width: 0;
   padding-right: 16px;
-  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
   height: 38px;
 }
 
@@ -38,12 +38,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 220px;
-  color: #f0f0f8;
+  color: var(--forge-episode-title);
 }
 
 .ew-header__series {
   font-size: 11px;
-  color: #6a6a8a;
+  color: var(--forge-episode-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -68,7 +68,7 @@
   padding: 0 10px;
   height: 38px;
   text-decoration: none;
-  color: #4a4a6a;
+  color: var(--forge-episode-muted);
   transition: color 0.15s, background 0.15s;
   border-radius: 0;
   flex-shrink: 0;
@@ -89,8 +89,8 @@
 
 .ew-header__step:hover,
 .ew-header__step:focus-visible {
-  color: #a0a0c8;
-  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 245, 226, 0.9);
+  background: rgba(255, 255, 255, 0.05);
   outline: none;
 }
 
@@ -101,7 +101,7 @@
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
-  border: 1.5px solid #3a3a5a;
+  border: 1.5px solid var(--forge-episode-phase-future);
   background: transparent;
   transition: background 0.15s, border-color 0.15s;
 }
@@ -115,21 +115,21 @@
 
 /* State: completed */
 .ew-header__step--completed {
-  color: #5a5a8a;
+  color: rgba(223, 248, 240, 0.84);
 }
 .ew-header__step--completed .ew-header__step-dot {
-  background: #5a5a8a;
-  border-color: #5a5a8a;
+  background: var(--forge-episode-phase-done);
+  border-color: var(--forge-episode-phase-done);
 }
 
 /* State: current */
 .ew-header__step--current {
-  color: #c0b8ff;
+  color: var(--forge-episode-title);
 }
 .ew-header__step--current .ew-header__step-dot {
-  background: #6c63ff;
-  border-color: #6c63ff;
-  box-shadow: 0 0 6px rgba(108, 99, 255, 0.7);
+  background: var(--forge-episode-phase);
+  border-color: var(--forge-episode-phase);
+  box-shadow: 0 0 8px rgba(255, 210, 119, 0.45);
 }
 .ew-header__step--current .ew-header__step-label {
   font-weight: 700;
@@ -137,10 +137,10 @@
 
 /* State: future */
 .ew-header__step--future {
-  color: #3a3a5a;
+  color: rgba(214, 220, 231, 0.52);
 }
 .ew-header__step--future .ew-header__step-dot {
-  border-color: #2a2a4a;
+  border-color: var(--forge-episode-phase-future);
 }
 
 /* ── Smart Continue Workflow button (P2.2) ─────────── */
@@ -150,10 +150,10 @@
   gap: 6px;
   padding: 5px 14px;
   margin-left: 8px;
-  background: rgba(108, 99, 255, 0.15);
-  border: 1px solid rgba(108, 99, 255, 0.4);
+  background: var(--forge-episode-action-bg);
+  border: 1px solid var(--forge-episode-border-strong);
   border-radius: 14px;
-  color: #c0b8ff;
+  color: var(--forge-episode-action-fg);
   font-size: 11px;
   font-weight: 600;
   text-decoration: none;
@@ -164,9 +164,9 @@
 
 .ew-header__continue:hover,
 .ew-header__continue:focus-visible {
-  background: rgba(108, 99, 255, 0.28);
-  border-color: rgba(108, 99, 255, 0.7);
-  color: #e8e4ff;
+  background: var(--forge-episode-action-hover);
+  border-color: rgba(255, 194, 122, 0.64);
+  color: #fff4df;
   outline: none;
 }
 

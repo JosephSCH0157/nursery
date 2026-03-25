@@ -24,6 +24,7 @@ import type { HammerPreparedReleasePackage } from "../../../hammer/src/lib/hamme
 import { tongsFetch } from "../../../hammer/src/lib/tongsFetch";
 import { parseForgeRouteContext } from "../lib/forge-route-context";
 import { useWorkspaceBootstrap } from "../hooks/useWorkspaceBootstrap";
+import EpisodeContinuityStrip from "../shell/EpisodeContinuityStrip";
 import type { AppShellContext } from "./AppShell";
 import "./Quench.css";
 
@@ -350,7 +351,7 @@ export default function QuenchRoute() {
         setPreparedHandoffState({
           status: "error",
           handoff,
-          message: "Prepared-package handoff is missing workpiece_id or package path.",
+          message: "This release handoff is incomplete. Reopen Prepare Release from Editing.",
           warning: null,
           loadedFingerprint: null,
           loadedPreparedAt: null,
@@ -385,7 +386,7 @@ export default function QuenchRoute() {
         if (!response.ok) {
           const root = readJsonObject(payload);
           const errorMessage = readString(readJsonObject(root?.error)?.message)
-            ?? "Quench could not resolve the prepared package from Tongs.";
+            ?? "Quench could not load this release handoff from Tongs.";
           if (cancelled) return;
           setHandoffPreparedCase(null);
           setPreparedHandoffState({
@@ -406,7 +407,7 @@ export default function QuenchRoute() {
           setPreparedHandoffState({
             status: "error",
             handoff,
-            message: "Prepared package was not found at the provided path.",
+            message: "The prepared release for this episode could not be found. Reopen Prepare Release from Editing.",
             warning: null,
             loadedFingerprint: null,
             loadedPreparedAt: null,
@@ -421,7 +422,7 @@ export default function QuenchRoute() {
           setPreparedHandoffState({
             status: "error",
             handoff,
-            message: "Prepared package payload is invalid or incompatible.",
+            message: "This release handoff is incompatible with the current Quench flow.",
             warning: null,
             loadedFingerprint: null,
             loadedPreparedAt: null,
@@ -435,7 +436,7 @@ export default function QuenchRoute() {
           setPreparedHandoffState({
             status: "error",
             handoff,
-            message: "Prepared package identity does not match the requested workpiece.",
+            message: "This prepared release does not match the episode in the current workflow.",
             warning: null,
             loadedFingerprint: null,
             loadedPreparedAt: pkg.preparedAt,
@@ -449,7 +450,7 @@ export default function QuenchRoute() {
           setPreparedHandoffState({
             status: "error",
             handoff,
-            message: `Prepared package version mismatch. Expected ${handoff.expectedVersion}, found ${pkg.version}.`,
+            message: "This release handoff is out of date. Reopen Prepare Release from Editing.",
             warning: null,
             loadedFingerprint: null,
             loadedPreparedAt: pkg.preparedAt,
@@ -459,9 +460,9 @@ export default function QuenchRoute() {
 
         const loadedFingerprint = buildPreparedPackageIdentityFingerprint(pkg);
         const warning = handoff.expectedFingerprint && handoff.expectedFingerprint !== loadedFingerprint
-          ? "Prepared package fingerprint changed since Hammer generated this handoff."
+          ? "Release prep changed after Editing created this handoff. Review the latest package before publishing."
           : handoff.workspaceId && pkg.workspaceId && handoff.workspaceId !== pkg.workspaceId
-            ? "Prepared package workspace differs from current route context."
+            ? "This prepared release belongs to a different workspace than the current route."
             : null;
         const preparedCase = buildPreparedReleaseCase({
           shellWorkspaceId: shell.workspaceId,
@@ -482,7 +483,7 @@ export default function QuenchRoute() {
         if (cancelled) return;
         const message = error instanceof Error && error.message.trim()
           ? error.message
-          : "Quench could not load the prepared package.";
+          : "Quench could not load this release handoff.";
         setHandoffPreparedCase(null);
         setPreparedHandoffState({
           status: "error",
@@ -665,10 +666,16 @@ export default function QuenchRoute() {
             <div className="quench-console__eyebrow">Quench Console</div>
             <span className="quench-console__title-badge">Under Construction</span>
           </div>
-          <h1 className="quench-console__title">Release packet board</h1>
+          <h1 className="quench-console__title">Prepare Release</h1>
           <p className="quench-console__subtitle">
-            Typed mock packets, real readiness checks, real adapter capability contracts, and stub/live publish board behavior without pretending uploads are implemented.
+            Review release readiness, platform choices, and the latest handoff from Editing before anything gets published.
           </p>
+          <EpisodeContinuityStrip
+            phase="release"
+            workpieceId={routeCtx.workpieceId}
+            compact
+            detail="This episode is staying in release context while you review packaging and publish decisions."
+          />
         </div>
         <div className="quench-console__header-meta">
           <div className="quench-console__meta-card">
@@ -676,13 +683,13 @@ export default function QuenchRoute() {
             <strong>{shell.workspaceId ?? "none"}</strong>
           </div>
           <div className="quench-console__meta-card">
-            <span>Packet state</span>
+            <span>Release readiness</span>
             <strong className={readiness?.ready ? "is-good" : "is-bad"}>
               {readiness?.ready ? "ready" : "blocked"}
             </strong>
           </div>
           <div className="quench-console__meta-card">
-            <span>Board mode</span>
+            <span>Publish mode</span>
             <strong>{runMode}</strong>
           </div>
         </div>
@@ -690,18 +697,16 @@ export default function QuenchRoute() {
 
       {preparedHandoffState.handoff ? (
         <div className="quench-console__banner">
-          <strong>Hammer handoff:</strong>
+          <strong>Release handoff:</strong>
           {" "}
-          {preparedHandoffState.status === "loading" ? "Resolving prepared package..." : null}
+          {preparedHandoffState.status === "loading" ? "Checking the latest prepared release for this episode..." : null}
           {preparedHandoffState.status === "ready"
-            ? `Prepared package loaded from ${preparedHandoffState.handoff.packagePath ?? "unknown path"}.`
+            ? "Prepared release is ready from Editing."
             : null}
           {preparedHandoffState.status === "error"
-            ? preparedHandoffState.message ?? "Prepared package could not be resolved."
+            ? preparedHandoffState.message ?? "Prepared release could not be resolved."
             : null}
-          {preparedHandoffState.loadedPreparedAt ? ` Prepared at ${formatDate(preparedHandoffState.loadedPreparedAt)}.` : null}
-          {preparedHandoffState.loadedFingerprint ? ` Fingerprint ${preparedHandoffState.loadedFingerprint}.` : null}
-          {preparedHandoffState.handoff.expectedState ? ` Hammer marked this package ${preparedHandoffState.handoff.expectedState}.` : null}
+          {preparedHandoffState.loadedPreparedAt ? ` Updated ${formatDate(preparedHandoffState.loadedPreparedAt)}.` : null}
         </div>
       ) : null}
       {preparedHandoffState.warning ? (

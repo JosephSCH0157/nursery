@@ -27,6 +27,10 @@
   max-width: 720px;
 }
 
+.quench-console__heading .forge-episode-strip {
+  margin-top: 8px;
+}
+
 .quench-console__eyebrow {
   font-size: 12px;
   letter-spacing: 0.18em;

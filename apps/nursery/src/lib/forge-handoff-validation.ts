@@ -81,7 +81,7 @@ export async function validateAnvilHandoffTarget(
     return {
       ok: false,
       code: "invalid_context",
-      message: "Open in Anvil requires a valid workspace and workpiece.",
+      message: "Start Recording needs a valid workspace and episode.",
     };
   }
 
@@ -89,7 +89,7 @@ export async function validateAnvilHandoffTarget(
     return {
       ok: false,
       code: "invalid_script_path",
-      message: "The requested script path is invalid. Reopen the script from Hearth.",
+      message: "This script link is invalid. Start Recording again from Script.",
     };
   }
 
@@ -100,7 +100,7 @@ export async function validateAnvilHandoffTarget(
     return {
       ok: false,
       code: "request_failed",
-      message: "Unable to validate the requested workpiece. Try reopening it from Hearth.",
+      message: "Unable to validate this episode for recording. Start Recording again from Script.",
     };
   }
 
@@ -109,7 +109,7 @@ export async function validateAnvilHandoffTarget(
     return {
       ok: false,
       code: "workpiece_missing",
-      message: "The requested workpiece is no longer available in this workspace. Reopen it from Hearth.",
+      message: "This episode is no longer available in the current workspace. Reopen it from Script.",
     };
   }
 
@@ -117,7 +117,7 @@ export async function validateAnvilHandoffTarget(
     return {
       ok: false,
       code: "archived",
-      message: "This workpiece is archived. Restore it in Hearth before opening in Anvil.",
+      message: "This episode is archived. Restore it in Hearth before recording.",
     };
   }
 
@@ -129,14 +129,14 @@ export async function validateAnvilHandoffTarget(
       return {
         ok: false,
         code: "request_failed",
-        message: "Unable to validate the requested script. Try reopening it from Hearth.",
+        message: "Unable to validate the latest script for recording. Start Recording again from Script.",
       };
     }
     if (!scriptResult.exists) {
       return {
         ok: false,
         code: "script_missing",
-        message: "The requested script is no longer available. Reopen it from Hearth before recording.",
+        message: "The latest script is no longer available. Reopen this episode from Script before recording.",
       };
     }
   }

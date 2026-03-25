@@ -10,6 +10,7 @@ import type { EpisodePhase } from "./episodePhases";
 export type EpisodeDisplayStatus =
   | "draft"
   | "scripted"
+  | "scheduled"
   | "recording"
   | "recorded"
   | "editing"
@@ -19,12 +20,13 @@ export type EpisodeDisplayStatus =
 
 export const EPISODE_STATUS_LABELS: Record<EpisodeDisplayStatus, string> = {
   draft: "Draft",
-  scripted: "Script Ready",
+  scripted: "Ready to Record",
+  scheduled: "Scheduled",
   recording: "Recording",
   recorded: "Recorded",
-  editing: "Editing",
-  edited: "Edit Ready",
-  releasing: "Preparing Release",
+  editing: "In Editing",
+  edited: "Ready to Release",
+  releasing: "Ready to Release",
   released: "Released",
 };
 
@@ -66,7 +68,7 @@ export function resolveEpisodeDisplayStatus(
   if (hammerPrepStatus === "prepared") return "edited";
   if (hasKeptTake || recordingSessionStatus === "completed") return "recorded";
   if (recordingSessionStatus === "active") return "recording";
-  if (recordingSessionStatus === "planned") return "recording";
+  if (recordingSessionStatus === "planned") return "scheduled";
   if (hasApprovedScript) return "scripted";
   return "draft";
 }
@@ -77,6 +79,7 @@ export function resolveEpisodePhaseFromStatus(status: EpisodeDisplayStatus): Epi
     case "draft":
     case "scripted":
       return "script";
+    case "scheduled":
     case "recording":
     case "recorded":
       return "record";
