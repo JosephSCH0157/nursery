@@ -15,6 +15,7 @@ interface WorkspaceAccessGrantFormProps {
   disabled?: boolean;
   granting?: boolean;
   canManage: boolean;
+  ownerContext?: boolean;
   onGrant: (input: { workspaceId: string; role: ManageableWorkspaceAccessRole }) => Promise<void>;
 }
 
@@ -24,6 +25,7 @@ export default function WorkspaceAccessGrantForm({
   disabled = false,
   granting = false,
   canManage,
+  ownerContext = false,
   onGrant,
 }: WorkspaceAccessGrantFormProps) {
   const [workspaceId, setWorkspaceId] = useState("");
@@ -37,8 +39,10 @@ export default function WorkspaceAccessGrantForm({
     () => workspaces.filter((workspace) => !assignedWorkspaceIds.has(workspace.id)),
     [assignedWorkspaceIds, workspaces],
   );
+  const hasNoAdditionalWorkspaces = availableWorkspaces.length === 0;
+  const disableGrantControls = disabled || granting || hasNoAdditionalWorkspaces;
 
-  const canSubmit = canManage && !disabled && !granting && Boolean(workspaceId && role);
+  const canSubmit = canManage && !disableGrantControls && Boolean(workspaceId && role);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -52,17 +56,17 @@ export default function WorkspaceAccessGrantForm({
 
   return (
     <form className="settings-org__access-grant" onSubmit={(event) => void onSubmit(event)}>
-      <div className="settings-org__access-grant-fields">
+      <div className={`settings-org__access-grant-fields${hasNoAdditionalWorkspaces ? " settings-org__access-grant-fields--disabled" : ""}`}>
         <label className="settings-org__label settings-org__access-field">
           <span>Workspace</span>
           <select
             value={workspaceId}
             onChange={(event) => setWorkspaceId(event.target.value)}
-            disabled={disabled || granting || availableWorkspaces.length === 0}
+            disabled={disableGrantControls}
             className="settings-org__select"
           >
             <option value="">
-              {availableWorkspaces.length > 0 ? "Choose workspace" : "No available workspaces"}
+              {availableWorkspaces.length > 0 ? "Choose workspace" : "No additional workspaces to grant"}
             </option>
             {availableWorkspaces.map((workspace) => (
               <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
@@ -75,7 +79,7 @@ export default function WorkspaceAccessGrantForm({
           <select
             value={role}
             onChange={(event) => setRole(event.target.value as ManageableWorkspaceAccessRole | "")}
-            disabled={disabled || granting}
+            disabled={disableGrantControls}
             className="settings-org__select"
           >
             <option value="">Choose role</option>
@@ -85,6 +89,14 @@ export default function WorkspaceAccessGrantForm({
           </select>
         </label>
       </div>
+
+      {hasNoAdditionalWorkspaces ? (
+        <p className="settings-org__access-helper">
+          {ownerContext
+            ? "Owners already have access to their workspaces."
+            : "This member already has access to all workspaces in this organization."}
+        </p>
+      ) : null}
 
       <button type="submit" disabled={!canSubmit} className="settings-org__access-button">
         {granting ? "Granting..." : "Grant Access"}

@@ -48,7 +48,7 @@ export default function WorkspaceAccessList({
             </div>
 
             <div className="settings-org__access-controls">
-              {canManage ? (
+              {canManage && !isOwner ? (
                 <label className="settings-org__access-role">
                   <span className="settings-org__sr-only">Workspace role</span>
                   <select
@@ -66,18 +66,20 @@ export default function WorkspaceAccessList({
                     ))}
                   </select>
                 </label>
+              ) : canManage && isOwner ? (
+                <span className="settings-org__access-badge settings-org__access-badge--owner">Owner</span>
               ) : (
                 <span className="settings-org__access-badge">{labelWorkspaceRole(membership.role)}</span>
               )}
 
-              {canManage ? (
+              {canManage && !isOwner ? (
                 <button
                   type="button"
-                  disabled={disabled || isRemoving || isOwner}
+                  disabled={disabled || isRemoving}
                   className="settings-org__access-remove"
                   onClick={() => void onRevoke(membership.workspaceId)}
                 >
-                  {isRemoving ? "Removing..." : isOwner ? "Owner" : "Remove"}
+                  {isRemoving ? "Removing..." : "Remove"}
                 </button>
               ) : null}
             </div>

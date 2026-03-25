@@ -50,6 +50,7 @@ export default function OrgMemberWorkspaceAccessPanel({
         disabled={access.isLoading}
         granting={access.granting}
         canManage={canManage}
+        ownerContext={selectedMember.orgRole === "owner" || access.memberships.some((membership) => membership.role === "owner")}
         onGrant={async ({ workspaceId, role }) => {
           if (!selectedMember) return;
           await access.grantAccess({
