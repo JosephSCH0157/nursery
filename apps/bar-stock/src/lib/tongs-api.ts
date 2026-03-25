@@ -207,20 +207,17 @@ export async function listGraduatedEpisodeIds(
 export async function listMyWorkspaces(): Promise<Workspace[]> {
   if (!supabase) return [];
 
-  const { data: authData, error: authError } = await supabase.auth.getUser();
-  if (authError) {
-    throw authError;
-  }
-  const userId = authData.user?.id ?? null;
-  if (!userId) {
-    return [];
-  }
-
-  const { data, error } = await supabase
+  const rpcResponse = await supabase
     .schema("tongs")
-    .from("workspace_members")
-    .select("workspace_id, role, workspaces!workspace_members_workspace_id_fkey(id, name, created_at)")
-    .eq("user_id", userId);
+    .rpc("list_my_workspaces");
+
+  const data = rpcResponse.data as Array<{
+    workspace_id?: string | null;
+    workspace_name?: string | null;
+    role?: string | null;
+    created_at?: string | null;
+  }> | null;
+  const error = rpcResponse.error;
 
   if (error) {
     throw error;
@@ -228,10 +225,11 @@ export async function listMyWorkspaces(): Promise<Workspace[]> {
 
   const out: Workspace[] = [];
   for (const row of data ?? []) {
-    const w = (row as any).workspaces;
-    const role = typeof (row as any).role === "string" ? (row as any).role : null;
-    const createdAt = typeof w?.created_at === "string" ? w.created_at : null;
-    if (w?.id && w?.name) out.push({ id: w.id, name: w.name, role, createdAt });
+    const id = typeof row.workspace_id === "string" ? row.workspace_id : null;
+    const name = typeof row.workspace_name === "string" ? row.workspace_name : null;
+    const role = typeof row.role === "string" ? row.role : null;
+    const createdAt = typeof row.created_at === "string" ? row.created_at : null;
+    if (id && name) out.push({ id, name, role, createdAt });
   }
 
   out.sort((a, b) => {
