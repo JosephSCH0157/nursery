@@ -776,6 +776,29 @@
   align-items: center;
 }
 
+.hs-workpiece-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.hs-workpiece-tab {
+  border: 1px solid var(--forge-border, #d0d7de);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--forge-bg-elevated, #fff);
+  color: var(--forge-text, #111827);
+}
+
+.hs-workpiece-tab.is-active {
+  background: #111827;
+  color: #f9fafb;
+  border-color: #111827;
+}
+
 .hs-draft-stage {
   display: grid;
   gap: 12px;
