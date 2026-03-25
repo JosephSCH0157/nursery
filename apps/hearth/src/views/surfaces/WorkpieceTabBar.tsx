@@ -35,8 +35,9 @@ export default function WorkpieceTabBar({
             id={`hearth-workpiece-tab-${item.tab}`}
             type="button"
             role="tab"
-            aria-selected={isActive ? "true" : "false"}
+            aria-selected={isActive}
             aria-controls={`hearth-workpiece-panel-${item.tab}`}
+            tabIndex={isActive ? 0 : -1}
             className={`hs-workpiece-tab${isActive ? " is-active" : ""}`}
             onClick={() => onChangeTab(item.tab)}
           >
