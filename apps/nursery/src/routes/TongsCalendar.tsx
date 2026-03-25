@@ -13,7 +13,7 @@ import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
 import { useMountRegistry } from "../hooks/useMountRegistry";
 import { supabase } from "../lib/supabase";
 import { tongsApiRequest } from "../lib/tongs-api";
-import { useOutletContext } from "react-router-dom";
+import { Link, useLocation, useOutletContext } from "react-router-dom";
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 import "./TongsCalendar.css";
@@ -333,6 +333,7 @@ function rowToEvent(row: CalendarEventRow): CalendarEvent {
 }
 
 export default function TongsCalendar() {
+  const location = useLocation();
   const shell = useOutletContext<AppShellContext>();
   const workspaceId = shell?.workspaceId ?? null;
   const session = shell?.session ?? null;
@@ -893,6 +894,12 @@ export default function TongsCalendar() {
       }))
       .sort((a, b) => a.date.getTime() - b.date.getTime());
   }, [visibleEvents]);
+  const recordingSessionsHref = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    params.set("mode", "sessions");
+    const nextSearch = params.toString();
+    return nextSearch ? `${location.pathname}?${nextSearch}` : location.pathname;
+  }, [location.pathname, location.search]);
 
   if (!workspaceId) {
     return <WorkspaceRequiredNotice toolName="Tongs Calendar" />;
@@ -904,35 +911,37 @@ export default function TongsCalendar() {
         <div className="tongs-calendar__title-wrap">
           <h2 className="tongs-calendar__title">Tongs Calendar</h2>
           <p className="tongs-calendar__subtitle">Plan sessions across scripting, recording, and releases.</p>
+          {!isMobile ? <div className="tongs-calendar__range-pill">{rangeLabel}</div> : null}
         </div>
         <div className="tongs-calendar__controls">
           {isMobile ? (
             <span className="tongs-calendar__agenda-label">Agenda</span>
           ) : (
-            <div className="tongs-calendar__view-toggle">
-              {VIEW_OPTIONS.map((option) => {
-                const isActive = view === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setView(option.value)}
-                    className={`tongs-calendar__view-button${isActive ? " tongs-calendar__view-button--active" : ""}`}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
+            <div className="tongs-calendar__controls-group">
+              <div className="tongs-calendar__view-toggle">
+                {VIEW_OPTIONS.map((option) => {
+                  const isActive = view === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setView(option.value)}
+                      className={`tongs-calendar__view-button${isActive ? " tongs-calendar__view-button--active" : ""}`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="tongs-calendar__nav-controls">
+                <button type="button" onClick={goPrev}>Prev</button>
+                <button type="button" onClick={goToToday}>Today</button>
+                <button type="button" onClick={goNext}>Next</button>
+              </div>
             </div>
           )}
 
-          <div className="tongs-calendar__nav-controls">
-            <button type="button" onClick={goPrev}>Prev</button>
-            <button type="button" onClick={goToToday}>Today</button>
-            <button type="button" onClick={goNext}>Next</button>
-          </div>
-
-          <div className="tongs-calendar__range-label">{rangeLabel}</div>
+          {isMobile ? <div className="tongs-calendar__range-label">{rangeLabel}</div> : null}
 
           <button
             type="button"
@@ -1054,6 +1063,9 @@ export default function TongsCalendar() {
                 <div key={day.key} className="tongs-calendar__week-column">
                   <div className="tongs-calendar__week-column-title">{day.label}</div>
                   <div className="tongs-calendar__week-column-date">{day.dateLabel}</div>
+                  <div className="tongs-calendar__week-column-count">
+                    {dayEventsForWeek.length} event{dayEventsForWeek.length === 1 ? "" : "s"}
+                  </div>
                   <div className="tongs-calendar__week-column-events">
                     {dayEventsForWeek.length === 0 ? <div className="tongs-calendar__empty">No events</div> : null}
                     {dayEventsForWeek.map((event) => {
@@ -1123,7 +1135,17 @@ export default function TongsCalendar() {
       <section className="tongs-calendar__events">
         <h3 className="tongs-calendar__events-title">{isMobile ? "Agenda" : "Events"}</h3>
         {visibleEvents.length === 0 ? (
-          <div className="tongs-calendar__empty">No events in this view.</div>
+          <div className="tongs-calendar__empty-state">
+            <div className="tongs-calendar__empty">No events in this view.</div>
+            <div className="tongs-calendar__empty-actions">
+              {canEditCalendar ? (
+                <button type="button" onClick={openNewForm}>Create first event</button>
+              ) : null}
+              <Link className="tongs-calendar__link-button" to={recordingSessionsHref}>
+                Open Recording Sessions
+              </Link>
+            </div>
+          </div>
         ) : isMobile ? (
           <div className="tongs-calendar__agenda-groups">
             {agendaGroups.map((group) => (
@@ -1205,7 +1227,10 @@ export default function TongsCalendar() {
         )}
       </section>
 
-      <div className="tongs-calendar__storage">Storage: {storageSummary}</div>
+      <details className="tongs-calendar__storage">
+        <summary>Storage status</summary>
+        <div className="tongs-calendar__storage-detail">{storageSummary}</div>
+      </details>
 
       {isMobile && showNew ? (
         <div className="tongs-calendar__mobile-overlay">
