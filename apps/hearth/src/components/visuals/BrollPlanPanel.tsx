@@ -13,6 +13,7 @@ type BrollPlanPanelProps = {
     anchorText: string;
     description: string;
     motionIntent: string;
+    assetCategory: string;
     priority: string;
     keywords: string;
     mood: string;
@@ -20,6 +21,12 @@ type BrollPlanPanelProps = {
     motionSuggestion: string;
     suggestedDurationMs: string;
     placementHint: string;
+    dataChartType: string;
+    dataTitle: string;
+    dataLabels: string;
+    dataValues: string;
+    dataEmphasisKey: string;
+    dataAnimationStyle: string;
   };
   selectedCandidateId: string | null;
   onSelectBeat: (beatId: string) => void;
@@ -33,10 +40,33 @@ type BrollPlanPanelProps = {
   onSelectCandidate: (candidateId: string) => void;
 };
 
-const MOTION_INTENTS = ["broll", "establishing", "cutaway", "reaction", "ambient", "explanatory", "graphic", "transition"];
+const MOTION_INTENTS = [
+  "broll",
+  "establishing",
+  "cutaway",
+  "reaction",
+  "ambient",
+  "explanatory",
+  "graphic",
+  "data_visual",
+  "map",
+  "timeline",
+  "transition",
+];
+const ASSET_CATEGORIES = [
+  "stock_video",
+  "ai_video",
+  "uploaded_video",
+  "animated_chart",
+  "animated_graphic",
+  "timeline_graphic",
+  "map_animation",
+  "stat_card",
+];
 const PRIORITIES = ["primary", "supporting", "background"];
 const SHOT_TYPES = ["mixed", "wide", "medium", "close", "macro", "aerial"];
 const PLACEMENT_HINTS = ["first_occurrence", "exact_timestamp", "manual"];
+const DATA_CHART_TYPES = ["bar", "line", "area", "pie", "timeline", "stat"];
 
 function resolveBeatState(beat: EpisodeBrollPlanBeat): string {
   if (beat.fulfillment_state) return beat.fulfillment_state;
@@ -65,6 +95,7 @@ function CandidateList(args: {
             </div>
             <div className="hs-imap-candidate-subtitle">
               {candidate.source}
+              {candidate.asset_category ? ` • ${candidate.asset_category}` : ""}
               {candidate.mime_type ? ` • ${candidate.mime_type}` : ""}
             </div>
             {candidate.uri ? (
@@ -156,6 +187,12 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
                   </select>
                 </label>
                 <label>
+                  Asset Category
+                  <select value={props.draft.assetCategory} onChange={(event) => props.onDraftChange("assetCategory", event.target.value)} disabled={props.disabled}>
+                    {ASSET_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+                  </select>
+                </label>
+                <label>
                   Priority
                   <select value={props.draft.priority} onChange={(event) => props.onDraftChange("priority", event.target.value)} disabled={props.disabled}>
                     {PRIORITIES.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
@@ -192,6 +229,40 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
                 <label>Motion Suggestion</label>
                 <textarea value={props.draft.motionSuggestion} onChange={(event) => props.onDraftChange("motionSuggestion", event.target.value)} disabled={props.disabled} rows={2} />
               </div>
+              {props.draft.motionIntent === "data_visual" ? (
+                <>
+                  <div className="hs-imap-field-grid">
+                    <label>
+                      Chart Type
+                      <select value={props.draft.dataChartType} onChange={(event) => props.onDraftChange("dataChartType", event.target.value)} disabled={props.disabled}>
+                        {DATA_CHART_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      Data Title
+                      <input value={props.draft.dataTitle} onChange={(event) => props.onDraftChange("dataTitle", event.target.value)} disabled={props.disabled} />
+                    </label>
+                    <label>
+                      Emphasis Key
+                      <input value={props.draft.dataEmphasisKey} onChange={(event) => props.onDraftChange("dataEmphasisKey", event.target.value)} disabled={props.disabled} />
+                    </label>
+                  </div>
+                  <div className="hs-imap-field-grid">
+                    <label>
+                      Labels (comma separated)
+                      <input value={props.draft.dataLabels} onChange={(event) => props.onDraftChange("dataLabels", event.target.value)} disabled={props.disabled} />
+                    </label>
+                    <label>
+                      Values (comma separated numbers)
+                      <input value={props.draft.dataValues} onChange={(event) => props.onDraftChange("dataValues", event.target.value)} disabled={props.disabled} />
+                    </label>
+                    <label>
+                      Animation Style
+                      <input value={props.draft.dataAnimationStyle} onChange={(event) => props.onDraftChange("dataAnimationStyle", event.target.value)} disabled={props.disabled} />
+                    </label>
+                  </div>
+                </>
+              ) : null}
 
               <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
                 <div className="hs-imap-candidate-action-group">

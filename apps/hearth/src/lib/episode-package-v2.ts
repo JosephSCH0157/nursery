@@ -174,6 +174,9 @@ export const EPISODE_BROLL_PLAN_MOTION_INTENT_VALUES = [
   "ambient",
   "explanatory",
   "graphic",
+  "data_visual",
+  "map",
+  "timeline",
   "transition",
 ] as const;
 
@@ -184,6 +187,17 @@ export const EPISODE_BROLL_PLAN_SOURCE_TYPE_VALUES = [
   "external",
   "hearth_ai",
   "hammer_upload",
+] as const;
+
+export const EPISODE_BROLL_PLAN_MOTION_ASSET_CATEGORY_VALUES = [
+  "stock_video",
+  "ai_video",
+  "uploaded_video",
+  "animated_chart",
+  "animated_graphic",
+  "timeline_graphic",
+  "map_animation",
+  "stat_card",
 ] as const;
 
 export const EPISODE_BROLL_PLAN_COVERAGE_STRENGTH_VALUES = [
@@ -201,6 +215,7 @@ export const EPISODE_BROLL_PLAN_FULFILLMENT_STATE_VALUES = [
 
 export type EpisodeBrollMotionIntent = (typeof EPISODE_BROLL_PLAN_MOTION_INTENT_VALUES)[number];
 export type EpisodeBrollSourceType = (typeof EPISODE_BROLL_PLAN_SOURCE_TYPE_VALUES)[number];
+export type EpisodeBrollMotionAssetCategory = (typeof EPISODE_BROLL_PLAN_MOTION_ASSET_CATEGORY_VALUES)[number];
 export type EpisodeBrollCoverageStrength = (typeof EPISODE_BROLL_PLAN_COVERAGE_STRENGTH_VALUES)[number];
 export type EpisodeBrollFulfillmentState = (typeof EPISODE_BROLL_PLAN_FULFILLMENT_STATE_VALUES)[number];
 
@@ -208,15 +223,27 @@ export type EpisodeBrollShotType = "close" | "medium" | "wide" | "macro" | "aeri
 export type EpisodeBrollPriority = "primary" | "supporting" | "background";
 export type EpisodeBrollPlacementHint = "first_occurrence" | "exact_timestamp" | "manual";
 export type EpisodeBrollOrigin = "hearth" | "hammer" | "mixed";
+export type EpisodeBrollDataVisualChartType = "bar" | "line" | "area" | "pie" | "timeline" | "stat";
+
+export type EpisodeBrollDataVisualSpec = {
+  chart_type?: EpisodeBrollDataVisualChartType | null;
+  title?: string | null;
+  labels?: string[];
+  values?: number[];
+  emphasis_key?: string | null;
+  animation_style?: string | null;
+};
 
 export type EpisodeBrollAssetCandidate = {
   asset_id: string;
   source: EpisodeBrollSourceType;
+  asset_category?: EpisodeBrollMotionAssetCategory | null;
   label?: string | null;
   path?: string | null;
   uri?: string | null;
   mime_type?: string | null;
   duration_ms?: number | null;
+  data_visual_spec?: EpisodeBrollDataVisualSpec | null;
   created_at?: string | null;
 };
 
@@ -236,6 +263,8 @@ export type EpisodeBrollPlanBeat = {
   motion_suggestion?: string | null;
   suggested_duration_ms?: number | null;
   source_type: EpisodeBrollSourceType;
+  asset_category?: EpisodeBrollMotionAssetCategory | null;
+  data_visual_spec?: EpisodeBrollDataVisualSpec | null;
   selected_asset_id?: string | null;
   candidate_assets?: EpisodeBrollAssetCandidate[];
   fulfillment_state?: EpisodeBrollFulfillmentState;
@@ -1169,6 +1198,17 @@ function normalizeBrollSourceType(value: unknown): EpisodeBrollSourceType {
   return "planned";
 }
 
+function normalizeBrollMotionAssetCategory(value: unknown): EpisodeBrollMotionAssetCategory | null {
+  const normalized = readString(value)?.toLowerCase();
+  if (
+    normalized
+    && EPISODE_BROLL_PLAN_MOTION_ASSET_CATEGORY_VALUES.includes(normalized as EpisodeBrollMotionAssetCategory)
+  ) {
+    return normalized as EpisodeBrollMotionAssetCategory;
+  }
+  return null;
+}
+
 function normalizeBrollCoverageStrength(value: unknown): EpisodeBrollCoverageStrength | undefined {
   const normalized = readString(value)?.toLowerCase();
   if (normalized && EPISODE_BROLL_PLAN_COVERAGE_STRENGTH_VALUES.includes(normalized as EpisodeBrollCoverageStrength)) {
@@ -1212,6 +1252,63 @@ function normalizeBrollKeywords(value: unknown): string[] {
     .slice(0, 24);
 }
 
+function normalizeBrollDataVisualSpec(value: unknown): EpisodeBrollDataVisualSpec | null {
+  if (!isRecord(value)) return null;
+  const chartTypeRaw = readString(value.chart_type)?.toLowerCase();
+  const chartType = (
+    chartTypeRaw === "bar"
+    || chartTypeRaw === "line"
+    || chartTypeRaw === "area"
+    || chartTypeRaw === "pie"
+    || chartTypeRaw === "timeline"
+    || chartTypeRaw === "stat"
+  ) ? chartTypeRaw : null;
+  const labels = readStringArray(value.labels).slice(0, 24);
+  const values = Array.isArray(value.values)
+    ? value.values
+      .map((entry) => readNumber(entry))
+      .filter((entry): entry is number => typeof entry === "number" && Number.isFinite(entry))
+      .slice(0, 24)
+    : [];
+  const normalized: EpisodeBrollDataVisualSpec = {
+    chart_type: chartType,
+    title: readString(value.title),
+    labels,
+    values,
+    emphasis_key: readString(value.emphasis_key),
+    animation_style: readString(value.animation_style),
+  };
+  const hasContent = Boolean(
+    normalized.chart_type
+    || normalized.title
+    || normalized.labels?.length
+    || normalized.values?.length
+    || normalized.emphasis_key
+    || normalized.animation_style,
+  );
+  return hasContent ? normalized : null;
+}
+
+function deriveBrollAssetCategoryFromSource(args: {
+  sourceType: EpisodeBrollSourceType;
+  motionIntent: EpisodeBrollMotionIntent;
+  mimeType?: string | null;
+}): EpisodeBrollMotionAssetCategory {
+  if (args.motionIntent === "data_visual") return "animated_chart";
+  if (args.motionIntent === "map") return "map_animation";
+  if (args.motionIntent === "timeline") return "timeline_graphic";
+  if (args.motionIntent === "graphic") return "animated_graphic";
+  if (args.motionIntent === "explanatory") return "stat_card";
+
+  if (args.sourceType === "stock") return "stock_video";
+  if (args.sourceType === "hearth_ai") return "ai_video";
+  if (args.sourceType === "upload" || args.sourceType === "hammer_upload") return "uploaded_video";
+
+  const mime = readString(args.mimeType)?.toLowerCase() ?? "";
+  if (mime.startsWith("video/")) return "uploaded_video";
+  return "animated_graphic";
+}
+
 function normalizeBrollCandidateAssets(value: unknown): EpisodeBrollAssetCandidate[] {
   if (!Array.isArray(value)) return [];
   const candidates: EpisodeBrollAssetCandidate[] = [];
@@ -1220,14 +1317,22 @@ function normalizeBrollCandidateAssets(value: unknown): EpisodeBrollAssetCandida
     if (!isRecord(entry)) continue;
     const assetId = readString(entry.asset_id) ?? readString(entry.id) ?? `broll-asset-${String(index + 1).padStart(2, "0")}`;
     const source = normalizeBrollSourceType(entry.source);
+    const mimeType = readString(entry.mime_type);
     candidates.push({
       asset_id: assetId,
       source,
+      asset_category: normalizeBrollMotionAssetCategory(entry.asset_category)
+        ?? deriveBrollAssetCategoryFromSource({
+          sourceType: source,
+          motionIntent: "broll",
+          mimeType,
+        }),
       label: readString(entry.label) ?? readString(entry.variant_label),
       path: readString(entry.path),
       uri: readString(entry.uri),
-      mime_type: readString(entry.mime_type),
+      mime_type: mimeType,
       duration_ms: readInteger(entry.duration_ms),
+      data_visual_spec: normalizeBrollDataVisualSpec(entry.data_visual_spec),
       created_at: normalizeOptionalIso(entry.created_at),
     });
   }
@@ -1260,6 +1365,14 @@ function normalizeBrollPlanBeat(value: unknown, fallbackId: string, fallbackWork
   const description = readString(value.description) ?? "";
   const candidateAssets = normalizeBrollCandidateAssets(value.candidate_assets);
   const selectedAssetId = readString(value.selected_asset_id);
+  const motionIntent = normalizeBrollMotionIntent(value.motion_intent);
+  const sourceType = normalizeBrollSourceType(value.source_type);
+  const assetCategory = normalizeBrollMotionAssetCategory(value.asset_category)
+    ?? deriveBrollAssetCategoryFromSource({
+      sourceType,
+      motionIntent,
+      mimeType: null,
+    });
   return {
     id,
     workpiece_id: workpieceId,
@@ -1267,7 +1380,7 @@ function normalizeBrollPlanBeat(value: unknown, fallbackId: string, fallbackWork
     placement_hint: normalizeBrollPlacementHint(value.placement_hint),
     timestamp_ms: readInteger(value.timestamp_ms),
     description,
-    motion_intent: normalizeBrollMotionIntent(value.motion_intent),
+    motion_intent: motionIntent,
     visual_style: normalizeHearthVisualStyle(value.visual_style),
     priority: normalizeBrollPriority(value.priority),
     keywords: normalizeBrollKeywords(value.keywords),
@@ -1275,9 +1388,19 @@ function normalizeBrollPlanBeat(value: unknown, fallbackId: string, fallbackWork
     shot_type: normalizeBrollShotType(value.shot_type),
     motion_suggestion: readString(value.motion_suggestion),
     suggested_duration_ms: readInteger(value.suggested_duration_ms),
-    source_type: normalizeBrollSourceType(value.source_type),
+    source_type: sourceType,
+    asset_category: assetCategory,
+    data_visual_spec: normalizeBrollDataVisualSpec(value.data_visual_spec),
     selected_asset_id: selectedAssetId,
-    candidate_assets: candidateAssets,
+    candidate_assets: candidateAssets.map((candidate) => ({
+      ...candidate,
+      asset_category: candidate.asset_category
+        ?? deriveBrollAssetCategoryFromSource({
+          sourceType: candidate.source,
+          motionIntent,
+          mimeType: candidate.mime_type ?? null,
+        }),
+    })),
     fulfillment_state: normalizeBrollFulfillmentState(value.fulfillment_state, candidateAssets, selectedAssetId),
     origin: normalizeBrollOrigin(value.origin),
     created_at: normalizeIso(value.created_at),
@@ -1626,13 +1749,29 @@ export function ensureBrollPlanV2(pkg: EpisodePackageV2): EpisodePackageV2 {
     ...beat,
     workpiece_id: beat.workpiece_id || normalizedPlan.workpiece_id,
     keywords: dedupeTags(beat.keywords),
+    candidate_assets: normalizeBrollCandidateAssets(beat.candidate_assets).map((candidate) => ({
+      ...candidate,
+      asset_category: candidate.asset_category
+        ?? deriveBrollAssetCategoryFromSource({
+          sourceType: candidate.source,
+          motionIntent: normalizeBrollMotionIntent(beat.motion_intent),
+          mimeType: candidate.mime_type ?? null,
+        }),
+    })),
+    data_visual_spec: normalizeBrollDataVisualSpec(beat.data_visual_spec),
     fulfillment_state: normalizeBrollFulfillmentState(
       beat.fulfillment_state,
-      beat.candidate_assets ?? [],
+      normalizeBrollCandidateAssets(beat.candidate_assets),
       beat.selected_asset_id ?? null,
     ),
     source_type: normalizeBrollSourceType(beat.source_type),
     motion_intent: normalizeBrollMotionIntent(beat.motion_intent),
+    asset_category: normalizeBrollMotionAssetCategory(beat.asset_category)
+      ?? deriveBrollAssetCategoryFromSource({
+        sourceType: normalizeBrollSourceType(beat.source_type),
+        motionIntent: normalizeBrollMotionIntent(beat.motion_intent),
+        mimeType: null,
+      }),
     priority: normalizeBrollPriority(beat.priority),
     placement_hint: normalizeBrollPlacementHint(beat.placement_hint),
     origin: normalizeBrollOrigin(beat.origin),

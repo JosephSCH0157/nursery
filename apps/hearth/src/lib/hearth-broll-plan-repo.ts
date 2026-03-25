@@ -113,6 +113,7 @@ export async function uploadBrollBeatAsset(args: {
     candidateAsset: {
       asset_id: candidateId,
       source: args.source,
+      asset_category: "uploaded_video",
       label: args.file.name,
       path: uploadPath,
       mime_type: mimeType,

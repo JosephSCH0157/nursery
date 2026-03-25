@@ -138,21 +138,29 @@ export default function AnvilRoute() {
     }
 
     if (context.hasInvalidWorkpieceId) {
-      applyHandoffState(false, "The requested workpiece context is invalid. Reopen Anvil from Hearth.");
+      queueMicrotask(() => {
+        applyHandoffState(false, "The requested workpiece context is invalid. Reopen Anvil from Hearth.");
+      });
       return;
     }
 
     if (handoff.hasInvalidScriptPath) {
-      applyHandoffState(false, "The requested script path is invalid. Reopen the script from Hearth.");
+      queueMicrotask(() => {
+        applyHandoffState(false, "The requested script path is invalid. Reopen the script from Hearth.");
+      });
       return;
     }
 
     if (!context.workpieceId) {
-      applyHandoffState(false, "Open in Anvil requires a valid workpiece reference. Reopen the target from Hearth.");
+      queueMicrotask(() => {
+        applyHandoffState(false, "Open in Anvil requires a valid workpiece reference. Reopen the target from Hearth.");
+      });
       return;
     }
 
-    applyHandoffState(true, null);
+    queueMicrotask(() => {
+      applyHandoffState(true, null);
+    });
 
     void validateAnvilHandoffTarget({
       workspaceId: resolvedWorkspaceId,

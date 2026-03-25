@@ -1,6 +1,8 @@
 import type {
   EpisodeBrollAssetCandidate,
+  EpisodeBrollDataVisualSpec,
   EpisodeBrollCoverageStrength,
+  EpisodeBrollMotionAssetCategory,
   EpisodeBrollMotionIntent,
   EpisodeBrollPlan,
   EpisodeBrollPlanBeat,
@@ -45,12 +47,15 @@ function splitScriptSentences(scriptText: string): string[] {
 
 function inferMotionIntent(text: string): EpisodeBrollMotionIntent {
   const lower = text.toLowerCase();
+  if (/\bmap\b|\bregion\b|\bcountry\b|\bcity\b|\broute\b/.test(lower)) return "map";
+  if (/\btimeline\b|\bchronolog|\bmilestone\b|\bphase\b|\bstage\b/.test(lower)) return "timeline";
+  if (/\bdata\b|\bchart\b|\bstat\b|\bpercentage\b|\bmetric\b|\btrend\b/.test(lower)) return "data_visual";
   if (/\bcompared to\b|\bversus\b|\bcontrast\b/.test(lower)) return "cutaway";
   if (/\bfor example\b|\bfor instance\b|\blet'?s say\b/.test(lower)) return "explanatory";
   if (/\bhistory\b|\bback in\b|\bin \d{4}\b/.test(lower)) return "establishing";
   if (/\bpunchline\b|\bjoke\b|\bfunny\b/.test(lower)) return "reaction";
   if (/\bmeanwhile\b|\bnext\b|\bmoving on\b/.test(lower)) return "transition";
-  if (/\bdata\b|\bchart\b|\bstat\b|\bpercentage\b/.test(lower)) return "graphic";
+  if (/\bdiagram\b|\bgraphic\b|\bvisualize\b/.test(lower)) return "graphic";
   if (/\bfeel\b|\bemotion\b|\bstress\b|\banxiety\b|\bhope\b/.test(lower)) return "ambient";
   return "broll";
 }
@@ -58,7 +63,7 @@ function inferMotionIntent(text: string): EpisodeBrollMotionIntent {
 function inferShotType(intent: EpisodeBrollMotionIntent): EpisodeBrollShotType {
   if (intent === "establishing") return "wide";
   if (intent === "reaction") return "close";
-  if (intent === "graphic") return "mixed";
+  if (intent === "graphic" || intent === "data_visual" || intent === "map" || intent === "timeline") return "mixed";
   if (intent === "ambient") return "medium";
   return "mixed";
 }
@@ -80,8 +85,10 @@ function inferPriority(index: number): "primary" | "supporting" | "background" {
 
 function inferSuggestedDurationMs(intent: EpisodeBrollMotionIntent): number {
   if (intent === "reaction" || intent === "transition") return 2500;
+  if (intent === "timeline") return 4500;
   if (intent === "ambient") return 5500;
   if (intent === "establishing") return 6000;
+  if (intent === "data_visual" || intent === "map" || intent === "graphic") return 5000;
   return 4000;
 }
 
@@ -98,6 +105,9 @@ function inferKeywords(text: string): string[] {
 }
 
 function inferMotionSuggestion(intent: EpisodeBrollMotionIntent): string {
+  if (intent === "data_visual") return "Use an animated data visual that highlights the key comparison.";
+  if (intent === "map") return "Use a map animation to orient the audience geographically.";
+  if (intent === "timeline") return "Use a timeline animation to sequence major milestones.";
   if (intent === "graphic") return "Use animated overlays or data callouts.";
   if (intent === "transition") return "Use a short connector shot to bridge sections.";
   if (intent === "establishing") return "Open with a wide contextual shot before tightening coverage.";
@@ -105,6 +115,38 @@ function inferMotionSuggestion(intent: EpisodeBrollMotionIntent): string {
   if (intent === "ambient") return "Layer atmospheric footage with subtle movement.";
   if (intent === "explanatory") return "Use explanatory visuals that track the spoken concept.";
   return "Use supporting B-roll that reinforces the spoken narrative.";
+}
+
+function inferAssetCategory(intent: EpisodeBrollMotionIntent): EpisodeBrollMotionAssetCategory {
+  if (intent === "data_visual") return "animated_chart";
+  if (intent === "map") return "map_animation";
+  if (intent === "timeline") return "timeline_graphic";
+  if (intent === "graphic") return "animated_graphic";
+  if (intent === "explanatory") return "stat_card";
+  return "stock_video";
+}
+
+function inferDataVisualSpec(args: {
+  description: string;
+  motionIntent: EpisodeBrollMotionIntent;
+  previous?: EpisodeBrollDataVisualSpec | null;
+}): EpisodeBrollDataVisualSpec | null {
+  if (args.motionIntent !== "data_visual") return null;
+  if (args.previous) return args.previous;
+
+  const values = Array.from(args.description.matchAll(/(?<!\d)(\d{1,3})(?:\.\d+)?/g))
+    .map((match) => Number(match[1]))
+    .filter((value) => Number.isFinite(value))
+    .slice(0, 4);
+  const labels = values.map((_, index) => `Metric ${index + 1}`);
+  return {
+    chart_type: values.length > 0 && values.length <= 2 ? "stat" : "bar",
+    title: args.description.slice(0, 120),
+    labels,
+    values,
+    emphasis_key: values.length > 0 ? labels[0] : null,
+    animation_style: "smooth-rise",
+  };
 }
 
 function resolveCoverageStrength(beatCount: number): EpisodeBrollCoverageStrength {
@@ -141,6 +183,12 @@ export function buildBrollPlanFromScript(args: {
       motion_suggestion: previous?.motion_suggestion ?? inferMotionSuggestion(motionIntent),
       suggested_duration_ms: previous?.suggested_duration_ms ?? inferSuggestedDurationMs(motionIntent),
       source_type: previous?.source_type ?? "planned",
+      asset_category: previous?.asset_category ?? inferAssetCategory(motionIntent),
+      data_visual_spec: inferDataVisualSpec({
+        description: previous?.description ?? sentence,
+        motionIntent,
+        previous: previous?.data_visual_spec ?? null,
+      }),
       selected_asset_id: previous?.selected_asset_id ?? null,
       candidate_assets: previous?.candidate_assets ?? [],
       fulfillment_state: previous?.selected_asset_id
@@ -170,11 +218,17 @@ export function regenerateBrollBeatFromDescription(beat: EpisodeBrollPlanBeat): 
   const next = {
     ...beat,
     motion_intent: motionIntent,
+    asset_category: inferAssetCategory(motionIntent),
     keywords: inferKeywords(description),
     mood: inferMood(description),
     shot_type: inferShotType(motionIntent),
     motion_suggestion: inferMotionSuggestion(motionIntent),
     suggested_duration_ms: inferSuggestedDurationMs(motionIntent),
+    data_visual_spec: inferDataVisualSpec({
+      description,
+      motionIntent,
+      previous: beat.data_visual_spec ?? null,
+    }),
     updated_at: nowIso(),
   };
   if (next.selected_asset_id) {
@@ -194,17 +248,33 @@ export function buildStockCandidatesForBrollBeat(beat: EpisodeBrollPlanBeat): Ep
     {
       asset_id: createClientId("stock"),
       source: "stock",
+      asset_category: beat.motion_intent === "data_visual"
+        ? "animated_chart"
+        : beat.motion_intent === "map"
+          ? "map_animation"
+          : beat.motion_intent === "timeline"
+            ? "timeline_graphic"
+            : "stock_video",
       label: "Stock Search (Pexels)",
       uri: `https://www.pexels.com/search/videos/${query}/`,
       mime_type: "text/uri-list",
+      data_visual_spec: beat.data_visual_spec ?? null,
       created_at: now,
     },
     {
       asset_id: createClientId("stock"),
       source: "stock",
+      asset_category: beat.motion_intent === "data_visual"
+        ? "animated_chart"
+        : beat.motion_intent === "map"
+          ? "map_animation"
+          : beat.motion_intent === "timeline"
+            ? "timeline_graphic"
+            : "stock_video",
       label: "Stock Search (Pixabay)",
       uri: `https://pixabay.com/videos/search/${query}/`,
       mime_type: "text/uri-list",
+      data_visual_spec: beat.data_visual_spec ?? null,
       created_at: now,
     },
   ];

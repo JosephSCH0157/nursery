@@ -164,6 +164,8 @@ import {
 } from "../lib/hearth-broll-plan";
 import { uploadBrollBeatAsset } from "../lib/hearth-broll-plan-repo";
 import type {
+  EpisodeBrollDataVisualSpec,
+  EpisodeBrollMotionAssetCategory,
   EpisodeBrollPlan,
   EpisodeBrollPlanBeat,
   EpisodePackageV2,
@@ -2332,6 +2334,7 @@ export default function HearthShell() {
   const [brollAnchorDraft, setBrollAnchorDraft] = useState("");
   const [brollDescriptionDraft, setBrollDescriptionDraft] = useState("");
   const [brollMotionIntentDraft, setBrollMotionIntentDraft] = useState("broll");
+  const [brollAssetCategoryDraft, setBrollAssetCategoryDraft] = useState<EpisodeBrollMotionAssetCategory>("stock_video");
   const [brollPriorityDraft, setBrollPriorityDraft] = useState("supporting");
   const [brollKeywordsDraft, setBrollKeywordsDraft] = useState("");
   const [brollMoodDraft, setBrollMoodDraft] = useState("");
@@ -2339,6 +2342,12 @@ export default function HearthShell() {
   const [brollMotionSuggestionDraft, setBrollMotionSuggestionDraft] = useState("");
   const [brollSuggestedDurationDraft, setBrollSuggestedDurationDraft] = useState("");
   const [brollPlacementHintDraft, setBrollPlacementHintDraft] = useState("first_occurrence");
+  const [brollDataChartTypeDraft, setBrollDataChartTypeDraft] = useState("bar");
+  const [brollDataTitleDraft, setBrollDataTitleDraft] = useState("");
+  const [brollDataLabelsDraft, setBrollDataLabelsDraft] = useState("");
+  const [brollDataValuesDraft, setBrollDataValuesDraft] = useState("");
+  const [brollDataEmphasisKeyDraft, setBrollDataEmphasisKeyDraft] = useState("");
+  const [brollDataAnimationStyleDraft, setBrollDataAnimationStyleDraft] = useState("");
   const [brollSaveState, setBrollSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
   const [brollSaveError, setBrollSaveError] = useState<string | null>(null);
   const [brollMessage, setBrollMessage] = useState<string | null>(null);
@@ -5256,6 +5265,7 @@ export default function HearthShell() {
       setBrollAnchorDraft("");
       setBrollDescriptionDraft("");
       setBrollMotionIntentDraft("broll");
+      setBrollAssetCategoryDraft("stock_video");
       setBrollPriorityDraft("supporting");
       setBrollKeywordsDraft("");
       setBrollMoodDraft("");
@@ -5263,12 +5273,19 @@ export default function HearthShell() {
       setBrollMotionSuggestionDraft("");
       setBrollSuggestedDurationDraft("");
       setBrollPlacementHintDraft("first_occurrence");
+      setBrollDataChartTypeDraft("bar");
+      setBrollDataTitleDraft("");
+      setBrollDataLabelsDraft("");
+      setBrollDataValuesDraft("");
+      setBrollDataEmphasisKeyDraft("");
+      setBrollDataAnimationStyleDraft("");
       setBrollSaveState("saved");
       return;
     }
     setBrollAnchorDraft(selectedBrollBeat.anchor_text);
     setBrollDescriptionDraft(selectedBrollBeat.description);
     setBrollMotionIntentDraft(selectedBrollBeat.motion_intent);
+    setBrollAssetCategoryDraft(selectedBrollBeat.asset_category ?? "stock_video");
     setBrollPriorityDraft(selectedBrollBeat.priority);
     setBrollKeywordsDraft((selectedBrollBeat.keywords ?? []).join(", "));
     setBrollMoodDraft(selectedBrollBeat.mood ?? "");
@@ -5278,6 +5295,12 @@ export default function HearthShell() {
       selectedBrollBeat.suggested_duration_ms != null ? String(selectedBrollBeat.suggested_duration_ms) : "",
     );
     setBrollPlacementHintDraft(selectedBrollBeat.placement_hint ?? "first_occurrence");
+    setBrollDataChartTypeDraft(selectedBrollBeat.data_visual_spec?.chart_type ?? "bar");
+    setBrollDataTitleDraft(selectedBrollBeat.data_visual_spec?.title ?? "");
+    setBrollDataLabelsDraft((selectedBrollBeat.data_visual_spec?.labels ?? []).join(", "));
+    setBrollDataValuesDraft((selectedBrollBeat.data_visual_spec?.values ?? []).map((value) => String(value)).join(", "));
+    setBrollDataEmphasisKeyDraft(selectedBrollBeat.data_visual_spec?.emphasis_key ?? "");
+    setBrollDataAnimationStyleDraft(selectedBrollBeat.data_visual_spec?.animation_style ?? "");
     setBrollSaveState("saved");
     setBrollSaveError(null);
   }, [selectedBrollBeat]);
@@ -7681,6 +7704,35 @@ export default function HearthShell() {
     setBrollSaveError(null);
   }
 
+  function resolveBrollDataVisualSpecFromDraft(intent: EpisodeBrollPlanBeat["motion_intent"]): EpisodeBrollDataVisualSpec | null {
+    if (intent !== "data_visual") return null;
+    const labels = brollDataLabelsDraft
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    const values = brollDataValuesDraft
+      .split(",")
+      .map((entry) => Number(entry.trim()))
+      .filter((value) => Number.isFinite(value));
+    const next: EpisodeBrollDataVisualSpec = {
+      chart_type: (brollDataChartTypeDraft.trim() || "bar") as EpisodeBrollDataVisualSpec["chart_type"],
+      title: brollDataTitleDraft.trim() || null,
+      labels,
+      values,
+      emphasis_key: brollDataEmphasisKeyDraft.trim() || null,
+      animation_style: brollDataAnimationStyleDraft.trim() || null,
+    };
+    const hasContent = Boolean(
+      next.chart_type
+      || next.title
+      || next.labels?.length
+      || next.values?.length
+      || next.emphasis_key
+      || next.animation_style,
+    );
+    return hasContent ? next : null;
+  }
+
   async function onGenerateBrollPlan() {
     if (isApprovingScript || isAiProcessing || isBrollBusy) return;
     if (!episodePackage) return;
@@ -7730,6 +7782,8 @@ export default function HearthShell() {
   async function onSaveBrollBeat() {
     if (!episodePackage || !selectedBrollBeat) return;
     if (isBrollBusy) return;
+    const nextMotionIntent = brollMotionIntentDraft as EpisodeBrollPlanBeat["motion_intent"];
+    const nextDataVisualSpec = resolveBrollDataVisualSpecFromDraft(nextMotionIntent);
     const nextKeywords = brollKeywordsDraft
       .split(",")
       .map((entry) => entry.trim().toLowerCase())
@@ -7738,7 +7792,8 @@ export default function HearthShell() {
       ...selectedBrollBeat,
       anchor_text: brollAnchorDraft.trim(),
       description: brollDescriptionDraft.trim(),
-      motion_intent: brollMotionIntentDraft as EpisodeBrollPlanBeat["motion_intent"],
+      motion_intent: nextMotionIntent,
+      asset_category: brollAssetCategoryDraft,
       priority: brollPriorityDraft as EpisodeBrollPlanBeat["priority"],
       keywords: nextKeywords,
       mood: brollMoodDraft.trim() || null,
@@ -7747,6 +7802,7 @@ export default function HearthShell() {
       suggested_duration_ms: Number.isFinite(Number(brollSuggestedDurationDraft))
         ? Math.max(0, Math.trunc(Number(brollSuggestedDurationDraft)))
         : null,
+      data_visual_spec: nextDataVisualSpec,
       placement_hint: (brollPlacementHintDraft.trim() || "first_occurrence") as EpisodeBrollPlanBeat["placement_hint"],
       updated_at: new Date().toISOString(),
       fulfillment_state: selectedBrollBeat.selected_asset_id ? "stale" : selectedBrollBeat.fulfillment_state,
@@ -7858,6 +7914,7 @@ export default function HearthShell() {
   async function onFindStockForBrollBeat() {
     if (!episodePackage || !selectedBrollBeat) return;
     if (isBrollBusy) return;
+    const nextMotionIntent = brollMotionIntentDraft as EpisodeBrollPlanBeat["motion_intent"];
     const baseBeat = {
       ...selectedBrollBeat,
       description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
@@ -7865,8 +7922,10 @@ export default function HearthShell() {
         .split(",")
         .map((entry) => entry.trim().toLowerCase())
         .filter(Boolean),
-      motion_intent: brollMotionIntentDraft as EpisodeBrollPlanBeat["motion_intent"],
+      motion_intent: nextMotionIntent,
+      asset_category: brollAssetCategoryDraft,
       mood: brollMoodDraft.trim() || selectedBrollBeat.mood,
+      data_visual_spec: resolveBrollDataVisualSpecFromDraft(nextMotionIntent),
     };
     const stockCandidates = buildStockCandidatesForBrollBeat(baseBeat);
     const nextBeat: EpisodeBrollPlanBeat = {
@@ -7920,25 +7979,29 @@ export default function HearthShell() {
     setBrollSaveState("saving");
     setBrollSaveError(null);
     try {
-      const uploaded = await uploadBrollBeatAsset({
-        workpieceId: episodeId,
-        beatId: selectedBrollBeat.id,
-        file,
-        source: "upload",
-      });
+    const uploaded = await uploadBrollBeatAsset({
+      workpieceId: episodeId,
+      beatId: selectedBrollBeat.id,
+      file,
+      source: "upload",
+    });
       if (!uploaded.ok) {
         setBrollSaveError(uploaded.error);
         setBrollSaveState("error");
         return;
       }
-      const nextBeat: EpisodeBrollPlanBeat = {
-        ...selectedBrollBeat,
-        source_type: "upload",
-        origin: selectedBrollBeat.origin === "hammer" ? "mixed" : "hearth",
-        candidate_assets: [
-          ...(selectedBrollBeat.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
-          uploaded.candidateAsset,
-        ],
+    const uploadedCategory: EpisodeBrollMotionAssetCategory = file.type.startsWith("video/")
+      ? "uploaded_video"
+      : "animated_graphic";
+    const nextBeat: EpisodeBrollPlanBeat = {
+      ...selectedBrollBeat,
+      source_type: "upload",
+      asset_category: uploadedCategory,
+      origin: selectedBrollBeat.origin === "hammer" ? "mixed" : "hearth",
+      candidate_assets: [
+        ...(selectedBrollBeat.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
+        uploaded.candidateAsset,
+      ],
         selected_asset_id: uploaded.candidateAsset.asset_id,
         fulfillment_state: "resolved",
         updated_at: new Date().toISOString(),
@@ -7982,6 +8045,8 @@ export default function HearthShell() {
     const nextBeat: EpisodeBrollPlanBeat = {
       ...selectedBrollBeat,
       source_type: candidate.source,
+      asset_category: candidate.asset_category ?? selectedBrollBeat.asset_category,
+      data_visual_spec: candidate.data_visual_spec ?? selectedBrollBeat.data_visual_spec ?? null,
       selected_asset_id: candidate.asset_id,
       fulfillment_state: "resolved",
       updated_at: new Date().toISOString(),
@@ -11057,6 +11122,7 @@ export default function HearthShell() {
                     anchorText: brollAnchorDraft,
                     description: brollDescriptionDraft,
                     motionIntent: brollMotionIntentDraft,
+                    assetCategory: brollAssetCategoryDraft,
                     priority: brollPriorityDraft,
                     keywords: brollKeywordsDraft,
                     mood: brollMoodDraft,
@@ -11064,6 +11130,12 @@ export default function HearthShell() {
                     motionSuggestion: brollMotionSuggestionDraft,
                     suggestedDurationMs: brollSuggestedDurationDraft,
                     placementHint: brollPlacementHintDraft,
+                    dataChartType: brollDataChartTypeDraft,
+                    dataTitle: brollDataTitleDraft,
+                    dataLabels: brollDataLabelsDraft,
+                    dataValues: brollDataValuesDraft,
+                    dataEmphasisKey: brollDataEmphasisKeyDraft,
+                    dataAnimationStyle: brollDataAnimationStyleDraft,
                   }}
                   selectedCandidateId={selectedBrollBeat?.selected_asset_id ?? null}
                   onSelectBeat={setSelectedBrollBeatId}
@@ -11071,6 +11143,7 @@ export default function HearthShell() {
                     if (field === "anchorText") setBrollDraftEditing(setBrollAnchorDraft, value);
                     else if (field === "description") setBrollDraftEditing(setBrollDescriptionDraft, value);
                     else if (field === "motionIntent") setBrollDraftEditing(setBrollMotionIntentDraft, value);
+                    else if (field === "assetCategory") setBrollDraftEditing((next) => setBrollAssetCategoryDraft(next as EpisodeBrollMotionAssetCategory), value);
                     else if (field === "priority") setBrollDraftEditing(setBrollPriorityDraft, value);
                     else if (field === "keywords") setBrollDraftEditing(setBrollKeywordsDraft, value);
                     else if (field === "mood") setBrollDraftEditing(setBrollMoodDraft, value);
@@ -11078,6 +11151,12 @@ export default function HearthShell() {
                     else if (field === "motionSuggestion") setBrollDraftEditing(setBrollMotionSuggestionDraft, value);
                     else if (field === "suggestedDurationMs") setBrollDraftEditing(setBrollSuggestedDurationDraft, value);
                     else if (field === "placementHint") setBrollDraftEditing(setBrollPlacementHintDraft, value);
+                    else if (field === "dataChartType") setBrollDraftEditing(setBrollDataChartTypeDraft, value);
+                    else if (field === "dataTitle") setBrollDraftEditing(setBrollDataTitleDraft, value);
+                    else if (field === "dataLabels") setBrollDraftEditing(setBrollDataLabelsDraft, value);
+                    else if (field === "dataValues") setBrollDraftEditing(setBrollDataValuesDraft, value);
+                    else if (field === "dataEmphasisKey") setBrollDraftEditing(setBrollDataEmphasisKeyDraft, value);
+                    else if (field === "dataAnimationStyle") setBrollDraftEditing(setBrollDataAnimationStyleDraft, value);
                   }}
                   onSaveBeat={() => void onSaveBrollBeat()}
                   onDeleteBeat={() => void onDeleteBrollBeat()}

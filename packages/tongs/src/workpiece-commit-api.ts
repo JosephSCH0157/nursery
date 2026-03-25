@@ -6418,8 +6418,23 @@ export class TongsCommitService {
     // These Bar-Stock tables are real in the target schema but are not yet represented in the
     // generated Database types. Keep access untyped here rather than letting the generated type
     // hole block the Tongs build and all downstream smoke validation.
+    type UntypedSparkQueryBuilder = {
+      select: (columns: string) => UntypedSparkQueryBuilder;
+      eq: (column: string, value: unknown) => UntypedSparkQueryBuilder;
+      is: (column: string, value: unknown) => UntypedSparkQueryBuilder;
+      in: (
+        column: string,
+        values: readonly unknown[],
+      ) => Promise<{ data: unknown[] | null; error: { message: string } | null }>;
+      order: (
+        column: string,
+        options: { ascending: boolean },
+      ) => UntypedSparkQueryBuilder;
+      limit: (count: number) => Promise<{ data: unknown[] | null; error: { message: string } | null }>;
+    };
+
     const tongsUntyped = this.supabase.schema("tongs") as unknown as {
-      from: (table: string) => any;
+      from: (table: string) => UntypedSparkQueryBuilder;
     };
 
     const { data, error } = await tongsUntyped

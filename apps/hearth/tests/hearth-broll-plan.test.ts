@@ -32,6 +32,16 @@ test("buildBrollPlanFromScript creates episode-wide beats with canonical default
     assert.equal(typeof beat.description, "string");
     assert.equal(Array.isArray(beat.keywords), true);
     assert.ok(["planned", "stock", "upload", "external", "hearth_ai", "hammer_upload"].includes(beat.source_type));
+    assert.ok([
+      "stock_video",
+      "ai_video",
+      "uploaded_video",
+      "animated_chart",
+      "animated_graphic",
+      "timeline_graphic",
+      "map_animation",
+      "stat_card",
+    ].includes(beat.asset_category ?? "stock_video"));
     assert.ok(["unresolved", "candidate_assets_available", "resolved", "stale"].includes(beat.fulfillment_state));
   }
 });
@@ -54,6 +64,7 @@ test("buildBrollPlanFromScript preserves prior beat identity and selected assets
     motion_suggestion: "Use a close shot of people tapping in.",
     suggested_duration_ms: 4000,
     source_type: "stock",
+    asset_category: "stock_video",
     selected_asset_id: "asset-123",
     candidate_assets: [{
       asset_id: "asset-123",
@@ -90,6 +101,7 @@ test("buildBrollPlanFromScript preserves prior beat identity and selected assets
   assert.equal(matched?.selected_asset_id, "asset-123");
   assert.equal(matched?.fulfillment_state, "resolved");
   assert.equal(matched?.source_type, "stock");
+  assert.equal(matched?.asset_category, "stock_video");
 });
 
 test("regenerateBrollBeatFromDescription marks resolved beats as stale and refreshes metadata", () => {
@@ -110,6 +122,7 @@ test("regenerateBrollBeatFromDescription marks resolved beats as stale and refre
     motion_suggestion: null,
     suggested_duration_ms: 3000,
     source_type: "upload",
+    asset_category: "uploaded_video",
     selected_asset_id: "asset-abc",
     candidate_assets: [],
     fulfillment_state: "resolved",
@@ -124,6 +137,25 @@ test("regenerateBrollBeatFromDescription marks resolved beats as stale and refre
   assert.equal(regenerated.selected_asset_id, "asset-abc");
   assert.equal(regenerated.fulfillment_state, "stale");
   assert.notEqual(regenerated.updated_at, beat.updated_at);
+});
+
+test("buildBrollPlanFromScript emits structured data visual beats when script is metrics-heavy", () => {
+  const scriptText = [
+    "The data shows a 42 percent retention increase after launch.",
+    "Our chart compares baseline versus the current week.",
+    "Each metric trend confirms the same pattern.",
+  ].join(" ");
+
+  const plan = buildBrollPlanFromScript({
+    workpieceId: "workpiece-2",
+    scriptText,
+  });
+
+  const dataBeat = plan.beats.find((beat) => beat.motion_intent === "data_visual");
+  assert.ok(dataBeat);
+  assert.equal(dataBeat?.asset_category, "animated_chart");
+  assert.ok(dataBeat?.data_visual_spec);
+  assert.ok(["bar", "line", "area", "pie", "timeline", "stat"].includes(dataBeat?.data_visual_spec?.chart_type ?? "bar"));
 });
 
 test("buildStockCandidatesForBrollBeat creates stock candidate links", () => {
@@ -143,6 +175,7 @@ test("buildStockCandidatesForBrollBeat creates stock candidate links", () => {
     motion_suggestion: null,
     suggested_duration_ms: 5000,
     source_type: "planned",
+    asset_category: "stock_video",
     selected_asset_id: null,
     candidate_assets: [],
     fulfillment_state: "unresolved",
@@ -154,5 +187,6 @@ test("buildStockCandidatesForBrollBeat creates stock candidate links", () => {
   const candidates = buildStockCandidatesForBrollBeat(beat);
   assert.equal(candidates.length, 2);
   assert.ok(candidates.every((candidate) => candidate.source === "stock"));
+  assert.ok(candidates.every((candidate) => candidate.asset_category != null));
   assert.ok(candidates.every((candidate) => candidate.uri?.startsWith("https://")));
 });
