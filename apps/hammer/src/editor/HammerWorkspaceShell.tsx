@@ -2434,6 +2434,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (!selected) return;
 
     const origin = selectionOriginRef.current;
+    if (origin === "system") return;
     const line = transcriptLineRefs.current.get(selectedSegmentId) ?? null;
     if (line) {
       const parentScroll = line.closest(".hammer-bay-body");
