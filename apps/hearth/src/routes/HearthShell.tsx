@@ -87,6 +87,7 @@ import {
 } from "../lib/hearth-presence";
 import { resolveTongsRequestApiToken, tongsFetch } from "../lib/tongs-fetch";
 import { useSourcesState } from "../hooks/useSourcesState";
+import { useChatWorkspace } from "../hooks/useChatWorkspace";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
@@ -2922,6 +2923,9 @@ export default function HearthShell() {
     && scriptApprovalState.approvedScriptVersion > 0,
   );
   const approvedScriptVersion = hasApprovedScript ? scriptApprovalState.approvedScriptVersion : null;
+  const approvedAtText = scriptApprovalState.approvedAt
+    ? formatUpdatedAt(scriptApprovalState.approvedAt)
+    : "Unknown";
   const mediaMapCoverageLevel = useMemo(() => resolveMediaPlanCoverageLevel(mediaMapEntries), [mediaMapEntries]);
   const mediaMapScopeLabel = useMemo(() => resolveMediaPlanScopeLabel(mediaMapEntries), [mediaMapEntries]);
   const metadataComplete = Boolean(
@@ -2969,6 +2973,63 @@ export default function HearthShell() {
     () => resolveChatHistoryKey(workpieceId, activeDraft?.id ?? null),
     [activeDraft?.id, workpieceId],
   );
+  const chatWorkspace = useChatWorkspace({
+    chatSurfaceProps: {
+      visible: activeWorkpieceTab === "script",
+      chatPanelMeta,
+      chatMessages,
+      chatDraft,
+      chatError,
+      aiRuntimeWarning,
+      aiCreditsDepleted,
+      hasApprovedScript,
+      approvedScriptVersion,
+      approvedAtText,
+      approvalPersistenceStatus,
+      pendingAiProposal,
+      dirtyProposalBodyCount,
+      isApplyingAiOps,
+      isAiProcessing,
+      aiEpisodeReady,
+      sttLane,
+      sttState,
+      hasBrowserSpeech,
+      sttPreview,
+      sttNotice,
+      sttError,
+      devMode,
+      chatInputRef,
+      listeningIndicator: <OscilloscopeFill stream={mediaStreamRef.current} active />,
+      onClearChat: () => {
+        setChatMessages([]);
+        setChatError(null);
+        setPendingAiProposal(null);
+      },
+      onToggleAiProposalOp,
+      onEditAiProposalBody,
+      onResetAiProposalBody,
+      onApplyAiProposalAll: () => void onApplyAiProposal("all"),
+      onApplyAiProposalSelected: () => void onApplyAiProposal("selected"),
+      onDiscardAiProposal,
+      onUseChatShortcutOutline: () => onUseChatShortcut("Create a clear outline for this Episode."),
+      onUseChatShortcutSources: () => onUseChatShortcut("Find strong sources I should cite for this Episode."),
+      onOpenComposeScript,
+      onSetSttLane: (lane) => setSttLane(lane),
+      onToggleMic,
+      onChatDraftChange: setChatDraft,
+      onSendChat: () => void onSendChat(),
+      onCancelAiRequest,
+      describeProposalOp: describeHearthOp,
+      getProposalDiff: buildProposalDiff,
+      validateProposalBody: (value) => validateScriptTags(normalizeScriptTags(value)),
+      isProposalBodyDirty: (index) => {
+        const proposal = pendingAiProposal;
+        if (!proposal) return false;
+        return isHearthProposalBodyOpDirty(proposal.ops, proposal.originalOps, index);
+      },
+      buildValidationReport,
+    },
+  });
   const activeEpisodeSparks = useMemo(
     () => sparks.filter((spark) => (
       (workpieceId && spark.links?.hearthWorkpieceId === workpieceId)
@@ -11462,9 +11523,6 @@ export default function HearthShell() {
         ? "Loading current canonical script..."
         : canonicalImageMapScriptState.error ?? "Current canonical script is unavailable.")
       : "Start writing...";
-    const approvedAtText = scriptApprovalState.approvedAt
-      ? formatUpdatedAt(scriptApprovalState.approvedAt)
-      : "Unknown";
     const composeModeLabel = effectiveComposeSetup
       ? (effectiveComposeSetup.mode === "outline_by_speaker"
         ? "Outline by speaker"
@@ -11947,61 +12005,7 @@ export default function HearthShell() {
 
         <div className={`hs-draft-stage${showScriptEditor ? " has-script-panel" : ""}`}>
           <div className="hs-focus-stack">
-            <ChatSurface
-              visible={isScriptWorkspaceTab}
-              chatPanelMeta={chatPanelMeta}
-              chatMessages={chatMessages}
-              chatDraft={chatDraft}
-              chatError={chatError}
-              aiRuntimeWarning={aiRuntimeWarning}
-              aiCreditsDepleted={aiCreditsDepleted}
-              hasApprovedScript={hasApprovedScript}
-              approvedScriptVersion={approvedScriptVersion}
-              approvedAtText={approvedAtText}
-              approvalPersistenceStatus={approvalPersistenceStatus}
-              pendingAiProposal={pendingAiProposal}
-              dirtyProposalBodyCount={dirtyProposalBodyCount}
-              isApplyingAiOps={isApplyingAiOps}
-              isAiProcessing={isAiProcessing}
-              aiEpisodeReady={aiEpisodeReady}
-              sttLane={sttLane}
-              sttState={sttState}
-              hasBrowserSpeech={hasBrowserSpeech}
-              sttPreview={sttPreview}
-              sttNotice={sttNotice}
-              sttError={sttError}
-              devMode={devMode}
-              chatInputRef={chatInputRef}
-              listeningIndicator={<OscilloscopeFill stream={mediaStreamRef.current} active />}
-              onClearChat={() => {
-                setChatMessages([]);
-                setChatError(null);
-                setPendingAiProposal(null);
-              }}
-              onToggleAiProposalOp={onToggleAiProposalOp}
-              onEditAiProposalBody={onEditAiProposalBody}
-              onResetAiProposalBody={onResetAiProposalBody}
-              onApplyAiProposalAll={() => void onApplyAiProposal("all")}
-              onApplyAiProposalSelected={() => void onApplyAiProposal("selected")}
-              onDiscardAiProposal={onDiscardAiProposal}
-              onUseChatShortcutOutline={() => onUseChatShortcut("Create a clear outline for this Episode.")}
-              onUseChatShortcutSources={() => onUseChatShortcut("Find strong sources I should cite for this Episode.")}
-              onOpenComposeScript={onOpenComposeScript}
-              onSetSttLane={(lane) => setSttLane(lane)}
-              onToggleMic={onToggleMic}
-              onChatDraftChange={setChatDraft}
-              onSendChat={() => void onSendChat()}
-              onCancelAiRequest={onCancelAiRequest}
-              describeProposalOp={describeHearthOp}
-              getProposalDiff={buildProposalDiff}
-              validateProposalBody={(value) => validateScriptTags(normalizeScriptTags(value))}
-              isProposalBodyDirty={(index) => {
-                const proposal = pendingAiProposal;
-                if (!proposal) return false;
-                return isHearthProposalBodyOpDirty(proposal.ops, proposal.originalOps, index);
-              }}
-              buildValidationReport={buildValidationReport}
-            />
+            <ChatSurface {...chatWorkspace.chatSurfaceProps} />
 
             {isReleaseWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
               <ReleaseSurface

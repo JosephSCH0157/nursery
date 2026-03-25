@@ -1,7 +1,7 @@
 import type { ReactNode, RefObject } from "react";
 import CollapsibleFocusPanel from "../../components/focus/CollapsibleFocusPanel";
 
-type ChatSurfaceProps = {
+export type ChatSurfaceProps = {
   visible: boolean;
   chatPanelMeta: string;
   chatMessages: Array<{ role: string; content: string }>;
