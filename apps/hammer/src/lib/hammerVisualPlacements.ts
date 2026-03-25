@@ -20,6 +20,7 @@ const ORDER_PENALTY_PER_SEGMENT = 0.04;
 const MIN_VISUAL_HOLD_SEC = 1.6;
 const MAX_VISUAL_HOLD_SEC = 6;
 const MIN_VISUAL_SLIVER_SEC = 0.25;
+const EPISODE_MEDIA_MAP_PATH = "hearth/media_map.v1.json";
 
 type VisualPackageResult =
   | { ok: true; status: number; data: WorkpieceVisualPackageResponseData }
@@ -32,6 +33,28 @@ type PlacementCandidate = {
   rawScore: number;
 };
 
+type EpisodeMediaMapArtifactEntry = {
+  id: string;
+  final_media_kind: "image" | "b_roll" | "contextual_data_composite";
+  anchor: {
+    mode: "line_anchor" | "phrase_match" | "speaker_turn" | "section_marker" | "absolute_time";
+    target: string;
+  };
+  source: {
+    status: "unresolved" | "selected" | "attached";
+    asset_id: string | null;
+  };
+};
+
+type EpisodeMediaMapArtifact = {
+  id: string;
+  workpiece_id: string;
+  script_version_id: string | null;
+  status: "draft" | "review" | "approved" | "fulfilling" | "fulfilled" | "needs_attention";
+  generated_at: string;
+  entries: EpisodeMediaMapArtifactEntry[];
+};
+
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -41,6 +64,71 @@ function readString(value: unknown): string | null {
 function readNumber(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return value;
+}
+
+function normalizeMediaMapArtifact(payload: unknown): EpisodeMediaMapArtifact | null {
+  const root = readJsonObject(payload);
+  if (!root) return null;
+  const mapRoot = readJsonObject(root.data) ?? root;
+  const id = readString(mapRoot.id);
+  const workpieceId = readString(mapRoot.workpiece_id);
+  const status = readString(mapRoot.status);
+  const generatedAt = readString(mapRoot.generated_at);
+  const entriesRaw = Array.isArray(mapRoot.entries) ? mapRoot.entries : null;
+  if (!id || !workpieceId || !status || !generatedAt || !entriesRaw) return null;
+  const entries: EpisodeMediaMapArtifactEntry[] = [];
+  for (const value of entriesRaw) {
+    const row = readJsonObject(value);
+    if (!row) continue;
+    const entryId = readString(row.id);
+    const kind = readString(row.final_media_kind);
+    const anchor = readJsonObject(row.anchor);
+    const source = readJsonObject(row.source);
+    if (!entryId || !kind || !anchor || !source) continue;
+    const mode = readString(anchor.mode);
+    const target = readString(anchor.target);
+    const sourceStatus = readString(source.status);
+    const assetId = readString(source.asset_id);
+    if (!mode || !target || !sourceStatus) continue;
+    if (kind !== "image" && kind !== "b_roll" && kind !== "contextual_data_composite") continue;
+    if (
+      mode !== "line_anchor"
+      && mode !== "phrase_match"
+      && mode !== "speaker_turn"
+      && mode !== "section_marker"
+      && mode !== "absolute_time"
+    ) continue;
+    if (sourceStatus !== "unresolved" && sourceStatus !== "selected" && sourceStatus !== "attached") continue;
+    entries.push({
+      id: entryId,
+      final_media_kind: kind,
+      anchor: {
+        mode,
+        target,
+      },
+      source: {
+        status: sourceStatus,
+        asset_id: assetId,
+      },
+    });
+  }
+  return {
+    id,
+    workpiece_id: workpieceId,
+    script_version_id: readString(mapRoot.script_version_id),
+    status: (
+      status === "draft"
+      || status === "review"
+      || status === "approved"
+      || status === "fulfilling"
+      || status === "fulfilled"
+      || status === "needs_attention"
+    )
+      ? status
+      : "draft",
+    generated_at: generatedAt,
+    entries,
+  };
 }
 
 function readJsonObject(value: unknown): Record<string, unknown> | null {
@@ -241,6 +329,58 @@ function normalizeVisualPackage(payload: unknown): WorkpieceVisualPackageRespons
     image_map_updated_at: readString(data?.image_map_updated_at),
     image_map_asset_updated_at: readString(data?.image_map_asset_updated_at),
     visuals: normalizedVisuals,
+  };
+}
+
+function buildVisualPackageFromMediaMap(
+  workpieceId: string,
+  mediaMap: EpisodeMediaMapArtifact,
+): WorkpieceVisualPackageResponseData | null {
+  const visuals: WorkpieceVisualPackageResponseData["visuals"] = mediaMap.entries.map((entry, index) => {
+    const hasAsset = Boolean(entry.source.asset_id) && (entry.source.status === "selected" || entry.source.status === "attached");
+    return {
+      entry_id: entry.id,
+      beat_order: index + 1,
+      paragraph_beat_order: 1,
+      status: hasAsset ? "selected" : "mapped",
+      script_anchor: {
+        section_id: "emm",
+        paragraph_id: entry.id,
+        paragraph_order: index + 1,
+        sentence_start: 1,
+        sentence_end: 1,
+        char_start: 0,
+        char_end: entry.anchor.target.length,
+        span_text: entry.anchor.target,
+        speaker_block_id: entry.anchor.mode === "speaker_turn" ? entry.anchor.target : null,
+      },
+      visual_mode: entry.final_media_kind,
+      selected_asset_id: hasAsset ? entry.source.asset_id : null,
+      selected_asset: hasAsset
+        ? {
+          asset_id: entry.source.asset_id ?? "",
+          path: "",
+          storage_bucket: "forge-workpieces",
+          storage_key: "",
+          mime_type: "video/mp4",
+          bytes: 0,
+          created_at: mediaMap.generated_at,
+          updated_at: mediaMap.generated_at,
+          variant_label: null,
+          visual_mode: entry.final_media_kind,
+        }
+        : null,
+    };
+  });
+
+  return {
+    workspace_id: "",
+    workpiece_id: workpieceId,
+    script_path: null,
+    script_updated_at: mediaMap.script_version_id ? `script_version:${mediaMap.script_version_id}` : null,
+    image_map_updated_at: mediaMap.generated_at,
+    image_map_asset_updated_at: mediaMap.generated_at,
+    visuals,
   };
 }
 
@@ -507,7 +647,7 @@ function clonePlacementRecord(record: HammerVisualPlacementRecord): HammerVisual
 export async function loadHammerWorkpieceVisualPackage(
   workpieceId: string,
 ): Promise<VisualPackageResult> {
-  const [visualResponse, imageMapResponse] = await Promise.all([
+  const [visualResponse, imageMapResponse, mediaMapResponse] = await Promise.all([
     tongsFetch(
       `/tongs/workpieces/${encodeURIComponent(workpieceId)}/visual-package`,
       { method: "GET" },
@@ -516,11 +656,36 @@ export async function loadHammerWorkpieceVisualPackage(
       `/tongs/workpieces/${encodeURIComponent(workpieceId)}/image-map`,
       { method: "GET" },
     ),
+    tongsFetch(
+      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(EPISODE_MEDIA_MAP_PATH)}`,
+      { method: "GET" },
+    ),
   ]);
-  const [visualPayload, imageMapPayload] = await Promise.all([
+  const [visualPayload, imageMapPayload, mediaMapPayload] = await Promise.all([
     readJsonBody(visualResponse),
     readJsonBody(imageMapResponse),
+    readJsonBody(mediaMapResponse),
   ]);
+
+  if (mediaMapResponse.ok) {
+    const mediaMap = normalizeMediaMapArtifact(mediaMapPayload);
+    if (
+      mediaMap
+      && mediaMap.entries.length > 0
+      && mediaMap.status !== "draft"
+      && mediaMap.status !== "review"
+    ) {
+      const mapped = buildVisualPackageFromMediaMap(workpieceId, mediaMap);
+      if (mapped) {
+        return {
+          ok: true,
+          status: mediaMapResponse.status,
+          data: mapped,
+        };
+      }
+    }
+  }
+
   if (!visualResponse.ok) {
     return {
       ok: false,
