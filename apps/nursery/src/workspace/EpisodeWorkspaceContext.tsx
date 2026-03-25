@@ -216,6 +216,25 @@ function mergeEpisodeState(
   };
 }
 
+function isEpisodeStateEqual(a: EpisodeWorkspaceState, b: EpisodeWorkspaceState): boolean {
+  return a.episodeId === b.episodeId
+    && a.title === b.title
+    && a.phase === b.phase
+    && a.displayStatus === b.displayStatus
+    && a.seriesTitle === b.seriesTitle
+    && a.sessionId === b.sessionId
+    && a.contextState === b.contextState
+    && a.source === b.source;
+}
+
+function isFieldStrengthsEqual(a: EpisodeFieldStrengths, b: EpisodeFieldStrengths): boolean {
+  return a.title === b.title
+    && a.seriesTitle === b.seriesTitle
+    && a.phase === b.phase
+    && a.displayStatus === b.displayStatus
+    && a.sessionId === b.sessionId;
+}
+
 export function EpisodeWorkspaceProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<EpisodeWorkspaceInternalState>(
     () => readStoredState() ?? { episode: EMPTY_EPISODE_STATE, fieldStrengths: { ...EMPTY_FIELD_STRENGTHS } },
@@ -241,6 +260,9 @@ export function EpisodeWorkspaceProvider({ children }: { children: ReactNode }) 
   const hydrateEpisodeFromPayload = useCallback((payload: Partial<EpisodeWorkspaceState> & { episodeId: string }) => {
     setState((prev) => {
       const next = mergeEpisodeState(prev, payload.episodeId, payload, "bootstrap");
+      if (isEpisodeStateEqual(prev.episode, next.episode) && isFieldStrengthsEqual(prev.fieldStrengths, next.fieldStrengths)) {
+        return prev;
+      }
       writeStoredState(next.episode);
       return next;
     });
@@ -260,6 +282,9 @@ export function EpisodeWorkspaceProvider({ children }: { children: ReactNode }) 
         },
         "loader",
       );
+      if (isEpisodeStateEqual(prev.episode, next.episode) && isFieldStrengthsEqual(prev.fieldStrengths, next.fieldStrengths)) {
+        return prev;
+      }
       writeStoredState(next.episode);
       return next;
     });
