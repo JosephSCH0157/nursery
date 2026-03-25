@@ -95,6 +95,7 @@ import {
   useChatWorkspaceStt,
   useChatWorkspaceState,
 } from "../hooks/useChatWorkspace";
+import { useHearthAutosave } from "../hooks/useHearthAutosave";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
@@ -353,12 +354,6 @@ type DraftConflictState = {
 };
 
 type MediaMapGenerationScope = "images_only" | "images_broll" | "images_cdc" | "full_media_plan";
-
-type PendingAiAutosave = {
-  draftId: string;
-  body: string;
-  reasonCode: AiAutosaveReasonCode;
-};
 
 type ImageBeatSheetEntry = {
   id: string;
@@ -2495,11 +2490,6 @@ export default function HearthShell({
   const [draftConflictState, setDraftConflictState] = useState<DraftConflictState | null>(null);
   const [mobileOverlayView, setMobileOverlayView] = useState<"editor" | "ready" | null>(null);
 
-  const autosaveTimer = useRef<number | null>(null);
-  const autosaveInFlightRef = useRef(false);
-  const autosaveQueuedRef = useRef(false);
-  const pendingAiAutosaveRef = useRef<PendingAiAutosave | null>(null);
-  const lastAutosaveCommitAtRef = useRef(0);
   const draftEditVersionRef = useRef(0);
   const workpieceIdRef = useRef<string | null>(workpieceId);
   const activeDraftRef = useRef<Draft | null>(null);
@@ -2653,6 +2643,26 @@ export default function HearthShell({
     if (!activeDraft || !draftSnapshot) return false;
     return activeDraft.title !== draftSnapshot.title || activeDraft.body !== draftSnapshot.body;
   }, [activeDraft, draftSnapshot]);
+  const {
+    queueAiAutosave,
+    onRetryAiAutosave,
+    noteManualSaveSuccess,
+  } = useHearthAutosave<Draft, AiAutosaveReasonCode, RevisionKind>({
+    activeDraft,
+    draftSnapshot,
+    isDirty,
+    isBodyComposing,
+    lastAutosaveRevisionAt,
+    autosaveDelayMs: AUTOSAVE_DELAY_MS,
+    autosaveMinGapMs: AUTOSAVE_MIN_GAP_MS,
+    autosaveRevisionGapMs: AUTOSAVE_REVISION_GAP_MS,
+    autosaveRevisionKind: "autosave",
+    persistDraft,
+    toAiAutosaveSaveReason: toAiAutosaveReason,
+    retryReasonCode: "ai_rewrite",
+    setAiAutosaveWarning,
+    setAiAutosaveStatusAt,
+  });
 
   const wordCount = useMemo(() => countWords(activeDraft?.body ?? ""), [activeDraft?.body]);
   const charCount = useMemo(() => activeDraft?.body?.length ?? 0, [activeDraft?.body]);
@@ -3589,12 +3599,6 @@ export default function HearthShell({
   }, [workpieceId]);
 
   useEffect(() => {
-    pendingAiAutosaveRef.current = null;
-    setAiAutosaveWarning(null);
-    setAiAutosaveStatusAt(null);
-  }, [activeDraft?.id]);
-
-  useEffect(() => {
     draftSnapshotRef.current = draftSnapshot;
   }, [draftSnapshot]);
 
@@ -4435,11 +4439,9 @@ export default function HearthShell({
       saveReason: "manual",
     });
     if (!saved) return;
-    pendingAiAutosaveRef.current = null;
-    setAiAutosaveWarning(null);
-    setAiAutosaveStatusAt(now);
+    noteManualSaveSuccess(now);
     flushChatHistoryNow({ draftId: activeDraft.id });
-  }, [activeDraft, flushChatHistoryNow]);
+  }, [activeDraft, flushChatHistoryNow, noteManualSaveSuccess]);
 
   const onReloadLatestDraftAfterConflict = useCallback(async () => {
     const currentDraftId = activeDraft?.id ?? null;
@@ -6504,30 +6506,6 @@ export default function HearthShell({
   }, [activeDraft?.id, refreshRevisions, revisionWorkpieceId]);
 
   useEffect(() => {
-    if (!activeDraft) return;
-    if (!isDirty) return;
-    if (isBodyComposing) return;
-
-    if (autosaveTimer.current) {
-      window.clearTimeout(autosaveTimer.current);
-    }
-
-    const now = Date.now();
-    const remainingGap = Math.max(0, AUTOSAVE_MIN_GAP_MS - (now - lastAutosaveCommitAtRef.current));
-    const delay = Math.max(AUTOSAVE_DELAY_MS, remainingGap);
-    autosaveTimer.current = window.setTimeout(() => {
-      void handleAutosave();
-    }, delay);
-
-    return () => {
-      if (autosaveTimer.current) {
-        window.clearTimeout(autosaveTimer.current);
-        autosaveTimer.current = null;
-      }
-    };
-  }, [activeDraft?.title, activeDraft?.body, activeDraft?.id, isBodyComposing, isDirty]);
-
-  useEffect(() => {
     const textarea = bodyRef.current;
     if (!textarea) return;
     textarea.style.height = "auto";
@@ -6618,125 +6596,6 @@ export default function HearthShell({
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [activeDraft, hasActiveEpisode, onSaveDraft, revisionModalOpen, requestWorkpieceTabChange]);
-
-  function queueAiAutosave(args: {
-    draft: Draft;
-    previousBody: string;
-    reasonCode: AiAutosaveReasonCode;
-  }) {
-    if (args.draft.body === args.previousBody) return;
-    pendingAiAutosaveRef.current = {
-      draftId: args.draft.id,
-      body: args.draft.body,
-      reasonCode: args.reasonCode,
-    };
-    setAiAutosaveWarning(null);
-    if (autosaveTimer.current) {
-      window.clearTimeout(autosaveTimer.current);
-      autosaveTimer.current = null;
-    }
-    void handleAutosave();
-  }
-
-  function onRetryAiAutosave() {
-    const active = activeDraftRef.current;
-    const snapshot = draftSnapshotRef.current;
-    if (!active || !snapshot) return;
-    if (active.body === snapshot.body) {
-      setAiAutosaveWarning(null);
-      pendingAiAutosaveRef.current = null;
-      return;
-    }
-    if (!pendingAiAutosaveRef.current || pendingAiAutosaveRef.current.draftId !== active.id) {
-      pendingAiAutosaveRef.current = {
-        draftId: active.id,
-        body: active.body,
-        reasonCode: "ai_rewrite",
-      };
-    }
-    setAiAutosaveWarning(null);
-    void handleAutosave();
-  }
-
-  async function handleAutosave() {
-    if (autosaveInFlightRef.current) {
-      autosaveQueuedRef.current = true;
-      return;
-    }
-
-    autosaveInFlightRef.current = true;
-    try {
-      do {
-        autosaveQueuedRef.current = false;
-
-        if (isBodyComposing) {
-          continue;
-        }
-
-        const draft = activeDraftRef.current;
-        const snapshot = draftSnapshotRef.current;
-        if (!draft || !snapshot) {
-          continue;
-        }
-
-        const titleIsDirty = draft.title !== snapshot.title;
-        const bodyIsDirty = draft.body !== snapshot.body;
-        const draftIsDirty = titleIsDirty || bodyIsDirty;
-        if (!draftIsDirty) {
-          const pending = pendingAiAutosaveRef.current;
-          if (pending && pending.draftId === draft.id && pending.body === draft.body) {
-            pendingAiAutosaveRef.current = null;
-          }
-          continue;
-        }
-
-        const pendingAiAutosave = pendingAiAutosaveRef.current;
-        const aiAutosaveForActiveDraft = pendingAiAutosave && pendingAiAutosave.draftId === draft.id
-          ? pendingAiAutosave
-          : null;
-        const aiAutosaveMatchesCurrentBody = Boolean(aiAutosaveForActiveDraft && aiAutosaveForActiveDraft.body === draft.body);
-        const isAiAutosave = Boolean(aiAutosaveMatchesCurrentBody && bodyIsDirty);
-
-        if (aiAutosaveForActiveDraft && !aiAutosaveMatchesCurrentBody) {
-          pendingAiAutosaveRef.current = null;
-        }
-
-        const now = Date.now();
-        const aiAutosaveReason = isAiAutosave && aiAutosaveForActiveDraft
-          ? toAiAutosaveReason(aiAutosaveForActiveDraft.reasonCode)
-          : null;
-        const shouldAutoRevision = isAiAutosave || !lastAutosaveRevisionAt
-          || now - lastAutosaveRevisionAt >= AUTOSAVE_REVISION_GAP_MS;
-
-        const saved = await persistDraft({
-          draft,
-          updatedAt: now,
-          createRevision: shouldAutoRevision ? {
-            kind: "autosave",
-            note: aiAutosaveReason ?? "Autosave",
-          } : null,
-          syncSources: false,
-          syncSession: false,
-          showSavingState: false,
-          quietFailure: isAiAutosave,
-          saveReason: aiAutosaveReason ?? "autosave:typing",
-        });
-
-        if (saved) {
-          lastAutosaveCommitAtRef.current = now;
-          if (isAiAutosave) {
-            pendingAiAutosaveRef.current = null;
-            setAiAutosaveWarning(null);
-            setAiAutosaveStatusAt(now);
-          }
-        } else if (isAiAutosave) {
-          setAiAutosaveWarning("Not saved (offline/permission).");
-        }
-      } while (autosaveQueuedRef.current);
-    } finally {
-      autosaveInFlightRef.current = false;
-    }
-  }
 
   async function persistDraft(args: {
     draft: Draft;
