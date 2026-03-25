@@ -2412,7 +2412,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     const playbackTarget = resolvePlaybackWindowProgress(playheadSec).nextPlayheadSec;
     const targetTime = Math.max(0, Math.min(playbackTarget, transcriptDurationSec > 0 ? transcriptDurationSec : playbackTarget));
-    if (Math.abs(previewAudio.currentTime - targetTime) > SCRUB_SEEK_THRESHOLD_SEC) {
+    const shouldSynchronizeCurrentTime = srcChanged || !isPlaybackActive || isScrubbing;
+    if (shouldSynchronizeCurrentTime && Math.abs(previewAudio.currentTime - targetTime) > SCRUB_SEEK_THRESHOLD_SEC) {
       previewAudio.currentTime = targetTime;
     }
 
@@ -2425,7 +2426,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     void previewAudio.play().catch(() => {
       setIsPlaybackActive(false);
     });
-  }, [claimGlobalPlaybackAuthority, isPlaybackActive, playbackMediaSrc, playheadSec, transcriptDurationSec, playbackWindow]);
+  }, [claimGlobalPlaybackAuthority, isPlaybackActive, isScrubbing, playbackMediaSrc, playheadSec, transcriptDurationSec, playbackWindow]);
 
   useEffect(() => () => {
     const previewAudio = previewAudioRef.current;

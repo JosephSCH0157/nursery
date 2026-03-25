@@ -5,7 +5,7 @@ import type {
 } from "../persistence/hammerPersistenceContract";
 import type { HammerPrepSource } from "./hammerPrep";
 
-export const HAMMER_AUDIO_POLISH_PROCESSOR_VERSION = "forge-v1.2.0/audio-polish.v1";
+export const HAMMER_AUDIO_POLISH_PROCESSOR_VERSION = "forge-v1.2.0/audio-polish.v2";
 export const HAMMER_AUDIO_POLISH_PREPARED_PASSES: HammerAudioPolishPass[] = [
   "studio_sound",
   "noise_cleanup",

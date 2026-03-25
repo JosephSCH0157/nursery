@@ -378,7 +378,7 @@ function testPrepPersistenceSeedWritesAudioPolishArtifact() {
       },
       source_media_id: "media_01",
       source_media_signature: "media_sig_01",
-      processor_version: "forge-v1.2.0/audio-polish.v1",
+      processor_version: "forge-v1.2.0/audio-polish.v2",
       prepared_at: "2026-03-14T09:45:00.000Z",
       output_local_relpath: "hammer/prep/audio-polish/workpiece/episode-1.wav",
       output_mime_type: "audio/wav",

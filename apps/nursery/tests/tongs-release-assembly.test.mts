@@ -224,7 +224,7 @@ function buildSnapshot(overrides?: {
         },
         source_media_id: "media_release_assembly_01",
         source_media_signature: "sig_release_assembly_01",
-        processor_version: "forge-v1.2.0/audio-polish.v1",
+        processor_version: "forge-v1.2.0/audio-polish.v2",
         prepared_at: overrides?.audioStatus === "failed" ? null : "2026-03-15T12:58:00.000Z",
         output_local_relpath: overrides?.audioStatus === "failed" ? null : "hammer/prep/audio-polish/release-assembly.wav",
         output_mime_type: overrides?.audioStatus === "failed" ? null : "audio/wav",

@@ -72,7 +72,7 @@ import { V1HammerMediaResolver } from "../src/media/resolveMedia";
       },
       source_media_id: "media_local",
       source_media_signature: "sig_014",
-      processor_version: "forge-v1.2.0/audio-polish.v1",
+      processor_version: "forge-v1.2.0/audio-polish.v2",
       prepared_at: "2026-03-14T10:00:00.000Z",
       output_local_relpath: "hammer/prep/audio-polish/ws_demo/episode014--abcd.wav",
       output_mime_type: "audio/wav",

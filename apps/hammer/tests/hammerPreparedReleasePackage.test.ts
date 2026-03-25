@@ -101,7 +101,7 @@ function buildCurrentReleasePrep(args?: {
     settings_summary: {},
     source_media_id: args?.mediaId ?? "media_prepared_pkg_01",
     source_media_signature: args?.mediaSignature ?? "sig_prepared_pkg_01",
-    processor_version: "forge-v1.2.0/audio-polish.v1",
+    processor_version: "forge-v1.2.0/audio-polish.v2",
     prepared_at: args?.preferredKind === "polished" ? "2026-03-19T12:02:00.000Z" : null,
     output_local_relpath: args?.preferredKind === "polished" ? "hammer/prep/audio-polish/prepared.wav" : null,
     output_workpiece_path: args?.preferredKind === "polished" ? "hammer/prep/audio-polish/prepared.wav" : null,
