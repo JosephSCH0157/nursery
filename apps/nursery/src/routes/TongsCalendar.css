@@ -206,7 +206,6 @@
 .tongs-calendar__panel--week,
 .tongs-calendar__panel--month {
   overflow-x: auto;
-  scrollbar-width: none;
   -ms-overflow-style: none;
 }
 

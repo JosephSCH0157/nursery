@@ -168,15 +168,13 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
         {items.map((project) => {
           const isSelected = project.workpieceId === (routeWorkpieceId ?? selectedWorkpieceId);
           return (
-            <button
+            <article
               key={project.workpieceId}
-              type="button"
               className={`hammer-project-library__card${isSelected ? " is-selected" : ""}`}
               onClick={() => {
                 setSelectedWorkpieceId(project.workpieceId);
                 openProject(project);
               }}
-              onFocus={() => setSelectedWorkpieceId(project.workpieceId)}
             >
               <div className="hammer-project-library__card-body">
                 <div className="hammer-project-library__card-topline">
@@ -222,7 +220,7 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
                   </div>
                 </details>
               </div>
-            </button>
+            </article>
           );
         })}
       </div>
