@@ -1,5 +1,5 @@
 import type { HenryPreferenceState } from "@forge/shared/henry";
-import { tongsSupabase } from "../lib/supabase";
+import { supabase, tongsSupabase } from "../lib/supabase";
 
 export type HenryMessageStateRow = {
   messageId: string;
@@ -53,6 +53,32 @@ function isMissingRpcError(error: unknown): boolean {
   return /Could not find the function|schema cache|no matches were found|not found/i.test(message);
 }
 
+function isAuthContextError(error: unknown): boolean {
+  const code = readErrorCode(error);
+  if (code === "42501") return true;
+  const message = toErrorMessage(error, "");
+  return /Authentication required|JWT|not authenticated|permission denied/i.test(message);
+}
+
+async function ensureTongsSupabaseSession(): Promise<void> {
+  try {
+    const [{ data: tongsSessionData }, { data: primarySessionData }] = await Promise.all([
+      tongsSupabase.auth.getSession(),
+      supabase.auth.getSession(),
+    ]);
+    const tongsAccessToken = tongsSessionData.session?.access_token;
+    if (tongsAccessToken) return;
+    const primarySession = primarySessionData.session;
+    if (!primarySession?.access_token || !primarySession.refresh_token) return;
+    await tongsSupabase.auth.setSession({
+      access_token: primarySession.access_token,
+      refresh_token: primarySession.refresh_token,
+    });
+  } catch {
+    // best effort only; caller handles rpc failure gracefully
+  }
+}
+
 async function callHenryRpc(
   fn: string,
   args: Record<string, unknown>,
@@ -64,8 +90,13 @@ async function callHenryRpc(
     name: string,
     payload: Record<string, unknown>,
   ) => Promise<{ data: unknown; error: unknown }>;
+  await ensureTongsSupabaseSession();
   try {
-    const result = await rpc(fn, args);
+    let result = await rpc(fn, args);
+    if (result.error && isAuthContextError(result.error)) {
+      await ensureTongsSupabaseSession();
+      result = await rpc(fn, args);
+    }
     if (result.error && isMissingRpcError(result.error)) {
       unavailableRpcNames.add(fn);
     }
