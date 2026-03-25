@@ -131,6 +131,7 @@ import ComposeSetupModal from "../ui/ComposeSetupModal";
 import HistorySurface from "../views/surfaces/HistorySurface";
 import MetadataSurface from "../views/surfaces/MetadataSurface";
 import ReleaseSurface from "../views/surfaces/ReleaseSurface";
+import ScriptSurface from "../views/surfaces/ScriptSurface";
 import VisualsSurface from "../views/surfaces/VisualsSurface";
 import WorkpieceTabBar from "../views/surfaces/WorkpieceTabBar";
 import {
@@ -12276,115 +12277,41 @@ export default function HearthShell() {
             {renderRevisionsView()}
           </HistorySurface>
 
-          {isScriptWorkspaceTab && showScriptEditor ? (
-            <section className="hs-script-panel" aria-label="Manual draft editor">
-              <header className="hs-script-panel-header">
-                <div className="hs-script-panel-title">
-                  {scriptPanelTitle}
-                </div>
-                <div className="hs-script-panel-header-actions">
-                  {scriptPanelCopyMessage ? (
-                    <div className="hs-field-label-muted">{scriptPanelCopyMessage}</div>
-                  ) : null}
-                  {scriptPanelHint ? (
-                    <div className="hs-field-label-muted">{scriptPanelHint}</div>
-                  ) : null}
-                  <div className="hs-script-panel-meta">{scriptPanelMetaText}</div>
-                  <button
-                    type="button"
-                    className="hs-script-panel-copy"
-                    onClick={() => void onCopyScriptPanelText()}
-                    disabled={!scriptPanelBodyText.trim()}
-                    title="Copy panel text to clipboard"
-                    aria-label="Copy panel text to clipboard"
-                  >
-                    <CopyIcon />
-                    <span>Copy</span>
-                  </button>
-                </div>
-              </header>
-
-              {isVisualScriptMode ? (
-                <section className="hs-vsm-rail" aria-label="Visual anchor rail">
-                  <div className="hs-vsm-rail-head">
-                    <span>Paragraph anchors</span>
-                    <span>
-                      global {visualScriptParagraphRail.globalCount} · orphaned {visualScriptParagraphRail.orphanedCount}
-                    </span>
-                  </div>
-                  <div className="hs-vsm-chip-grid">
-                    {visualScriptParagraphRail.paragraphs.map((paragraph) => (
-                      <div
-                        key={paragraph.paragraphId}
-                        className={`hs-vsm-chip is-${paragraph.density}`}
-                        title={`${paragraph.label}: ${paragraph.count} visual${paragraph.count === 1 ? "" : "s"}`}
-                      >
-                        <span>{paragraph.label}</span>
-                        <strong>{paragraph.count}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              <label className="hs-field">
-                <span className="hs-field-label">Body</span>
-                <textarea
-                  ref={bodyRef}
-                  value={scriptPanelBodyText}
-                  placeholder={scriptPanelPlaceholder}
-                  onChange={(event) => {
-                    if (isCanonicalImageMapScriptPanel) return;
-                    setActiveDraft((prev) => {
-                      if (!prev) return prev;
-                      draftEditVersionRef.current += 1;
-                      return { ...prev, body: event.target.value };
-                    });
-                  }}
-                  onCompositionStart={() => {
-                    if (isCanonicalImageMapScriptPanel) return;
-                    setIsBodyComposing(true);
-                  }}
-                  onCompositionEnd={() => {
-                    if (isCanonicalImageMapScriptPanel) return;
-                    setIsBodyComposing(false);
-                  }}
-                  onSelect={(event) => {
-                    if (isCanonicalImageMapScriptPanel) return;
-                    const target = event.target as HTMLTextAreaElement;
-                    setCursorPosition(target.selectionStart);
-                  }}
-                  onKeyUp={(event) => {
-                    if (isCanonicalImageMapScriptPanel) return;
-                    const target = event.target as HTMLTextAreaElement;
-                    setCursorPosition(target.selectionStart);
-                  }}
-                  onScroll={(event) => {
-                    if (isCanonicalImageMapScriptPanel) return;
-                    const target = event.target as HTMLTextAreaElement;
-                    setScrollTop(target.scrollTop);
-                  }}
-                  readOnly={isCanonicalImageMapScriptPanel}
-                  disabled={!isCanonicalImageMapScriptPanel && !activeDraft}
-                  className="hs-textarea-body hs-textarea-script-panel"
-                />
-              </label>
-
-              <div className="hs-sources-row">
-                <span className="hs-sources-summary">Sources: {sourcesSummary}{unusedSummary}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFocusTab("sources");
-                    setMode("focus");
-                  }}
-                  disabled={!workpieceId}
-                >
-                  Review sources
-                </button>
-              </div>
-            </section>
-          ) : null}
+          <ScriptSurface
+            visible={isScriptWorkspaceTab}
+            showScriptEditor={showScriptEditor}
+            scriptPanelTitle={scriptPanelTitle}
+            scriptPanelCopyMessage={scriptPanelCopyMessage}
+            scriptPanelHint={scriptPanelHint}
+            scriptPanelMetaText={scriptPanelMetaText}
+            scriptPanelBodyText={scriptPanelBodyText}
+            scriptPanelPlaceholder={scriptPanelPlaceholder}
+            isVisualScriptMode={isVisualScriptMode}
+            visualScriptParagraphRail={visualScriptParagraphRail}
+            isCanonicalImageMapScriptPanel={isCanonicalImageMapScriptPanel}
+            activeDraftExists={Boolean(activeDraft)}
+            sourcesSummary={sourcesSummary}
+            unusedSummary={unusedSummary}
+            canReviewSources={Boolean(workpieceId)}
+            bodyRef={bodyRef}
+            copyIcon={<CopyIcon />}
+            onCopyScriptPanelText={() => void onCopyScriptPanelText()}
+            onBodyChange={(nextBody) => {
+              setActiveDraft((prev) => {
+                if (!prev) return prev;
+                draftEditVersionRef.current += 1;
+                return { ...prev, body: nextBody };
+              });
+            }}
+            onBodyCompositionStart={() => setIsBodyComposing(true)}
+            onBodyCompositionEnd={() => setIsBodyComposing(false)}
+            onBodyCursorChange={(cursor) => setCursorPosition(cursor)}
+            onBodyScrollChange={(nextScrollTop) => setScrollTop(nextScrollTop)}
+            onReviewSources={() => {
+              setFocusTab("sources");
+              setMode("focus");
+            }}
+          />
         </div>
       </section>
     );
