@@ -172,8 +172,7 @@ import {
   saveWorkpieceEpisodeMediaMap,
 } from "../lib/hearth-media-map-repo";
 import {
-  approveEpisodeMediaMap,
-  distributeEpisodeMediaMapForFulfillment,
+  activateEpisodeMediaMapForFulfillment,
 } from "../lib/hearth-media-map-fulfillment";
 import type {
   EpisodeBrollDataVisualSpec,
@@ -332,6 +331,8 @@ type DraftConflictState = {
   message: string;
   localBody: string;
 };
+
+type MediaMapGenerationScope = "images_only" | "images_broll" | "images_cdc" | "full_media_plan";
 
 type PendingAiAutosave = {
   draftId: string;
@@ -1702,7 +1703,6 @@ function detectChatIntentSignals(text: string): ChatIntentSignals {
     || requestedScript
     || /\bbullet points?\b/.test(normalized)
     || /\bthumbnail\b/.test(normalized)
-    || /\bimage beat sheet\b/.test(normalized)
     || /\bseo\b/.test(normalized)
     || /\btags?\b/.test(normalized);
   return {
@@ -2344,6 +2344,7 @@ export default function HearthShell() {
   const [mediaMapSaveState, setMediaMapSaveState] = useState<"saved" | "editing" | "saving" | "error">("saved");
   const [mediaMapSaveError, setMediaMapSaveError] = useState<string | null>(null);
   const [mediaMapMessage, setMediaMapMessage] = useState<string | null>(null);
+  const [mediaMapGenerationScope, setMediaMapGenerationScope] = useState<MediaMapGenerationScope>("full_media_plan");
   const [isMediaMapBusy, setIsMediaMapBusy] = useState(false);
   const [imageMapAnchorDraft, setImageMapAnchorDraft] = useState("");
   const [imageMapDescriptionDraft, setImageMapDescriptionDraft] = useState("");
@@ -7774,6 +7775,10 @@ export default function HearthShell() {
       setChatError("Approved script body is empty.");
       return;
     }
+    if (action === "image_beat_sheet") {
+      setChatError("Image Beat Sheet has been replaced by Episode Media Map. Use Generate Episode Media Map in the media panel.");
+      return;
+    }
 
     const prompt = buildProductionPrompt({
       action,
@@ -7992,7 +7997,11 @@ export default function HearthShell() {
     return Math.max(0, parsed);
   }
 
-  function buildMediaMapFromExistingPlans(current: EpisodePackageV2, scriptVersionId: string | null): EpisodeMediaMap {
+  function buildMediaMapFromExistingPlans(
+    current: EpisodePackageV2,
+    scriptVersionId: string | null,
+    scope: MediaMapGenerationScope,
+  ): EpisodeMediaMap {
     const nowIso = new Date().toISOString();
     const fromImageMap: EpisodeMediaMapEntry[] = current.image_map.entries.map((entry) => ({
       id: `mm_image_${entry.id}`,
@@ -8076,7 +8085,14 @@ export default function HearthShell() {
       created_at: entry.created_at,
       updated_at: entry.updated_at,
     }));
-    const merged = [...fromImageMap, ...fromBroll, ...fromCdc];
+    const includeImages = true;
+    const includeBroll = scope === "images_broll" || scope === "full_media_plan";
+    const includeCdc = scope === "images_cdc" || scope === "full_media_plan";
+    const merged = [
+      ...(includeImages ? fromImageMap : []),
+      ...(includeBroll ? fromBroll : []),
+      ...(includeCdc ? fromCdc : []),
+    ];
     return {
       id: current.media_map.id || "media-map-v1",
       workpiece_id: current.media_map.workpiece_id,
@@ -8864,7 +8880,7 @@ export default function HearthShell() {
     if (!episodePackage) return;
     if (isMediaMapBusy) return;
     const scriptVersionId = approvedScriptVersion ? String(approvedScriptVersion) : null;
-    const nextMap = buildMediaMapFromExistingPlans(episodePackage, scriptVersionId);
+    const nextMap = buildMediaMapFromExistingPlans(episodePackage, scriptVersionId, mediaMapGenerationScope);
     setIsMediaMapBusy(true);
     setMediaMapSaveState("saving");
     setMediaMapSaveError(null);
@@ -8875,6 +8891,7 @@ export default function HearthShell() {
         eventPayload: {
           entry_count: nextMap.entries.length,
           script_version_id: scriptVersionId,
+          scope: mediaMapGenerationScope,
         },
       });
       if (!saved.ok) {
@@ -8884,7 +8901,7 @@ export default function HearthShell() {
       }
       setSelectedMediaMapEntryId(nextMap.entries[0]?.id ?? null);
       setMediaMapSaveState("saved");
-      setMediaMapMessage(`Generated ${nextMap.entries.length} media map entries from current visual plans.`);
+      setMediaMapMessage(`Generated ${nextMap.entries.length} media map entries using scope: ${mediaMapGenerationScope.replaceAll("_", " ")}.`);
     } catch {
       setMediaMapSaveError("Unable to generate Episode Media Map.");
       setMediaMapSaveState("error");
@@ -9021,7 +9038,7 @@ export default function HearthShell() {
       ...episodePackage.media_map,
       script_version_id: approvedScriptVersion ? String(approvedScriptVersion) : episodePackage.media_map.script_version_id,
       status: (
-        episodePackage.media_map.status === "approved"
+        episodePackage.media_map.status === "activated"
         || episodePackage.media_map.status === "fulfilling"
         || episodePackage.media_map.status === "fulfilled"
       )
@@ -9063,7 +9080,7 @@ export default function HearthShell() {
     const nextMap: EpisodeMediaMap = {
       ...episodePackage.media_map,
       status: (
-        episodePackage.media_map.status === "approved"
+        episodePackage.media_map.status === "activated"
         || episodePackage.media_map.status === "fulfilling"
         || episodePackage.media_map.status === "fulfilled"
       )
@@ -9098,10 +9115,10 @@ export default function HearthShell() {
     }
   }
 
-  async function onApproveEpisodeMediaMap() {
+  async function onActivateEpisodeMediaMap() {
     if (!episodePackage) return;
     if (isMediaMapBusy) return;
-    const approved = approveEpisodeMediaMap({
+    const activated = activateEpisodeMediaMapForFulfillment({
       ...episodePackage.media_map,
       script_version_id: approvedScriptVersion ? String(approvedScriptVersion) : episodePackage.media_map.script_version_id,
     });
@@ -9110,11 +9127,12 @@ export default function HearthShell() {
     setMediaMapSaveError(null);
     try {
       const saved = await persistMediaMap({
-        map: approved,
-        eventName: "hearth.media_map.approved.v1",
+        map: activated,
+        eventName: "hearth.media_map.activated.v1",
         eventPayload: {
-          entry_count: approved.entries.length,
-          script_version_id: approved.script_version_id,
+          entry_count: activated.entries.length,
+          script_version_id: activated.script_version_id,
+          queued_count: activated.entries.filter((entry) => entry.fulfillment_status === "queued").length,
         },
       });
       if (!saved.ok) {
@@ -9123,45 +9141,9 @@ export default function HearthShell() {
         return;
       }
       setMediaMapSaveState("saved");
-      setMediaMapMessage("Episode Media Map approved and now authoritative for fulfillment.");
+      setMediaMapMessage("Media plan activated. Beats routed to image, motion B-roll, and CDC fulfillment paths.");
     } catch {
-      setMediaMapSaveError("Unable to approve Episode Media Map.");
-      setMediaMapSaveState("error");
-    } finally {
-      setIsMediaMapBusy(false);
-    }
-  }
-
-  async function onDistributeEpisodeMediaMap() {
-    if (!episodePackage) return;
-    if (isMediaMapBusy) return;
-    if (episodePackage.media_map.status !== "approved" && episodePackage.media_map.status !== "needs_attention") {
-      setMediaMapSaveError("Approve the Episode Media Map before distribution.");
-      setMediaMapSaveState("error");
-      return;
-    }
-    const distributed = distributeEpisodeMediaMapForFulfillment(episodePackage.media_map);
-    setIsMediaMapBusy(true);
-    setMediaMapSaveState("saving");
-    setMediaMapSaveError(null);
-    try {
-      const saved = await persistMediaMap({
-        map: distributed,
-        eventName: "hearth.media_map.distributed.v1",
-        eventPayload: {
-          entry_count: distributed.entries.length,
-          queued_count: distributed.entries.filter((entry) => entry.fulfillment_status === "queued").length,
-        },
-      });
-      if (!saved.ok) {
-        setMediaMapSaveError(saved.error);
-        setMediaMapSaveState("error");
-        return;
-      }
-      setMediaMapSaveState("saved");
-      setMediaMapMessage("Approved beats routed to image, motion B-roll, and CDC fulfillment paths.");
-    } catch {
-      setMediaMapSaveError("Unable to distribute Episode Media Map fulfillment.");
+      setMediaMapSaveError("Unable to activate Episode Media Map.");
       setMediaMapSaveState("error");
     } finally {
       setIsMediaMapBusy(false);
@@ -11611,7 +11593,7 @@ export default function HearthShell() {
                 type="button"
                 onClick={onToggleVisualScriptMode}
               >
-                {isVisualScriptMode ? "Exit Visual Beats" : "Visual Beats"}
+                {isVisualScriptMode ? "Exit Visual Mode" : "Visual Mode"}
               </button>
             ) : null}
           </div>
@@ -11828,13 +11810,6 @@ export default function HearthShell() {
                   disabled={isAiProcessing || aiCreditsDepleted}
                 >
                   {activeProductionAction === "thumbnails" && isAiProcessing ? "Generating..." : "Thumbnail Concepts"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void onRunProductionAction("image_beat_sheet")}
-                  disabled={isAiProcessing || aiCreditsDepleted}
-                >
-                  {activeProductionAction === "image_beat_sheet" && isAiProcessing ? "Generating..." : "Image Beat Sheet"}
                 </button>
                 <button
                   type="button"
@@ -12102,6 +12077,7 @@ export default function HearthShell() {
                   saveError={mediaMapSaveError}
                   message={mediaMapMessage}
                   disabled={isApprovingScript || isMediaMapBusy || !episodePackage}
+                  generationScope={mediaMapGenerationScope}
                   draft={{
                     type: mediaMapTypeDraft,
                     anchorMode: mediaMapAnchorModeDraft,
@@ -12131,121 +12107,12 @@ export default function HearthShell() {
                     else if (field === "optional") setMediaMapDraftEditing(setMediaMapOptionalDraft, Boolean(value));
                     else if (field === "critical") setMediaMapDraftEditing(setMediaMapCriticalDraft, Boolean(value));
                   }}
+                  onGenerationScopeChange={(value) => setMediaMapGenerationScope(value as MediaMapGenerationScope)}
                   onGenerateFromPlans={() => void onGenerateEpisodeMediaMapFromPlans()}
-                  onApproveMap={() => void onApproveEpisodeMediaMap()}
-                  onDistributeMap={() => void onDistributeEpisodeMediaMap()}
+                  onActivateMap={() => void onActivateEpisodeMediaMap()}
                   onAddEntry={() => void onAddMediaMapEntry()}
                   onSaveEntry={() => void onSaveMediaMapEntry()}
                   onDeleteEntry={() => void onDeleteMediaMapEntry()}
-                />
-              </CollapsibleFocusPanel>
-            ) : null}
-
-            {hasApprovedScript && approvedScriptVersion ? (
-              <CollapsibleFocusPanel
-                panelId="hearth-image-map-panel"
-                title="Visual Beats"
-                meta={imageMapPanelMeta}
-                collapsed={focusPanelLayout.imageMap}
-                onToggle={() => onToggleFocusPanel("imageMap")}
-              >
-                <ImageMapPanel
-                  panelTitle="Visual Beats"
-                  manualOnly
-                  entries={imageMapEntries}
-                  selectedEntryId={selectedImageMapEntryId}
-                  draftAnchor={imageMapAnchorDraft}
-                  draftDescription={imageMapDescriptionDraft}
-                  draftStylePreset={imageMapStyleDraft}
-                  draftIntent={imageMapIntentDraft}
-                  draftSourceType={imageMapSourceTypeDraft}
-                  draftVisualPriority={imageMapVisualPriorityDraft}
-                  draftVisualType={imageMapVisualTypeDraft}
-                  draftSectionIntentNote={imageMapSectionIntentNoteDraft}
-                  draftPlacementHint={imageMapPlacementHintDraft}
-                  saveState={imageMapSaveState}
-                  saveError={imageMapSaveError}
-                  exportMessage={imageMapExportMessage}
-                  candidateCards={imageMapCandidateCards}
-                  candidateGenerateBusy={isImageMapCandidateGenerating}
-                  candidateGenerateError={imageMapCandidateError}
-                  candidateSelectBusy={isImageMapCandidateSelecting}
-                  candidateSelectionError={imageMapCandidateSelectionError}
-                  anchorStatusLabel={imageMapAnchorStatusView?.label ?? null}
-                  anchorStatusTone={imageMapAnchorStatusView?.tone ?? "neutral"}
-                  anchorStatusDetail={imageMapAnchorStatusView?.detail ?? null}
-                  reanchorMode={isImageMapReanchorMode}
-                  reanchorBusy={isImageMapReanchorSaving}
-                  reanchorDisabledReason={imageMapReanchorDisabledReason}
-                  nearestRepairAvailable={isImageMapNearestRepairAvailable}
-                  reanchorError={imageMapReanchorError}
-                  reanchorScriptSourceLabel={resolveCanonicalImageMapScriptSourceLabel(canonicalImageMapScriptState)}
-                  reanchorScriptHint={resolveCanonicalImageMapScriptHint(canonicalImageMapScriptState)}
-                  reanchorScriptLoading={canonicalImageMapScriptState.status === "loading"}
-                  reanchorParagraphs={imageMapAnchorPickerParagraphs}
-                  activeAnchorLabel={imageMapActiveAnchorLabel}
-                  disabled={isAiProcessing || isApprovingScript || isImageMapReanchorSaving}
-                  onSelectEntry={onSelectImageMapEntry}
-                  onSelectCandidate={(candidateId) => void onSelectImageMapCandidate(candidateId)}
-                  onDraftAnchorChange={(value) => {
-                    setImageMapAnchorDraft(value);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onDraftDescriptionChange={(value) => {
-                    setImageMapDescriptionDraft(value);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onDraftStylePresetChange={(value) => {
-                    setImageMapStyleDraft(normalizeHearthVisualStyle(value));
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onDraftIntentChange={(value) => {
-                    setImageMapIntentDraft(value);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onDraftSourceTypeChange={(value) => {
-                    setImageMapSourceTypeDraft(value);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onDraftVisualPriorityChange={(value) => {
-                    setImageMapVisualPriorityDraft(value as EpisodeImageMapVisualPriority);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onDraftVisualTypeChange={(value) => {
-                    setImageMapVisualTypeDraft(value as EpisodeImageMapVisualType);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onDraftSectionIntentNoteChange={(value) => {
-                    setImageMapSectionIntentNoteDraft(value);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onDraftPlacementHintChange={(value) => {
-                    setImageMapPlacementHintDraft(value);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onCreateEntry={() => void onCreateImageMapEntry()}
-                  onDuplicateEntry={() => void onDuplicateImageMapEntry()}
-                  onDeleteEntry={() => void onDeleteImageMapEntry()}
-                  onSeedFromScript={() => void onSeedImageMapFromScript()}
-                  onGenerateCandidates={(mode) => void onGenerateImageMapCandidates(mode)}
-                  onUploadAsset={(file) => void onUploadImageMapAsset(file)}
-                  onCopyExport={() => void onCopyImageMapExportJson()}
-                  onDownloadExport={onDownloadImageMapExportJson}
-                  onStartReanchor={onStartImageMapReanchor}
-                  onRepairNearestParagraph={() => void onRepairImageMapNearestParagraph()}
-                  onConvertToGlobalVisual={() => void onConvertImageMapToGlobalVisual()}
-                  onLeaveOrphaned={() => void onLeaveImageMapOrphaned()}
-                  onCancelReanchor={onCancelImageMapReanchor}
-                  onPickReanchor={(selection) => void onPickImageMapReanchor(selection)}
                 />
               </CollapsibleFocusPanel>
             ) : null}

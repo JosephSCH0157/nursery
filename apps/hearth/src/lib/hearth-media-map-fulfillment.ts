@@ -21,22 +21,7 @@ function resolveBeatStatusForQueue(entry: EpisodeMediaMapEntry): EpisodeMediaMap
   return "approved";
 }
 
-export function approveEpisodeMediaMap(map: EpisodeMediaMap): EpisodeMediaMap {
-  const nowIso = new Date().toISOString();
-  return {
-    ...map,
-    status: "approved",
-    version: Math.max(1, map.version + 1),
-    entries: map.entries.map((entry) => ({
-      ...entry,
-      fulfillment_status: entry.fulfillment_status === "resolved" ? "resolved" : "approved",
-      updated_at: nowIso,
-    })),
-    generated_at: nowIso,
-  };
-}
-
-export function distributeEpisodeMediaMapForFulfillment(map: EpisodeMediaMap): EpisodeMediaMap {
+export function activateEpisodeMediaMapForFulfillment(map: EpisodeMediaMap): EpisodeMediaMap {
   const nowIso = new Date().toISOString();
   const routedEntries = map.entries.map((entry) => {
     const fulfillmentPath = resolveFulfillmentPath(entry.final_media_kind);
@@ -49,10 +34,9 @@ export function distributeEpisodeMediaMapForFulfillment(map: EpisodeMediaMap): E
     };
   });
 
-  const unresolvedCount = routedEntries.filter((entry) => entry.fulfillment_status !== "resolved").length;
   return {
     ...map,
-    status: unresolvedCount > 0 ? "fulfilling" : "fulfilled",
+    status: "activated",
     version: Math.max(1, map.version + 1),
     entries: routedEntries,
     generated_at: nowIso,

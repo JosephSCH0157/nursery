@@ -11,6 +11,7 @@ type EpisodeMediaMapPanelProps = {
   saveError: string | null;
   message: string | null;
   disabled?: boolean;
+  generationScope: string;
   draft: {
     type: string;
     anchorMode: string;
@@ -27,9 +28,9 @@ type EpisodeMediaMapPanelProps = {
   };
   onSelectEntry: (id: string) => void;
   onDraftChange: (field: string, value: string | boolean) => void;
+  onGenerationScopeChange: (value: string) => void;
   onGenerateFromPlans: () => void;
-  onApproveMap: () => void;
-  onDistributeMap: () => void;
+  onActivateMap: () => void;
   onAddEntry: () => void;
   onSaveEntry: () => void;
   onDeleteEntry: () => void;
@@ -39,6 +40,12 @@ const TYPES = ["image", "b_roll", "contextual_data_composite"];
 const ANCHOR_MODES = ["line_anchor", "phrase_match", "speaker_turn", "section_marker", "absolute_time"];
 const SOURCE_STATUS = ["unresolved", "selected", "attached"];
 const CONFIDENCE = ["high", "medium", "low"];
+const GENERATION_SCOPES = [
+  { value: "images_only", label: "Images only" },
+  { value: "images_broll", label: "Images + B-roll" },
+  { value: "images_cdc", label: "Images + CDC" },
+  { value: "full_media_plan", label: "Full media plan" },
+];
 
 export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
   const selectedEntry = useMemo(
@@ -55,16 +62,28 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
             Canonical visual intent map for Hammer. Script version: {props.scriptVersionLabel}
             {props.stale ? " (needs review)" : ""}
           </p>
+          <p className="hs-imap-help-text">
+            Activate this media plan to finalize beat decisions and route image, B-roll, and CDC cues to their fulfillment paths.
+          </p>
         </div>
         <div className="hs-imap-candidate-action-group">
+          <label>
+            Plan Scope
+            <select
+              value={props.generationScope}
+              onChange={(event) => props.onGenerationScopeChange(event.target.value)}
+              disabled={props.disabled}
+            >
+              {GENERATION_SCOPES.map((scope) => (
+                <option key={scope.value} value={scope.value}>{scope.label}</option>
+              ))}
+            </select>
+          </label>
           <button type="button" className="hs-secondary-btn" onClick={props.onGenerateFromPlans} disabled={props.disabled}>
             Generate Episode Media Map
           </button>
-          <button type="button" className="hs-secondary-btn" onClick={props.onApproveMap} disabled={props.disabled}>
-            Approve Map
-          </button>
-          <button type="button" className="hs-secondary-btn" onClick={props.onDistributeMap} disabled={props.disabled}>
-            Distribute Fulfillment
+          <button type="button" className="hs-secondary-btn" onClick={props.onActivateMap} disabled={props.disabled}>
+            Activate Media Plan
           </button>
           <button type="button" className="hs-secondary-btn" onClick={props.onAddEntry} disabled={props.disabled}>
             Add Entry

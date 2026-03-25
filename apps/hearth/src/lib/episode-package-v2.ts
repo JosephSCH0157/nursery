@@ -181,7 +181,7 @@ export type EpisodeMediaMapMediaType = "image" | "b_roll" | "contextual_data_com
 export type EpisodeMediaMapAnchorMode = "line_anchor" | "phrase_match" | "speaker_turn" | "section_marker" | "absolute_time";
 export type EpisodeMediaMapSourceStatus = "unresolved" | "selected" | "attached";
 export type EpisodeMediaMapConfidence = "high" | "medium" | "low";
-export type EpisodeMediaMapStatus = "draft" | "review" | "approved" | "fulfilling" | "fulfilled" | "needs_attention";
+export type EpisodeMediaMapStatus = "draft" | "review" | "activated" | "fulfilling" | "fulfilled" | "needs_attention";
 export type EpisodeMediaMapBeatFulfillmentStatus = "planned" | "approved" | "queued" | "generating" | "resolved" | "needs_attention";
 export type EpisodeMediaMapFulfillmentPath = "image" | "motion_broll" | "cdc";
 
@@ -1705,12 +1705,15 @@ function normalizeMediaMapStatus(value: unknown): EpisodeMediaMapStatus {
   if (
     normalized === "draft"
     || normalized === "review"
-    || normalized === "approved"
+    || normalized === "activated"
     || normalized === "fulfilling"
     || normalized === "fulfilled"
     || normalized === "needs_attention"
   ) {
     return normalized;
+  }
+  if (normalized === "approved") {
+    return "activated";
   }
   return "draft";
 }

@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  approveEpisodeMediaMap,
-  distributeEpisodeMediaMapForFulfillment,
+  activateEpisodeMediaMapForFulfillment,
 } from "../src/lib/hearth-media-map-fulfillment";
 import type { EpisodeMediaMap } from "../src/lib/episode-package-v2";
 
@@ -54,21 +53,12 @@ function createFixtureMap(): EpisodeMediaMap {
   };
 }
 
-test("approveEpisodeMediaMap marks map authoritative and beat statuses approved", () => {
-  const approved = approveEpisodeMediaMap(createFixtureMap());
-  assert.equal(approved.status, "approved");
-  assert.ok(approved.version > 1);
-  assert.equal(approved.entries[0]?.fulfillment_status, "approved");
-  assert.equal(approved.entries[1]?.fulfillment_status, "approved");
-});
-
-test("distributeEpisodeMediaMapForFulfillment routes by final media kind", () => {
-  const approved = approveEpisodeMediaMap(createFixtureMap());
-  const distributed = distributeEpisodeMediaMapForFulfillment(approved);
-
-  assert.equal(distributed.status, "fulfilling");
-  const image = distributed.entries.find((entry) => entry.id === "mm-1");
-  const broll = distributed.entries.find((entry) => entry.id === "mm-2");
+test("activateEpisodeMediaMapForFulfillment finalizes map and routes by final media kind", () => {
+  const activated = activateEpisodeMediaMapForFulfillment(createFixtureMap());
+  assert.equal(activated.status, "activated");
+  assert.ok(activated.version > 1);
+  const image = activated.entries.find((entry) => entry.id === "mm-1");
+  const broll = activated.entries.find((entry) => entry.id === "mm-2");
   assert.equal(image?.fulfillment_path, "image");
   assert.equal(image?.fulfillment_status, "queued");
   assert.equal(broll?.fulfillment_path, "motion_broll");
