@@ -210,6 +210,10 @@ const POST_ROLL_SEC = 1;
 const SCRUB_SEEK_THRESHOLD_SEC = 0.05;
 const SCRUB_RATE_OPTIONS = [1, 0.75, 0.5] as const;
 const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
+type HammerPlaybackAuthorityWindow = Window & typeof globalThis & {
+  __forgeHammerActivePreviewOwnerId__?: string;
+  __forgeHammerActivePreviewAudio__?: HTMLAudioElement;
+};
 const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
   preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut"],
   export_supported_operation_types: [
@@ -1231,6 +1235,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const scrubRectRef = useRef<{ left: number; width: number } | null>(null);
   const scrubAutoPlayRef = useRef(false);
   const scrubReturnToPausedRef = useRef(false);
+  const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
 
   const pauseAuxiliaryMediaPlayback = useCallback((): void => {
     const primaryPreviewAudio = previewAudioRef.current;
@@ -1246,6 +1251,31 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         node.muted = true;
       }
     });
+  }, []);
+
+  const claimGlobalPlaybackAuthority = useCallback((previewAudio: HTMLAudioElement): void => {
+    const runtimeWindow = window as HammerPlaybackAuthorityWindow;
+    const activePreviewAudio = runtimeWindow.__forgeHammerActivePreviewAudio__;
+    if (activePreviewAudio && activePreviewAudio !== previewAudio) {
+      activePreviewAudio.pause();
+      if (!activePreviewAudio.ended) {
+        activePreviewAudio.currentTime = 0;
+      }
+    }
+    runtimeWindow.__forgeHammerActivePreviewAudio__ = previewAudio;
+    runtimeWindow.__forgeHammerActivePreviewOwnerId__ = playbackOwnerIdRef.current;
+    pauseAuxiliaryMediaPlayback();
+  }, [pauseAuxiliaryMediaPlayback]);
+
+  const releaseGlobalPlaybackAuthority = useCallback((previewAudio: HTMLAudioElement | null): void => {
+    const runtimeWindow = window as HammerPlaybackAuthorityWindow;
+    if (
+      runtimeWindow.__forgeHammerActivePreviewOwnerId__ === playbackOwnerIdRef.current
+      && runtimeWindow.__forgeHammerActivePreviewAudio__ === previewAudio
+    ) {
+      runtimeWindow.__forgeHammerActivePreviewAudio__ = undefined;
+      runtimeWindow.__forgeHammerActivePreviewOwnerId__ = undefined;
+    }
   }, []);
 
   const previewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
@@ -2302,6 +2332,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useEffect(() => {
     const previewAudio = previewAudioRef.current;
     if (!previewAudio) return;
+    const runtimeWindow = window as HammerPlaybackAuthorityWindow;
+    const activeOwnerId = runtimeWindow.__forgeHammerActivePreviewOwnerId__;
+    if (isPlaybackActive && activeOwnerId && activeOwnerId !== playbackOwnerIdRef.current) {
+      previewAudio.pause();
+      setIsPlaybackActive(false);
+      return;
+    }
 
     const srcChanged = lastPlaybackMediaSrcRef.current !== playbackMediaSrc;
     if (srcChanged) {
@@ -2328,16 +2365,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
 
-    pauseAuxiliaryMediaPlayback();
+    claimGlobalPlaybackAuthority(previewAudio);
     void previewAudio.play().catch(() => {
       setIsPlaybackActive(false);
     });
-  }, [isPlaybackActive, pauseAuxiliaryMediaPlayback, playbackMediaSrc, playheadSec, transcriptDurationSec, playbackWindow]);
+  }, [claimGlobalPlaybackAuthority, isPlaybackActive, playbackMediaSrc, playheadSec, transcriptDurationSec, playbackWindow]);
 
   useEffect(() => () => {
-    previewAudioRef.current?.pause();
+    const previewAudio = previewAudioRef.current;
+    previewAudio?.pause();
+    releaseGlobalPlaybackAuthority(previewAudio);
     pauseAuxiliaryMediaPlayback();
-  }, [pauseAuxiliaryMediaPlayback]);
+  }, [pauseAuxiliaryMediaPlayback, releaseGlobalPlaybackAuthority]);
+
+  useEffect(() => {
+    if (isPlaybackActive) return;
+    releaseGlobalPlaybackAuthority(previewAudioRef.current);
+  }, [isPlaybackActive, releaseGlobalPlaybackAuthority]);
 
   useEffect(() => {
     const previewAudio = previewAudioRef.current;
@@ -2878,6 +2922,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     if (!isPlaybackActive && playbackMediaSrc && previewAudioRef.current) {
       const previewAudio = previewAudioRef.current;
+      claimGlobalPlaybackAuthority(previewAudio);
       previewAudio.playbackRate = scrubRate;
       void previewAudio.play()
         .then(() => {
@@ -2885,6 +2930,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         })
         .catch(() => {
           scrubAutoPlayRef.current = false;
+          releaseGlobalPlaybackAuthority(previewAudio);
         });
     }
   }
@@ -2897,6 +2943,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     if (scrubAutoPlayRef.current && scrubReturnToPausedRef.current) {
       previewAudioRef.current?.pause();
+      releaseGlobalPlaybackAuthority(previewAudioRef.current);
       setIsPlaybackActive(false);
     }
     scrubAutoPlayRef.current = false;
