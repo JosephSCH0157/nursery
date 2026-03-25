@@ -2643,6 +2643,24 @@ export default function HearthShell({
     if (!activeDraft || !draftSnapshot) return false;
     return activeDraft.title !== draftSnapshot.title || activeDraft.body !== draftSnapshot.body;
   }, [activeDraft, draftSnapshot]);
+  const persistAutosaveIO = useCallback(async (params: {
+    draft: Draft;
+    updatedAt: number;
+    revision: { kind: RevisionKind; note?: string } | null;
+    quietFailure: boolean;
+    saveReason?: string;
+  }): Promise<boolean> => {
+    return persistDraft({
+      draft: params.draft,
+      updatedAt: params.updatedAt,
+      createRevision: params.revision,
+      syncSources: false,
+      syncSession: false,
+      showSavingState: false,
+      quietFailure: params.quietFailure,
+      saveReason: params.saveReason,
+    });
+  }, [persistDraft]);
   const {
     queueAiAutosave,
     onRetryAiAutosave,
@@ -2657,7 +2675,7 @@ export default function HearthShell({
     autosaveMinGapMs: AUTOSAVE_MIN_GAP_MS,
     autosaveRevisionGapMs: AUTOSAVE_REVISION_GAP_MS,
     autosaveRevisionKind: "autosave",
-    persistDraft,
+    persistAutosaveIO,
     toAiAutosaveSaveReason: toAiAutosaveReason,
     retryReasonCode: "ai_rewrite",
     setAiAutosaveWarning,

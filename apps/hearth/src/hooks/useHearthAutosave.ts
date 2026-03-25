@@ -17,14 +17,11 @@ type PendingAiAutosave<TReasonCode extends string> = {
   reasonCode: TReasonCode;
 };
 
-type PersistDraftArgs<TDraft extends AutosaveDraftLike, TRevisionKind extends string> = {
+type AutosavePersistenceArgs<TDraft extends AutosaveDraftLike, TRevisionKind extends string> = {
   draft: TDraft;
   updatedAt: number;
-  createRevision: { kind: TRevisionKind; note?: string } | null;
-  syncSources?: boolean;
-  syncSession?: boolean;
-  showSavingState?: boolean;
-  quietFailure?: boolean;
+  revision: { kind: TRevisionKind; note?: string } | null;
+  quietFailure: boolean;
   saveReason?: string;
 };
 
@@ -42,7 +39,7 @@ type UseHearthAutosaveArgs<
   autosaveMinGapMs: number;
   autosaveRevisionGapMs: number;
   autosaveRevisionKind: TRevisionKind;
-  persistDraft: (args: PersistDraftArgs<TDraft, TRevisionKind>) => Promise<boolean>;
+  persistAutosaveIO: (args: AutosavePersistenceArgs<TDraft, TRevisionKind>) => Promise<boolean>;
   toAiAutosaveSaveReason: (reasonCode: TReasonCode) => string;
   retryReasonCode: TReasonCode;
   setAiAutosaveWarning: (value: string | null) => void;
@@ -73,7 +70,7 @@ export function useHearthAutosave<
   const draftSnapshotRef = useRef<DraftSnapshotLike | null>(args.draftSnapshot);
   const isBodyComposingRef = useRef(args.isBodyComposing);
   const lastAutosaveRevisionAtRef = useRef<number | null>(args.lastAutosaveRevisionAt);
-  const persistDraftRef = useRef(args.persistDraft);
+  const persistAutosaveIORef = useRef(args.persistAutosaveIO);
 
   useEffect(() => {
     activeDraftRef.current = args.activeDraft;
@@ -92,8 +89,8 @@ export function useHearthAutosave<
   }, [args.lastAutosaveRevisionAt]);
 
   useEffect(() => {
-    persistDraftRef.current = args.persistDraft;
-  }, [args.persistDraft]);
+    persistAutosaveIORef.current = args.persistAutosaveIO;
+  }, [args.persistAutosaveIO]);
 
   useEffect(() => {
     pendingAiAutosaveRef.current = null;
@@ -151,16 +148,13 @@ export function useHearthAutosave<
         const shouldAutoRevision = isAiAutosave || !lastAutosaveRevisionAtRef.current
           || now - lastAutosaveRevisionAtRef.current >= args.autosaveRevisionGapMs;
 
-        const saved = await persistDraftRef.current({
+        const saved = await persistAutosaveIORef.current({
           draft,
           updatedAt: now,
-          createRevision: shouldAutoRevision ? {
+          revision: shouldAutoRevision ? {
             kind: args.autosaveRevisionKind,
             note: aiAutosaveReason ?? "Autosave",
           } : null,
-          syncSources: false,
-          syncSession: false,
-          showSavingState: false,
           quietFailure: isAiAutosave,
           saveReason: aiAutosaveReason ?? "autosave:typing",
         });
