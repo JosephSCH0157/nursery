@@ -35,17 +35,6 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
       </section>
 
       <CollapsibleFocusPanel
-        panelId="hearth-thumbnail-panel"
-        title="Thumbnails"
-        meta={props.thumbnailPanelMeta}
-        collapsed={false}
-        onToggle={() => {}}
-        collapsible={false}
-      >
-        <ThumbnailPanel {...props.thumbnailPanelProps} />
-      </CollapsibleFocusPanel>
-
-      <CollapsibleFocusPanel
         panelId="hearth-media-map-panel"
         title="Episode Media Map"
         meta={props.mediaMapPanelMeta}
@@ -54,6 +43,17 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
         collapsible={false}
       >
         <EpisodeMediaMapPanel {...props.mediaMapPanelProps} />
+      </CollapsibleFocusPanel>
+
+      <CollapsibleFocusPanel
+        panelId="hearth-thumbnail-panel"
+        title="Thumbnails"
+        meta={props.thumbnailPanelMeta}
+        collapsed={false}
+        onToggle={() => {}}
+        collapsible={false}
+      >
+        <ThumbnailPanel {...props.thumbnailPanelProps} />
       </CollapsibleFocusPanel>
 
       <CollapsibleFocusPanel

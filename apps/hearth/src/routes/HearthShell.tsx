@@ -7613,32 +7613,51 @@ export default function HearthShell({
     scope: MediaMapGenerationScope,
   ): EpisodeMediaMap {
     const nowIso = new Date().toISOString();
-    const fromImageMap: EpisodeMediaMapEntry[] = current.image_map.entries.map((entry) => ({
-      id: `mm_image_${entry.id}`,
-      final_media_kind: "image",
-      anchor: {
-        mode: "phrase_match",
-        target: entry.script_anchor?.span_text ?? entry.anchor,
-      },
-      timing: {
-        in_offset_sec: 0,
-        duration_sec: 6,
-      },
-      description: entry.description,
-      intent: entry.intent || "establish_context",
-      source: {
-        status: entry.selected_asset_id ? "selected" : "unresolved",
-        asset_id: entry.selected_asset_id,
-      },
-      confidence: "medium",
-      fulfillment_status: entry.selected_asset_id ? "resolved" : "planned",
-      fulfillment_path: entry.selected_asset_id ? "image" : null,
-      optional: entry.visual_priority === "optional",
-      critical: entry.visual_priority === "primary",
-      stale: false,
-      created_at: nowIso,
-      updated_at: nowIso,
-    }));
+    const thumbnailVersionByConceptId = new Map<string, EpisodeThumbnailVersion>();
+    for (const version of current.thumbnail.versions) {
+      if (!thumbnailVersionByConceptId.has(version.concept_id)) {
+        thumbnailVersionByConceptId.set(version.concept_id, version);
+      }
+    }
+    const fromThumbnailPrompts: EpisodeMediaMapEntry[] = current.thumbnail.concepts.map((concept) => {
+      const conceptLabel = concept.label.trim();
+      const promptText = concept.prompt_text.trim();
+      const supportingVersion = thumbnailVersionByConceptId.get(concept.id);
+      return {
+        id: `mm_thumbnail_${concept.id}`,
+        final_media_kind: "image",
+        anchor: {
+          mode: "section_marker",
+          target: conceptLabel ? `thumbnail:${conceptLabel}` : "thumbnail:concept",
+        },
+        timing: {
+          in_offset_sec: 0,
+          duration_sec: 6,
+        },
+        description: promptText || conceptLabel || "Thumbnail concept prompt",
+        intent: "thumbnail_concept",
+        source: {
+          status: supportingVersion?.asset_id ? "selected" : "unresolved",
+          asset_id: supportingVersion?.asset_id ?? null,
+        },
+        confidence: "medium",
+        fulfillment_status: supportingVersion?.asset_id ? "resolved" : "planned",
+        fulfillment_path: supportingVersion?.asset_id ? "image" : null,
+        optional: false,
+        critical: true,
+        stale: false,
+        created_at: nowIso,
+        updated_at: nowIso,
+      };
+    });
+    const fromExistingMediaMapImages: EpisodeMediaMapEntry[] = current.media_map.entries
+      .filter((entry) => entry.final_media_kind === "image")
+      .map((entry) => ({
+        ...entry,
+        id: `mm_existing_image_${entry.id}`,
+        stale: false,
+        updated_at: nowIso,
+      }));
     const fromBroll: EpisodeMediaMapEntry[] = current.broll_plan.beats.map((beat) => ({
       id: `mm_broll_${beat.id}`,
       final_media_kind: "b_roll",
@@ -7699,7 +7718,8 @@ export default function HearthShell({
     const includeBroll = scope === "images_broll" || scope === "full_media_plan";
     const includeCdc = scope === "images_cdc" || scope === "full_media_plan";
     const merged = [
-      ...(includeImages ? fromImageMap : []),
+      ...(includeImages ? fromThumbnailPrompts : []),
+      ...(includeImages ? fromExistingMediaMapImages : []),
       ...(includeBroll ? fromBroll : []),
       ...(includeCdc ? fromCdc : []),
     ];
