@@ -298,6 +298,9 @@ export async function requestHammerAudioPolish(
   if (userAccessToken && !headers.has("x-forge-user-authorization")) {
     headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
   }
+  if (userAccessToken && !headers.has("x-forge-user-token")) {
+    headers.set("x-forge-user-token", userAccessToken);
+  }
 
   const abortController = new AbortController();
   const timers = globalThis as typeof globalThis & RuntimeTimers;

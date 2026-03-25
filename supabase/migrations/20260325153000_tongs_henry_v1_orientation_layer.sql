@@ -57,7 +57,7 @@ for select
 to authenticated
 using (
   user_id = auth.uid()
-  and tongs.can_access_workspace(workspace_id, auth.uid())
+  and tongs.can_access_workspace(workspace_id)
 );
 
 drop policy if exists henry_user_preferences_insert_self on tongs.henry_user_preferences;
@@ -67,7 +67,7 @@ for insert
 to authenticated
 with check (
   user_id = auth.uid()
-  and tongs.can_access_workspace(workspace_id, auth.uid())
+  and tongs.can_access_workspace(workspace_id)
 );
 
 drop policy if exists henry_user_preferences_update_self on tongs.henry_user_preferences;
@@ -77,11 +77,11 @@ for update
 to authenticated
 using (
   user_id = auth.uid()
-  and tongs.can_access_workspace(workspace_id, auth.uid())
+  and tongs.can_access_workspace(workspace_id)
 )
 with check (
   user_id = auth.uid()
-  and tongs.can_access_workspace(workspace_id, auth.uid())
+  and tongs.can_access_workspace(workspace_id)
 );
 
 drop policy if exists henry_message_state_select_self on tongs.henry_message_state;
@@ -91,7 +91,7 @@ for select
 to authenticated
 using (
   user_id = auth.uid()
-  and tongs.can_access_workspace(workspace_id, auth.uid())
+  and tongs.can_access_workspace(workspace_id)
 );
 
 drop policy if exists henry_message_state_insert_self on tongs.henry_message_state;
@@ -101,7 +101,7 @@ for insert
 to authenticated
 with check (
   user_id = auth.uid()
-  and tongs.can_access_workspace(workspace_id, auth.uid())
+  and tongs.can_access_workspace(workspace_id)
 );
 
 drop policy if exists henry_message_state_update_self on tongs.henry_message_state;
@@ -111,11 +111,11 @@ for update
 to authenticated
 using (
   user_id = auth.uid()
-  and tongs.can_access_workspace(workspace_id, auth.uid())
+  and tongs.can_access_workspace(workspace_id)
 )
 with check (
   user_id = auth.uid()
-  and tongs.can_access_workspace(workspace_id, auth.uid())
+  and tongs.can_access_workspace(workspace_id)
 );
 
 drop policy if exists henry_events_select_self on tongs.henry_events;
@@ -125,7 +125,7 @@ for select
 to authenticated
 using (
   user_id = auth.uid()
-  and tongs.can_access_workspace(workspace_id, auth.uid())
+  and tongs.can_access_workspace(workspace_id)
 );
 
 drop policy if exists henry_events_insert_self on tongs.henry_events;
@@ -135,7 +135,7 @@ for insert
 to authenticated
 with check (
   user_id = auth.uid()
-  and tongs.can_access_workspace(workspace_id, auth.uid())
+  and tongs.can_access_workspace(workspace_id)
 );
 
 create or replace function tongs.get_my_henry_preferences(
@@ -160,7 +160,7 @@ begin
   if p_workspace_id is null then
     raise exception 'workspace_id is required';
   end if;
-  if not tongs.can_access_workspace(p_workspace_id, auth.uid()) then
+  if not tongs.can_access_workspace(p_workspace_id) then
     raise exception 'Workspace access denied';
   end if;
 
@@ -206,7 +206,7 @@ begin
   if p_workspace_id is null then
     raise exception 'workspace_id is required';
   end if;
-  if not tongs.can_access_workspace(p_workspace_id, auth.uid()) then
+  if not tongs.can_access_workspace(p_workspace_id) then
     raise exception 'Workspace access denied';
   end if;
 
@@ -274,7 +274,7 @@ begin
   if p_workspace_id is null then
     raise exception 'workspace_id is required';
   end if;
-  if not tongs.can_access_workspace(p_workspace_id, auth.uid()) then
+  if not tongs.can_access_workspace(p_workspace_id) then
     raise exception 'Workspace access denied';
   end if;
 
@@ -325,7 +325,7 @@ begin
   if p_workspace_id is null then
     raise exception 'workspace_id is required';
   end if;
-  if not tongs.can_access_workspace(p_workspace_id, auth.uid()) then
+  if not tongs.can_access_workspace(p_workspace_id) then
     raise exception 'Workspace access denied';
   end if;
 
@@ -399,7 +399,7 @@ begin
   if p_workspace_id is null then
     raise exception 'workspace_id is required';
   end if;
-  if not tongs.can_access_workspace(p_workspace_id, auth.uid()) then
+  if not tongs.can_access_workspace(p_workspace_id) then
     raise exception 'Workspace access denied';
   end if;
   if nullif(trim(coalesce(p_event_name, '')), '') is null then

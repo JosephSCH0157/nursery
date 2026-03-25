@@ -166,17 +166,30 @@ async function resolveUserAccessToken(): Promise<string | null> {
         getSession?: () => Promise<unknown>;
       };
     };
+    __forge_supabase_tongs_client__?: {
+      auth?: {
+        getSession?: () => Promise<unknown>;
+      };
+    };
   };
 
-  const getSession = runtimeWindow.__forge_supabase_client__?.auth?.getSession;
-  if (typeof getSession !== "function") return null;
+  const getSessionCandidates = [
+    runtimeWindow.__forge_supabase_client__?.auth?.getSession,
+    runtimeWindow.__forge_supabase_tongs_client__?.auth?.getSession,
+  ];
 
-  try {
-    const sessionPayload = await getSession();
-    return sanitizeAccessToken(extractAccessTokenFromAuthPayload(sessionPayload));
-  } catch {
-    return null;
+  for (const getSession of getSessionCandidates) {
+    if (typeof getSession !== "function") continue;
+    try {
+      const sessionPayload = await getSession();
+      const token = sanitizeAccessToken(extractAccessTokenFromAuthPayload(sessionPayload));
+      if (token) return token;
+    } catch {
+      // keep trying other candidates
+    }
   }
+
+  return null;
 }
 
 export async function hasTongsUserAccessToken(): Promise<boolean> {
@@ -222,14 +235,14 @@ export async function tongsFetch(url: string, options: TongsFetchOptions = {}): 
   const headers = new Headers(initHeaders ?? {});
   const apiToken = resolveRawTongsApiToken();
   const userAccessToken = await resolveUserAccessToken();
-  const hasAuth = Boolean(apiToken || userAccessToken);
+  const hasAuth = Boolean(userAccessToken);
 
   if (!hasAuth) {
     return new Response(JSON.stringify({
       ok: false,
       error: {
-        code: "missing_tongs_auth",
-        message: "Tongs auth is not configured for this browser session.",
+        code: "missing_user_token_header",
+        message: "Missing x-forge-user-authorization (or x-forge-user-token) header.",
       },
     }), {
       status: 401,
@@ -244,6 +257,9 @@ export async function tongsFetch(url: string, options: TongsFetchOptions = {}): 
   }
   if (userAccessToken && !headers.has("x-forge-user-authorization")) {
     headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
+  }
+  if (userAccessToken && !headers.has("x-forge-user-token")) {
+    headers.set("x-forge-user-token", userAccessToken);
   }
 
   let body = initBody;

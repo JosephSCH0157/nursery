@@ -21,12 +21,61 @@ export type HenryTelemetryEventName =
   | "freeform_asked"
   | "follow_through";
 
+const unavailableRpcNames = new Set<string>();
+
 function toErrorMessage(error: unknown, fallback: string): string {
   if (error && typeof error === "object" && "message" in error) {
     const message = (error as { message?: unknown }).message;
     if (typeof message === "string" && message.trim()) return message;
   }
   return fallback;
+}
+
+function readErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
+function readErrorStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const status = (error as { status?: unknown; statusCode?: unknown }).status
+    ?? (error as { statusCode?: unknown }).statusCode;
+  return typeof status === "number" ? status : null;
+}
+
+function isMissingRpcError(error: unknown): boolean {
+  const code = readErrorCode(error);
+  if (code === "PGRST202") return true;
+  const status = readErrorStatus(error);
+  if (status === 404) return true;
+  const message = toErrorMessage(error, "");
+  return /Could not find the function|schema cache|no matches were found|not found/i.test(message);
+}
+
+async function callHenryRpc(
+  fn: string,
+  args: Record<string, unknown>,
+): Promise<{ data: unknown; error: unknown }> {
+  if (unavailableRpcNames.has(fn)) {
+    return { data: null, error: { code: "PGRST202", message: `RPC ${fn} unavailable` } };
+  }
+  const rpc = tongsSupabase.rpc.bind(tongsSupabase) as unknown as (
+    name: string,
+    payload: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: unknown }>;
+  try {
+    const result = await rpc(fn, args);
+    if (result.error && isMissingRpcError(result.error)) {
+      unavailableRpcNames.add(fn);
+    }
+    return result;
+  } catch (error) {
+    if (isMissingRpcError(error)) {
+      unavailableRpcNames.add(fn);
+    }
+    return { data: null, error };
+  }
 }
 
 type PreferenceRpcRow = {
@@ -46,12 +95,9 @@ type MessageStateRpcRow = {
 };
 
 export async function getHenryPreferences(workspaceId: string): Promise<HenryPreferenceState | null> {
-  const rpc = tongsSupabase.rpc.bind(tongsSupabase) as unknown as (
-    fn: string,
-    args: Record<string, unknown>,
-  ) => Promise<{ data: unknown; error: unknown }>;
-  const { data, error } = await rpc("get_my_henry_preferences", { p_workspace_id: workspaceId });
+  const { data, error } = await callHenryRpc("get_my_henry_preferences", { p_workspace_id: workspaceId });
   if (error) {
+    if (isMissingRpcError(error)) return null;
     throw new Error(toErrorMessage(error, "Failed loading Henry preferences."));
   }
   const row = Array.isArray(data) ? (data[0] as PreferenceRpcRow | undefined) : null;
@@ -65,11 +111,7 @@ export async function getHenryPreferences(workspaceId: string): Promise<HenryPre
 }
 
 export async function upsertHenryPreferences(workspaceId: string, preferences: HenryPreferenceState): Promise<void> {
-  const rpc = tongsSupabase.rpc.bind(tongsSupabase) as unknown as (
-    fn: string,
-    args: Record<string, unknown>,
-  ) => Promise<{ data: unknown; error: unknown }>;
-  const { error } = await rpc("upsert_my_henry_preferences", {
+  const { error } = await callHenryRpc("upsert_my_henry_preferences", {
     p_workspace_id: workspaceId,
     p_show_henry: preferences.showHenry,
     p_hide_tips: preferences.hideTips,
@@ -77,17 +119,15 @@ export async function upsertHenryPreferences(workspaceId: string, preferences: H
     p_open_last_tab: preferences.openLastTab,
   });
   if (error) {
+    if (isMissingRpcError(error)) return;
     throw new Error(toErrorMessage(error, "Failed saving Henry preferences."));
   }
 }
 
 export async function getHenryMessageState(workspaceId: string): Promise<Map<string, HenryMessageStateRow>> {
-  const rpc = tongsSupabase.rpc.bind(tongsSupabase) as unknown as (
-    fn: string,
-    args: Record<string, unknown>,
-  ) => Promise<{ data: unknown; error: unknown }>;
-  const { data, error } = await rpc("get_my_henry_message_state", { p_workspace_id: workspaceId });
+  const { data, error } = await callHenryRpc("get_my_henry_message_state", { p_workspace_id: workspaceId });
   if (error) {
+    if (isMissingRpcError(error)) return new Map();
     throw new Error(toErrorMessage(error, "Failed loading Henry message state."));
   }
   const rows = Array.isArray(data) ? data as MessageStateRpcRow[] : [];
@@ -115,11 +155,7 @@ export async function upsertHenryMessageState(args: {
   cooldownUntil?: string | null;
   incrementDismiss?: number;
 }): Promise<void> {
-  const rpc = tongsSupabase.rpc.bind(tongsSupabase) as unknown as (
-    fn: string,
-    args: Record<string, unknown>,
-  ) => Promise<{ data: unknown; error: unknown }>;
-  const { error } = await rpc("upsert_my_henry_message_state", {
+  const { error } = await callHenryRpc("upsert_my_henry_message_state", {
     p_workspace_id: args.workspaceId,
     p_message_id: args.messageId,
     p_last_seen_at: args.lastSeenAt ?? new Date().toISOString(),
@@ -128,6 +164,7 @@ export async function upsertHenryMessageState(args: {
     p_increment_dismiss: args.incrementDismiss ?? 0,
   });
   if (error) {
+    if (isMissingRpcError(error)) return;
     throw new Error(toErrorMessage(error, "Failed saving Henry message state."));
   }
 }
@@ -140,11 +177,7 @@ export async function trackHenryEvent(args: {
   metadata?: Record<string, unknown>;
 }): Promise<void> {
   if (!args.workspaceId) return;
-  const rpc = tongsSupabase.rpc.bind(tongsSupabase) as unknown as (
-    fn: string,
-    args: Record<string, unknown>,
-  ) => Promise<{ data: unknown; error: unknown }>;
-  const { error } = await rpc("track_henry_event", {
+  const { error } = await callHenryRpc("track_henry_event", {
     p_workspace_id: args.workspaceId,
     p_workpiece_id: args.workpieceId,
     p_event_name: args.eventName,
@@ -152,6 +185,7 @@ export async function trackHenryEvent(args: {
     p_metadata: args.metadata ?? {},
   });
   if (error) {
+    if (isMissingRpcError(error)) return;
     // telemetry failures are intentionally non-fatal
     console.warn("[henry] telemetry event failed", args.eventName, error);
   }
