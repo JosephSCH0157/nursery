@@ -7760,19 +7760,25 @@ export default function HearthShell() {
     setIsBrollBusy(true);
     setBrollSaveState("saving");
     setBrollSaveError(null);
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.beat_updated.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id },
-    });
-    setIsBrollBusy(false);
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
+    try {
+      const saved = await persistBrollPlan({
+        plan: nextPlan,
+        eventName: "hearth.broll_plan.beat_updated.v1",
+        eventPayload: { beat_id: selectedBrollBeat.id },
+      });
+      if (!saved.ok) {
+        setBrollSaveError(saved.error);
+        setBrollSaveState("error");
+        return;
+      }
+      setBrollSaveState("saved");
+      setBrollMessage("B-roll beat saved.");
+    } catch {
+      setBrollSaveError("Unable to save this B-roll beat.");
       setBrollSaveState("error");
-      return;
+    } finally {
+      setIsBrollBusy(false);
     }
-    setBrollSaveState("saved");
-    setBrollMessage("B-roll beat saved.");
   }
 
   async function onDeleteBrollBeat() {
@@ -7790,20 +7796,26 @@ export default function HearthShell() {
     setIsBrollBusy(true);
     setBrollSaveState("saving");
     setBrollSaveError(null);
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.beat_deleted.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id },
-    });
-    setIsBrollBusy(false);
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
+    try {
+      const saved = await persistBrollPlan({
+        plan: nextPlan,
+        eventName: "hearth.broll_plan.beat_deleted.v1",
+        eventPayload: { beat_id: selectedBrollBeat.id },
+      });
+      if (!saved.ok) {
+        setBrollSaveError(saved.error);
+        setBrollSaveState("error");
+        return;
+      }
+      setSelectedBrollBeatId(nextBeats[0]?.id ?? null);
+      setBrollSaveState("saved");
+      setBrollMessage("B-roll beat removed.");
+    } catch {
+      setBrollSaveError("Unable to delete this B-roll beat.");
       setBrollSaveState("error");
-      return;
+    } finally {
+      setIsBrollBusy(false);
     }
-    setSelectedBrollBeatId(nextBeats[0]?.id ?? null);
-    setBrollSaveState("saved");
-    setBrollMessage("B-roll beat removed.");
   }
 
   async function onRegenerateBrollBeat() {
@@ -7822,19 +7834,25 @@ export default function HearthShell() {
     setIsBrollBusy(true);
     setBrollSaveState("saving");
     setBrollSaveError(null);
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.beat_regenerated.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id },
-    });
-    setIsBrollBusy(false);
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
+    try {
+      const saved = await persistBrollPlan({
+        plan: nextPlan,
+        eventName: "hearth.broll_plan.beat_regenerated.v1",
+        eventPayload: { beat_id: selectedBrollBeat.id },
+      });
+      if (!saved.ok) {
+        setBrollSaveError(saved.error);
+        setBrollSaveState("error");
+        return;
+      }
+      setBrollSaveState("saved");
+      setBrollMessage("B-roll beat regenerated.");
+    } catch {
+      setBrollSaveError("Unable to regenerate this B-roll beat.");
       setBrollSaveState("error");
-      return;
+    } finally {
+      setIsBrollBusy(false);
     }
-    setBrollSaveState("saved");
-    setBrollMessage("B-roll beat regenerated.");
   }
 
   async function onFindStockForBrollBeat() {
@@ -7868,19 +7886,25 @@ export default function HearthShell() {
     setIsBrollBusy(true);
     setBrollSaveState("saving");
     setBrollSaveError(null);
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.stock_candidates.generated.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id, candidate_count: stockCandidates.length },
-    });
-    setIsBrollBusy(false);
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
+    try {
+      const saved = await persistBrollPlan({
+        plan: nextPlan,
+        eventName: "hearth.broll_plan.stock_candidates.generated.v1",
+        eventPayload: { beat_id: selectedBrollBeat.id, candidate_count: stockCandidates.length },
+      });
+      if (!saved.ok) {
+        setBrollSaveError(saved.error);
+        setBrollSaveState("error");
+        return;
+      }
+      setBrollSaveState("saved");
+      setBrollMessage(`Attached ${stockCandidates.length} stock candidate links.`);
+    } catch {
+      setBrollSaveError("Unable to attach stock candidates for this B-roll beat.");
       setBrollSaveState("error");
-      return;
+    } finally {
+      setIsBrollBusy(false);
     }
-    setBrollSaveState("saved");
-    setBrollMessage(`Attached ${stockCandidates.length} stock candidate links.`);
   }
 
   async function onUploadBrollBeatAsset(file: File) {
@@ -7895,49 +7919,54 @@ export default function HearthShell() {
     setIsBrollBusy(true);
     setBrollSaveState("saving");
     setBrollSaveError(null);
-    const uploaded = await uploadBrollBeatAsset({
-      workpieceId: episodeId,
-      beatId: selectedBrollBeat.id,
-      file,
-      source: "upload",
-    });
-    if (!uploaded.ok) {
+    try {
+      const uploaded = await uploadBrollBeatAsset({
+        workpieceId: episodeId,
+        beatId: selectedBrollBeat.id,
+        file,
+        source: "upload",
+      });
+      if (!uploaded.ok) {
+        setBrollSaveError(uploaded.error);
+        setBrollSaveState("error");
+        return;
+      }
+      const nextBeat: EpisodeBrollPlanBeat = {
+        ...selectedBrollBeat,
+        source_type: "upload",
+        origin: selectedBrollBeat.origin === "hammer" ? "mixed" : "hearth",
+        candidate_assets: [
+          ...(selectedBrollBeat.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
+          uploaded.candidateAsset,
+        ],
+        selected_asset_id: uploaded.candidateAsset.asset_id,
+        fulfillment_state: "resolved",
+        updated_at: new Date().toISOString(),
+      };
+      const nextPlan: EpisodeBrollPlan = {
+        ...episodePackage.broll_plan,
+        version: Math.max(1, episodePackage.broll_plan.version + 1),
+        beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
+        generated_at: new Date().toISOString(),
+      };
+      const saved = await persistBrollPlan({
+        plan: nextPlan,
+        eventName: "hearth.broll_plan.asset_uploaded.v1",
+        eventPayload: { beat_id: selectedBrollBeat.id, source: "upload" },
+      });
+      if (!saved.ok) {
+        setBrollSaveError(saved.error);
+        setBrollSaveState("error");
+        return;
+      }
+      setBrollSaveState("saved");
+      setBrollMessage("Uploaded asset selected for this B-roll beat.");
+    } catch {
+      setBrollSaveError("Unable to upload this B-roll asset.");
+      setBrollSaveState("error");
+    } finally {
       setIsBrollBusy(false);
-      setBrollSaveError(uploaded.error);
-      setBrollSaveState("error");
-      return;
     }
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      source_type: "upload",
-      origin: selectedBrollBeat.origin === "hammer" ? "mixed" : "hearth",
-      candidate_assets: [
-        ...(selectedBrollBeat.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
-        uploaded.candidateAsset,
-      ],
-      selected_asset_id: uploaded.candidateAsset.asset_id,
-      fulfillment_state: "resolved",
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.asset_uploaded.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id, source: "upload" },
-    });
-    setIsBrollBusy(false);
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
-      setBrollSaveState("error");
-      return;
-    }
-    setBrollSaveState("saved");
-    setBrollMessage("Uploaded asset selected for this B-roll beat.");
   }
 
   async function onSelectBrollCandidate(candidateId: string) {
@@ -7966,19 +7995,25 @@ export default function HearthShell() {
     setIsBrollBusy(true);
     setBrollSaveState("saving");
     setBrollSaveError(null);
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.asset_selected.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id, candidate_id: candidate.asset_id },
-    });
-    setIsBrollBusy(false);
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
+    try {
+      const saved = await persistBrollPlan({
+        plan: nextPlan,
+        eventName: "hearth.broll_plan.asset_selected.v1",
+        eventPayload: { beat_id: selectedBrollBeat.id, candidate_id: candidate.asset_id },
+      });
+      if (!saved.ok) {
+        setBrollSaveError(saved.error);
+        setBrollSaveState("error");
+        return;
+      }
+      setBrollSaveState("saved");
+      setBrollMessage("Selected asset attached to B-roll beat.");
+    } catch {
+      setBrollSaveError("Unable to select this B-roll candidate.");
       setBrollSaveState("error");
-      return;
+    } finally {
+      setIsBrollBusy(false);
     }
-    setBrollSaveState("saved");
-    setBrollMessage("Selected asset attached to B-roll beat.");
   }
 
   async function onCreateThumbnailConcept() {
@@ -8796,17 +8831,31 @@ export default function HearthShell() {
     setImageMapCandidateSelectionError(null);
     setAiRuntimeWarning(null);
     try {
-      const generated = await generateWorkpieceImageMapCandidates({
-        workpieceId: episodeId,
-        workspaceId: workspace,
-        imageMapEntryId: selectedImageMapEntry.id,
-        expectedMetadataUpdatedAt,
-        contextBefore: context.before,
-        contextAfter: context.after,
-        aspect: thumbnailAspect,
-        confirmSpend: confirmed,
-        alwaysApproveAiSpend: alwaysApproveSpend,
-      });
+      const requestCandidateGeneration = (metadataUpdatedAt: string | null | undefined) => (
+        generateWorkpieceImageMapCandidates({
+          workpieceId: episodeId,
+          workspaceId: workspace,
+          imageMapEntryId: selectedImageMapEntry.id,
+          expectedMetadataUpdatedAt: metadataUpdatedAt,
+          contextBefore: context.before,
+          contextAfter: context.after,
+          aspect: thumbnailAspect,
+          confirmSpend: confirmed,
+          alwaysApproveAiSpend: alwaysApproveSpend,
+        })
+      );
+
+      let generated = await requestCandidateGeneration(expectedMetadataUpdatedAt);
+
+      // Resolve one stale-write race automatically by retrying against the latest
+      // metadata stamp after we refresh the canonical image map snapshot.
+      if (!generated.ok && generated.reason === "conflict" && generated.latest) {
+        if (episodePackage) {
+          setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.latest.entries));
+        }
+        setImageMapMetadataUpdatedAt(generated.latest.metadataUpdatedAt);
+        generated = await requestCandidateGeneration(generated.latest.metadataUpdatedAt);
+      }
 
       if (!generated.ok) {
         const failureMessage = generated.error
