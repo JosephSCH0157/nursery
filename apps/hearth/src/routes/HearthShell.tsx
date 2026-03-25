@@ -1924,19 +1924,6 @@ type PendingAiProposal = {
   autosaveReasonCode: AiAutosaveReasonCode;
 };
 
-type ScriptValidationState = {
-  source: "save_notice" | "save_gate" | "ai_apply" | "ai_repair";
-  result: ScriptValidationResult;
-};
-
-interface HearthScriptState {
-  rawText: string;
-  normalizedText: string;
-  validation: ScriptValidationResult;
-  lastValidatedAt: string | null;
-  isDirty: boolean;
-}
-
 const READY_URGENCY_APPLICABLE_CATEGORY_SET = new Set<HearthContentCategory>([
   "hot_topic",
   "viral_reaction",
@@ -2238,17 +2225,14 @@ export default function HearthShell({
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [activeDraft, setActiveDraft] = useState<Draft | null>(null);
   const [revisions, setRevisions] = useState<Revision[]>([]);
-  const [selectedRevision, setSelectedRevision] = useState<Revision | null>(null);
   const revisionWorkpieceId = useMemo(() => normalizeUuid(workpieceId), [workpieceId]);
   const [draftSnapshot, setDraftSnapshot] = useState<DraftSnapshot | null>(null);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [isSavingRevision, setIsSavingRevision] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [aiAutosaveStatusAt, setAiAutosaveStatusAt] = useState<number | null>(null);
   const [aiAutosaveWarning, setAiAutosaveWarning] = useState<string | null>(null);
-  const [scriptValidation, setScriptValidation] = useState<ScriptValidationState | null>(null);
   const [isRepairingScript, setIsRepairingScript] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updated");
@@ -2265,7 +2249,6 @@ export default function HearthShell({
   const [restoringWorkpieceIds, setRestoringWorkpieceIds] = useState<string[]>([]);
   const [isRestoringReady, setIsRestoringReady] = useState(false);
   const [draggingReadyId, setDraggingReadyId] = useState<string | null>(null);
-  const [revisionView, setRevisionView] = useState<"list" | "preview" | "compare">("list");
   const [session, setSession] = useState<HearthSession | null>(null);
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -2512,7 +2495,7 @@ export default function HearthShell({
   const gateAwaitingAnswersRef = useRef(false);
   const pendingShortcutIntentRef = useRef<"outline" | "script" | null>(null);
 
-  const hearthScriptState = useMemo<HearthScriptState | null>(() => {
+  const hearthScriptState = useMemo(() => {
     if (!activeDraft) return null;
     const rawText = activeDraft.body ?? "";
     const { normalizedText, validation } = evaluateScriptValidation(rawText);
@@ -2690,6 +2673,29 @@ export default function HearthShell({
       createRevision: params.revision,
     });
   }, [persistDraft]);
+  const resolveRevisionWorkpieceId = useCallback((override?: string | null) => (
+    normalizeUuid(override) ?? revisionWorkpieceId
+  ), [revisionWorkpieceId]);
+  const reportRevisionPersistenceWarning = useCallback((kind: RevisionKind | null, message: string) => {
+    if (kind === "autosave") {
+      setAiAutosaveWarning(message);
+      return;
+    }
+    setAiRuntimeWarning(message);
+  }, []);
+  const refreshRevisions = useCallback(async (
+    currentWorkpieceId: string | null,
+    draftId?: string | null,
+  ): Promise<Revision[]> => {
+    const resolvedWorkpieceId = normalizeUuid(currentWorkpieceId);
+    if (!resolvedWorkpieceId) {
+      setRevisions([]);
+      return [];
+    }
+    const list = await store.listRevisions(resolvedWorkpieceId, draftId?.trim() ? draftId : null);
+    setRevisions(list);
+    return list;
+  }, [store]);
   const {
     revisionModalOpen,
     revisionNote,
@@ -2699,10 +2705,49 @@ export default function HearthShell({
     openRevisionModal,
     closeRevisionModal,
     onConfirmRevision,
+    scriptValidation,
+    setScriptValidation,
+    clearScriptValidation,
+    onDraftTitleChange,
+    onDraftBodyChange,
+    selectedRevision,
+    setSelectedRevision,
+    revisionView,
+    setRevisionView,
+    isSavingRevision,
+    selectRevisionPreview,
+    selectRevisionCompare,
+    updateSelectedRevisionDraftNote,
+    onRestoreRevision,
+    onUpdateRevisionNote,
+    resetRevisionSelection,
   } = useScriptWorkspace({
     activeDraft,
+    setActiveDraft,
+    bumpDraftEditVersion: () => {
+      draftEditVersionRef.current += 1;
+    },
     persistRevisionDraft,
+    resolveRevisionWorkpieceId: () => resolveRevisionWorkpieceId(),
+    restoreRevisionSnapshot: (workpieceId, revisionId) => store.restoreRevision(workpieceId, revisionId),
+    persistRestoredDraft: (params) => persistDraft({
+      draft: params.draft,
+      updatedAt: params.updatedAt,
+      createRevision: { kind: "manual", note: "Restored from revision" },
+    }),
+    saveRevisionRecord: (workpieceId, revision) => store.saveRevision(workpieceId, revision),
+    refreshRevisions,
+    reportRevisionPersistenceWarning,
+    setAiRuntimeWarning,
+    setError,
+    confirmRestore: (message) => window.confirm(message),
   });
+  useEffect(() => {
+    setSelectedRevision((prev) => {
+      if (!prev) return null;
+      return revisions.find((revision) => revision.id === prev.id) ?? null;
+    });
+  }, [revisions, setSelectedRevision]);
 
   const wordCount = useMemo(() => countWords(activeDraft?.body ?? ""), [activeDraft?.body]);
   const charCount = useMemo(() => activeDraft?.body?.length ?? 0, [activeDraft?.body]);
@@ -3777,18 +3822,6 @@ export default function HearthShell({
     return () => window.clearTimeout(timer);
   }, [aiRuntimeWarning]);
 
-  const resolveRevisionWorkpieceId = useCallback((override?: string | null) => (
-    normalizeUuid(override) ?? revisionWorkpieceId
-  ), [revisionWorkpieceId]);
-
-  const reportRevisionPersistenceWarning = useCallback((kind: RevisionKind | null, message: string) => {
-    if (kind === "autosave") {
-      setAiAutosaveWarning(message);
-      return;
-    }
-    setAiRuntimeWarning(message);
-  }, []);
-
   const refreshWorkpieces = useCallback(async (
     overrideWorkspaceId?: string | null,
     options?: { includeArchived?: boolean },
@@ -3868,25 +3901,6 @@ export default function HearthShell({
 
     return null;
   }, [activeDraft?.id, sparks, workpieceId]);
-
-  const refreshRevisions = useCallback(async (
-    currentWorkpieceId: string | null,
-    draftId?: string | null,
-  ): Promise<Revision[]> => {
-    const resolvedWorkpieceId = normalizeUuid(currentWorkpieceId);
-    if (!resolvedWorkpieceId) {
-      setRevisions([]);
-      setSelectedRevision(null);
-      return [];
-    }
-    const list = await store.listRevisions(resolvedWorkpieceId, draftId?.trim() ? draftId : null);
-    setRevisions(list);
-    setSelectedRevision((prev) => {
-      if (!prev) return null;
-      return list.find((revision) => revision.id === prev.id) ?? null;
-    });
-    return list;
-  }, [store]);
 
   const refreshEpisodePackage = useCallback(async () => {
     const episodeId = workpieceId?.trim() ?? "";
@@ -4077,9 +4091,6 @@ export default function HearthShell({
       source: "save_gate",
       result: validation,
     });
-  }, []);
-  const clearScriptValidation = useCallback(() => {
-    setScriptValidation(null);
   }, []);
   const persistApprovedDraft = useCallback(async (params: {
     draft: Draft;
@@ -7131,85 +7142,11 @@ export default function HearthShell({
     workspaceId,
   ]);
 
-  async function onRestoreRevision(revision: Revision) {
-    if (!activeDraft) return;
-    const confirmRestore = window.confirm("Restore this revision? This will overwrite the current draft content.");
-    if (!confirmRestore) return;
-
-    const activeRevisionWorkpieceId = resolveRevisionWorkpieceId();
-    if (!activeRevisionWorkpieceId) {
-      reportRevisionPersistenceWarning(
-        revision.kind,
-        "Revision restore is unavailable until this draft is attached to an Episode.",
-      );
-      return;
-    }
-
-    const snapshot = await store.restoreRevision(activeRevisionWorkpieceId, revision.id);
-    if (!snapshot) {
-      setError("Revision not found.");
-      return;
-    }
-
-    const now = Date.now();
-    const restored: Draft = {
-      ...activeDraft,
-      title: snapshot.title,
-      body: snapshot.body,
-      updatedAt: now,
-    };
-    const restoredOk = await persistDraft({
-      draft: restored,
-      updatedAt: now,
-      createRevision: { kind: "manual", note: "Restored from revision" },
-    });
-    if (restoredOk) {
-      setRevisionView("preview");
-    }
-  }
-
-  async function onUpdateRevisionNote(revision: Revision, note: string) {
-    setIsSavingRevision(true);
-    try {
-      const activeRevisionWorkpieceId = resolveRevisionWorkpieceId();
-      if (!activeRevisionWorkpieceId) {
-        reportRevisionPersistenceWarning(
-          revision.kind,
-          "Revision note updates are unavailable until this draft is attached to an Episode.",
-        );
-        return;
-      }
-
-      const updated: Revision = {
-        ...revision,
-        note: note.trim() || undefined,
-      };
-      try {
-        await store.saveRevision(activeRevisionWorkpieceId, updated);
-        setAiRuntimeWarning(null);
-      } catch {
-        reportRevisionPersistenceWarning(
-          revision.kind,
-          "Saved revision note locally, but cloud sync failed.",
-        );
-      }
-
-      const latest = await refreshRevisions(activeRevisionWorkpieceId, updated.draftId);
-      setSelectedRevision(latest.find((item) => item.id === updated.id) ?? null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to update revision note.";
-      setError(message);
-    } finally {
-      setIsSavingRevision(false);
-    }
-  }
-
   function openRevisionPanel() {
     setFocusTab("revisions");
     if (!requestWorkpieceTabChange("history")) return;
     setMode("focus");
-    setRevisionView("list");
-    setSelectedRevision(null);
+    resetRevisionSelection();
     void persistSession(activeDraft?.id ?? null, "list");
   }
 
@@ -7217,8 +7154,7 @@ export default function HearthShell({
     setFocusTab("draft");
     requestWorkpieceTabChange("script");
     setMode("focus");
-    setRevisionView("list");
-    setSelectedRevision(null);
+    resetRevisionSelection();
     void persistSession(activeDraft?.id ?? null, "draft");
   }
 
@@ -10928,13 +10864,7 @@ export default function HearthShell({
               type="text"
               value={activeDraft?.title ?? ""}
               placeholder="Project title"
-              onChange={(event) => {
-                setActiveDraft((prev) => {
-                  if (!prev) return prev;
-                  draftEditVersionRef.current += 1;
-                  return { ...prev, title: event.target.value };
-                });
-              }}
+              onChange={(event) => onDraftTitleChange(event.target.value)}
               disabled={!activeDraft}
             />
           </label>
@@ -11178,11 +11108,7 @@ export default function HearthShell({
             copyIcon={<CopyIcon />}
             onCopyScriptPanelText={() => void onCopyScriptPanelText()}
             onBodyChange={(nextBody) => {
-              setActiveDraft((prev) => {
-                if (!prev) return prev;
-                draftEditVersionRef.current += 1;
-                return { ...prev, body: nextBody };
-              });
+              onDraftBodyChange(nextBody);
             }}
             onBodyCompositionStart={() => setIsBodyComposing(true)}
             onBodyCompositionEnd={() => setIsBodyComposing(false)}
@@ -11348,19 +11274,13 @@ export default function HearthShell({
                 <div className="hs-revision-actions">
                   <button
                     type="button"
-                    onClick={() => {
-                      setSelectedRevision(revision);
-                      setRevisionView("preview");
-                    }}
+                    onClick={() => selectRevisionPreview(revision)}
                   >
                     Preview
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setSelectedRevision(revision);
-                      setRevisionView("compare");
-                    }}
+                    onClick={() => selectRevisionCompare(revision)}
                   >
                     Compare
                   </button>
@@ -11384,9 +11304,7 @@ export default function HearthShell({
                 <span className="hs-revision-label-text">Revision note</span>
                 <input
                   value={selectedRevision.note ?? ""}
-                  onChange={(event) => {
-                    setSelectedRevision({ ...selectedRevision, note: event.target.value });
-                  }}
+                  onChange={(event) => updateSelectedRevisionDraftNote(event.target.value)}
                   onBlur={(event) => void onUpdateRevisionNote(selectedRevision, event.target.value)}
                 />
               </label>
