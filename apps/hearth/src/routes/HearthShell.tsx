@@ -3243,7 +3243,6 @@ export default function HearthShell({
         workspaceId ?? committedSession.workspace_id ?? null,
       );
       setSessionTouched(true);
-      await syncSessionToTongs(committedSession);
     }
 
     if (sourcesChanged) {
@@ -3258,7 +3257,6 @@ export default function HearthShell({
     setPlanningSession,
     setSessionTouched,
     sourcesState,
-    syncSessionToTongs,
     workpieceId,
     workspaceId,
   ]);
@@ -3289,7 +3287,7 @@ export default function HearthShell({
     validateProposalApply: ({ opsToApply }) => {
       const bodyWillChange = opsToApply.some((op) => op.op === "set_body");
       if (!bodyWillChange || !activeDraft) {
-        return { ok: true, issues: [] };
+        return true;
       }
       const projectedBody = findNextBodyFromOps(activeDraft.body, opsToApply);
       const projectedValidation = validateScriptTags(normalizeScriptTags(projectedBody));
@@ -3300,9 +3298,9 @@ export default function HearthShell({
         });
         setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(projectedValidation)}`);
       }
-      return projectedValidation;
+      return projectedValidation.ok;
     },
-    applyProposalOps: ({ proposal, opsToApply, mode }) => applyProposalOpsToWorkspace({ proposal, opsToApply }),
+    applyProposalOps: ({ proposal, opsToApply }) => applyProposalOpsToWorkspace({ proposal, opsToApply }),
     recordProposalApplied: ({ mode, totalOps, appliedOps, fromGate }) => {
       recordInteractionEvent("proposal_applied", {
         mode,
@@ -7438,202 +7436,6 @@ export default function HearthShell({
     }
   }
 
-  async function onApplyAiProposal(mode: "all" | "selected") {
-    if (!pendingAiProposal || isApplyingAiOps) return;
-    const episodeId = workpieceId?.trim();
-    if (!episodeId || !activeDraft) {
-      setChatError("Select an Episode or Spark to start.");
-      return;
-    }
-
-    const opsToApply = mode === "all"
-      ? pendingAiProposal.ops
-      : pendingAiProposal.ops.filter((_, index) => pendingAiProposal.selected[index]);
-
-    if (opsToApply.length === 0) {
-      setChatError("Select at least one proposed change.");
-      return;
-    }
-
-    const bodyWillChange = opsToApply.some((op) => op.op === "set_body");
-    if (bodyWillChange) {
-      const projectedBody = findNextBodyFromOps(activeDraft.body, opsToApply);
-      const projectedValidation = validateScriptTags(normalizeScriptTags(projectedBody));
-      if (!projectedValidation.ok) {
-        setScriptValidation({
-          source: "ai_apply",
-          result: projectedValidation,
-        });
-        setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(projectedValidation)}`);
-        return;
-      }
-    }
-
-    setIsApplyingAiOps(true);
-    setChatError(null);
-    setError(null);
-    setScriptValidation(null);
-
-    let nextDraft: Draft = { ...activeDraft };
-    let draftChanged = false;
-    let nextPlanningSession = planningSession
-      ? { ...planningSession }
-      : createPlanningSessionForEpisode(episodeId, workspaceId);
-    let planningChanged = false;
-    let sourcesChanged = false;
-    let saveRequested = false;
-
-    const opsStore: HearthOpsStore = {
-      setTitle: (value) => {
-        if (nextDraft.title !== value) {
-          nextDraft = { ...nextDraft, title: value };
-          draftChanged = true;
-        }
-        if ((nextPlanningSession.title ?? "") !== value) {
-          nextPlanningSession = { ...nextPlanningSession, title: value };
-          planningChanged = true;
-        }
-      },
-      setTitleVariant: (slot, value) => {
-        const current = nextPlanningSession.title_variants ?? {};
-        if ((current[slot] ?? "") === value) return;
-        nextPlanningSession = {
-          ...nextPlanningSession,
-          title_variants: {
-            ...current,
-            [slot]: value,
-          },
-        };
-        planningChanged = true;
-      },
-      setOutline: (value) => {
-        const nextOutline = parsePlanningLines(value);
-        const prevOutline = nextPlanningSession.outline ?? [];
-        if (JSON.stringify(prevOutline) === JSON.stringify(nextOutline)) return;
-        nextPlanningSession = {
-          ...nextPlanningSession,
-          outline: nextOutline,
-        };
-        planningChanged = true;
-      },
-      setBody: (value) => {
-        if (nextDraft.body === value) return;
-        nextDraft = { ...nextDraft, body: value };
-        draftChanged = true;
-      },
-      addSource: async (source) => {
-        const created = await sourcesState.addSourceToLibrary({
-          title: source.title ?? "Untitled Source",
-          type: "webpage",
-          url: source.url ?? null,
-          notes: source.note ?? null,
-        }, { attachToWorkpiece: true });
-        if (created) {
-          sourcesChanged = true;
-        }
-      },
-      updateSource: async (id, patch) => {
-        if (patch.note !== undefined) {
-          sourcesState.updateWorkpieceSourceNotes(id, patch.note);
-          sourcesChanged = true;
-        }
-        const updated = await sourcesState.updateSourceInLibrary(id, {
-          ...(patch.title !== undefined ? { title: patch.title } : {}),
-          ...(patch.url !== undefined ? { url: patch.url } : {}),
-          ...(patch.note !== undefined ? { notes: patch.note } : {}),
-        });
-        if (updated) {
-          sourcesChanged = true;
-        }
-      },
-      removeSource: (id) => {
-        sourcesState.removeSourceFromWorkpiece(id);
-        sourcesChanged = true;
-      },
-      requestSave: (reason) => {
-        saveRequested = reason === "ai_apply_ops";
-      },
-    };
-
-    try {
-      await applyHearthOps(opsStore, opsToApply);
-
-      if (saveRequested) {
-        if (draftChanged) {
-          const previousBody = activeDraft.body;
-          const now = Date.now();
-          const stagedDraft: Draft = { ...nextDraft, updatedAt: now };
-          draftEditVersionRef.current += 1;
-          activeDraftRef.current = stagedDraft;
-          setActiveDraft((prev) => (prev && prev.id === stagedDraft.id ? stagedDraft : prev));
-          setDrafts((prev) => {
-            const exists = prev.some((draft) => draft.id === stagedDraft.id);
-            const next = exists
-              ? prev.map((draft) => (draft.id === stagedDraft.id ? stagedDraft : draft))
-              : [stagedDraft, ...prev];
-            return dedupeDraftListById(next);
-          });
-          queueAiAutosave({
-            draft: stagedDraft,
-            previousBody,
-            reasonCode: pendingAiProposal.autosaveReasonCode,
-          });
-        } else {
-          setActiveDraft((prev) => (prev ? nextDraft : prev));
-        }
-
-        if (planningChanged) {
-          const nowIso = new Date().toISOString();
-          const committedSession: HearthPlanningSession = {
-            ...nextPlanningSession,
-            workpiece_id: episodeId,
-            workspace_id: workspaceId ?? nextPlanningSession.workspace_id ?? null,
-            updated_at: nowIso,
-          };
-          setPlanningSession(committedSession);
-          writeHearthPlanningSessionCache(
-            committedSession,
-            episodeId,
-            workspaceId ?? committedSession.workspace_id ?? null,
-          );
-          setSessionTouched(true);
-          await syncSessionToTongs(committedSession);
-        }
-
-        if (sourcesChanged) {
-          sourcesState.syncSources();
-        }
-      }
-
-      recordInteractionEvent("proposal_applied", {
-        mode,
-        total_ops: pendingAiProposal.ops.length,
-        applied_ops: opsToApply.length,
-        from_gate: pendingAiProposal.fromGate,
-      });
-
-      if (mode === "all") {
-        setPendingAiProposal(null);
-      } else {
-        setPendingAiProposal((prev) => {
-          if (!prev) return prev;
-          const remainingOps = prev.ops.filter((_, index) => !prev.selected[index]);
-          if (remainingOps.length === 0) return null;
-          return {
-            ...prev,
-            ops: remainingOps,
-            selected: remainingOps.map(() => true),
-          };
-        });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to apply AI changes.";
-      setChatError(message);
-    } finally {
-      setIsApplyingAiOps(false);
-    }
-  }
-
   function graduateLinkedSpark(episodeId: string): string | null {
     const normalizedEpisodeId = episodeId.trim().toLowerCase();
     if (!normalizedEpisodeId) return null;
@@ -10524,25 +10326,6 @@ export default function HearthShell({
     setMetadataPreviewMode(mode);
   }
 
-  function onDiscardAiProposal() {
-    if (pendingAiProposal) {
-      recordInteractionEvent("proposal_discarded", {
-        ops_count: pendingAiProposal.ops.length,
-        from_gate: pendingAiProposal.fromGate,
-      });
-    }
-    setPendingAiProposal(null);
-  }
-
-  function onToggleAiProposalOp(index: number) {
-    setPendingAiProposal((prev) => {
-      if (!prev) return prev;
-      const selected = prev.selected.slice();
-      selected[index] = !selected[index];
-      return { ...prev, selected };
-    });
-  }
-
   function onSelectImageMapEntry(entryId: string) {
     if (entryId !== selectedImageMapEntryId) {
       setIsImageMapReanchorMode(false);
@@ -10550,32 +10333,6 @@ export default function HearthShell({
       setImageMapReanchorError(null);
     }
     setSelectedImageMapEntryId(entryId);
-  }
-
-  function onEditAiProposalBody(index: number, value: string) {
-    setScriptValidation(null);
-    setError(null);
-    setChatError(null);
-    setPendingAiProposal((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        ops: updateHearthProposalBodyOp(prev.ops, index, value),
-      };
-    });
-  }
-
-  function onResetAiProposalBody(index: number) {
-    setScriptValidation(null);
-    setError(null);
-    setChatError(null);
-    setPendingAiProposal((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        ops: resetHearthProposalBodyOp(prev.ops, prev.originalOps, index),
-      };
-    });
   }
 
   function onUseChatShortcut(prompt: string) {

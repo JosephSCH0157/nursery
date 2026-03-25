@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
 import type { ChatSurfaceProps } from "../views/surfaces/ChatSurface";
-import type { ScriptValidationResult } from "@forge/shared/script-tags";
 
 type UseChatWorkspaceArgs = {
   chatSurfaceProps: ChatSurfaceProps;
@@ -1140,7 +1139,7 @@ type UseChatWorkspaceProposalArgs<TPendingAiProposal extends ProposalLike<TOp>, 
     proposal: TPendingAiProposal;
     opsToApply: TOp[];
     mode: ApplyMode;
-  }) => ScriptValidationResult;
+  }) => boolean;
   applyProposalOps: (args: {
     proposal: TPendingAiProposal;
     opsToApply: TOp[];
@@ -1198,8 +1197,8 @@ export function useChatWorkspaceProposal<TPendingAiProposal extends ProposalLike
       return;
     }
 
-    const validation = args.validateProposalApply({ proposal, opsToApply, mode });
-    if (!validation.ok) {
+    const isValid = args.validateProposalApply({ proposal, opsToApply, mode });
+    if (!isValid) {
       return;
     }
 
