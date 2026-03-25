@@ -11022,6 +11022,9 @@ export default function HearthShell({
                 latestReleasePrepRawText={latestReleasePrepRawText}
                 releasePrepLoadState={releasePrepLoadState}
                 latestReleasePrepSections={latestReleasePrepSections}
+                onGenerateSeo={() => void onRunProductionAction("seo")}
+                onGenerateTags={() => void onRunProductionAction("tags")}
+                onGenerateThumbnailConcepts={() => void onRunProductionAction("thumbnails")}
                 onGenerateReleasePrepPack={() => void onRunProductionAction("release_prep_pack")}
                 onOpenVisualsTab={() => requestWorkpieceTabChange("visuals")}
                 onRefreshReleasePrepPack={() => void loadLatestReleasePrepPack(approvedScriptVersion)}

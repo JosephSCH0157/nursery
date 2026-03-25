@@ -16,6 +16,9 @@ type ReleaseSurfaceProps = {
   latestReleasePrepRawText: string | null;
   releasePrepLoadState: "idle" | "loading" | "ready" | "missing" | "error";
   latestReleasePrepSections: ReleasePrepSection[];
+  onGenerateSeo: () => void;
+  onGenerateTags: () => void;
+  onGenerateThumbnailConcepts: () => void;
   onGenerateReleasePrepPack: () => void;
   onOpenVisualsTab: () => void;
   onRefreshReleasePrepPack: () => void;
@@ -39,6 +42,27 @@ export default function ReleaseSurface(props: ReleaseSurfaceProps) {
         <span>Finalize launch packaging and review latest prep output.</span>
       </div>
       <div className="hs-production-action-row" role="group" aria-label="Release actions">
+        <button
+          type="button"
+          onClick={props.onGenerateSeo}
+          disabled={props.isAiProcessing || props.aiCreditsDepleted}
+        >
+          {props.activeProductionAction === "seo" && props.isAiProcessing ? "Generating..." : "Generate SEO"}
+        </button>
+        <button
+          type="button"
+          onClick={props.onGenerateTags}
+          disabled={props.isAiProcessing || props.aiCreditsDepleted}
+        >
+          {props.activeProductionAction === "tags" && props.isAiProcessing ? "Generating..." : "Generate Tags"}
+        </button>
+        <button
+          type="button"
+          onClick={props.onGenerateThumbnailConcepts}
+          disabled={props.isAiProcessing || props.aiCreditsDepleted}
+        >
+          {props.activeProductionAction === "thumbnails" && props.isAiProcessing ? "Generating..." : "Generate Thumbnail Concepts"}
+        </button>
         <button
           type="button"
           onClick={props.onGenerateReleasePrepPack}
