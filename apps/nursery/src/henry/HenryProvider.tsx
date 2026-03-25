@@ -353,7 +353,14 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       {children}
       {shouldRenderHenry(location.pathname) && preferences.showHenry ? (
         <>
-          <HenryObservationSlot observation={observation} onDismiss={handleDismissObservation} />
+          <HenryObservationSlot
+            observation={observation}
+            onDismiss={handleDismissObservation}
+            onHideTips={() => {
+              persistPreferences({ ...preferences, hideTips: true });
+              setObservation(null);
+            }}
+          />
           <HenryLauncher
             muted={muted}
             onClick={() => {

@@ -23,14 +23,18 @@ export function HenryLauncher({ muted, onClick }: HenryLauncherProps) {
 type HenryObservationSlotProps = {
   observation: HenryObservation | null;
   onDismiss: () => void;
+  onHideTips: () => void;
 };
 
-export function HenryObservationSlot({ observation, onDismiss }: HenryObservationSlotProps) {
+export function HenryObservationSlot({ observation, onDismiss, onHideTips }: HenryObservationSlotProps) {
   if (!observation) return null;
   return (
     <aside className="henry-observation" role="status" aria-live="polite">
-      <span>{observation.text}</span>
-      <button type="button" onClick={onDismiss} aria-label="Dismiss Henry observation">Dismiss</button>
+      <span className="henry-observation__text">{observation.text}</span>
+      <div className="henry-observation__actions">
+        <button type="button" onClick={onHideTips} aria-label="Hide Henry tips">Hide tips</button>
+        <button type="button" onClick={onDismiss} aria-label="Dismiss Henry observation">Dismiss</button>
+      </div>
     </aside>
   );
 }

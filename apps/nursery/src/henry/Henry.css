@@ -1,7 +1,7 @@
 .henry-launcher {
   position: fixed;
-  right: 20px;
-  bottom: 20px;
+  right: 28px;
+  bottom: 24px;
   z-index: 90;
   border: 1px solid rgba(136, 156, 179, 0.55);
   background: rgba(15, 25, 38, 0.94);
@@ -34,23 +34,31 @@
 
 .henry-observation {
   position: fixed;
-  right: 20px;
-  bottom: 70px;
+  right: 28px;
+  bottom: 92px;
   z-index: 89;
-  max-width: 380px;
+  max-width: 420px;
   border-radius: 10px;
   border: 1px solid rgba(136, 156, 179, 0.45);
   background: rgba(13, 20, 31, 0.96);
   color: #dce6f2;
   padding: 10px 12px;
   font-size: 13px;
+  display: grid;
+  gap: 8px;
+}
+
+.henry-observation__text {
+  line-height: 1.35;
+}
+
+.henry-observation__actions {
   display: flex;
-  gap: 10px;
-  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .henry-observation button {
-  margin-left: auto;
   border: 1px solid rgba(136, 156, 179, 0.45);
   background: transparent;
   color: #c8d7ea;
@@ -205,6 +213,7 @@
   .henry-observation {
     right: 12px;
     left: 12px;
+    bottom: 68px;
     max-width: none;
   }
 }

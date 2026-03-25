@@ -39,6 +39,14 @@ const SHOW_GRADUATED_PREF_PREFIX = "barstock_show_graduated_v1";
 const WORKPIECE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PROJECT_ID_MAP_PREFIX = "forge_barstock_project_id_map_v2";
 
+const SPARK_STATUS_LABELS: Record<SparkStatus, string> = {
+  raw: "Open",
+  warming: "Warming",
+  forged: "Forged",
+  graduated: "Graduated",
+  archived: "Archived",
+};
+
 function loadStoredWorkspaceId(): string | null {
   return localStorage.getItem(ACTIVE_WORKSPACE_KEY)
     ?? localStorage.getItem(LEGACY_WORKSPACE_KEY);
@@ -228,6 +236,7 @@ export default function App(props: BarstockAppProps = {}) {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingBody, setEditingBody] = useState("");
+  const [openMenuSparkId, setOpenMenuSparkId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const sessionUserId = session?.user.id ?? null;
   const syncOnline = useMemo(() => {
@@ -243,6 +252,30 @@ export default function App(props: BarstockAppProps = {}) {
   ]);
 
   const importRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!openMenuSparkId) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest(".barstock-spark-card__more-wrap")) return;
+      setOpenMenuSparkId(null);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpenMenuSparkId(null);
+    };
+
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [openMenuSparkId]);
 
   function popToast(msg: string) {
     setToast(msg);
@@ -1410,6 +1443,9 @@ export default function App(props: BarstockAppProps = {}) {
         <p className="barstock-main__subtitle">
           Dump the spark. No polish. No pressure.
         </p>
+        <p className="barstock-main__kicker">
+          One idea is enough to begin.
+        </p>
 
         {activeProject ? (
           <section className="barstock-main__active-project-card">
@@ -1447,7 +1483,7 @@ export default function App(props: BarstockAppProps = {}) {
             value={body}
             onChange={(e) => setBody(e.target.value)}
             placeholder="Type here… try #tags if you want."
-            rows={4}
+            rows={6}
             className="barstock-main__composer-textarea"
           />
           <button
@@ -1509,6 +1545,10 @@ export default function App(props: BarstockAppProps = {}) {
             filtered.map((s) => {
               const linkedWorkpieceId = normalizeWorkpieceId(s.links?.hearthWorkpieceId);
               const isGraduated = isSparkGraduated(s);
+              const projectLabel = s.assignmentId
+                ? (assignmentNameById.get(s.assignmentId) ?? "Unknown project")
+                : "No project";
+              const isMenuOpen = openMenuSparkId === s.id;
               return (
                 <div
                   key={s.id}
@@ -1520,23 +1560,28 @@ export default function App(props: BarstockAppProps = {}) {
                   className={`barstock-spark-card${showGraduated && isGraduated ? " is-graduated-dimmed" : ""}`}
                 >
                 <div className="barstock-spark-card__head">
-                  <div className="barstock-spark-card__meta">
-                    {new Date(s.createdAt).toLocaleString()}
-                    {s.pinned ? " • pinned" : ""}
-                    {" • "}
-                    {s.assignmentId ? (assignmentNameById.get(s.assignmentId) ?? "Unknown project") : "No project"}
-                    {isGraduated ? " • graduated" : ""}
+                  <div className="barstock-spark-card__meta-wrap">
+                    <div className="barstock-spark-card__meta">
+                      {new Date(s.createdAt).toLocaleString()}
+                      {s.pinned ? " • pinned" : ""}
+                    </div>
+                    <div className="barstock-spark-card__chips">
+                      <span className={`barstock-spark-chip barstock-spark-chip--${s.status}`}>
+                        {SPARK_STATUS_LABELS[s.status]}
+                      </span>
+                      <span className="barstock-spark-chip barstock-spark-chip--project">{projectLabel}</span>
+                      {isGraduated ? (
+                        <span
+                          className="barstock-spark-chip barstock-spark-chip--graduated"
+                          title="This spark has graduated to an approved/published script."
+                        >
+                          GRADUATED
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div className="barstock-spark-card__actions">
-                    {isGraduated ? (
-                      <span
-                        className="barstock-spark-card__graduated-badge"
-                        title="This spark has graduated to an approved/published script."
-                      >
-                        GRADUATED
-                      </span>
-                    ) : null}
                     <select
                       aria-label="Spark status"
                       value={s.status}
@@ -1569,21 +1614,9 @@ export default function App(props: BarstockAppProps = {}) {
                       ))}
                     </select>
 
-                    <button onClick={() => togglePin(s)}>
-                      {s.pinned ? "Unpin" : "Pin"}
-                    </button>
-
-                    <button
-                      onClick={async () => {
-                        const ok = await copyText(s.body);
-                        popToast(ok ? "Copied." : "Copy failed.");
-                      }}
-                    >
-                      Copy
-                    </button>
-
                     {!isProjectView ? (
                       <button
+                        className="barstock-spark-card__primary-action"
                         onClick={async (e) => {
                           e.stopPropagation();
                           if (s.assignmentId) {
@@ -1601,6 +1634,7 @@ export default function App(props: BarstockAppProps = {}) {
 
                     {isGraduated && linkedWorkpieceId ? (
                       <button
+                        className="barstock-spark-card__secondary-action"
                         onClick={(e) => {
                           e.stopPropagation();
                           navigateToAnvilForEpisode(linkedWorkpieceId);
@@ -1632,19 +1666,58 @@ export default function App(props: BarstockAppProps = {}) {
                         </button>
                       </>
                     ) : (
-                      <button
-                        onClick={() => {
-                          setEditingId(s.id);
-                          setEditingBody(s.body);
-                        }}
-                      >
-                        Edit
-                      </button>
+                      <div className="barstock-spark-card__more-wrap">
+                        <button
+                          type="button"
+                          className="barstock-spark-card__more-toggle"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenMenuSparkId((prev) => (prev === s.id ? null : s.id));
+                          }}
+                        >
+                          More
+                        </button>
+                        {isMenuOpen ? (
+                          <div className="barstock-spark-card__more-menu">
+                            <button
+                              onClick={() => {
+                                togglePin(s);
+                                setOpenMenuSparkId(null);
+                              }}
+                            >
+                              {s.pinned ? "Unpin" : "Pin"}
+                            </button>
+                            <button
+                              onClick={async () => {
+                                const ok = await copyText(s.body);
+                                popToast(ok ? "Copied." : "Copy failed.");
+                                setOpenMenuSparkId(null);
+                              }}
+                            >
+                              Copy
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingId(s.id);
+                                setEditingBody(s.body);
+                                setOpenMenuSparkId(null);
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="barstock-spark-card__danger"
+                              onClick={() => {
+                                deleteSpark(s.id);
+                                setOpenMenuSparkId(null);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
                     )}
-
-                    <button onClick={() => deleteSpark(s.id)}>
-                      Delete
-                    </button>
                   </div>
                 </div>
 
