@@ -1,0 +1,132 @@
+/* =========================================================
+   Episode Workspace Header
+   A compact identity banner that lives above tool content.
+   Only rendered when an episode is active (via EpisodeWorkspaceShell).
+   ========================================================= */
+
+.ew-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  background: #1a1a2e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+  color: #e0e0e0;
+  min-height: 36px;
+  flex-shrink: 0;
+  z-index: 200;
+  position: relative;
+}
+
+/* Identity block */
+.ew-header__identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ew-header__label {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+  color: #f5f5f5;
+}
+
+.ew-header__series {
+  font-size: 11px;
+  color: #9a9ab0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+/* Phase block */
+.ew-header__phase {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ew-header__phase-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #6c63ff;
+  flex-shrink: 0;
+}
+
+.ew-header__phase-label {
+  font-weight: 500;
+  color: #c0b8ff;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ew-header__status {
+  font-size: 11px;
+  color: #8a8aab;
+  padding: 1px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+/* Quick-action nav */
+.ew-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ew-header__action-link {
+  display: inline-block;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #9090b0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  text-decoration: none;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+
+.ew-header__action-link:hover,
+.ew-header__action-link:focus-visible {
+  color: #e0e0ff;
+  border-color: rgba(108, 99, 255, 0.5);
+  background: rgba(108, 99, 255, 0.1);
+  outline: none;
+}
+
+/* ── Responsive ─────────────────────────────────────── */
+@media (max-width: 600px) {
+  .ew-header {
+    gap: 8px;
+    padding: 5px 12px;
+    flex-wrap: wrap;
+  }
+
+  .ew-header__identity {
+    flex: 1 1 100%;
+  }
+
+  .ew-header__series {
+    display: none;
+  }
+
+  .ew-header__actions {
+    display: none;
+  }
+}

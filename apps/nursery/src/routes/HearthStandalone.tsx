@@ -15,6 +15,7 @@ import {
   warnMissingWorkspaceParamInDev,
 } from "../lib/forge-route-context";
 import { useForgeCloudStatus } from "../lib/forge-cloud-status";
+import { useWorkspaceBootstrap } from "../hooks/useWorkspaceBootstrap";
 import "./HearthStandalone.css";
 
 const AiControlsPanel = lazy(async () => {
@@ -151,6 +152,11 @@ export default function HearthStandalone() {
     localOnly: storeKind === "local",
   });
   const workspaceId = routeContext.workspaceId;
+
+  // Hydrate the global EpisodeWorkspaceContext from URL params so the
+  // EpisodeWorkspaceShell header can show episode identity while in Hearth.
+  useWorkspaceBootstrap({ episodeId: routeContext.workpieceId ?? undefined });
+
   const navTreeWithContext = useMemo(
     () => forgeNavTree.map((section) => ({
       ...section,

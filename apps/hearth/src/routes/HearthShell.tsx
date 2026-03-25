@@ -13021,7 +13021,7 @@ export default function HearthShell() {
                     disabled={!openInAnvilHref || handoffBlocked}
                     className="hs-mode-button"
                   >
-                    Open in Anvil
+                    Start Recording
                   </button>
                   <button
                     type="button"

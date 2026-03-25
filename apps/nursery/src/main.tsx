@@ -18,6 +18,8 @@ import SubscriptionsRoute from "./routes/Subscriptions";
 import { seedTongsRequestTokenBridge } from "./lib/tongs-request-token";
 import ForgeNoticeProvider from "./shell/notices/ForgeNoticeProvider";
 import RouteFallback from "./components/RouteFallback";
+import { EpisodeWorkspaceProvider } from "./workspace/EpisodeWorkspaceContext";
+import EpisodeWorkspaceShell from "./shell/EpisodeWorkspaceShell";
 
 const TongsRoute = lazy(() => import("./routes/Tongs"));
 const BarstockRoute = lazy(() => import("./routes/Barstock"));
@@ -52,6 +54,7 @@ function withRouteFallback(element: React.ReactNode, label: string) {
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
+      <EpisodeWorkspaceProvider>
       <ForgeNoticeProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -88,7 +91,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             </Route>
           </Route>
 
-            <Route path="/app/hammer" element={withRouteFallback(<HammerStandalone />, "Loading Hammer...")}>
+            <Route
+              path="/app/hammer"
+              element={withRouteFallback(
+                <EpisodeWorkspaceShell><HammerStandalone /></EpisodeWorkspaceShell>,
+                "Loading Hammer...",
+              )}
+            >
               <Route index element={withRouteFallback(<HammerRoute />, "Loading Hammer...")} />
               <Route path="editor" element={withRouteFallback(<HammerEditorRoute />, "Loading Hammer Editor...")} />
               {import.meta.env.DEV ? (
@@ -101,7 +110,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               ) : null}
             </Route>
 
-          <Route path="/apps/hearth" element={withRouteFallback(<HearthStandalone />, "Loading Hearth...")} />
+          <Route
+            path="/apps/hearth"
+            element={withRouteFallback(
+              <EpisodeWorkspaceShell><HearthStandalone /></EpisodeWorkspaceShell>,
+              "Loading Hearth...",
+            )}
+          />
           <Route path="/apps/bellows/join/:sessionId" element={withRouteFallback(<BellowsJoin />, "Loading Bellows guest entry...")} />
           <Route path="/apps/bellows" element={withRouteFallback(<BellowsStandalone />, "Loading Bellows...")} />
           <Route path="/bellows/join/:sessionId" element={withRouteFallback(<BellowsJoin />, "Loading Bellows guest entry...")} />
@@ -112,6 +127,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="*" element={<Navigate to="/app" replace />} />
         </Routes>
       </ForgeNoticeProvider>
+      </EpisodeWorkspaceProvider>
     </BrowserRouter>
   </React.StrictMode>
 );
