@@ -211,13 +211,14 @@ async function assertWorkspaceAccessTarget(orgId: string, userId: string, worksp
     fail("Workspace access update requires orgId, userId, and workspaceId.");
   }
 
+  type MaybeSingleQueryBuilder = {
+    eq: (column: string, value: string) => MaybeSingleQueryBuilder;
+    maybeSingle: () => Promise<{ data: unknown; error: unknown }>;
+  };
+
   const tongsClient = supabase.schema("tongs") as unknown as {
     from: (table: "org_members" | "workspaces") => {
-      select: (columns: string) => {
-        eq: (column: string, value: string) => {
-          maybeSingle: () => Promise<{ data: unknown; error: unknown }>;
-        };
-      };
+      select: (columns: string) => MaybeSingleQueryBuilder;
     };
   };
 
