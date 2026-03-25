@@ -113,6 +113,25 @@ function isMissingOrgServicesError(error: unknown): boolean {
       && text.includes("not found");
 }
 
+function isWorkspacePolicyRecursionError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const row = error as {
+    code?: unknown;
+    message?: unknown;
+    details?: unknown;
+    hint?: unknown;
+  };
+  const code = typeof row.code === "string" ? row.code.trim().toUpperCase() : "";
+  if (code !== "42P17") return false;
+  const text = [
+    typeof row.message === "string" ? row.message : "",
+    typeof row.details === "string" ? row.details : "",
+    typeof row.hint === "string" ? row.hint : "",
+  ].join(" ").toLowerCase();
+  return text.includes("infinite recursion detected in policy")
+    && text.includes("workspaces");
+}
+
 function readInviteToken(search: string): string | null {
   const params = new URLSearchParams(search);
   const raw = params.get("invite_token") ?? params.get("inviteToken");
@@ -173,6 +192,7 @@ export default function AppShell() {
   const lastSessionUserId = useRef<string | null>(null);
   const lastUrlWorkspaceRefresh = useRef<string | null>(null);
   const lastCanonicalNavTarget = useRef<string | null>(null);
+  const workspacePolicyFatalRef = useRef(false);
   const pendingWorkspaceSelection = useRef<{
     active: boolean;
     target: string | null;
@@ -296,12 +316,19 @@ export default function AppShell() {
 
   const refreshWorkspaces = useCallback(async (opts?: { force?: boolean; preferId?: string | null }) => {
     if (!session) return;
+    if (workspacePolicyFatalRef.current) {
+      setWorkspaceLoadError(
+        "Workspace access is temporarily unavailable (database policy recursion). Apply the workspace RLS fix migration.",
+      );
+      return;
+    }
     if (!opts?.force && workspaces.length) return;
     setLoadingWorkspaces(true);
     setWorkspaceLoadError(null);
     try {
       const { listMyWorkspaces } = await import("@barstock/lib/tongs-api");
       const ws = await listMyWorkspaces();
+      workspacePolicyFatalRef.current = false;
       setWorkspaces(ws);
       saveWorkspaceCache(ws);
       setHasWorkspaceFetchSucceeded(true);
@@ -338,7 +365,14 @@ export default function AppShell() {
       }
     } catch (err) {
       console.warn("[workspace] refresh failed", err);
-      setWorkspaceLoadError(getErrorMessage(err, "Failed loading workspaces. Try refresh."));
+      if (isWorkspacePolicyRecursionError(err)) {
+        workspacePolicyFatalRef.current = true;
+        setWorkspaceLoadError(
+          "Workspace access is temporarily unavailable (database policy recursion). Apply the workspace RLS fix migration.",
+        );
+      } else {
+        setWorkspaceLoadError(getErrorMessage(err, "Failed loading workspaces. Try refresh."));
+      }
     } finally {
       setLoadingWorkspaces(false);
     }
