@@ -1,8 +1,6 @@
 import { supabase } from "../../../lib/supabase";
 import type {
-  ManageableWorkspaceAccessRole,
   OrgMember,
-  OrgRole,
   OrgWorkspace,
   UpsertWorkspaceMembershipInput,
   WorkspaceMembership,

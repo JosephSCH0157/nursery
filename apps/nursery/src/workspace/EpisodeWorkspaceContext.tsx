@@ -9,6 +9,7 @@
  *   2. Bootstrap payloads from route entry points
  *   3. sessionStorage fallback on remount
  */
+/* eslint-disable react-refresh/only-export-components */
 
 import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import {

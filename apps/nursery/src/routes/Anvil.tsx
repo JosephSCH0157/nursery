@@ -108,6 +108,7 @@ export default function AnvilRoute() {
   }, []);
 
   const listEpisodes = useCallback(async (workspaceId: string): Promise<HandoffEpisodeSummary[]> => {
+    setResolvedEpisodeTitle(null);
     const data = await tongsApiRequest<{ episodes?: unknown }>(
       `/tongs/workspaces/${encodeURIComponent(workspaceId)}/episodes?include_archived=1`,
       { method: "GET" },
@@ -155,10 +156,6 @@ export default function AnvilRoute() {
 
     return { exists: true };
   }, []);
-
-  useEffect(() => {
-    setResolvedEpisodeTitle(null);
-  }, [context.workpieceId]);
 
   useEffect(() => {
     if (!resolvedWorkspaceId || waitingForWorkspaceResolution) return;
