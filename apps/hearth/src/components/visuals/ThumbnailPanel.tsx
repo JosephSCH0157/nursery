@@ -56,6 +56,9 @@ type ThumbnailPanelProps = {
   brandTemplatesLoading: boolean;
   brandTemplatesError: string | null;
   selectedConceptBrandTemplateId: string | null;
+  selectedBrandTemplateLogoDataUrl: string | null;
+  brandLogoUploading: boolean;
+  brandLogoError: string | null;
   promptOverride: string;
   aspect: "16:9" | "1:1" | "9:16";
   safeZoneEnabled: boolean;
@@ -78,6 +81,8 @@ type ThumbnailPanelProps = {
   onSelectedConceptTitleShadowEnabledChange: (value: boolean) => void;
   onSelectedConceptTitleShadowStrengthChange: (value: TitleShadowStrength) => void;
   onSelectedConceptBrandTemplateChange: (value: string | null) => void;
+  onUploadBrandLogo: (file: File) => void;
+  onRemoveBrandLogo: () => void;
   onCreateConcept: () => void;
   onSaveConcept: () => void;
   onDeleteConcept: () => void;
@@ -276,6 +281,9 @@ export default function ThumbnailPanel({
   brandTemplatesLoading,
   brandTemplatesError,
   selectedConceptBrandTemplateId,
+  selectedBrandTemplateLogoDataUrl,
+  brandLogoUploading,
+  brandLogoError,
   promptOverride,
   aspect,
   safeZoneEnabled,
@@ -298,6 +306,8 @@ export default function ThumbnailPanel({
   onSelectedConceptTitleShadowEnabledChange,
   onSelectedConceptTitleShadowStrengthChange,
   onSelectedConceptBrandTemplateChange,
+  onUploadBrandLogo,
+  onRemoveBrandLogo,
   onCreateConcept,
   onSaveConcept,
   onDeleteConcept,
@@ -317,6 +327,7 @@ export default function ThumbnailPanel({
   onSaveLaunchVariant,
 }: ThumbnailPanelProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const brandLogoFileInputRef = useRef<HTMLInputElement | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const previewTextRef = useRef<HTMLDivElement | null>(null);
   const auditRunIdRef = useRef(0);
@@ -383,6 +394,7 @@ export default function ThumbnailPanel({
   const selectedRecommendationSummary = selectedConceptEvaluation
     ? buildRecommendationSummary(selectedConceptEvaluation)
     : null;
+  const canManageBrandLogo = Boolean(selectedConceptBrandTemplateId);
   const canAudit = Boolean(
     previewDataUrl
     && previewState === "ready"
@@ -496,6 +508,8 @@ export default function ThumbnailPanel({
     previewEl.style.setProperty("--hs-thumb-copy-shadow", resolvedBrandRender.text_shadow_css);
     previewEl.style.setProperty("--hs-thumb-copy-align", resolvedBrandRender.layout.alignment);
     previewEl.style.setProperty("--hs-thumb-copy-lines", String(resolvedBrandRender.layout.max_lines));
+    previewEl.style.setProperty("--hs-thumb-logo-width", `${resolvedBrandRender.logo.width_percent}%`);
+    previewEl.style.setProperty("--hs-thumb-logo-opacity", String(resolvedBrandRender.logo.opacity));
   }, [resolvedBrandRender, resolvedFontPreset.css]);
 
   useEffect(() => {
@@ -689,6 +703,11 @@ export default function ThumbnailPanel({
                   className="hs-thumb-preview-accent"
                   aria-hidden="true"
                 />
+                {selectedBrandTemplateLogoDataUrl ? (
+                  <div className={`hs-thumb-preview-logo hs-thumb-preview-logo-${resolvedBrandRender.logo.placement}`} aria-hidden="true">
+                    <img src={selectedBrandTemplateLogoDataUrl} alt="" className="hs-thumb-preview-logo-image" />
+                  </div>
+                ) : null}
                 {hasOverlayTitle ? (
                   <div
                     className="hs-thumb-preview-copy"
@@ -890,6 +909,42 @@ export default function ThumbnailPanel({
                   ) : null}
                   {brandTemplatesError ? (
                     <div className="hs-error-text-small">{brandTemplatesError}</div>
+                  ) : null}
+                  <div className="hs-thumb-brand-logo-actions">
+                    <button
+                      type="button"
+                      onClick={() => brandLogoFileInputRef.current?.click()}
+                      disabled={interactionDisabled || brandLogoUploading || !canManageBrandLogo}
+                    >
+                      {brandLogoUploading ? "Uploading Logo..." : "Upload Logo"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onRemoveBrandLogo}
+                      disabled={interactionDisabled || brandLogoUploading || !canManageBrandLogo || !selectedBrandTemplateLogoDataUrl}
+                    >
+                      Remove Logo
+                    </button>
+                  </div>
+                  <input
+                    ref={brandLogoFileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    aria-label="Upload brand logo"
+                    title="Upload brand logo"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      onUploadBrandLogo(file);
+                      event.target.value = "";
+                    }}
+                    className="hs-thumb-file-input"
+                  />
+                  {!canManageBrandLogo ? (
+                    <div className="hs-thumb-template-meta">Select a brand template to upload a logo.</div>
+                  ) : null}
+                  {brandLogoError ? (
+                    <div className="hs-error-text-small">{brandLogoError}</div>
                   ) : null}
                   <section className="hs-thumb-title-style" aria-label="Thumbnail title styling">
                     <div className="hs-thumb-section-title">Title Styling</div>

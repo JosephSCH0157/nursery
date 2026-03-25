@@ -1,4 +1,5 @@
 import { resolveForgeUserAccessToken } from "./hearth-chat-api";
+import { tongsFetch } from "./tongs-fetch";
 import {
   DEFAULT_TITLE_STYLE,
   areEpisodeThumbnailTitleStylesEqual,
@@ -71,11 +72,22 @@ export type ThumbnailBrandTemplateAccent = {
   corner_radius: number;
 };
 
+export type ThumbnailBrandTemplateLogoPlacement = "top_left" | "top_right" | "bottom_left" | "bottom_right";
+
+export type ThumbnailBrandTemplateLogo = {
+  asset_path: string | null;
+  mime_type: string | null;
+  placement: ThumbnailBrandTemplateLogoPlacement;
+  width_percent: number;
+  opacity: number;
+};
+
 export type ThumbnailBrandTemplateConfig = {
   title_style: NormalizedEpisodeThumbnailTitleStyle;
   layout: ThumbnailBrandTemplateLayout;
   background_treatment: ThumbnailBrandTemplateBackgroundTreatment;
   accent: ThumbnailBrandTemplateAccent;
+  logo: ThumbnailBrandTemplateLogo;
 };
 
 export type ThumbnailBrandTemplate = {
@@ -103,6 +115,7 @@ export type ResolvedThumbnailBrandRender = {
   layout: ThumbnailBrandTemplateLayout;
   background_treatment: ThumbnailBrandTemplateBackgroundTreatment;
   accent: ThumbnailBrandTemplateAccent;
+  logo: ThumbnailBrandTemplateLogo;
   text_shadow_css: string;
 };
 
@@ -121,6 +134,13 @@ export const LEGACY_THUMBNAIL_BRAND_RENDER: ThumbnailBrandTemplateConfig = {
     border_color: null,
     border_width: 0,
     corner_radius: 8,
+  },
+  logo: {
+    asset_path: null,
+    mime_type: null,
+    placement: "top_right",
+    width_percent: 16,
+    opacity: 1,
   },
 };
 
@@ -310,6 +330,22 @@ function normalizeCornerRadius(value: unknown): number {
   return clamp(Math.floor(readNumber(value) ?? LEGACY_THUMBNAIL_BRAND_RENDER.accent.corner_radius), 0, 64);
 }
 
+function normalizeLogoPlacement(value: unknown): ThumbnailBrandTemplateLogoPlacement {
+  const placement = readString(value)?.toLowerCase();
+  if (placement === "top_left" || placement === "top_right" || placement === "bottom_left" || placement === "bottom_right") {
+    return placement;
+  }
+  return LEGACY_THUMBNAIL_BRAND_RENDER.logo.placement;
+}
+
+function normalizeLogoWidthPercent(value: unknown): number {
+  return clamp(Math.floor(readNumber(value) ?? LEGACY_THUMBNAIL_BRAND_RENDER.logo.width_percent), 6, 50);
+}
+
+function normalizeLogoOpacity(value: unknown): number {
+  return clamp(readNumber(value) ?? LEGACY_THUMBNAIL_BRAND_RENDER.logo.opacity, 0.1, 1);
+}
+
 function normalizeColor(value: unknown): string | null {
   const color = readString(value);
   if (!color) return null;
@@ -326,6 +362,7 @@ export function normalizeThumbnailBrandTemplateConfig(value: unknown): Thumbnail
   const layout = isRecord(raw.layout) ? raw.layout : {};
   const background = isRecord(raw.background_treatment) ? raw.background_treatment : {};
   const accent = isRecord(raw.accent) ? raw.accent : {};
+  const logo = isRecord(raw.logo) ? raw.logo : {};
 
   return {
     title_style: normalizeEpisodeThumbnailTitleStyle(raw.title_style),
@@ -342,6 +379,13 @@ export function normalizeThumbnailBrandTemplateConfig(value: unknown): Thumbnail
       border_color: normalizeColor(accent.border_color),
       border_width: normalizeBorderWidth(accent.border_width),
       corner_radius: normalizeCornerRadius(accent.corner_radius),
+    },
+    logo: {
+      asset_path: readString(logo.asset_path),
+      mime_type: readString(logo.mime_type),
+      placement: normalizeLogoPlacement(logo.placement),
+      width_percent: normalizeLogoWidthPercent(logo.width_percent),
+      opacity: normalizeLogoOpacity(logo.opacity),
     },
   };
 }
@@ -401,7 +445,198 @@ export function resolveThumbnailBrandRender(args: {
     layout: templateConfig.layout,
     background_treatment: templateConfig.background_treatment,
     accent: templateConfig.accent,
+    logo: templateConfig.logo,
     text_shadow_css: getShadowCss(titleStyle.shadow),
+  };
+}
+
+type UploadWorkspaceThumbnailBrandLogoResult =
+  | {
+    ok: true;
+    assetPath: string;
+    mimeType: string;
+  }
+  | {
+    ok: false;
+    status: number;
+    error: string;
+  };
+
+type LoadWorkspaceThumbnailBrandLogoPreviewResult =
+  | {
+    ok: true;
+    dataUrl: string;
+  }
+  | {
+    ok: false;
+    status: number;
+    error: string;
+  };
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+  return btoa(binary);
+}
+
+function resolveUploadMimeType(file: File): string {
+  const mimeType = readString(file.type)?.toLowerCase();
+  if (mimeType?.startsWith("image/")) return mimeType;
+  return "application/octet-stream";
+}
+
+function extensionFromMimeType(mimeType: string): string {
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/jpeg") return "jpg";
+  if (mimeType === "image/webp") return "webp";
+  if (mimeType === "image/gif") return "gif";
+  return "bin";
+}
+
+function safeFileStem(fileName: string): string {
+  const stem = fileName
+    .replace(/\.[^./\\]+$/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return stem || "logo";
+}
+
+async function readResponseJson(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function readCommitError(payload: unknown, fallback: string): string {
+  if (!payload || typeof payload !== "object") return fallback;
+  const row = payload as { error?: unknown; message?: unknown; details?: unknown };
+  const message = readString(row.message) ?? readString(row.error);
+  const details = readString(row.details);
+  if (message && details) return `${message} (${details})`;
+  return message ?? details ?? fallback;
+}
+
+export async function uploadWorkspaceThumbnailBrandLogo(args: {
+  workspaceId: string;
+  templateId: string;
+  file: File;
+}): Promise<UploadWorkspaceThumbnailBrandLogoResult> {
+  const workspaceId = normalizeUuid(args.workspaceId);
+  const templateId = normalizeUuid(args.templateId);
+  if (!workspaceId || !templateId) {
+    return { ok: false, status: 400, error: "workspace_id and template_id are required." };
+  }
+
+  const mimeType = resolveUploadMimeType(args.file);
+  if (!mimeType.startsWith("image/")) {
+    return { ok: false, status: 400, error: "Only image files can be used as brand logos." };
+  }
+
+  let bytesBase64 = "";
+  try {
+    const bytes = new Uint8Array(await args.file.arrayBuffer());
+    bytesBase64 = bytesToBase64(bytes);
+  } catch (error) {
+    return {
+      ok: false,
+      status: 400,
+      error: error instanceof Error ? error.message : "Unable to read logo file.",
+    };
+  }
+
+  const timestamp = Date.now();
+  const extension = extensionFromMimeType(mimeType);
+  const fileStem = safeFileStem(args.file.name);
+  const assetPath = `assets/thumbnail-brand-logos/${templateId}/${timestamp}-${fileStem}.${extension}`;
+  const response = await tongsFetch(
+    `/tongs/workspaces/${encodeURIComponent(workspaceId)}/commit-file`,
+    {
+      method: "POST",
+      json: {
+        path: assetPath,
+        content_type: mimeType,
+        file_type: "thumbnail_brand_logo",
+        bytes_base64: bytesBase64,
+        written_by: {
+          tool: "hearth",
+          tool_version: "v1",
+          lane: "hearth_thumbnail_branding",
+        },
+        event_name: "hearth.thumbnail.brand.logo.uploaded.v1",
+        event_payload: {
+          template_id: templateId,
+          file_name: args.file.name,
+          mime_type: mimeType,
+        },
+        correlation_id: `hearth-thumbnail-brand-logo-${timestamp.toString(36)}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const payload = await readResponseJson(response);
+    return {
+      ok: false,
+      status: response.status,
+      error: readCommitError(payload, `Logo upload failed (${response.status}).`),
+    };
+  }
+
+  return {
+    ok: true,
+    assetPath,
+    mimeType,
+  };
+}
+
+export async function loadWorkspaceThumbnailBrandLogoPreview(args: {
+  workspaceId: string;
+  assetPath: string;
+}): Promise<LoadWorkspaceThumbnailBrandLogoPreviewResult> {
+  const workspaceId = normalizeUuid(args.workspaceId);
+  const assetPath = readString(args.assetPath);
+  if (!workspaceId || !assetPath) {
+    return { ok: false, status: 400, error: "workspace_id and asset_path are required." };
+  }
+
+  const response = await tongsFetch(
+    `/tongs/workspaces/${encodeURIComponent(workspaceId)}/read-file?path=${encodeURIComponent(assetPath)}&encoding=base64`,
+    { method: "GET" },
+  );
+  const payload = await readResponseJson(response);
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: readCommitError(payload, `Logo preview load failed (${response.status}).`),
+    };
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, status: 502, error: "Logo preview payload was invalid." };
+  }
+  const row = payload as {
+    ok?: unknown;
+    data?: {
+      bytes_base64?: unknown;
+      content_type?: unknown;
+    };
+  };
+  const bytesBase64 = readString(row.data?.bytes_base64);
+  if (!bytesBase64) {
+    return { ok: false, status: 404, error: "Logo file is unavailable." };
+  }
+  const mimeType = readString(row.data?.content_type) ?? "image/png";
+  return {
+    ok: true,
+    dataUrl: `data:${mimeType};base64,${bytesBase64}`,
   };
 }
 

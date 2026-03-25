@@ -2002,6 +2002,8 @@
   --hs-thumb-copy-shadow: 0 2px 8px rgba(0, 0, 0, 0.55), 0 8px 18px rgba(0, 0, 0, 0.38);
   --hs-thumb-copy-align: left;
   --hs-thumb-copy-lines: 3;
+  --hs-thumb-logo-width: 16%;
+  --hs-thumb-logo-opacity: 1;
   position: relative;
   aspect-ratio: 16 / 9;
   border: 1px dashed var(--forge-border, #bbb);
@@ -2185,6 +2187,12 @@
   opacity: 0.72;
 }
 
+.hs-thumb-brand-logo-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .hs-thumb-title-style {
   display: grid;
   gap: 8px;
@@ -2260,6 +2268,44 @@
   display: grid;
   align-content: end;
   justify-items: var(--hs-thumb-copy-justify);
+}
+
+.hs-thumb-preview-logo {
+  position: absolute;
+  width: var(--hs-thumb-logo-width);
+  max-width: min(32%, 180px);
+  min-width: 56px;
+  z-index: 1;
+  pointer-events: none;
+  opacity: var(--hs-thumb-logo-opacity);
+}
+
+.hs-thumb-preview-logo-top_left {
+  top: 6%;
+  left: 6%;
+}
+
+.hs-thumb-preview-logo-top_right {
+  top: 6%;
+  right: 6%;
+}
+
+.hs-thumb-preview-logo-bottom_left {
+  bottom: 6%;
+  left: 6%;
+}
+
+.hs-thumb-preview-logo-bottom_right {
+  bottom: 6%;
+  right: 6%;
+}
+
+.hs-thumb-preview-logo-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 10px rgba(0, 0, 0, 0.35));
 }
 
 .hs-thumb-preview-copy-text {
