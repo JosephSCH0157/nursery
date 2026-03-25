@@ -1,0 +1,10 @@
+.hearth-route-shell {
+  padding: 24px;
+  display: grid;
+  gap: 8px;
+}
+
+.hearth-route-shell__title,
+.hearth-route-shell__copy {
+  margin: 0;
+}
