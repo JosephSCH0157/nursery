@@ -90,6 +90,7 @@ import { useSourcesState } from "../hooks/useSourcesState";
 import {
   useChatWorkspace,
   useChatWorkspaceHistory,
+  useChatWorkspaceProposal,
   useChatWorkspaceRuntime,
   useChatWorkspaceStt,
   useChatWorkspaceState,
@@ -3108,6 +3109,218 @@ export default function HearthShell({
     requestHearthSttTranscript,
     sendChatMessage,
   });
+  const applyProposalOpsToWorkspace = useCallback(async (args: {
+    proposal: PendingAiProposal;
+    opsToApply: HearthOp[];
+  }) => {
+    const episodeId = workpieceId?.trim();
+    if (!episodeId || !activeDraft) {
+      throw new Error("Select an Episode or Spark to start.");
+    }
+
+    let nextDraft: Draft = { ...activeDraft };
+    let draftChanged = false;
+    let nextPlanningSession = planningSession
+      ? { ...planningSession }
+      : createPlanningSessionForEpisode(episodeId, workspaceId);
+    let planningChanged = false;
+    let sourcesChanged = false;
+    let saveRequested = false;
+
+    const opsStore: HearthOpsStore = {
+      setTitle: (value) => {
+        if (nextDraft.title !== value) {
+          nextDraft = { ...nextDraft, title: value };
+          draftChanged = true;
+        }
+        if ((nextPlanningSession.title ?? "") !== value) {
+          nextPlanningSession = { ...nextPlanningSession, title: value };
+          planningChanged = true;
+        }
+      },
+      setTitleVariant: (slot, value) => {
+        const current = nextPlanningSession.title_variants ?? {};
+        if ((current[slot] ?? "") === value) return;
+        nextPlanningSession = {
+          ...nextPlanningSession,
+          title_variants: {
+            ...current,
+            [slot]: value,
+          },
+        };
+        planningChanged = true;
+      },
+      setOutline: (value) => {
+        const nextOutline = parsePlanningLines(value);
+        const prevOutline = nextPlanningSession.outline ?? [];
+        if (JSON.stringify(prevOutline) === JSON.stringify(nextOutline)) return;
+        nextPlanningSession = {
+          ...nextPlanningSession,
+          outline: nextOutline,
+        };
+        planningChanged = true;
+      },
+      setBody: (value) => {
+        if (nextDraft.body === value) return;
+        nextDraft = { ...nextDraft, body: value };
+        draftChanged = true;
+      },
+      addSource: async (source) => {
+        const created = await sourcesState.addSourceToLibrary({
+          title: source.title ?? "Untitled Source",
+          type: "webpage",
+          url: source.url ?? null,
+          notes: source.note ?? null,
+        }, { attachToWorkpiece: true });
+        if (created) {
+          sourcesChanged = true;
+        }
+      },
+      updateSource: async (id, patch) => {
+        if (patch.note !== undefined) {
+          sourcesState.updateWorkpieceSourceNotes(id, patch.note);
+          sourcesChanged = true;
+        }
+        const updated = await sourcesState.updateSourceInLibrary(id, {
+          ...(patch.title !== undefined ? { title: patch.title } : {}),
+          ...(patch.url !== undefined ? { url: patch.url } : {}),
+          ...(patch.note !== undefined ? { notes: patch.note } : {}),
+        });
+        if (updated) {
+          sourcesChanged = true;
+        }
+      },
+      removeSource: (id) => {
+        sourcesState.removeSourceFromWorkpiece(id);
+        sourcesChanged = true;
+      },
+      requestSave: (reason) => {
+        saveRequested = reason === "ai_apply_ops";
+      },
+    };
+
+    await applyHearthOps(opsStore, args.opsToApply);
+
+    if (!saveRequested) {
+      return;
+    }
+
+    if (draftChanged) {
+      const previousBody = activeDraft.body;
+      const now = Date.now();
+      const stagedDraft: Draft = { ...nextDraft, updatedAt: now };
+      draftEditVersionRef.current += 1;
+      activeDraftRef.current = stagedDraft;
+      setActiveDraft((prev) => (prev && prev.id === stagedDraft.id ? stagedDraft : prev));
+      setDrafts((prev) => {
+        const exists = prev.some((draft) => draft.id === stagedDraft.id);
+        const next = exists
+          ? prev.map((draft) => (draft.id === stagedDraft.id ? stagedDraft : draft))
+          : [stagedDraft, ...prev];
+        return dedupeDraftListById(next);
+      });
+      queueAiAutosave({
+        draft: stagedDraft,
+        previousBody,
+        reasonCode: args.proposal.autosaveReasonCode,
+      });
+    } else {
+      setActiveDraft((prev) => (prev ? nextDraft : prev));
+    }
+
+    if (planningChanged) {
+      const nowIso = new Date().toISOString();
+      const committedSession: HearthPlanningSession = {
+        ...nextPlanningSession,
+        workpiece_id: episodeId,
+        workspace_id: workspaceId ?? nextPlanningSession.workspace_id ?? null,
+        updated_at: nowIso,
+      };
+      setPlanningSession(committedSession);
+      writeHearthPlanningSessionCache(
+        committedSession,
+        episodeId,
+        workspaceId ?? committedSession.workspace_id ?? null,
+      );
+      setSessionTouched(true);
+      await syncSessionToTongs(committedSession);
+    }
+
+    if (sourcesChanged) {
+      sourcesState.syncSources();
+    }
+  }, [
+    activeDraft,
+    planningSession,
+    queueAiAutosave,
+    setActiveDraft,
+    setDrafts,
+    setPlanningSession,
+    setSessionTouched,
+    sourcesState,
+    syncSessionToTongs,
+    workpieceId,
+    workspaceId,
+  ]);
+  const {
+    onApplyAiProposal,
+    onDiscardAiProposal,
+    onToggleAiProposalOp,
+    onEditAiProposalBody,
+    onResetAiProposalBody,
+    isProposalBodyDirtyAt,
+  } = useChatWorkspaceProposal<PendingAiProposal, HearthOp>({
+    pendingAiProposal,
+    setPendingAiProposal,
+    isApplyingAiOps,
+    setIsApplyingAiOps,
+    setChatError,
+    clearProposalUiErrors: () => {
+      setScriptValidation(null);
+      setError(null);
+    },
+    getApplyPreconditionError: () => {
+      const episodeId = workpieceId?.trim();
+      if (!episodeId || !activeDraft) {
+        return "Select an Episode or Spark to start.";
+      }
+      return null;
+    },
+    validateProposalApply: ({ opsToApply }) => {
+      const bodyWillChange = opsToApply.some((op) => op.op === "set_body");
+      if (!bodyWillChange || !activeDraft) {
+        return { ok: true, issues: [] };
+      }
+      const projectedBody = findNextBodyFromOps(activeDraft.body, opsToApply);
+      const projectedValidation = validateScriptTags(normalizeScriptTags(projectedBody));
+      if (!projectedValidation.ok) {
+        setScriptValidation({
+          source: "ai_apply",
+          result: projectedValidation,
+        });
+        setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(projectedValidation)}`);
+      }
+      return projectedValidation;
+    },
+    applyProposalOps: ({ proposal, opsToApply, mode }) => applyProposalOpsToWorkspace({ proposal, opsToApply }),
+    recordProposalApplied: ({ mode, totalOps, appliedOps, fromGate }) => {
+      recordInteractionEvent("proposal_applied", {
+        mode,
+        total_ops: totalOps,
+        applied_ops: appliedOps,
+        from_gate: fromGate,
+      });
+    },
+    recordProposalDiscarded: ({ opsCount, fromGate }) => {
+      recordInteractionEvent("proposal_discarded", {
+        ops_count: opsCount,
+        from_gate: fromGate,
+      });
+    },
+    updateProposalBodyOps: (ops, index, value) => updateHearthProposalBodyOp(ops, index, value),
+    resetProposalBodyOps: (ops, originalOps, index) => resetHearthProposalBodyOp(ops, originalOps, index),
+    isProposalBodyDirty: (ops, originalOps, index) => isHearthProposalBodyOpDirty(ops, originalOps, index),
+  });
   const chatWorkspace = useChatWorkspace({
     chatSurfaceProps: {
       visible: activeWorkpieceTab === "script",
@@ -3157,11 +3370,7 @@ export default function HearthShell({
       describeProposalOp: describeHearthOp,
       getProposalDiff: buildProposalDiff,
       validateProposalBody: (value) => validateScriptTags(normalizeScriptTags(value)),
-      isProposalBodyDirty: (index) => {
-        const proposal = pendingAiProposal;
-        if (!proposal) return false;
-        return isHearthProposalBodyOpDirty(proposal.ops, proposal.originalOps, index);
-      },
+      isProposalBodyDirty: isProposalBodyDirtyAt,
       buildValidationReport,
     },
   });

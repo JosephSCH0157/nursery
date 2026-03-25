@@ -11,7 +11,7 @@ export const EPISODE_UI_STATUS_LABELS: Record<EpisodeUiStatus, string> = {
   scheduled: "Scheduled",
   recording: "Recording",
   recorded: "Recorded",
-  editing: "In Editing",
+  editing: "Editing",
   edited: "Ready to Release",
   releasing: "Ready to Release",
   released: "Released",

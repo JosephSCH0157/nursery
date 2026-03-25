@@ -32,8 +32,13 @@ export default function EpisodeContinuityStrip({
   if (workpieceId && episode.episodeId !== workpieceId) return null;
 
   const isLoading = episode.contextState === "loading";
-  const title = isLoading ? "Loading episode context..." : episode.title?.trim() || "Episode";
-  const statusLabel = isLoading ? null : formatEpisodeStatusLabel(episode.displayStatus ?? null);
+  const isMissing = episode.contextState === "missing";
+  const title = isLoading
+    ? null
+    : isMissing
+    ? null
+    : episode.title?.trim() || "Episode";
+  const statusLabel = (isLoading || isMissing) ? null : formatEpisodeStatusLabel(episode.displayStatus ?? null);
   const statusTone = getEpisodeStatusTone(episode.displayStatus ?? null);
   const workpieceRef = workpieceId ?? episode.episodeId;
   const ctaHref = ctaLabel && ctaPhase
@@ -41,16 +46,30 @@ export default function EpisodeContinuityStrip({
     : null;
 
   return (
-    <div className={`forge-episode-strip${compact ? " forge-episode-strip--compact" : ""}`}>
+    <div className={`forge-episode-strip${compact ? " forge-episode-strip--compact" : ""}${isMissing ? " forge-episode-strip--missing" : ""}`}>
       <div className="forge-episode-strip__meta">
         <div className="forge-episode-strip__top">
-          <span className="forge-phase-badge">{EPISODE_PHASE_LABELS[phase]}</span>
-          <h2 className="forge-episode-strip__title">{title}</h2>
+          <span className={`forge-phase-badge${isMissing ? " forge-phase-badge--muted" : ""}`}>{EPISODE_PHASE_LABELS[phase]}</span>
+          {isLoading ? (
+            <span className="forge-episode-strip__title forge-episode-strip__title--loading" aria-label="Resolving episode">
+              Resolving\u2026
+            </span>
+          ) : isMissing ? (
+            <span className="forge-episode-strip__title forge-episode-strip__title--missing">
+              Episode not found
+            </span>
+          ) : (
+            <h2 className="forge-episode-strip__title">{title}</h2>
+          )}
           {statusLabel ? (
             <span className={`forge-status-pill forge-status-pill--${statusTone}`}>{statusLabel}</span>
           ) : null}
         </div>
-        <p className="forge-episode-strip__detail">{detail ?? (isLoading ? "Waiting for the tool loader to resolve title and status." : "")}</p>
+        <p className="forge-episode-strip__detail">
+          {isMissing
+            ? "This episode may have been removed or the link is no longer valid."
+            : (detail ?? "")}
+        </p>
       </div>
       {ctaHref && ctaLabel ? (
         <a className="forge-workflow-link" href={ctaHref}>{ctaLabel}</a>

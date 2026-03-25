@@ -24,7 +24,7 @@ import type { EpisodePhase } from "./episodePhases";
 const SESSION_STORAGE_KEY = "forge.activeEpisode";
 
 type EpisodeWorkspaceSource = "session" | "bootstrap" | "loader";
-export type EpisodeWorkspaceContextState = "none" | "loading" | "active";
+export type EpisodeWorkspaceContextState = "none" | "loading" | "active" | "missing";
 type EpisodeWorkspaceField = "title" | "seriesTitle" | "phase" | "displayStatus" | "sessionId";
 
 const SOURCE_STRENGTH: Record<EpisodeWorkspaceSource, number> = {
@@ -77,6 +77,7 @@ export interface EpisodeWorkspaceContextValue {
   hydrateEpisodeFromPayload: (payload: Partial<EpisodeWorkspaceState> & { episodeId: string }) => void;
   hydrateEpisodeFromReadModel: (readModel: EpisodeWorkspaceReadModel) => void;
   setEpisodeContextLoading: (episodeId: string | null) => void;
+  setEpisodeContextMissing: (episodeId: string) => void;
 }
 
 const EpisodeWorkspaceContext = createContext<EpisodeWorkspaceContextValue | null>(null);
@@ -300,7 +301,7 @@ export function EpisodeWorkspaceProvider({ children }: { children: ReactNode }) 
       }
 
       if (prev.episode.episodeId === episodeId) {
-        if (prev.episode.contextState === "active") return prev;
+        if (prev.episode.contextState === "active" || prev.episode.contextState === "missing") return prev;
         const nextEpisode: EpisodeWorkspaceState = {
           ...prev.episode,
           episodeId,
@@ -323,6 +324,23 @@ export function EpisodeWorkspaceProvider({ children }: { children: ReactNode }) 
     });
   }, []);
 
+  const setEpisodeContextMissing = useCallback((episodeId: string) => {
+    setState((prev) => {
+      // Only transition if this is the same episode and it's currently loading.
+      // Never downgrade from active or overwrite a different episode.
+      if (prev.episode.contextState === "missing") return prev;
+      if (prev.episode.contextState === "active") return prev;
+      if (prev.episode.episodeId !== episodeId) return prev;
+      const nextEpisode: EpisodeWorkspaceState = {
+        ...prev.episode,
+        contextState: "missing",
+      };
+      const next = { ...prev, episode: nextEpisode };
+      writeStoredState(nextEpisode);
+      return next;
+    });
+  }, []);
+
   const value = useMemo<EpisodeWorkspaceContextValue>(
     () => ({
       episode: state.episode,
@@ -331,8 +349,9 @@ export function EpisodeWorkspaceProvider({ children }: { children: ReactNode }) 
       hydrateEpisodeFromPayload,
       hydrateEpisodeFromReadModel,
       setEpisodeContextLoading,
+      setEpisodeContextMissing,
     }),
-    [state.episode, setActiveEpisode, clearEpisode, hydrateEpisodeFromPayload, hydrateEpisodeFromReadModel, setEpisodeContextLoading],
+    [state.episode, setActiveEpisode, clearEpisode, hydrateEpisodeFromPayload, hydrateEpisodeFromReadModel, setEpisodeContextLoading, setEpisodeContextMissing],
   );
 
   return (

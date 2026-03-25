@@ -63,7 +63,19 @@ function EpisodeContextDebugOverlayDev() {
       >
         <span style={{ opacity: 0.5 }}>▼</span>
         EpisodeWorkspaceCtx
-        {ctx?.episode.episodeId && (
+        {ctx?.episode.contextState === "missing" ? (
+          <span
+            style={{
+              background: "rgba(200,80,80,0.4)",
+              borderRadius: 3,
+              padding: "1px 4px",
+              color: "#ffd0c8",
+              marginLeft: "auto",
+            }}
+          >
+            missing
+          </span>
+        ) : ctx?.episode.episodeId && (
           <span
             style={{
               background: "rgba(108,99,255,0.5)",

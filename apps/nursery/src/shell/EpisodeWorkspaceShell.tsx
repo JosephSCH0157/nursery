@@ -47,6 +47,12 @@ export default function EpisodeWorkspaceShell({
     && ctx.episode.episodeId === requestedEpisodeId
     && ctx.episode.contextState === "loading",
   );
+  const isMissing = Boolean(
+    requestedEpisodeId
+    && ctx?.episode?.episodeId
+    && ctx.episode.episodeId === requestedEpisodeId
+    && ctx.episode.contextState === "missing",
+  );
   const routePhase = resolvePhaseFromPathname(location.pathname);
 
   return (
@@ -55,8 +61,19 @@ export default function EpisodeWorkspaceShell({
         <div className="ew-header ew-header--loading" role="status" aria-live="polite">
           <div className="ew-header__loading">
             <span className="forge-phase-badge">{EPISODE_PHASE_LABELS[routePhase]}</span>
-            <span className="ew-header__loading-title">Loading episode context...</span>
-            <span className="ew-header__loading-copy">The current tool is resolving title and status from its own loader.</span>
+            <span className="ew-header__loading-title">
+              <span className="ew-header__loading-pulse" aria-hidden="true" />
+              Resolving episode…
+            </span>
+          </div>
+        </div>
+      )}
+      {isMissing && (
+        <div className="ew-header ew-header--missing" role="alert">
+          <div className="ew-header__missing">
+            <span className="forge-phase-badge forge-phase-badge--muted">{EPISODE_PHASE_LABELS[routePhase]}</span>
+            <span className="ew-header__missing-label">Episode not found</span>
+            <span className="ew-header__missing-hint">This episode may have been removed or the link is no longer valid.</span>
           </div>
         </div>
       )}

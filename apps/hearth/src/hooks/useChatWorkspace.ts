@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
 import type { ChatSurfaceProps } from "../views/surfaces/ChatSurface";
+import type { ScriptValidationResult } from "@forge/shared/script-tags";
 
 type UseChatWorkspaceArgs = {
   chatSurfaceProps: ChatSurfaceProps;
@@ -1109,4 +1110,189 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
   }, [args, clearAiSttStopTimer, clearSttNoticeTimer, clearSttPreviewTimer, stopAiSttStream]);
 
   return { onToggleMic };
+}
+
+type ApplyMode = "all" | "selected";
+
+type ProposalStateSetter<TPendingAiProposal> = (
+  next:
+    | TPendingAiProposal
+    | null
+    | ((prev: TPendingAiProposal | null) => TPendingAiProposal | null),
+) => void;
+
+type ProposalLike<TOp> = {
+  ops: TOp[];
+  originalOps: TOp[];
+  selected: boolean[];
+  fromGate: boolean;
+};
+
+type UseChatWorkspaceProposalArgs<TPendingAiProposal extends ProposalLike<TOp>, TOp> = {
+  pendingAiProposal: TPendingAiProposal | null;
+  setPendingAiProposal: ProposalStateSetter<TPendingAiProposal>;
+  isApplyingAiOps: boolean;
+  setIsApplyingAiOps: (value: boolean) => void;
+  setChatError: (value: string | null) => void;
+  clearProposalUiErrors: () => void;
+  getApplyPreconditionError: () => string | null;
+  validateProposalApply: (args: {
+    proposal: TPendingAiProposal;
+    opsToApply: TOp[];
+    mode: ApplyMode;
+  }) => ScriptValidationResult;
+  applyProposalOps: (args: {
+    proposal: TPendingAiProposal;
+    opsToApply: TOp[];
+    mode: ApplyMode;
+  }) => Promise<void>;
+  recordProposalApplied: (payload: {
+    mode: ApplyMode;
+    totalOps: number;
+    appliedOps: number;
+    fromGate: boolean;
+  }) => void;
+  recordProposalDiscarded: (payload: {
+    opsCount: number;
+    fromGate: boolean;
+  }) => void;
+  updateProposalBodyOps: (
+    ops: TOp[],
+    index: number,
+    value: string,
+  ) => TOp[];
+  resetProposalBodyOps: (
+    ops: TOp[],
+    originalOps: TOp[],
+    index: number,
+  ) => TOp[];
+  isProposalBodyDirty: (ops: TOp[], originalOps: TOp[], index: number) => boolean;
+};
+
+export function useChatWorkspaceProposal<TPendingAiProposal extends ProposalLike<TOp>, TOp>(
+  args: UseChatWorkspaceProposalArgs<TPendingAiProposal, TOp>,
+): {
+  onApplyAiProposal: (mode: ApplyMode) => Promise<void>;
+  onDiscardAiProposal: () => void;
+  onToggleAiProposalOp: (index: number) => void;
+  onEditAiProposalBody: (index: number, value: string) => void;
+  onResetAiProposalBody: (index: number) => void;
+  isProposalBodyDirtyAt: (index: number) => boolean;
+} {
+  const onApplyAiProposal = useCallback(async (mode: ApplyMode) => {
+    const proposal = args.pendingAiProposal;
+    if (!proposal || args.isApplyingAiOps) return;
+
+    const preconditionError = args.getApplyPreconditionError();
+    if (preconditionError) {
+      args.setChatError(preconditionError);
+      return;
+    }
+
+    const opsToApply = mode === "all"
+      ? proposal.ops
+      : proposal.ops.filter((_, index) => proposal.selected[index]);
+
+    if (opsToApply.length === 0) {
+      args.setChatError("Select at least one proposed change.");
+      return;
+    }
+
+    const validation = args.validateProposalApply({ proposal, opsToApply, mode });
+    if (!validation.ok) {
+      return;
+    }
+
+    args.setIsApplyingAiOps(true);
+    args.setChatError(null);
+    args.clearProposalUiErrors();
+
+    try {
+      await args.applyProposalOps({ proposal, opsToApply, mode });
+      args.recordProposalApplied({
+        mode,
+        totalOps: proposal.ops.length,
+        appliedOps: opsToApply.length,
+        fromGate: proposal.fromGate,
+      });
+
+      if (mode === "all") {
+        args.setPendingAiProposal(null);
+      } else {
+        args.setPendingAiProposal((prev) => {
+          if (!prev) return prev;
+          const remainingOps = prev.ops.filter((_, index) => !prev.selected[index]);
+          if (remainingOps.length === 0) return null;
+          return {
+            ...prev,
+            ops: remainingOps,
+            selected: remainingOps.map(() => true),
+          };
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to apply AI changes.";
+      args.setChatError(message);
+    } finally {
+      args.setIsApplyingAiOps(false);
+    }
+  }, [args]);
+
+  const onDiscardAiProposal = useCallback(() => {
+    if (args.pendingAiProposal) {
+      args.recordProposalDiscarded({
+        opsCount: args.pendingAiProposal.ops.length,
+        fromGate: args.pendingAiProposal.fromGate,
+      });
+    }
+    args.setPendingAiProposal(null);
+  }, [args]);
+
+  const onToggleAiProposalOp = useCallback((index: number) => {
+    args.setPendingAiProposal((prev) => {
+      if (!prev) return prev;
+      const selected = prev.selected.slice();
+      selected[index] = !selected[index];
+      return { ...prev, selected };
+    });
+  }, [args]);
+
+  const onEditAiProposalBody = useCallback((index: number, value: string) => {
+    args.clearProposalUiErrors();
+    args.setChatError(null);
+    args.setPendingAiProposal((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        ops: args.updateProposalBodyOps(prev.ops, index, value),
+      };
+    });
+  }, [args]);
+
+  const onResetAiProposalBody = useCallback((index: number) => {
+    args.clearProposalUiErrors();
+    args.setChatError(null);
+    args.setPendingAiProposal((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        ops: args.resetProposalBodyOps(prev.ops, prev.originalOps, index),
+      };
+    });
+  }, [args]);
+
+  const isProposalBodyDirtyAt = useCallback((index: number) => {
+    const proposal = args.pendingAiProposal;
+    if (!proposal) return false;
+    return args.isProposalBodyDirty(proposal.ops, proposal.originalOps, index);
+  }, [args]);
+
+  return {
+    onApplyAiProposal,
+    onDiscardAiProposal,
+    onToggleAiProposalOp,
+    onEditAiProposalBody,
+    onResetAiProposalBody,
+    isProposalBodyDirtyAt,
+  };
 }

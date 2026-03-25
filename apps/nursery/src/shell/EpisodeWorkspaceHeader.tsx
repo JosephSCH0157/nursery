@@ -7,6 +7,7 @@
  *   - Smart "Continue Workflow" primary action button (P2.2)
  */
 
+import { Fragment } from "react";
 import { useLocation } from "react-router-dom";
 import {
   EPISODE_PHASE_LABELS,
@@ -63,9 +64,12 @@ export default function EpisodeWorkspaceHeader({
           {displayTitle}
         </span>
         {episode.seriesTitle && (
-          <span className="ew-header__series" aria-label="Series">
-            {episode.seriesTitle}
-          </span>
+          <>
+            <span className="ew-header__sep" aria-hidden="true">·</span>
+            <span className="ew-header__series" aria-label="Series">
+              {episode.seriesTitle}
+            </span>
+          </>
         )}
         {statusLabel && (
           <span className={`forge-status-pill forge-status-pill--${statusTone}`} aria-label="Episode status">
@@ -83,23 +87,27 @@ export default function EpisodeWorkspaceHeader({
           const href = buildGoToPhaseHref(phase, { workpieceId: workpieceRef });
           const label = EPISODE_PHASE_LABELS[phase];
           return (
-            <a
-              key={phase}
-              href={href}
-              className={[
-                "ew-header__step",
-                isCurrent ? "ew-header__step--current" : "",
-                isCompleted ? "ew-header__step--completed" : "",
-                isFuture ? "ew-header__step--future" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              aria-current={isCurrent ? "step" : undefined}
-              aria-label={`${label}${isCurrent ? " (current)" : isCompleted ? " (done)" : ""}`}
-            >
-              <span className="ew-header__step-dot" aria-hidden="true" />
-              <span className="ew-header__step-label">{label}</span>
-            </a>
+            <Fragment key={phase}>
+              {index > 0 && (
+                <span className="ew-header__step-sep" aria-hidden="true">›</span>
+              )}
+              <a
+                href={href}
+                className={[
+                  "ew-header__step",
+                  isCurrent ? "ew-header__step--current" : "",
+                  isCompleted ? "ew-header__step--completed" : "",
+                  isFuture ? "ew-header__step--future" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                aria-current={isCurrent ? "step" : undefined}
+                aria-label={`${label}${isCurrent ? " (current)" : isCompleted ? " (done)" : ""}`}
+              >
+                <span className="ew-header__step-dot" aria-hidden="true" />
+                <span className="ew-header__step-label">{label}</span>
+              </a>
+            </Fragment>
           );
         })}
       </nav>

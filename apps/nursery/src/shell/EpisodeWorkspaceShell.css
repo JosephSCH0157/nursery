@@ -1,9 +1,10 @@
 /* =========================================================
    Episode Workspace Header
-   A compact identity banner with phase-progress stepper.
-   Only rendered when an episode is active (via EpisodeWorkspaceShell).
+   Compact identity banner + phase-progress stepper.
+   Only rendered when an episode context is active/loading/missing.
    ========================================================= */
 
+/* ── Pulse animation for loading state ─────────────── */
 /* ── Root bar ─────────────────────────────────────── */
 .ew-header {
   display: flex;
@@ -14,7 +15,7 @@
   border-bottom: 1px solid var(--forge-episode-border);
   font-size: 12px;
   color: var(--forge-episode-muted);
-  min-height: 38px;
+  min-height: 40px;
   flex-shrink: 0;
   z-index: 200;
   position: relative;
@@ -26,9 +27,9 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding-right: 16px;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  height: 38px;
+  padding-right: 14px;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+  height: 40px;
 }
 
 .ew-header__label {
@@ -37,8 +38,15 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 220px;
+  max-width: 240px;
   color: var(--forge-episode-title);
+}
+
+.ew-header__sep {
+  font-size: 11px;
+  color: rgba(214, 220, 231, 0.3);
+  user-select: none;
+  flex-shrink: 0;
 }
 
 .ew-header__series {
@@ -47,7 +55,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 120px;
+  max-width: 130px;
+  opacity: 0.8;
 }
 
 /* ── Phase stepper ────────────────────────────────── */
@@ -65,26 +74,14 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 0 10px;
-  height: 38px;
+  padding: 0 9px;
+  height: 40px;
   text-decoration: none;
   color: var(--forge-episode-muted);
   transition: color 0.15s, background 0.15s;
   border-radius: 0;
   flex-shrink: 0;
   position: relative;
-}
-
-/* Connector line between steps */
-.ew-header__step + .ew-header__step::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 1px;
-  height: 14px;
-  background: rgba(255, 255, 255, 0.06);
 }
 
 .ew-header__step:hover,
@@ -97,25 +94,35 @@
 /* Dot indicator */
 .ew-header__step-dot {
   display: inline-block;
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
   border: 1.5px solid var(--forge-episode-phase-future);
   background: transparent;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.2s;
+}
+
+/* › chevron between steps */
+.ew-header__step-sep {
+  font-size: 10px;
+  color: rgba(214, 220, 231, 0.22);
+  user-select: none;
+  pointer-events: none;
+  flex-shrink: 0;
+  padding: 0 1px;
 }
 
 .ew-header__step-label {
   font-size: 11px;
   font-weight: 500;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
 /* State: completed */
 .ew-header__step--completed {
-  color: rgba(223, 248, 240, 0.84);
+  color: rgba(139, 216, 197, 0.8);
 }
 .ew-header__step--completed .ew-header__step-dot {
   background: var(--forge-episode-phase-done);
@@ -129,7 +136,7 @@
 .ew-header__step--current .ew-header__step-dot {
   background: var(--forge-episode-phase);
   border-color: var(--forge-episode-phase);
-  box-shadow: 0 0 8px rgba(255, 210, 119, 0.45);
+  box-shadow: 0 0 8px rgba(255, 210, 119, 0.5);
 }
 .ew-header__step--current .ew-header__step-label {
   font-weight: 700;
@@ -137,25 +144,26 @@
 
 /* State: future */
 .ew-header__step--future {
-  color: rgba(214, 220, 231, 0.52);
+  color: rgba(214, 220, 231, 0.42);
 }
 .ew-header__step--future .ew-header__step-dot {
-  border-color: var(--forge-episode-phase-future);
+  border-color: rgba(214, 220, 231, 0.22);
 }
 
-/* ── Smart Continue Workflow button (P2.2) ─────────── */
+/* ── Smart Continue Workflow button ─────────────── */
 .ew-header__continue {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 5px 14px;
-  margin-left: 8px;
+  margin-left: 12px;
   background: var(--forge-episode-action-bg);
   border: 1px solid var(--forge-episode-border-strong);
   border-radius: 14px;
   color: var(--forge-episode-action-fg);
   font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.02em;
   text-decoration: none;
   white-space: nowrap;
   flex-shrink: 0;
@@ -165,61 +173,107 @@
 .ew-header__continue:hover,
 .ew-header__continue:focus-visible {
   background: var(--forge-episode-action-hover);
-  border-color: rgba(255, 194, 122, 0.64);
+  border-color: rgba(255, 194, 122, 0.68);
   color: #fff4df;
   outline: none;
 }
 
 .ew-header__continue-arrow {
-  font-size: 12px;
-  opacity: 0.8;
+  font-size: 11px;
+  opacity: 0.7;
+  margin-left: 1px;
 }
 
+/* ── Loading state ────────────────────────────────── */
 .ew-header--loading {
-  min-height: 54px;
-  padding-top: 8px;
-  padding-bottom: 8px;
+  min-height: 40px;
 }
 
 .ew-header__loading {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .ew-header__loading-title {
-  color: var(--forge-episode-title);
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--forge-episode-muted);
+  font-size: 12px;
+  font-weight: 500;
+  animation: ew-pulse 1.6s ease-in-out infinite;
 }
 
-.ew-header__loading-copy {
-  color: var(--forge-episode-muted);
+.ew-header__loading-pulse {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--forge-episode-phase-future);
+  animation: ew-pulse 1.6s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+/* ── Missing state ────────────────────────────────── */
+.ew-header--missing {
+  min-height: 40px;
+  background: linear-gradient(135deg, rgba(200, 80, 80, 0.08), rgba(14, 18, 28, 0.94));
+  border-bottom-color: rgba(200, 100, 100, 0.2);
+}
+
+.ew-header__missing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ew-header__missing-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 200, 190, 0.88);
+}
+
+.ew-header__missing-hint {
   font-size: 11px;
+  color: rgba(214, 220, 231, 0.5);
 }
 
 /* ── Responsive ─────────────────────────────────────── */
 @media (max-width: 700px) {
   .ew-header {
-    padding: 0 10px;
+    padding: 0 12px;
   }
 
+  .ew-header__sep,
   .ew-header__series {
     display: none;
   }
 
-  /* Hide future phases on small screens, keep current + completed */
+  /* Hide future phases on small screens */
   .ew-header__step--future {
+    display: none;
+  }
+
+  .ew-header__missing-hint {
     display: none;
   }
 }
 
 @media (max-width: 480px) {
-  .ew-header__identity {
-    display: none;
+  /* Keep identity visible but slim — hide series, status pill gone via parent */
+  .ew-header__label {
+    max-width: 140px;
   }
 
-  /* Only show current step label */
+  /* Only show label for current step */
   .ew-header__step--completed .ew-header__step-label,
   .ew-header__step--future .ew-header__step-label {
     display: none;
+  }
+
+  .ew-header__continue {
+    padding: 4px 10px;
+    font-size: 10px;
   }
 }
