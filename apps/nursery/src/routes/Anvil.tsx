@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import { useLocation, useOutletContext } from "react-router-dom";
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
@@ -14,6 +15,10 @@ import anvilDevSourceUrl from "../../../anvil/teleprompter_pro.html?url";
 import "./Anvil.css";
 import { useWorkspaceBootstrap } from "../hooks/useWorkspaceBootstrap";
 import EpisodeContinuityStrip from "../shell/EpisodeContinuityStrip";
+import {
+  useEpisodeWorkspaceLoading,
+  useEpisodeWorkspaceReadModel,
+} from "../workspace/useEpisodeWorkspaceReadModel";
 
 const ANVIL_FULL_PAGE_URL = import.meta.env.DEV
   ? anvilDevSourceUrl
@@ -29,6 +34,7 @@ export default function AnvilRoute() {
   const handoffValidationSeqRef = useRef(0);
   const [handoffError, setHandoffError] = useState<string | null>(null);
   const [handoffValidating, setHandoffValidating] = useState(false);
+  const [resolvedEpisodeTitle, setResolvedEpisodeTitle] = useState<string | null>(null);
   const applyHandoffState = useCallback((validating: boolean, error: string | null) => {
     setHandoffValidating(validating);
     setHandoffError(error);
@@ -73,6 +79,22 @@ export default function AnvilRoute() {
     || handoff.scriptPath
     || handoff.hasInvalidScriptPath,
   );
+  const anvilEpisodeReadModel = useMemo(() => {
+    const episodeId = context.workpieceId?.trim() ?? "";
+    const title = resolvedEpisodeTitle?.trim() ?? "";
+    if (!episodeId || !title) return null;
+    return {
+      episodeId,
+      title,
+      phase: "record",
+      displayStatus: handoffValidating ? "scheduled" : "recording",
+    } satisfies EpisodeWorkspaceReadModel;
+  }, [context.workpieceId, handoffValidating, resolvedEpisodeTitle]);
+  useEpisodeWorkspaceLoading(
+    context.workpieceId ?? null,
+    Boolean(context.workpieceId && (waitingForWorkspaceResolution || handoffValidating) && !anvilEpisodeReadModel),
+  );
+  useEpisodeWorkspaceReadModel(anvilEpisodeReadModel);
 
   const bridgeTongsToken = useCallback(() => {
     try {
@@ -90,10 +112,15 @@ export default function AnvilRoute() {
       `/tongs/workspaces/${encodeURIComponent(workspaceId)}/episodes?include_archived=1`,
       { method: "GET" },
     );
-    return Array.isArray(data.episodes)
+    const episodes = Array.isArray(data.episodes)
       ? data.episodes.filter((row): row is HandoffEpisodeSummary => !!row && typeof row === "object")
       : [];
-  }, []);
+    const matchedEpisode = context.workpieceId
+      ? episodes.find((row) => row.id === context.workpieceId)
+      : null;
+    setResolvedEpisodeTitle(matchedEpisode?.title?.trim() ?? null);
+    return episodes;
+  }, [context.workpieceId]);
 
   const readTextFilePresence = useCallback(async (workpieceId: string, path: string): Promise<{ exists: boolean }> => {
     const response = await tongsApiFetch(
@@ -128,6 +155,10 @@ export default function AnvilRoute() {
 
     return { exists: true };
   }, []);
+
+  useEffect(() => {
+    setResolvedEpisodeTitle(null);
+  }, [context.workpieceId]);
 
   useEffect(() => {
     if (!resolvedWorkspaceId || waitingForWorkspaceResolution) return;

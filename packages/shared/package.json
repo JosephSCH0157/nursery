@@ -11,6 +11,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./episode-workspace": {
+      "types": "./dist/episode-workspace/index.d.ts",
+      "import": "./dist/episode-workspace/index.js",
+      "default": "./dist/episode-workspace/index.js"
+    },
     "./script-tags": {
       "types": "./dist/script-tags/index.d.ts",
       "import": "./dist/script-tags/index.js",

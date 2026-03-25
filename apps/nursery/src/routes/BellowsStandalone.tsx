@@ -1,4 +1,5 @@
 import type { RealtimeChannel, User } from "@supabase/supabase-js";
+import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -53,12 +54,41 @@ import {
 import { useBellowsLocalMediaReadiness } from "../lib/bellows/useBellowsLocalMediaReadiness";
 import { supabase, tongsSupabase } from "../lib/supabase";
 import { useWorkspaceBootstrap } from "../hooks/useWorkspaceBootstrap";
+import {
+  useEpisodeWorkspaceLoading,
+  useEpisodeWorkspaceReadModel,
+} from "../workspace/useEpisodeWorkspaceReadModel";
 import "./BellowsStandalone.css";
 
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
 const LEGACY_BARSTOCK_WORKSPACE_KEY = "barstock_workspace_id";
 const BELLOWS_HOST_INVITE_CACHE_KEY = "forge_bellows_host_join_links_v1";
 const BELLOWS_INVITE_ROLE_CODES = ["S2", "G1", "G2"] as const;
+
+function resolveBellowsEpisodeDisplayStatus(recordingState: string | null | undefined): string {
+  switch (recordingState) {
+    case "countdown":
+    case "sync_initializing":
+    case "idle":
+      return "scheduled";
+    case "active":
+    case "degraded":
+    case "offline_local":
+    case "rejoining":
+    case "recording_active":
+    case "recording_degraded":
+    case "recording_offline_local":
+    case "recording_rejoining":
+      return "recording";
+    case "stopping":
+    case "stopped":
+    case "uploading":
+    case "upload_degraded":
+      return "recorded";
+    default:
+      return "scheduled";
+  }
+}
 
 type BellowsRuntimeShell = {
   readonly harness: BellowsOperatorConsoleHarness;
@@ -1284,6 +1314,23 @@ export default function BellowsStandalone() {
     publishedHostPresenceRef.current = "";
     publishedHostSessionSignalRef.current = "";
   }, []);
+  const bellowsEpisodeReadModel = useMemo(() => {
+    const episodeId = routeContext.workpieceId?.trim() ?? "";
+    const title = (draftTitle || snapshot?.session.draft.title || "").trim();
+    if (!episodeId || !snapshot?.session || !title) return null;
+    return {
+      episodeId,
+      title,
+      phase: "record",
+      displayStatus: resolveBellowsEpisodeDisplayStatus(snapshot.session.recordingState),
+      sessionId: snapshot.session.sessionId,
+    } satisfies EpisodeWorkspaceReadModel;
+  }, [draftTitle, routeContext.workpieceId, snapshot?.session]);
+  useEpisodeWorkspaceLoading(
+    routeContext.workpieceId ?? null,
+    Boolean(routeContext.workpieceId && loadingRuntime && !bellowsEpisodeReadModel),
+  );
+  useEpisodeWorkspaceReadModel(bellowsEpisodeReadModel);
 
   useEffect(() => {
     let active = true;

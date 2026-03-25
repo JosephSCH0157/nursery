@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import { useLocation, useOutletContext } from "react-router-dom";
 import {
   type AdapterPublishResult,
@@ -25,6 +26,10 @@ import { tongsFetch } from "../../../hammer/src/lib/tongsFetch";
 import { parseForgeRouteContext } from "../lib/forge-route-context";
 import { useWorkspaceBootstrap } from "../hooks/useWorkspaceBootstrap";
 import EpisodeContinuityStrip from "../shell/EpisodeContinuityStrip";
+import {
+  useEpisodeWorkspaceLoading,
+  useEpisodeWorkspaceReadModel,
+} from "../workspace/useEpisodeWorkspaceReadModel";
 import type { AppShellContext } from "./AppShell";
 import "./Quench.css";
 
@@ -527,6 +532,22 @@ export default function QuenchRoute() {
   const readiness = selectedCase
     ? validateReleasePacketReadiness(selectedCase.packet, resolvedAssets, selectedPlatforms)
     : null;
+  const quenchEpisodeReadModel = useMemo(() => {
+    const episodeId = routeCtx.workpieceId ?? selectedCase?.packet.workpiece_id ?? null;
+    const title = selectedCase?.packet.title?.trim() ?? "";
+    if (!episodeId || !title) return null;
+    return {
+      episodeId,
+      title,
+      phase: "release",
+      displayStatus: readiness?.ready ? "releasing" : "edited",
+    } satisfies EpisodeWorkspaceReadModel;
+  }, [readiness?.ready, routeCtx.workpieceId, selectedCase?.packet.title, selectedCase?.packet.workpiece_id]);
+  useEpisodeWorkspaceLoading(
+    routeCtx.workpieceId ?? null,
+    Boolean(routeCtx.workpieceId && preparedHandoffState.status === "loading" && !quenchEpisodeReadModel),
+  );
+  useEpisodeWorkspaceReadModel(quenchEpisodeReadModel);
   const resolvedAssetCards: ResolvedAssetCard[] = [
     { kind: "video", asset: resolvedAssets.video },
     { kind: "audio", asset: resolvedAssets.audio },

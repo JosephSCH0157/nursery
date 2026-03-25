@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
 import type { HammerShellContext, HammerShellWorkspaceOption, HammerWorkspaceResolutionState } from "@hammer/app/hammerShellContext";
 import {
@@ -14,7 +15,12 @@ import { buildHammerEditorHref, buildHammerRouteState, resolveHammerRouteSelecti
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { buildForgeRouteHref } from "../lib/forge-route-context";
+import { useWorkspaceBootstrap } from "../hooks/useWorkspaceBootstrap";
 import { supabase } from "../lib/supabase";
+import {
+  useEpisodeWorkspaceLoading,
+  useEpisodeWorkspaceReadModel,
+} from "../workspace/useEpisodeWorkspaceReadModel";
 import "./HammerStandalone.css";
 
 const AiControlsPanel = lazy(async () => {
@@ -108,6 +114,10 @@ export default function HammerStandalone() {
     [location.search],
   );
   const isEditorRoute = location.pathname.startsWith("/app/hammer/editor");
+  useWorkspaceBootstrap({
+    episodeId: workpieceId ?? undefined,
+    phase: isEditorRoute ? "edit" : undefined,
+  });
   const currentOutputId = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return params.get("output")?.trim() || "main-edit";
@@ -317,6 +327,22 @@ export default function HammerStandalone() {
   const workspaceSummaryLabel = workspaceResolutionState === "resolving"
     ? "Resolving workspace..."
     : workspaceName ?? (workspaceId ? "Workspace selected" : "Choose workspace");
+  const hammerEpisodeReadModel = useMemo(() => {
+    const episodeId = workpieceId?.trim() ?? "";
+    const title = workpieceLabel?.trim() ?? "";
+    if (!episodeId || !isEditorRoute || !title) return null;
+    return {
+      episodeId,
+      title,
+      phase: "edit",
+      displayStatus: "editing",
+    } satisfies EpisodeWorkspaceReadModel;
+  }, [isEditorRoute, workpieceId, workpieceLabel]);
+  useEpisodeWorkspaceLoading(
+    workpieceId ?? null,
+    Boolean(workpieceId && (resolvingInferredWorkspace || workpieceLabelLoading) && !hammerEpisodeReadModel),
+  );
+  useEpisodeWorkspaceReadModel(hammerEpisodeReadModel);
 
   const selectWorkspace = useCallback((nextWorkspaceId: string | null) => {
     persistHammerStoredActiveWorkspaceId(nextWorkspaceId);

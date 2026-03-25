@@ -1,4 +1,4 @@
-import type { EpisodeWorkspaceReadModel } from "@forge/shared";
+import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import { useEffect } from "react";
 import { useOptionalEpisodeWorkspace } from "./EpisodeWorkspaceContext";
 

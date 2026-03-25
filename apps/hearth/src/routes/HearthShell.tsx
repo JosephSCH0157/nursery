@@ -87,7 +87,12 @@ import {
 } from "../lib/hearth-presence";
 import { resolveTongsRequestApiToken, tongsFetch } from "../lib/tongs-fetch";
 import { useSourcesState } from "../hooks/useSourcesState";
-import { useChatWorkspace, useChatWorkspaceHistory, useChatWorkspaceState } from "../hooks/useChatWorkspace";
+import {
+  useChatWorkspace,
+  useChatWorkspaceHistory,
+  useChatWorkspaceRuntime,
+  useChatWorkspaceState,
+} from "../hooks/useChatWorkspace";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
@@ -113,6 +118,7 @@ import {
   type ScriptValidationResult,
   type ScriptValidationIssue,
 } from "@forge/shared/script-tags";
+import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import type {
   ComposeSetup,
   ProductionDefaults,
@@ -2186,7 +2192,15 @@ function createPlanningSessionForEpisode(workpieceId: string, workspaceId: strin
   };
 }
 
-export default function HearthShell() {
+type HearthShellProps = {
+  onEpisodeReadModelChange?: (readModel: EpisodeWorkspaceReadModel | null) => void;
+  onEpisodeContextLoadingChange?: (episodeId: string | null) => void;
+};
+
+export default function HearthShell({
+  onEpisodeReadModelChange,
+  onEpisodeContextLoadingChange,
+}: HearthShellProps = {}) {
   const storeKind = resolveStoreKind();
   const devMode = isDevMode();
   const layoutMode = useLayoutMode();
@@ -2968,6 +2982,23 @@ export default function HearthShell() {
     () => resolveChatHistoryKey(workpieceId, activeDraft?.id ?? null),
     [activeDraft?.id, workpieceId],
   );
+  const buildActiveEpisodeContext = useCallback((): EpisodeContext | null => {
+    const episodeId = workpieceId?.trim();
+    if (!episodeId) return null;
+    const episodeSparks = sparks.filter((spark) => (
+      (workpieceId && spark.links?.hearthWorkpieceId === workpieceId)
+      || (activeDraft?.id && spark.links?.hearthDraftId === activeDraft.id)
+    ));
+    return buildEpisodeContext({
+      episodeId,
+      workspaceId,
+      draft: activeDraft,
+      planningSession,
+      workpieceSources,
+      sourceIndexById,
+      sparks: episodeSparks,
+    });
+  }, [activeDraft, planningSession, sourceIndexById, sparks, workpieceId, workpieceSources, workspaceId]);
   const { flushChatHistoryNow } = useChatWorkspaceHistory<PendingAiProposal>({
     store,
     activeDraftId: activeDraft?.id ?? null,
@@ -2987,6 +3018,56 @@ export default function HearthShell() {
     writeChatHistoryCache,
     sanitizeChatMessagesForStorage,
     chatHistoryWriteDebounceMs: CHAT_HISTORY_WRITE_DEBOUNCE_MS,
+  });
+  const { sendChatMessage, onSendChat, onCancelAiRequest } = useChatWorkspaceRuntime<
+    PendingAiProposal,
+    EpisodeContext,
+    HearthOp
+  >({
+    isAiProcessing,
+    aiTokenBalance,
+    chatDraft,
+    setChatDraft,
+    setChatMessages,
+    setChatError,
+    setPendingAiProposal,
+    setAiRuntimeWarning,
+    setIsAiProcessing,
+    setAiBillingMode,
+    setAiTokenBalance,
+    chatMessagesRef,
+    aiRequestControllerRef,
+    gateAwaitingAnswersRef,
+    pendingShortcutIntentRef,
+    chatHistoryMaxMessages: CHAT_HISTORY_MAX_MESSAGES,
+    buildActiveEpisodeContext,
+    detectChatIntentSignals,
+    detectAiAutosaveReasonCode,
+    buildAssistantMessageContent,
+    countProducerQuestions,
+    readLatestOutlineFromOps,
+    cloneHearthProposalOps,
+    createPendingAiProposal: (proposalArgs) => ({
+      assistantText: proposalArgs.assistantText,
+      ops: proposalArgs.proposalOps,
+      originalOps: cloneHearthProposalOps(proposalArgs.proposalOps),
+      selected: proposalArgs.proposalOps.map(() => true),
+      context: proposalArgs.episodeContext,
+      fromGate: proposalArgs.fromGate,
+      autosaveReasonCode: proposalArgs.autosaveReasonCode,
+    }),
+    resolveAiLaneFromStorage,
+    requestHearthChatReply,
+    persistProductionArtifact: async (artifactArgs) => {
+      await persistProductionArtifact({
+        action: artifactArgs.action as ProductionAction,
+        scriptVersion: artifactArgs.scriptVersion,
+        assistantText: artifactArgs.assistantText,
+      });
+    },
+    refreshMyAiCredits,
+    recordInteractionEvent,
+    publishForgeNotice,
   });
   const chatWorkspace = useChatWorkspace({
     chatSurfaceProps: {
@@ -3207,6 +3288,39 @@ export default function HearthShell() {
     hasApprovedScript,
     resolveReadyAttribution,
     scriptApprovalState.approvedAt,
+  ]);
+  const episodeWorkspaceReadModel = useMemo(() => {
+    const episodeId = workpieceId?.trim() ?? "";
+    const title = activeWorkpiece?.title?.trim() ?? "";
+    if (!episodeId || !title) return null;
+    return {
+      episodeId,
+      title,
+      phase: "script",
+      displayStatus: activeWorkpieceIsArchived
+        ? "draft"
+        : activeReadyScript || hasApprovedScript
+        ? "scripted"
+        : "draft",
+    } satisfies EpisodeWorkspaceReadModel;
+  }, [activeReadyScript, activeWorkpiece?.title, activeWorkpieceIsArchived, hasApprovedScript, workpieceId]);
+
+  useEffect(() => {
+    onEpisodeReadModelChange?.(episodeWorkspaceReadModel);
+  }, [episodeWorkspaceReadModel, onEpisodeReadModelChange]);
+
+  useEffect(() => {
+    const nextEpisodeId = hasActiveEpisode && (isLoading || isWorkpiecesLoading) && !episodeWorkspaceReadModel
+      ? workpieceId ?? null
+      : null;
+    onEpisodeContextLoadingChange?.(nextEpisodeId);
+  }, [
+    episodeWorkspaceReadModel,
+    hasActiveEpisode,
+    isLoading,
+    isWorkpiecesLoading,
+    onEpisodeContextLoadingChange,
+    workpieceId,
   ]);
   const metadataTagSuggestions = useMemo(
     () => buildMetadataTagSuggestions({
@@ -6969,31 +7083,6 @@ export default function HearthShell() {
     return true;
   }
 
-  function onCancelAiRequest() {
-    aiRequestControllerRef.current?.abort();
-  }
-
-  const buildActiveEpisodeContext = useCallback((): EpisodeContext | null => {
-    const episodeId = workpieceId?.trim();
-    if (!episodeId) return null;
-    return buildEpisodeContext({
-      episodeId,
-      workspaceId,
-      draft: activeDraft,
-      planningSession,
-      workpieceSources,
-      sourceIndexById,
-      sparks: activeEpisodeSparks,
-    });
-  }, [
-    activeDraft,
-    activeEpisodeSparks,
-    planningSession,
-    sourceIndexById,
-    workpieceId,
-    workpieceSources,
-  ]);
-
   function findNextBodyFromOps(baseBody: string, ops: HearthOp[]): string {
     let next = baseBody;
     for (const op of ops) {
@@ -7601,218 +7690,6 @@ export default function HearthShell() {
       }
     } catch {
       setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
-    }
-  }
-
-  async function sendChatMessage(args: {
-    requestContent: string;
-    displayContent?: string;
-    productionAction?: ProductionAction;
-    productionScriptVersion?: number;
-    source?: "typed" | "voice" | "shortcut";
-  }) {
-    if (isAiProcessing) return;
-    const requestContent = args.requestContent.trim();
-    if (!requestContent) return;
-
-    const displayContent = (args.displayContent ?? requestContent).trim();
-    const episodeContext = buildActiveEpisodeContext();
-    if (!episodeContext) {
-      setChatError("Select an Episode or Spark to start.");
-      return;
-    }
-
-    const lane = resolveAiLaneFromStorage();
-    setAiBillingMode(lane);
-    if (lane === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
-      setChatError("No AI credits remaining.");
-      return;
-    }
-    if (lane === "byo") {
-      setAiTokenBalance(null);
-    }
-
-    const source = args.source ?? "typed";
-    const isProductionRequest = Boolean(args.productionAction);
-    const intentSignals = detectChatIntentSignals(requestContent);
-    const autosaveReasonCode = detectAiAutosaveReasonCode(requestContent);
-    const pendingShortcutIntent = pendingShortcutIntentRef.current;
-    pendingShortcutIntentRef.current = null;
-
-    recordInteractionEvent("chat_sent", {
-      source,
-      chars: requestContent.length,
-      lane,
-      has_deliverable: intentSignals.hasDeliverable,
-      production_action: args.productionAction ?? null,
-    });
-
-    if (!isProductionRequest) {
-      if (intentSignals.requestedOutline && pendingShortcutIntent !== "outline") {
-        recordInteractionEvent("user_requested_outline", {
-          source,
-        });
-      }
-      if (intentSignals.requestedScript && pendingShortcutIntent !== "script") {
-        recordInteractionEvent("user_requested_script", {
-          source,
-        });
-      }
-      if (intentSignals.explicitDraftNow) {
-        recordInteractionEvent("user_explicit_draft_now", {
-          source,
-        });
-      }
-    }
-
-    const gateAnswering = gateAwaitingAnswersRef.current;
-    if (gateAnswering) {
-      gateAwaitingAnswersRef.current = false;
-      recordInteractionEvent("gate_answers_provided", {
-        source,
-      });
-    }
-
-    const requestUserMessage: HearthChatMessage = { role: "user", content: requestContent };
-    const displayUserMessage: HearthChatMessage = { role: "user", content: displayContent || requestContent };
-    const baseMessages = chatMessagesRef.current;
-    const requestMessages = [...baseMessages, requestUserMessage].slice(-CHAT_HISTORY_MAX_MESSAGES);
-    const displayMessages = [...baseMessages, displayUserMessage].slice(-CHAT_HISTORY_MAX_MESSAGES);
-    setChatMessages(displayMessages);
-    setChatDraft("");
-    setChatError(null);
-    setAiRuntimeWarning(null);
-    setPendingAiProposal(null);
-
-    const controller = new AbortController();
-    aiRequestControllerRef.current = controller;
-    setIsAiProcessing(true);
-
-    try {
-      const result = await requestHearthChatReply(requestMessages, episodeContext, { signal: controller.signal });
-      setAiBillingMode(result.runtime.billingMode);
-      if (result.runtime.billingMode === "byo") {
-        setAiTokenBalance(null);
-      }
-      if (!result.ok) {
-        if (!result.cancelled) {
-          setChatError(result.error);
-          publishForgeNotice({
-            job: "job-failed",
-            title: "Hearth job failed",
-            message: result.error,
-            severity: "error",
-          });
-        }
-        return;
-      }
-
-      if (result.gate === "clarify") {
-        gateAwaitingAnswersRef.current = true;
-        recordInteractionEvent("gate_questions_shown", {
-          source: "server_gate",
-          question_count: countProducerQuestions(result.assistantText),
-        });
-      }
-
-      const keepOutlineInChatOnly = !args.productionAction && autosaveReasonCode === "ai_outline";
-      const assistantContent = buildAssistantMessageContent({
-        assistantText: result.assistantText,
-        ops: result.ops,
-        autosaveReasonCode,
-      });
-      const assistantMessage: HearthChatMessage = { role: "assistant", content: assistantContent };
-      setChatMessages((prev) => [...prev, assistantMessage].slice(-CHAT_HISTORY_MAX_MESSAGES));
-
-      if (args.productionAction && args.productionScriptVersion) {
-        await persistProductionArtifact({
-          action: args.productionAction,
-          scriptVersion: args.productionScriptVersion,
-          assistantText: result.assistantText,
-        });
-      }
-
-      const proposalOps = keepOutlineInChatOnly ? [] : result.ops;
-      if (keepOutlineInChatOnly) {
-        recordInteractionEvent("outline_generated", {
-          source,
-          has_outline: Boolean(readLatestOutlineFromOps(result.ops)),
-          ops_count: result.ops.length,
-        });
-      } else if (!args.productionAction && result.ops.some((op) => op.op === "set_body")) {
-        recordInteractionEvent("draft_generated", {
-          source,
-          ops_count: result.ops.length,
-        });
-      }
-
-      if (!args.productionAction && proposalOps.length > 0) {
-        setPendingAiProposal({
-          assistantText: assistantContent,
-          ops: proposalOps,
-          originalOps: cloneHearthProposalOps(proposalOps),
-          selected: proposalOps.map(() => true),
-          context: episodeContext,
-          fromGate: gateAnswering,
-          autosaveReasonCode,
-        });
-      }
-
-      if (!args.productionAction) {
-        const scriptUpdated = proposalOps.some((op) => op.op === "set_body");
-        const sourceAdditions = proposalOps.filter((op) => op.op === "add_source").length;
-        if (scriptUpdated) {
-          const sourceSuffix = sourceAdditions > 0
-            ? ` and added ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"}`
-            : "";
-          publishForgeNotice({
-            job: "script-completed",
-            title: "Script draft ready",
-            message: `Hearth finished a script draft${sourceSuffix}.`,
-            severity: "success",
-          });
-        } else if (sourceAdditions > 0) {
-          publishForgeNotice({
-            job: "sources-found",
-            title: "Sources ready",
-            message: `Hearth added ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"} to this episode.`,
-            severity: "success",
-          });
-        }
-      }
-
-      if (result.creditsWarning) {
-        setAiRuntimeWarning(result.creditsWarning);
-      }
-
-      const refreshedCredits = await refreshMyAiCredits();
-      const laneNow = resolveAiLaneFromStorage();
-      if (laneNow === "byo") {
-        setAiBillingMode("byo");
-        setAiTokenBalance(null);
-      } else if (refreshedCredits.ok) {
-        setAiBillingMode(refreshedCredits.runtime.billingMode);
-        setAiTokenBalance(refreshedCredits.runtime.tokenBalance);
-      } else {
-        setAiRuntimeWarning("Unable to update credits.");
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        return;
-      }
-      const message = err instanceof Error ? err.message : "AI request failed.";
-      setChatError(message);
-      publishForgeNotice({
-        job: "job-failed",
-        title: "Hearth job failed",
-        message,
-        severity: "error",
-      });
-    } finally {
-      if (aiRequestControllerRef.current === controller) {
-        aiRequestControllerRef.current = null;
-        setIsAiProcessing(false);
-      }
     }
   }
 
@@ -10455,12 +10332,6 @@ export default function HearthShell() {
 
   function onMetadataPreviewModeChange(mode: "youtube" | "rss" | "plain"): void {
     setMetadataPreviewMode(mode);
-  }
-
-  async function onSendChat() {
-    const content = chatDraft.trim();
-    if (!content) return;
-    await sendChatMessage({ requestContent: content });
   }
 
   function onDiscardAiProposal() {

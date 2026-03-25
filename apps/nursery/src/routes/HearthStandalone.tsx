@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import { Link, useLocation } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
 import HearthShell from "@hearth/routes/HearthShell";
@@ -16,6 +17,10 @@ import {
 } from "../lib/forge-route-context";
 import { useForgeCloudStatus } from "../lib/forge-cloud-status";
 import { useWorkspaceBootstrap } from "../hooks/useWorkspaceBootstrap";
+import {
+  useEpisodeWorkspaceLoading,
+  useEpisodeWorkspaceReadModel,
+} from "../workspace/useEpisodeWorkspaceReadModel";
 import "./HearthStandalone.css";
 
 const AiControlsPanel = lazy(async () => {
@@ -140,6 +145,8 @@ export default function HearthStandalone() {
   const [navOpen, setNavOpen] = useState(false);
   const [aiControlsOpen, setAiControlsOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [episodeReadModel, setEpisodeReadModel] = useState<EpisodeWorkspaceReadModel | null>(null);
+  const [episodeLoadingId, setEpisodeLoadingId] = useState<string | null>(null);
   const { session, loading } = useForgeSession();
   const aiStatus = useAiStatus();
   const location = useLocation();
@@ -156,6 +163,8 @@ export default function HearthStandalone() {
   // Hydrate the global EpisodeWorkspaceContext from URL params so the
   // EpisodeWorkspaceShell header can show episode identity while in Hearth.
   useWorkspaceBootstrap({ episodeId: routeContext.workpieceId ?? undefined });
+  useEpisodeWorkspaceLoading(episodeLoadingId, Boolean(episodeLoadingId));
+  useEpisodeWorkspaceReadModel(episodeReadModel);
 
   const navTreeWithContext = useMemo(
     () => forgeNavTree.map((section) => ({
@@ -371,7 +380,10 @@ export default function HearthStandalone() {
       </header>
 
       <main className="hearth-standalone__main">
-        <HearthShell />
+        <HearthShell
+          onEpisodeContextLoadingChange={setEpisodeLoadingId}
+          onEpisodeReadModelChange={setEpisodeReadModel}
+        />
       </main>
     </div>
   );

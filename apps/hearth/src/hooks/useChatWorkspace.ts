@@ -292,3 +292,309 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
 
   return { flushChatHistoryNow };
 }
+
+type SendChatMessageArgs = {
+  requestContent: string;
+  displayContent?: string;
+  productionAction?: string;
+  productionScriptVersion?: number;
+  source?: "typed" | "voice" | "shortcut";
+};
+
+type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp> = {
+  isAiProcessing: boolean;
+  aiTokenBalance: number | null;
+  chatDraft: string;
+  setChatDraft: (value: string) => void;
+  setChatMessages: (value: HearthChatMessage[] | ((prev: HearthChatMessage[]) => HearthChatMessage[])) => void;
+  setChatError: (value: string | null) => void;
+  setPendingAiProposal: (value: TPendingAiProposal | null) => void;
+  setAiRuntimeWarning: (value: string | null) => void;
+  setIsAiProcessing: (value: boolean) => void;
+  setAiBillingMode: (value: "forge" | "byo") => void;
+  setAiTokenBalance: (value: number | null) => void;
+  chatMessagesRef: MutableRefObject<HearthChatMessage[]>;
+  aiRequestControllerRef: MutableRefObject<AbortController | null>;
+  gateAwaitingAnswersRef: MutableRefObject<boolean>;
+  pendingShortcutIntentRef: MutableRefObject<"outline" | "script" | null>;
+  chatHistoryMaxMessages: number;
+  buildActiveEpisodeContext: () => TEpisodeContext | null;
+  detectChatIntentSignals: (text: string) => {
+    hasDeliverable: boolean;
+    requestedOutline: boolean;
+    requestedScript: boolean;
+    explicitDraftNow: boolean;
+  };
+  detectAiAutosaveReasonCode: (text: string) => any;
+  buildAssistantMessageContent: (args: {
+    assistantText: string;
+    ops: THearthOp[];
+    autosaveReasonCode: any;
+  }) => string;
+  countProducerQuestions: (text: string) => number;
+  readLatestOutlineFromOps: (ops: THearthOp[]) => string | null;
+  cloneHearthProposalOps: (ops: THearthOp[]) => THearthOp[];
+  createPendingAiProposal: (args: {
+    assistantText: string;
+    proposalOps: THearthOp[];
+    episodeContext: TEpisodeContext;
+    fromGate: boolean;
+    autosaveReasonCode: any;
+  }) => TPendingAiProposal;
+  resolveAiLaneFromStorage: () => "forge" | "byo";
+  requestHearthChatReply: (
+    messages: HearthChatMessage[],
+    episodeContext: TEpisodeContext,
+    options: { signal: AbortSignal },
+  ) => Promise<{
+    ok: boolean;
+    cancelled?: boolean;
+    error?: string;
+    assistantText?: string;
+    ops?: THearthOp[];
+    gate?: "clarify";
+    creditsWarning?: string;
+    runtime: {
+      billingMode: "forge" | "byo";
+    };
+  }>;
+  persistProductionArtifact: (args: {
+    action: string;
+    scriptVersion: number;
+    assistantText: string;
+  }) => Promise<void>;
+  refreshMyAiCredits: () => Promise<{
+    ok: boolean;
+    runtime?: {
+      billingMode: "forge" | "byo";
+      tokenBalance: number | null;
+    };
+  }>;
+  recordInteractionEvent: (eventType: any, payload?: Record<string, unknown>) => void;
+  publishForgeNotice: (notice: {
+    job: any;
+    title: string;
+    message?: string;
+    severity: any;
+  }) => void;
+};
+
+export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THearthOp>(
+  args: UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>,
+): {
+  sendChatMessage: (params: SendChatMessageArgs) => Promise<void>;
+  onSendChat: () => Promise<void>;
+  onCancelAiRequest: () => void;
+} {
+  const onCancelAiRequest = useCallback(() => {
+    args.aiRequestControllerRef.current?.abort();
+  }, [args.aiRequestControllerRef]);
+
+  const sendChatMessage = useCallback(async (params: SendChatMessageArgs) => {
+    if (args.isAiProcessing) return;
+    const requestContent = params.requestContent.trim();
+    if (!requestContent) return;
+
+    const displayContent = (params.displayContent ?? requestContent).trim();
+    const episodeContext = args.buildActiveEpisodeContext();
+    if (!episodeContext) {
+      args.setChatError("Select an Episode or Spark to start.");
+      return;
+    }
+
+    const lane = args.resolveAiLaneFromStorage();
+    args.setAiBillingMode(lane);
+    if (lane === "forge" && args.aiTokenBalance != null && args.aiTokenBalance <= 0) {
+      args.setChatError("No AI credits remaining.");
+      return;
+    }
+    if (lane === "byo") {
+      args.setAiTokenBalance(null);
+    }
+
+    const source = params.source ?? "typed";
+    const isProductionRequest = Boolean(params.productionAction);
+    const intentSignals = args.detectChatIntentSignals(requestContent);
+    const autosaveReasonCode = args.detectAiAutosaveReasonCode(requestContent);
+    const pendingShortcutIntent = args.pendingShortcutIntentRef.current;
+    args.pendingShortcutIntentRef.current = null;
+
+    args.recordInteractionEvent("chat_sent", {
+      source,
+      chars: requestContent.length,
+      lane,
+      has_deliverable: intentSignals.hasDeliverable,
+      production_action: params.productionAction ?? null,
+    });
+
+    if (!isProductionRequest) {
+      if (intentSignals.requestedOutline && pendingShortcutIntent !== "outline") {
+        args.recordInteractionEvent("user_requested_outline", { source });
+      }
+      if (intentSignals.requestedScript && pendingShortcutIntent !== "script") {
+        args.recordInteractionEvent("user_requested_script", { source });
+      }
+      if (intentSignals.explicitDraftNow) {
+        args.recordInteractionEvent("user_explicit_draft_now", { source });
+      }
+    }
+
+    const gateAnswering = args.gateAwaitingAnswersRef.current;
+    if (gateAnswering) {
+      args.gateAwaitingAnswersRef.current = false;
+      args.recordInteractionEvent("gate_answers_provided", { source });
+    }
+
+    const requestUserMessage: HearthChatMessage = { role: "user", content: requestContent };
+    const displayUserMessage: HearthChatMessage = { role: "user", content: displayContent || requestContent };
+    const baseMessages = args.chatMessagesRef.current;
+    const requestMessages = [...baseMessages, requestUserMessage].slice(-args.chatHistoryMaxMessages);
+    const displayMessages = [...baseMessages, displayUserMessage].slice(-args.chatHistoryMaxMessages);
+    args.setChatMessages(displayMessages);
+    args.setChatDraft("");
+    args.setChatError(null);
+    args.setAiRuntimeWarning(null);
+    args.setPendingAiProposal(null);
+
+    const controller = new AbortController();
+    args.aiRequestControllerRef.current = controller;
+    args.setIsAiProcessing(true);
+
+    try {
+      const result = await args.requestHearthChatReply(requestMessages, episodeContext, { signal: controller.signal });
+      args.setAiBillingMode(result.runtime.billingMode);
+      if (result.runtime.billingMode === "byo") {
+        args.setAiTokenBalance(null);
+      }
+      if (!result.ok) {
+        if (!result.cancelled) {
+          const message = result.error ?? "AI request failed.";
+          args.setChatError(message);
+          args.publishForgeNotice({
+            job: "job-failed",
+            title: "Hearth job failed",
+            message,
+            severity: "error",
+          });
+        }
+        return;
+      }
+
+      const ops = result.ops ?? [];
+      const assistantText = result.assistantText ?? "";
+
+      if (result.gate === "clarify") {
+        args.gateAwaitingAnswersRef.current = true;
+        args.recordInteractionEvent("gate_questions_shown", {
+          source: "server_gate",
+          question_count: args.countProducerQuestions(assistantText),
+        });
+      }
+
+      const keepOutlineInChatOnly = !params.productionAction && autosaveReasonCode === "ai_outline";
+      const assistantContent = args.buildAssistantMessageContent({
+        assistantText,
+        ops,
+        autosaveReasonCode,
+      });
+      const assistantMessage: HearthChatMessage = { role: "assistant", content: assistantContent };
+      args.setChatMessages((prev) => [...prev, assistantMessage].slice(-args.chatHistoryMaxMessages));
+
+      if (params.productionAction && params.productionScriptVersion) {
+        await args.persistProductionArtifact({
+          action: params.productionAction,
+          scriptVersion: params.productionScriptVersion,
+          assistantText,
+        });
+      }
+
+      const proposalOps = keepOutlineInChatOnly ? [] : ops;
+      if (keepOutlineInChatOnly) {
+        args.recordInteractionEvent("outline_generated", {
+          source,
+          has_outline: Boolean(args.readLatestOutlineFromOps(ops)),
+          ops_count: ops.length,
+        });
+      } else if (!params.productionAction && ops.some((op: any) => op.op === "set_body")) {
+        args.recordInteractionEvent("draft_generated", {
+          source,
+          ops_count: ops.length,
+        });
+      }
+
+      if (!params.productionAction && proposalOps.length > 0) {
+        args.setPendingAiProposal(args.createPendingAiProposal({
+          assistantText: assistantContent,
+          proposalOps,
+          episodeContext,
+          fromGate: gateAnswering,
+          autosaveReasonCode,
+        }));
+      }
+
+      if (!params.productionAction) {
+        const scriptUpdated = proposalOps.some((op: any) => op.op === "set_body");
+        const sourceAdditions = proposalOps.filter((op: any) => op.op === "add_source").length;
+        if (scriptUpdated) {
+          const sourceSuffix = sourceAdditions > 0
+            ? ` and added ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"}`
+            : "";
+          args.publishForgeNotice({
+            job: "script-completed",
+            title: "Script draft ready",
+            message: `Hearth finished a script draft${sourceSuffix}.`,
+            severity: "success",
+          });
+        } else if (sourceAdditions > 0) {
+          args.publishForgeNotice({
+            job: "sources-found",
+            title: "Sources ready",
+            message: `Hearth added ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"} to this episode.`,
+            severity: "success",
+          });
+        }
+      }
+
+      if (result.creditsWarning) {
+        args.setAiRuntimeWarning(result.creditsWarning);
+      }
+
+      const refreshedCredits = await args.refreshMyAiCredits();
+      const laneNow = args.resolveAiLaneFromStorage();
+      if (laneNow === "byo") {
+        args.setAiBillingMode("byo");
+        args.setAiTokenBalance(null);
+      } else if (refreshedCredits.ok && refreshedCredits.runtime) {
+        args.setAiBillingMode(refreshedCredits.runtime.billingMode);
+        args.setAiTokenBalance(refreshedCredits.runtime.tokenBalance);
+      } else {
+        args.setAiRuntimeWarning("Unable to update credits.");
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
+      const message = err instanceof Error ? err.message : "AI request failed.";
+      args.setChatError(message);
+      args.publishForgeNotice({
+        job: "job-failed",
+        title: "Hearth job failed",
+        message,
+        severity: "error",
+      });
+    } finally {
+      if (args.aiRequestControllerRef.current === controller) {
+        args.aiRequestControllerRef.current = null;
+        args.setIsAiProcessing(false);
+      }
+    }
+  }, [args]);
+
+  const onSendChat = useCallback(async () => {
+    const content = args.chatDraft.trim();
+    if (!content) return;
+    await sendChatMessage({ requestContent: content });
+  }, [args.chatDraft, sendChatMessage]);
+
+  return { sendChatMessage, onSendChat, onCancelAiRequest };
+}

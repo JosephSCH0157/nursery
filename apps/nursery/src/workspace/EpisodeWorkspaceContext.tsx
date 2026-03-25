@@ -10,7 +10,7 @@
  *   3. sessionStorage fallback on remount
  */
 
-import type { EpisodeWorkspaceReadModel } from "@forge/shared";
+import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import {
   createContext,
   useCallback,

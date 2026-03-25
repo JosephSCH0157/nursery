@@ -3,6 +3,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 export type HandoffEpisodeSummary = {
   id: string;
   workspace_id: string;
+  title?: string | null;
   archived_at?: string | null;
 };
 
