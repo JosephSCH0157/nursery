@@ -7652,10 +7652,48 @@ export default function HearthShell({
     return Math.max(0, parsed);
   }
 
+  function mapImageEntriesToMediaMapEntries(
+    entries: EpisodeImageMapEntry[],
+    nowIso: string,
+    idPrefix: string,
+  ): EpisodeMediaMapEntry[] {
+    return entries.map((entry) => ({
+      id: `${idPrefix}${entry.id}`,
+      final_media_kind: "image",
+      anchor: {
+        mode: entry.anchor_scope === "global"
+          ? "section_marker"
+          : (entry.placement_hint === "exact_timestamp" ? "absolute_time" : "phrase_match"),
+        target: entry.anchor_scope === "global"
+          ? (entry.section_intent_note?.trim() || "global:image")
+          : (entry.anchor || entry.prompt_basis || entry.description || "image:beat"),
+      },
+      timing: {
+        in_offset_sec: 0,
+        duration_sec: 6,
+      },
+      description: entry.description || entry.visual_intent || entry.prompt_basis || "Image map visual beat",
+      intent: entry.intent || "visual_support",
+      source: {
+        status: entry.selected_asset_id ? "selected" : "unresolved",
+        asset_id: entry.selected_asset_id ?? null,
+      },
+      confidence: entry.status === "selected" ? "high" : "medium",
+      fulfillment_status: entry.selected_asset_id ? "resolved" : "planned",
+      fulfillment_path: entry.selected_asset_id ? "image" : null,
+      optional: entry.visual_priority === "supporting",
+      critical: entry.visual_priority === "primary",
+      stale: false,
+      created_at: nowIso,
+      updated_at: nowIso,
+    }));
+  }
+
   function buildMediaMapFromExistingPlans(
     current: EpisodePackageV2,
     scriptVersionId: string | null,
     scope: MediaMapGenerationScope,
+    imageEntriesOverride?: EpisodeImageMapEntry[] | null,
   ): EpisodeMediaMap {
     const nowIso = new Date().toISOString();
     const thumbnailVersionByConceptId = new Map<string, EpisodeThumbnailVersion>();
@@ -7695,14 +7733,8 @@ export default function HearthShell({
         updated_at: nowIso,
       };
     });
-    const fromExistingMediaMapImages: EpisodeMediaMapEntry[] = current.media_map.entries
-      .filter((entry) => entry.final_media_kind === "image")
-      .map((entry) => ({
-        ...entry,
-        id: `mm_existing_image_${entry.id}`,
-        stale: false,
-        updated_at: nowIso,
-      }));
+    const imageSourceEntries = imageEntriesOverride ?? current.image_map.entries;
+    const fromImageMap = mapImageEntriesToMediaMapEntries(imageSourceEntries, nowIso, "mm_imap_");
     const fromBroll: EpisodeMediaMapEntry[] = current.broll_plan.beats.map((beat) => ({
       id: `mm_broll_${beat.id}`,
       final_media_kind: "b_roll",
@@ -7764,7 +7796,7 @@ export default function HearthShell({
     const includeCdc = scope === "images_cdc" || scope === "full_media_plan";
     const merged = [
       ...(includeImages ? fromThumbnailPrompts : []),
-      ...(includeImages ? fromExistingMediaMapImages : []),
+      ...(includeImages ? fromImageMap : []),
       ...(includeBroll ? fromBroll : []),
       ...(includeCdc ? fromCdc : []),
     ];
@@ -8555,7 +8587,24 @@ export default function HearthShell({
     if (!episodePackage) return;
     if (isMediaMapBusy) return;
     const scriptVersionId = approvedScriptVersion ? String(approvedScriptVersion) : null;
-    const nextMap = buildMediaMapFromExistingPlans(episodePackage, scriptVersionId, mediaMapGenerationScope);
+    let fallbackImageEntries: EpisodeImageMapEntry[] | null = null;
+    let fallbackMode = false;
+    if (episodePackage.image_map.entries.length === 0) {
+      const canonicalScript = await readCanonicalScriptForImageMapGeneration();
+      if (canonicalScript.ok) {
+        const generated = generateImageMapEntriesFromScript(canonicalScript.text);
+        if (generated.length > 0) {
+          fallbackImageEntries = generated;
+          fallbackMode = true;
+        }
+      }
+    }
+    const nextMap = buildMediaMapFromExistingPlans(
+      episodePackage,
+      scriptVersionId,
+      mediaMapGenerationScope,
+      fallbackImageEntries,
+    );
     setIsMediaMapBusy(true);
     setMediaMapSaveState("saving");
     setMediaMapSaveError(null);
@@ -8576,7 +8625,11 @@ export default function HearthShell({
       }
       setSelectedMediaMapEntryId(nextMap.entries[0]?.id ?? null);
       setMediaMapSaveState("saved");
-      setMediaMapMessage(`Generated ${nextMap.entries.length} media map entries using scope: ${mediaMapGenerationScope.replaceAll("_", " ")}.`);
+      setMediaMapMessage(
+        fallbackMode
+          ? `Generated ${nextMap.entries.length} media map entries using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (bootstrapped from canonical script).`
+          : `Generated ${nextMap.entries.length} media map entries using scope: ${mediaMapGenerationScope.replaceAll("_", " ")}.`,
+      );
     } catch {
       setMediaMapSaveError("Unable to generate Episode Media Map.");
       setMediaMapSaveState("error");
