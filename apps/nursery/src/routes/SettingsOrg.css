@@ -67,6 +67,13 @@
   gap: 8px;
 }
 
+.settings-org__members-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.9fr);
+  gap: 16px;
+  align-items: start;
+}
+
 .settings-org__members-title {
   margin: 0;
 }
@@ -95,6 +102,13 @@
   font-size: 13px;
 }
 
+.settings-org__table--selectable {
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid var(--forge-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
 .settings-org__th {
   text-align: left;
 }
@@ -105,7 +119,162 @@
   border-bottom: 1px solid var(--forge-border);
 }
 
+.settings-org__row {
+  cursor: pointer;
+}
+
+.settings-org__row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.settings-org__row--selected {
+  background: rgba(147, 197, 253, 0.12);
+}
+
+.settings-org__member-cell {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-org__member-name {
+  font-weight: 600;
+}
+
+.settings-org__member-email {
+  color: var(--forge-text-muted);
+  font-size: 12px;
+}
+
+.settings-org__member-panel {
+  border: 1px solid var(--forge-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.settings-org__member-panel--empty {
+  min-height: 180px;
+  align-content: start;
+}
+
+.settings-org__member-panel-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-org__panel-title {
+  margin: 0;
+}
+
+.settings-org__member-subcopy {
+  margin-top: 4px;
+}
+
+.settings-org__access-grant {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-org__access-grant-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 10px;
+}
+
+.settings-org__access-field {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-org__access-button {
+  justify-self: start;
+}
+
+.settings-org__access-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-org__access-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--forge-border);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.settings-org__access-summary {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.settings-org__access-name {
+  font-weight: 600;
+}
+
+.settings-org__access-meta {
+  color: var(--forge-text-muted);
+  font-size: 12px;
+}
+
+.settings-org__access-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-org__access-role {
+  display: inline-flex;
+}
+
+.settings-org__access-badge {
+  border: 1px solid var(--forge-border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.settings-org__access-remove {
+  white-space: nowrap;
+}
+
+.settings-org__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .settings-org__select:focus-visible {
   outline: 2px solid rgba(147, 197, 253, 0.6);
   outline-offset: 2px;
+}
+
+@media (max-width: 980px) {
+  .settings-org__members-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .settings-org__access-grant-fields,
+  .settings-org__access-row {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-org__access-controls {
+    justify-content: space-between;
+  }
 }

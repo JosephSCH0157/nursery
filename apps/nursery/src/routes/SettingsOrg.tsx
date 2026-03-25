@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useOutletContext } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import OrgMemberWorkspaceAccessPanel from "../features/orgs/components/OrgMemberWorkspaceAccessPanel";
+import { loadOrgMembers } from "../features/orgs/data/workspaceAccessRepo";
+import {
+  canManageOrgWorkspaceAccess,
+  labelOrgRole,
+  normalizeOrgRole,
+  type OrgMember,
+} from "../features/orgs/types";
 import type { AppShellContext } from "./AppShell";
 import "./SettingsOrg.css";
 
@@ -9,15 +17,6 @@ type OrgRow = {
   org_name: string;
   my_org_role: string;
   created_at: string | null;
-};
-
-type OrgMemberRow = {
-  org_id: string;
-  user_id: string;
-  user_email: string;
-  org_role: string;
-  created_at: string | null;
-  created_by: string | null;
 };
 
 function toErrorMessage(error: unknown, fallback: string): string {
@@ -71,14 +70,6 @@ function readCountField(data: unknown, key: string): number {
   return 0;
 }
 
-function labelRole(role: string | null | undefined): string {
-  const normalized = (role ?? "").trim().toLowerCase();
-  if (normalized === "owner" || normalized === "admin" || normalized === "member") {
-    return `${normalized[0].toUpperCase()}${normalized.slice(1)}`;
-  }
-  return "Unknown";
-}
-
 function formatDate(value: string | null | undefined): string {
   if (!value) return "Unknown";
   const parsed = new Date(value);
@@ -109,9 +100,10 @@ export default function SettingsOrg() {
   const [orgsError, setOrgsError] = useState<string | null>(null);
   const [selectedOrgId, setSelectedOrgId] = useState<string>("");
 
-  const [members, setMembers] = useState<OrgMemberRow[]>([]);
+  const [members, setMembers] = useState<OrgMember[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [membersError, setMembersError] = useState<string | null>(null);
+  const [selectedMemberId, setSelectedMemberId] = useState<string>("");
   const [missingMemberCount, setMissingMemberCount] = useState<number>(0);
   const [loadingMismatch, setLoadingMismatch] = useState(false);
   const [mismatchError, setMismatchError] = useState<string | null>(null);
@@ -121,6 +113,12 @@ export default function SettingsOrg() {
   const activeOrg = useMemo(
     () => orgs.find((org) => org.org_id === selectedOrgId) ?? null,
     [orgs, selectedOrgId],
+  );
+  const actingOrgRole = normalizeOrgRole(activeOrg?.my_org_role);
+  const canManageWorkspaceAccess = canManageOrgWorkspaceAccess(actingOrgRole);
+  const selectedMember = useMemo(
+    () => members.find((member) => member.userId === selectedMemberId) ?? members[0] ?? null,
+    [members, selectedMemberId],
   );
 
   useEffect(() => {
@@ -186,16 +184,17 @@ export default function SettingsOrg() {
 
     void (async () => {
       try {
-        const { data, error } = await tongsRpcClient.rpc("list_org_members", {
-          p_org_id: selectedOrgId,
-        });
+        const rows = await loadOrgMembers(selectedOrgId);
         if (cancelled) return;
-        if (error) throw error;
-        const rows = Array.isArray(data) ? data as OrgMemberRow[] : [];
         setMembers(rows);
+        setSelectedMemberId((current) => {
+          if (current && rows.some((row) => row.userId === current)) return current;
+          return rows[0]?.userId ?? "";
+        });
       } catch (error: unknown) {
         if (cancelled) return;
         setMembers([]);
+        setSelectedMemberId("");
         setMembersError(
           isMissingOrgServicesError(error)
             ? "Org services are not available yet - deploy the DB migration, then retry."
@@ -271,12 +270,15 @@ export default function SettingsOrg() {
       );
 
       const [membersResponse, countResponse] = await Promise.all([
-        tongsRpcClient.rpc("list_org_members", { p_org_id: selectedOrgId }),
+        loadOrgMembers(selectedOrgId),
         tongsRpcClient.rpc("count_missing_org_members_for_org", { p_org_id: selectedOrgId }),
       ]);
-      if (membersResponse.error) throw membersResponse.error;
       if (countResponse.error) throw countResponse.error;
-      setMembers(Array.isArray(membersResponse.data) ? membersResponse.data as OrgMemberRow[] : []);
+      setMembers(membersResponse);
+      setSelectedMemberId((current) => {
+        if (current && membersResponse.some((row) => row.userId === current)) return current;
+        return membersResponse[0]?.userId ?? "";
+      });
       setMissingMemberCount(readCountField(countResponse.data, "missing_members_count"));
     } catch (error: unknown) {
       setMismatchError(
@@ -335,7 +337,7 @@ export default function SettingsOrg() {
               ) : null}
               {orgs.map((org) => (
                 <option key={org.org_id} value={org.org_id}>
-                  {org.org_name} ({labelRole(org.my_org_role)})
+                  {org.org_name} ({labelOrgRole(normalizeOrgRole(org.my_org_role))})
                 </option>
               ))}
             </select>
@@ -346,7 +348,7 @@ export default function SettingsOrg() {
           {activeOrg ? (
             <div className="settings-org__meta">
               <div><strong>Name:</strong> {activeOrg.org_name}</div>
-              <div><strong>Your role:</strong> {labelRole(activeOrg.my_org_role)}</div>
+              <div><strong>Your role:</strong> {labelOrgRole(normalizeOrgRole(activeOrg.my_org_role))}</div>
               <div><strong>Created:</strong> {formatDate(activeOrg.created_at)}</div>
               <div><strong>Org ID:</strong> {activeOrg.org_id}</div>
             </div>
@@ -383,42 +385,67 @@ export default function SettingsOrg() {
               <p className="settings-org__copy">No members found.</p>
             ) : null}
             {!loadingMembers && !membersError && members.length > 0 ? (
-              <table className="settings-org__table">
-                <thead>
-                  <tr>
-                    <th className="settings-org__th">
-                      Email
-                    </th>
-                    <th className="settings-org__th">
-                      Role
-                    </th>
-                    <th className="settings-org__th">
-                      Joined
-                    </th>
-                    <th className="settings-org__th">
-                      User ID
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {members.map((member) => (
-                    <tr key={member.user_id}>
-                      <td className="settings-org__td">
-                        {member.user_email || "Unknown"}
-                      </td>
-                      <td className="settings-org__td">
-                        {labelRole(member.org_role)}
-                      </td>
-                      <td className="settings-org__td">
-                        {formatDate(member.created_at)}
-                      </td>
-                      <td className="settings-org__td">
-                        <code>{shortId(member.user_id)}</code>
-                      </td>
+              <div className="settings-org__members-layout">
+                <table className="settings-org__table settings-org__table--selectable">
+                  <thead>
+                    <tr>
+                      <th className="settings-org__th">
+                        Member
+                      </th>
+                      <th className="settings-org__th">
+                        Role
+                      </th>
+                      <th className="settings-org__th">
+                        Joined
+                      </th>
+                      <th className="settings-org__th">
+                        User ID
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {members.map((member) => (
+                      <tr
+                        key={member.userId}
+                        className={member.userId === selectedMember?.userId ? "settings-org__row settings-org__row--selected" : "settings-org__row"}
+                        onClick={() => setSelectedMemberId(member.userId)}
+                      >
+                        <td className="settings-org__td">
+                          <div className="settings-org__member-cell">
+                            <div className="settings-org__member-name">{member.displayName ?? member.email ?? "Unknown"}</div>
+                            {member.email ? <div className="settings-org__member-email">{member.email}</div> : null}
+                          </div>
+                        </td>
+                        <td className="settings-org__td">
+                          {labelOrgRole(member.orgRole)}
+                        </td>
+                        <td className="settings-org__td">
+                          {formatDate(member.createdAt)}
+                        </td>
+                        <td className="settings-org__td">
+                          <code>{shortId(member.userId)}</code>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {canManageWorkspaceAccess ? (
+                  <OrgMemberWorkspaceAccessPanel
+                    orgId={selectedOrgId}
+                    selectedMember={selectedMember}
+                    actingUserId={session?.user.id ?? null}
+                    canManage={canManageWorkspaceAccess}
+                  />
+                ) : (
+                  <aside className="settings-org__member-panel settings-org__member-panel--empty">
+                    <h5 className="settings-org__panel-title">Workspace Access</h5>
+                    <p className="settings-org__copy">
+                      Workspace access is managed by organization owners and admins.
+                    </p>
+                  </aside>
+                )}
+              </div>
             ) : null}
           </div>
         </>
