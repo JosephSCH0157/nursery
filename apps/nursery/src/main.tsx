@@ -20,6 +20,7 @@ import ForgeNoticeProvider from "./shell/notices/ForgeNoticeProvider";
 import RouteFallback from "./components/RouteFallback";
 import { EpisodeWorkspaceProvider } from "./workspace/EpisodeWorkspaceContext";
 import EpisodeWorkspaceShell from "./shell/EpisodeWorkspaceShell";
+import { HenryProvider } from "./henry/HenryProvider";
 
 const TongsRoute = lazy(() => import("./routes/Tongs"));
 const BarstockRoute = lazy(() => import("./routes/Barstock"));
@@ -56,6 +57,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <EpisodeWorkspaceProvider>
       <ForgeNoticeProvider>
+      <HenryProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
@@ -126,6 +128,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/" element={<Navigate to="/app" replace />} />
           <Route path="*" element={<Navigate to="/app" replace />} />
         </Routes>
+      </HenryProvider>
       </ForgeNoticeProvider>
       </EpisodeWorkspaceProvider>
     </BrowserRouter>

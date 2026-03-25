@@ -11,6 +11,7 @@
   "include": [
     "index.ts",
     "episode-workspace/**/*.ts",
+    "henry/**/*.ts",
     "script-tags/**/*.ts"
   ],
   "exclude": [

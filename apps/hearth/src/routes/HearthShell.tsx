@@ -175,6 +175,7 @@ import {
   reanchorImageMapEntry,
   resolveNearestParagraphSelection,
   resolveImageMapAnchorContext,
+  type ImageMapScriptSelection,
 } from "../lib/hearth-image-map-beats";
 import {
   buildBrollPlanFromScript,
@@ -268,7 +269,6 @@ import {
   deriveHearthThumbnailOverlayText,
   resolveHearthThumbnailOverlayText,
 } from "../lib/hearth-thumbnail-title-contract";
-import ImageMapPanel from "../components/visuals/ImageMapPanel";
 import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
 import {
   getMyWritingProfile,
@@ -10957,6 +10957,75 @@ export default function HearthShell({
       onSaveEntry: () => void onSaveMediaMapEntry(),
       onDeleteEntry: () => void onDeleteMediaMapEntry(),
     };
+    const setImageMapDraftEditing = <T,>(setter: (value: T) => void, value: T) => {
+      setter(value);
+      if (imageMapSaveState !== "editing") {
+        setImageMapSaveState("editing");
+      }
+      setImageMapSaveError(null);
+    };
+    const imageMapPanelProps = {
+      panelTitle: "Timeline Images",
+      manualOnly: false,
+      entries: imageMapEntries,
+      selectedEntryId: selectedImageMapEntryId,
+      draftAnchor: imageMapAnchorDraft,
+      draftDescription: imageMapDescriptionDraft,
+      draftStylePreset: imageMapStyleDraft,
+      draftIntent: imageMapIntentDraft,
+      draftSourceType: imageMapSourceTypeDraft,
+      draftVisualPriority: imageMapVisualPriorityDraft,
+      draftVisualType: imageMapVisualTypeDraft,
+      draftSectionIntentNote: imageMapSectionIntentNoteDraft,
+      draftPlacementHint: imageMapPlacementHintDraft,
+      saveState: imageMapSaveState,
+      saveError: imageMapSaveError,
+      exportMessage: imageMapExportMessage,
+      candidateCards: imageMapCandidateCards,
+      candidateGenerateBusy: isImageMapCandidateGenerating,
+      candidateGenerateError: imageMapCandidateError,
+      candidateSelectBusy: isImageMapCandidateSelecting,
+      candidateSelectionError: imageMapCandidateSelectionError,
+      anchorStatusLabel: imageMapAnchorStatusView?.label ?? null,
+      anchorStatusTone: imageMapAnchorStatusView?.tone ?? "neutral",
+      anchorStatusDetail: imageMapAnchorStatusView?.detail ?? null,
+      reanchorMode: isImageMapReanchorMode,
+      reanchorBusy: isImageMapReanchorSaving,
+      reanchorDisabledReason: imageMapReanchorDisabledReason,
+      nearestRepairAvailable: isImageMapNearestRepairAvailable,
+      reanchorError: imageMapReanchorError,
+      reanchorScriptSourceLabel: resolveCanonicalImageMapScriptSourceLabel(canonicalImageMapScriptState),
+      reanchorScriptHint: resolveCanonicalImageMapScriptHint(canonicalImageMapScriptState),
+      reanchorScriptLoading: canonicalImageMapScriptState.status === "loading",
+      reanchorParagraphs: imageMapAnchorPickerParagraphs,
+      activeAnchorLabel: imageMapActiveAnchorLabel,
+      disabled: isApprovingScript || !episodePackage,
+      onSelectEntry: setSelectedImageMapEntryId,
+      onDraftAnchorChange: (value: string) => setImageMapDraftEditing(setImageMapAnchorDraft, value),
+      onDraftDescriptionChange: (value: string) => setImageMapDraftEditing(setImageMapDescriptionDraft, value),
+      onDraftStylePresetChange: (value: string) => setImageMapDraftEditing(setImageMapStyleDraft, normalizeHearthVisualStyle(value)),
+      onDraftIntentChange: (value: string) => setImageMapDraftEditing(setImageMapIntentDraft, value),
+      onDraftSourceTypeChange: (value: string) => setImageMapDraftEditing(setImageMapSourceTypeDraft, value),
+      onDraftVisualPriorityChange: (value: string) => setImageMapDraftEditing(setImageMapVisualPriorityDraft, value as EpisodeImageMapVisualPriority),
+      onDraftVisualTypeChange: (value: string) => setImageMapDraftEditing(setImageMapVisualTypeDraft, value as EpisodeImageMapVisualType),
+      onDraftSectionIntentNoteChange: (value: string) => setImageMapDraftEditing(setImageMapSectionIntentNoteDraft, value),
+      onDraftPlacementHintChange: (value: string) => setImageMapDraftEditing(setImageMapPlacementHintDraft, value),
+      onCreateEntry: () => void onCreateImageMapEntry(),
+      onDuplicateEntry: () => void onDuplicateImageMapEntry(),
+      onDeleteEntry: () => void onDeleteImageMapEntry(),
+      onSeedFromScript: () => void onSeedImageMapFromScript(),
+      onGenerateCandidates: (mode?: "ai" | "stock") => void onGenerateImageMapCandidates(mode ?? "ai"),
+      onUploadAsset: (file: File) => void onUploadImageMapAsset(file),
+      onSelectCandidate: (candidateId: string) => void onSelectImageMapCandidate(candidateId),
+      onCopyExport: () => void onCopyImageMapExportJson(),
+      onDownloadExport: () => void onDownloadImageMapExportJson(),
+      onStartReanchor: onStartImageMapReanchor,
+      onRepairNearestParagraph: () => void onRepairImageMapNearestParagraph(),
+      onConvertToGlobalVisual: () => void onConvertImageMapToGlobalVisual(),
+      onLeaveOrphaned: () => void onLeaveImageMapOrphaned(),
+      onCancelReanchor: onCancelImageMapReanchor,
+      onPickReanchor: (selection: ImageMapScriptSelection) => void onPickImageMapReanchor(selection),
+    };
     const brollPlanPanelProps = {
       beats: brollBeats,
       selectedBeatId: selectedBrollBeatId,
@@ -11319,10 +11388,12 @@ export default function HearthShell({
               mediaMapScopeLabel={mediaMapScopeLabel}
               thumbnailPanelMeta={thumbnailPanelMeta}
               mediaMapPanelMeta={mediaMapPanelMeta}
+              imageMapPanelMeta={imageMapPanelMeta}
               brollPanelMeta={brollPanelMeta}
               cdcPanelMeta={cdcPanelMeta}
               thumbnailPanelProps={thumbnailPanelProps}
               mediaMapPanelProps={mediaMapPanelProps}
+              imageMapPanelProps={imageMapPanelProps}
               brollPlanPanelProps={brollPlanPanelProps}
               cdcPlanPanelProps={cdcPlanPanelProps}
             />

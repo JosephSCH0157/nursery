@@ -1,0 +1,129 @@
+import type { HenryContext, HenryObservation, HenryRecommendation } from "@forge/shared/henry";
+import type { EpisodeStatusSignals } from "../workspace/resolveEpisodeStatus";
+import { resolveNextEpisodeAction } from "../workspace/resolveNextEpisodeAction";
+import { resolveStagePurpose } from "./henryContext";
+
+export function buildHenryContextSummary(context: HenryContext): string[] {
+  const locationLine = context.surface === "forge-hub"
+    ? "You are in the Forge hub."
+    : `You are in ${context.surface}.`;
+  const purposeLine = `This stage is for ${resolveStagePurpose(context.surface).toLowerCase()}`;
+  const optionalLine = "Most fields and choices here are optional unless marked otherwise.";
+  const safetyLine = "Nothing on this screen should force an irreversible step.";
+  return [locationLine, purposeLine, optionalLine, safetyLine];
+}
+
+function normalizeSignalsFromDisplayStatus(displayStatus: string | null): EpisodeStatusSignals {
+  switch ((displayStatus ?? "").toLowerCase()) {
+    case "scripted":
+    case "ready to record":
+      return { hasApprovedScript: true };
+    case "scheduled":
+      return { hasApprovedScript: true, recordingSessionStatus: "planned" };
+    case "recording":
+      return { hasApprovedScript: true, recordingSessionStatus: "active" };
+    case "recorded":
+      return { hasKeptTake: true, recordingSessionStatus: "completed" };
+    case "editing":
+      return { hasEditorSession: true, hasKeptTake: true, hammerPrepStatus: "preparing" };
+    case "edited":
+    case "ready to release":
+      return { hasEditorSession: true, hasKeptTake: true, hammerPrepStatus: "prepared" };
+    case "releasing":
+      return { releaseState: "prepared", hammerPrepStatus: "prepared", hasEditorSession: true };
+    case "released":
+      return { releaseState: "published" };
+    default:
+      return {};
+  }
+}
+
+export function resolveHenryRecommendation(context: HenryContext): HenryRecommendation {
+  const signals = normalizeSignalsFromDisplayStatus(context.displayStatus);
+  const phase = context.phase ?? "script";
+  const nextAction = resolveNextEpisodeAction(phase, signals);
+  const primary = nextAction
+    ? nextAction.label
+    : "Review where this episode is and choose the next safe step.";
+  const why = nextAction
+    ? `This aligns with the current ${phase} stage and visible episode state.`
+    : "No single required move is detected, so optional paths stay open.";
+  const alternatives = phase === "script"
+    ? ["Keep drafting and leave this in progress.", "Move to recording when the script feels ready."]
+    : phase === "record"
+    ? ["Return to script for refinements.", "Keep preparation in progress and record later."]
+    : phase === "edit"
+    ? ["Continue editing without publishing yet.", "Return to recording if a retake is needed."]
+    : phase === "release"
+    ? ["Prepare metadata now and publish later.", "Return upstream to revise edit outputs first."]
+    : ["Open Hearth to continue shaping the episode.", "Open Quench when outputs are ready to release."];
+
+  return {
+    primary,
+    why,
+    alternatives: alternatives.slice(0, 2),
+  };
+}
+
+export function resolveHenryObservation(context: HenryContext): HenryObservation | null {
+  const surface = context.surface;
+  if (surface === "unknown" || surface === "settings") return null;
+
+  if (surface === "bar-stock") {
+    return { id: "bar-stock:idea-capture", text: "One rough idea is enough to begin here.", surface };
+  }
+  if (surface === "hearth") {
+    return { id: "hearth:ready-means-recordable", text: "Ready means recordable, not perfect.", surface };
+  }
+  if (surface === "tongs") {
+    return { id: "tongs:schedule-vs-ready", text: "Scheduling coordinates timing; it does not change script content.", surface };
+  }
+  if (surface === "anvil") {
+    return { id: "anvil:discard-safe", text: "Discarding a take does not remove the underlying script.", surface };
+  }
+  if (surface === "hammer") {
+    return { id: "hammer:original-safe", text: "Editing here does not overwrite the original recording.", surface };
+  }
+  if (surface === "quench") {
+    return { id: "quench:optional-fields", text: "Not every release field is required to proceed.", surface };
+  }
+  if (surface === "ledger") {
+    return { id: "ledger:feedback-loop", text: "Insights here help decide what to improve upstream.", surface };
+  }
+  return { id: "forge-hub:choose-path", text: "You can start with any stage and iterate.", surface: "forge-hub" };
+}
+
+export function buildHenryActionAnswer(actionId: string, context: HenryContext): string {
+  if (actionId === "explain-screen") {
+    return buildHenryContextSummary(context).join("\n");
+  }
+  if (actionId === "optional-here") {
+    return "Most creators treat this stage as iterative. You can keep work in progress and return later.";
+  }
+  if (actionId === "path-to-publish") {
+    return "Typical path: idea capture -> script shaping -> recording -> editing -> release.";
+  }
+  if (actionId === "show-unfinished") {
+    return "Unfinished work stays valid. You can continue from the current phase without losing prior progress.";
+  }
+  if (actionId === "what-next") {
+    const rec = resolveHenryRecommendation(context);
+    return [
+      `Best next step: ${rec.primary}`,
+      `Why: ${rec.why}`,
+      `You could also: ${rec.alternatives.join(" or ")}`,
+    ].join("\n");
+  }
+  return "I can explain this stage and suggest the next safe move when you ask.";
+}
+
+export function buildHenryChatAnswer(question: string, context: HenryContext): string {
+  const lower = question.toLowerCase();
+  if (lower.includes("next")) {
+    return buildHenryActionAnswer("what-next", context);
+  }
+  if (lower.includes("optional") || lower.includes("required")) {
+    return buildHenryActionAnswer("optional-here", context);
+  }
+  return buildHenryContextSummary(context).join("\n");
+}

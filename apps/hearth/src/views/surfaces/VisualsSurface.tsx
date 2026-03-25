@@ -3,6 +3,7 @@ import CollapsibleFocusPanel from "../../components/focus/CollapsibleFocusPanel"
 import BrollPlanPanel from "../../components/visuals/BrollPlanPanel";
 import CdcPlanPanel from "../../components/visuals/CdcPlanPanel";
 import EpisodeMediaMapPanel from "../../components/visuals/EpisodeMediaMapPanel";
+import ImageMapPanel from "../../components/visuals/ImageMapPanel";
 import ThumbnailPanel from "../../components/visuals/ThumbnailPanel";
 
 type VisualsSurfaceProps = {
@@ -14,10 +15,12 @@ type VisualsSurfaceProps = {
   mediaMapScopeLabel: string;
   thumbnailPanelMeta: string;
   mediaMapPanelMeta: string;
+  imageMapPanelMeta: string;
   brollPanelMeta: string;
   cdcPanelMeta: string;
   thumbnailPanelProps: ComponentProps<typeof ThumbnailPanel>;
   mediaMapPanelProps: ComponentProps<typeof EpisodeMediaMapPanel>;
+  imageMapPanelProps: ComponentProps<typeof ImageMapPanel>;
   brollPlanPanelProps: ComponentProps<typeof BrollPlanPanel>;
   cdcPlanPanelProps: ComponentProps<typeof CdcPlanPanel>;
 };
@@ -54,6 +57,17 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
         collapsible={false}
       >
         <ThumbnailPanel {...props.thumbnailPanelProps} />
+      </CollapsibleFocusPanel>
+
+      <CollapsibleFocusPanel
+        panelId="hearth-image-map-panel"
+        title="Timeline Images"
+        meta={props.imageMapPanelMeta}
+        collapsed={false}
+        onToggle={() => {}}
+        collapsible={false}
+      >
+        <ImageMapPanel {...props.imageMapPanelProps} />
       </CollapsibleFocusPanel>
 
       <CollapsibleFocusPanel
