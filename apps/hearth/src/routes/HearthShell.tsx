@@ -87,7 +87,7 @@ import {
 } from "../lib/hearth-presence";
 import { resolveTongsRequestApiToken, tongsFetch } from "../lib/tongs-fetch";
 import { useSourcesState } from "../hooks/useSourcesState";
-import { useChatWorkspace } from "../hooks/useChatWorkspace";
+import { useChatWorkspace, useChatWorkspaceState } from "../hooks/useChatWorkspace";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
@@ -2262,18 +2262,57 @@ export default function HearthShell() {
   const [cursorPosition, setCursorPosition] = useState<number | null>(null);
   const [scrollTop, setScrollTop] = useState<number | null>(null);
   const [isBodyComposing, setIsBodyComposing] = useState(false);
-  const [chatMessages, setChatMessages] = useState<HearthChatMessage[]>([]);
-  const [chatDraft, setChatDraft] = useState("");
-  const [chatError, setChatError] = useState<string | null>(null);
+  const {
+    chatMessages,
+    setChatMessages,
+    chatDraft,
+    setChatDraft,
+    chatError,
+    setChatError,
+    sttLane,
+    setSttLane,
+    sttState,
+    setSttState,
+    sttError,
+    setSttError,
+    sttNotice,
+    setSttNotice,
+    sttPreview,
+    setSttPreview,
+    pendingAiProposal,
+    setPendingAiProposal,
+    isApplyingAiOps,
+    setIsApplyingAiOps,
+    aiRuntimeWarning,
+    setAiRuntimeWarning,
+    isAiProcessing,
+    setIsAiProcessing,
+    chatInputRef,
+    aiRequestControllerRef,
+    speechRecognitionRef,
+    mediaRecorderRef,
+    mediaStreamRef,
+    aiSttChunksRef,
+    aiSttStartedAtRef,
+    aiSttMimeTypeRef,
+    aiSttEpisodeIdRef,
+    aiSttStopTimerRef,
+    aiSttDiscardNextStopRef,
+    aiSttTranscribeControllerRef,
+    sttNoticeTimerRef,
+    sttPreviewTimerRef,
+    chatPersistTimerRef,
+    chatMessagesRef,
+    latestChatHistoryKeyRef,
+    latestChatDraftIdRef,
+    skipChatHydrationKeyRef,
+    pendingChatHydrationKeyRef,
+    chatHydrationSeqRef,
+  } = useChatWorkspaceState<PendingAiProposal>();
   const [latestReleasePrepRawText, setLatestReleasePrepRawText] = useState<string | null>(null);
   const [latestReleasePrepSections, setLatestReleasePrepSections] = useState<ReleasePrepSection[]>([]);
   const [releasePrepLoadState, setReleasePrepLoadState] = useState<"idle" | "loading" | "ready" | "missing" | "error">("idle");
   const [releasePrepScriptVersion, setReleasePrepScriptVersion] = useState<number | null>(null);
-  const [sttLane, setSttLane] = useState<SttLane>("browser");
-  const [sttState, setSttState] = useState<SttState>("idle");
-  const [sttError, setSttError] = useState<string | null>(null);
-  const [sttNotice, setSttNotice] = useState<string | null>(null);
-  const [sttPreview, setSttPreview] = useState<string | null>(null);
   const [showManualDraft, setShowManualDraft] = useState(false);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [isVisualScriptMode, setIsVisualScriptMode] = useState(false);
@@ -2285,13 +2324,9 @@ export default function HearthShell() {
   const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(() =>
     readScriptApprovalState(incomingBarStockIntakeRoute ? null : resolveWorkpieceId()),
   );
-  const [pendingAiProposal, setPendingAiProposal] = useState<PendingAiProposal | null>(null);
-  const [isApplyingAiOps, setIsApplyingAiOps] = useState(false);
   const [isApprovingScript, setIsApprovingScript] = useState(false);
   const [approvalPersistenceStatus, setApprovalPersistenceStatus] = useState<ApprovalPersistenceStatus | null>(null);
   const [activeProductionAction, setActiveProductionAction] = useState<ProductionAction | null>(null);
-  const [aiRuntimeWarning, setAiRuntimeWarning] = useState<string | null>(null);
-  const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [writingProfile, setWritingProfile] = useState<WritingProfile | null>(null);
   const [forgeGreetingName, setForgeGreetingName] = useState<string>(() => readGreetingNameFromStorage());
   const [hearthUser, setHearthUser] = useState<HearthUserContext>({
@@ -2457,7 +2492,6 @@ export default function HearthShell() {
   const workpieceSummariesRef = useRef<HearthWorkpieceSummary[]>(workpieceSummaries);
   const sessionSaveTimer = useRef<number | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
-  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const sessionCommitRef = useRef<string | null>(null);
   const sessionCommitInFlight = useRef(false);
@@ -2471,26 +2505,6 @@ export default function HearthShell() {
   const restoredModeDraftKeyRef = useRef<string | null>(null);
   const pendingFocusOpenCountRef = useRef(0);
   const pendingDraftEditorPanelRef = useRef<"script" | "manual" | null>(null);
-  const aiRequestControllerRef = useRef<AbortController | null>(null);
-  const speechRecognitionRef = useRef<any>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const aiSttChunksRef = useRef<BlobPart[]>([]);
-  const aiSttStartedAtRef = useRef<number | null>(null);
-  const aiSttMimeTypeRef = useRef<string>("audio/webm");
-  const aiSttEpisodeIdRef = useRef<string | null>(null);
-  const aiSttStopTimerRef = useRef<number | null>(null);
-  const aiSttDiscardNextStopRef = useRef(false);
-  const aiSttTranscribeControllerRef = useRef<AbortController | null>(null);
-  const sttNoticeTimerRef = useRef<number | null>(null);
-  const sttPreviewTimerRef = useRef<number | null>(null);
-  const chatPersistTimerRef = useRef<number | null>(null);
-  const chatMessagesRef = useRef<HearthChatMessage[]>([]);
-  const latestChatHistoryKeyRef = useRef<string | null>(null);
-  const latestChatDraftIdRef = useRef<string | null>(null);
-  const skipChatHydrationKeyRef = useRef<string | null>(null);
-  const pendingChatHydrationKeyRef = useRef<string | null>(null);
-  const chatHydrationSeqRef = useRef(0);
   const gateAwaitingAnswersRef = useRef(false);
   const pendingShortcutIntentRef = useRef<"outline" | "script" | null>(null);
 
