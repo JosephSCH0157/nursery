@@ -69,7 +69,7 @@ import {
   selectDraftForWorkpiece,
   selectWorkpieceNavItems,
 } from "../lib/hearth-nav-model";
-import { mirrorApprovedScriptToLocal, type MirrorApprovedScriptResult } from "../lib/hearth-script-mirror";
+import { mirrorApprovedScriptToLocal } from "../lib/hearth-script-mirror";
 import {
   listHearthReadyScripts,
   removeHearthReadyScripts,
@@ -96,6 +96,7 @@ import {
   useChatWorkspaceState,
 } from "../hooks/useChatWorkspace";
 import { useHearthAutosave } from "../hooks/useHearthAutosave";
+import { useApprovalFlow } from "../hooks/useApprovalFlow";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
@@ -2335,7 +2336,6 @@ export default function HearthShell({
   const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(() =>
     readScriptApprovalState(incomingBarStockIntakeRoute ? null : resolveWorkpieceId()),
   );
-  const [isApprovingScript, setIsApprovingScript] = useState(false);
   const [approvalPersistenceStatus, setApprovalPersistenceStatus] = useState<ApprovalPersistenceStatus | null>(null);
   const [activeProductionAction, setActiveProductionAction] = useState<ProductionAction | null>(null);
   const [writingProfile, setWritingProfile] = useState<WritingProfile | null>(null);
@@ -4050,6 +4050,84 @@ export default function HearthShell({
       }
     }
   }, [workspaceId]);
+  const setScriptValidationGateResult = useCallback((validation: ScriptValidationResult) => {
+    setScriptValidation({
+      source: "save_gate",
+      result: validation,
+    });
+  }, []);
+  const clearScriptValidation = useCallback(() => {
+    setScriptValidation(null);
+  }, []);
+  const persistApprovedDraft = useCallback(async (params: {
+    draft: Draft;
+    updatedAt: number;
+    approvalNote: string;
+  }): Promise<boolean> => {
+    return persistDraft({
+      draft: {
+        ...params.draft,
+        updatedAt: params.updatedAt,
+      },
+      updatedAt: params.updatedAt,
+      createRevision: { kind: "milestone", note: params.approvalNote },
+      syncSources: false,
+      syncSession: false,
+      validateForAnvil: true,
+    });
+  }, [persistDraft]);
+  const publishApprovedScript = useCallback(async (params: {
+    episodeId: string;
+    scriptText: string;
+  }): Promise<boolean> => {
+    const published = await commitHearthPrimaryScript(params.episodeId, params.scriptText, {
+      validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
+    });
+    return published.ok;
+  }, []);
+  const appendApprovalMarker = useCallback((params: { draftId: string; content: string }) => {
+    const markerMessage: HearthChatMessage = { role: "assistant", content: params.content };
+    setChatMessages((prev) => {
+      const next = [...prev, markerMessage].slice(-CHAT_HISTORY_MAX_MESSAGES);
+      flushChatHistoryNow({ draftId: params.draftId, messages: next });
+      return next;
+    });
+  }, [flushChatHistoryNow, setChatMessages]);
+  const {
+    isApprovingScript,
+    onApproveScript,
+  } = useApprovalFlow({
+    activeDraft,
+    workpieceId,
+    workspaceId,
+    revisions,
+    isSaving,
+    isAiProcessing,
+    setError,
+    setChatError,
+    setAiRuntimeWarning,
+    setApprovalPersistenceStatus,
+    setScriptValidationGateResult,
+    clearScriptValidation,
+    evaluateScriptValidation,
+    buildValidationReport,
+    buildPersistedValidationMeta,
+    nextApprovedScriptVersion,
+    persistApprovedDraft,
+    publishApprovedScript,
+    mirrorApprovedScript: async (params) => mirrorApprovedScriptToLocal({
+      workspaceId: params.workspaceId,
+      workpieceId: params.workpieceId,
+      scriptPath: getHearthPrimaryScriptPath(),
+      scriptText: params.scriptText,
+    }),
+    graduateLinkedSpark,
+    setScriptApprovalState,
+    writeScriptApprovalState,
+    updateStyleProfileFromReadyCheckpoint,
+    appendApprovalMarker,
+    refreshReadyScripts,
+  });
 
   useEffect(() => {
     setReadyScripts([]);
@@ -7346,171 +7424,6 @@ export default function HearthShell({
     writeBarStockSparks(nextSparks, workspaceId);
     enqueueBarStockSpark(graduatedSpark, workspaceId);
     return graduatedSpark.id;
-  }
-
-  async function onApproveScript() {
-    if (isApprovingScript || isSaving || isAiProcessing) return;
-    if (!activeDraft) return;
-    const episodeId = workpieceId?.trim();
-    if (!episodeId) {
-      setChatError("Select an Episode or Spark to start.");
-      return;
-    }
-    if (!activeDraft.body.trim()) {
-      setError("Script body is empty. Add script content before approval.");
-      return;
-    }
-
-    const { normalizedText, validation } = evaluateScriptValidation(activeDraft.body);
-    if (!validation.ok) {
-      setScriptValidation({
-        source: "save_gate",
-        result: validation,
-      });
-      setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(validation)}`);
-      return;
-    }
-
-    const scopedRevisions = revisions.filter((revision) => revision.draftId === activeDraft.id);
-    const nextVersion = nextApprovedScriptVersion(scopedRevisions);
-    const approvalNote = `script_version_approved:v${nextVersion}`;
-    setScriptValidation(null);
-    setError(null);
-    setChatError(null);
-    setAiRuntimeWarning(null);
-    setApprovalPersistenceStatus(null);
-    setIsApprovingScript(true);
-    try {
-      const now = Date.now();
-      const normalizedDraft: Draft = {
-        ...activeDraft,
-        body: normalizedText,
-        scriptValidationMeta: buildPersistedValidationMeta(validation),
-      };
-      const saved = await persistDraft({
-        draft: { ...normalizedDraft, updatedAt: now },
-        updatedAt: now,
-        createRevision: { kind: "milestone", note: approvalNote },
-        syncSources: false,
-        syncSession: false,
-        validateForAnvil: true,
-      });
-      if (!saved) return;
-
-      const published = await commitHearthPrimaryScript(episodeId, normalizedText, {
-        validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
-      });
-      if (!published.ok) {
-        setError("Failed to publish approved script to Tongs. Try approving again.");
-        return;
-      }
-
-      const scriptPath = getHearthPrimaryScriptPath();
-      const mirror = await mirrorApprovedScriptToLocal({
-        workspaceId,
-        workpieceId: episodeId,
-        scriptPath,
-        scriptText: normalizedText,
-      });
-      const graduatedSparkId = graduateLinkedSpark(episodeId);
-      if (mirror.ok) {
-        setApprovalPersistenceStatus({
-          cloud: "ok",
-          local: "ok",
-          localPath: mirror.relativePath,
-        });
-        try {
-          console.log("[hearth-approve] saved to cloud and local mirror", {
-            workpieceId: episodeId,
-            scriptPath,
-            graduatedSparkId,
-            localRelativePath: mirror.relativePath,
-            mirrorWorkspaceId: mirror.workspaceId,
-            vaultKey: mirror.vaultKey,
-          });
-        } catch {
-          // ignore logging failures
-        }
-      } else {
-        setApprovalPersistenceStatus({
-          cloud: "ok",
-          local: "failed",
-          localMessage: mirror.message,
-        });
-        setAiRuntimeWarning(`Saved to cloud. Local mirror failed: ${mirror.message}`);
-        try {
-          console.warn("[hearth-approve] local mirror failed", {
-            workpieceId: episodeId,
-            scriptPath,
-            graduatedSparkId,
-            mirrorWorkspaceId: mirror.workspaceId,
-            reason: mirror.reason,
-            message: mirror.message,
-          });
-        } catch {
-          // ignore logging failures
-        }
-      }
-
-      const approvedAt = Date.now();
-      const nextState: ScriptApprovalState = {
-        hasApprovedScript: true,
-        approvedScriptVersion: nextVersion,
-        approvedAt,
-      };
-      setScriptApprovalState(nextState);
-      writeScriptApprovalState(episodeId, nextState);
-
-      let styleAlignmentMarker: string | null = null;
-      const styleUpdate = await updateStyleProfileFromReadyCheckpoint({
-        workspaceId,
-        scriptText: normalizedText,
-      });
-      if (styleUpdate.ok) {
-        if (!styleUpdate.skipped) {
-          const scriptsCount = styleUpdate.profile.scriptsAnalyzedCount;
-          styleAlignmentMarker = `style_alignment: updated (scripts_analyzed: ${scriptsCount})`;
-        } else if (styleUpdate.reason === "paused") {
-          styleAlignmentMarker = "style_alignment: paused";
-        }
-      } else {
-        try {
-          console.warn("[hearth-style] style profile update skipped after approval", {
-            status: styleUpdate.status,
-            error: styleUpdate.error,
-          });
-        } catch {
-          // ignore logging failures
-        }
-      }
-
-      const markerLines = [
-        `🔥 Script Version ${nextVersion} Approved`,
-        `script_version: ${nextVersion}`,
-        `timestamp: ${new Date(approvedAt).toISOString()}`,
-        "saved_to_cloud: ok",
-        mirrorStatusLine(mirror),
-        graduatedSparkId ? `spark_status: graduated (${graduatedSparkId})` : "spark_status: no_linked_spark",
-        ...(styleAlignmentMarker ? [styleAlignmentMarker] : []),
-        "Production Mode available",
-      ];
-      const markerMessage: HearthChatMessage = { role: "assistant", content: markerLines.join("\n") };
-      setChatMessages((prev) => {
-        const next = [...prev, markerMessage].slice(-CHAT_HISTORY_MAX_MESSAGES);
-        flushChatHistoryNow({ draftId: activeDraft.id, messages: next });
-        return next;
-      });
-      void refreshReadyScripts();
-    } finally {
-      setIsApprovingScript(false);
-    }
-  }
-
-  function mirrorStatusLine(result: MirrorApprovedScriptResult): string {
-    if (result.ok) {
-      return `saved_to_local_mirror: ok (${result.relativePath})`;
-    }
-    return `saved_to_local_mirror: failed (${result.message})`;
   }
 
   async function persistProductionArtifact(args: {
