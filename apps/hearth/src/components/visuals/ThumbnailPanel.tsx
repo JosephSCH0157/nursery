@@ -59,6 +59,7 @@ type ThumbnailPanelProps = {
   selectedBrandTemplateLogoDataUrl: string | null;
   brandLogoUploading: boolean;
   brandLogoError: string | null;
+  brandLogoStatus: string | null;
   promptOverride: string;
   aspect: "16:9" | "1:1" | "9:16";
   safeZoneEnabled: boolean;
@@ -284,6 +285,7 @@ export default function ThumbnailPanel({
   selectedBrandTemplateLogoDataUrl,
   brandLogoUploading,
   brandLogoError,
+  brandLogoStatus,
   promptOverride,
   aspect,
   safeZoneEnabled,
@@ -945,6 +947,12 @@ export default function ThumbnailPanel({
                   ) : null}
                   {brandLogoError ? (
                     <div className="hs-error-text-small">{brandLogoError}</div>
+                  ) : null}
+                  {brandLogoStatus ? (
+                    <div className="hs-thumb-template-meta">{brandLogoStatus}</div>
+                  ) : null}
+                  {selectedBrandTemplateLogoDataUrl ? (
+                    <div className="hs-thumb-template-meta">Logo attached to this brand template.</div>
                   ) : null}
                   <section className="hs-thumb-title-style" aria-label="Thumbnail title styling">
                     <div className="hs-thumb-section-title">Title Styling</div>

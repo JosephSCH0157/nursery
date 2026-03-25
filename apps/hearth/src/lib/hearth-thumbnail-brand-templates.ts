@@ -31,6 +31,9 @@ type RpcSuccess<T> = {
 };
 
 type RpcErrorPayload = {
+  code?: unknown;
+  details?: unknown;
+  hint?: unknown;
   message?: unknown;
   error?: unknown;
 };
@@ -214,7 +217,12 @@ function readSupabaseConfig(): SupabaseConfig | null {
 function readRpcError(payload: unknown, fallback: string): string {
   if (!payload || typeof payload !== "object") return fallback;
   const row = payload as RpcErrorPayload;
-  return readString(row.message) ?? readString(row.error) ?? fallback;
+  const message = readString(row.message) ?? readString(row.error);
+  const code = readString(row.code);
+  const details = readString(row.details);
+  const hint = readString(row.hint);
+  const parts = [message, code, details, hint].filter(Boolean) as string[];
+  return parts.length ? parts.join(" | ") : fallback;
 }
 
 async function callTongsRpc<T>(

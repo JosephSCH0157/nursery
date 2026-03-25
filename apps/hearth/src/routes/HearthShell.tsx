@@ -2348,6 +2348,7 @@ export default function HearthShell({
   const [thumbnailBrandLogoDataUrl, setThumbnailBrandLogoDataUrl] = useState<string | null>(null);
   const [isThumbnailBrandLogoUploading, setIsThumbnailBrandLogoUploading] = useState(false);
   const [thumbnailBrandLogoError, setThumbnailBrandLogoError] = useState<string | null>(null);
+  const [thumbnailBrandLogoStatus, setThumbnailBrandLogoStatus] = useState<string | null>(null);
   const [thumbnailPromptOverride, setThumbnailPromptOverride] = useState("");
   const [thumbnailAspect, setThumbnailAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
   const [isThumbnailGenerating, setIsThumbnailGenerating] = useState(false);
@@ -2832,6 +2833,8 @@ export default function HearthShell({
     () => thumbnailBrandTemplates.find((template) => template.id === thumbnailConceptBrandTemplateIdDraft) ?? null,
     [thumbnailBrandTemplates, thumbnailConceptBrandTemplateIdDraft],
   );
+  const selectedThumbnailBrandLogoWorkpieceId = selectedThumbnailBrandTemplate?.templateJson.logo.workpiece_id ?? null;
+  const selectedThumbnailBrandLogoAssetPath = selectedThumbnailBrandTemplate?.templateJson.logo.asset_path ?? null;
   const selectedThumbnailVersion = thumbnailVersions.find((version) => version.id === selectedThumbnailVersionId) ?? null;
   const imageMapEntries = episodePackage?.image_map.entries ?? [];
   const mediaMap: EpisodeMediaMap | null = episodePackage?.media_map ?? null;
@@ -5644,11 +5647,10 @@ export default function HearthShell({
   }, [defaultThumbnailBrandTemplateId, selectedThumbnailConcept]);
 
   useEffect(() => {
-    const logoWorkpieceId = selectedThumbnailBrandTemplate?.templateJson.logo.workpiece_id ?? (workpieceId?.trim() ?? "");
-    const logoAssetPath = selectedThumbnailBrandTemplate?.templateJson.logo.asset_path ?? null;
+    const logoWorkpieceId = selectedThumbnailBrandLogoWorkpieceId ?? (workpieceId?.trim() ?? "");
+    const logoAssetPath = selectedThumbnailBrandLogoAssetPath;
     if (!logoWorkpieceId || !logoAssetPath) {
       setThumbnailBrandLogoDataUrl(null);
-      if (!isThumbnailBrandLogoUploading) setThumbnailBrandLogoError(null);
       return;
     }
 
@@ -5661,11 +5663,15 @@ export default function HearthShell({
       if (cancelled) return;
       if (!loaded.ok) {
         setThumbnailBrandLogoDataUrl(null);
-        if (!isThumbnailBrandLogoUploading) setThumbnailBrandLogoError(loaded.error);
+        if (!isThumbnailBrandLogoUploading && !thumbnailBrandLogoError) {
+          setThumbnailBrandLogoError(loaded.error);
+        }
         return;
       }
       setThumbnailBrandLogoDataUrl(loaded.dataUrl);
-      if (!isThumbnailBrandLogoUploading) setThumbnailBrandLogoError(null);
+      if (!isThumbnailBrandLogoUploading && !thumbnailBrandLogoError) {
+        setThumbnailBrandLogoStatus("Brand logo loaded.");
+      }
     })();
 
     return () => {
@@ -5673,9 +5679,10 @@ export default function HearthShell({
     };
   }, [
     isThumbnailBrandLogoUploading,
+    thumbnailBrandLogoError,
     workpieceId,
-    selectedThumbnailBrandTemplate?.templateJson.logo.workpiece_id,
-    selectedThumbnailBrandTemplate?.templateJson.logo.asset_path,
+    selectedThumbnailBrandLogoWorkpieceId,
+    selectedThumbnailBrandLogoAssetPath,
   ]);
 
   useEffect(() => {
@@ -9289,9 +9296,9 @@ export default function HearthShell({
   }
 
   async function onUploadThumbnailBrandLogo(file: File) {
-    const workspace = workspaceId?.trim() ?? "";
-    const episodeId = workpieceId?.trim() ?? "";
     const template = selectedThumbnailBrandTemplate;
+    const workspace = template?.workspaceId?.trim() ?? "";
+    const episodeId = workpieceId?.trim() ?? "";
     if (!workspace || !episodeId || !template) {
       setThumbnailBrandLogoError("Select a brand template before uploading a logo.");
       return;
@@ -9299,6 +9306,7 @@ export default function HearthShell({
 
     setIsThumbnailBrandLogoUploading(true);
     setThumbnailBrandLogoError(null);
+    setThumbnailBrandLogoStatus(null);
     try {
       const uploaded = await uploadWorkspaceThumbnailBrandLogo({
         workpieceId: episodeId,
@@ -9332,14 +9340,21 @@ export default function HearthShell({
         item.id === updated.data.id ? updated.data : item
       )));
       setThumbnailBrandLogoError(null);
+      setThumbnailBrandLogoStatus(`Logo uploaded for "${updated.data.name}".`);
+      publishForgeNotice({
+        job: "image-generated",
+        title: "Brand logo uploaded",
+        message: "Thumbnail branding logo was saved successfully.",
+        severity: "success",
+      });
     } finally {
       setIsThumbnailBrandLogoUploading(false);
     }
   }
 
   async function onRemoveThumbnailBrandLogo() {
-    const workspace = workspaceId?.trim() ?? "";
     const template = selectedThumbnailBrandTemplate;
+    const workspace = template?.workspaceId?.trim() ?? "";
     if (!workspace || !template) {
       setThumbnailBrandLogoError("Select a brand template before removing a logo.");
       return;
@@ -9347,6 +9362,7 @@ export default function HearthShell({
 
     setIsThumbnailBrandLogoUploading(true);
     setThumbnailBrandLogoError(null);
+    setThumbnailBrandLogoStatus(null);
     try {
       const updated = await updateWorkspaceThumbnailBrandTemplate(workspace, template.id, {
         templateJson: {
@@ -9369,6 +9385,7 @@ export default function HearthShell({
       )));
       setThumbnailBrandLogoDataUrl(null);
       setThumbnailBrandLogoError(null);
+      setThumbnailBrandLogoStatus(`Logo removed from "${updated.data.name}".`);
     } finally {
       setIsThumbnailBrandLogoUploading(false);
     }
@@ -10760,6 +10777,7 @@ export default function HearthShell({
       selectedBrandTemplateLogoDataUrl: thumbnailBrandLogoDataUrl,
       brandLogoUploading: isThumbnailBrandLogoUploading,
       brandLogoError: thumbnailBrandLogoError,
+      brandLogoStatus: thumbnailBrandLogoStatus,
       promptOverride: thumbnailPromptOverride,
       aspect: thumbnailAspect,
       safeZoneEnabled: thumbnailSafeZoneEnabled,
