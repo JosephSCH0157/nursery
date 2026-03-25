@@ -47,10 +47,56 @@ const GENERATION_SCOPES = [
   { value: "full_media_plan", label: "Full media plan" },
 ];
 
+function resolveEntryClassificationReason(entry: EpisodeMediaMapEntry): string {
+  const lowerIntent = (entry.intent ?? "").toLowerCase();
+  const lowerDescription = (entry.description ?? "").toLowerCase();
+  const lowerTarget = (entry.anchor?.target ?? "").toLowerCase();
+  const mergedText = `${lowerIntent} ${lowerDescription} ${lowerTarget}`;
+
+  if (entry.final_media_kind === "image") {
+    if (lowerIntent.includes("thumbnail_concept") || lowerTarget.startsWith("thumbnail:")) {
+      return "Thumbnail concept anchor";
+    }
+    if (entry.anchor.mode === "section_marker") {
+      return "Section-level visual context";
+    }
+    return "Narrative still-image support";
+  }
+
+  if (entry.final_media_kind === "b_roll") {
+    if (lowerIntent.includes("map")) return "Geography/movement context";
+    if (lowerIntent.includes("timeline")) return "Sequence or progression cue";
+    if (lowerIntent.includes("data_visual")) return "Data explained through motion";
+    if (/\b(walk|drive|move|turn|load|build|open|close|enter|exit|record|show)\b/.test(mergedText)) {
+      return "Action/process moment";
+    }
+    return "Motion-based narrative support";
+  }
+
+  if (entry.final_media_kind === "contextual_data_composite") {
+    if (/\b(percent|%|increase|decrease|higher|lower|versus|vs\.?)\b/.test(mergedText)) {
+      return "Comparison/metric claim";
+    }
+    if (/\b(year|years|timeline|before|after|since)\b/.test(mergedText)) {
+      return "Time-series context";
+    }
+    if (/\b(state|county|city|region|country|map)\b/.test(mergedText)) {
+      return "Geographic context";
+    }
+    return "Structured contextual data";
+  }
+
+  return "Classifier heuristic";
+}
+
 export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
   const selectedEntry = useMemo(
     () => props.entries.find((entry) => entry.id === props.selectedEntryId) ?? null,
     [props.entries, props.selectedEntryId],
+  );
+  const selectedEntryReason = useMemo(
+    () => (selectedEntry ? resolveEntryClassificationReason(selectedEntry) : null),
+    [selectedEntry],
   );
 
   return (
@@ -111,6 +157,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
             >
               <div className="hs-imap-entry-title">{entry.description || entry.anchor.target || "Untitled entry"}</div>
               <div className="hs-imap-entry-meta">{entry.final_media_kind} · {entry.anchor.mode} · {entry.source.status}</div>
+              <div className="hs-imap-entry-meta">Reason: {resolveEntryClassificationReason(entry)}</div>
             </button>
           ))}
         </section>
@@ -179,6 +226,9 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
               </div>
 
               <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
+                {selectedEntryReason ? (
+                  <div className="hs-imap-help-text">Classification reason: {selectedEntryReason}</div>
+                ) : null}
                 <label className="hs-checkbox">
                   <input
                     type="checkbox"

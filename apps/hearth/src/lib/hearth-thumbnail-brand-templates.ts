@@ -461,6 +461,13 @@ export function resolveThumbnailBrandRender(args: {
   };
 }
 
+function firstTemplateRpcRow(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+  return value;
+}
+
 type UploadWorkspaceThumbnailBrandLogoResult =
   | {
     ok: true;
@@ -729,8 +736,8 @@ export async function createWorkspaceThumbnailBrandTemplate(
   );
   if (!rpc.ok) return rpc;
 
-  const template = toThumbnailBrandTemplate(rpc.data, normalizedWorkspaceId);
-  if (!template) {
+  const resolvedTemplate = toThumbnailBrandTemplate(firstTemplateRpcRow(rpc.data), normalizedWorkspaceId);
+  if (!resolvedTemplate) {
     return {
       ok: false,
       status: 502,
@@ -741,7 +748,7 @@ export async function createWorkspaceThumbnailBrandTemplate(
   return {
     ok: true,
     status: rpc.status,
-    data: template,
+    data: resolvedTemplate,
   };
 }
 
@@ -772,7 +779,7 @@ export async function updateWorkspaceThumbnailBrandTemplate(
   );
   if (!rpc.ok) return rpc;
 
-  const template = toThumbnailBrandTemplate(rpc.data, normalizedWorkspaceId);
+  const template = toThumbnailBrandTemplate(firstTemplateRpcRow(rpc.data), normalizedWorkspaceId);
   if (!template) {
     return {
       ok: false,
@@ -807,7 +814,7 @@ export async function archiveWorkspaceThumbnailBrandTemplate(
   );
   if (!rpc.ok) return rpc;
 
-  const template = toThumbnailBrandTemplate(rpc.data, normalizedWorkspaceId);
+  const template = toThumbnailBrandTemplate(firstTemplateRpcRow(rpc.data), normalizedWorkspaceId);
   if (!template) {
     return {
       ok: false,

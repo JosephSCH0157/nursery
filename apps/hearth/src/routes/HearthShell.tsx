@@ -7707,6 +7707,22 @@ export default function HearthShell({
     const fallbackScriptText = scriptTextOverride?.trim() ?? "";
     const hasFallbackScript = fallbackScriptText.length > 0;
     const fallbackWorkpieceId = current.media_map.workpiece_id?.trim() || workpieceId?.trim() || "";
+    const splitFallbackScriptMoments = (): string[] => fallbackScriptText
+      .replace(/\r\n?/g, "\n")
+      .split(/\n+/g)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .flatMap((line) => line.split(/(?<=[.!?])\s+/g).map((segment) => segment.trim()))
+      .filter((segment) => segment.length >= 22);
+    const isLikelyCdcMoment = (text: string): boolean => {
+      const signals = inferCdcSuitabilitySignals(text);
+      const lower = text.toLowerCase();
+      const hasNumeric = /\d/.test(lower);
+      const hasComparison = /\b(vs\.?|versus|compared to|comparison|higher|lower|increase|decrease|percent|percentage)\b/.test(lower);
+      const hasTimeOrGeo = /\b(year|years|month|months|timeline|since|before|after|state|county|city|region|country|map)\b/.test(lower);
+      const strength = signals.length + (hasNumeric ? 1 : 0) + (hasComparison ? 1 : 0) + (hasTimeOrGeo ? 1 : 0);
+      return strength >= 3;
+    };
     const thumbnailVersionByConceptId = new Map<string, EpisodeThumbnailVersion>();
     for (const version of current.thumbnail.versions) {
       if (!thumbnailVersionByConceptId.has(version.concept_id)) {
@@ -7754,7 +7770,7 @@ export default function HearthShell({
       ? buildBrollPlanFromScript({
         workpieceId: fallbackWorkpieceId,
         scriptText: fallbackScriptText,
-      }).beats
+      }).beats.filter((beat) => !isLikelyCdcMoment(beat.description || beat.anchor_text))
       : [];
     const brollSourceBeats = current.broll_plan.beats.length > 0
       ? current.broll_plan.beats
@@ -7793,16 +7809,9 @@ export default function HearthShell({
       && fallbackWorkpieceId
     )
       ? (() => {
-        const lines = fallbackScriptText
-          .replace(/\r\n?/g, "\n")
-          .split(/\n+/g)
-          .map((line) => line.trim())
-          .filter((line) => line.length > 0)
-          .flatMap((line) => line.split(/(?<=[.!?])\s+/g).map((segment) => segment.trim()))
-          .filter((segment) => segment.length >= 22);
-        const selected = lines
-          .filter((segment) => inferCdcSuitabilitySignals(segment).length > 0)
-          .slice(0, 10);
+        const selected = splitFallbackScriptMoments()
+          .filter((segment) => isLikelyCdcMoment(segment))
+          .slice(0, 8);
         return selected.map((segment) => createContextualDataCompositePlan({
           workpieceId: fallbackWorkpieceId,
           anchorText: segment,
