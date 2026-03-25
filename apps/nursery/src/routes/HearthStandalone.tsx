@@ -299,7 +299,7 @@ export default function HearthStandalone() {
           onClick={() => setAiControlsOpen(false)}
         >
           <div onClick={(event) => event.stopPropagation()}>
-            <Suspense fallback={<div style={{ padding: 24 }}>Loading AI controls...</div>}>
+            <Suspense fallback={<div className="hearth-standalone__ai-controls-loading">Loading AI controls...</div>}>
               <AiControlsPanel
                 onClose={() => setAiControlsOpen(false)}
                 workspaceId={workspaceId}

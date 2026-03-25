@@ -207,8 +207,8 @@
   color: #c0ffc0;
   font-family: monospace;
   font-size: 11px;
-  user-select: text;
   -webkit-user-select: text;
+  user-select: text;
 }
 
 .episode-debug-overlay__toggle {

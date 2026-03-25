@@ -2377,12 +2377,12 @@ export default function BellowsStandalone() {
                     <span>Mic Activity</span>
                     <strong>{describeAudioActivity(hostLocalMedia.audioActivity)}</strong>
                   </div>
-                  <div className="bellows-standalone__meter-track">
-                    <div
-                      className="bellows-standalone__meter-fill"
-                      style={{ width: `${hostLocalMedia.audioLevelPct}%` }}
-                    />
-                  </div>
+                  <progress
+                    className="bellows-standalone__meter-progress"
+                    max={100}
+                    value={hostLocalMedia.audioLevelPct}
+                    aria-label="Host microphone activity level"
+                  />
                 </div>
 
                 <ul className="bellows-standalone__media-details">

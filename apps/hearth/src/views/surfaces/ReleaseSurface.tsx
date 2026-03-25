@@ -18,7 +18,6 @@ type ReleaseSurfaceProps = {
   latestReleasePrepSections: ReleasePrepSection[];
   onGenerateSeo: () => void;
   onGenerateTags: () => void;
-  onGenerateThumbnailConcepts: () => void;
   onGenerateReleasePrepPack: () => void;
   onOpenVisualsTab: () => void;
   onRefreshReleasePrepPack: () => void;
@@ -55,13 +54,6 @@ export default function ReleaseSurface(props: ReleaseSurfaceProps) {
           disabled={props.isAiProcessing || props.aiCreditsDepleted}
         >
           {props.activeProductionAction === "tags" && props.isAiProcessing ? "Generating..." : "Generate Tags"}
-        </button>
-        <button
-          type="button"
-          onClick={props.onGenerateThumbnailConcepts}
-          disabled={props.isAiProcessing || props.aiCreditsDepleted}
-        >
-          {props.activeProductionAction === "thumbnails" && props.isAiProcessing ? "Generating..." : "Generate Thumbnail Concepts"}
         </button>
         <button
           type="button"

@@ -69,6 +69,8 @@ type ThumbnailPanelProps = {
   generateError: string | null;
   uploadError: string | null;
   pairingError: string | null;
+  canGenerateConcepts?: boolean;
+  isGeneratingConcepts?: boolean;
   isGenerating: boolean;
   isSavingConcept: boolean;
   isUploading: boolean;
@@ -84,6 +86,7 @@ type ThumbnailPanelProps = {
   onSelectedConceptBrandTemplateChange: (value: string | null) => void;
   onUploadBrandLogo: (file: File) => void;
   onRemoveBrandLogo: () => void;
+  onGenerateConcepts?: () => void;
   onCreateConcept: () => void;
   onSaveConcept: () => void;
   onDeleteConcept: () => void;
@@ -295,6 +298,8 @@ export default function ThumbnailPanel({
   generateError,
   uploadError,
   pairingError,
+  canGenerateConcepts = false,
+  isGeneratingConcepts = false,
   isGenerating,
   isSavingConcept,
   isUploading,
@@ -310,6 +315,7 @@ export default function ThumbnailPanel({
   onSelectedConceptBrandTemplateChange,
   onUploadBrandLogo,
   onRemoveBrandLogo,
+  onGenerateConcepts,
   onCreateConcept,
   onSaveConcept,
   onDeleteConcept,
@@ -729,6 +735,15 @@ export default function ThumbnailPanel({
           </div>
 
           <div className="hs-thumb-controls">
+            {onGenerateConcepts ? (
+              <button
+                type="button"
+                onClick={onGenerateConcepts}
+                disabled={!canGenerateConcepts || isGeneratingConcepts || isGenerating || isUploading}
+              >
+                {isGeneratingConcepts ? "Generating Concepts..." : "Generate Thumbnail Concepts"}
+              </button>
+            ) : null}
             <select
               aria-label="Thumbnail aspect ratio"
               title="Thumbnail aspect ratio"

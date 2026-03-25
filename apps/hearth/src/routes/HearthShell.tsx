@@ -7701,8 +7701,12 @@ export default function HearthShell({
     scriptVersionId: string | null,
     scope: MediaMapGenerationScope,
     imageEntriesOverride?: EpisodeImageMapEntry[] | null,
+    scriptTextOverride?: string | null,
   ): EpisodeMediaMap {
     const nowIso = new Date().toISOString();
+    const fallbackScriptText = scriptTextOverride?.trim() ?? "";
+    const hasFallbackScript = fallbackScriptText.length > 0;
+    const fallbackWorkpieceId = current.media_map.workpiece_id?.trim() || workpieceId?.trim() || "";
     const thumbnailVersionByConceptId = new Map<string, EpisodeThumbnailVersion>();
     for (const version of current.thumbnail.versions) {
       if (!thumbnailVersionByConceptId.has(version.concept_id)) {
@@ -7742,7 +7746,20 @@ export default function HearthShell({
     });
     const imageSourceEntries = imageEntriesOverride ?? current.image_map.entries;
     const fromImageMap = mapImageEntriesToMediaMapEntries(imageSourceEntries, nowIso, "mm_imap_");
-    const fromBroll: EpisodeMediaMapEntry[] = current.broll_plan.beats.map((beat) => ({
+    const fallbackBrollBeats = (
+      current.broll_plan.beats.length === 0
+      && hasFallbackScript
+      && fallbackWorkpieceId
+    )
+      ? buildBrollPlanFromScript({
+        workpieceId: fallbackWorkpieceId,
+        scriptText: fallbackScriptText,
+      }).beats
+      : [];
+    const brollSourceBeats = current.broll_plan.beats.length > 0
+      ? current.broll_plan.beats
+      : fallbackBrollBeats;
+    const fromBroll: EpisodeMediaMapEntry[] = brollSourceBeats.map((beat) => ({
       id: `mm_broll_${beat.id}`,
       final_media_kind: "b_roll",
       anchor: {
@@ -7770,7 +7787,33 @@ export default function HearthShell({
       created_at: beat.created_at,
       updated_at: beat.updated_at,
     }));
-    const fromCdc: EpisodeMediaMapEntry[] = current.cdc_plan.entries.map((entry) => ({
+    const fallbackCdcEntries = (
+      current.cdc_plan.entries.length === 0
+      && hasFallbackScript
+      && fallbackWorkpieceId
+    )
+      ? (() => {
+        const lines = fallbackScriptText
+          .replace(/\r\n?/g, "\n")
+          .split(/\n+/g)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
+          .flatMap((line) => line.split(/(?<=[.!?])\s+/g).map((segment) => segment.trim()))
+          .filter((segment) => segment.length >= 22);
+        const selected = lines
+          .filter((segment) => inferCdcSuitabilitySignals(segment).length > 0)
+          .slice(0, 10);
+        return selected.map((segment) => createContextualDataCompositePlan({
+          workpieceId: fallbackWorkpieceId,
+          anchorText: segment,
+          description: segment,
+        }));
+      })()
+      : [];
+    const cdcSourceEntries = current.cdc_plan.entries.length > 0
+      ? current.cdc_plan.entries
+      : fallbackCdcEntries;
+    const fromCdc: EpisodeMediaMapEntry[] = cdcSourceEntries.map((entry) => ({
       id: `mm_cdc_${entry.id}`,
       final_media_kind: "contextual_data_composite",
       anchor: {
@@ -8595,14 +8638,26 @@ export default function HearthShell({
     if (isMediaMapBusy) return;
     const scriptVersionId = approvedScriptVersion ? String(approvedScriptVersion) : null;
     let fallbackImageEntries: EpisodeImageMapEntry[] | null = null;
-    let fallbackMode = false;
-    if (episodePackage.image_map.entries.length === 0) {
+    let fallbackCanonicalScriptText: string | null = null;
+    let fallbackImageMode = false;
+    const needsTypeFallback = (
+      mediaMapGenerationScope === "full_media_plan"
+      || mediaMapGenerationScope === "images_broll"
+      || mediaMapGenerationScope === "images_cdc"
+    ) && (
+      (mediaMapGenerationScope !== "images_cdc" && episodePackage.broll_plan.beats.length === 0)
+      || (mediaMapGenerationScope !== "images_broll" && episodePackage.cdc_plan.entries.length === 0)
+    );
+    if (episodePackage.image_map.entries.length === 0 || needsTypeFallback) {
       const canonicalScript = await readCanonicalScriptForImageMapGeneration();
       if (canonicalScript.ok) {
-        const generated = generateImageMapEntriesFromScript(canonicalScript.text);
-        if (generated.length > 0) {
-          fallbackImageEntries = generated;
-          fallbackMode = true;
+        fallbackCanonicalScriptText = canonicalScript.text;
+        if (episodePackage.image_map.entries.length === 0) {
+          const generated = generateImageMapEntriesFromScript(canonicalScript.text);
+          if (generated.length > 0) {
+            fallbackImageEntries = generated;
+            fallbackImageMode = true;
+          }
         }
       }
     }
@@ -8611,6 +8666,7 @@ export default function HearthShell({
       scriptVersionId,
       mediaMapGenerationScope,
       fallbackImageEntries,
+      fallbackCanonicalScriptText,
     );
     setIsMediaMapBusy(true);
     setMediaMapSaveState("saving");
@@ -8632,10 +8688,10 @@ export default function HearthShell({
       }
       setSelectedMediaMapEntryId(nextMap.entries[0]?.id ?? null);
       setMediaMapSaveState("saved");
+      const brollCount = nextMap.entries.filter((entry) => entry.final_media_kind === "b_roll").length;
+      const cdcCount = nextMap.entries.filter((entry) => entry.final_media_kind === "contextual_data_composite").length;
       setMediaMapMessage(
-        fallbackMode
-          ? `Generated ${nextMap.entries.length} media map entries using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (bootstrapped from canonical script).`
-          : `Generated ${nextMap.entries.length} media map entries using scope: ${mediaMapGenerationScope.replaceAll("_", " ")}.`,
+        `${fallbackImageMode ? "Bootstrapped from canonical script. " : ""}Generated ${nextMap.entries.length} media map entries using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, cdc: ${cdcCount}).`,
       );
     } catch {
       setMediaMapSaveError("Unable to generate Episode Media Map.");
@@ -10787,6 +10843,8 @@ export default function HearthShell({
       generateError: thumbnailGenerateError,
       uploadError: thumbnailUploadError,
       pairingError: thumbnailPairingError,
+      canGenerateConcepts: !aiCreditsDepleted,
+      isGeneratingConcepts: activeProductionAction === "thumbnails" && isAiProcessing,
       isGenerating: isThumbnailGenerating,
       isSavingConcept: isThumbnailConceptSaving,
       isUploading: isThumbnailUploading,
@@ -10820,6 +10878,7 @@ export default function HearthShell({
       onSelectedConceptBrandTemplateChange: setThumbnailConceptBrandTemplateIdDraft,
       onUploadBrandLogo: (file: File) => void onUploadThumbnailBrandLogo(file),
       onRemoveBrandLogo: () => void onRemoveThumbnailBrandLogo(),
+      onGenerateConcepts: () => void onRunProductionAction("thumbnails"),
       onCreateConcept: () => void onCreateThumbnailConcept(),
       onSaveConcept: () => void onSaveSelectedThumbnailConcept(),
       onDeleteConcept: () => void onDeleteSelectedThumbnailConcept(),
@@ -11231,7 +11290,6 @@ export default function HearthShell({
                 latestReleasePrepSections={latestReleasePrepSections}
                 onGenerateSeo={() => void onRunProductionAction("seo")}
                 onGenerateTags={() => void onRunProductionAction("tags")}
-                onGenerateThumbnailConcepts={() => void onRunProductionAction("thumbnails")}
                 onGenerateReleasePrepPack={() => void onRunProductionAction("release_prep_pack")}
                 onOpenVisualsTab={() => requestWorkpieceTabChange("visuals")}
                 onRefreshReleasePrepPack={() => void loadLatestReleasePrepPack(approvedScriptVersion)}

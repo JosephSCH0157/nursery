@@ -18,6 +18,10 @@
   padding: 16px;
 }
 
+.hearth-standalone__ai-controls-loading {
+  padding: 24px;
+}
+
 .hearth-standalone__menu {
   position: absolute;
   top: 12px;
