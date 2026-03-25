@@ -118,7 +118,26 @@ export type EpisodeImageMapAssetRef = {
   variant_label?: string | null;
   visual_mode?: EpisodeImageMapVisualMode | null;
   mime_type?: string | null;
+  source?: EpisodeImageMapAssetSource | null;
 };
+
+export const EPISODE_IMAGE_MAP_ASSET_SOURCE_VALUES = [
+  "ai",
+  "stock",
+  "upload",
+  "external",
+  "hammer_upload",
+] as const;
+
+export type EpisodeImageMapAssetSource = (typeof EPISODE_IMAGE_MAP_ASSET_SOURCE_VALUES)[number];
+
+export const EPISODE_IMAGE_MAP_ORIGIN_VALUES = [
+  "hearth",
+  "hammer",
+  "mixed",
+] as const;
+
+export type EpisodeImageMapOrigin = (typeof EPISODE_IMAGE_MAP_ORIGIN_VALUES)[number];
 
 export type EpisodeImageMapEntry = {
   id: string;
@@ -131,6 +150,7 @@ export type EpisodeImageMapEntry = {
   style_preset?: HearthVisualStyleValue | null;
   intent: string;
   source_type: string;
+  origin?: EpisodeImageMapOrigin;
   visual_priority?: EpisodeImageMapVisualPriority;
   visual_type?: EpisodeImageMapVisualType;
   section_intent_note?: string | null;
@@ -144,6 +164,235 @@ export type EpisodeImageMapEntry = {
 
 export type EpisodeImageMap = {
   entries: EpisodeImageMapEntry[];
+};
+
+export const CANONICAL_MEDIA_TYPE_VALUES = [
+  "thumbnail",
+  "timeline_image",
+  "b_roll",
+  "illustration",
+  "screen_capture",
+  "archival_media",
+  "contextual_data_composite",
+] as const;
+
+export type CanonicalMediaType = (typeof CANONICAL_MEDIA_TYPE_VALUES)[number];
+export type EpisodeMediaMapMediaType = "image" | "b_roll" | "contextual_data_composite";
+export type EpisodeMediaMapAnchorMode = "line_anchor" | "phrase_match" | "speaker_turn" | "section_marker" | "absolute_time";
+export type EpisodeMediaMapSourceStatus = "unresolved" | "selected" | "attached";
+export type EpisodeMediaMapConfidence = "high" | "medium" | "low";
+export type EpisodeMediaMapStatus = "draft" | "review" | "activated" | "fulfilling" | "fulfilled" | "needs_attention";
+export type EpisodeMediaMapBeatFulfillmentStatus = "planned" | "approved" | "queued" | "generating" | "resolved" | "needs_attention";
+export type EpisodeMediaMapFulfillmentPath = "image" | "motion_broll" | "cdc";
+
+export type EpisodeMediaMapAnchor = {
+  mode: EpisodeMediaMapAnchorMode;
+  target: string;
+};
+
+export type EpisodeMediaMapTiming = {
+  in_offset_sec: number;
+  duration_sec: number;
+};
+
+export type EpisodeMediaMapSource = {
+  status: EpisodeMediaMapSourceStatus;
+  asset_id: string | null;
+};
+
+export type EpisodeMediaMapEntry = {
+  id: string;
+  final_media_kind: EpisodeMediaMapMediaType;
+  anchor: EpisodeMediaMapAnchor;
+  timing: EpisodeMediaMapTiming;
+  description: string;
+  intent: string;
+  source: EpisodeMediaMapSource;
+  confidence: EpisodeMediaMapConfidence;
+  fulfillment_status: EpisodeMediaMapBeatFulfillmentStatus;
+  fulfillment_path: EpisodeMediaMapFulfillmentPath | null;
+  optional: boolean;
+  critical: boolean;
+  stale: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EpisodeMediaMap = {
+  id: string;
+  workpiece_id: string;
+  script_version_id: string | null;
+  status: EpisodeMediaMapStatus;
+  version: number;
+  entries: EpisodeMediaMapEntry[];
+  generated_at: string;
+};
+
+export const EPISODE_BROLL_PLAN_MOTION_INTENT_VALUES = [
+  "broll",
+  "establishing",
+  "cutaway",
+  "reaction",
+  "ambient",
+  "explanatory",
+  "graphic",
+  "data_visual",
+  "map",
+  "timeline",
+  "transition",
+] as const;
+
+export const EPISODE_BROLL_PLAN_SOURCE_TYPE_VALUES = [
+  "planned",
+  "stock",
+  "upload",
+  "external",
+  "hearth_ai",
+  "hammer_upload",
+] as const;
+
+export const EPISODE_BROLL_PLAN_MOTION_ASSET_CATEGORY_VALUES = [
+  "stock_video",
+  "ai_video",
+  "uploaded_video",
+  "animated_chart",
+  "animated_graphic",
+  "timeline_graphic",
+  "map_animation",
+  "stat_card",
+] as const;
+
+export const EPISODE_BROLL_PLAN_COVERAGE_STRENGTH_VALUES = [
+  "low",
+  "medium",
+  "high",
+] as const;
+
+export const EPISODE_BROLL_PLAN_FULFILLMENT_STATE_VALUES = [
+  "unresolved",
+  "candidate_assets_available",
+  "resolved",
+  "stale",
+] as const;
+
+export type EpisodeBrollMotionIntent = (typeof EPISODE_BROLL_PLAN_MOTION_INTENT_VALUES)[number];
+export type EpisodeBrollSourceType = (typeof EPISODE_BROLL_PLAN_SOURCE_TYPE_VALUES)[number];
+export type EpisodeBrollMotionAssetCategory = (typeof EPISODE_BROLL_PLAN_MOTION_ASSET_CATEGORY_VALUES)[number];
+export type EpisodeBrollCoverageStrength = (typeof EPISODE_BROLL_PLAN_COVERAGE_STRENGTH_VALUES)[number];
+export type EpisodeBrollFulfillmentState = (typeof EPISODE_BROLL_PLAN_FULFILLMENT_STATE_VALUES)[number];
+
+export type EpisodeBrollShotType = "close" | "medium" | "wide" | "macro" | "aerial" | "mixed";
+export type EpisodeBrollPriority = "primary" | "supporting" | "background";
+export type EpisodeBrollPlacementHint = "first_occurrence" | "exact_timestamp" | "manual";
+export type EpisodeBrollOrigin = "hearth" | "hammer" | "mixed";
+export type EpisodeBrollDataVisualChartType = "bar" | "line" | "area" | "pie" | "timeline" | "stat";
+
+export type EpisodeBrollDataVisualSpec = {
+  chart_type?: EpisodeBrollDataVisualChartType | null;
+  title?: string | null;
+  labels?: string[];
+  values?: number[];
+  emphasis_key?: string | null;
+  animation_style?: string | null;
+};
+
+export type EpisodeBrollAssetCandidate = {
+  asset_id: string;
+  source: EpisodeBrollSourceType;
+  asset_category?: EpisodeBrollMotionAssetCategory | null;
+  label?: string | null;
+  path?: string | null;
+  uri?: string | null;
+  mime_type?: string | null;
+  duration_ms?: number | null;
+  data_visual_spec?: EpisodeBrollDataVisualSpec | null;
+  created_at?: string | null;
+};
+
+export type EpisodeBrollPlanBeat = {
+  id: string;
+  workpiece_id: string;
+  anchor_text: string;
+  placement_hint: EpisodeBrollPlacementHint;
+  timestamp_ms?: number | null;
+  description: string;
+  motion_intent: EpisodeBrollMotionIntent;
+  visual_style?: HearthVisualStyleValue | null;
+  priority: EpisodeBrollPriority;
+  keywords: string[];
+  mood?: string | null;
+  shot_type?: EpisodeBrollShotType | null;
+  motion_suggestion?: string | null;
+  suggested_duration_ms?: number | null;
+  source_type: EpisodeBrollSourceType;
+  asset_category?: EpisodeBrollMotionAssetCategory | null;
+  data_visual_spec?: EpisodeBrollDataVisualSpec | null;
+  selected_asset_id?: string | null;
+  candidate_assets?: EpisodeBrollAssetCandidate[];
+  fulfillment_state?: EpisodeBrollFulfillmentState;
+  origin: EpisodeBrollOrigin;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EpisodeBrollPlan = {
+  id: string;
+  workpiece_id: string;
+  version: number;
+  beats: EpisodeBrollPlanBeat[];
+  coverage_strength?: EpisodeBrollCoverageStrength;
+  generated_at: string;
+};
+
+export const EPISODE_CDC_FORMAT_VALUES = ["still", "animated", "hybrid"] as const;
+export const EPISODE_CDC_DATA_TYPE_VALUES = ["quantitative", "categorical", "timeline", "geographic", "comparison"] as const;
+export const EPISODE_CDC_CONTEXT_TYPE_VALUES = ["location", "object", "historical", "subject", "conceptual"] as const;
+export const EPISODE_CDC_TONE_VALUES = ["neutral", "investigative", "nostalgic", "dramatic", "analytical"] as const;
+export const EPISODE_CDC_MOTION_LEVEL_VALUES = ["static", "subtle", "full_animation"] as const;
+export const EPISODE_CDC_CHART_TYPE_VALUES = ["line", "bar", "area", "scatter", "timeline", "map", "stat_card", "comparison"] as const;
+
+export type EpisodeCdcFormat = (typeof EPISODE_CDC_FORMAT_VALUES)[number];
+export type EpisodeCdcDataType = (typeof EPISODE_CDC_DATA_TYPE_VALUES)[number];
+export type EpisodeCdcContextType = (typeof EPISODE_CDC_CONTEXT_TYPE_VALUES)[number];
+export type EpisodeCdcTone = (typeof EPISODE_CDC_TONE_VALUES)[number];
+export type EpisodeCdcMotionLevel = (typeof EPISODE_CDC_MOTION_LEVEL_VALUES)[number];
+export type EpisodeCdcChartType = (typeof EPISODE_CDC_CHART_TYPE_VALUES)[number];
+
+export type EpisodeContextualDataCompositePlan = {
+  id: string;
+  workpiece_id: string;
+  media_type: "contextual_data_composite";
+  anchor_text: string;
+  placement_hint: EpisodeBrollPlacementHint;
+  timestamp_ms?: number | null;
+  format: EpisodeCdcFormat;
+  data_type: EpisodeCdcDataType;
+  context_type: EpisodeCdcContextType;
+  tone: EpisodeCdcTone;
+  motion_level: EpisodeCdcMotionLevel;
+  description: string;
+  background_context_description: string;
+  foreground_data_description: string;
+  visual_style?: HearthVisualStyleValue | null;
+  chart_type?: EpisodeCdcChartType | null;
+  title?: string | null;
+  labels?: string[];
+  values?: Array<number | string>;
+  emphasis_key?: string | null;
+  candidate_assets?: EpisodeBrollAssetCandidate[];
+  selected_asset_id?: string | null;
+  source_type: EpisodeBrollSourceType;
+  origin: EpisodeBrollOrigin;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EpisodeCdcPlan = {
+  id: string;
+  workpiece_id: string;
+  version: number;
+  entries: EpisodeContextualDataCompositePlan[];
+  generated_at: string;
 };
 
 export const EPISODE_IMAGE_MAP_INTENT_VALUES = [
@@ -160,6 +409,9 @@ export const EPISODE_IMAGE_MAP_SOURCE_TYPE_VALUES = [
   "stock",
   "archival",
   "custom",
+  "upload",
+  "external",
+  "hammer_upload",
 ] as const;
 export const EPISODE_IMAGE_MAP_STATUS_VALUES = [
   "draft",
@@ -201,7 +453,10 @@ export type EpisodePackageV2 = {
   seo: EpisodeSeo;
   thumbnail: EpisodeThumbnail;
   launch_variants: EpisodeLaunchVariant[];
+  media_map: EpisodeMediaMap;
   image_map: EpisodeImageMap;
+  broll_plan: EpisodeBrollPlan;
+  cdc_plan: EpisodeCdcPlan;
 };
 
 export type ProductionArtifactAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
@@ -506,6 +761,7 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
       style_preset: normalizeHearthVisualStyle(readString(entry.style_preset) ?? readString(entry.visual_style) ?? null),
       intent: normalizeImageMapIntent(readString(entry.intent)),
       source_type: normalizeImageMapSourceType(sourceType),
+      origin: normalizeImageMapOrigin(readString(entry.origin)),
       visual_priority: normalizeImageMapVisualPriority(readString(entry.visual_priority)),
       visual_type: normalizeImageMapVisualType(readString(entry.visual_type)),
       section_intent_note: readString(entry.section_intent_note),
@@ -586,6 +842,23 @@ function normalizeImageMapVisualType(value: string | null | undefined): EpisodeI
   return "still_image";
 }
 
+function normalizeImageMapAssetSource(value: string | null | undefined): EpisodeImageMapAssetSource | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (EPISODE_IMAGE_MAP_ASSET_SOURCE_VALUES.includes(normalized as EpisodeImageMapAssetSource)) {
+    return normalized as EpisodeImageMapAssetSource;
+  }
+  return null;
+}
+
+function normalizeImageMapOrigin(value: string | null | undefined): EpisodeImageMapOrigin {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized && EPISODE_IMAGE_MAP_ORIGIN_VALUES.includes(normalized as EpisodeImageMapOrigin)) {
+    return normalized as EpisodeImageMapOrigin;
+  }
+  return "hearth";
+}
+
 function normalizeImageMapAssetRefs(value: unknown): EpisodeImageMapAssetRef[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
@@ -601,6 +874,7 @@ function normalizeImageMapAssetRefs(value: unknown): EpisodeImageMapAssetRef[] {
         variant_label: readString(entry.variant_label),
         visual_mode: normalizeImageMapVisualMode(readString(entry.visual_mode)),
         mime_type: readString(entry.mime_type),
+        source: normalizeImageMapAssetSource(readString(entry.source)),
       });
       continue;
     }
@@ -613,6 +887,7 @@ function normalizeImageMapAssetRefs(value: unknown): EpisodeImageMapAssetRef[] {
       variant_label: null,
       visual_mode: null,
       mime_type: null,
+      source: null,
     });
   }
   return out;
@@ -733,6 +1008,7 @@ function normalizeImageMapEntryPatch(args: {
     style_preset: normalizeHearthVisualStyle(args.entry.style_preset ?? null),
     intent: normalizeImageMapIntent(readString(args.entry.intent)),
     source_type: normalizeImageMapSourceType(readString(args.entry.source_type)),
+    origin: normalizeImageMapOrigin(readString(args.entry.origin)),
     visual_priority: normalizeImageMapVisualPriority(readString(args.entry.visual_priority)),
     visual_type: normalizeImageMapVisualType(readString(args.entry.visual_type)),
     section_intent_note: readString(args.entry.section_intent_note),
@@ -1014,7 +1290,513 @@ function rehydrateImportedImageBeatSheetEntries(args: {
   });
 }
 
+function normalizeBrollPlacementHint(value: unknown): EpisodeBrollPlacementHint {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized === "exact_timestamp") return "exact_timestamp";
+  if (normalized === "manual") return "manual";
+  return "first_occurrence";
+}
+
+function normalizeBrollMotionIntent(value: unknown): EpisodeBrollMotionIntent {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized && EPISODE_BROLL_PLAN_MOTION_INTENT_VALUES.includes(normalized as EpisodeBrollMotionIntent)) {
+    return normalized as EpisodeBrollMotionIntent;
+  }
+  return "broll";
+}
+
+function normalizeBrollSourceType(value: unknown): EpisodeBrollSourceType {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized && EPISODE_BROLL_PLAN_SOURCE_TYPE_VALUES.includes(normalized as EpisodeBrollSourceType)) {
+    return normalized as EpisodeBrollSourceType;
+  }
+  return "planned";
+}
+
+function normalizeBrollMotionAssetCategory(value: unknown): EpisodeBrollMotionAssetCategory | null {
+  const normalized = readString(value)?.toLowerCase();
+  if (
+    normalized
+    && EPISODE_BROLL_PLAN_MOTION_ASSET_CATEGORY_VALUES.includes(normalized as EpisodeBrollMotionAssetCategory)
+  ) {
+    return normalized as EpisodeBrollMotionAssetCategory;
+  }
+  return null;
+}
+
+function normalizeBrollCoverageStrength(value: unknown): EpisodeBrollCoverageStrength | undefined {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized && EPISODE_BROLL_PLAN_COVERAGE_STRENGTH_VALUES.includes(normalized as EpisodeBrollCoverageStrength)) {
+    return normalized as EpisodeBrollCoverageStrength;
+  }
+  return undefined;
+}
+
+function normalizeBrollPriority(value: unknown): EpisodeBrollPriority {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized === "primary" || normalized === "supporting" || normalized === "background") {
+    return normalized;
+  }
+  return "supporting";
+}
+
+function normalizeBrollShotType(value: unknown): EpisodeBrollShotType | null {
+  const normalized = readString(value)?.toLowerCase();
+  if (
+    normalized === "close" || normalized === "medium" || normalized === "wide"
+    || normalized === "macro" || normalized === "aerial" || normalized === "mixed"
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function normalizeBrollOrigin(value: unknown): EpisodeBrollOrigin {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized === "hearth" || normalized === "hammer" || normalized === "mixed") {
+    return normalized;
+  }
+  return "hearth";
+}
+
+function normalizeBrollKeywords(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => readString(entry))
+    .filter((entry): entry is string => Boolean(entry))
+    .slice(0, 24);
+}
+
+function normalizeBrollDataVisualSpec(value: unknown): EpisodeBrollDataVisualSpec | null {
+  if (!isRecord(value)) return null;
+  const chartTypeRaw = readString(value.chart_type)?.toLowerCase();
+  const chartType = (
+    chartTypeRaw === "bar"
+    || chartTypeRaw === "line"
+    || chartTypeRaw === "area"
+    || chartTypeRaw === "pie"
+    || chartTypeRaw === "timeline"
+    || chartTypeRaw === "stat"
+  ) ? chartTypeRaw : null;
+  const labels = readStringArray(value.labels).slice(0, 24);
+  const values = Array.isArray(value.values)
+    ? value.values
+      .map((entry) => readNumber(entry))
+      .filter((entry): entry is number => typeof entry === "number" && Number.isFinite(entry))
+      .slice(0, 24)
+    : [];
+  const normalized: EpisodeBrollDataVisualSpec = {
+    chart_type: chartType,
+    title: readString(value.title),
+    labels,
+    values,
+    emphasis_key: readString(value.emphasis_key),
+    animation_style: readString(value.animation_style),
+  };
+  const hasContent = Boolean(
+    normalized.chart_type
+    || normalized.title
+    || normalized.labels?.length
+    || normalized.values?.length
+    || normalized.emphasis_key
+    || normalized.animation_style,
+  );
+  return hasContent ? normalized : null;
+}
+
+function deriveBrollAssetCategoryFromSource(args: {
+  sourceType: EpisodeBrollSourceType;
+  motionIntent: EpisodeBrollMotionIntent;
+  mimeType?: string | null;
+}): EpisodeBrollMotionAssetCategory {
+  if (args.motionIntent === "data_visual") return "animated_chart";
+  if (args.motionIntent === "map") return "map_animation";
+  if (args.motionIntent === "timeline") return "timeline_graphic";
+  if (args.motionIntent === "graphic") return "animated_graphic";
+  if (args.motionIntent === "explanatory") return "stat_card";
+
+  if (args.sourceType === "stock") return "stock_video";
+  if (args.sourceType === "hearth_ai") return "ai_video";
+  if (args.sourceType === "upload" || args.sourceType === "hammer_upload") return "uploaded_video";
+
+  const mime = readString(args.mimeType)?.toLowerCase() ?? "";
+  if (mime.startsWith("video/")) return "uploaded_video";
+  return "animated_graphic";
+}
+
+function normalizeBrollCandidateAssets(value: unknown): EpisodeBrollAssetCandidate[] {
+  if (!Array.isArray(value)) return [];
+  const candidates: EpisodeBrollAssetCandidate[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const entry = value[index];
+    if (!isRecord(entry)) continue;
+    const assetId = readString(entry.asset_id) ?? readString(entry.id) ?? `broll-asset-${String(index + 1).padStart(2, "0")}`;
+    const source = normalizeBrollSourceType(entry.source);
+    const mimeType = readString(entry.mime_type);
+    candidates.push({
+      asset_id: assetId,
+      source,
+      asset_category: normalizeBrollMotionAssetCategory(entry.asset_category)
+        ?? deriveBrollAssetCategoryFromSource({
+          sourceType: source,
+          motionIntent: "broll",
+          mimeType,
+        }),
+      label: readString(entry.label) ?? readString(entry.variant_label),
+      path: readString(entry.path),
+      uri: readString(entry.uri),
+      mime_type: mimeType,
+      duration_ms: readInteger(entry.duration_ms),
+      data_visual_spec: normalizeBrollDataVisualSpec(entry.data_visual_spec),
+      created_at: normalizeOptionalIso(entry.created_at),
+    });
+  }
+  return candidates;
+}
+
+function normalizeBrollFulfillmentState(
+  value: unknown,
+  candidateAssets: readonly EpisodeBrollAssetCandidate[],
+  selectedAssetId: string | null,
+): EpisodeBrollFulfillmentState {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized && EPISODE_BROLL_PLAN_FULFILLMENT_STATE_VALUES.includes(normalized as EpisodeBrollFulfillmentState)) {
+    return normalized as EpisodeBrollFulfillmentState;
+  }
+  if (selectedAssetId && candidateAssets.some((asset) => asset.asset_id === selectedAssetId)) {
+    return "resolved";
+  }
+  if (candidateAssets.length > 0) {
+    return "candidate_assets_available";
+  }
+  return "unresolved";
+}
+
+function normalizeBrollPlanBeat(value: unknown, fallbackId: string, fallbackWorkpieceId: string): EpisodeBrollPlanBeat | null {
+  if (!isRecord(value)) return null;
+  const id = readString(value.id) ?? fallbackId;
+  const workpieceId = readString(value.workpiece_id) ?? fallbackWorkpieceId;
+  const anchorText = readString(value.anchor_text) ?? readString(value.anchor) ?? "";
+  const description = readString(value.description) ?? "";
+  const candidateAssets = normalizeBrollCandidateAssets(value.candidate_assets);
+  const selectedAssetId = readString(value.selected_asset_id);
+  const motionIntent = normalizeBrollMotionIntent(value.motion_intent);
+  const sourceType = normalizeBrollSourceType(value.source_type);
+  const assetCategory = normalizeBrollMotionAssetCategory(value.asset_category)
+    ?? deriveBrollAssetCategoryFromSource({
+      sourceType,
+      motionIntent,
+      mimeType: null,
+    });
+  return {
+    id,
+    workpiece_id: workpieceId,
+    anchor_text: anchorText,
+    placement_hint: normalizeBrollPlacementHint(value.placement_hint),
+    timestamp_ms: readInteger(value.timestamp_ms),
+    description,
+    motion_intent: motionIntent,
+    visual_style: normalizeHearthVisualStyle(value.visual_style),
+    priority: normalizeBrollPriority(value.priority),
+    keywords: normalizeBrollKeywords(value.keywords),
+    mood: readString(value.mood),
+    shot_type: normalizeBrollShotType(value.shot_type),
+    motion_suggestion: readString(value.motion_suggestion),
+    suggested_duration_ms: readInteger(value.suggested_duration_ms),
+    source_type: sourceType,
+    asset_category: assetCategory,
+    data_visual_spec: normalizeBrollDataVisualSpec(value.data_visual_spec),
+    selected_asset_id: selectedAssetId,
+    candidate_assets: candidateAssets.map((candidate) => ({
+      ...candidate,
+      asset_category: candidate.asset_category
+        ?? deriveBrollAssetCategoryFromSource({
+          sourceType: candidate.source,
+          motionIntent,
+          mimeType: candidate.mime_type ?? null,
+        }),
+    })),
+    fulfillment_state: normalizeBrollFulfillmentState(value.fulfillment_state, candidateAssets, selectedAssetId),
+    origin: normalizeBrollOrigin(value.origin),
+    created_at: normalizeIso(value.created_at),
+    updated_at: normalizeIso(value.updated_at),
+  };
+}
+
+function normalizeBrollPlan(value: unknown): EpisodeBrollPlan {
+  const nowIso = new Date().toISOString();
+  const root = isRecord(value) ? value : null;
+  const beatsRaw = Array.isArray(root?.beats) ? root.beats : [];
+  const workpieceId = readString(root?.workpiece_id) ?? "";
+  const beats = beatsRaw
+    .map((entry, index) => normalizeBrollPlanBeat(
+      entry,
+      `broll-beat-${String(index + 1).padStart(2, "0")}`,
+      workpieceId,
+    ))
+    .filter((entry): entry is EpisodeBrollPlanBeat => Boolean(entry));
+  return {
+    id: readString(root?.id) ?? "broll-plan-v1",
+    workpiece_id: workpieceId,
+    version: Math.max(1, readInteger(root?.version) ?? 1),
+    beats,
+    coverage_strength: normalizeBrollCoverageStrength(root?.coverage_strength),
+    generated_at: normalizeIso(root?.generated_at, nowIso),
+  };
+}
+
+function normalizeCdcFormat(value: unknown): EpisodeCdcFormat {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized && EPISODE_CDC_FORMAT_VALUES.includes(normalized as EpisodeCdcFormat)) {
+    return normalized as EpisodeCdcFormat;
+  }
+  return "still";
+}
+
+function normalizeCdcDataType(value: unknown): EpisodeCdcDataType {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized && EPISODE_CDC_DATA_TYPE_VALUES.includes(normalized as EpisodeCdcDataType)) {
+    return normalized as EpisodeCdcDataType;
+  }
+  return "quantitative";
+}
+
+function normalizeCdcContextType(value: unknown): EpisodeCdcContextType {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized && EPISODE_CDC_CONTEXT_TYPE_VALUES.includes(normalized as EpisodeCdcContextType)) {
+    return normalized as EpisodeCdcContextType;
+  }
+  return "conceptual";
+}
+
+function normalizeCdcTone(value: unknown): EpisodeCdcTone {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized && EPISODE_CDC_TONE_VALUES.includes(normalized as EpisodeCdcTone)) {
+    return normalized as EpisodeCdcTone;
+  }
+  return "analytical";
+}
+
+function normalizeCdcMotionLevel(value: unknown): EpisodeCdcMotionLevel {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized && EPISODE_CDC_MOTION_LEVEL_VALUES.includes(normalized as EpisodeCdcMotionLevel)) {
+    return normalized as EpisodeCdcMotionLevel;
+  }
+  return "static";
+}
+
+function normalizeCdcChartType(value: unknown): EpisodeCdcChartType | null {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized && EPISODE_CDC_CHART_TYPE_VALUES.includes(normalized as EpisodeCdcChartType)) {
+    return normalized as EpisodeCdcChartType;
+  }
+  return null;
+}
+
+function normalizeCdcValues(value: unknown): Array<number | string> {
+  if (!Array.isArray(value)) return [];
+  const next: Array<number | string> = [];
+  for (const entry of value) {
+    if (typeof entry === "number" && Number.isFinite(entry)) {
+      next.push(entry);
+      continue;
+    }
+    const str = readString(entry);
+    if (str) next.push(str);
+  }
+  return next.slice(0, 32);
+}
+
+function normalizeCdcEntry(value: unknown, fallbackId: string, fallbackWorkpieceId: string): EpisodeContextualDataCompositePlan | null {
+  if (!isRecord(value)) return null;
+  const id = readString(value.id) ?? fallbackId;
+  const workpieceId = readString(value.workpiece_id) ?? fallbackWorkpieceId;
+  const candidateAssets = normalizeBrollCandidateAssets(value.candidate_assets);
+  const selectedAssetId = readString(value.selected_asset_id);
+  return {
+    id,
+    workpiece_id: workpieceId,
+    media_type: "contextual_data_composite",
+    anchor_text: readString(value.anchor_text) ?? "",
+    placement_hint: normalizeBrollPlacementHint(value.placement_hint),
+    timestamp_ms: readInteger(value.timestamp_ms),
+    format: normalizeCdcFormat(value.format),
+    data_type: normalizeCdcDataType(value.data_type),
+    context_type: normalizeCdcContextType(value.context_type),
+    tone: normalizeCdcTone(value.tone),
+    motion_level: normalizeCdcMotionLevel(value.motion_level),
+    description: readString(value.description) ?? "",
+    background_context_description: readString(value.background_context_description) ?? "",
+    foreground_data_description: readString(value.foreground_data_description) ?? "",
+    visual_style: normalizeHearthVisualStyle(value.visual_style),
+    chart_type: normalizeCdcChartType(value.chart_type),
+    title: readString(value.title),
+    labels: readStringArray(value.labels).slice(0, 32),
+    values: normalizeCdcValues(value.values),
+    emphasis_key: readString(value.emphasis_key),
+    candidate_assets: candidateAssets,
+    selected_asset_id: selectedAssetId,
+    source_type: normalizeBrollSourceType(value.source_type),
+    origin: normalizeBrollOrigin(value.origin),
+    created_at: normalizeIso(value.created_at),
+    updated_at: normalizeIso(value.updated_at),
+  };
+}
+
+function normalizeCdcPlan(value: unknown): EpisodeCdcPlan {
+  const nowIso = new Date().toISOString();
+  const root = isRecord(value) ? value : null;
+  const entriesRaw = Array.isArray(root?.entries) ? root.entries : [];
+  const workpieceId = readString(root?.workpiece_id) ?? "";
+  const entries = entriesRaw
+    .map((entry, index) => normalizeCdcEntry(entry, `cdc-entry-${String(index + 1).padStart(2, "0")}`, workpieceId))
+    .filter((entry): entry is EpisodeContextualDataCompositePlan => Boolean(entry));
+  return {
+    id: readString(root?.id) ?? "cdc-plan-v1",
+    workpiece_id: workpieceId,
+    version: Math.max(1, readInteger(root?.version) ?? 1),
+    entries,
+    generated_at: normalizeIso(root?.generated_at, nowIso),
+  };
+}
+
+function normalizeMediaMapType(value: unknown): EpisodeMediaMapMediaType {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized === "b_roll" || normalized === "contextual_data_composite" || normalized === "image") {
+    return normalized;
+  }
+  if (normalized === "broll") return "b_roll";
+  if (normalized === "cdc") return "contextual_data_composite";
+  return "image";
+}
+
+function normalizeMediaMapAnchorMode(value: unknown): EpisodeMediaMapAnchorMode {
+  const normalized = readString(value)?.toLowerCase();
+  if (
+    normalized === "line_anchor"
+    || normalized === "phrase_match"
+    || normalized === "speaker_turn"
+    || normalized === "section_marker"
+    || normalized === "absolute_time"
+  ) {
+    return normalized;
+  }
+  return "phrase_match";
+}
+
+function normalizeMediaMapSourceStatus(value: unknown): EpisodeMediaMapSourceStatus {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized === "unresolved" || normalized === "selected" || normalized === "attached") {
+    return normalized;
+  }
+  return "unresolved";
+}
+
+function normalizeMediaMapConfidence(value: unknown): EpisodeMediaMapConfidence {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized === "high" || normalized === "medium" || normalized === "low") {
+    return normalized;
+  }
+  return "medium";
+}
+
+function normalizeMediaMapStatus(value: unknown): EpisodeMediaMapStatus {
+  const normalized = readString(value)?.toLowerCase();
+  if (
+    normalized === "draft"
+    || normalized === "review"
+    || normalized === "activated"
+    || normalized === "fulfilling"
+    || normalized === "fulfilled"
+    || normalized === "needs_attention"
+  ) {
+    return normalized;
+  }
+  if (normalized === "approved") {
+    return "activated";
+  }
+  return "draft";
+}
+
+function normalizeMediaMapBeatFulfillmentStatus(value: unknown): EpisodeMediaMapBeatFulfillmentStatus {
+  const normalized = readString(value)?.toLowerCase();
+  if (
+    normalized === "planned"
+    || normalized === "approved"
+    || normalized === "queued"
+    || normalized === "generating"
+    || normalized === "resolved"
+    || normalized === "needs_attention"
+  ) {
+    return normalized;
+  }
+  return "planned";
+}
+
+function normalizeMediaMapFulfillmentPath(value: unknown): EpisodeMediaMapFulfillmentPath | null {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized === "image" || normalized === "motion_broll" || normalized === "cdc") {
+    return normalized;
+  }
+  return null;
+}
+
+function normalizeMediaMapEntry(value: unknown, fallbackId: string): EpisodeMediaMapEntry | null {
+  if (!isRecord(value)) return null;
+  const id = readString(value.id) ?? fallbackId;
+  const anchorRoot = isRecord(value.anchor) ? value.anchor : null;
+  const timingRoot = isRecord(value.timing) ? value.timing : null;
+  const sourceRoot = isRecord(value.source) ? value.source : null;
+  const inOffset = readNumber(timingRoot?.in_offset_sec) ?? 0;
+  const duration = readNumber(timingRoot?.duration_sec) ?? 6;
+  return {
+    id,
+    final_media_kind: normalizeMediaMapType(value.final_media_kind ?? value.type),
+    anchor: {
+      mode: normalizeMediaMapAnchorMode(anchorRoot?.mode),
+      target: readString(anchorRoot?.target) ?? "",
+    },
+    timing: {
+      in_offset_sec: Math.max(0, inOffset),
+      duration_sec: Math.max(0, duration),
+    },
+    description: readString(value.description) ?? "",
+    intent: readString(value.intent) ?? "",
+    source: {
+      status: normalizeMediaMapSourceStatus(sourceRoot?.status),
+      asset_id: readString(sourceRoot?.asset_id),
+    },
+    confidence: normalizeMediaMapConfidence(value.confidence),
+    fulfillment_status: normalizeMediaMapBeatFulfillmentStatus(value.fulfillment_status),
+    fulfillment_path: normalizeMediaMapFulfillmentPath(value.fulfillment_path),
+    optional: value.optional === true,
+    critical: value.critical === true,
+    stale: value.stale === true,
+    created_at: normalizeIso(value.created_at),
+    updated_at: normalizeIso(value.updated_at),
+  };
+}
+
+function normalizeMediaMap(value: unknown): EpisodeMediaMap {
+  const nowIso = new Date().toISOString();
+  const root = isRecord(value) ? value : null;
+  const entriesRaw = Array.isArray(root?.entries) ? root.entries : [];
+  const entries = entriesRaw
+    .map((entry, index) => normalizeMediaMapEntry(entry, `media-map-entry-${String(index + 1).padStart(2, "0")}`))
+    .filter((entry): entry is EpisodeMediaMapEntry => Boolean(entry));
+  return {
+    id: readString(root?.id) ?? "media-map-v1",
+    workpiece_id: readString(root?.workpiece_id) ?? "",
+    script_version_id: readString(root?.script_version_id),
+    status: normalizeMediaMapStatus(root?.status),
+    version: Math.max(1, readInteger(root?.version) ?? 1),
+    entries,
+    generated_at: normalizeIso(root?.generated_at, nowIso),
+  };
+}
+
 export function createEmptyEpisodePackageV2(): EpisodePackageV2 {
+  const nowIso = new Date().toISOString();
   return {
     schema: EPISODE_PACKAGE_V2_SCHEMA,
     seo: {
@@ -1029,8 +1811,31 @@ export function createEmptyEpisodePackageV2(): EpisodePackageV2 {
       primary_version_id: null,
     },
     launch_variants: [],
+    media_map: {
+      id: "media-map-v1",
+      workpiece_id: "",
+      script_version_id: null,
+      status: "draft",
+      version: 1,
+      entries: [],
+      generated_at: nowIso,
+    },
     image_map: {
       entries: [],
+    },
+    broll_plan: {
+      id: "broll-plan-v1",
+      workpiece_id: "",
+      version: 1,
+      beats: [],
+      generated_at: nowIso,
+    },
+    cdc_plan: {
+      id: "cdc-plan-v1",
+      workpiece_id: "",
+      version: 1,
+      entries: [],
+      generated_at: nowIso,
     },
   };
 }
@@ -1049,6 +1854,21 @@ export function hydrateEpisodePackageV2(metadata: Record<string, unknown>): Epis
     ? episodeRoot.image_map
     : isRecord(metadata.image_map)
       ? metadata.image_map
+      : null;
+  const brollPlanRoot = isRecord(episodeRoot?.broll_plan)
+    ? episodeRoot.broll_plan
+    : isRecord(metadata.broll_plan)
+      ? metadata.broll_plan
+      : null;
+  const cdcPlanRoot = isRecord(episodeRoot?.cdc_plan)
+    ? episodeRoot.cdc_plan
+    : isRecord(metadata.cdc_plan)
+      ? metadata.cdc_plan
+      : null;
+  const mediaMapRoot = isRecord(episodeRoot?.media_map)
+    ? episodeRoot.media_map
+    : isRecord(metadata.media_map)
+      ? metadata.media_map
       : null;
 
   const fromSeoTitles = normalizeSeoTitles(seoRoot?.titles);
@@ -1120,6 +1940,7 @@ export function hydrateEpisodePackageV2(metadata: Record<string, unknown>): Epis
       primary_version_id: primaryVersionId,
     },
     launch_variants: launchVariants,
+    media_map: normalizeMediaMap(mediaMapRoot),
     image_map: {
       entries: imageMapEntriesFromRoot.length
         ? imageMapEntriesFromRoot
@@ -1127,6 +1948,8 @@ export function hydrateEpisodePackageV2(metadata: Record<string, unknown>): Epis
           ? imageMapEntriesFromLegacy
           : imageMapEntriesFromBeatSheet,
     },
+    broll_plan: normalizeBrollPlan(brollPlanRoot),
+    cdc_plan: normalizeCdcPlan(cdcPlanRoot),
   };
 }
 
@@ -1151,10 +1974,13 @@ export function mirrorEpisodePackageV2ToLegacy(metadata: Record<string, unknown>
     thumbnail_versions: episode.thumbnail.versions,
     primary_thumbnail_version_id: episode.thumbnail.primary_version_id,
     launch_variants: episode.launch_variants,
+    media_map: episode.media_map,
     image_map_entries: episode.image_map.entries,
     image_beat_sheet: {
       entries: legacyBeatSheetEntries,
     },
+    broll_plan: episode.broll_plan,
+    cdc_plan: episode.cdc_plan,
   };
 }
 
@@ -1174,6 +2000,9 @@ export function applyProductionArtifactToEpisodePackage(args: {
     },
     thumbnail: {
       ...episode.thumbnail,
+    },
+    media_map: {
+      ...episode.media_map,
     },
     image_map: {
       ...episode.image_map,
@@ -1312,8 +2141,119 @@ export function ensureImageMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
   };
 }
 
+export function ensureBrollPlanV2(pkg: EpisodePackageV2): EpisodePackageV2 {
+  const normalizedPlan = normalizeBrollPlan(pkg.broll_plan);
+  const normalizedBeats = normalizedPlan.beats.map((beat) => ({
+    ...beat,
+    workpiece_id: beat.workpiece_id || normalizedPlan.workpiece_id,
+    keywords: dedupeTags(beat.keywords),
+    candidate_assets: normalizeBrollCandidateAssets(beat.candidate_assets).map((candidate) => ({
+      ...candidate,
+      asset_category: candidate.asset_category
+        ?? deriveBrollAssetCategoryFromSource({
+          sourceType: candidate.source,
+          motionIntent: normalizeBrollMotionIntent(beat.motion_intent),
+          mimeType: candidate.mime_type ?? null,
+        }),
+    })),
+    data_visual_spec: normalizeBrollDataVisualSpec(beat.data_visual_spec),
+    fulfillment_state: normalizeBrollFulfillmentState(
+      beat.fulfillment_state,
+      normalizeBrollCandidateAssets(beat.candidate_assets),
+      beat.selected_asset_id ?? null,
+    ),
+    source_type: normalizeBrollSourceType(beat.source_type),
+    motion_intent: normalizeBrollMotionIntent(beat.motion_intent),
+    asset_category: normalizeBrollMotionAssetCategory(beat.asset_category)
+      ?? deriveBrollAssetCategoryFromSource({
+        sourceType: normalizeBrollSourceType(beat.source_type),
+        motionIntent: normalizeBrollMotionIntent(beat.motion_intent),
+        mimeType: null,
+      }),
+    priority: normalizeBrollPriority(beat.priority),
+    placement_hint: normalizeBrollPlacementHint(beat.placement_hint),
+    origin: normalizeBrollOrigin(beat.origin),
+    updated_at: normalizeIso(beat.updated_at, beat.created_at),
+  }));
+
+  const coverageStrength = normalizedPlan.coverage_strength
+    ?? (normalizedBeats.length >= 12 ? "high" : normalizedBeats.length >= 5 ? "medium" : "low");
+
+  return {
+    ...pkg,
+    broll_plan: {
+      ...normalizedPlan,
+      beats: normalizedBeats,
+      coverage_strength: coverageStrength,
+    },
+  };
+}
+
+export function ensureCdcPlanV2(pkg: EpisodePackageV2): EpisodePackageV2 {
+  const normalizedPlan = normalizeCdcPlan(pkg.cdc_plan);
+  const normalizedEntries = normalizedPlan.entries.map((entry) => ({
+    ...entry,
+    media_type: "contextual_data_composite" as const,
+    workpiece_id: entry.workpiece_id || normalizedPlan.workpiece_id,
+    placement_hint: normalizeBrollPlacementHint(entry.placement_hint),
+    format: normalizeCdcFormat(entry.format),
+    data_type: normalizeCdcDataType(entry.data_type),
+    context_type: normalizeCdcContextType(entry.context_type),
+    tone: normalizeCdcTone(entry.tone),
+    motion_level: normalizeCdcMotionLevel(entry.motion_level),
+    chart_type: normalizeCdcChartType(entry.chart_type),
+    labels: readStringArray(entry.labels).slice(0, 32),
+    values: normalizeCdcValues(entry.values),
+    candidate_assets: normalizeBrollCandidateAssets(entry.candidate_assets),
+    selected_asset_id: readString(entry.selected_asset_id),
+    source_type: normalizeBrollSourceType(entry.source_type),
+    origin: normalizeBrollOrigin(entry.origin),
+    updated_at: normalizeIso(entry.updated_at, entry.created_at),
+  }));
+  return {
+    ...pkg,
+    cdc_plan: {
+      ...normalizedPlan,
+      entries: normalizedEntries,
+    },
+  };
+}
+
+export function ensureMediaMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
+  const normalizedMap = normalizeMediaMap(pkg.media_map);
+  const normalizedEntries = normalizedMap.entries.map((entry) => ({
+    ...entry,
+    final_media_kind: normalizeMediaMapType(entry.final_media_kind),
+    anchor: {
+      mode: normalizeMediaMapAnchorMode(entry.anchor?.mode),
+      target: readString(entry.anchor?.target) ?? "",
+    },
+    timing: {
+      in_offset_sec: Math.max(0, readNumber(entry.timing?.in_offset_sec) ?? 0),
+      duration_sec: Math.max(0, readNumber(entry.timing?.duration_sec) ?? 6),
+    },
+    source: {
+      status: normalizeMediaMapSourceStatus(entry.source?.status),
+      asset_id: readString(entry.source?.asset_id),
+    },
+    confidence: normalizeMediaMapConfidence(entry.confidence),
+    fulfillment_status: normalizeMediaMapBeatFulfillmentStatus(entry.fulfillment_status),
+    fulfillment_path: normalizeMediaMapFulfillmentPath(entry.fulfillment_path),
+    created_at: normalizeIso(entry.created_at),
+    updated_at: normalizeIso(entry.updated_at, entry.created_at),
+  }));
+  return {
+    ...pkg,
+    media_map: {
+      ...normalizedMap,
+      status: normalizeMediaMapStatus(normalizedMap.status),
+      entries: normalizedEntries,
+    },
+  };
+}
+
 export function ensureLaunchVariantsV2(pkg: EpisodePackageV2): EpisodePackageV2 {
-  const normalized = ensureSeoV2(pkg);
+  const normalized = ensureMediaMapV2(ensureCdcPlanV2(ensureBrollPlanV2(ensureSeoV2(pkg))));
   const concepts = Array.isArray(normalized.thumbnail?.concepts)
     ? normalized.thumbnail.concepts.map((concept, index) => ({
         ...concept,

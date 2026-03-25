@@ -146,6 +146,7 @@ import {
   loadImageMapCandidatePreviewDataUrl,
   saveWorkpieceImageMap,
   selectWorkpieceImageMapCandidate,
+  uploadWorkpieceImageMapCandidateAsset,
 } from "../lib/hearth-image-map-repo";
 import {
   assessImageMapScriptAnchor,
@@ -156,7 +157,38 @@ import {
   resolveNearestParagraphSelection,
   resolveImageMapAnchorContext,
 } from "../lib/hearth-image-map-beats";
+import {
+  buildBrollPlanFromScript,
+  buildStockCandidatesForBrollBeat,
+  regenerateBrollBeatFromDescription,
+} from "../lib/hearth-broll-plan";
+import { uploadBrollBeatAsset } from "../lib/hearth-broll-plan-repo";
+import {
+  createContextualDataCompositePlan,
+  inferCdcSuitabilitySignals,
+} from "../lib/hearth-cdc-plan";
+import {
+  readWorkpieceEpisodeMediaMap,
+  saveWorkpieceEpisodeMediaMap,
+} from "../lib/hearth-media-map-repo";
+import {
+  activateEpisodeMediaMapForFulfillment,
+} from "../lib/hearth-media-map-fulfillment";
 import type {
+  EpisodeBrollDataVisualSpec,
+  EpisodeBrollMotionAssetCategory,
+  EpisodeCdcChartType,
+  EpisodeCdcContextType,
+  EpisodeCdcDataType,
+  EpisodeCdcFormat,
+  EpisodeCdcMotionLevel,
+  EpisodeCdcPlan,
+  EpisodeCdcTone,
+  EpisodeBrollPlan,
+  EpisodeBrollPlanBeat,
+  EpisodeContextualDataCompositePlan,
+  EpisodeMediaMap,
+  EpisodeMediaMapEntry,
   EpisodePackageV2,
   EpisodeImageMapAnchorScope,
   EpisodeLaunchVariant,
@@ -171,6 +203,8 @@ import type {
 import {
   addImageMapEntry,
   buildImageMapAnchorLabel,
+  ensureBrollPlanV2,
+  ensureCdcPlanV2,
   ensureLaunchVariantsV2,
   ensureSeoV2,
   normalizeSeoTags,
@@ -205,6 +239,9 @@ import {
 } from "../lib/hearth-thumbnail-title-contract";
 import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
 import ImageMapPanel from "../components/visuals/ImageMapPanel";
+import BrollPlanPanel from "../components/visuals/BrollPlanPanel";
+import CdcPlanPanel from "../components/visuals/CdcPlanPanel";
+import EpisodeMediaMapPanel from "../components/visuals/EpisodeMediaMapPanel";
 import MetadataPanel from "../components/metadata/MetadataPanel";
 import CollapsibleFocusPanel from "../components/focus/CollapsibleFocusPanel";
 import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
@@ -223,6 +260,7 @@ const STORE_KIND_KEY = "hearth_store_kind";
 const DEV_MODE_KEY = "tp_dev_mode";
 const MODE_STORAGE_PREFIX = "hearth:ui:mode:v1:";
 const FOCUS_PANEL_LAYOUT_STORAGE_PREFIX = "hearth:focus-layout:v1:";
+const WORKPIECE_TAB_STORAGE_PREFIX = "hearth:workpiece-tab:v1:";
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
 const CHAT_HISTORY_MAX_MESSAGES = 200;
@@ -244,7 +282,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 
 type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
 type FocusTab = "draft" | "planning" | "sources" | "revisions";
-type FocusPanelId = "chat" | "thumbnail" | "imageMap" | "metadata";
+type FocusPanelId = "chat" | "thumbnail" | "mediaMap" | "imageMap" | "brollPlan" | "cdcPlan" | "metadata";
+type WorkpieceWorkspaceTab = "script" | "visuals" | "metadata" | "release" | "history";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
 type SttLane = "browser" | "ai";
 type SttState = "idle" | "listening" | "transcribing";
@@ -294,6 +333,8 @@ type DraftConflictState = {
   message: string;
   localBody: string;
 };
+
+type MediaMapGenerationScope = "images_only" | "images_broll" | "images_cdc" | "full_media_plan";
 
 type PendingAiAutosave = {
   draftId: string;
@@ -358,7 +399,10 @@ const EMPTY_READY_SCRIPT_LIST: HearthReadyScript[] = [];
 const DEFAULT_FOCUS_PANEL_LAYOUT: Record<FocusPanelId, boolean> = {
   chat: false,
   thumbnail: false,
+  mediaMap: false,
   imageMap: false,
+  brollPlan: false,
+  cdcPlan: false,
   metadata: false,
 };
 const FORGE_NOTICE_EVENT = "forge:notice";
@@ -792,7 +836,10 @@ function readFocusPanelLayout(workpieceId: string | null): Record<FocusPanelId, 
     return {
       chat: row.chat === true,
       thumbnail: row.thumbnail === true,
+      mediaMap: row.mediaMap === true,
       imageMap: row.imageMap === true,
+      brollPlan: row.brollPlan === true,
+      cdcPlan: row.cdcPlan === true,
       metadata: row.metadata === true,
     };
   } catch {
@@ -804,6 +851,34 @@ function writeFocusPanelLayout(workpieceId: string | null, layout: Record<FocusP
   if (!workpieceId || typeof window === "undefined") return;
   try {
     window.localStorage.setItem(`${FOCUS_PANEL_LAYOUT_STORAGE_PREFIX}${workpieceId}`, JSON.stringify(layout));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function readWorkpieceWorkspaceTab(workpieceId: string | null): WorkpieceWorkspaceTab {
+  if (!workpieceId || typeof window === "undefined") return "script";
+  try {
+    const raw = window.localStorage.getItem(`${WORKPIECE_TAB_STORAGE_PREFIX}${workpieceId}`)?.trim().toLowerCase();
+    if (
+      raw === "script"
+      || raw === "visuals"
+      || raw === "metadata"
+      || raw === "release"
+      || raw === "history"
+    ) {
+      return raw;
+    }
+  } catch {
+    // ignore storage failures
+  }
+  return "script";
+}
+
+function writeWorkpieceWorkspaceTab(workpieceId: string | null, tab: WorkpieceWorkspaceTab): void {
+  if (!workpieceId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(`${WORKPIECE_TAB_STORAGE_PREFIX}${workpieceId}`, tab);
   } catch {
     // ignore storage failures
   }
@@ -1658,7 +1733,6 @@ function detectChatIntentSignals(text: string): ChatIntentSignals {
     || requestedScript
     || /\bbullet points?\b/.test(normalized)
     || /\bthumbnail\b/.test(normalized)
-    || /\bimage beat sheet\b/.test(normalized)
     || /\bseo\b/.test(normalized)
     || /\btags?\b/.test(normalized);
   return {
@@ -2284,6 +2358,24 @@ export default function HearthShell() {
   const [thumbnailPreviewError, setThumbnailPreviewError] = useState<string | null>(null);
   const [thumbnailSafeZoneEnabled, setThumbnailSafeZoneEnabled] = useState(false);
   const [selectedImageMapEntryId, setSelectedImageMapEntryId] = useState<string | null>(null);
+  const [selectedMediaMapEntryId, setSelectedMediaMapEntryId] = useState<string | null>(null);
+  const [mediaMapTypeDraft, setMediaMapTypeDraft] = useState("image");
+  const [mediaMapAnchorModeDraft, setMediaMapAnchorModeDraft] = useState("phrase_match");
+  const [mediaMapAnchorTargetDraft, setMediaMapAnchorTargetDraft] = useState("");
+  const [mediaMapInOffsetDraft, setMediaMapInOffsetDraft] = useState("0");
+  const [mediaMapDurationDraft, setMediaMapDurationDraft] = useState("6");
+  const [mediaMapDescriptionDraft, setMediaMapDescriptionDraft] = useState("");
+  const [mediaMapIntentDraft, setMediaMapIntentDraft] = useState("");
+  const [mediaMapSourceStatusDraft, setMediaMapSourceStatusDraft] = useState("unresolved");
+  const [mediaMapSourceAssetIdDraft, setMediaMapSourceAssetIdDraft] = useState("");
+  const [mediaMapConfidenceDraft, setMediaMapConfidenceDraft] = useState("medium");
+  const [mediaMapOptionalDraft, setMediaMapOptionalDraft] = useState(false);
+  const [mediaMapCriticalDraft, setMediaMapCriticalDraft] = useState(false);
+  const [mediaMapSaveState, setMediaMapSaveState] = useState<"saved" | "editing" | "saving" | "error">("saved");
+  const [mediaMapSaveError, setMediaMapSaveError] = useState<string | null>(null);
+  const [mediaMapMessage, setMediaMapMessage] = useState<string | null>(null);
+  const [mediaMapGenerationScope, setMediaMapGenerationScope] = useState<MediaMapGenerationScope>("full_media_plan");
+  const [isMediaMapBusy, setIsMediaMapBusy] = useState(false);
   const [imageMapAnchorDraft, setImageMapAnchorDraft] = useState("");
   const [imageMapDescriptionDraft, setImageMapDescriptionDraft] = useState("");
   const [imageMapStyleDraft, setImageMapStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
@@ -2315,6 +2407,50 @@ export default function HearthShell() {
   const [isImageMapReanchorMode, setIsImageMapReanchorMode] = useState(false);
   const [isImageMapReanchorSaving, setIsImageMapReanchorSaving] = useState(false);
   const [imageMapReanchorError, setImageMapReanchorError] = useState<string | null>(null);
+  const [selectedBrollBeatId, setSelectedBrollBeatId] = useState<string | null>(null);
+  const [brollAnchorDraft, setBrollAnchorDraft] = useState("");
+  const [brollDescriptionDraft, setBrollDescriptionDraft] = useState("");
+  const [brollMotionIntentDraft, setBrollMotionIntentDraft] = useState("broll");
+  const [brollAssetCategoryDraft, setBrollAssetCategoryDraft] = useState<EpisodeBrollMotionAssetCategory>("stock_video");
+  const [brollPriorityDraft, setBrollPriorityDraft] = useState("supporting");
+  const [brollKeywordsDraft, setBrollKeywordsDraft] = useState("");
+  const [brollMoodDraft, setBrollMoodDraft] = useState("");
+  const [brollShotTypeDraft, setBrollShotTypeDraft] = useState("mixed");
+  const [brollMotionSuggestionDraft, setBrollMotionSuggestionDraft] = useState("");
+  const [brollSuggestedDurationDraft, setBrollSuggestedDurationDraft] = useState("");
+  const [brollPlacementHintDraft, setBrollPlacementHintDraft] = useState("first_occurrence");
+  const [brollDataChartTypeDraft, setBrollDataChartTypeDraft] = useState("bar");
+  const [brollDataTitleDraft, setBrollDataTitleDraft] = useState("");
+  const [brollDataLabelsDraft, setBrollDataLabelsDraft] = useState("");
+  const [brollDataValuesDraft, setBrollDataValuesDraft] = useState("");
+  const [brollDataEmphasisKeyDraft, setBrollDataEmphasisKeyDraft] = useState("");
+  const [brollDataAnimationStyleDraft, setBrollDataAnimationStyleDraft] = useState("");
+  const [brollSaveState, setBrollSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
+  const [brollSaveError, setBrollSaveError] = useState<string | null>(null);
+  const [brollMessage, setBrollMessage] = useState<string | null>(null);
+  const [isBrollBusy, setIsBrollBusy] = useState(false);
+  const [selectedCdcEntryId, setSelectedCdcEntryId] = useState<string | null>(null);
+  const [cdcAnchorDraft, setCdcAnchorDraft] = useState("");
+  const [cdcDescriptionDraft, setCdcDescriptionDraft] = useState("");
+  const [cdcPlacementHintDraft, setCdcPlacementHintDraft] = useState("first_occurrence");
+  const [cdcFormatDraft, setCdcFormatDraft] = useState("still");
+  const [cdcDataTypeDraft, setCdcDataTypeDraft] = useState("quantitative");
+  const [cdcContextTypeDraft, setCdcContextTypeDraft] = useState("historical");
+  const [cdcToneDraft, setCdcToneDraft] = useState("neutral");
+  const [cdcMotionLevelDraft, setCdcMotionLevelDraft] = useState("static");
+  const [cdcBackgroundContextDraft, setCdcBackgroundContextDraft] = useState("");
+  const [cdcForegroundDataDraft, setCdcForegroundDataDraft] = useState("");
+  const [cdcVisualStyleDraft, setCdcVisualStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
+  const [cdcChartTypeDraft, setCdcChartTypeDraft] = useState("line");
+  const [cdcTitleDraft, setCdcTitleDraft] = useState("");
+  const [cdcLabelsDraft, setCdcLabelsDraft] = useState("");
+  const [cdcValuesDraft, setCdcValuesDraft] = useState("");
+  const [cdcEmphasisKeyDraft, setCdcEmphasisKeyDraft] = useState("");
+  const [cdcSourceTypeDraft, setCdcSourceTypeDraft] = useState("planned");
+  const [cdcSaveState, setCdcSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
+  const [cdcSaveError, setCdcSaveError] = useState<string | null>(null);
+  const [cdcMessage, setCdcMessage] = useState<string | null>(null);
+  const [isCdcBusy, setIsCdcBusy] = useState(false);
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
   const episodePackageRequestSeqRef = useRef(0);
   const thumbnailPreviewRequestSeqRef = useRef(0);
@@ -2330,6 +2466,9 @@ export default function HearthShell() {
   const [metadataSaveError, setMetadataSaveError] = useState<string | null>(null);
   const [focusPanelLayout, setFocusPanelLayout] = useState<Record<FocusPanelId, boolean>>(() =>
     readFocusPanelLayout(incomingBarStockIntakeRoute ? null : resolveWorkpieceId()),
+  );
+  const [activeWorkpieceTab, setActiveWorkpieceTab] = useState<WorkpieceWorkspaceTab>(() =>
+    readWorkpieceWorkspaceTab(incomingBarStockIntakeRoute ? null : resolveWorkpieceId()),
   );
   const [presenceRows, setPresenceRows] = useState<HearthWorkpiecePresence[]>([]);
   const [draftConflictState, setDraftConflictState] = useState<DraftConflictState | null>(null);
@@ -2655,7 +2794,16 @@ export default function HearthShell() {
   const defaultThumbnailBrandTemplateId = defaultThumbnailBrandTemplate?.id ?? null;
   const selectedThumbnailVersion = thumbnailVersions.find((version) => version.id === selectedThumbnailVersionId) ?? null;
   const imageMapEntries = episodePackage?.image_map.entries ?? [];
+  const mediaMap: EpisodeMediaMap | null = episodePackage?.media_map ?? null;
+  const mediaMapEntries: EpisodeMediaMapEntry[] = mediaMap?.entries ?? [];
+  const selectedMediaMapEntry = mediaMapEntries.find((entry) => entry.id === selectedMediaMapEntryId) ?? null;
   const selectedImageMapEntry = imageMapEntries.find((entry) => entry.id === selectedImageMapEntryId) ?? null;
+  const brollPlan: EpisodeBrollPlan | null = episodePackage?.broll_plan ?? null;
+  const brollBeats: EpisodeBrollPlanBeat[] = brollPlan?.beats ?? [];
+  const selectedBrollBeat = brollBeats.find((beat) => beat.id === selectedBrollBeatId) ?? null;
+  const cdcPlan: EpisodeCdcPlan | null = episodePackage?.cdc_plan ?? null;
+  const cdcEntries: EpisodeContextualDataCompositePlan[] = cdcPlan?.entries ?? [];
+  const selectedCdcEntry = cdcEntries.find((entry) => entry.id === selectedCdcEntryId) ?? null;
   const selectedImageMapExactAnchor = useMemo(() => {
     if (!selectedImageMapEntry || canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
       return null;
@@ -2791,7 +2939,10 @@ export default function HearthShell() {
     ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
     : "Ready";
   const thumbnailPanelMeta = `${thumbnailConcepts.length} concepts · ${thumbnailVersions.length} versions`;
+  const mediaMapPanelMeta = `${mediaMapEntries.length} visual${mediaMapEntries.length === 1 ? "" : "s"}`;
   const imageMapPanelMeta = `${imageMapEntries.length} anchor${imageMapEntries.length === 1 ? "" : "s"}`;
+  const brollPanelMeta = `${brollBeats.length} beat${brollBeats.length === 1 ? "" : "s"} · coverage ${brollPlan?.coverage_strength ?? "low"}`;
+  const cdcPanelMeta = `${cdcEntries.length} CDC${cdcEntries.length === 1 ? "" : "s"}`;
   const metadataPanelMeta = `${thumbnailTitleOptions.length} title${thumbnailTitleOptions.length === 1 ? "" : "s"} · ${metadataTagsDraft.length} tag${metadataTagsDraft.length === 1 ? "" : "s"}`;
   const hasBrowserSpeech = (
     typeof window !== "undefined"
@@ -3275,7 +3426,10 @@ export default function HearthShell() {
       setSelectedThumbnailConceptId("");
       setSelectedThumbnailVersionId(null);
       setSelectedLaunchVariantId(null);
+      setSelectedMediaMapEntryId(null);
       setSelectedImageMapEntryId(null);
+      setSelectedBrollBeatId(null);
+      setSelectedCdcEntryId(null);
       setThumbnailGenerateError(null);
       setThumbnailUploadError(null);
       setThumbnailPairingError(null);
@@ -3285,6 +3439,15 @@ export default function HearthShell() {
       setImageMapSaveState("saved");
       setImageMapSaveError(null);
       setImageMapExportMessage(null);
+      setMediaMapSaveState("saved");
+      setMediaMapSaveError(null);
+      setMediaMapMessage(null);
+      setBrollSaveState("saved");
+      setBrollSaveError(null);
+      setBrollMessage(null);
+      setCdcSaveState("saved");
+      setCdcSaveError(null);
+      setCdcMessage(null);
       setLatestReleasePrepRawText(null);
       setLatestReleasePrepSections([]);
       setReleasePrepLoadState("idle");
@@ -3319,6 +3482,20 @@ export default function HearthShell() {
       setImageMapMetadataUpdatedAt(imageMapLoaded.imageMap.metadataUpdatedAt);
     } else {
       setImageMapMetadataUpdatedAt(null);
+    }
+
+    const mediaMapLoaded = await readWorkpieceEpisodeMediaMap(episodeId);
+    if (episodePackageRequestSeqRef.current !== requestSeq || (workpieceId?.trim() ?? "") !== episodeId) {
+      return;
+    }
+    if (mediaMapLoaded.ok && mediaMapLoaded.mediaMap) {
+      nextEpisodePackage = {
+        ...nextEpisodePackage,
+        media_map: {
+          ...mediaMapLoaded.mediaMap,
+          workpiece_id: episodeId,
+        },
+      };
     }
 
     setEpisodePackage(nextEpisodePackage);
@@ -3381,8 +3558,13 @@ export default function HearthShell() {
       setReleasePrepScriptVersion(null);
       return;
     }
-    void loadLatestReleasePrepPack(approvedScriptVersion);
-  }, [approvedScriptVersion, hasApprovedScript, loadLatestReleasePrepPack]);
+    // Avoid eager fetch spam for pack.json (often legitimately absent).
+    // We load on explicit Refresh or when release_prep_pack generation completes.
+    setLatestReleasePrepRawText(null);
+    setLatestReleasePrepSections([]);
+    setReleasePrepLoadState("idle");
+    setReleasePrepScriptVersion(approvedScriptVersion);
+  }, [approvedScriptVersion, hasApprovedScript]);
 
   const refreshReadyScripts = useCallback(async () => {
     const workspace = normalizeUuid(workspaceId);
@@ -5099,6 +5281,24 @@ export default function HearthShell() {
   }, [workpieceId]);
 
   useEffect(() => {
+    setSelectedMediaMapEntryId(null);
+    setMediaMapSaveState("saved");
+    setMediaMapSaveError(null);
+    setMediaMapMessage(null);
+    setSelectedBrollBeatId(null);
+    setBrollSaveState("saved");
+    setBrollSaveError(null);
+    setBrollMessage(null);
+  }, [workpieceId]);
+
+  useEffect(() => {
+    setSelectedCdcEntryId(null);
+    setCdcSaveState("saved");
+    setCdcSaveError(null);
+    setCdcMessage(null);
+  }, [workpieceId]);
+
+  useEffect(() => {
     const episodeId = workpieceId?.trim() ?? "";
     const previewSeq = thumbnailPreviewRequestSeqRef.current + 1;
     thumbnailPreviewRequestSeqRef.current = previewSeq;
@@ -5149,6 +5349,68 @@ export default function HearthShell() {
   }, [selectedThumbnailVersion, selectedThumbnailVersionId, workpieceId]);
 
   useEffect(() => {
+    if (mediaMapEntries.length === 0) {
+      setSelectedMediaMapEntryId(null);
+      return;
+    }
+    if (selectedMediaMapEntryId && mediaMapEntries.some((entry) => entry.id === selectedMediaMapEntryId)) {
+      return;
+    }
+    setSelectedMediaMapEntryId(mediaMapEntries[0]?.id ?? null);
+  }, [mediaMapEntries, selectedMediaMapEntryId]);
+
+  useEffect(() => {
+    if (!selectedMediaMapEntry) {
+      setMediaMapTypeDraft("image");
+      setMediaMapAnchorModeDraft("phrase_match");
+      setMediaMapAnchorTargetDraft("");
+      setMediaMapInOffsetDraft("0");
+      setMediaMapDurationDraft("6");
+      setMediaMapDescriptionDraft("");
+      setMediaMapIntentDraft("");
+      setMediaMapSourceStatusDraft("unresolved");
+      setMediaMapSourceAssetIdDraft("");
+      setMediaMapConfidenceDraft("medium");
+      setMediaMapOptionalDraft(false);
+      setMediaMapCriticalDraft(false);
+      setMediaMapSaveState("saved");
+      return;
+    }
+    setMediaMapTypeDraft(selectedMediaMapEntry.final_media_kind);
+    setMediaMapAnchorModeDraft(selectedMediaMapEntry.anchor.mode);
+    setMediaMapAnchorTargetDraft(selectedMediaMapEntry.anchor.target);
+    setMediaMapInOffsetDraft(String(selectedMediaMapEntry.timing.in_offset_sec));
+    setMediaMapDurationDraft(String(selectedMediaMapEntry.timing.duration_sec));
+    setMediaMapDescriptionDraft(selectedMediaMapEntry.description);
+    setMediaMapIntentDraft(selectedMediaMapEntry.intent);
+    setMediaMapSourceStatusDraft(selectedMediaMapEntry.source.status);
+    setMediaMapSourceAssetIdDraft(selectedMediaMapEntry.source.asset_id ?? "");
+    setMediaMapConfidenceDraft(selectedMediaMapEntry.confidence);
+    setMediaMapOptionalDraft(selectedMediaMapEntry.optional);
+    setMediaMapCriticalDraft(selectedMediaMapEntry.critical);
+    setMediaMapSaveState("saved");
+    setMediaMapSaveError(null);
+  }, [selectedMediaMapEntry]);
+
+  useEffect(() => {
+    if (!episodePackage) return;
+    const currentScriptVersion = approvedScriptVersion ? String(approvedScriptVersion) : null;
+    if (episodePackage.media_map.script_version_id === currentScriptVersion) return;
+    setEpisodePackage((prev) => {
+      if (!prev) return prev;
+      if (prev.media_map.script_version_id === currentScriptVersion) return prev;
+      return {
+        ...prev,
+        media_map: {
+          ...prev.media_map,
+          status: "needs_attention",
+          entries: prev.media_map.entries.map((entry) => ({ ...entry, stale: true })),
+        },
+      };
+    });
+  }, [approvedScriptVersion, episodePackage]);
+
+  useEffect(() => {
     if (imageMapEntries.length === 0) {
       setSelectedImageMapEntryId(null);
       setIsImageMapReanchorMode(false);
@@ -5191,6 +5453,116 @@ export default function HearthShell() {
     setImageMapCandidateError(null);
     setImageMapCandidateSelectionError(null);
   }, [selectedImageMapEntry]);
+
+  useEffect(() => {
+    if (brollBeats.length === 0) {
+      setSelectedBrollBeatId(null);
+      return;
+    }
+    if (selectedBrollBeatId && brollBeats.some((beat) => beat.id === selectedBrollBeatId)) {
+      return;
+    }
+    setSelectedBrollBeatId(brollBeats[0]?.id ?? null);
+  }, [brollBeats, selectedBrollBeatId]);
+
+  useEffect(() => {
+    if (!selectedBrollBeat) {
+      setBrollAnchorDraft("");
+      setBrollDescriptionDraft("");
+      setBrollMotionIntentDraft("broll");
+      setBrollAssetCategoryDraft("stock_video");
+      setBrollPriorityDraft("supporting");
+      setBrollKeywordsDraft("");
+      setBrollMoodDraft("");
+      setBrollShotTypeDraft("mixed");
+      setBrollMotionSuggestionDraft("");
+      setBrollSuggestedDurationDraft("");
+      setBrollPlacementHintDraft("first_occurrence");
+      setBrollDataChartTypeDraft("bar");
+      setBrollDataTitleDraft("");
+      setBrollDataLabelsDraft("");
+      setBrollDataValuesDraft("");
+      setBrollDataEmphasisKeyDraft("");
+      setBrollDataAnimationStyleDraft("");
+      setBrollSaveState("saved");
+      return;
+    }
+    setBrollAnchorDraft(selectedBrollBeat.anchor_text);
+    setBrollDescriptionDraft(selectedBrollBeat.description);
+    setBrollMotionIntentDraft(selectedBrollBeat.motion_intent);
+    setBrollAssetCategoryDraft(selectedBrollBeat.asset_category ?? "stock_video");
+    setBrollPriorityDraft(selectedBrollBeat.priority);
+    setBrollKeywordsDraft((selectedBrollBeat.keywords ?? []).join(", "));
+    setBrollMoodDraft(selectedBrollBeat.mood ?? "");
+    setBrollShotTypeDraft(selectedBrollBeat.shot_type ?? "mixed");
+    setBrollMotionSuggestionDraft(selectedBrollBeat.motion_suggestion ?? "");
+    setBrollSuggestedDurationDraft(
+      selectedBrollBeat.suggested_duration_ms != null ? String(selectedBrollBeat.suggested_duration_ms) : "",
+    );
+    setBrollPlacementHintDraft(selectedBrollBeat.placement_hint ?? "first_occurrence");
+    setBrollDataChartTypeDraft(selectedBrollBeat.data_visual_spec?.chart_type ?? "bar");
+    setBrollDataTitleDraft(selectedBrollBeat.data_visual_spec?.title ?? "");
+    setBrollDataLabelsDraft((selectedBrollBeat.data_visual_spec?.labels ?? []).join(", "));
+    setBrollDataValuesDraft((selectedBrollBeat.data_visual_spec?.values ?? []).map((value) => String(value)).join(", "));
+    setBrollDataEmphasisKeyDraft(selectedBrollBeat.data_visual_spec?.emphasis_key ?? "");
+    setBrollDataAnimationStyleDraft(selectedBrollBeat.data_visual_spec?.animation_style ?? "");
+    setBrollSaveState("saved");
+    setBrollSaveError(null);
+  }, [selectedBrollBeat]);
+
+  useEffect(() => {
+    if (cdcEntries.length === 0) {
+      setSelectedCdcEntryId(null);
+      return;
+    }
+    if (selectedCdcEntryId && cdcEntries.some((entry) => entry.id === selectedCdcEntryId)) {
+      return;
+    }
+    setSelectedCdcEntryId(cdcEntries[0]?.id ?? null);
+  }, [cdcEntries, selectedCdcEntryId]);
+
+  useEffect(() => {
+    if (!selectedCdcEntry) {
+      setCdcAnchorDraft("");
+      setCdcDescriptionDraft("");
+      setCdcPlacementHintDraft("first_occurrence");
+      setCdcFormatDraft("still");
+      setCdcDataTypeDraft("quantitative");
+      setCdcContextTypeDraft("historical");
+      setCdcToneDraft("neutral");
+      setCdcMotionLevelDraft("static");
+      setCdcBackgroundContextDraft("");
+      setCdcForegroundDataDraft("");
+      setCdcVisualStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
+      setCdcChartTypeDraft("line");
+      setCdcTitleDraft("");
+      setCdcLabelsDraft("");
+      setCdcValuesDraft("");
+      setCdcEmphasisKeyDraft("");
+      setCdcSourceTypeDraft("planned");
+      setCdcSaveState("saved");
+      return;
+    }
+    setCdcAnchorDraft(selectedCdcEntry.anchor_text);
+    setCdcDescriptionDraft(selectedCdcEntry.description);
+    setCdcPlacementHintDraft(selectedCdcEntry.placement_hint ?? "first_occurrence");
+    setCdcFormatDraft(selectedCdcEntry.format);
+    setCdcDataTypeDraft(selectedCdcEntry.data_type);
+    setCdcContextTypeDraft(selectedCdcEntry.context_type);
+    setCdcToneDraft(selectedCdcEntry.tone);
+    setCdcMotionLevelDraft(selectedCdcEntry.motion_level);
+    setCdcBackgroundContextDraft(selectedCdcEntry.background_context_description ?? "");
+    setCdcForegroundDataDraft(selectedCdcEntry.foreground_data_description ?? "");
+    setCdcVisualStyleDraft(normalizeHearthVisualStyle(selectedCdcEntry.visual_style ?? null));
+    setCdcChartTypeDraft(selectedCdcEntry.chart_type ?? "line");
+    setCdcTitleDraft(selectedCdcEntry.title ?? "");
+    setCdcLabelsDraft((selectedCdcEntry.labels ?? []).join(", "));
+    setCdcValuesDraft((selectedCdcEntry.values ?? []).map((value) => String(value)).join(", "));
+    setCdcEmphasisKeyDraft(selectedCdcEntry.emphasis_key ?? "");
+    setCdcSourceTypeDraft(selectedCdcEntry.source_type ?? "planned");
+    setCdcSaveState("saved");
+    setCdcSaveError(null);
+  }, [selectedCdcEntry]);
 
   useEffect(() => {
     setIsVisualScriptMode(false);
@@ -5452,6 +5824,12 @@ export default function HearthShell() {
   }, [imageMapExportMessage]);
 
   useEffect(() => {
+    if (!brollMessage) return;
+    const timer = window.setTimeout(() => setBrollMessage(null), 2600);
+    return () => window.clearTimeout(timer);
+  }, [brollMessage]);
+
+  useEffect(() => {
     if (!scriptPanelCopyMessage) return;
     const timer = window.setTimeout(() => setScriptPanelCopyMessage(null), 2600);
     return () => window.clearTimeout(timer);
@@ -5462,8 +5840,16 @@ export default function HearthShell() {
   }, [workpieceId]);
 
   useEffect(() => {
+    setActiveWorkpieceTab(readWorkpieceWorkspaceTab(workpieceId));
+  }, [workpieceId]);
+
+  useEffect(() => {
     writeFocusPanelLayout(workpieceId, focusPanelLayout);
   }, [focusPanelLayout, workpieceId]);
+
+  useEffect(() => {
+    writeWorkpieceWorkspaceTab(workpieceId, activeWorkpieceTab);
+  }, [activeWorkpieceTab, workpieceId]);
 
   useEffect(() => {
     setMetadataSaveState("saved");
@@ -6558,6 +6944,7 @@ export default function HearthShell() {
 
   function openRevisionPanel() {
     setFocusTab("revisions");
+    setActiveWorkpieceTab("history");
     setMode("focus");
     setRevisionView("list");
     setSelectedRevision(null);
@@ -6566,6 +6953,7 @@ export default function HearthShell() {
 
   function closeRevisionPanel() {
     setFocusTab("draft");
+    setActiveWorkpieceTab("script");
     setMode("focus");
     setRevisionView("list");
     setSelectedRevision(null);
@@ -7430,6 +7818,10 @@ export default function HearthShell() {
       setChatError("Approved script body is empty.");
       return;
     }
+    if (action === "image_beat_sheet") {
+      setChatError("Image Beat Sheet has been replaced by Episode Media Map. Use Generate Episode Media Map in the media panel.");
+      return;
+    }
 
     const prompt = buildProductionPrompt({
       action,
@@ -7537,6 +7929,1268 @@ export default function HearthShell() {
       episodePackage: nextEpisodePackage,
       metadataUpdatedAt: saved.imageMap.metadataUpdatedAt,
     };
+  }
+
+  async function persistBrollPlan(args: {
+    plan: EpisodeBrollPlan;
+    eventName: string;
+    eventPayload: Record<string, unknown>;
+  }): Promise<
+    | { ok: true; episodePackage: EpisodePackageV2 }
+    | { ok: false; error: string }
+  > {
+    if (!episodePackage) {
+      return { ok: false, error: "Unable to save B-roll plan for this episode." };
+    }
+    const episodeId = workpieceId?.trim() ?? "";
+    const workspace = workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      return { ok: false, error: "Workspace or workpiece is missing." };
+    }
+    const nextEpisodePackage = ensureBrollPlanV2({
+      ...episodePackage,
+      broll_plan: {
+        ...args.plan,
+        workpiece_id: episodeId,
+      },
+    });
+    const saved = await saveEpisodePackageForWorkpiece({
+      workpieceId: episodeId,
+      workspaceId: workspace,
+      episodePackage: ensureLaunchVariantsV2(nextEpisodePackage),
+      eventName: args.eventName,
+      eventPayload: args.eventPayload,
+    });
+    if (!saved.ok) {
+      return { ok: false, error: saved.error };
+    }
+    setEpisodePackage(saved.episodePackage);
+    setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
+    return { ok: true, episodePackage: saved.episodePackage };
+  }
+
+  async function persistMediaMap(args: {
+    map: EpisodeMediaMap;
+    eventName: string;
+    eventPayload: Record<string, unknown>;
+  }): Promise<
+    | { ok: true; episodePackage: EpisodePackageV2 }
+    | { ok: false; error: string }
+  > {
+    if (!episodePackage) {
+      return { ok: false, error: "Unable to save Episode Media Map for this episode." };
+    }
+    const episodeId = workpieceId?.trim() ?? "";
+    const workspace = workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      return { ok: false, error: "Workspace or workpiece is missing." };
+    }
+    const nextEpisodePackage: EpisodePackageV2 = {
+      ...episodePackage,
+      media_map: {
+        ...args.map,
+        workpiece_id: episodeId,
+      },
+    };
+    const savedEpisode = await saveEpisodePackageForWorkpiece({
+      workpieceId: episodeId,
+      workspaceId: workspace,
+      episodePackage: ensureLaunchVariantsV2(nextEpisodePackage),
+      eventName: args.eventName,
+      eventPayload: args.eventPayload,
+    });
+    if (!savedEpisode.ok) {
+      return { ok: false, error: savedEpisode.error };
+    }
+    const mediaMapSaved = await saveWorkpieceEpisodeMediaMap({
+      workpieceId: episodeId,
+      mediaMap: savedEpisode.episodePackage.media_map,
+      eventName: "hearth.media_map.artifact.saved.v1",
+      eventPayload: {
+        entry_count: savedEpisode.episodePackage.media_map.entries.length,
+        script_version_id: savedEpisode.episodePackage.media_map.script_version_id,
+      },
+    });
+    if (!mediaMapSaved.ok) {
+      return { ok: false, error: mediaMapSaved.error };
+    }
+    setEpisodePackage(savedEpisode.episodePackage);
+    setImageMapMetadataUpdatedAt(savedEpisode.metadataUpdatedAt);
+    return { ok: true, episodePackage: savedEpisode.episodePackage };
+  }
+
+  function setMediaMapDraftEditing<T extends string | boolean>(fieldSetter: (value: T) => void, value: T): void {
+    fieldSetter(value);
+    if (mediaMapSaveState !== "editing") {
+      setMediaMapSaveState("editing");
+    }
+    setMediaMapSaveError(null);
+  }
+
+  function createMediaMapEntryId(): string {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return `mm_${crypto.randomUUID()}`;
+    }
+    return `mm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  function normalizeMediaMapNumber(text: string, fallback: number): number {
+    const parsed = Number(text);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(0, parsed);
+  }
+
+  function buildMediaMapFromExistingPlans(
+    current: EpisodePackageV2,
+    scriptVersionId: string | null,
+    scope: MediaMapGenerationScope,
+  ): EpisodeMediaMap {
+    const nowIso = new Date().toISOString();
+    const fromImageMap: EpisodeMediaMapEntry[] = current.image_map.entries.map((entry) => ({
+      id: `mm_image_${entry.id}`,
+      final_media_kind: "image",
+      anchor: {
+        mode: "phrase_match",
+        target: entry.script_anchor?.span_text ?? entry.anchor,
+      },
+      timing: {
+        in_offset_sec: 0,
+        duration_sec: 6,
+      },
+      description: entry.description,
+      intent: entry.intent || "establish_context",
+      source: {
+        status: entry.selected_asset_id ? "selected" : "unresolved",
+        asset_id: entry.selected_asset_id,
+      },
+      confidence: "medium",
+      fulfillment_status: entry.selected_asset_id ? "resolved" : "planned",
+      fulfillment_path: entry.selected_asset_id ? "image" : null,
+      optional: entry.visual_priority === "optional",
+      critical: entry.visual_priority === "primary",
+      stale: false,
+      created_at: nowIso,
+      updated_at: nowIso,
+    }));
+    const fromBroll: EpisodeMediaMapEntry[] = current.broll_plan.beats.map((beat) => ({
+      id: `mm_broll_${beat.id}`,
+      final_media_kind: "b_roll",
+      anchor: {
+        mode: beat.placement_hint === "exact_timestamp" ? "absolute_time" : "phrase_match",
+        target: beat.placement_hint === "exact_timestamp"
+          ? String((beat.timestamp_ms ?? 0) / 1000)
+          : beat.anchor_text,
+      },
+      timing: {
+        in_offset_sec: 0,
+        duration_sec: Math.max(1, (beat.suggested_duration_ms ?? 6000) / 1000),
+      },
+      description: beat.description,
+      intent: beat.motion_intent,
+      source: {
+        status: beat.selected_asset_id ? "selected" : "unresolved",
+        asset_id: beat.selected_asset_id ?? null,
+      },
+      confidence: "medium",
+      fulfillment_status: beat.selected_asset_id ? "resolved" : "planned",
+      fulfillment_path: beat.selected_asset_id ? "motion_broll" : null,
+      optional: beat.priority === "background",
+      critical: beat.priority === "primary",
+      stale: false,
+      created_at: beat.created_at,
+      updated_at: beat.updated_at,
+    }));
+    const fromCdc: EpisodeMediaMapEntry[] = current.cdc_plan.entries.map((entry) => ({
+      id: `mm_cdc_${entry.id}`,
+      final_media_kind: "contextual_data_composite",
+      anchor: {
+        mode: entry.placement_hint === "exact_timestamp" ? "absolute_time" : "phrase_match",
+        target: entry.placement_hint === "exact_timestamp"
+          ? String((entry.timestamp_ms ?? 0) / 1000)
+          : entry.anchor_text,
+      },
+      timing: {
+        in_offset_sec: 0,
+        duration_sec: 6,
+      },
+      description: entry.description,
+      intent: entry.data_type,
+      source: {
+        status: entry.selected_asset_id ? "selected" : "unresolved",
+        asset_id: entry.selected_asset_id ?? null,
+      },
+      confidence: "medium",
+      fulfillment_status: entry.selected_asset_id ? "resolved" : "planned",
+      fulfillment_path: entry.selected_asset_id ? "cdc" : null,
+      optional: false,
+      critical: true,
+      stale: false,
+      created_at: entry.created_at,
+      updated_at: entry.updated_at,
+    }));
+    const includeImages = true;
+    const includeBroll = scope === "images_broll" || scope === "full_media_plan";
+    const includeCdc = scope === "images_cdc" || scope === "full_media_plan";
+    const merged = [
+      ...(includeImages ? fromImageMap : []),
+      ...(includeBroll ? fromBroll : []),
+      ...(includeCdc ? fromCdc : []),
+    ];
+    return {
+      id: current.media_map.id || "media-map-v1",
+      workpiece_id: current.media_map.workpiece_id,
+      script_version_id: scriptVersionId,
+      status: "review",
+      version: Math.max(1, current.media_map.version + 1),
+      entries: merged,
+      generated_at: nowIso,
+    };
+  }
+
+  async function persistCdcPlan(args: {
+    plan: EpisodeCdcPlan;
+    eventName: string;
+    eventPayload: Record<string, unknown>;
+  }): Promise<
+    | { ok: true; episodePackage: EpisodePackageV2 }
+    | { ok: false; error: string }
+  > {
+    if (!episodePackage) {
+      return { ok: false, error: "Unable to save CDC plan for this episode." };
+    }
+    const episodeId = workpieceId?.trim() ?? "";
+    const workspace = workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      return { ok: false, error: "Workspace or workpiece is missing." };
+    }
+    const nextEpisodePackage = ensureCdcPlanV2({
+      ...episodePackage,
+      cdc_plan: {
+        ...args.plan,
+        workpiece_id: episodeId,
+      },
+    });
+    const saved = await saveEpisodePackageForWorkpiece({
+      workpieceId: episodeId,
+      workspaceId: workspace,
+      episodePackage: ensureLaunchVariantsV2(nextEpisodePackage),
+      eventName: args.eventName,
+      eventPayload: args.eventPayload,
+    });
+    if (!saved.ok) {
+      return { ok: false, error: saved.error };
+    }
+    setEpisodePackage(saved.episodePackage);
+    setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
+    return { ok: true, episodePackage: saved.episodePackage };
+  }
+
+  function setBrollDraftEditing(fieldSetter: (value: string) => void, value: string): void {
+    fieldSetter(value);
+    if (brollSaveState !== "editing") {
+      setBrollSaveState("editing");
+    }
+    setBrollSaveError(null);
+  }
+
+  function setCdcDraftEditing(fieldSetter: (value: string) => void, value: string): void {
+    fieldSetter(value);
+    if (cdcSaveState !== "editing") {
+      setCdcSaveState("editing");
+    }
+    setCdcSaveError(null);
+  }
+
+  function resolveBrollDataVisualSpecFromDraft(intent: EpisodeBrollPlanBeat["motion_intent"]): EpisodeBrollDataVisualSpec | null {
+    if (intent !== "data_visual") return null;
+    const labels = brollDataLabelsDraft
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    const values = brollDataValuesDraft
+      .split(",")
+      .map((entry) => Number(entry.trim()))
+      .filter((value) => Number.isFinite(value));
+    const next: EpisodeBrollDataVisualSpec = {
+      chart_type: (brollDataChartTypeDraft.trim() || "bar") as EpisodeBrollDataVisualSpec["chart_type"],
+      title: brollDataTitleDraft.trim() || null,
+      labels,
+      values,
+      emphasis_key: brollDataEmphasisKeyDraft.trim() || null,
+      animation_style: brollDataAnimationStyleDraft.trim() || null,
+    };
+    const hasContent = Boolean(
+      next.chart_type
+      || next.title
+      || next.labels?.length
+      || next.values?.length
+      || next.emphasis_key
+      || next.animation_style,
+    );
+    return hasContent ? next : null;
+  }
+
+  function resolveCdcValuesFromDraft(): Array<number | string> {
+    return cdcValuesDraft
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((value) => {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : value;
+      });
+  }
+
+  async function onGenerateBrollPlan() {
+    if (isApprovingScript || isAiProcessing || isBrollBusy) return;
+    if (!episodePackage) return;
+    const canonicalScript = await readCanonicalScriptForImageMapGeneration();
+    if (!canonicalScript.ok) {
+      setBrollSaveError(canonicalScript.message);
+      setBrollSaveState("error");
+      return;
+    }
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!episodeId) {
+      setBrollSaveError("Select an Episode before generating a B-roll plan.");
+      setBrollSaveState("error");
+      return;
+    }
+    setIsBrollBusy(true);
+    setBrollSaveState("saving");
+    setBrollSaveError(null);
+    try {
+      const plan = buildBrollPlanFromScript({
+        workpieceId: episodeId,
+        scriptText: canonicalScript.text,
+        previousPlan: episodePackage.broll_plan,
+      });
+      const saved = await persistBrollPlan({
+        plan,
+        eventName: "hearth.broll_plan.generated.v1",
+        eventPayload: {
+          beat_count: plan.beats.length,
+          coverage_strength: plan.coverage_strength ?? null,
+          source: canonicalScript.source,
+        },
+      });
+      if (!saved.ok) {
+        setBrollSaveError(saved.error);
+        setBrollSaveState("error");
+        return;
+      }
+      setSelectedBrollBeatId(plan.beats[0]?.id ?? null);
+      setBrollSaveState("saved");
+      setBrollMessage(`Generated ${plan.beats.length} B-roll beats from the canonical script.`);
+    } finally {
+      setIsBrollBusy(false);
+    }
+  }
+
+  async function onSaveBrollBeat() {
+    if (!episodePackage || !selectedBrollBeat) return;
+    if (isBrollBusy) return;
+    const nextMotionIntent = brollMotionIntentDraft as EpisodeBrollPlanBeat["motion_intent"];
+    const nextDataVisualSpec = resolveBrollDataVisualSpecFromDraft(nextMotionIntent);
+    const nextKeywords = brollKeywordsDraft
+      .split(",")
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean);
+    const nextBeat: EpisodeBrollPlanBeat = {
+      ...selectedBrollBeat,
+      anchor_text: brollAnchorDraft.trim(),
+      description: brollDescriptionDraft.trim(),
+      motion_intent: nextMotionIntent,
+      asset_category: brollAssetCategoryDraft,
+      priority: brollPriorityDraft as EpisodeBrollPlanBeat["priority"],
+      keywords: nextKeywords,
+      mood: brollMoodDraft.trim() || null,
+      shot_type: (brollShotTypeDraft.trim() || "mixed") as EpisodeBrollPlanBeat["shot_type"],
+      motion_suggestion: brollMotionSuggestionDraft.trim() || null,
+      suggested_duration_ms: Number.isFinite(Number(brollSuggestedDurationDraft))
+        ? Math.max(0, Math.trunc(Number(brollSuggestedDurationDraft)))
+        : null,
+      data_visual_spec: nextDataVisualSpec,
+      placement_hint: (brollPlacementHintDraft.trim() || "first_occurrence") as EpisodeBrollPlanBeat["placement_hint"],
+      updated_at: new Date().toISOString(),
+      fulfillment_state: selectedBrollBeat.selected_asset_id ? "stale" : selectedBrollBeat.fulfillment_state,
+    };
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
+      generated_at: new Date().toISOString(),
+    };
+    setIsBrollBusy(true);
+    setBrollSaveState("saving");
+    setBrollSaveError(null);
+    try {
+      const saved = await persistBrollPlan({
+        plan: nextPlan,
+        eventName: "hearth.broll_plan.beat_updated.v1",
+        eventPayload: { beat_id: selectedBrollBeat.id },
+      });
+      if (!saved.ok) {
+        setBrollSaveError(saved.error);
+        setBrollSaveState("error");
+        return;
+      }
+      setBrollSaveState("saved");
+      setBrollMessage("B-roll beat saved.");
+    } catch {
+      setBrollSaveError("Unable to save this B-roll beat.");
+      setBrollSaveState("error");
+    } finally {
+      setIsBrollBusy(false);
+    }
+  }
+
+  async function onDeleteBrollBeat() {
+    if (!episodePackage || !selectedBrollBeat) return;
+    if (isBrollBusy) return;
+    const confirmed = window.confirm("Delete this B-roll beat?");
+    if (!confirmed) return;
+    const nextBeats = episodePackage.broll_plan.beats.filter((beat) => beat.id !== selectedBrollBeat.id);
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: nextBeats,
+      generated_at: new Date().toISOString(),
+    };
+    setIsBrollBusy(true);
+    setBrollSaveState("saving");
+    setBrollSaveError(null);
+    try {
+      const saved = await persistBrollPlan({
+        plan: nextPlan,
+        eventName: "hearth.broll_plan.beat_deleted.v1",
+        eventPayload: { beat_id: selectedBrollBeat.id },
+      });
+      if (!saved.ok) {
+        setBrollSaveError(saved.error);
+        setBrollSaveState("error");
+        return;
+      }
+      setSelectedBrollBeatId(nextBeats[0]?.id ?? null);
+      setBrollSaveState("saved");
+      setBrollMessage("B-roll beat removed.");
+    } catch {
+      setBrollSaveError("Unable to delete this B-roll beat.");
+      setBrollSaveState("error");
+    } finally {
+      setIsBrollBusy(false);
+    }
+  }
+
+  async function onRegenerateBrollBeat() {
+    if (!episodePackage || !selectedBrollBeat) return;
+    if (isBrollBusy) return;
+    const regenerated = regenerateBrollBeatFromDescription({
+      ...selectedBrollBeat,
+      description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
+    });
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? regenerated : beat)),
+      generated_at: new Date().toISOString(),
+    };
+    setIsBrollBusy(true);
+    setBrollSaveState("saving");
+    setBrollSaveError(null);
+    try {
+      const saved = await persistBrollPlan({
+        plan: nextPlan,
+        eventName: "hearth.broll_plan.beat_regenerated.v1",
+        eventPayload: { beat_id: selectedBrollBeat.id },
+      });
+      if (!saved.ok) {
+        setBrollSaveError(saved.error);
+        setBrollSaveState("error");
+        return;
+      }
+      setBrollSaveState("saved");
+      setBrollMessage("B-roll beat regenerated.");
+    } catch {
+      setBrollSaveError("Unable to regenerate this B-roll beat.");
+      setBrollSaveState("error");
+    } finally {
+      setIsBrollBusy(false);
+    }
+  }
+
+  async function onFindStockForBrollBeat() {
+    if (!episodePackage || !selectedBrollBeat) return;
+    if (isBrollBusy) return;
+    const nextMotionIntent = brollMotionIntentDraft as EpisodeBrollPlanBeat["motion_intent"];
+    const baseBeat = {
+      ...selectedBrollBeat,
+      description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
+      keywords: brollKeywordsDraft
+        .split(",")
+        .map((entry) => entry.trim().toLowerCase())
+        .filter(Boolean),
+      motion_intent: nextMotionIntent,
+      asset_category: brollAssetCategoryDraft,
+      mood: brollMoodDraft.trim() || selectedBrollBeat.mood,
+      data_visual_spec: resolveBrollDataVisualSpecFromDraft(nextMotionIntent),
+    };
+    const stockCandidates = buildStockCandidatesForBrollBeat(baseBeat);
+    const nextBeat: EpisodeBrollPlanBeat = {
+      ...baseBeat,
+      source_type: "stock",
+      candidate_assets: stockCandidates,
+      selected_asset_id: stockCandidates[0]?.asset_id ?? null,
+      fulfillment_state: stockCandidates.length > 0 ? "resolved" : "unresolved",
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
+      generated_at: new Date().toISOString(),
+    };
+    setIsBrollBusy(true);
+    setBrollSaveState("saving");
+    setBrollSaveError(null);
+    try {
+      const saved = await persistBrollPlan({
+        plan: nextPlan,
+        eventName: "hearth.broll_plan.stock_candidates.generated.v1",
+        eventPayload: { beat_id: selectedBrollBeat.id, candidate_count: stockCandidates.length },
+      });
+      if (!saved.ok) {
+        setBrollSaveError(saved.error);
+        setBrollSaveState("error");
+        return;
+      }
+      setBrollSaveState("saved");
+      setBrollMessage(`Attached ${stockCandidates.length} stock candidate links.`);
+    } catch {
+      setBrollSaveError("Unable to attach stock candidates for this B-roll beat.");
+      setBrollSaveState("error");
+    } finally {
+      setIsBrollBusy(false);
+    }
+  }
+
+  async function onUploadBrollBeatAsset(file: File) {
+    if (!episodePackage || !selectedBrollBeat) return;
+    if (isBrollBusy) return;
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!episodeId) {
+      setBrollSaveError("Select an Episode before uploading B-roll assets.");
+      setBrollSaveState("error");
+      return;
+    }
+    setIsBrollBusy(true);
+    setBrollSaveState("saving");
+    setBrollSaveError(null);
+    try {
+    const uploaded = await uploadBrollBeatAsset({
+      workpieceId: episodeId,
+      beatId: selectedBrollBeat.id,
+      file,
+      source: "upload",
+    });
+      if (!uploaded.ok) {
+        setBrollSaveError(uploaded.error);
+        setBrollSaveState("error");
+        return;
+      }
+    const uploadedCategory: EpisodeBrollMotionAssetCategory = file.type.startsWith("video/")
+      ? "uploaded_video"
+      : "animated_graphic";
+    const nextBeat: EpisodeBrollPlanBeat = {
+      ...selectedBrollBeat,
+      source_type: "upload",
+      asset_category: uploadedCategory,
+      origin: selectedBrollBeat.origin === "hammer" ? "mixed" : "hearth",
+      candidate_assets: [
+        ...(selectedBrollBeat.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
+        uploaded.candidateAsset,
+      ],
+        selected_asset_id: uploaded.candidateAsset.asset_id,
+        fulfillment_state: "resolved",
+        updated_at: new Date().toISOString(),
+      };
+      const nextPlan: EpisodeBrollPlan = {
+        ...episodePackage.broll_plan,
+        version: Math.max(1, episodePackage.broll_plan.version + 1),
+        beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
+        generated_at: new Date().toISOString(),
+      };
+      const saved = await persistBrollPlan({
+        plan: nextPlan,
+        eventName: "hearth.broll_plan.asset_uploaded.v1",
+        eventPayload: { beat_id: selectedBrollBeat.id, source: "upload" },
+      });
+      if (!saved.ok) {
+        setBrollSaveError(saved.error);
+        setBrollSaveState("error");
+        return;
+      }
+      setBrollSaveState("saved");
+      setBrollMessage("Uploaded asset selected for this B-roll beat.");
+    } catch {
+      setBrollSaveError("Unable to upload this B-roll asset.");
+      setBrollSaveState("error");
+    } finally {
+      setIsBrollBusy(false);
+    }
+  }
+
+  async function onSelectBrollCandidate(candidateId: string) {
+    if (!episodePackage || !selectedBrollBeat) return;
+    if (isBrollBusy) return;
+    if (selectedBrollBeat.selected_asset_id === candidateId) return;
+    const candidate = (selectedBrollBeat.candidate_assets ?? []).find((asset) => asset.asset_id === candidateId) ?? null;
+    if (!candidate) {
+      setBrollSaveError("Selected candidate is no longer attached to this beat.");
+      setBrollSaveState("error");
+      return;
+    }
+    const nextBeat: EpisodeBrollPlanBeat = {
+      ...selectedBrollBeat,
+      source_type: candidate.source,
+      asset_category: candidate.asset_category ?? selectedBrollBeat.asset_category,
+      data_visual_spec: candidate.data_visual_spec ?? selectedBrollBeat.data_visual_spec ?? null,
+      selected_asset_id: candidate.asset_id,
+      fulfillment_state: "resolved",
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
+      generated_at: new Date().toISOString(),
+    };
+    setIsBrollBusy(true);
+    setBrollSaveState("saving");
+    setBrollSaveError(null);
+    try {
+      const saved = await persistBrollPlan({
+        plan: nextPlan,
+        eventName: "hearth.broll_plan.asset_selected.v1",
+        eventPayload: { beat_id: selectedBrollBeat.id, candidate_id: candidate.asset_id },
+      });
+      if (!saved.ok) {
+        setBrollSaveError(saved.error);
+        setBrollSaveState("error");
+        return;
+      }
+      setBrollSaveState("saved");
+      setBrollMessage("Selected asset attached to B-roll beat.");
+    } catch {
+      setBrollSaveError("Unable to select this B-roll candidate.");
+      setBrollSaveState("error");
+    } finally {
+      setIsBrollBusy(false);
+    }
+  }
+
+  async function onCreateCdcEntry() {
+    if (isCdcBusy) return;
+    if (!episodePackage) return;
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!episodeId) {
+      setCdcSaveError("Select an Episode before creating CDC entries.");
+      setCdcSaveState("error");
+      return;
+    }
+    const baseAnchor = (
+      selectedImageMapEntry?.anchor
+      || selectedBrollBeat?.anchor_text
+      || activeDraft?.title
+      || "New contextual data composite"
+    ).trim();
+    const created = createContextualDataCompositePlan({
+      workpieceId: episodeId,
+      anchorText: baseAnchor,
+      description: baseAnchor,
+      format: (cdcFormatDraft.trim() || "still") as EpisodeCdcFormat,
+    });
+    const nextPlan: EpisodeCdcPlan = {
+      ...episodePackage.cdc_plan,
+      version: Math.max(1, episodePackage.cdc_plan.version + 1),
+      entries: [...episodePackage.cdc_plan.entries, created],
+      generated_at: new Date().toISOString(),
+    };
+    setIsCdcBusy(true);
+    setCdcSaveState("saving");
+    setCdcSaveError(null);
+    try {
+      const saved = await persistCdcPlan({
+        plan: nextPlan,
+        eventName: "hearth.cdc_plan.entry_created.v1",
+        eventPayload: {
+          cdc_id: created.id,
+          format: created.format,
+          data_type: created.data_type,
+        },
+      });
+      if (!saved.ok) {
+        setCdcSaveError(saved.error);
+        setCdcSaveState("error");
+        return;
+      }
+      setSelectedCdcEntryId(created.id);
+      setCdcSaveState("saved");
+      setCdcMessage("Contextual Data Composite created.");
+    } catch {
+      setCdcSaveError("Unable to create this CDC entry.");
+      setCdcSaveState("error");
+    } finally {
+      setIsCdcBusy(false);
+    }
+  }
+
+  async function onSaveCdcEntry() {
+    if (!episodePackage || !selectedCdcEntry) return;
+    if (isCdcBusy) return;
+    const nextEntry: EpisodeContextualDataCompositePlan = {
+      ...selectedCdcEntry,
+      anchor_text: cdcAnchorDraft.trim(),
+      placement_hint: (cdcPlacementHintDraft.trim() || "first_occurrence") as EpisodeContextualDataCompositePlan["placement_hint"],
+      format: (cdcFormatDraft.trim() || "still") as EpisodeCdcFormat,
+      data_type: (cdcDataTypeDraft.trim() || "quantitative") as EpisodeCdcDataType,
+      context_type: (cdcContextTypeDraft.trim() || "historical") as EpisodeCdcContextType,
+      tone: (cdcToneDraft.trim() || "neutral") as EpisodeCdcTone,
+      motion_level: (cdcMotionLevelDraft.trim() || "static") as EpisodeCdcMotionLevel,
+      description: cdcDescriptionDraft.trim(),
+      background_context_description: cdcBackgroundContextDraft.trim(),
+      foreground_data_description: cdcForegroundDataDraft.trim(),
+      visual_style: normalizeHearthVisualStyle(cdcVisualStyleDraft),
+      chart_type: (cdcChartTypeDraft.trim() || "line") as EpisodeCdcChartType,
+      title: cdcTitleDraft.trim() || null,
+      labels: cdcLabelsDraft
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+      values: resolveCdcValuesFromDraft(),
+      emphasis_key: cdcEmphasisKeyDraft.trim() || null,
+      source_type: cdcSourceTypeDraft as EpisodeContextualDataCompositePlan["source_type"],
+      origin: cdcSourceTypeDraft === "hammer_upload" && selectedCdcEntry.origin === "hearth"
+        ? "mixed"
+        : selectedCdcEntry.origin,
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeCdcPlan = {
+      ...episodePackage.cdc_plan,
+      version: Math.max(1, episodePackage.cdc_plan.version + 1),
+      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedCdcEntry.id ? nextEntry : entry)),
+      generated_at: new Date().toISOString(),
+    };
+    setIsCdcBusy(true);
+    setCdcSaveState("saving");
+    setCdcSaveError(null);
+    try {
+      const saved = await persistCdcPlan({
+        plan: nextPlan,
+        eventName: "hearth.cdc_plan.entry_updated.v1",
+        eventPayload: { cdc_id: selectedCdcEntry.id },
+      });
+      if (!saved.ok) {
+        setCdcSaveError(saved.error);
+        setCdcSaveState("error");
+        return;
+      }
+      setCdcSaveState("saved");
+      setCdcMessage("CDC entry saved.");
+    } catch {
+      setCdcSaveError("Unable to save this CDC entry.");
+      setCdcSaveState("error");
+    } finally {
+      setIsCdcBusy(false);
+    }
+  }
+
+  async function onDeleteCdcEntry() {
+    if (!episodePackage || !selectedCdcEntry) return;
+    if (isCdcBusy) return;
+    const confirmed = window.confirm("Delete this Contextual Data Composite?");
+    if (!confirmed) return;
+    const nextEntries = episodePackage.cdc_plan.entries.filter((entry) => entry.id !== selectedCdcEntry.id);
+    const nextPlan: EpisodeCdcPlan = {
+      ...episodePackage.cdc_plan,
+      version: Math.max(1, episodePackage.cdc_plan.version + 1),
+      entries: nextEntries,
+      generated_at: new Date().toISOString(),
+    };
+    setIsCdcBusy(true);
+    setCdcSaveState("saving");
+    setCdcSaveError(null);
+    try {
+      const saved = await persistCdcPlan({
+        plan: nextPlan,
+        eventName: "hearth.cdc_plan.entry_deleted.v1",
+        eventPayload: { cdc_id: selectedCdcEntry.id },
+      });
+      if (!saved.ok) {
+        setCdcSaveError(saved.error);
+        setCdcSaveState("error");
+        return;
+      }
+      setSelectedCdcEntryId(nextEntries[0]?.id ?? null);
+      setCdcSaveState("saved");
+      setCdcMessage("CDC entry removed.");
+    } catch {
+      setCdcSaveError("Unable to delete this CDC entry.");
+      setCdcSaveState("error");
+    } finally {
+      setIsCdcBusy(false);
+    }
+  }
+
+  async function onRegenerateCdcEntryStub() {
+    if (!episodePackage || !selectedCdcEntry) return;
+    if (isCdcBusy) return;
+    const nextDescription = cdcDescriptionDraft.trim() || selectedCdcEntry.description || selectedCdcEntry.anchor_text;
+    const signals = inferCdcSuitabilitySignals(nextDescription);
+    const inferredDataType: EpisodeCdcDataType = signals.includes("geographic")
+      ? "geographic"
+      : signals.includes("over_time")
+        ? "timeline"
+        : signals.includes("comparison")
+          ? "comparison"
+          : signals.includes("statistics")
+            ? "quantitative"
+            : "categorical";
+    const inferredContextType: EpisodeCdcContextType = signals.includes("geographic") ? "location" : "historical";
+    const inferredChartType: EpisodeCdcChartType = inferredDataType === "timeline"
+      ? "timeline"
+      : inferredDataType === "geographic"
+        ? "map"
+        : inferredDataType === "comparison"
+          ? "comparison"
+          : inferredDataType === "categorical"
+            ? "bar"
+            : "line";
+    const nextEntry: EpisodeContextualDataCompositePlan = {
+      ...selectedCdcEntry,
+      description: nextDescription,
+      data_type: inferredDataType,
+      context_type: inferredContextType,
+      chart_type: inferredChartType,
+      tone: signals.includes("policy_impact") ? "investigative" : (signals.includes("trend") ? "analytical" : selectedCdcEntry.tone),
+      motion_level: (cdcFormatDraft === "animated" || cdcFormatDraft === "hybrid") ? "full_animation" : "static",
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeCdcPlan = {
+      ...episodePackage.cdc_plan,
+      version: Math.max(1, episodePackage.cdc_plan.version + 1),
+      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedCdcEntry.id ? nextEntry : entry)),
+      generated_at: new Date().toISOString(),
+    };
+    setIsCdcBusy(true);
+    setCdcSaveState("saving");
+    setCdcSaveError(null);
+    try {
+      const saved = await persistCdcPlan({
+        plan: nextPlan,
+        eventName: "hearth.cdc_plan.entry_regenerated_stub.v1",
+        eventPayload: {
+          cdc_id: selectedCdcEntry.id,
+          signal_count: signals.length,
+        },
+      });
+      if (!saved.ok) {
+        setCdcSaveError(saved.error);
+        setCdcSaveState("error");
+        return;
+      }
+      setCdcSaveState("saved");
+      setCdcMessage("CDC guidance refreshed.");
+    } catch {
+      setCdcSaveError("Unable to regenerate CDC guidance.");
+      setCdcSaveState("error");
+    } finally {
+      setIsCdcBusy(false);
+    }
+  }
+
+  async function onUploadCdcAsset(file: File) {
+    if (!episodePackage || !selectedCdcEntry) return;
+    if (isCdcBusy) return;
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!episodeId) {
+      setCdcSaveError("Select an Episode before uploading CDC assets.");
+      setCdcSaveState("error");
+      return;
+    }
+    setIsCdcBusy(true);
+    setCdcSaveState("saving");
+    setCdcSaveError(null);
+    try {
+      const uploaded = await uploadBrollBeatAsset({
+        workpieceId: episodeId,
+        beatId: selectedCdcEntry.id,
+        file,
+        source: "upload",
+      });
+      if (!uploaded.ok) {
+        setCdcSaveError(uploaded.error);
+        setCdcSaveState("error");
+        return;
+      }
+      const nextEntry: EpisodeContextualDataCompositePlan = {
+        ...selectedCdcEntry,
+        source_type: "upload",
+        origin: selectedCdcEntry.origin === "hammer" ? "mixed" : "hearth",
+        candidate_assets: [
+          ...(selectedCdcEntry.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
+          uploaded.candidateAsset,
+        ],
+        selected_asset_id: uploaded.candidateAsset.asset_id,
+        updated_at: new Date().toISOString(),
+      };
+      const nextPlan: EpisodeCdcPlan = {
+        ...episodePackage.cdc_plan,
+        version: Math.max(1, episodePackage.cdc_plan.version + 1),
+        entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedCdcEntry.id ? nextEntry : entry)),
+        generated_at: new Date().toISOString(),
+      };
+      const saved = await persistCdcPlan({
+        plan: nextPlan,
+        eventName: "hearth.cdc_plan.asset_uploaded.v1",
+        eventPayload: { cdc_id: selectedCdcEntry.id, source: "upload" },
+      });
+      if (!saved.ok) {
+        setCdcSaveError(saved.error);
+        setCdcSaveState("error");
+        return;
+      }
+      setCdcSaveState("saved");
+      setCdcMessage("Uploaded asset selected for this CDC entry.");
+    } catch {
+      setCdcSaveError("Unable to upload this CDC asset.");
+      setCdcSaveState("error");
+    } finally {
+      setIsCdcBusy(false);
+    }
+  }
+
+  async function onSelectCdcCandidate(candidateId: string) {
+    if (!episodePackage || !selectedCdcEntry) return;
+    if (isCdcBusy) return;
+    if (selectedCdcEntry.selected_asset_id === candidateId) return;
+    const candidate = (selectedCdcEntry.candidate_assets ?? []).find((asset) => asset.asset_id === candidateId) ?? null;
+    if (!candidate) {
+      setCdcSaveError("Selected candidate is no longer attached to this CDC entry.");
+      setCdcSaveState("error");
+      return;
+    }
+    const nextEntry: EpisodeContextualDataCompositePlan = {
+      ...selectedCdcEntry,
+      source_type: candidate.source,
+      origin: candidate.source === "hammer_upload" && selectedCdcEntry.origin === "hearth"
+        ? "mixed"
+        : selectedCdcEntry.origin,
+      selected_asset_id: candidate.asset_id,
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeCdcPlan = {
+      ...episodePackage.cdc_plan,
+      version: Math.max(1, episodePackage.cdc_plan.version + 1),
+      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedCdcEntry.id ? nextEntry : entry)),
+      generated_at: new Date().toISOString(),
+    };
+    setIsCdcBusy(true);
+    setCdcSaveState("saving");
+    setCdcSaveError(null);
+    try {
+      const saved = await persistCdcPlan({
+        plan: nextPlan,
+        eventName: "hearth.cdc_plan.asset_selected.v1",
+        eventPayload: { cdc_id: selectedCdcEntry.id, candidate_id: candidate.asset_id },
+      });
+      if (!saved.ok) {
+        setCdcSaveError(saved.error);
+        setCdcSaveState("error");
+        return;
+      }
+      setCdcSaveState("saved");
+      setCdcMessage("Selected asset attached to CDC entry.");
+    } catch {
+      setCdcSaveError("Unable to select this CDC candidate.");
+      setCdcSaveState("error");
+    } finally {
+      setIsCdcBusy(false);
+    }
+  }
+
+  async function onGenerateEpisodeMediaMapFromPlans() {
+    if (!episodePackage) return;
+    if (isMediaMapBusy) return;
+    const scriptVersionId = approvedScriptVersion ? String(approvedScriptVersion) : null;
+    const nextMap = buildMediaMapFromExistingPlans(episodePackage, scriptVersionId, mediaMapGenerationScope);
+    setIsMediaMapBusy(true);
+    setMediaMapSaveState("saving");
+    setMediaMapSaveError(null);
+    try {
+      const saved = await persistMediaMap({
+        map: nextMap,
+        eventName: "hearth.media_map.generated_from_plans.v1",
+        eventPayload: {
+          entry_count: nextMap.entries.length,
+          script_version_id: scriptVersionId,
+          scope: mediaMapGenerationScope,
+        },
+      });
+      if (!saved.ok) {
+        setMediaMapSaveError(saved.error);
+        setMediaMapSaveState("error");
+        return;
+      }
+      setSelectedMediaMapEntryId(nextMap.entries[0]?.id ?? null);
+      setMediaMapSaveState("saved");
+      setMediaMapMessage(`Generated ${nextMap.entries.length} media map entries using scope: ${mediaMapGenerationScope.replaceAll("_", " ")}.`);
+    } catch {
+      setMediaMapSaveError("Unable to generate Episode Media Map.");
+      setMediaMapSaveState("error");
+    } finally {
+      setIsMediaMapBusy(false);
+    }
+  }
+
+  async function onAddMediaMapEntry() {
+    if (!episodePackage) return;
+    if (isMediaMapBusy) return;
+    const nowIso = new Date().toISOString();
+    const entry: EpisodeMediaMapEntry = {
+      id: createMediaMapEntryId(),
+      final_media_kind: "image",
+      anchor: {
+        mode: "phrase_match",
+        target: "",
+      },
+      timing: {
+        in_offset_sec: 0,
+        duration_sec: 6,
+      },
+      description: "",
+      intent: "establish_context",
+      source: {
+        status: "unresolved",
+        asset_id: null,
+      },
+      confidence: "medium",
+      fulfillment_status: "planned",
+      fulfillment_path: null,
+      optional: false,
+      critical: false,
+      stale: false,
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+    const nextMap: EpisodeMediaMap = {
+      ...episodePackage.media_map,
+      script_version_id: approvedScriptVersion ? String(approvedScriptVersion) : episodePackage.media_map.script_version_id,
+      status: "draft",
+      version: Math.max(1, episodePackage.media_map.version + 1),
+      entries: [...episodePackage.media_map.entries, entry],
+      generated_at: nowIso,
+    };
+    setIsMediaMapBusy(true);
+    setMediaMapSaveState("saving");
+    setMediaMapSaveError(null);
+    try {
+      const saved = await persistMediaMap({
+        map: nextMap,
+        eventName: "hearth.media_map.entry_created.v1",
+        eventPayload: { entry_id: entry.id },
+      });
+      if (!saved.ok) {
+        setMediaMapSaveError(saved.error);
+        setMediaMapSaveState("error");
+        return;
+      }
+      setSelectedMediaMapEntryId(entry.id);
+      setMediaMapSaveState("saved");
+      setMediaMapMessage("Media map entry created.");
+    } catch {
+      setMediaMapSaveError("Unable to create media map entry.");
+      setMediaMapSaveState("error");
+    } finally {
+      setIsMediaMapBusy(false);
+    }
+  }
+
+  async function onSaveMediaMapEntry() {
+    if (!episodePackage || !selectedMediaMapEntry) return;
+    if (isMediaMapBusy) return;
+    const nowIso = new Date().toISOString();
+    const nextEntry: EpisodeMediaMapEntry = {
+      ...selectedMediaMapEntry,
+      final_media_kind: (
+        mediaMapTypeDraft === "b_roll" || mediaMapTypeDraft === "contextual_data_composite"
+          ? mediaMapTypeDraft
+          : "image"
+      ),
+      anchor: {
+        mode: (
+          mediaMapAnchorModeDraft === "line_anchor"
+          || mediaMapAnchorModeDraft === "phrase_match"
+          || mediaMapAnchorModeDraft === "speaker_turn"
+          || mediaMapAnchorModeDraft === "section_marker"
+          || mediaMapAnchorModeDraft === "absolute_time"
+            ? mediaMapAnchorModeDraft
+            : "phrase_match"
+        ),
+        target: mediaMapAnchorTargetDraft.trim(),
+      },
+      timing: {
+        in_offset_sec: normalizeMediaMapNumber(mediaMapInOffsetDraft, selectedMediaMapEntry.timing.in_offset_sec),
+        duration_sec: normalizeMediaMapNumber(mediaMapDurationDraft, selectedMediaMapEntry.timing.duration_sec),
+      },
+      description: mediaMapDescriptionDraft.trim(),
+      intent: mediaMapIntentDraft.trim(),
+      source: {
+        status: (
+          mediaMapSourceStatusDraft === "selected"
+          || mediaMapSourceStatusDraft === "attached"
+            ? mediaMapSourceStatusDraft
+            : "unresolved"
+        ),
+        asset_id: mediaMapSourceAssetIdDraft.trim() || null,
+      },
+      confidence: (
+        mediaMapConfidenceDraft === "high"
+        || mediaMapConfidenceDraft === "low"
+          ? mediaMapConfidenceDraft
+          : "medium"
+      ),
+      fulfillment_status: (
+        mediaMapSourceStatusDraft === "selected" || mediaMapSourceStatusDraft === "attached"
+          ? "resolved"
+          : selectedMediaMapEntry.fulfillment_status
+      ),
+      fulfillment_path: (
+        mediaMapTypeDraft === "b_roll"
+          ? "motion_broll"
+          : mediaMapTypeDraft === "contextual_data_composite"
+            ? "cdc"
+            : "image"
+      ),
+      optional: mediaMapOptionalDraft,
+      critical: mediaMapCriticalDraft,
+      stale: false,
+      updated_at: nowIso,
+    };
+    const nextMap: EpisodeMediaMap = {
+      ...episodePackage.media_map,
+      script_version_id: approvedScriptVersion ? String(approvedScriptVersion) : episodePackage.media_map.script_version_id,
+      status: (
+        episodePackage.media_map.status === "activated"
+        || episodePackage.media_map.status === "fulfilling"
+        || episodePackage.media_map.status === "fulfilled"
+      )
+        ? "needs_attention"
+        : episodePackage.media_map.status,
+      version: Math.max(1, episodePackage.media_map.version + 1),
+      entries: episodePackage.media_map.entries.map((entry) => (entry.id === selectedMediaMapEntry.id ? nextEntry : entry)),
+      generated_at: nowIso,
+    };
+    setIsMediaMapBusy(true);
+    setMediaMapSaveState("saving");
+    setMediaMapSaveError(null);
+    try {
+      const saved = await persistMediaMap({
+        map: nextMap,
+        eventName: "hearth.media_map.entry_updated.v1",
+        eventPayload: { entry_id: selectedMediaMapEntry.id },
+      });
+      if (!saved.ok) {
+        setMediaMapSaveError(saved.error);
+        setMediaMapSaveState("error");
+        return;
+      }
+      setMediaMapSaveState("saved");
+      setMediaMapMessage("Media map entry saved.");
+    } catch {
+      setMediaMapSaveError("Unable to save media map entry.");
+      setMediaMapSaveState("error");
+    } finally {
+      setIsMediaMapBusy(false);
+    }
+  }
+
+  async function onDeleteMediaMapEntry() {
+    if (!episodePackage || !selectedMediaMapEntry) return;
+    if (isMediaMapBusy) return;
+    if (!window.confirm("Delete this media map entry?")) return;
+    const nextEntries = episodePackage.media_map.entries.filter((entry) => entry.id !== selectedMediaMapEntry.id);
+    const nextMap: EpisodeMediaMap = {
+      ...episodePackage.media_map,
+      status: (
+        episodePackage.media_map.status === "activated"
+        || episodePackage.media_map.status === "fulfilling"
+        || episodePackage.media_map.status === "fulfilled"
+      )
+        ? "needs_attention"
+        : episodePackage.media_map.status,
+      version: Math.max(1, episodePackage.media_map.version + 1),
+      entries: nextEntries,
+      generated_at: new Date().toISOString(),
+    };
+    setIsMediaMapBusy(true);
+    setMediaMapSaveState("saving");
+    setMediaMapSaveError(null);
+    try {
+      const saved = await persistMediaMap({
+        map: nextMap,
+        eventName: "hearth.media_map.entry_deleted.v1",
+        eventPayload: { entry_id: selectedMediaMapEntry.id },
+      });
+      if (!saved.ok) {
+        setMediaMapSaveError(saved.error);
+        setMediaMapSaveState("error");
+        return;
+      }
+      setSelectedMediaMapEntryId(nextEntries[0]?.id ?? null);
+      setMediaMapSaveState("saved");
+      setMediaMapMessage("Media map entry removed.");
+    } catch {
+      setMediaMapSaveError("Unable to delete media map entry.");
+      setMediaMapSaveState("error");
+    } finally {
+      setIsMediaMapBusy(false);
+    }
+  }
+
+  async function onActivateEpisodeMediaMap() {
+    if (!episodePackage) return;
+    if (isMediaMapBusy) return;
+    const activated = activateEpisodeMediaMapForFulfillment({
+      ...episodePackage.media_map,
+      script_version_id: approvedScriptVersion ? String(approvedScriptVersion) : episodePackage.media_map.script_version_id,
+    });
+    setIsMediaMapBusy(true);
+    setMediaMapSaveState("saving");
+    setMediaMapSaveError(null);
+    try {
+      const saved = await persistMediaMap({
+        map: activated,
+        eventName: "hearth.media_map.activated.v1",
+        eventPayload: {
+          entry_count: activated.entries.length,
+          script_version_id: activated.script_version_id,
+          queued_count: activated.entries.filter((entry) => entry.fulfillment_status === "queued").length,
+        },
+      });
+      if (!saved.ok) {
+        setMediaMapSaveError(saved.error);
+        setMediaMapSaveState("error");
+        return;
+      }
+      setMediaMapSaveState("saved");
+      setMediaMapMessage("Media plan activated. Beats routed to image, motion B-roll, and CDC fulfillment paths.");
+    } catch {
+      setMediaMapSaveError("Unable to activate Episode Media Map.");
+      setMediaMapSaveState("error");
+    } finally {
+      setIsMediaMapBusy(false);
+    }
   }
 
   async function onCreateThumbnailConcept() {
@@ -8279,7 +9933,7 @@ export default function HearthShell() {
     }
   }
 
-  async function onGenerateImageMapCandidates() {
+  async function onGenerateImageMapCandidates(mode: "ai" | "stock" = "ai") {
     if (isAiProcessing || isApprovingScript || isImageMapCandidateGenerating) return;
     if (!episodePackage || !selectedImageMapEntry) return;
 
@@ -8298,6 +9952,8 @@ export default function HearthShell() {
       return;
     }
 
+    let expectedMetadataUpdatedAt = imageMapMetadataUpdatedAt;
+
     const canonicalScript = await readCanonicalScriptForImageMapGeneration();
     if (!canonicalScript.ok) {
       setImageMapCandidateError(canonicalScript.message);
@@ -8306,8 +9962,6 @@ export default function HearthShell() {
 
     const exactAnchorAssessment = assessImageMapScriptAnchor(canonicalScript.text, selectedImageMapEntry.script_anchor);
     const effectiveScriptAnchor = exactAnchorAssessment.exactAnchor;
-    let expectedMetadataUpdatedAt = imageMapMetadataUpdatedAt;
-
     if (!effectiveScriptAnchor) {
       setMode("focus");
       setShowManualDraft(false);
@@ -8322,25 +9976,63 @@ export default function HearthShell() {
     const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
     const confirmed = alwaysApproveSpend
       ? true
-      : window.confirm("Generate two still candidates for this visual beat? This will spend AI credits.");
+      : window.confirm(
+          mode === "stock"
+            ? "Find stock-style still candidates for this visual beat? This will spend AI credits."
+            : "Generate two still candidates for this visual beat? This will spend AI credits.",
+        );
     if (!confirmed) return;
+
+    const requestedSourceType = mode === "stock" ? "stock" : "ai";
+    if (selectedImageMapEntry.source_type !== requestedSourceType) {
+      const updatedEntries = episodePackage.image_map.entries.map((entry) => (
+        entry.id === selectedImageMapEntry.id
+          ? {
+              ...entry,
+              source_type: requestedSourceType,
+              origin: "hearth" as const,
+            }
+          : entry
+      ));
+      const sourceSaved = await persistImageMapEntries({ entries: updatedEntries });
+      if (!sourceSaved.ok) {
+        setImageMapCandidateError(sourceSaved.error);
+        return;
+      }
+      expectedMetadataUpdatedAt = sourceSaved.metadataUpdatedAt;
+      setImageMapSourceTypeDraft(requestedSourceType);
+    }
 
     setIsImageMapCandidateGenerating(true);
     setImageMapCandidateError(null);
     setImageMapCandidateSelectionError(null);
     setAiRuntimeWarning(null);
     try {
-      const generated = await generateWorkpieceImageMapCandidates({
-        workpieceId: episodeId,
-        workspaceId: workspace,
-        imageMapEntryId: selectedImageMapEntry.id,
-        expectedMetadataUpdatedAt,
-        contextBefore: context.before,
-        contextAfter: context.after,
-        aspect: thumbnailAspect,
-        confirmSpend: confirmed,
-        alwaysApproveAiSpend: alwaysApproveSpend,
-      });
+      const requestCandidateGeneration = (metadataUpdatedAt: string | null | undefined) => (
+        generateWorkpieceImageMapCandidates({
+          workpieceId: episodeId,
+          workspaceId: workspace,
+          imageMapEntryId: selectedImageMapEntry.id,
+          expectedMetadataUpdatedAt: metadataUpdatedAt,
+          contextBefore: context.before,
+          contextAfter: context.after,
+          aspect: thumbnailAspect,
+          confirmSpend: confirmed,
+          alwaysApproveAiSpend: alwaysApproveSpend,
+        })
+      );
+
+      let generated = await requestCandidateGeneration(expectedMetadataUpdatedAt);
+
+      // Resolve one stale-write race automatically by retrying against the latest
+      // metadata stamp after we refresh the canonical image map snapshot.
+      if (!generated.ok && generated.reason === "conflict" && generated.latest) {
+        if (episodePackage) {
+          setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.latest.entries));
+        }
+        setImageMapMetadataUpdatedAt(generated.latest.metadataUpdatedAt);
+        generated = await requestCandidateGeneration(generated.latest.metadataUpdatedAt);
+      }
 
       if (!generated.ok) {
         const failureMessage = generated.error
@@ -8366,7 +10058,11 @@ export default function HearthShell() {
       }
       setImageMapMetadataUpdatedAt(generated.imageMap.metadataUpdatedAt);
       setImageMapCandidateSelectionError(null);
-      setImageMapExportMessage(`Generated ${generated.generatedAssets.length} still candidates for the selected visual beat.`);
+      setImageMapExportMessage(
+        mode === "stock"
+          ? `Found ${generated.generatedAssets.length} stock-style still candidates for the selected visual beat.`
+          : `Generated ${generated.generatedAssets.length} still candidates for the selected visual beat.`,
+      );
       if (typeof generated.tokenBalance === "number") {
         setAiTokenBalance(generated.tokenBalance);
       }
@@ -8375,8 +10071,8 @@ export default function HearthShell() {
       }
       publishForgeNotice({
         job: "image-generated",
-        title: "Timeline images ready",
-        message: `Generated ${generated.generatedAssets.length} still candidate${generated.generatedAssets.length === 1 ? "" : "s"} for the selected visual beat.`,
+        title: mode === "stock" ? "Stock candidates ready" : "Timeline images ready",
+        message: `${mode === "stock" ? "Found" : "Generated"} ${generated.generatedAssets.length} still candidate${generated.generatedAssets.length === 1 ? "" : "s"} for the selected visual beat.`,
         severity: "success",
       });
     } catch (error) {
@@ -8459,6 +10155,69 @@ export default function HearthShell() {
       setImageMapExportMessage("Selected still candidate saved canonically for this visual beat.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to save the selected still candidate.";
+      setImageMapCandidateSelectionError(message);
+    } finally {
+      setIsImageMapCandidateSelecting(false);
+    }
+  }
+
+  async function onUploadImageMapAsset(file: File) {
+    if (!episodePackage || !selectedImageMapEntry) return;
+    if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
+      setImageMapCandidateSelectionError("Save or finish editing this visual beat before uploading an asset.");
+      return;
+    }
+    const workspace = workspaceId?.trim() ?? "";
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!workspace || !episodeId) {
+      setImageMapCandidateSelectionError("Workspace or workpiece is missing.");
+      return;
+    }
+
+    setIsImageMapCandidateSelecting(true);
+    setImageMapCandidateSelectionError(null);
+    setImageMapCandidateError(null);
+    try {
+      const uploaded = await uploadWorkpieceImageMapCandidateAsset({
+        workpieceId: episodeId,
+        entryId: selectedImageMapEntry.id,
+        file,
+        source: "upload",
+      });
+      if (!uploaded.ok) {
+        setImageMapCandidateSelectionError(uploaded.error);
+        return;
+      }
+
+      const updatedEntries = episodePackage.image_map.entries.map((entry) => {
+        if (entry.id !== selectedImageMapEntry.id) return entry;
+        const existing = entry.candidate_assets.filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id);
+        const nextOrigin: "hearth" | "mixed" = entry.origin === "hammer" ? "mixed" : "hearth";
+        return {
+          ...entry,
+          source_type: "upload",
+          origin: nextOrigin,
+          candidate_assets: [...existing, uploaded.candidateAsset],
+          selected_asset_id: uploaded.candidateAsset.asset_id,
+          status: "selected" as const,
+        };
+      });
+
+      const saved = await persistImageMapEntries({ entries: updatedEntries });
+      if (!saved.ok) {
+        setImageMapCandidateSelectionError(saved.error);
+        return;
+      }
+      setImageMapSourceTypeDraft("upload");
+      setImageMapExportMessage("Uploaded visual asset attached and selected for this beat.");
+      publishForgeNotice({
+        job: "image-generated",
+        title: "Visual asset uploaded",
+        message: "Uploaded asset is now selected for this visual beat.",
+        severity: "success",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to upload this visual asset.";
       setImageMapCandidateSelectionError(message);
     } finally {
       setIsImageMapCandidateSelecting(false);
@@ -9695,6 +11454,11 @@ export default function HearthShell() {
       : scriptCompletionBadge === "partial_script"
         ? "Partial Script"
         : "Outline Draft";
+    const isScriptWorkspaceTab = activeWorkpieceTab === "script";
+    const isVisualsWorkspaceTab = activeWorkpieceTab === "visuals";
+    const isMetadataWorkspaceTab = activeWorkpieceTab === "metadata";
+    const isReleaseWorkspaceTab = activeWorkpieceTab === "release";
+    const isHistoryWorkspaceTab = activeWorkpieceTab === "history";
 
     return (
       <section className="hs-draft hs-draft-chat-first">
@@ -9877,11 +11641,29 @@ export default function HearthShell() {
                 type="button"
                 onClick={onToggleVisualScriptMode}
               >
-                {isVisualScriptMode ? "Exit Visual Script Mode" : "Visual Script Mode"}
+                {isVisualScriptMode ? "Exit Visual Mode" : "Visual Mode"}
               </button>
             ) : null}
           </div>
           <div className="hs-field-label-muted">Write without AI (just a text editor)</div>
+        </div>
+
+        <div className="hs-workpiece-tabs" role="tablist" aria-label="Workpiece workspace tabs">
+          <button type="button" role="tab" aria-selected={isScriptWorkspaceTab} className={`hs-workpiece-tab${isScriptWorkspaceTab ? " is-active" : ""}`} onClick={() => setActiveWorkpieceTab("script")}>
+            Script
+          </button>
+          <button type="button" role="tab" aria-selected={isVisualsWorkspaceTab} className={`hs-workpiece-tab${isVisualsWorkspaceTab ? " is-active" : ""}`} onClick={() => setActiveWorkpieceTab("visuals")}>
+            Visuals
+          </button>
+          <button type="button" role="tab" aria-selected={isMetadataWorkspaceTab} className={`hs-workpiece-tab${isMetadataWorkspaceTab ? " is-active" : ""}`} onClick={() => setActiveWorkpieceTab("metadata")}>
+            Metadata
+          </button>
+          <button type="button" role="tab" aria-selected={isReleaseWorkspaceTab} className={`hs-workpiece-tab${isReleaseWorkspaceTab ? " is-active" : ""}`} onClick={() => setActiveWorkpieceTab("release")}>
+            Release
+          </button>
+          <button type="button" role="tab" aria-selected={isHistoryWorkspaceTab} className={`hs-workpiece-tab${isHistoryWorkspaceTab ? " is-active" : ""}`} onClick={() => setActiveWorkpieceTab("history")}>
+            History
+          </button>
         </div>
 
         <div className={`hs-draft-stage${showScriptEditor ? " has-script-panel" : ""}`}>
@@ -9894,7 +11676,8 @@ export default function HearthShell() {
               </div>
             ) : null}
 
-            <CollapsibleFocusPanel
+            {isScriptWorkspaceTab ? (
+              <CollapsibleFocusPanel
               panelId="hearth-chat-panel"
               title="Chat"
               meta={chatPanelMeta}
@@ -10097,13 +11880,6 @@ export default function HearthShell() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void onRunProductionAction("image_beat_sheet")}
-                  disabled={isAiProcessing || aiCreditsDepleted}
-                >
-                  {activeProductionAction === "image_beat_sheet" && isAiProcessing ? "Generating..." : "Image Beat Sheet"}
-                </button>
-                <button
-                  type="button"
                   onClick={() => void onRunProductionAction("release_prep_pack")}
                   disabled={isAiProcessing || aiCreditsDepleted}
                 >
@@ -10112,7 +11888,7 @@ export default function HearthShell() {
               </div>
             ) : null}
 
-            {hasApprovedScript && approvedScriptVersion ? (
+            {isReleaseWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
               <section className="hs-release-prep-viewer" aria-label="Latest release prep pack">
                 <div className="hs-release-prep-viewer__head">
                   <strong>Latest Release Prep Pack</strong>
@@ -10252,7 +12028,62 @@ export default function HearthShell() {
               <div className="hs-error-text-small">{sttError}</div>
             ) : null}
               </section>
-            </CollapsibleFocusPanel>
+              </CollapsibleFocusPanel>
+            ) : null}
+
+            {isReleaseWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
+              <section className="hs-release-prep-viewer" aria-label="Release workspace">
+                <div className="hs-release-prep-viewer__head">
+                  <strong>Release Prep</strong>
+                  <span>Finalize launch packaging and review latest prep output.</span>
+                </div>
+                <div className="hs-production-action-row" role="group" aria-label="Release actions">
+                  <button
+                    type="button"
+                    onClick={() => void onRunProductionAction("release_prep_pack")}
+                    disabled={isAiProcessing || aiCreditsDepleted}
+                  >
+                    {activeProductionAction === "release_prep_pack" && isAiProcessing ? "Generating..." : "Generate Release Prep Pack"}
+                  </button>
+                  <button type="button" onClick={() => setActiveWorkpieceTab("visuals")}>
+                    Open Launch Variants (Visuals)
+                  </button>
+                </div>
+                <div className="hs-release-prep-viewer__meta">
+                  <span>
+                    {releasePrepScriptVersion
+                      ? `Script v${releasePrepScriptVersion}`
+                      : `Script v${approvedScriptVersion}`}
+                    {latestReleasePrepRawText ? ` · ${latestReleasePrepRawText.length} chars` : ""}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void loadLatestReleasePrepPack(approvedScriptVersion)}
+                    disabled={isAiProcessing || releasePrepLoadState === "loading"}
+                  >
+                    {releasePrepLoadState === "loading" ? "Refreshing..." : "Refresh"}
+                  </button>
+                </div>
+                {releasePrepLoadState === "missing" ? (
+                  <div className="hs-field-label-muted">
+                    No saved Release Prep Pack for this approved script version yet.
+                  </div>
+                ) : null}
+                {releasePrepLoadState === "error" ? (
+                  <div className="hs-error-text-small">Could not load the latest Release Prep Pack artifact.</div>
+                ) : null}
+                {releasePrepLoadState === "ready" && latestReleasePrepSections.length > 0 ? (
+                  <div className="hs-release-prep-viewer__sections">
+                    {latestReleasePrepSections.map((section) => (
+                      <article key={section.key} className="hs-release-prep-viewer__section">
+                        <header>{section.label}</header>
+                        <pre>{section.content}</pre>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
 
             {hasApprovedScript && approvedScriptVersion ? (
               <CollapsibleFocusPanel
@@ -10346,115 +12177,201 @@ export default function HearthShell() {
               </CollapsibleFocusPanel>
             ) : null}
 
-            {hasApprovedScript && approvedScriptVersion ? (
+            {isVisualsWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
               <CollapsibleFocusPanel
-                panelId="hearth-image-map-panel"
-                title="Visual Script Mode"
-                meta={imageMapPanelMeta}
-                collapsed={focusPanelLayout.imageMap}
-                onToggle={() => onToggleFocusPanel("imageMap")}
+                panelId="hearth-media-map-panel"
+                title="Episode Media Map"
+                meta={mediaMapPanelMeta}
+                collapsed={focusPanelLayout.mediaMap}
+                onToggle={() => onToggleFocusPanel("mediaMap")}
               >
-                <ImageMapPanel
-                  panelTitle="Visual Script Mode"
-                  manualOnly
-                  entries={imageMapEntries}
-                  selectedEntryId={selectedImageMapEntryId}
-                  draftAnchor={imageMapAnchorDraft}
-                  draftDescription={imageMapDescriptionDraft}
-                  draftStylePreset={imageMapStyleDraft}
-                  draftIntent={imageMapIntentDraft}
-                  draftSourceType={imageMapSourceTypeDraft}
-                  draftVisualPriority={imageMapVisualPriorityDraft}
-                  draftVisualType={imageMapVisualTypeDraft}
-                  draftSectionIntentNote={imageMapSectionIntentNoteDraft}
-                  draftPlacementHint={imageMapPlacementHintDraft}
-                  saveState={imageMapSaveState}
-                  saveError={imageMapSaveError}
-                  exportMessage={imageMapExportMessage}
-                  candidateCards={imageMapCandidateCards}
-                  candidateGenerateBusy={isImageMapCandidateGenerating}
-                  candidateGenerateError={imageMapCandidateError}
-                  candidateSelectBusy={isImageMapCandidateSelecting}
-                  candidateSelectionError={imageMapCandidateSelectionError}
-                  anchorStatusLabel={imageMapAnchorStatusView?.label ?? null}
-                  anchorStatusTone={imageMapAnchorStatusView?.tone ?? "neutral"}
-                  anchorStatusDetail={imageMapAnchorStatusView?.detail ?? null}
-                  reanchorMode={isImageMapReanchorMode}
-                  reanchorBusy={isImageMapReanchorSaving}
-                  reanchorDisabledReason={imageMapReanchorDisabledReason}
-                  nearestRepairAvailable={isImageMapNearestRepairAvailable}
-                  reanchorError={imageMapReanchorError}
-                  reanchorScriptSourceLabel={resolveCanonicalImageMapScriptSourceLabel(canonicalImageMapScriptState)}
-                  reanchorScriptHint={resolveCanonicalImageMapScriptHint(canonicalImageMapScriptState)}
-                  reanchorScriptLoading={canonicalImageMapScriptState.status === "loading"}
-                  reanchorParagraphs={imageMapAnchorPickerParagraphs}
-                  activeAnchorLabel={imageMapActiveAnchorLabel}
-                  disabled={isAiProcessing || isApprovingScript || isImageMapReanchorSaving}
-                  onSelectEntry={onSelectImageMapEntry}
-                  onSelectCandidate={(candidateId) => void onSelectImageMapCandidate(candidateId)}
-                  onDraftAnchorChange={(value) => {
-                    setImageMapAnchorDraft(value);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
+                <EpisodeMediaMapPanel
+                  entries={mediaMapEntries}
+                  selectedEntryId={selectedMediaMapEntryId}
+                  scriptVersionLabel={approvedScriptVersion ? `v${approvedScriptVersion}` : "none"}
+                  mapStatus={mediaMap?.status ?? "draft"}
+                  stale={Boolean(
+                    mediaMap?.script_version_id
+                    && approvedScriptVersion
+                    && mediaMap.script_version_id !== String(approvedScriptVersion)
+                  )}
+                  saveState={mediaMapSaveState}
+                  saveError={mediaMapSaveError}
+                  message={mediaMapMessage}
+                  disabled={isApprovingScript || isMediaMapBusy || !episodePackage}
+                  generationScope={mediaMapGenerationScope}
+                  draft={{
+                    type: mediaMapTypeDraft,
+                    anchorMode: mediaMapAnchorModeDraft,
+                    anchorTarget: mediaMapAnchorTargetDraft,
+                    inOffsetSec: mediaMapInOffsetDraft,
+                    durationSec: mediaMapDurationDraft,
+                    description: mediaMapDescriptionDraft,
+                    intent: mediaMapIntentDraft,
+                    sourceStatus: mediaMapSourceStatusDraft,
+                    sourceAssetId: mediaMapSourceAssetIdDraft,
+                    confidence: mediaMapConfidenceDraft,
+                    optional: mediaMapOptionalDraft,
+                    critical: mediaMapCriticalDraft,
                   }}
-                  onDraftDescriptionChange={(value) => {
-                    setImageMapDescriptionDraft(value);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
+                  onSelectEntry={setSelectedMediaMapEntryId}
+                  onDraftChange={(field, value) => {
+                    if (field === "type") setMediaMapDraftEditing(setMediaMapTypeDraft, String(value));
+                    else if (field === "anchorMode") setMediaMapDraftEditing(setMediaMapAnchorModeDraft, String(value));
+                    else if (field === "anchorTarget") setMediaMapDraftEditing(setMediaMapAnchorTargetDraft, String(value));
+                    else if (field === "inOffsetSec") setMediaMapDraftEditing(setMediaMapInOffsetDraft, String(value));
+                    else if (field === "durationSec") setMediaMapDraftEditing(setMediaMapDurationDraft, String(value));
+                    else if (field === "description") setMediaMapDraftEditing(setMediaMapDescriptionDraft, String(value));
+                    else if (field === "intent") setMediaMapDraftEditing(setMediaMapIntentDraft, String(value));
+                    else if (field === "sourceStatus") setMediaMapDraftEditing(setMediaMapSourceStatusDraft, String(value));
+                    else if (field === "sourceAssetId") setMediaMapDraftEditing(setMediaMapSourceAssetIdDraft, String(value));
+                    else if (field === "confidence") setMediaMapDraftEditing(setMediaMapConfidenceDraft, String(value));
+                    else if (field === "optional") setMediaMapDraftEditing(setMediaMapOptionalDraft, Boolean(value));
+                    else if (field === "critical") setMediaMapDraftEditing(setMediaMapCriticalDraft, Boolean(value));
                   }}
-                  onDraftStylePresetChange={(value) => {
-                    setImageMapStyleDraft(normalizeHearthVisualStyle(value));
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onDraftIntentChange={(value) => {
-                    setImageMapIntentDraft(value);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onDraftSourceTypeChange={(value) => {
-                    setImageMapSourceTypeDraft(value);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onDraftVisualPriorityChange={(value) => {
-                    setImageMapVisualPriorityDraft(value as EpisodeImageMapVisualPriority);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onDraftVisualTypeChange={(value) => {
-                    setImageMapVisualTypeDraft(value as EpisodeImageMapVisualType);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onDraftSectionIntentNoteChange={(value) => {
-                    setImageMapSectionIntentNoteDraft(value);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onDraftPlacementHintChange={(value) => {
-                    setImageMapPlacementHintDraft(value);
-                    setImageMapSaveState("editing");
-                    setImageMapSaveError(null);
-                  }}
-                  onCreateEntry={() => void onCreateImageMapEntry()}
-                  onDuplicateEntry={() => void onDuplicateImageMapEntry()}
-                  onDeleteEntry={() => void onDeleteImageMapEntry()}
-                  onSeedFromScript={() => void onSeedImageMapFromScript()}
-                  onGenerateCandidates={() => void onGenerateImageMapCandidates()}
-                  onCopyExport={() => void onCopyImageMapExportJson()}
-                  onDownloadExport={onDownloadImageMapExportJson}
-                  onStartReanchor={onStartImageMapReanchor}
-                  onRepairNearestParagraph={() => void onRepairImageMapNearestParagraph()}
-                  onConvertToGlobalVisual={() => void onConvertImageMapToGlobalVisual()}
-                  onLeaveOrphaned={() => void onLeaveImageMapOrphaned()}
-                  onCancelReanchor={onCancelImageMapReanchor}
-                  onPickReanchor={(selection) => void onPickImageMapReanchor(selection)}
+                  onGenerationScopeChange={(value) => setMediaMapGenerationScope(value as MediaMapGenerationScope)}
+                  onGenerateFromPlans={() => void onGenerateEpisodeMediaMapFromPlans()}
+                  onActivateMap={() => void onActivateEpisodeMediaMap()}
+                  onAddEntry={() => void onAddMediaMapEntry()}
+                  onSaveEntry={() => void onSaveMediaMapEntry()}
+                  onDeleteEntry={() => void onDeleteMediaMapEntry()}
                 />
               </CollapsibleFocusPanel>
             ) : null}
 
-            {hasApprovedScript && approvedScriptVersion ? (
+            {isVisualsWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
+              <CollapsibleFocusPanel
+                panelId="hearth-broll-plan-panel"
+                title="B-roll Plan"
+                meta={brollPanelMeta}
+                collapsed={focusPanelLayout.brollPlan}
+                onToggle={() => onToggleFocusPanel("brollPlan")}
+              >
+                <BrollPlanPanel
+                  beats={brollBeats}
+                  selectedBeatId={selectedBrollBeatId}
+                  coverageStrength={brollPlan?.coverage_strength ?? null}
+                  saveState={brollSaveState}
+                  saveError={brollSaveError}
+                  message={brollMessage}
+                  disabled={isApprovingScript || isBrollBusy || !episodePackage}
+                  draft={{
+                    anchorText: brollAnchorDraft,
+                    description: brollDescriptionDraft,
+                    motionIntent: brollMotionIntentDraft,
+                    assetCategory: brollAssetCategoryDraft,
+                    priority: brollPriorityDraft,
+                    keywords: brollKeywordsDraft,
+                    mood: brollMoodDraft,
+                    shotType: brollShotTypeDraft,
+                    motionSuggestion: brollMotionSuggestionDraft,
+                    suggestedDurationMs: brollSuggestedDurationDraft,
+                    placementHint: brollPlacementHintDraft,
+                    dataChartType: brollDataChartTypeDraft,
+                    dataTitle: brollDataTitleDraft,
+                    dataLabels: brollDataLabelsDraft,
+                    dataValues: brollDataValuesDraft,
+                    dataEmphasisKey: brollDataEmphasisKeyDraft,
+                    dataAnimationStyle: brollDataAnimationStyleDraft,
+                  }}
+                  selectedCandidateId={selectedBrollBeat?.selected_asset_id ?? null}
+                  onSelectBeat={setSelectedBrollBeatId}
+                  onDraftChange={(field, value) => {
+                    if (field === "anchorText") setBrollDraftEditing(setBrollAnchorDraft, value);
+                    else if (field === "description") setBrollDraftEditing(setBrollDescriptionDraft, value);
+                    else if (field === "motionIntent") setBrollDraftEditing(setBrollMotionIntentDraft, value);
+                    else if (field === "assetCategory") setBrollDraftEditing((next) => setBrollAssetCategoryDraft(next as EpisodeBrollMotionAssetCategory), value);
+                    else if (field === "priority") setBrollDraftEditing(setBrollPriorityDraft, value);
+                    else if (field === "keywords") setBrollDraftEditing(setBrollKeywordsDraft, value);
+                    else if (field === "mood") setBrollDraftEditing(setBrollMoodDraft, value);
+                    else if (field === "shotType") setBrollDraftEditing(setBrollShotTypeDraft, value);
+                    else if (field === "motionSuggestion") setBrollDraftEditing(setBrollMotionSuggestionDraft, value);
+                    else if (field === "suggestedDurationMs") setBrollDraftEditing(setBrollSuggestedDurationDraft, value);
+                    else if (field === "placementHint") setBrollDraftEditing(setBrollPlacementHintDraft, value);
+                    else if (field === "dataChartType") setBrollDraftEditing(setBrollDataChartTypeDraft, value);
+                    else if (field === "dataTitle") setBrollDraftEditing(setBrollDataTitleDraft, value);
+                    else if (field === "dataLabels") setBrollDraftEditing(setBrollDataLabelsDraft, value);
+                    else if (field === "dataValues") setBrollDraftEditing(setBrollDataValuesDraft, value);
+                    else if (field === "dataEmphasisKey") setBrollDraftEditing(setBrollDataEmphasisKeyDraft, value);
+                    else if (field === "dataAnimationStyle") setBrollDraftEditing(setBrollDataAnimationStyleDraft, value);
+                  }}
+                  onSaveBeat={() => void onSaveBrollBeat()}
+                  onDeleteBeat={() => void onDeleteBrollBeat()}
+                  onRegenerateBeat={() => void onRegenerateBrollBeat()}
+                  onGeneratePlan={() => void onGenerateBrollPlan()}
+                  onFindStock={() => void onFindStockForBrollBeat()}
+                  onUploadAsset={(file) => void onUploadBrollBeatAsset(file)}
+                  onSelectCandidate={(candidateId) => void onSelectBrollCandidate(candidateId)}
+                />
+              </CollapsibleFocusPanel>
+            ) : null}
+
+            {isVisualsWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
+              <CollapsibleFocusPanel
+                panelId="hearth-cdc-plan-panel"
+                title="Contextual Data Composites"
+                meta={cdcPanelMeta}
+                collapsed={focusPanelLayout.cdcPlan}
+                onToggle={() => onToggleFocusPanel("cdcPlan")}
+              >
+                <CdcPlanPanel
+                  entries={cdcEntries}
+                  selectedEntryId={selectedCdcEntryId}
+                  saveState={cdcSaveState}
+                  saveError={cdcSaveError}
+                  message={cdcMessage}
+                  disabled={isApprovingScript || isCdcBusy || !episodePackage}
+                  draft={{
+                    anchorText: cdcAnchorDraft,
+                    description: cdcDescriptionDraft,
+                    placementHint: cdcPlacementHintDraft,
+                    format: cdcFormatDraft,
+                    dataType: cdcDataTypeDraft,
+                    contextType: cdcContextTypeDraft,
+                    tone: cdcToneDraft,
+                    motionLevel: cdcMotionLevelDraft,
+                    backgroundContextDescription: cdcBackgroundContextDraft,
+                    foregroundDataDescription: cdcForegroundDataDraft,
+                    visualStyle: cdcVisualStyleDraft,
+                    chartType: cdcChartTypeDraft,
+                    title: cdcTitleDraft,
+                    labels: cdcLabelsDraft,
+                    values: cdcValuesDraft,
+                    emphasisKey: cdcEmphasisKeyDraft,
+                    sourceType: cdcSourceTypeDraft,
+                  }}
+                  selectedCandidateId={selectedCdcEntry?.selected_asset_id ?? null}
+                  onSelectEntry={setSelectedCdcEntryId}
+                  onDraftChange={(field, value) => {
+                    if (field === "anchorText") setCdcDraftEditing(setCdcAnchorDraft, value);
+                    else if (field === "description") setCdcDraftEditing(setCdcDescriptionDraft, value);
+                    else if (field === "placementHint") setCdcDraftEditing(setCdcPlacementHintDraft, value);
+                    else if (field === "format") setCdcDraftEditing(setCdcFormatDraft, value);
+                    else if (field === "dataType") setCdcDraftEditing(setCdcDataTypeDraft, value);
+                    else if (field === "contextType") setCdcDraftEditing(setCdcContextTypeDraft, value);
+                    else if (field === "tone") setCdcDraftEditing(setCdcToneDraft, value);
+                    else if (field === "motionLevel") setCdcDraftEditing(setCdcMotionLevelDraft, value);
+                    else if (field === "backgroundContextDescription") setCdcDraftEditing(setCdcBackgroundContextDraft, value);
+                    else if (field === "foregroundDataDescription") setCdcDraftEditing(setCdcForegroundDataDraft, value);
+                    else if (field === "visualStyle") setCdcDraftEditing((next) => setCdcVisualStyleDraft(normalizeHearthVisualStyle(next)), value);
+                    else if (field === "chartType") setCdcDraftEditing(setCdcChartTypeDraft, value);
+                    else if (field === "title") setCdcDraftEditing(setCdcTitleDraft, value);
+                    else if (field === "labels") setCdcDraftEditing(setCdcLabelsDraft, value);
+                    else if (field === "values") setCdcDraftEditing(setCdcValuesDraft, value);
+                    else if (field === "emphasisKey") setCdcDraftEditing(setCdcEmphasisKeyDraft, value);
+                    else if (field === "sourceType") setCdcDraftEditing(setCdcSourceTypeDraft, value);
+                  }}
+                  onCreateCdc={() => void onCreateCdcEntry()}
+                  onSaveEntry={() => void onSaveCdcEntry()}
+                  onDeleteEntry={() => void onDeleteCdcEntry()}
+                  onRegenerateStub={() => void onRegenerateCdcEntryStub()}
+                  onUploadAsset={(file) => void onUploadCdcAsset(file)}
+                  onSelectCandidate={(candidateId) => void onSelectCdcCandidate(candidateId)}
+                />
+              </CollapsibleFocusPanel>
+            ) : null}
+
+            {isMetadataWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
               <CollapsibleFocusPanel
                 panelId="hearth-metadata-panel"
                 title="Metadata"
@@ -10487,7 +12404,9 @@ export default function HearthShell() {
             ) : null}
           </div>
 
-          {showScriptEditor ? (
+          {isHistoryWorkspaceTab ? renderRevisionsView() : null}
+
+          {isScriptWorkspaceTab && showScriptEditor ? (
             <section className="hs-script-panel" aria-label="Manual draft editor">
               <header className="hs-script-panel-header">
                 <div className="hs-script-panel-title">
@@ -11722,4 +13641,3 @@ export default function HearthShell() {
     </section>
   );
 }
-

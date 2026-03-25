@@ -280,13 +280,15 @@ export function deriveHammerBoundObjects(args: HammerBoundObjectBuildContext): H
     });
 }
 
-export function deriveHammerBoundAttentionQueue(boundObjects: HammerBoundObject[]): Array<{
+export interface HammerBoundAttentionQueueItem {
   object_id: string;
   object_type: HammerBoundObjectType;
   priority: "high" | "medium";
   reasons: string[];
   label: string;
-}> {
+}
+
+export function deriveHammerBoundAttentionQueue(boundObjects: HammerBoundObject[]): HammerBoundAttentionQueueItem[] {
   return boundObjects
     .filter((object) => object.type === "broll" || object.type === "transition")
     .flatMap((object) => {

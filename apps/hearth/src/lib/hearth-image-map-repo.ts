@@ -1,6 +1,7 @@
 import {
   createEmptyEpisodePackageV2,
   ensureImageMapV2,
+  type EpisodeImageMapAssetSource,
   type EpisodeImageMapEntry,
 } from "./episode-package-v2";
 import { tongsFetch } from "./tongs-fetch";
@@ -86,6 +87,25 @@ export type SelectWorkpieceImageMapCandidateResult =
     latest?: WorkpieceImageMapView;
   };
 
+export type UploadWorkpieceImageMapCandidateAssetResult =
+  | {
+    ok: true;
+    candidateAsset: {
+      asset_id: string;
+      path: string;
+      variant_label: string;
+      visual_mode: null;
+      mime_type: string;
+      source: EpisodeImageMapAssetSource;
+    };
+  }
+  | {
+    ok: false;
+    status: number;
+    reason: "invalid_file" | "request_failed" | "invalid_response";
+    error: string;
+  };
+
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -105,6 +125,44 @@ function readApiErrorMessage(body: unknown): string | null {
     return `${message} (${reason})`;
   }
   return message ?? reason ?? null;
+}
+
+function buildWrittenBy(): { tool: string; tool_version: string; lane: string } {
+  return {
+    tool: "hearth",
+    tool_version: "v1",
+    lane: "hearth_visual_beats",
+  };
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function resolveUploadMimeType(file: File): string {
+  const normalized = readString(file.type)?.toLowerCase();
+  if (normalized?.startsWith("image/")) return normalized;
+  if (normalized?.startsWith("video/")) return normalized;
+  if (normalized) return normalized;
+  return "application/octet-stream";
+}
+
+function extensionFromMimeType(mimeType: string): string {
+  const normalized = mimeType.toLowerCase();
+  if (normalized === "image/jpeg") return "jpg";
+  if (normalized === "image/png") return "png";
+  if (normalized === "image/webp") return "webp";
+  if (normalized === "video/mp4") return "mp4";
+  if (normalized === "video/webm") return "webm";
+  const slash = normalized.lastIndexOf("/");
+  if (slash >= 0 && slash < normalized.length - 1) {
+    return normalized.slice(slash + 1).replace(/[^a-z0-9]+/g, "") || "bin";
+  }
+  return "bin";
 }
 
 async function readBodyAsJson(response: Response): Promise<unknown> {
@@ -435,6 +493,83 @@ export async function loadImageMapCandidatePreviewDataUrl(args: {
     ok: true,
     dataUrl: `data:${contentType};base64,${bytesBase64}`,
     path,
+  };
+}
+
+export async function uploadWorkpieceImageMapCandidateAsset(args: {
+  workpieceId: string;
+  entryId: string;
+  file: File;
+  source?: EpisodeImageMapAssetSource;
+}): Promise<UploadWorkpieceImageMapCandidateAssetResult> {
+  const mimeType = resolveUploadMimeType(args.file);
+  const source = args.source ?? "upload";
+  if (!mimeType.startsWith("image/") && !mimeType.startsWith("video/")) {
+    return {
+      ok: false,
+      status: 400,
+      reason: "invalid_file",
+      error: "Visual Beats accepts image or video files only.",
+    };
+  }
+
+  const extension = extensionFromMimeType(mimeType);
+  const candidateId = `upload:${crypto.randomUUID()}`;
+  const uploadPath = `assets/image-map/uploads/${args.entryId}/${candidateId}.${extension}`;
+  const variantLabel = args.file.name?.trim() || "uploaded-asset";
+
+  let bytesBase64 = "";
+  try {
+    const bytes = new Uint8Array(await args.file.arrayBuffer());
+    bytesBase64 = bytesToBase64(bytes);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to read uploaded visual asset.";
+    return {
+      ok: false,
+      status: 400,
+      reason: "invalid_file",
+      error: message,
+    };
+  }
+
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`, {
+    method: "POST",
+    json: {
+      path: uploadPath,
+      content_type: mimeType,
+      file_type: mimeType.startsWith("video/") ? "video_clip" : "image_map_candidate",
+      bytes_base64: bytesBase64,
+      written_by: buildWrittenBy(),
+      event_name: "hearth.image_map.asset.uploaded.v1",
+      event_payload: {
+        source: "visual_beats_panel",
+        entry_id: args.entryId,
+        file_name: args.file.name,
+        mime_type: mimeType,
+      },
+      correlation_id: `hearth-image-map-upload-${Date.now().toString(36)}`,
+    },
+  });
+  const body = await readBodyAsJson(response);
+  if (!response.ok || !isRecord(body) || body.ok !== true) {
+    return {
+      ok: false,
+      status: response.status,
+      reason: "request_failed",
+      error: readApiErrorMessage(body) ?? "Upload failed.",
+    };
+  }
+
+  return {
+    ok: true,
+    candidateAsset: {
+      asset_id: candidateId,
+      path: uploadPath,
+      variant_label: variantLabel,
+      visual_mode: null,
+      mime_type: mimeType,
+      source,
+    },
   };
 }
 

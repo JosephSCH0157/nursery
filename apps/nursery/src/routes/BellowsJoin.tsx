@@ -491,23 +491,29 @@ export default function BellowsJoin() {
 
   useEffect(() => {
     if (!sessionId) {
-      applyJoinErrorState(
-        "Bellows could not find a session id in this join route.",
-        "Join link is missing its session id.",
-      );
+      queueMicrotask(() => {
+        applyJoinErrorState(
+          "Bellows could not find a session id in this join route.",
+          "Join link is missing its session id.",
+        );
+      });
       return;
     }
 
     if (!token) {
-      applyJoinErrorState(
-        "Bellows join links require a token query parameter.",
-        "Join link is missing its access token.",
-      );
+      queueMicrotask(() => {
+        applyJoinErrorState(
+          "Bellows join links require a token query parameter.",
+          "Join link is missing its access token.",
+        );
+      });
       return;
     }
 
     let active = true;
-    resetJoinResolutionState();
+    queueMicrotask(() => {
+      resetJoinResolutionState();
+    });
 
     void resolveJoinContinuation(repository, sessionId, token)
       .then((result) => {
@@ -549,7 +555,9 @@ export default function BellowsJoin() {
       channelRef.current = null;
       joinedAtRef.current = null;
       publishedPresenceRef.current = "";
-      clearPresenceConnectionState();
+      queueMicrotask(() => {
+        clearPresenceConnectionState();
+      });
       return;
     }
 
@@ -586,11 +594,13 @@ export default function BellowsJoin() {
       setHostSignal(nextSignal);
     });
 
-    applyConnectingStatus(
-      usedCache
-        ? "Rejoining the Bellows session channel from this tab."
-        : "Connecting to the Bellows session channel.",
-    );
+    queueMicrotask(() => {
+      applyConnectingStatus(
+        usedCache
+          ? "Rejoining the Bellows session channel from this tab."
+          : "Connecting to the Bellows session channel.",
+      );
+    });
 
     channel.subscribe((status: string) => {
       if (!active) return;
@@ -712,7 +722,9 @@ export default function BellowsJoin() {
       return;
     }
 
-    applyPhaseStatus(nextPhase, nextStatusMessage);
+    queueMicrotask(() => {
+      applyPhaseStatus(nextPhase, nextStatusMessage);
+    });
   }, [
     applyPhaseStatus,
     guestKey,

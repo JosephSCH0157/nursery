@@ -166,9 +166,16 @@ import {
 import {
   deriveHammerBoundAttentionQueue,
   deriveHammerBoundObjects,
+  type HammerBoundAttentionQueueItem,
   type HammerBoundObject,
 } from "./hammerBoundObjects";
 import { resolvePodcastMasterUiStatus } from "./hammerPodcastMasterStatus";
+import { evaluateHammerReadinessGate } from "./hammerReadinessGate";
+import {
+  decideHammerQuenchHandoff,
+  type HammerQuenchHandoffStatus,
+  validateHammerQuenchPacketForHandoff,
+} from "./hammerQuenchHandoff";
 import {
   appendAuthorityInstructionToGraph,
   createHearthBrollSuggestionInstruction,
@@ -1192,6 +1199,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [releasePrepLoading, setReleasePrepLoading] = useState(false);
   const [releasePrepError, setReleasePrepError] = useState<string | null>(null);
   const [releasePrepSaved, setReleasePrepSaved] = useState<HammerReleasePrepSaveState | null>(null);
+  const [quenchHandoffStatus, setQuenchHandoffStatus] = useState<{
+    status: HammerQuenchHandoffStatus;
+    message: string;
+  } | null>(null);
   const [loadedPreparedPackage, setLoadedPreparedPackage] = useState<HammerPreparedReleasePackage | null>(null);
   const [studioRackRenderStatus, setStudioRackRenderStatus] = useState<HammerDialogueRenderExecutionResult | null>(null);
   const [transcriptTimingHint, setTranscriptTimingHint] = useState<string | null>(null);
@@ -4009,6 +4020,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     focusBoundAttentionOperation(target.operationId);
   }
 
+  function focusReadinessIssue(): void {
+    const operationId = readinessGate.primary_operation_id
+      ?? boundAttentionQueue[0]?.operationId
+      ?? unresolvedBrollSuggestionItems[0]?.operationId
+      ?? null;
+    if (!operationId) return;
+    focusBoundAttentionOperation(operationId);
+  }
+
   function addMinimalTransition(transitionType: "hard_cut" | "crossfade" | "dip_to_black" | "fade_audio"): void {
     applyHistoryMutation({
       label: `Add ${transitionType.replace("_", " ")}`,
@@ -4605,9 +4625,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : exportTruthState === "current"
     ? "Exported and current"
     : "Exported, but stale";
-  const prepareButtonLabel = exportTruthState === "stale"
-    ? "Export Updated Packet to Quench"
-    : "Export to Quench";
   const previewTruthPosture = exportBasis.renderAssembly.preview.posture;
   const exportTruthPosture = exportBasis.renderAssembly.export_timeline.export_posture;
   const handoffTruthPosture = exportBasis.renderAssembly.handoff.posture;
@@ -4723,6 +4740,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       reasons: item.reasons,
     }));
   }, [boundObjects]);
+  const boundAttentionQueueForGate = useMemo<HammerBoundAttentionQueueItem[]>(
+    () => deriveHammerBoundAttentionQueue(boundObjects),
+    [boundObjects],
+  );
   const boundAttentionSummary = useMemo(() => ({
     total: boundAttentionQueue.length,
     unresolvedCount: boundAttentionQueue.filter((item) => item.kind === "unresolved_suggestion").length,
@@ -4730,6 +4751,29 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     supersededCount: boundAttentionQueue.filter((item) => item.kind === "superseded_binding").length,
     transitionCount: boundAttentionQueue.filter((item) => item.kind === "transition_attention").length,
   }), [boundAttentionQueue]);
+  const readinessGate = useMemo(() => evaluateHammerReadinessGate({
+    renderAssembly: exportBasis.renderAssembly,
+    canonicalGraph: editableEditorialAuthorityGraph,
+    boundAttentionQueue: boundAttentionQueueForGate,
+    unresolvedBrollSuggestionOperationIds: unresolvedBrollSuggestionItems.map((item) => item.operationId),
+  }), [
+    exportBasis.renderAssembly,
+    editableEditorialAuthorityGraph,
+    boundAttentionQueueForGate,
+    unresolvedBrollSuggestionItems,
+  ]);
+  const readinessStatusLabel = readinessGate.status === "ready"
+    ? "Ready for export"
+    : readinessGate.status === "blocked"
+    ? "Blocked"
+    : `Needs review (${readinessGate.review_count})`;
+  const sendToQuenchButtonLabel = readinessGate.status === "blocked"
+    ? "Blocked — Resolve Issues"
+    : readinessGate.status === "needs_review"
+    ? "Send to Quench (Needs Review)"
+    : exportTruthState === "stale"
+    ? "Send Updated Packet to Quench"
+    : "Send to Quench";
   const selectedAttentionIndex = useMemo(
     () => boundAttentionQueue.findIndex((item) => item.operationId === selectedBoundBrollOperationId),
     [boundAttentionQueue, selectedBoundBrollOperationId],
@@ -5155,14 +5199,36 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : "No edited artifact";
   const captionReleasePrepSummaryLine = `Using ${captionReleaseSourceLabel} · Built ${captionBuiltSummary} · Edited ${captionEditedSummary}`;
 
-  async function handlePrepareReleasePackage(): Promise<void> {
+  async function handleSendToQuench(): Promise<void> {
     if (releasePrepSaving) return;
 
     setReleasePrepSaving(true);
     setReleasePrepError(null);
     setReleasePrepSaved(null);
+    setQuenchHandoffStatus(null);
 
     try {
+      const handoffDecision = decideHammerQuenchHandoff({ readinessGate });
+      if (handoffDecision.status === "blocked") {
+        setQuenchHandoffStatus({
+          status: "blocked",
+          message: handoffDecision.reasons.join(" "),
+        });
+        return;
+      }
+      if (handoffDecision.status === "requires_confirmation") {
+        const proceed = window.confirm(
+          `This episode still needs review (${readinessGate.review_count} item${readinessGate.review_count === 1 ? "" : "s"}). Send to Quench anyway?`,
+        );
+        if (!proceed) {
+          setQuenchHandoffStatus({
+            status: "blocked",
+            message: "Handoff cancelled. Resolve review items before sending.",
+          });
+          return;
+        }
+      }
+
       let renderExecution: HammerDialogueRenderExecutionResult;
       if (!mediaRef) {
         renderExecution = {
@@ -5218,12 +5284,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         canonicalGraph: exportBasis.canonicalGraph,
         renderAssembly: exportBasis.renderAssembly,
       });
+      const packetValidation = validateHammerQuenchPacketForHandoff({
+        packet: quenchPacket,
+        renderAssembly: exportBasis.renderAssembly,
+        readinessGate,
+      });
+      if (!packetValidation.ok) {
+        setQuenchHandoffStatus({
+          status: "failed_validation",
+          message: packetValidation.reasons.join(" "),
+        });
+        return;
+      }
       const packetSave = await saveHammerQuenchReleasePacket({
         workpieceId: launchContext.workpiece_id,
         packet: quenchPacket,
       });
       if (!packetSave.ok) {
-        throw new Error(packetSave.error);
+        setQuenchHandoffStatus({
+          status: "failed_handoff",
+          message: packetSave.error,
+        });
+        return;
       }
 
       const subtitleArtifactCount = Number(Boolean(preparedPackage.subtitles.srt.artifactPath))
@@ -5235,8 +5317,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         subtitleArtifactCount,
       });
       setLoadedPreparedPackage(result.data ?? preparedPackage);
+      setQuenchHandoffStatus({
+        status: "sent",
+        message: "Sent to Quench successfully.",
+      });
     } catch (error) {
-      setReleasePrepError(toErrorMessage(error, "Hammer could not export the Quench release packet."));
+      const message = toErrorMessage(error, "Hammer could not send the Quench release packet.");
+      setReleasePrepError(message);
+      setQuenchHandoffStatus({
+        status: "failed_persistence",
+        message,
+      });
     } finally {
       setReleasePrepSaving(false);
     }
@@ -8022,6 +8113,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     {releasePrepOpenHref ? "Handoff path available." : "Handoff path unavailable."}
                   </div>
                   <div className="hammer-tool-hint">Export status: {exportStatusLabel}</div>
+                  <div className="hammer-tool-hint">
+                    Readiness gate: {readinessStatusLabel}
+                    {` · blockers ${readinessGate.blocker_count} · review ${readinessGate.review_count}`}
+                  </div>
                   <div className="hammer-tool-hint">Output source: {outputSelectionSummary}</div>
                   <div className="hammer-tool-hint">Preview truth: {previewTruthPosture}</div>
                   <div className="hammer-tool-hint">Export truth: {exportTruthPosture}</div>
@@ -8035,6 +8130,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     <div className="hammer-tool-hint">
                       {unresolvedBrollSuggestionItems.length} unresolved B-roll intent(s) need binding before authoritative visual handoff.
                     </div>
+                  ) : null}
+                  {readinessGate.blocking_reasons.length > 0 ? (
+                    <div className="hammer-tool-hint">
+                      Blocking reasons: {readinessGate.blocking_reasons.slice(0, 3).map((reason) => reason.label).join(" ")}
+                    </div>
+                  ) : null}
+                  {readinessGate.review_reasons.length > 0 ? (
+                    <div className="hammer-tool-hint">
+                      Review reasons: {readinessGate.review_reasons.slice(0, 3).map((reason) => reason.label).join(" ")}
+                    </div>
+                  ) : null}
+                  {(readinessGate.blocker_count > 0 || readinessGate.review_count > 0) ? (
+                    <button type="button" onClick={focusReadinessIssue}>
+                      Review Next Issue
+                    </button>
                   ) : null}
                   <div className={`hammer-caption-release-summary hammer-caption-release-summary--${captionReleasePrepSafetyState}`}>
                     <div className="hammer-caption-release-summary__head">
@@ -8092,15 +8202,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <button
                     type="button"
                     onClick={() => {
-                      void handlePrepareReleasePackage();
+                      void handleSendToQuench();
                     }}
-                    disabled={releasePrepSaving || releasePrepLoading}
+                    disabled={releasePrepSaving || releasePrepLoading || readinessGate.status === "blocked"}
                   >
-                    {releasePrepSaving ? "Preparing..." : prepareButtonLabel}
+                    {releasePrepSaving ? "Sending..." : sendToQuenchButtonLabel}
                   </button>
+                  {quenchHandoffStatus ? (
+                    <div className="hammer-tool-hint">
+                      Handoff status: {quenchHandoffStatus.status} · {quenchHandoffStatus.message}
+                    </div>
+                  ) : null}
                   {releasePrepSaved ? (
                     <div className="hammer-tool-hint">
-                      Ready for Quench. Exported {new Date(releasePrepSaved.preparedAt).toLocaleString()}.
+                      {readinessGate.status === "ready" ? "Ready for Quench." : readinessGate.status === "blocked" ? "Prepared packet is blocked for handoff." : "Prepared packet needs review before handoff."}
+                      {" "}Exported {new Date(releasePrepSaved.preparedAt).toLocaleString()}.
                       Status {releasePrepSaved.overallStatus}.
                       Subtitle artifacts {releasePrepSaved.subtitleArtifactCount}.
                     </div>
@@ -8112,7 +8228,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   ) : null}
                   {releasePrepOpenHref && exportTruthState !== "never_prepared" ? (
                     <a href={releasePrepOpenHref}>
-                      {exportTruthState === "current" ? "Open in Quench" : "Open in Quench (stale)"}
+                      {readinessGate.status === "blocked"
+                        ? "Open in Quench (blocked)"
+                        : exportTruthState === "current"
+                        ? "Open in Quench"
+                        : "Open in Quench (stale)"}
                     </a>
                   ) : null}
                 </section>

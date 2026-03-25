@@ -325,14 +325,16 @@ export default function QuenchRoute() {
     let cancelled = false;
     const handoff = parsePreparedReleaseHandoff(location.search);
     if (!handoff) {
-      setHandoffPreparedCase(null);
-      setPreparedHandoffState({
-        status: "idle",
-        handoff: null,
-        message: null,
-        warning: null,
-        loadedFingerprint: null,
-        loadedPreparedAt: null,
+      queueMicrotask(() => {
+        setHandoffPreparedCase(null);
+        setPreparedHandoffState({
+          status: "idle",
+          handoff: null,
+          message: null,
+          warning: null,
+          loadedFingerprint: null,
+          loadedPreparedAt: null,
+        });
       });
       return () => {
         cancelled = true;
@@ -340,27 +342,31 @@ export default function QuenchRoute() {
     }
 
     if (!handoff.workpieceId || !handoff.packagePath) {
-      setHandoffPreparedCase(null);
-      setPreparedHandoffState({
-        status: "error",
-        handoff,
-        message: "Prepared-package handoff is missing workpiece_id or package path.",
-        warning: null,
-        loadedFingerprint: null,
-        loadedPreparedAt: null,
+      queueMicrotask(() => {
+        setHandoffPreparedCase(null);
+        setPreparedHandoffState({
+          status: "error",
+          handoff,
+          message: "Prepared-package handoff is missing workpiece_id or package path.",
+          warning: null,
+          loadedFingerprint: null,
+          loadedPreparedAt: null,
+        });
       });
       return () => {
         cancelled = true;
       };
     }
 
-    setPreparedHandoffState({
-      status: "loading",
-      handoff,
-      message: null,
-      warning: null,
-      loadedFingerprint: null,
-      loadedPreparedAt: null,
+    queueMicrotask(() => {
+      setPreparedHandoffState({
+        status: "loading",
+        handoff,
+        message: null,
+        warning: null,
+        loadedFingerprint: null,
+        loadedPreparedAt: null,
+      });
     });
 
     async function loadPreparedHandoff(): Promise<void> {
@@ -500,13 +506,17 @@ export default function QuenchRoute() {
 
   useEffect(() => {
     if (!handoffPreparedCase) return;
-    applySelectedCaseDefaults(handoffPreparedCase);
+    queueMicrotask(() => {
+      applySelectedCaseDefaults(handoffPreparedCase);
+    });
   }, [applySelectedCaseDefaults, handoffPreparedCase]);
 
   useEffect(() => {
     if (!releaseCases.length) return;
     const nextCase = releaseCases.find((entry) => entry.case_id === selectedCaseId) ?? releaseCases[0];
-    applySelectedCaseDefaults(nextCase);
+    queueMicrotask(() => {
+      applySelectedCaseDefaults(nextCase);
+    });
   }, [applySelectedCaseDefaults, releaseCases, selectedCaseId]);
 
   const selectedCase = releaseCases.find((entry) => entry.case_id === selectedCaseId) ?? releaseCases[0] ?? null;
