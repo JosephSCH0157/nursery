@@ -6,6 +6,7 @@ type CollapsibleFocusPanelProps = {
   meta?: string | null;
   collapsed: boolean;
   onToggle: () => void;
+  collapsible?: boolean;
   children: ReactNode;
 };
 
@@ -15,6 +16,7 @@ export default function CollapsibleFocusPanel({
   meta = null,
   collapsed,
   onToggle,
+  collapsible = true,
   children,
 }: CollapsibleFocusPanelProps) {
   const labelId = `${panelId}-label`;
@@ -27,27 +29,29 @@ export default function CollapsibleFocusPanel({
           <div id={labelId} className="hs-focus-panel-title">{title}</div>
           {meta ? <div className="hs-focus-panel-meta">{meta}</div> : null}
         </div>
-        {collapsed ? (
-          <button
-            type="button"
-            className="hs-focus-panel-toggle"
-            onClick={onToggle}
-            aria-controls={bodyId}
-            aria-expanded="false"
-          >
-            Open
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="hs-focus-panel-toggle"
-            onClick={onToggle}
-            aria-controls={bodyId}
-            aria-expanded="true"
-          >
-            Collapse
-          </button>
-        )}
+        {collapsible ? (
+          collapsed ? (
+            <button
+              type="button"
+              className="hs-focus-panel-toggle"
+              onClick={onToggle}
+              aria-controls={bodyId}
+              aria-expanded="false"
+            >
+              Open
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="hs-focus-panel-toggle"
+              onClick={onToggle}
+              aria-controls={bodyId}
+              aria-expanded="true"
+            >
+              Collapse
+            </button>
+          )
+        ) : null}
       </header>
 
       <div id={bodyId} className="hs-focus-panel-body" inert={collapsed}>

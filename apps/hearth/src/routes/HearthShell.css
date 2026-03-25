@@ -791,12 +791,40 @@
   font-weight: 600;
   background: var(--forge-bg-elevated, #fff);
   color: var(--forge-text, #111827);
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  min-width: 160px;
+}
+
+.hs-workpiece-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hs-workpiece-tab-summary {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.72;
+}
+
+.hs-workpiece-tab-dirty {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #dc2626;
+  display: inline-block;
 }
 
 .hs-workpiece-tab.is-active {
   background: #111827;
   color: #f9fafb;
   border-color: #111827;
+}
+
+.hs-workpiece-tab.is-active .hs-workpiece-tab-summary {
+  opacity: 0.88;
 }
 
 .hs-draft-stage {
@@ -1062,6 +1090,30 @@
   font-size: 12px;
   line-height: 1.38;
   white-space: pre-wrap;
+}
+
+.hs-release-checklist {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(15, 23, 42, 0.03);
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.hs-release-checklist-item {
+  opacity: 0.9;
+}
+
+.hs-media-plan-banner {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+  background: rgba(15, 23, 42, 0.04);
+  font-size: 12px;
 }
 
 .hs-ai-chat-input {

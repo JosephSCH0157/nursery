@@ -217,6 +217,15 @@ import {
   normalizeHearthVisualStyle,
 } from "../lib/hearth-visual-styles";
 import {
+  normalizeWorkpieceWorkspaceTab,
+  resolveHistoryMilestoneMarker,
+  resolveMediaPlanCoverageLevel,
+  resolveMediaPlanScopeLabel,
+  resolveReleaseReadinessChecklist,
+  resolveRestoredWorkpieceWorkspaceTab,
+  type WorkpieceWorkspaceTab,
+} from "../lib/hearth-workpiece-tab-shell";
+import {
   listWorkspaceThumbnailBrandTemplates,
   resolveDefaultThumbnailBrandTemplate,
   seedWorkspaceThumbnailBrandTemplates,
@@ -259,8 +268,9 @@ const SESSION_SAVE_DELAY_MS = 500;
 const STORE_KIND_KEY = "hearth_store_kind";
 const DEV_MODE_KEY = "tp_dev_mode";
 const MODE_STORAGE_PREFIX = "hearth:ui:mode:v1:";
-const FOCUS_PANEL_LAYOUT_STORAGE_PREFIX = "hearth:focus-layout:v1:";
 const WORKPIECE_TAB_STORAGE_PREFIX = "hearth:workpiece-tab:v1:";
+const WORKSPACE_TAB_STORAGE_PREFIX = "hearth:workspace-tab:v1:";
+const LAST_WORKPIECE_TAB_STORAGE_KEY = "hearth:workpiece-tab:last:v1";
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
 const CHAT_HISTORY_MAX_MESSAGES = 200;
@@ -282,8 +292,6 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 
 type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
 type FocusTab = "draft" | "planning" | "sources" | "revisions";
-type FocusPanelId = "chat" | "thumbnail" | "mediaMap" | "imageMap" | "brollPlan" | "cdcPlan" | "metadata";
-type WorkpieceWorkspaceTab = "script" | "visuals" | "metadata" | "release" | "history";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
 type SttLane = "browser" | "ai";
 type SttState = "idle" | "listening" | "transcribing";
@@ -396,16 +404,9 @@ const TONE_PRESET_OPTIONS = [
 const DEFAULT_TONE_PRESET = "neutral_conversational";
 const EMPTY_WORKPIECE_SUMMARY_LIST: HearthWorkpieceSummary[] = [];
 const EMPTY_READY_SCRIPT_LIST: HearthReadyScript[] = [];
-const DEFAULT_FOCUS_PANEL_LAYOUT: Record<FocusPanelId, boolean> = {
-  chat: false,
-  thumbnail: false,
-  mediaMap: false,
-  imageMap: false,
-  brollPlan: false,
-  cdcPlan: false,
-  metadata: false,
-};
 const FORGE_NOTICE_EVENT = "forge:notice";
+const WORKPIECE_WORKSPACE_TABS: WorkpieceWorkspaceTab[] = ["script", "visuals", "metadata", "release", "history"];
+const TAB_SWITCH_UNSAVED_WARNING = "You have unsaved changes in this tab. Switch anyway?";
 
 function readTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -821,64 +822,31 @@ function writeMode(workpieceId: string | null, mode: HearthMode): void {
   }
 }
 
-function readFocusPanelLayout(workpieceId: string | null): Record<FocusPanelId, boolean> {
-  if (!workpieceId || typeof window === "undefined") {
-    return { ...DEFAULT_FOCUS_PANEL_LAYOUT };
-  }
+function readWorkpieceWorkspaceTab(workpieceId: string | null, workspaceId: string | null): WorkpieceWorkspaceTab {
+  if (typeof window === "undefined") return "script";
   try {
-    const raw = window.localStorage.getItem(`${FOCUS_PANEL_LAYOUT_STORAGE_PREFIX}${workpieceId}`);
-    if (!raw) return { ...DEFAULT_FOCUS_PANEL_LAYOUT };
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ...DEFAULT_FOCUS_PANEL_LAYOUT };
-    }
-    const row = parsed as Record<string, unknown>;
-    return {
-      chat: row.chat === true,
-      thumbnail: row.thumbnail === true,
-      mediaMap: row.mediaMap === true,
-      imageMap: row.imageMap === true,
-      brollPlan: row.brollPlan === true,
-      cdcPlan: row.cdcPlan === true,
-      metadata: row.metadata === true,
-    };
-  } catch {
-    return { ...DEFAULT_FOCUS_PANEL_LAYOUT };
-  }
-}
-
-function writeFocusPanelLayout(workpieceId: string | null, layout: Record<FocusPanelId, boolean>): void {
-  if (!workpieceId || typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(`${FOCUS_PANEL_LAYOUT_STORAGE_PREFIX}${workpieceId}`, JSON.stringify(layout));
-  } catch {
-    // ignore storage failures
-  }
-}
-
-function readWorkpieceWorkspaceTab(workpieceId: string | null): WorkpieceWorkspaceTab {
-  if (!workpieceId || typeof window === "undefined") return "script";
-  try {
-    const raw = window.localStorage.getItem(`${WORKPIECE_TAB_STORAGE_PREFIX}${workpieceId}`)?.trim().toLowerCase();
-    if (
-      raw === "script"
-      || raw === "visuals"
-      || raw === "metadata"
-      || raw === "release"
-      || raw === "history"
-    ) {
-      return raw;
-    }
+    return resolveRestoredWorkpieceWorkspaceTab({
+      workpieceTab: workpieceId ? window.localStorage.getItem(`${WORKPIECE_TAB_STORAGE_PREFIX}${workpieceId}`) : null,
+      workspaceTab: workspaceId ? window.localStorage.getItem(`${WORKSPACE_TAB_STORAGE_PREFIX}${workspaceId}`) : null,
+      lastTab: window.localStorage.getItem(LAST_WORKPIECE_TAB_STORAGE_KEY),
+    });
   } catch {
     // ignore storage failures
   }
   return "script";
 }
 
-function writeWorkpieceWorkspaceTab(workpieceId: string | null, tab: WorkpieceWorkspaceTab): void {
-  if (!workpieceId || typeof window === "undefined") return;
+function writeWorkpieceWorkspaceTab(workpieceId: string | null, workspaceId: string | null, tab: WorkpieceWorkspaceTab): void {
+  if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(`${WORKPIECE_TAB_STORAGE_PREFIX}${workpieceId}`, tab);
+    const normalizedTab = normalizeWorkpieceWorkspaceTab(tab);
+    if (workpieceId) {
+      window.localStorage.setItem(`${WORKPIECE_TAB_STORAGE_PREFIX}${workpieceId}`, normalizedTab);
+    }
+    if (workspaceId) {
+      window.localStorage.setItem(`${WORKSPACE_TAB_STORAGE_PREFIX}${workspaceId}`, normalizedTab);
+    }
+    window.localStorage.setItem(LAST_WORKPIECE_TAB_STORAGE_KEY, normalizedTab);
   } catch {
     // ignore storage failures
   }
@@ -2464,11 +2432,11 @@ export default function HearthShell() {
   const [metadataPreviewMode, setMetadataPreviewMode] = useState<"youtube" | "rss" | "plain">("youtube");
   const [metadataSaveState, setMetadataSaveState] = useState<"saved" | "editing" | "saving" | "offline" | "error">("saved");
   const [metadataSaveError, setMetadataSaveError] = useState<string | null>(null);
-  const [focusPanelLayout, setFocusPanelLayout] = useState<Record<FocusPanelId, boolean>>(() =>
-    readFocusPanelLayout(incomingBarStockIntakeRoute ? null : resolveWorkpieceId()),
-  );
   const [activeWorkpieceTab, setActiveWorkpieceTab] = useState<WorkpieceWorkspaceTab>(() =>
-    readWorkpieceWorkspaceTab(incomingBarStockIntakeRoute ? null : resolveWorkpieceId()),
+    readWorkpieceWorkspaceTab(
+      incomingBarStockIntakeRoute ? null : resolveWorkpieceId(),
+      incomingBarStockIntakeRoute ? null : resolveWorkspaceId(),
+    ),
   );
   const [presenceRows, setPresenceRows] = useState<HearthWorkpiecePresence[]>([]);
   const [draftConflictState, setDraftConflictState] = useState<DraftConflictState | null>(null);
@@ -2934,7 +2902,6 @@ export default function HearthShell() {
     previewDataUrl: imageMapCandidatePreviewUrlById[candidate.asset_id] ?? null,
     previewError: imageMapCandidatePreviewErrorById[candidate.asset_id] ?? null,
   }));
-  const hasCollapsedFocusPanels = Object.values(focusPanelLayout).some(Boolean);
   const chatPanelMeta = chatMessages.length > 0
     ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
     : "Ready";
@@ -2954,6 +2921,49 @@ export default function HearthShell() {
     && scriptApprovalState.approvedScriptVersion > 0,
   );
   const approvedScriptVersion = hasApprovedScript ? scriptApprovalState.approvedScriptVersion : null;
+  const mediaMapCoverageLevel = useMemo(() => resolveMediaPlanCoverageLevel(mediaMapEntries), [mediaMapEntries]);
+  const mediaMapScopeLabel = useMemo(() => resolveMediaPlanScopeLabel(mediaMapEntries), [mediaMapEntries]);
+  const metadataComplete = Boolean(
+    metadataTitlesDraft.length > 0
+    && metadataTagsDraft.length > 0
+    && metadataDescriptionShortDraft.trim()
+    && metadataDescriptionLongDraft.trim(),
+  );
+  const mediaPlanActivated = mediaMap?.status === "activated" || mediaMap?.status === "fulfilling" || mediaMap?.status === "fulfilled";
+  const thumbnailsSelected = Boolean(primaryThumbnailVersionId);
+  const releaseReadiness = resolveReleaseReadinessChecklist({
+    hasApprovedScript,
+    mediaMapStatus: mediaMap?.status ?? null,
+    metadataComplete,
+    thumbnailsSelected,
+  });
+  const latestMilestoneRevision = useMemo(() => revisions.find((revision) => revision.kind === "milestone") ?? null, [revisions]);
+  const tabDirtyById: Record<WorkpieceWorkspaceTab, boolean> = {
+    script: isDirty || isSaving || isAiProcessing,
+    visuals: (
+      mediaMapSaveState === "editing"
+      || mediaMapSaveState === "saving"
+      || imageMapSaveState === "editing"
+      || imageMapSaveState === "saving"
+      || brollSaveState === "editing"
+      || brollSaveState === "saving"
+      || cdcSaveState === "editing"
+      || cdcSaveState === "saving"
+      || isThumbnailConceptSaving
+      || isThumbnailUploading
+    ),
+    metadata: metadataSaveState === "editing" || metadataSaveState === "saving",
+    release: false,
+    history: false,
+  };
+  const hasAnyUnsavedTab = Object.values(tabDirtyById).some(Boolean);
+  const tabSummaryById: Record<WorkpieceWorkspaceTab, string> = {
+    script: `${hasApprovedScript ? "Approved" : "Draft"} · ${wordCount} words · ${formatUpdatedAt(activeDraft?.updatedAt)}`,
+    visuals: `${mediaMapEntries.length} visuals · ${String(mediaMap?.status ?? "draft").toUpperCase()} · ${mediaMapCoverageLevel}`,
+    metadata: `${metadataTitlesDraft.length} titles · ${metadataTagsDraft.length} tags · ${metadataComplete ? "Complete" : "Needs work"}`,
+    release: `${releasePrepLoadState === "ready" ? "Prep ready" : "Prep pending"} · ${releaseReadiness.completeCount}/${releaseReadiness.totalCount} ready`,
+    history: `${revisions.length} revisions · ${latestMilestoneRevision ? `Milestone ${formatUpdatedAt(latestMilestoneRevision.createdAt)}` : resolveHistoryMilestoneMarker(revisions)}`,
+  };
   const chatHistoryKey = useMemo(
     () => resolveChatHistoryKey(workpieceId, activeDraft?.id ?? null),
     [activeDraft?.id, workpieceId],
@@ -5836,20 +5846,12 @@ export default function HearthShell() {
   }, [scriptPanelCopyMessage]);
 
   useEffect(() => {
-    setFocusPanelLayout(readFocusPanelLayout(workpieceId));
-  }, [workpieceId]);
+    setActiveWorkpieceTab(readWorkpieceWorkspaceTab(workpieceId, workspaceId));
+  }, [workpieceId, workspaceId]);
 
   useEffect(() => {
-    setActiveWorkpieceTab(readWorkpieceWorkspaceTab(workpieceId));
-  }, [workpieceId]);
-
-  useEffect(() => {
-    writeFocusPanelLayout(workpieceId, focusPanelLayout);
-  }, [focusPanelLayout, workpieceId]);
-
-  useEffect(() => {
-    writeWorkpieceWorkspaceTab(workpieceId, activeWorkpieceTab);
-  }, [activeWorkpieceTab, workpieceId]);
+    writeWorkpieceWorkspaceTab(workpieceId, workspaceId, activeWorkpieceTab);
+  }, [activeWorkpieceTab, workpieceId, workspaceId]);
 
   useEffect(() => {
     setMetadataSaveState("saved");
@@ -6297,6 +6299,19 @@ export default function HearthShell() {
   }, [activeDraft?.id, cursorPosition, focusTab, mode, persistSession, revisionView, scrollTop]);
 
   useEffect(() => {
+    if (!hasAnyUnsavedTab) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = TAB_SWITCH_UNSAVED_WARNING;
+      return TAB_SWITCH_UNSAVED_WARNING;
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [hasAnyUnsavedTab]);
+
+  useEffect(() => {
     function handleKey(event: KeyboardEvent) {
       const key = event.key.toLowerCase();
       if ((event.ctrlKey || event.metaKey) && key === "s") {
@@ -6315,11 +6330,20 @@ export default function HearthShell() {
         searchRef.current?.focus();
         searchRef.current?.select();
       }
+
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
+        const tabIndex = Number(key);
+        if (Number.isInteger(tabIndex) && tabIndex >= 1 && tabIndex <= WORKPIECE_WORKSPACE_TABS.length) {
+          event.preventDefault();
+          if (!hasActiveEpisode) return;
+          requestWorkpieceTabChange(WORKPIECE_WORKSPACE_TABS[tabIndex - 1]!);
+        }
+      }
     }
 
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [activeDraft, onSaveDraft, revisionModalOpen]);
+  }, [activeDraft, hasActiveEpisode, onSaveDraft, revisionModalOpen, requestWorkpieceTabChange]);
 
   function queueAiAutosave(args: {
     draft: Draft;
@@ -6944,7 +6968,7 @@ export default function HearthShell() {
 
   function openRevisionPanel() {
     setFocusTab("revisions");
-    setActiveWorkpieceTab("history");
+    if (!requestWorkpieceTabChange("history")) return;
     setMode("focus");
     setRevisionView("list");
     setSelectedRevision(null);
@@ -6953,11 +6977,24 @@ export default function HearthShell() {
 
   function closeRevisionPanel() {
     setFocusTab("draft");
-    setActiveWorkpieceTab("script");
+    requestWorkpieceTabChange("script");
     setMode("focus");
     setRevisionView("list");
     setSelectedRevision(null);
     void persistSession(activeDraft?.id ?? null, "draft");
+  }
+
+  function requestWorkpieceTabChange(nextTab: WorkpieceWorkspaceTab): boolean {
+    const normalizedNextTab = normalizeWorkpieceWorkspaceTab(nextTab);
+    if (normalizedNextTab === activeWorkpieceTab) return true;
+    if (tabDirtyById[activeWorkpieceTab]) {
+      const shouldContinue = typeof window === "undefined"
+        ? true
+        : window.confirm(TAB_SWITCH_UNSAVED_WARNING);
+      if (!shouldContinue) return false;
+    }
+    setActiveWorkpieceTab(normalizedNextTab);
+    return true;
   }
 
   function onCancelAiRequest() {
@@ -9783,10 +9820,6 @@ export default function HearthShell() {
         setMode("focus");
         setShowManualDraft(false);
         setShowScriptPanel(true);
-        setFocusPanelLayout((layout) => ({
-          ...layout,
-          imageMap: false,
-        }));
       }
       return next;
     });
@@ -10450,17 +10483,6 @@ export default function HearthShell() {
 
   function onMetadataPreviewModeChange(mode: "youtube" | "rss" | "plain"): void {
     setMetadataPreviewMode(mode);
-  }
-
-  function onToggleFocusPanel(panelId: FocusPanelId): void {
-    setFocusPanelLayout((prev) => ({
-      ...prev,
-      [panelId]: !prev[panelId],
-    }));
-  }
-
-  function onRestoreDefaultFocusLayout(): void {
-    setFocusPanelLayout({ ...DEFAULT_FOCUS_PANEL_LAYOUT });
   }
 
   async function onSendChat() {
@@ -11462,6 +11484,8 @@ export default function HearthShell() {
 
     return (
       <section className="hs-draft hs-draft-chat-first">
+        {isScriptWorkspaceTab ? (
+          <>
         <header className="hs-draft-header hs-draft-header-chat-first">
           <div className="hs-draft-title-wrap">
             <div className="hs-draft-title">Project</div>
@@ -11647,42 +11671,51 @@ export default function HearthShell() {
           </div>
           <div className="hs-field-label-muted">Write without AI (just a text editor)</div>
         </div>
+          </>
+        ) : null}
 
         <div className="hs-workpiece-tabs" role="tablist" aria-label="Workpiece workspace tabs">
-          <button type="button" role="tab" aria-selected={isScriptWorkspaceTab} className={`hs-workpiece-tab${isScriptWorkspaceTab ? " is-active" : ""}`} onClick={() => setActiveWorkpieceTab("script")}>
-            Script
+          <button type="button" role="tab" aria-selected={isScriptWorkspaceTab} className={`hs-workpiece-tab${isScriptWorkspaceTab ? " is-active" : ""}`} onClick={() => requestWorkpieceTabChange("script")}>
+            <span className="hs-workpiece-tab-label">
+              Script
+              {tabDirtyById.script ? <span className="hs-workpiece-tab-dirty" aria-label="Unsaved changes" /> : null}
+            </span>
+            <span className="hs-workpiece-tab-summary">{tabSummaryById.script}</span>
           </button>
-          <button type="button" role="tab" aria-selected={isVisualsWorkspaceTab} className={`hs-workpiece-tab${isVisualsWorkspaceTab ? " is-active" : ""}`} onClick={() => setActiveWorkpieceTab("visuals")}>
-            Visuals
+          <button type="button" role="tab" aria-selected={isVisualsWorkspaceTab} className={`hs-workpiece-tab${isVisualsWorkspaceTab ? " is-active" : ""}`} onClick={() => requestWorkpieceTabChange("visuals")}>
+            <span className="hs-workpiece-tab-label">
+              Visuals
+              {tabDirtyById.visuals ? <span className="hs-workpiece-tab-dirty" aria-label="Unsaved changes" /> : null}
+            </span>
+            <span className="hs-workpiece-tab-summary">{tabSummaryById.visuals}</span>
           </button>
-          <button type="button" role="tab" aria-selected={isMetadataWorkspaceTab} className={`hs-workpiece-tab${isMetadataWorkspaceTab ? " is-active" : ""}`} onClick={() => setActiveWorkpieceTab("metadata")}>
-            Metadata
+          <button type="button" role="tab" aria-selected={isMetadataWorkspaceTab} className={`hs-workpiece-tab${isMetadataWorkspaceTab ? " is-active" : ""}`} onClick={() => requestWorkpieceTabChange("metadata")}>
+            <span className="hs-workpiece-tab-label">
+              Metadata
+              {tabDirtyById.metadata ? <span className="hs-workpiece-tab-dirty" aria-label="Unsaved changes" /> : null}
+            </span>
+            <span className="hs-workpiece-tab-summary">{tabSummaryById.metadata}</span>
           </button>
-          <button type="button" role="tab" aria-selected={isReleaseWorkspaceTab} className={`hs-workpiece-tab${isReleaseWorkspaceTab ? " is-active" : ""}`} onClick={() => setActiveWorkpieceTab("release")}>
-            Release
+          <button type="button" role="tab" aria-selected={isReleaseWorkspaceTab} className={`hs-workpiece-tab${isReleaseWorkspaceTab ? " is-active" : ""}`} onClick={() => requestWorkpieceTabChange("release")}>
+            <span className="hs-workpiece-tab-label">Release</span>
+            <span className="hs-workpiece-tab-summary">{tabSummaryById.release}</span>
           </button>
-          <button type="button" role="tab" aria-selected={isHistoryWorkspaceTab} className={`hs-workpiece-tab${isHistoryWorkspaceTab ? " is-active" : ""}`} onClick={() => setActiveWorkpieceTab("history")}>
-            History
+          <button type="button" role="tab" aria-selected={isHistoryWorkspaceTab} className={`hs-workpiece-tab${isHistoryWorkspaceTab ? " is-active" : ""}`} onClick={() => requestWorkpieceTabChange("history")}>
+            <span className="hs-workpiece-tab-label">History</span>
+            <span className="hs-workpiece-tab-summary">{tabSummaryById.history}</span>
           </button>
         </div>
 
         <div className={`hs-draft-stage${showScriptEditor ? " has-script-panel" : ""}`}>
           <div className="hs-focus-stack">
-            {hasCollapsedFocusPanels ? (
-              <div className="hs-focus-stack-toolbar">
-                <button type="button" onClick={onRestoreDefaultFocusLayout}>
-                  Restore Default Layout
-                </button>
-              </div>
-            ) : null}
-
             {isScriptWorkspaceTab ? (
               <CollapsibleFocusPanel
               panelId="hearth-chat-panel"
               title="Chat"
               meta={chatPanelMeta}
-              collapsed={focusPanelLayout.chat}
-              onToggle={() => onToggleFocusPanel("chat")}
+              collapsed={false}
+              onToggle={() => {}}
+              collapsible={false}
             >
               <section className="hs-ai-chat" aria-label="Hearth AI chat">
             <div className="hs-ai-chat-header">
@@ -11855,83 +11888,6 @@ export default function HearthShell() {
               </div>
             ) : null}
 
-            {hasApprovedScript && approvedScriptVersion ? (
-              <div className="hs-production-action-row" role="group" aria-label="Production actions">
-                <button
-                  type="button"
-                  onClick={() => void onRunProductionAction("seo")}
-                  disabled={isAiProcessing || aiCreditsDepleted}
-                >
-                  {activeProductionAction === "seo" && isAiProcessing ? "Generating..." : "Generate SEO"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void onRunProductionAction("tags")}
-                  disabled={isAiProcessing || aiCreditsDepleted}
-                >
-                  {activeProductionAction === "tags" && isAiProcessing ? "Generating..." : "Generate Tags"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void onRunProductionAction("thumbnails")}
-                  disabled={isAiProcessing || aiCreditsDepleted}
-                >
-                  {activeProductionAction === "thumbnails" && isAiProcessing ? "Generating..." : "Thumbnail Concepts"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void onRunProductionAction("release_prep_pack")}
-                  disabled={isAiProcessing || aiCreditsDepleted}
-                >
-                  {activeProductionAction === "release_prep_pack" && isAiProcessing ? "Generating..." : "Release Prep Pack"}
-                </button>
-              </div>
-            ) : null}
-
-            {isReleaseWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
-              <section className="hs-release-prep-viewer" aria-label="Latest release prep pack">
-                <div className="hs-release-prep-viewer__head">
-                  <strong>Latest Release Prep Pack</strong>
-                  <span>Derived output only - primary script unchanged.</span>
-                </div>
-                <div className="hs-release-prep-viewer__meta">
-                  <span>
-                    {releasePrepScriptVersion
-                      ? `Script v${releasePrepScriptVersion}`
-                      : `Script v${approvedScriptVersion}`}
-                    {latestReleasePrepRawText
-                      ? ` · ${latestReleasePrepRawText.length} chars`
-                      : ""}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void loadLatestReleasePrepPack(approvedScriptVersion)}
-                    disabled={isAiProcessing || releasePrepLoadState === "loading"}
-                  >
-                    {releasePrepLoadState === "loading" ? "Refreshing..." : "Refresh"}
-                  </button>
-                </div>
-                {releasePrepLoadState === "missing" ? (
-                  <div className="hs-field-label-muted">
-                    No saved Release Prep Pack for this approved script version yet.
-                  </div>
-                ) : null}
-                {releasePrepLoadState === "error" ? (
-                  <div className="hs-error-text-small">Could not load the latest Release Prep Pack artifact.</div>
-                ) : null}
-                {releasePrepLoadState === "ready" && latestReleasePrepSections.length > 0 ? (
-                  <div className="hs-release-prep-viewer__sections">
-                    {latestReleasePrepSections.map((section) => (
-                      <article key={section.key} className="hs-release-prep-viewer__section">
-                        <header>{section.label}</header>
-                        <pre>{section.content}</pre>
-                      </article>
-                    ))}
-                  </div>
-                ) : null}
-              </section>
-            ) : null}
-
             <div className="hs-ai-shortcut-row" role="group" aria-label="Chat shortcuts">
               <button type="button" onClick={() => onUseChatShortcut("Create a clear outline for this Episode.")}>
                 Outline
@@ -12045,9 +12001,16 @@ export default function HearthShell() {
                   >
                     {activeProductionAction === "release_prep_pack" && isAiProcessing ? "Generating..." : "Generate Release Prep Pack"}
                   </button>
-                  <button type="button" onClick={() => setActiveWorkpieceTab("visuals")}>
+                  <button type="button" onClick={() => requestWorkpieceTabChange("visuals")}>
                     Open Launch Variants (Visuals)
                   </button>
+                </div>
+                <div className="hs-release-checklist" aria-label="Release readiness checklist">
+                  <div className="hs-release-checklist-item">{releaseReadiness.completeCount}/{releaseReadiness.totalCount} checks complete</div>
+                  <div className="hs-release-checklist-item">{hasApprovedScript ? "✔" : "○"} Script approved</div>
+                  <div className="hs-release-checklist-item">{mediaPlanActivated ? "✔" : "○"} Media plan activated</div>
+                  <div className="hs-release-checklist-item">{metadataComplete ? "✔" : "○"} Metadata complete</div>
+                  <div className="hs-release-checklist-item">{thumbnailsSelected ? "✔" : "○"} Thumbnails selected</div>
                 </div>
                 <div className="hs-release-prep-viewer__meta">
                   <span>
@@ -12085,13 +12048,23 @@ export default function HearthShell() {
               </section>
             ) : null}
 
-            {hasApprovedScript && approvedScriptVersion ? (
+            {isVisualsWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
+              <section className="hs-media-plan-banner" aria-label="Media plan status">
+                <strong>Media Plan Status</strong>
+                <div>
+                  [{String(mediaMap?.status ?? "draft").toUpperCase()}] · Coverage: {mediaMapCoverageLevel} · Scope: {mediaMapScopeLabel}
+                </div>
+              </section>
+            ) : null}
+
+            {isVisualsWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
               <CollapsibleFocusPanel
                 panelId="hearth-thumbnail-panel"
                 title="Thumbnails"
                 meta={thumbnailPanelMeta}
-                collapsed={focusPanelLayout.thumbnail}
-                onToggle={() => onToggleFocusPanel("thumbnail")}
+                collapsed={false}
+                onToggle={() => {}}
+                collapsible={false}
               >
                 <ThumbnailPanel
                   concepts={thumbnailConcepts}
@@ -12182,8 +12155,9 @@ export default function HearthShell() {
                 panelId="hearth-media-map-panel"
                 title="Episode Media Map"
                 meta={mediaMapPanelMeta}
-                collapsed={focusPanelLayout.mediaMap}
-                onToggle={() => onToggleFocusPanel("mediaMap")}
+                collapsed={false}
+                onToggle={() => {}}
+                collapsible={false}
               >
                 <EpisodeMediaMapPanel
                   entries={mediaMapEntries}
@@ -12244,8 +12218,9 @@ export default function HearthShell() {
                 panelId="hearth-broll-plan-panel"
                 title="B-roll Plan"
                 meta={brollPanelMeta}
-                collapsed={focusPanelLayout.brollPlan}
-                onToggle={() => onToggleFocusPanel("brollPlan")}
+                collapsed={false}
+                onToggle={() => {}}
+                collapsible={false}
               >
                 <BrollPlanPanel
                   beats={brollBeats}
@@ -12311,8 +12286,9 @@ export default function HearthShell() {
                 panelId="hearth-cdc-plan-panel"
                 title="Contextual Data Composites"
                 meta={cdcPanelMeta}
-                collapsed={focusPanelLayout.cdcPlan}
-                onToggle={() => onToggleFocusPanel("cdcPlan")}
+                collapsed={false}
+                onToggle={() => {}}
+                collapsible={false}
               >
                 <CdcPlanPanel
                   entries={cdcEntries}
@@ -12376,8 +12352,9 @@ export default function HearthShell() {
                 panelId="hearth-metadata-panel"
                 title="Metadata"
                 meta={metadataPanelMeta}
-                collapsed={focusPanelLayout.metadata}
-                onToggle={() => onToggleFocusPanel("metadata")}
+                collapsed={false}
+                onToggle={() => {}}
+                collapsible={false}
               >
                 <MetadataPanel
                   titles={metadataTitlesDraft}
