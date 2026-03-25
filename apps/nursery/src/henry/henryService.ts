@@ -46,7 +46,7 @@ type MessageStateRpcRow = {
 };
 
 export async function getHenryPreferences(workspaceId: string): Promise<HenryPreferenceState | null> {
-  const rpc = tongsSupabase.rpc as unknown as (
+  const rpc = tongsSupabase.rpc.bind(tongsSupabase) as unknown as (
     fn: string,
     args: Record<string, unknown>,
   ) => Promise<{ data: unknown; error: unknown }>;
@@ -65,7 +65,7 @@ export async function getHenryPreferences(workspaceId: string): Promise<HenryPre
 }
 
 export async function upsertHenryPreferences(workspaceId: string, preferences: HenryPreferenceState): Promise<void> {
-  const rpc = tongsSupabase.rpc as unknown as (
+  const rpc = tongsSupabase.rpc.bind(tongsSupabase) as unknown as (
     fn: string,
     args: Record<string, unknown>,
   ) => Promise<{ data: unknown; error: unknown }>;
@@ -82,7 +82,7 @@ export async function upsertHenryPreferences(workspaceId: string, preferences: H
 }
 
 export async function getHenryMessageState(workspaceId: string): Promise<Map<string, HenryMessageStateRow>> {
-  const rpc = tongsSupabase.rpc as unknown as (
+  const rpc = tongsSupabase.rpc.bind(tongsSupabase) as unknown as (
     fn: string,
     args: Record<string, unknown>,
   ) => Promise<{ data: unknown; error: unknown }>;
@@ -115,7 +115,7 @@ export async function upsertHenryMessageState(args: {
   cooldownUntil?: string | null;
   incrementDismiss?: number;
 }): Promise<void> {
-  const rpc = tongsSupabase.rpc as unknown as (
+  const rpc = tongsSupabase.rpc.bind(tongsSupabase) as unknown as (
     fn: string,
     args: Record<string, unknown>,
   ) => Promise<{ data: unknown; error: unknown }>;
@@ -140,7 +140,7 @@ export async function trackHenryEvent(args: {
   metadata?: Record<string, unknown>;
 }): Promise<void> {
   if (!args.workspaceId) return;
-  const rpc = tongsSupabase.rpc as unknown as (
+  const rpc = tongsSupabase.rpc.bind(tongsSupabase) as unknown as (
     fn: string,
     args: Record<string, unknown>,
   ) => Promise<{ data: unknown; error: unknown }>;

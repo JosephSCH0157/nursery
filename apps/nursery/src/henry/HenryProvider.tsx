@@ -172,6 +172,8 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       workspaceId,
       messageId: candidate.id,
       lastSeenAt: new Date().toISOString(),
+    }).catch(() => {
+      // non-fatal in ambient assistant surface
     });
     void trackHenryEvent({
       workspaceId,
@@ -179,6 +181,8 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       eventName: "observation_shown",
       surface: henryContext.surface,
       metadata: { messageId: candidate.id },
+    }).catch(() => {
+      // non-fatal in ambient assistant surface
     });
   }, [
     henryContext,
@@ -214,6 +218,8 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       workpieceId: routeContext.workpieceId,
       eventName: "panel_open",
       surface: henryContext.surface,
+    }).catch(() => {
+      // non-fatal in ambient assistant surface
     });
   }
 
@@ -242,6 +248,8 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       eventName,
       surface: henryContext.surface,
       metadata: { actionId },
+    }).catch(() => {
+      // non-fatal in ambient assistant surface
     });
   }
 
@@ -273,6 +281,8 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       lastDismissedAt: now.toISOString(),
       cooldownUntil,
       incrementDismiss: 1,
+    }).catch(() => {
+      // non-fatal in ambient assistant surface
     });
     void trackHenryEvent({
       workspaceId,
@@ -280,6 +290,8 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       eventName: "observation_dismissed",
       surface: henryContext.surface,
       metadata: { messageId: observation.id },
+    }).catch(() => {
+      // non-fatal in ambient assistant surface
     });
   }
 
@@ -300,6 +312,8 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       workpieceId: routeContext.workpieceId,
       eventName: "freeform_asked",
       surface: henryContext.surface,
+    }).catch(() => {
+      // non-fatal in ambient assistant surface
     });
   }
 
@@ -316,6 +330,8 @@ export function HenryProvider({ children }: { children: ReactNode }) {
         workpieceId: routeContext.workpieceId,
         eventName: "muted",
         surface: henryContext.surface,
+      }).catch(() => {
+        // non-fatal in ambient assistant surface
       });
     }
   }
@@ -338,6 +354,8 @@ export function HenryProvider({ children }: { children: ReactNode }) {
         fromPath: pendingFollowThrough.fromPath,
         toPath: location.pathname,
       },
+    }).catch(() => {
+      // non-fatal in ambient assistant surface
     });
     setPendingFollowThrough(null);
   }, [
@@ -369,6 +387,8 @@ export function HenryProvider({ children }: { children: ReactNode }) {
                 workpieceId: routeContext.workpieceId,
                 eventName: "launcher_click",
                 surface: henryContext.surface,
+              }).catch(() => {
+                // non-fatal in ambient assistant surface
               });
               setActionAnswer(
                 actionAnswer
