@@ -75,6 +75,7 @@ export type ThumbnailBrandTemplateAccent = {
 export type ThumbnailBrandTemplateLogoPlacement = "top_left" | "top_right" | "bottom_left" | "bottom_right";
 
 export type ThumbnailBrandTemplateLogo = {
+  workpiece_id: string | null;
   asset_path: string | null;
   mime_type: string | null;
   placement: ThumbnailBrandTemplateLogoPlacement;
@@ -136,6 +137,7 @@ export const LEGACY_THUMBNAIL_BRAND_RENDER: ThumbnailBrandTemplateConfig = {
     corner_radius: 8,
   },
   logo: {
+    workpiece_id: null,
     asset_path: null,
     mime_type: null,
     placement: "top_right",
@@ -381,6 +383,7 @@ export function normalizeThumbnailBrandTemplateConfig(value: unknown): Thumbnail
       corner_radius: normalizeCornerRadius(accent.corner_radius),
     },
     logo: {
+      workpiece_id: normalizeUuid(logo.workpiece_id),
       asset_path: readString(logo.asset_path),
       mime_type: readString(logo.mime_type),
       placement: normalizeLogoPlacement(logo.placement),
@@ -524,14 +527,14 @@ function readCommitError(payload: unknown, fallback: string): string {
 }
 
 export async function uploadWorkspaceThumbnailBrandLogo(args: {
-  workspaceId: string;
+  workpieceId: string;
   templateId: string;
   file: File;
 }): Promise<UploadWorkspaceThumbnailBrandLogoResult> {
-  const workspaceId = normalizeUuid(args.workspaceId);
+  const workpieceId = normalizeUuid(args.workpieceId);
   const templateId = normalizeUuid(args.templateId);
-  if (!workspaceId || !templateId) {
-    return { ok: false, status: 400, error: "workspace_id and template_id are required." };
+  if (!workpieceId || !templateId) {
+    return { ok: false, status: 400, error: "workpiece_id and template_id are required." };
   }
 
   const mimeType = resolveUploadMimeType(args.file);
@@ -556,13 +559,13 @@ export async function uploadWorkspaceThumbnailBrandLogo(args: {
   const fileStem = safeFileStem(args.file.name);
   const assetPath = `assets/thumbnail-brand-logos/${templateId}/${timestamp}-${fileStem}.${extension}`;
   const response = await tongsFetch(
-    `/tongs/workspaces/${encodeURIComponent(workspaceId)}/commit-file`,
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`,
     {
       method: "POST",
       json: {
         path: assetPath,
         content_type: mimeType,
-        file_type: "thumbnail_brand_logo",
+        file_type: "thumbnail_image",
         bytes_base64: bytesBase64,
         written_by: {
           tool: "hearth",
@@ -597,17 +600,17 @@ export async function uploadWorkspaceThumbnailBrandLogo(args: {
 }
 
 export async function loadWorkspaceThumbnailBrandLogoPreview(args: {
-  workspaceId: string;
+  workpieceId: string;
   assetPath: string;
 }): Promise<LoadWorkspaceThumbnailBrandLogoPreviewResult> {
-  const workspaceId = normalizeUuid(args.workspaceId);
+  const workpieceId = normalizeUuid(args.workpieceId);
   const assetPath = readString(args.assetPath);
-  if (!workspaceId || !assetPath) {
-    return { ok: false, status: 400, error: "workspace_id and asset_path are required." };
+  if (!workpieceId || !assetPath) {
+    return { ok: false, status: 400, error: "workpiece_id and asset_path are required." };
   }
 
   const response = await tongsFetch(
-    `/tongs/workspaces/${encodeURIComponent(workspaceId)}/read-file?path=${encodeURIComponent(assetPath)}&encoding=base64`,
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(assetPath)}&encoding=base64`,
     { method: "GET" },
   );
   const payload = await readResponseJson(response);

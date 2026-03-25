@@ -5644,9 +5644,9 @@ export default function HearthShell({
   }, [defaultThumbnailBrandTemplateId, selectedThumbnailConcept]);
 
   useEffect(() => {
-    const workspace = workspaceId?.trim() ?? "";
+    const logoWorkpieceId = selectedThumbnailBrandTemplate?.templateJson.logo.workpiece_id ?? (workpieceId?.trim() ?? "");
     const logoAssetPath = selectedThumbnailBrandTemplate?.templateJson.logo.asset_path ?? null;
-    if (!workspace || !logoAssetPath) {
+    if (!logoWorkpieceId || !logoAssetPath) {
       setThumbnailBrandLogoDataUrl(null);
       if (!isThumbnailBrandLogoUploading) setThumbnailBrandLogoError(null);
       return;
@@ -5655,7 +5655,7 @@ export default function HearthShell({
     let cancelled = false;
     void (async () => {
       const loaded = await loadWorkspaceThumbnailBrandLogoPreview({
-        workspaceId: workspace,
+        workpieceId: logoWorkpieceId,
         assetPath: logoAssetPath,
       });
       if (cancelled) return;
@@ -5673,8 +5673,9 @@ export default function HearthShell({
     };
   }, [
     isThumbnailBrandLogoUploading,
+    workpieceId,
+    selectedThumbnailBrandTemplate?.templateJson.logo.workpiece_id,
     selectedThumbnailBrandTemplate?.templateJson.logo.asset_path,
-    workspaceId,
   ]);
 
   useEffect(() => {
@@ -9236,8 +9237,9 @@ export default function HearthShell({
 
   async function onUploadThumbnailBrandLogo(file: File) {
     const workspace = workspaceId?.trim() ?? "";
+    const episodeId = workpieceId?.trim() ?? "";
     const template = selectedThumbnailBrandTemplate;
-    if (!workspace || !template) {
+    if (!workspace || !episodeId || !template) {
       setThumbnailBrandLogoError("Select a brand template before uploading a logo.");
       return;
     }
@@ -9246,7 +9248,7 @@ export default function HearthShell({
     setThumbnailBrandLogoError(null);
     try {
       const uploaded = await uploadWorkspaceThumbnailBrandLogo({
-        workspaceId: workspace,
+        workpieceId: episodeId,
         templateId: template.id,
         file,
       });
@@ -9259,6 +9261,7 @@ export default function HearthShell({
         ...template.templateJson,
         logo: {
           ...template.templateJson.logo,
+          workpiece_id: episodeId,
           asset_path: uploaded.assetPath,
           mime_type: uploaded.mimeType,
         },
@@ -9297,6 +9300,7 @@ export default function HearthShell({
           ...template.templateJson,
           logo: {
             ...template.templateJson.logo,
+            workpiece_id: null,
             asset_path: null,
             mime_type: null,
           },
