@@ -1216,7 +1216,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
-  const previewAudioContextRef = useRef<AudioContext | null>(null);
   const workspaceShellRef = useRef<HTMLElement | null>(null);
   const lastPlaybackMediaSrcRef = useRef<string | null>(null);
   const captionEditorRefs = useRef(new Map<string, HTMLTextAreaElement>());
@@ -2333,51 +2332,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useEffect(() => {
     const previewAudio = previewAudioRef.current;
     if (!previewAudio) return;
-    const AudioContextCtor = window.AudioContext ?? (window as Window & typeof globalThis & {
-      webkitAudioContext?: typeof AudioContext;
-    }).webkitAudioContext;
-    if (!AudioContextCtor) return;
-
-    try {
-      const context = new AudioContextCtor();
-      const sourceNode = context.createMediaElementSource(previewAudio);
-      const splitter = context.createChannelSplitter(2);
-      const merger = context.createChannelMerger(1);
-      const leftGain = context.createGain();
-      const rightGain = context.createGain();
-      leftGain.gain.value = 0.5;
-      rightGain.gain.value = 0.5;
-
-      sourceNode.connect(splitter);
-      splitter.connect(leftGain, 0);
-      splitter.connect(rightGain, 1);
-      leftGain.connect(merger, 0, 0);
-      rightGain.connect(merger, 0, 0);
-      merger.connect(context.destination);
-
-      previewAudio.muted = true;
-      previewAudioContextRef.current = context;
-
-      return () => {
-        previewAudio.muted = false;
-        previewAudioContextRef.current = null;
-        sourceNode.disconnect();
-        splitter.disconnect();
-        leftGain.disconnect();
-        rightGain.disconnect();
-        merger.disconnect();
-        void context.close();
-      };
-    } catch {
-      previewAudio.muted = false;
-      previewAudioContextRef.current = null;
-      return;
-    }
-  }, []);
-
-  useEffect(() => {
-    const previewAudio = previewAudioRef.current;
-    if (!previewAudio) return;
     const runtimeWindow = window as HammerPlaybackAuthorityWindow;
     const activeOwnerId = runtimeWindow.__forgeHammerActivePreviewOwnerId__;
     if (isPlaybackActive && activeOwnerId && activeOwnerId !== playbackOwnerIdRef.current) {
@@ -2412,7 +2366,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
 
     claimGlobalPlaybackAuthority(previewAudio);
-    void previewAudioContextRef.current?.resume().catch(() => {});
     void previewAudio.play().catch(() => {
       setIsPlaybackActive(false);
     });
@@ -2970,7 +2923,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (!isPlaybackActive && playbackMediaSrc && previewAudioRef.current) {
       const previewAudio = previewAudioRef.current;
       claimGlobalPlaybackAuthority(previewAudio);
-      void previewAudioContextRef.current?.resume().catch(() => {});
       previewAudio.playbackRate = scrubRate;
       void previewAudio.play()
         .then(() => {
