@@ -45,6 +45,7 @@
 .ew-header__sep {
   font-size: 11px;
   color: rgba(214, 220, 231, 0.3);
+  -webkit-user-select: none;
   user-select: none;
   flex-shrink: 0;
 }
@@ -107,6 +108,7 @@
 .ew-header__step-sep {
   font-size: 10px;
   color: rgba(214, 220, 231, 0.22);
+  -webkit-user-select: none;
   user-select: none;
   pointer-events: none;
   flex-shrink: 0;
