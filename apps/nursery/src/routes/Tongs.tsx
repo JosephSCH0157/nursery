@@ -1,13 +1,13 @@
 import { useState } from "react";
-import { useLocation } from "react-router-dom";
+import { Link, Navigate, useLocation } from "react-router-dom";
 import TongsCalendar from "./TongsCalendar";
 import TongsReleasePrep from "./TongsReleasePrep";
 import TongsRecordingSessions from "./TongsRecordingSessions";
 import TongsStorage from "./TongsStorage";
-import TongsTeam from "./TongsTeam";
 import "./Tongs.css";
 
-type TongsMode = "calendar" | "sessions" | "team" | "release" | "storage";
+type TongsMode = "calendar" | "sessions" | "release" | "storage";
+type TongsRouteMode = TongsMode | "team";
 
 const MODE_STORAGE_KEY = "forge_tongs_mode_v1";
 
@@ -15,9 +15,10 @@ function readStoredMode(): TongsMode {
   if (typeof window === "undefined") return "sessions";
   try {
     const raw = window.localStorage.getItem(MODE_STORAGE_KEY);
-    if (raw === "calendar" || raw === "sessions" || raw === "team" || raw === "release" || raw === "storage") {
+    if (raw === "calendar" || raw === "sessions" || raw === "release" || raw === "storage") {
       return raw;
     }
+    if (raw === "team") return "sessions";
   } catch {
     // ignore storage failures
   }
@@ -33,7 +34,7 @@ function writeStoredMode(mode: TongsMode): void {
   }
 }
 
-function readModeFromSearch(search: string): TongsMode | null {
+function readModeFromSearch(search: string): TongsRouteMode | null {
   const params = new URLSearchParams(search);
   const raw = params.get("mode")?.trim().toLowerCase() ?? "";
   if (raw === "calendar" || raw === "sessions" || raw === "team" || raw === "release" || raw === "storage") {
@@ -67,12 +68,23 @@ export default function TongsRoute() {
   const location = useLocation();
   const routeMode = readModeFromSearch(location.search);
   const [mode, setMode] = useState<TongsMode>(() => routeMode ?? readStoredMode());
-  const activeMode = routeMode ?? mode;
+  const activeMode = routeMode === "team" ? "sessions" : (routeMode ?? mode);
+
+  const orgTeamsHref = (() => {
+    const params = new URLSearchParams(location.search);
+    params.delete("mode");
+    const search = params.toString();
+    return search ? `/app/settings/org/teams?${search}` : "/app/settings/org/teams";
+  })();
 
   const setModeAndPersist = (nextMode: TongsMode) => {
     setMode(nextMode);
     writeStoredMode(nextMode);
   };
+
+  if (routeMode === "team") {
+    return <Navigate to={orgTeamsHref} replace />;
+  }
 
   return (
     <div className="tongs-page">
@@ -88,11 +100,6 @@ export default function TongsRoute() {
           onClick={() => setModeAndPersist("calendar")}
         />
         <ModeButton
-          active={activeMode === "team"}
-          label="Team"
-          onClick={() => setModeAndPersist("team")}
-        />
-        <ModeButton
           active={activeMode === "storage"}
           label="Storage"
           onClick={() => setModeAndPersist("storage")}
@@ -102,11 +109,12 @@ export default function TongsRoute() {
           label="Release Prep"
           onClick={() => setModeAndPersist("release")}
         />
+        <Link className="tongs-mode-link" to={orgTeamsHref}>
+          Org Teams
+        </Link>
       </div>
       {activeMode === "calendar"
         ? <TongsCalendar />
-        : activeMode === "team"
-        ? <TongsTeam />
         : activeMode === "storage"
         ? <TongsStorage />
         : activeMode === "release"

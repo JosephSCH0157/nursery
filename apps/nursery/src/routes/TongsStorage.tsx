@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useLocation, useOutletContext } from "react-router-dom";
+import { Link, useLocation, useOutletContext } from "react-router-dom";
 import { useLayoutMode } from "@forge/ui-mobile";
 import {
   ALL_MOUNT_ROLES,
@@ -70,6 +70,7 @@ type StorageListingPanelProps = {
   errorPlaceholder: string;
   unavailablePlaceholder: string;
   footnote?: string;
+  emptyAction?: JSX.Element | null;
 };
 
 const ROLE_POLICY_MAP = new Map(MOUNT_ROLE_POLICY.map((policy) => [policy.role, policy] as const));
@@ -320,6 +321,7 @@ function StorageListingPanel({
   errorPlaceholder,
   unavailablePlaceholder,
   footnote,
+  emptyAction,
 }: StorageListingPanelProps) {
   const messageClass =
     treeState.status === "error"
@@ -364,6 +366,9 @@ function StorageListingPanel({
 
       {treeState.status !== "ready" || treeState.nodes.length === 0 ? (
         <div className="tongs-storage__tree-placeholder">{placeholder}</div>
+      ) : null}
+      {emptyAction && (treeState.status !== "ready" || treeState.nodes.length === 0) ? (
+        <div className="tongs-storage__tree-action">{emptyAction}</div>
       ) : null}
 
       {footnote ? <div className="tongs-storage__tree-footnote">{footnote}</div> : null}
@@ -416,6 +421,7 @@ export default function TongsStorage() {
   const applyCanonicalRecordingsTreeState = useCallback((nextState: TreeState) => {
     setCanonicalRecordingsTreeState(nextState);
   }, []);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
 
   const roots = useMemo<RootViewModel[]>(() => {
     return ALL_MOUNT_ROLES.map((role) => {
@@ -766,6 +772,39 @@ export default function TongsStorage() {
   const workpieceRootPath = workpieceId
     ? (workpieceTreeState.source?.rootPath ?? `workpieces/${workpieceId}`)
     : "Not selected";
+  const mountSettingsHref = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const nextSearch = params.toString();
+    return nextSearch ? `/app/settings/storage?${nextSearch}` : "/app/settings/storage";
+  }, [location.search]);
+  const hearthHref = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const nextSearch = params.toString();
+    return nextSearch ? `/app/hearth?${nextSearch}` : "/app/hearth";
+  }, [location.search]);
+  const workpieceStatusLabel = workpieceTreeState.status === "loading"
+    ? "Loading contents"
+    : workpieceTreeState.status === "ready"
+    ? (workpieceTreeState.nodes.length > 0 ? "Contents loaded" : "No contents yet")
+    : workpieceTreeState.status === "error"
+    ? "Unable to load contents"
+    : "Workpiece context required";
+
+  const copyDiagnosticsToClipboard = useCallback(async () => {
+    const payload = [
+      `Workspace: ${activeWorkspace?.name ?? workspaceId ?? "unknown"}`,
+      `Role: ${workspaceRoleLabel(workspaceRole)}`,
+      `Selected root: ${selectedRoot.role}`,
+      `Selected workpiece: ${workpieceId ?? "none"}`,
+      diagnostics ? diagnostics : "No registry diagnostics.",
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(payload);
+      setCopyNotice("Diagnostics copied.");
+    } catch {
+      setCopyNotice("Copy failed. Browser clipboard permissions may be blocked.");
+    }
+  }, [activeWorkspace?.name, diagnostics, selectedRoot.role, workpieceId, workspaceId, workspaceRole]);
 
   return (
     <section className={`tongs-storage${isMobile ? " tongs-storage--mobile" : ""}`}>
@@ -782,10 +821,13 @@ export default function TongsStorage() {
             <span className="tongs-storage__workspace-role">Role: {workspaceRoleLabel(workspaceRole)}</span>
           </div>
           <button type="button" onClick={reload}>Refresh Mounts</button>
+          <button type="button" onClick={() => void copyDiagnosticsToClipboard()}>Copy diagnostics</button>
+          <Link className="tongs-storage__action-link" to={mountSettingsHref}>Open mount settings</Link>
         </div>
       </header>
 
       {diagnostics ? <div className="tongs-storage__diagnostic">{diagnostics}</div> : null}
+      {copyNotice ? <div className="tongs-storage__diagnostic">{copyNotice}</div> : null}
 
       <section className="tongs-storage__panel">
         <div className="tongs-storage__panel-header">
@@ -803,24 +845,37 @@ export default function TongsStorage() {
           ) : null}
         </div>
 
-        <div className="tongs-storage__meta-grid">
-          <div className="tongs-storage__meta-card">
-            <div className="tongs-storage__meta-label">Selected workpiece</div>
-            <div className="tongs-storage__meta-value tongs-storage__mono">{workpieceId ?? "Not selected"}</div>
-          </div>
-          <div className="tongs-storage__meta-card">
-            <div className="tongs-storage__meta-label">Canonical root</div>
-            <div className="tongs-storage__meta-value tongs-storage__mono">{workpieceRootPath}</div>
-          </div>
-          <div className="tongs-storage__meta-card">
-            <div className="tongs-storage__meta-label">Bucket</div>
-            <div className="tongs-storage__meta-value">{workpieceTreeState.source?.bucket ?? "Loading..."}</div>
-          </div>
-          <div className="tongs-storage__meta-card">
-            <div className="tongs-storage__meta-label">Selection source</div>
-            <div className="tongs-storage__meta-value">Forge route context (`workpiece_id`)</div>
-          </div>
+        <div className="tongs-storage__status-line">
+          <span className="tongs-storage__badge tongs-storage__badge--status">
+            {workpieceId ? "Workpiece selected" : "No workpiece selected"}
+          </span>
+          <span className="tongs-storage__badge tongs-storage__badge--status">{workpieceStatusLabel}</span>
+          <span className="tongs-storage__badge tongs-storage__badge--status">
+            Source: {workpieceTreeState.source?.badgeLabel ?? "route context"}
+          </span>
         </div>
+
+        <details className="tongs-storage__advanced">
+          <summary>Advanced routing details</summary>
+          <div className="tongs-storage__meta-grid">
+            <div className="tongs-storage__meta-card">
+              <div className="tongs-storage__meta-label">Selected workpiece</div>
+              <div className="tongs-storage__meta-value tongs-storage__mono">{workpieceId ?? "Not selected"}</div>
+            </div>
+            <div className="tongs-storage__meta-card">
+              <div className="tongs-storage__meta-label">Canonical root</div>
+              <div className="tongs-storage__meta-value tongs-storage__mono">{workpieceRootPath}</div>
+            </div>
+            <div className="tongs-storage__meta-card">
+              <div className="tongs-storage__meta-label">Bucket</div>
+              <div className="tongs-storage__meta-value">{workpieceTreeState.source?.bucket ?? "Loading..."}</div>
+            </div>
+            <div className="tongs-storage__meta-card">
+              <div className="tongs-storage__meta-label">Selection source</div>
+              <div className="tongs-storage__meta-value">Forge route context (`workpiece_id`)</div>
+            </div>
+          </div>
+        </details>
 
         <StorageListingPanel
           title="Contents"
@@ -829,6 +884,11 @@ export default function TongsStorage() {
           loadingPlaceholder="Loading canonical workpiece tree..."
           errorPlaceholder="Canonical workpiece listing could not be loaded for this workpiece."
           unavailablePlaceholder="No workpiece is selected in the current route."
+          emptyAction={!workpieceId ? (
+            <Link className="tongs-storage__action-link" to={hearthHref}>
+              Open Hearth and pick a workpiece
+            </Link>
+          ) : null}
           footnote={READ_ONLY_FOOTNOTE}
         />
       </section>
@@ -863,15 +923,12 @@ export default function TongsStorage() {
                       <span className="tongs-storage__root-title">{root.label}</span>
                       <span className="tongs-storage__root-target">{root.resolvedTargetType}</span>
                     </div>
-                    <div className="tongs-storage__root-badges">
-                      <span className="tongs-storage__badge tongs-storage__badge--capability">
-                        {root.eligibleTargets.join(" + ")}
+                    <div className="tongs-storage__root-meta-row">
+                      <span className="tongs-storage__root-meta">Targets: {root.eligibleTargets.join(" + ")}</span>
+                      <span className="tongs-storage__root-meta">
+                        {root.mirrorEnabled ? "Mirror on" : "Mirror off"}
                       </span>
-                      {root.mirrorEnabled ? (
-                        <span className="tongs-storage__badge tongs-storage__badge--mirror">mirror enabled</span>
-                      ) : null}
                     </div>
-                    <div className="tongs-storage__root-meta">Mirror: {summarizeMirrorStatus(root)}</div>
                   </button>
                 );
               })}
@@ -890,43 +947,58 @@ export default function TongsStorage() {
               </div>
             </div>
 
-            <div className="tongs-storage__meta-grid">
-              <div className="tongs-storage__meta-card">
-                <div className="tongs-storage__meta-label">Role</div>
-                <div className="tongs-storage__meta-value">{selectedRoot.role}</div>
-              </div>
-              <div className="tongs-storage__meta-card">
-                <div className="tongs-storage__meta-label">Policy class</div>
-                <div className="tongs-storage__meta-value">Resolved by mount configuration and entitlement</div>
-              </div>
-              <div className="tongs-storage__meta-card">
-                <div className="tongs-storage__meta-label">Eligible targets</div>
-                <div className="tongs-storage__meta-value">{selectedRoot.eligibleTargets.join(", ")}</div>
-              </div>
-              <div className="tongs-storage__meta-card">
-                <div className="tongs-storage__meta-label">Resolved target type</div>
-                <div className="tongs-storage__meta-value">{selectedRoot.resolvedTargetType}</div>
-              </div>
-              <div className="tongs-storage__meta-card">
-                <div className="tongs-storage__meta-label">Mirror status</div>
-                <div className="tongs-storage__meta-value">{summarizeMirrorStatus(selectedRoot)}</div>
-              </div>
-              <div className="tongs-storage__meta-card">
-                <div className="tongs-storage__meta-label">Canonical hint</div>
-                <div className="tongs-storage__meta-value">{selectedRoot.canonicalHint ?? "Not available"}</div>
-              </div>
-              <div className="tongs-storage__meta-card">
-                <div className="tongs-storage__meta-label">Canonical vault key</div>
-                <div className="tongs-storage__meta-value">{selectedRoot.canonicalVaultKey ?? "Not available"}</div>
-              </div>
-              <div className="tongs-storage__meta-card">
-                <div className="tongs-storage__meta-label">Mirror hint</div>
-                <div className="tongs-storage__meta-value">{selectedRoot.mirrorHint ?? "Not available"}</div>
-              </div>
-              <div className="tongs-storage__meta-card">
-                <div className="tongs-storage__meta-label">Mirror vault key</div>
-                <div className="tongs-storage__meta-value">{selectedRoot.mirrorVaultKey ?? "Not available"}</div>
-              </div>
+            <div className="tongs-storage__detail-groups">
+              <section className="tongs-storage__detail-group">
+                <h5 className="tongs-storage__detail-group-title">Routing</h5>
+                <div className="tongs-storage__meta-grid">
+                  <div className="tongs-storage__meta-card">
+                    <div className="tongs-storage__meta-label">Role</div>
+                    <div className="tongs-storage__meta-value">{selectedRoot.role}</div>
+                  </div>
+                  <div className="tongs-storage__meta-card">
+                    <div className="tongs-storage__meta-label">Resolved target</div>
+                    <div className="tongs-storage__meta-value">{selectedRoot.resolvedTargetType}</div>
+                  </div>
+                  <div className="tongs-storage__meta-card">
+                    <div className="tongs-storage__meta-label">Eligible targets</div>
+                    <div className="tongs-storage__meta-value">{selectedRoot.eligibleTargets.join(", ")}</div>
+                  </div>
+                </div>
+              </section>
+              <section className="tongs-storage__detail-group">
+                <h5 className="tongs-storage__detail-group-title">Policy + Mirror</h5>
+                <div className="tongs-storage__meta-grid">
+                  <div className="tongs-storage__meta-card">
+                    <div className="tongs-storage__meta-label">Policy class</div>
+                    <div className="tongs-storage__meta-value">Mount configuration + entitlement</div>
+                  </div>
+                  <div className="tongs-storage__meta-card">
+                    <div className="tongs-storage__meta-label">Mirror status</div>
+                    <div className="tongs-storage__meta-value">{summarizeMirrorStatus(selectedRoot)}</div>
+                  </div>
+                  <div className="tongs-storage__meta-card">
+                    <div className="tongs-storage__meta-label">Canonical hint</div>
+                    <div className="tongs-storage__meta-value">{selectedRoot.canonicalHint ?? "Not available"}</div>
+                  </div>
+                  <div className="tongs-storage__meta-card">
+                    <div className="tongs-storage__meta-label">Mirror hint</div>
+                    <div className="tongs-storage__meta-value">{selectedRoot.mirrorHint ?? "Not available"}</div>
+                  </div>
+                </div>
+              </section>
+              <section className="tongs-storage__detail-group">
+                <h5 className="tongs-storage__detail-group-title">Vault Keys</h5>
+                <div className="tongs-storage__meta-grid">
+                  <div className="tongs-storage__meta-card">
+                    <div className="tongs-storage__meta-label">Canonical vault key</div>
+                    <div className="tongs-storage__meta-value">{selectedRoot.canonicalVaultKey ?? "Not available"}</div>
+                  </div>
+                  <div className="tongs-storage__meta-card">
+                    <div className="tongs-storage__meta-label">Mirror vault key</div>
+                    <div className="tongs-storage__meta-value">{selectedRoot.mirrorVaultKey ?? "Not available"}</div>
+                  </div>
+                </div>
+              </section>
             </div>
 
             {selectedRoot.role === "recordings" ? (
