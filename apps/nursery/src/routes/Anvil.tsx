@@ -12,6 +12,7 @@ import {
 } from "../lib/forge-handoff-validation";
 import anvilDevSourceUrl from "../../../anvil/teleprompter_pro.html?url";
 import "./Anvil.css";
+import { useWorkspaceBootstrap } from "../hooks/useWorkspaceBootstrap";
 
 const ANVIL_FULL_PAGE_URL = import.meta.env.DEV
   ? anvilDevSourceUrl
@@ -22,6 +23,7 @@ export default function AnvilRoute() {
   const shell = useOutletContext<AppShellContext>();
   const location = useLocation();
   const context = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
+  useWorkspaceBootstrap({ episodeId: context.workpieceId ?? undefined });
   const handoff = useMemo(() => parseAnvilHandoffSearch(location.search), [location.search]);
   const handoffValidationSeqRef = useRef(0);
   const [handoffError, setHandoffError] = useState<string | null>(null);

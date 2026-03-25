@@ -1,132 +1,204 @@
 /* =========================================================
    Episode Workspace Header
-   A compact identity banner that lives above tool content.
+   A compact identity banner with phase-progress stepper.
    Only rendered when an episode is active (via EpisodeWorkspaceShell).
    ========================================================= */
 
+/* ── Root bar ─────────────────────────────────────── */
 .ew-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 6px 16px;
-  background: #1a1a2e;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 13px;
+  gap: 0;
+  padding: 0 16px;
+  background: #12121f;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 12px;
   color: #e0e0e0;
-  min-height: 36px;
+  min-height: 38px;
   flex-shrink: 0;
   z-index: 200;
   position: relative;
 }
 
-/* Identity block */
+/* ── Identity ─────────────────────────────────────── */
 .ew-header__identity {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
   min-width: 0;
-  overflow: hidden;
+  padding-right: 16px;
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  height: 38px;
 }
 
 .ew-header__label {
   font-weight: 600;
+  font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 260px;
-  color: #f5f5f5;
+  max-width: 220px;
+  color: #f0f0f8;
 }
 
 .ew-header__series {
   font-size: 11px;
-  color: #9a9ab0;
+  color: #6a6a8a;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 140px;
+  max-width: 120px;
 }
 
-/* Phase block */
-.ew-header__phase {
+/* ── Phase stepper ────────────────────────────────── */
+.ew-header__stepper {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
+  gap: 0;
+  flex: 1;
+  padding: 0 8px;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.ew-header__phase-dot {
+.ew-header__step {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  height: 38px;
+  text-decoration: none;
+  color: #4a4a6a;
+  transition: color 0.15s, background 0.15s;
+  border-radius: 0;
+  flex-shrink: 0;
+  position: relative;
+}
+
+/* Connector line between steps */
+.ew-header__step + .ew-header__step::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ew-header__step:hover,
+.ew-header__step:focus-visible {
+  color: #a0a0c8;
+  background: rgba(255, 255, 255, 0.04);
+  outline: none;
+}
+
+/* Dot indicator */
+.ew-header__step-dot {
   display: inline-block;
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #6c63ff;
   flex-shrink: 0;
+  border: 1.5px solid #3a3a5a;
+  background: transparent;
+  transition: background 0.15s, border-color 0.15s;
 }
 
-.ew-header__phase-label {
-  font-weight: 500;
-  color: #c0b8ff;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.ew-header__status {
+.ew-header__step-label {
   font-size: 11px;
-  color: #8a8aab;
-  padding: 1px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
   white-space: nowrap;
 }
 
-/* Quick-action nav */
-.ew-header__actions {
+/* State: completed */
+.ew-header__step--completed {
+  color: #5a5a8a;
+}
+.ew-header__step--completed .ew-header__step-dot {
+  background: #5a5a8a;
+  border-color: #5a5a8a;
+}
+
+/* State: current */
+.ew-header__step--current {
+  color: #c0b8ff;
+}
+.ew-header__step--current .ew-header__step-dot {
+  background: #6c63ff;
+  border-color: #6c63ff;
+  box-shadow: 0 0 6px rgba(108, 99, 255, 0.7);
+}
+.ew-header__step--current .ew-header__step-label {
+  font-weight: 700;
+}
+
+/* State: future */
+.ew-header__step--future {
+  color: #3a3a5a;
+}
+.ew-header__step--future .ew-header__step-dot {
+  border-color: #2a2a4a;
+}
+
+/* ── Smart Continue Workflow button (P2.2) ─────────── */
+.ew-header__continue {
   display: flex;
   align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.ew-header__action-link {
-  display: inline-block;
-  padding: 3px 10px;
+  gap: 6px;
+  padding: 5px 14px;
+  margin-left: 8px;
+  background: rgba(108, 99, 255, 0.15);
+  border: 1px solid rgba(108, 99, 255, 0.4);
+  border-radius: 14px;
+  color: #c0b8ff;
   font-size: 11px;
-  font-weight: 500;
-  color: #9090b0;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+  font-weight: 600;
   text-decoration: none;
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
   white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.ew-header__action-link:hover,
-.ew-header__action-link:focus-visible {
-  color: #e0e0ff;
-  border-color: rgba(108, 99, 255, 0.5);
-  background: rgba(108, 99, 255, 0.1);
+.ew-header__continue:hover,
+.ew-header__continue:focus-visible {
+  background: rgba(108, 99, 255, 0.28);
+  border-color: rgba(108, 99, 255, 0.7);
+  color: #e8e4ff;
   outline: none;
 }
 
-/* ── Responsive ─────────────────────────────────────── */
-@media (max-width: 600px) {
-  .ew-header {
-    gap: 8px;
-    padding: 5px 12px;
-    flex-wrap: wrap;
-  }
+.ew-header__continue-arrow {
+  font-size: 12px;
+  opacity: 0.8;
+}
 
-  .ew-header__identity {
-    flex: 1 1 100%;
+/* ── Responsive ─────────────────────────────────────── */
+@media (max-width: 700px) {
+  .ew-header {
+    padding: 0 10px;
   }
 
   .ew-header__series {
     display: none;
   }
 
-  .ew-header__actions {
+  /* Hide future phases on small screens, keep current + completed */
+  .ew-header__step--future {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .ew-header__identity {
+    display: none;
+  }
+
+  /* Only show current step label */
+  .ew-header__step--completed .ew-header__step-label,
+  .ew-header__step--future .ew-header__step-label {
     display: none;
   }
 }

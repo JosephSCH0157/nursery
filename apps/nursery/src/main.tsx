@@ -118,7 +118,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             )}
           />
           <Route path="/apps/bellows/join/:sessionId" element={withRouteFallback(<BellowsJoin />, "Loading Bellows guest entry...")} />
-          <Route path="/apps/bellows" element={withRouteFallback(<BellowsStandalone />, "Loading Bellows...")} />
+          <Route path="/apps/bellows" element={withRouteFallback(<EpisodeWorkspaceShell><BellowsStandalone /></EpisodeWorkspaceShell>, "Loading Bellows...")} />
           <Route path="/bellows/join/:sessionId" element={withRouteFallback(<BellowsJoin />, "Loading Bellows guest entry...")} />
           <Route path="/bellows" element={<Navigate to="/apps/bellows" replace />} />
           <Route path="/hearth" element={<Navigate to="/apps/hearth" replace />} />

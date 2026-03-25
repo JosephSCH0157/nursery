@@ -52,6 +52,7 @@ import {
 } from "../lib/bellows/bellowsSessionPresence";
 import { useBellowsLocalMediaReadiness } from "../lib/bellows/useBellowsLocalMediaReadiness";
 import { supabase, tongsSupabase } from "../lib/supabase";
+import { useWorkspaceBootstrap } from "../hooks/useWorkspaceBootstrap";
 import "./BellowsStandalone.css";
 
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
@@ -1139,6 +1140,7 @@ export default function BellowsStandalone() {
     () => parseForgeRouteContext(location.search),
     [location.search],
   );
+  useWorkspaceBootstrap({ episodeId: routeContext.workpieceId ?? undefined });
 
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);

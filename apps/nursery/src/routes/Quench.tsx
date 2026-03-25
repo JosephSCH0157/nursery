@@ -23,6 +23,7 @@ import {
 import type { HammerPreparedReleasePackage } from "../../../hammer/src/lib/hammerPreparedReleasePackage";
 import { tongsFetch } from "../../../hammer/src/lib/tongsFetch";
 import { parseForgeRouteContext } from "../lib/forge-route-context";
+import { useWorkspaceBootstrap } from "../hooks/useWorkspaceBootstrap";
 import type { AppShellContext } from "./AppShell";
 import "./Quench.css";
 
@@ -285,6 +286,8 @@ type ResolvedAssetCard = {
 export default function QuenchRoute() {
   const shell = useOutletContext<AppShellContext>();
   const location = useLocation();
+  const routeCtx = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
+  useWorkspaceBootstrap({ episodeId: routeCtx.workpieceId ?? undefined });
   const mockReleaseCases = useMemo<QuenchMockReleaseCase[]>(
     () => listQuenchMockReleaseCases({ workspaceId: shell.workspaceId }),
     [shell.workspaceId],

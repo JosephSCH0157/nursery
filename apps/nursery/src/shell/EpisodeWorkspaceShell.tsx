@@ -14,6 +14,7 @@
 import type { ReactNode } from "react";
 import { useOptionalEpisodeWorkspace } from "../workspace/EpisodeWorkspaceContext";
 import EpisodeWorkspaceHeader from "./EpisodeWorkspaceHeader";
+import EpisodeContextDebugOverlay from "./EpisodeContextDebugOverlay";
 import "./EpisodeWorkspaceShell.css";
 
 interface EpisodeWorkspaceShellProps {
@@ -38,6 +39,7 @@ export default function EpisodeWorkspaceShell({
         />
       )}
       {children}
+      <EpisodeContextDebugOverlay />
     </>
   );
 }
