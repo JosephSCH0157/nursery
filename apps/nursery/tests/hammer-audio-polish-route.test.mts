@@ -85,6 +85,8 @@ async function startCommitServer(): Promise<{
 async function runOneCase(args: {
   localRootAbs: string;
   localRelpath: string;
+  mimeType?: string;
+  mediaKind?: "recording_audio" | "recording_video";
   context: HammerAudioPolishRequestContext;
 }): Promise<{
   status: number;
@@ -94,11 +96,11 @@ async function runOneCase(args: {
     {
       workspace_id: "ws_hammer_audio_polish_test",
       workpiece_id: "wp_hammer_audio_polish_test",
-      media_kind: "recording_audio",
+      media_kind: args.mediaKind ?? "recording_audio",
       local_root_abs: args.localRootAbs,
       local_relpath: args.localRelpath,
       canonical_workpiece_path: `recordings/${args.localRelpath}`,
-      mime_type: "audio/mp4",
+      mime_type: args.mimeType ?? "audio/mp4",
     },
     args.context,
   );
@@ -109,6 +111,176 @@ async function runOneCase(args: {
   };
 }
 
+type FormatCase = {
+  fileName: string;
+  kind: "recording_audio" | "recording_video";
+  mimeType: string;
+  channels: 1 | 2;
+  expectsWorkingAudioArtifact: boolean;
+  build: (outputAbs: string, channels: 1 | 2) => void;
+};
+
+const FORMAT_CASES: FormatCase[] = [
+  {
+    fileName: "mono.wav",
+    kind: "recording_audio",
+    mimeType: "audio/wav",
+    channels: 1,
+    expectsWorkingAudioArtifact: false,
+    build: (outputAbs, channels) => {
+      runCommand("ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:duration=1.8",
+        "-ac",
+        String(channels),
+        "-ar",
+        "48000",
+        outputAbs,
+      ]);
+    },
+  },
+  {
+    fileName: "mono.mp3",
+    kind: "recording_audio",
+    mimeType: "audio/mpeg",
+    channels: 1,
+    expectsWorkingAudioArtifact: true,
+    build: (outputAbs, channels) => {
+      runCommand("ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=460:duration=1.8",
+        "-ac",
+        String(channels),
+        "-ar",
+        "48000",
+        outputAbs,
+      ]);
+    },
+  },
+  {
+    fileName: "mono.m4a",
+    kind: "recording_audio",
+    mimeType: "audio/mp4",
+    channels: 1,
+    expectsWorkingAudioArtifact: true,
+    build: (outputAbs, channels) => {
+      runCommand("ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:duration=1.8",
+        "-ac",
+        String(channels),
+        "-ar",
+        "48000",
+        outputAbs,
+      ]);
+    },
+  },
+  {
+    fileName: "stereo.m4a",
+    kind: "recording_audio",
+    mimeType: "audio/mp4",
+    channels: 2,
+    expectsWorkingAudioArtifact: true,
+    build: (outputAbs, channels) => {
+      runCommand("ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=550:duration=1.8",
+        "-ac",
+        String(channels),
+        "-ar",
+        "48000",
+        outputAbs,
+      ]);
+    },
+  },
+  {
+    fileName: "mono.mp4",
+    kind: "recording_video",
+    mimeType: "video/mp4",
+    channels: 1,
+    expectsWorkingAudioArtifact: true,
+    build: (outputAbs, channels) => {
+      runCommand("ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=320x180:rate=24:duration=1.8",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=600:duration=1.8",
+        "-shortest",
+        "-ac",
+        String(channels),
+        "-ar",
+        "48000",
+        "-pix_fmt",
+        "yuv420p",
+        outputAbs,
+      ]);
+    },
+  },
+  {
+    fileName: "mono.mov",
+    kind: "recording_video",
+    mimeType: "video/quicktime",
+    channels: 1,
+    expectsWorkingAudioArtifact: true,
+    build: (outputAbs, channels) => {
+      runCommand("ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=320x180:rate=24:duration=1.8",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=660:duration=1.8",
+        "-shortest",
+        "-ac",
+        String(channels),
+        "-ar",
+        "48000",
+        "-pix_fmt",
+        "yuv420p",
+        outputAbs,
+      ]);
+    },
+  },
+];
+
 async function main(): Promise<void> {
   if (!commandAvailable("ffmpeg") || !commandAvailable("ffprobe")) {
     console.log("Skipping hammer audio polish route test (ffmpeg/ffprobe unavailable).");
@@ -116,42 +288,11 @@ async function main(): Promise<void> {
   }
 
   const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-audio-polish-route-test-"));
-  const monoFile = "mono.m4a";
-  const stereoFile = "stereo.m4a";
-  const monoAbs = path.join(tempRoot, monoFile);
-  const stereoAbs = path.join(tempRoot, stereoFile);
 
   try {
-    runCommand("ffmpeg", [
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-y",
-      "-f",
-      "lavfi",
-      "-i",
-      "sine=frequency=440:duration=1.8",
-      "-ac",
-      "1",
-      "-ar",
-      "48000",
-      monoAbs,
-    ]);
-    runCommand("ffmpeg", [
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-y",
-      "-f",
-      "lavfi",
-      "-i",
-      "sine=frequency=550:duration=1.8",
-      "-ac",
-      "2",
-      "-ar",
-      "48000",
-      stereoAbs,
-    ]);
+    for (const testCase of FORMAT_CASES) {
+      testCase.build(path.join(tempRoot, testCase.fileName), testCase.channels);
+    }
 
     const commitServer = await startCommitServer();
     const context: HammerAudioPolishRequestContext = {
@@ -163,17 +304,17 @@ async function main(): Promise<void> {
     try {
       const monoRunA = await runOneCase({
         localRootAbs: tempRoot,
-        localRelpath: monoFile,
+        localRelpath: "mono.m4a",
         context,
       });
       const monoRunB = await runOneCase({
         localRootAbs: tempRoot,
-        localRelpath: monoFile,
+        localRelpath: "mono.m4a",
         context,
       });
       const stereoRun = await runOneCase({
         localRootAbs: tempRoot,
-        localRelpath: stereoFile,
+        localRelpath: "stereo.m4a",
         context,
       });
 
@@ -209,6 +350,35 @@ async function main(): Promise<void> {
         monoRunA.payload.data?.settings_summary.working_audio_workpiece_path,
         monoRunB.payload.data?.settings_summary.working_audio_workpiece_path,
       );
+
+      for (const testCase of FORMAT_CASES) {
+        const formatRun = await runOneCase({
+          localRootAbs: tempRoot,
+          localRelpath: testCase.fileName,
+          mimeType: testCase.mimeType,
+          mediaKind: testCase.kind,
+          context,
+        });
+        assert.equal(formatRun.status, 200, `${testCase.fileName} returned non-200`);
+        assert.equal(formatRun.payload.ok, true, `${testCase.fileName} did not succeed`);
+        assert.equal(formatRun.payload.data?.status, "prepared", `${testCase.fileName} did not prepare`);
+        assert.equal(formatRun.payload.data?.settings_summary.sample_rate, 48000, `${testCase.fileName} sample rate drifted`);
+        assert.equal(formatRun.payload.data?.settings_summary.bit_depth, 16, `${testCase.fileName} bit depth drifted`);
+        assert.equal(formatRun.payload.data?.settings_summary.channel_count, testCase.channels, `${testCase.fileName} channel count drifted`);
+        assert.equal(typeof formatRun.payload.data?.settings_summary.source_duration_ms, "number", `${testCase.fileName} missing source duration`);
+        assert.equal(typeof formatRun.payload.data?.settings_summary.working_duration_ms, "number", `${testCase.fileName} missing working duration`);
+        assert.equal(typeof formatRun.payload.data?.settings_summary.timebase, "string", `${testCase.fileName} missing working timebase`);
+        assert.equal(
+          formatRun.payload.data?.settings_summary.source_extension,
+          path.extname(testCase.fileName).toLowerCase(),
+          `${testCase.fileName} source extension drifted`,
+        );
+        if (testCase.expectsWorkingAudioArtifact) {
+          assert.equal(typeof formatRun.payload.data?.settings_summary.working_audio_workpiece_path, "string", `${testCase.fileName} missing working audio path`);
+        } else {
+          assert.equal(formatRun.payload.data?.settings_summary.working_audio_workpiece_path, null, `${testCase.fileName} unexpectedly created working audio path`);
+        }
+      }
     } finally {
       await commitServer.close();
     }

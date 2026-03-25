@@ -144,6 +144,12 @@ Expected prep outcomes:
 - `failed` with `processing_failed`: media processed path errored during extraction/polish
 - `failed` with `unsupported_source`: source format/layout cannot run through current baseline path
 
+Week 1 closeout:
+
+- shipped: real ingest, deterministic working WAV for non-WAV/video sources, canonical media truth metadata, real playback against prepared media
+- verified: `.wav`, `.mp3`, `.m4a`, `.mp4`, `.mov` route through prep successfully in the automated format matrix
+- deferred: waveform proxy generation and broader playback-polish UX
+
 ## Future Work (V2+)
 
 - Cloud media storage
