@@ -10,6 +10,7 @@
   },
   "include": [
     "index.ts",
+    "episode-workspace/**/*.ts",
     "script-tags/**/*.ts"
   ],
   "exclude": [

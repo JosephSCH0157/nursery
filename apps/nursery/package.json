@@ -30,6 +30,7 @@
   "dependencies": {
     "@forge/bellows": "workspace:*",
     "@forge/hearth": "workspace:*",
+    "@forge/shared": "workspace:*",
     "@forge/tongs": "workspace:*",
     "@forge/ui-mobile": "workspace:*",
     "@supabase/supabase-js": "^2.98.0",

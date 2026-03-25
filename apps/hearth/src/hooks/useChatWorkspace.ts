@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MutableRefObject } from "react";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
 import type { ChatSurfaceProps } from "../views/surfaces/ChatSurface";
 
@@ -94,4 +95,200 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
     pendingChatHydrationKeyRef,
     chatHydrationSeqRef,
   };
+}
+
+type ChatHistoryStore = {
+  getChatHistory: (draftId: string) => Promise<unknown>;
+  saveChatHistory: (draftId: string, messages: HearthChatMessage[]) => Promise<unknown> | void;
+};
+
+type UseChatWorkspaceHistoryArgs<TPendingAiProposal> = {
+  store: ChatHistoryStore;
+  activeDraftId: string | null;
+  chatHistoryKey: string | null;
+  chatMessages: HearthChatMessage[];
+  setChatMessages: (messages: HearthChatMessage[]) => void;
+  setChatError: (value: string | null) => void;
+  setPendingAiProposal: (value: TPendingAiProposal | null) => void;
+  chatPersistTimerRef: MutableRefObject<number | null>;
+  chatMessagesRef: MutableRefObject<HearthChatMessage[]>;
+  latestChatHistoryKeyRef: MutableRefObject<string | null>;
+  latestChatDraftIdRef: MutableRefObject<string | null>;
+  skipChatHydrationKeyRef: MutableRefObject<string | null>;
+  pendingChatHydrationKeyRef: MutableRefObject<string | null>;
+  chatHydrationSeqRef: MutableRefObject<number>;
+  readChatHistoryFromCache: (historyKey: string | null) => HearthChatMessage[];
+  writeChatHistoryCache: (historyKey: string | null, messages: HearthChatMessage[]) => void;
+  sanitizeChatMessagesForStorage: (messages: ReadonlyArray<unknown>) => HearthChatMessage[];
+  chatHistoryWriteDebounceMs: number;
+};
+
+export function useChatWorkspaceHistory<TPendingAiProposal>(
+  args: UseChatWorkspaceHistoryArgs<TPendingAiProposal>,
+): {
+  flushChatHistoryNow: (options?: {
+    historyKey?: string | null;
+    draftId?: string | null;
+    messages?: HearthChatMessage[];
+  }) => void;
+} {
+  const flushChatHistoryNow = useCallback((options?: {
+    historyKey?: string | null;
+    draftId?: string | null;
+    messages?: HearthChatMessage[];
+  }) => {
+    const historyKey = options?.historyKey ?? args.latestChatHistoryKeyRef.current;
+    const draftId = options?.draftId ?? args.latestChatDraftIdRef.current;
+    if (!historyKey) return;
+    if (args.chatPersistTimerRef.current) {
+      window.clearTimeout(args.chatPersistTimerRef.current);
+      args.chatPersistTimerRef.current = null;
+    }
+    const messages = options?.messages ?? args.chatMessagesRef.current;
+    args.writeChatHistoryCache(historyKey, messages);
+    if (draftId) {
+      void args.store.saveChatHistory(draftId, messages);
+    }
+  }, [
+    args.chatMessagesRef,
+    args.chatPersistTimerRef,
+    args.latestChatDraftIdRef,
+    args.latestChatHistoryKeyRef,
+    args.store,
+    args.writeChatHistoryCache,
+  ]);
+
+  useEffect(() => {
+    args.chatMessagesRef.current = args.chatMessages;
+  }, [args.chatMessages, args.chatMessagesRef]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const flush = () => flushChatHistoryNow();
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [flushChatHistoryNow]);
+
+  useEffect(() => {
+    const previousKey = args.latestChatHistoryKeyRef.current;
+    const previousDraftId = args.latestChatDraftIdRef.current;
+    const nextDraftId = args.activeDraftId ?? null;
+    const shouldFlushPrevious = previousKey
+      && (previousKey !== args.chatHistoryKey || previousDraftId !== nextDraftId);
+    if (shouldFlushPrevious) {
+      flushChatHistoryNow({ historyKey: previousKey, draftId: previousDraftId });
+    }
+    args.latestChatHistoryKeyRef.current = args.chatHistoryKey;
+    args.latestChatDraftIdRef.current = nextDraftId;
+
+    if (!args.chatHistoryKey) {
+      args.pendingChatHydrationKeyRef.current = null;
+      args.setChatMessages([]);
+      args.setChatError(null);
+      args.setPendingAiProposal(null);
+      return;
+    }
+
+    if (args.skipChatHydrationKeyRef.current === args.chatHistoryKey) {
+      args.skipChatHydrationKeyRef.current = null;
+      args.pendingChatHydrationKeyRef.current = null;
+      return;
+    }
+
+    const hydrationSeq = args.chatHydrationSeqRef.current + 1;
+    args.chatHydrationSeqRef.current = hydrationSeq;
+    args.pendingChatHydrationKeyRef.current = args.chatHistoryKey;
+
+    const draftId = nextDraftId;
+    void (async () => {
+      let hydratedMessages: HearthChatMessage[] = [];
+      let loadedFromStore = false;
+
+      if (draftId) {
+        try {
+          const storeMessages = await args.store.getChatHistory(draftId);
+          hydratedMessages = args.sanitizeChatMessagesForStorage(
+            Array.isArray(storeMessages) ? storeMessages : [],
+          );
+          loadedFromStore = hydratedMessages.length > 0;
+        } catch {
+          loadedFromStore = false;
+        }
+      }
+
+      if (!loadedFromStore) {
+        hydratedMessages = args.readChatHistoryFromCache(args.chatHistoryKey);
+        if (draftId && hydratedMessages.length > 0) {
+          void args.store.saveChatHistory(draftId, hydratedMessages);
+        }
+      } else {
+        args.writeChatHistoryCache(args.chatHistoryKey, hydratedMessages);
+      }
+
+      if (args.chatHydrationSeqRef.current !== hydrationSeq) return;
+      args.pendingChatHydrationKeyRef.current = null;
+      args.setChatMessages(hydratedMessages);
+      args.setChatError(null);
+      args.setPendingAiProposal(null);
+    })();
+  }, [
+    args.activeDraftId,
+    args.chatHistoryKey,
+    args.chatHydrationSeqRef,
+    args.latestChatDraftIdRef,
+    args.latestChatHistoryKeyRef,
+    args.pendingChatHydrationKeyRef,
+    args.readChatHistoryFromCache,
+    args.sanitizeChatMessagesForStorage,
+    args.setChatError,
+    args.setChatMessages,
+    args.setPendingAiProposal,
+    args.skipChatHydrationKeyRef,
+    args.store,
+    args.writeChatHistoryCache,
+    flushChatHistoryNow,
+  ]);
+
+  useEffect(() => {
+    if (!args.chatHistoryKey) return;
+    if (args.pendingChatHydrationKeyRef.current === args.chatHistoryKey) {
+      args.pendingChatHydrationKeyRef.current = null;
+      return;
+    }
+    const draftId = args.activeDraftId ?? null;
+
+    if (args.chatPersistTimerRef.current) {
+      window.clearTimeout(args.chatPersistTimerRef.current);
+      args.chatPersistTimerRef.current = null;
+    }
+    args.chatPersistTimerRef.current = window.setTimeout(() => {
+      args.writeChatHistoryCache(args.chatHistoryKey, args.chatMessages);
+      if (draftId) {
+        void args.store.saveChatHistory(draftId, args.chatMessages);
+      }
+      args.chatPersistTimerRef.current = null;
+    }, args.chatHistoryWriteDebounceMs);
+
+    return () => {
+      if (args.chatPersistTimerRef.current) {
+        window.clearTimeout(args.chatPersistTimerRef.current);
+        args.chatPersistTimerRef.current = null;
+      }
+    };
+  }, [
+    args.activeDraftId,
+    args.chatHistoryKey,
+    args.chatHistoryWriteDebounceMs,
+    args.chatMessages,
+    args.chatPersistTimerRef,
+    args.pendingChatHydrationKeyRef,
+    args.store,
+    args.writeChatHistoryCache,
+  ]);
+
+  return { flushChatHistoryNow };
 }

@@ -87,7 +87,7 @@ import {
 } from "../lib/hearth-presence";
 import { resolveTongsRequestApiToken, tongsFetch } from "../lib/tongs-fetch";
 import { useSourcesState } from "../hooks/useSourcesState";
-import { useChatWorkspace, useChatWorkspaceState } from "../hooks/useChatWorkspace";
+import { useChatWorkspace, useChatWorkspaceHistory, useChatWorkspaceState } from "../hooks/useChatWorkspace";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
@@ -2572,25 +2572,6 @@ export default function HearthShell() {
   const approvalBlocked = !scriptReadiness.ready;
   const handoffBlocked = !scriptReadiness.ready;
 
-  const flushChatHistoryNow = useCallback((options?: {
-    historyKey?: string | null;
-    draftId?: string | null;
-    messages?: HearthChatMessage[];
-  }) => {
-    const historyKey = options?.historyKey ?? latestChatHistoryKeyRef.current;
-    const draftId = options?.draftId ?? latestChatDraftIdRef.current;
-    if (!historyKey) return;
-    if (chatPersistTimerRef.current) {
-      window.clearTimeout(chatPersistTimerRef.current);
-      chatPersistTimerRef.current = null;
-    }
-    const messages = options?.messages ?? chatMessagesRef.current;
-    writeChatHistoryCache(historyKey, messages);
-    if (draftId) {
-      void store.saveChatHistory(draftId, messages);
-    }
-  }, [store]);
-
   const recordInteractionEvent = useCallback((
     eventType: HearthInteractionEventType,
     payload?: Record<string, unknown>,
@@ -2987,6 +2968,26 @@ export default function HearthShell() {
     () => resolveChatHistoryKey(workpieceId, activeDraft?.id ?? null),
     [activeDraft?.id, workpieceId],
   );
+  const { flushChatHistoryNow } = useChatWorkspaceHistory<PendingAiProposal>({
+    store,
+    activeDraftId: activeDraft?.id ?? null,
+    chatHistoryKey,
+    chatMessages,
+    setChatMessages,
+    setChatError,
+    setPendingAiProposal,
+    chatPersistTimerRef,
+    chatMessagesRef,
+    latestChatHistoryKeyRef,
+    latestChatDraftIdRef,
+    skipChatHydrationKeyRef,
+    pendingChatHydrationKeyRef,
+    chatHydrationSeqRef,
+    readChatHistoryFromCache,
+    writeChatHistoryCache,
+    sanitizeChatMessagesForStorage,
+    chatHistoryWriteDebounceMs: CHAT_HISTORY_WRITE_DEBOUNCE_MS,
+  });
   const chatWorkspace = useChatWorkspace({
     chatSurfaceProps: {
       visible: activeWorkpieceTab === "script",
@@ -3244,21 +3245,6 @@ export default function HearthShell() {
   useEffect(() => {
     workpieceSummariesRef.current = workpieceSummaries;
   }, [workpieceSummaries]);
-
-  useEffect(() => {
-    chatMessagesRef.current = chatMessages;
-  }, [chatMessages]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const flush = () => flushChatHistoryNow();
-    window.addEventListener("beforeunload", flush);
-    window.addEventListener("pagehide", flush);
-    return () => {
-      window.removeEventListener("beforeunload", flush);
-      window.removeEventListener("pagehide", flush);
-    };
-  }, [flushChatHistoryNow]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -6139,96 +6125,6 @@ export default function HearthShell() {
     gateAwaitingAnswersRef.current = false;
     pendingShortcutIntentRef.current = null;
   }, [activeDraft?.id]);
-
-  useEffect(() => {
-    const previousKey = latestChatHistoryKeyRef.current;
-    const previousDraftId = latestChatDraftIdRef.current;
-    const nextDraftId = activeDraft?.id ?? null;
-    const shouldFlushPrevious = previousKey
-      && (previousKey !== chatHistoryKey || previousDraftId !== nextDraftId);
-    if (shouldFlushPrevious) {
-      flushChatHistoryNow({ historyKey: previousKey, draftId: previousDraftId });
-    }
-    latestChatHistoryKeyRef.current = chatHistoryKey;
-    latestChatDraftIdRef.current = nextDraftId;
-
-    if (!chatHistoryKey) {
-      pendingChatHydrationKeyRef.current = null;
-      setChatMessages([]);
-      setChatError(null);
-      setPendingAiProposal(null);
-      return;
-    }
-
-    if (skipChatHydrationKeyRef.current === chatHistoryKey) {
-      skipChatHydrationKeyRef.current = null;
-      pendingChatHydrationKeyRef.current = null;
-      return;
-    }
-
-    const hydrationSeq = chatHydrationSeqRef.current + 1;
-    chatHydrationSeqRef.current = hydrationSeq;
-    pendingChatHydrationKeyRef.current = chatHistoryKey;
-
-    const draftId = nextDraftId;
-    void (async () => {
-      let hydratedMessages: HearthChatMessage[] = [];
-      let loadedFromStore = false;
-
-      if (draftId) {
-        try {
-          const storeMessages = await store.getChatHistory(draftId);
-          hydratedMessages = sanitizeChatMessagesForStorage(storeMessages);
-          loadedFromStore = hydratedMessages.length > 0;
-        } catch {
-          loadedFromStore = false;
-        }
-      }
-
-      if (!loadedFromStore) {
-        hydratedMessages = readChatHistoryFromCache(chatHistoryKey);
-        if (draftId && hydratedMessages.length > 0) {
-          void store.saveChatHistory(draftId, hydratedMessages);
-        }
-      } else {
-        writeChatHistoryCache(chatHistoryKey, hydratedMessages);
-      }
-
-      if (chatHydrationSeqRef.current !== hydrationSeq) return;
-      pendingChatHydrationKeyRef.current = null;
-      setChatMessages(hydratedMessages);
-      setChatError(null);
-      setPendingAiProposal(null);
-    })();
-  }, [activeDraft?.id, chatHistoryKey, flushChatHistoryNow, store]);
-
-  useEffect(() => {
-    if (!chatHistoryKey) return;
-    if (pendingChatHydrationKeyRef.current === chatHistoryKey) {
-      pendingChatHydrationKeyRef.current = null;
-      return;
-    }
-    const draftId = activeDraft?.id ?? null;
-
-    if (chatPersistTimerRef.current) {
-      window.clearTimeout(chatPersistTimerRef.current);
-      chatPersistTimerRef.current = null;
-    }
-    chatPersistTimerRef.current = window.setTimeout(() => {
-      writeChatHistoryCache(chatHistoryKey, chatMessages);
-      if (draftId) {
-        void store.saveChatHistory(draftId, chatMessages);
-      }
-      chatPersistTimerRef.current = null;
-    }, CHAT_HISTORY_WRITE_DEBOUNCE_MS);
-
-    return () => {
-      if (chatPersistTimerRef.current) {
-        window.clearTimeout(chatPersistTimerRef.current);
-        chatPersistTimerRef.current = null;
-      }
-    };
-  }, [activeDraft?.id, chatHistoryKey, chatMessages, store]);
 
   useEffect(() => {
     if (hasBrowserSpeech || sttLane !== "browser") return;
