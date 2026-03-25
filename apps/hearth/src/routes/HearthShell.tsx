@@ -63,7 +63,6 @@ import {
   draftHasUsableScriptBody,
   hydrateDraftBodyFromCanonicalScript,
 } from "../lib/hearth-draft-hydration";
-import { getScriptReadiness } from "../lib/hearth-script-readiness";
 import {
   selectActiveWorkpieceContext,
   selectDraftForWorkpiece,
@@ -98,6 +97,7 @@ import {
 import { useHearthAutosave } from "../hooks/useHearthAutosave";
 import { useApprovalFlow } from "../hooks/useApprovalFlow";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
+import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
@@ -137,7 +137,7 @@ import {
   resolveProductionDefaultsUpdate,
   writeProductionDefaults,
 } from "../lib/compose-defaults";
-import { inferSpeakersFromScript, validateComposeContent } from "../lib/compose-content-validation";
+import { inferSpeakersFromScript } from "../lib/compose-content-validation";
 import { buildComposePrompt } from "../lib/compose-prompt";
 import ComposeSetupModal from "../ui/ComposeSetupModal";
 import ChatSurface from "../views/surfaces/ChatSurface";
@@ -2495,69 +2495,23 @@ export default function HearthShell({
   const gateAwaitingAnswersRef = useRef(false);
   const pendingShortcutIntentRef = useRef<"outline" | "script" | null>(null);
 
-  const hearthScriptState = useMemo(() => {
-    if (!activeDraft) return null;
-    const rawText = activeDraft.body ?? "";
-    const { normalizedText, validation } = evaluateScriptValidation(rawText);
-    return {
-      rawText,
-      normalizedText,
-      validation,
-      lastValidatedAt: new Date().toISOString(),
-      isDirty: draftSnapshot?.body !== rawText,
-    };
-  }, [activeDraft, draftSnapshot?.body]);
-
-  const effectiveComposeSetup = useMemo<ComposeSetup | null>(() => {
-    const meta = activeDraft?.scriptAuthoringMeta;
-    if (meta) {
-      return {
-        speakerCount: meta.speakerCount,
-        speakers: meta.speakers,
-        mode: meta.composeMode,
-        targetSpeaker: meta.targetSpeaker,
-        usesProductionDefault: !meta.isOverrideFromProductionDefault,
-        isOverrideFromProductionDefault: meta.isOverrideFromProductionDefault,
-      };
-    }
-    return null;
-  }, [activeDraft?.scriptAuthoringMeta]);
-
-  const composeContentValidation = useMemo(() => {
-    if (!activeDraft || !hearthScriptState) {
-      return {
-        ok: false,
-        badge: "outline_draft" as ScriptCompletionBadge,
-        reasons: ["No draft selected."],
-      };
-    }
-    return validateComposeContent({
-      setup: effectiveComposeSetup,
-      scriptText: hearthScriptState.normalizedText,
-      tagValidation: hearthScriptState.validation,
-    });
-  }, [activeDraft, effectiveComposeSetup, hearthScriptState]);
+  const {
+    hearthScriptState,
+    effectiveComposeSetup,
+    composeContentValidation,
+    scriptReadiness,
+    approvalBlocked,
+    handoffBlocked,
+  } = useScriptWorkspaceReadModel({
+    activeDraft,
+    draftSnapshotBody: draftSnapshot?.body ?? null,
+    evaluateScriptValidation,
+  });
 
   useEffect(() => {
     setScriptCompletionBadge(composeContentValidation.badge);
     setScriptCompletionReasons(composeContentValidation.reasons);
   }, [composeContentValidation.badge, composeContentValidation.reasons]);
-
-  const scriptReadiness = useMemo(() => getScriptReadiness({
-    hasScriptText: Boolean((activeDraft?.body ?? "").trim()),
-    tagValidationOk: hearthScriptState?.validation.ok ?? false,
-    composeSetup: effectiveComposeSetup,
-    contentValidationOk: composeContentValidation.ok,
-    completionBadge: composeContentValidation.badge,
-  }), [
-    activeDraft?.body,
-    composeContentValidation.badge,
-    composeContentValidation.ok,
-    effectiveComposeSetup,
-    hearthScriptState?.validation.ok,
-  ]);
-  const approvalBlocked = !scriptReadiness.ready;
-  const handoffBlocked = !scriptReadiness.ready;
 
   const recordInteractionEvent = useCallback((
     eventType: HearthInteractionEventType,
