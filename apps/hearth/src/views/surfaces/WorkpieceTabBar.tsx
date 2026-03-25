@@ -29,23 +29,49 @@ export default function WorkpieceTabBar({
       {WORKPIECE_TAB_ITEMS.map((item) => {
         const isActive = activeTab === item.tab;
         const isDirty = tabDirtyById[item.tab];
+        const content = (
+          <>
+            <span className="hs-workpiece-tab-label">
+              {item.label}
+              {isDirty ? <span className="hs-workpiece-tab-dirty" aria-hidden="true" /> : null}
+            </span>
+            <span className="hs-workpiece-tab-summary">{tabSummaryById[item.tab]}</span>
+          </>
+        );
+
+        if (isActive) {
+          return (
+            <button
+              key={item.tab}
+              id={`hearth-workpiece-tab-${item.tab}`}
+              type="button"
+              role="tab"
+              aria-label={isDirty ? `${item.label} (Unsaved changes)` : item.label}
+              aria-selected="true"
+              aria-controls={`hearth-workpiece-panel-${item.tab}`}
+              tabIndex={0}
+              className="hs-workpiece-tab is-active"
+              onClick={() => onChangeTab(item.tab)}
+            >
+              {content}
+            </button>
+          );
+        }
+
         return (
           <button
             key={item.tab}
             id={`hearth-workpiece-tab-${item.tab}`}
             type="button"
             role="tab"
-            aria-selected={isActive}
+            aria-label={isDirty ? `${item.label} (Unsaved changes)` : item.label}
+            aria-selected="false"
             aria-controls={`hearth-workpiece-panel-${item.tab}`}
-            tabIndex={isActive ? 0 : -1}
-            className={`hs-workpiece-tab${isActive ? " is-active" : ""}`}
+            tabIndex={-1}
+            className="hs-workpiece-tab"
             onClick={() => onChangeTab(item.tab)}
           >
-            <span className="hs-workpiece-tab-label">
-              {item.label}
-              {isDirty ? <span className="hs-workpiece-tab-dirty" aria-label="Unsaved changes" /> : null}
-            </span>
-            <span className="hs-workpiece-tab-summary">{tabSummaryById[item.tab]}</span>
+            {content}
           </button>
         );
       })}
