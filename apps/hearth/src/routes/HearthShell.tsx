@@ -128,7 +128,10 @@ import {
 import { inferSpeakersFromScript, validateComposeContent } from "../lib/compose-content-validation";
 import { buildComposePrompt } from "../lib/compose-prompt";
 import ComposeSetupModal from "../ui/ComposeSetupModal";
+import HistorySurface from "../views/surfaces/HistorySurface";
+import MetadataSurface from "../views/surfaces/MetadataSurface";
 import ReleaseSurface from "../views/surfaces/ReleaseSurface";
+import VisualsSurface from "../views/surfaces/VisualsSurface";
 import WorkpieceTabBar from "../views/surfaces/WorkpieceTabBar";
 import {
   commitWorkpieceProductionArtifact,
@@ -248,12 +251,7 @@ import {
   deriveHearthThumbnailOverlayText,
   resolveHearthThumbnailOverlayText,
 } from "../lib/hearth-thumbnail-title-contract";
-import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
 import ImageMapPanel from "../components/visuals/ImageMapPanel";
-import BrollPlanPanel from "../components/visuals/BrollPlanPanel";
-import CdcPlanPanel from "../components/visuals/CdcPlanPanel";
-import EpisodeMediaMapPanel from "../components/visuals/EpisodeMediaMapPanel";
-import MetadataPanel from "../components/metadata/MetadataPanel";
 import CollapsibleFocusPanel from "../components/focus/CollapsibleFocusPanel";
 import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
 import {
@@ -11483,6 +11481,269 @@ export default function HearthShell() {
     const isMetadataWorkspaceTab = activeWorkpieceTab === "metadata";
     const isReleaseWorkspaceTab = activeWorkpieceTab === "release";
     const isHistoryWorkspaceTab = activeWorkpieceTab === "history";
+    const thumbnailPanelProps = {
+      concepts: thumbnailConcepts,
+      versions: thumbnailVersions,
+      titleOptions: thumbnailTitleOptions,
+      launchVariants,
+      selectedTitleId: selectedThumbnailTitleId,
+      selectedTitleText: selectedThumbnailTitle ? resolveHearthThumbnailOverlayText(selectedThumbnailTitle) : "",
+      selectedConceptId: selectedThumbnailConceptId,
+      selectedVersionId: selectedThumbnailVersionId,
+      selectedLaunchVariantId,
+      selectedLaunchVariantStatus: launchVariantStatusDraft,
+      selectedLaunchVariantNotes: launchVariantNotesDraft,
+      selectedLaunchVariantLastTestedAt: selectedLaunchVariant?.last_tested_at ?? null,
+      selectedLaunchVariantWinnerSelectedAt: selectedLaunchVariant?.winner_selected_at ?? null,
+      primaryVersionId: primaryThumbnailVersionId,
+      selectedConceptLabel: thumbnailConceptLabelDraft,
+      selectedConceptPrompt: thumbnailConceptPromptDraft,
+      selectedConceptStylePreset: thumbnailConceptStyleDraft,
+      selectedConceptTitleStyle: thumbnailTitleStyleDraft,
+      brandTemplates: thumbnailBrandTemplates,
+      brandTemplatesLoading: isThumbnailBrandTemplatesLoading,
+      brandTemplatesError: thumbnailBrandTemplatesError,
+      selectedConceptBrandTemplateId: thumbnailConceptBrandTemplateIdDraft,
+      promptOverride: thumbnailPromptOverride,
+      aspect: thumbnailAspect,
+      safeZoneEnabled: thumbnailSafeZoneEnabled,
+      previewDataUrl: thumbnailPreviewDataUrl,
+      previewState: thumbnailPreviewState,
+      previewError: thumbnailPreviewError,
+      generateError: thumbnailGenerateError,
+      uploadError: thumbnailUploadError,
+      pairingError: thumbnailPairingError,
+      isGenerating: isThumbnailGenerating,
+      isSavingConcept: isThumbnailConceptSaving,
+      isUploading: isThumbnailUploading,
+      onSelectTitle: onSelectThumbnailTitle,
+      onSelectConcept: setSelectedThumbnailConceptId,
+      onSelectedConceptLabelChange: setThumbnailConceptLabelDraft,
+      onSelectedConceptPromptChange: setThumbnailConceptPromptDraft,
+      onSelectedConceptStylePresetChange: (value: string) => setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(value)),
+      onSelectedConceptTitleFontPresetChange: (value: string) => setThumbnailTitleStyleDraft((prev) => ({
+        ...normalizeEpisodeThumbnailTitleStyle(prev),
+        font_preset: value as TitleFontPreset,
+      })),
+      onSelectedConceptTitleColorChange: (value: string) => setThumbnailTitleStyleDraft((prev) => ({
+        ...normalizeEpisodeThumbnailTitleStyle(prev),
+        text_color: value.toUpperCase(),
+      })),
+      onSelectedConceptTitleShadowEnabledChange: (value: boolean) => setThumbnailTitleStyleDraft((prev) => ({
+        ...normalizeEpisodeThumbnailTitleStyle(prev),
+        shadow: {
+          ...normalizeEpisodeThumbnailTitleStyle(prev).shadow,
+          enabled: value,
+        },
+      })),
+      onSelectedConceptTitleShadowStrengthChange: (value: string) => setThumbnailTitleStyleDraft((prev) => ({
+        ...normalizeEpisodeThumbnailTitleStyle(prev),
+        shadow: {
+          ...normalizeEpisodeThumbnailTitleStyle(prev).shadow,
+          strength: value as TitleShadowStrength,
+        },
+      })),
+      onSelectedConceptBrandTemplateChange: setThumbnailConceptBrandTemplateIdDraft,
+      onCreateConcept: () => void onCreateThumbnailConcept(),
+      onSaveConcept: () => void onSaveSelectedThumbnailConcept(),
+      onDeleteConcept: () => void onDeleteSelectedThumbnailConcept(),
+      onPromptOverrideChange: setThumbnailPromptOverride,
+      onAspectChange: setThumbnailAspect,
+      onGenerate: () => void onGenerateThumbnailVersion(),
+      onRegenerate: () => void onGenerateThumbnailVersion({ forceConceptId: selectedThumbnailConceptId || null }),
+      onToggleSafeZone: () => setThumbnailSafeZoneEnabled((prev) => !prev),
+      onUploadImage: (file: File) => void onUploadThumbnailImage(file),
+      onSelectVersion: onSelectThumbnailVersion,
+      onSetPrimary: (versionId: string) => void onSetPrimaryThumbnailVersion(versionId),
+      onRetryVersion: (version: EpisodeThumbnailVersion) => void onRetryFailedThumbnailVersion(version),
+      onSelectLaunchVariant,
+      onCreateLaunchVariant,
+      onSelectedLaunchVariantStatusChange: setLaunchVariantStatusDraft,
+      onSelectedLaunchVariantNotesChange: setLaunchVariantNotesDraft,
+      onSaveLaunchVariant: () => void onSaveLaunchVariant(),
+    };
+    const mediaMapPanelProps = {
+      entries: mediaMapEntries,
+      selectedEntryId: selectedMediaMapEntryId,
+      scriptVersionLabel: approvedScriptVersion ? `v${approvedScriptVersion}` : "none",
+      mapStatus: mediaMap?.status ?? "draft",
+      stale: Boolean(
+        mediaMap?.script_version_id
+        && approvedScriptVersion
+        && mediaMap.script_version_id !== String(approvedScriptVersion)
+      ),
+      saveState: mediaMapSaveState,
+      saveError: mediaMapSaveError,
+      message: mediaMapMessage,
+      disabled: isApprovingScript || isMediaMapBusy || !episodePackage,
+      generationScope: mediaMapGenerationScope,
+      draft: {
+        type: mediaMapTypeDraft,
+        anchorMode: mediaMapAnchorModeDraft,
+        anchorTarget: mediaMapAnchorTargetDraft,
+        inOffsetSec: mediaMapInOffsetDraft,
+        durationSec: mediaMapDurationDraft,
+        description: mediaMapDescriptionDraft,
+        intent: mediaMapIntentDraft,
+        sourceStatus: mediaMapSourceStatusDraft,
+        sourceAssetId: mediaMapSourceAssetIdDraft,
+        confidence: mediaMapConfidenceDraft,
+        optional: mediaMapOptionalDraft,
+        critical: mediaMapCriticalDraft,
+      },
+      onSelectEntry: setSelectedMediaMapEntryId,
+      onDraftChange: (field: string, value: unknown) => {
+        if (field === "type") setMediaMapDraftEditing(setMediaMapTypeDraft, String(value));
+        else if (field === "anchorMode") setMediaMapDraftEditing(setMediaMapAnchorModeDraft, String(value));
+        else if (field === "anchorTarget") setMediaMapDraftEditing(setMediaMapAnchorTargetDraft, String(value));
+        else if (field === "inOffsetSec") setMediaMapDraftEditing(setMediaMapInOffsetDraft, String(value));
+        else if (field === "durationSec") setMediaMapDraftEditing(setMediaMapDurationDraft, String(value));
+        else if (field === "description") setMediaMapDraftEditing(setMediaMapDescriptionDraft, String(value));
+        else if (field === "intent") setMediaMapDraftEditing(setMediaMapIntentDraft, String(value));
+        else if (field === "sourceStatus") setMediaMapDraftEditing(setMediaMapSourceStatusDraft, String(value));
+        else if (field === "sourceAssetId") setMediaMapDraftEditing(setMediaMapSourceAssetIdDraft, String(value));
+        else if (field === "confidence") setMediaMapDraftEditing(setMediaMapConfidenceDraft, String(value));
+        else if (field === "optional") setMediaMapDraftEditing(setMediaMapOptionalDraft, Boolean(value));
+        else if (field === "critical") setMediaMapDraftEditing(setMediaMapCriticalDraft, Boolean(value));
+      },
+      onGenerationScopeChange: (value: string) => setMediaMapGenerationScope(value as MediaMapGenerationScope),
+      onGenerateFromPlans: () => void onGenerateEpisodeMediaMapFromPlans(),
+      onActivateMap: () => void onActivateEpisodeMediaMap(),
+      onAddEntry: () => void onAddMediaMapEntry(),
+      onSaveEntry: () => void onSaveMediaMapEntry(),
+      onDeleteEntry: () => void onDeleteMediaMapEntry(),
+    };
+    const brollPlanPanelProps = {
+      beats: brollBeats,
+      selectedBeatId: selectedBrollBeatId,
+      coverageStrength: brollPlan?.coverage_strength ?? null,
+      saveState: brollSaveState,
+      saveError: brollSaveError,
+      message: brollMessage,
+      disabled: isApprovingScript || isBrollBusy || !episodePackage,
+      draft: {
+        anchorText: brollAnchorDraft,
+        description: brollDescriptionDraft,
+        motionIntent: brollMotionIntentDraft,
+        assetCategory: brollAssetCategoryDraft,
+        priority: brollPriorityDraft,
+        keywords: brollKeywordsDraft,
+        mood: brollMoodDraft,
+        shotType: brollShotTypeDraft,
+        motionSuggestion: brollMotionSuggestionDraft,
+        suggestedDurationMs: brollSuggestedDurationDraft,
+        placementHint: brollPlacementHintDraft,
+        dataChartType: brollDataChartTypeDraft,
+        dataTitle: brollDataTitleDraft,
+        dataLabels: brollDataLabelsDraft,
+        dataValues: brollDataValuesDraft,
+        dataEmphasisKey: brollDataEmphasisKeyDraft,
+        dataAnimationStyle: brollDataAnimationStyleDraft,
+      },
+      selectedCandidateId: selectedBrollBeat?.selected_asset_id ?? null,
+      onSelectBeat: setSelectedBrollBeatId,
+      onDraftChange: (field: string, value: string) => {
+        if (field === "anchorText") setBrollDraftEditing(setBrollAnchorDraft, value);
+        else if (field === "description") setBrollDraftEditing(setBrollDescriptionDraft, value);
+        else if (field === "motionIntent") setBrollDraftEditing(setBrollMotionIntentDraft, value);
+        else if (field === "assetCategory") setBrollDraftEditing((next) => setBrollAssetCategoryDraft(next as EpisodeBrollMotionAssetCategory), value);
+        else if (field === "priority") setBrollDraftEditing(setBrollPriorityDraft, value);
+        else if (field === "keywords") setBrollDraftEditing(setBrollKeywordsDraft, value);
+        else if (field === "mood") setBrollDraftEditing(setBrollMoodDraft, value);
+        else if (field === "shotType") setBrollDraftEditing(setBrollShotTypeDraft, value);
+        else if (field === "motionSuggestion") setBrollDraftEditing(setBrollMotionSuggestionDraft, value);
+        else if (field === "suggestedDurationMs") setBrollDraftEditing(setBrollSuggestedDurationDraft, value);
+        else if (field === "placementHint") setBrollDraftEditing(setBrollPlacementHintDraft, value);
+        else if (field === "dataChartType") setBrollDraftEditing(setBrollDataChartTypeDraft, value);
+        else if (field === "dataTitle") setBrollDraftEditing(setBrollDataTitleDraft, value);
+        else if (field === "dataLabels") setBrollDraftEditing(setBrollDataLabelsDraft, value);
+        else if (field === "dataValues") setBrollDraftEditing(setBrollDataValuesDraft, value);
+        else if (field === "dataEmphasisKey") setBrollDraftEditing(setBrollDataEmphasisKeyDraft, value);
+        else if (field === "dataAnimationStyle") setBrollDraftEditing(setBrollDataAnimationStyleDraft, value);
+      },
+      onSaveBeat: () => void onSaveBrollBeat(),
+      onDeleteBeat: () => void onDeleteBrollBeat(),
+      onRegenerateBeat: () => void onRegenerateBrollBeat(),
+      onGeneratePlan: () => void onGenerateBrollPlan(),
+      onFindStock: () => void onFindStockForBrollBeat(),
+      onUploadAsset: (file: File) => void onUploadBrollBeatAsset(file),
+      onSelectCandidate: (candidateId: string) => void onSelectBrollCandidate(candidateId),
+    };
+    const cdcPlanPanelProps = {
+      entries: cdcEntries,
+      selectedEntryId: selectedCdcEntryId,
+      saveState: cdcSaveState,
+      saveError: cdcSaveError,
+      message: cdcMessage,
+      disabled: isApprovingScript || isCdcBusy || !episodePackage,
+      draft: {
+        anchorText: cdcAnchorDraft,
+        description: cdcDescriptionDraft,
+        placementHint: cdcPlacementHintDraft,
+        format: cdcFormatDraft,
+        dataType: cdcDataTypeDraft,
+        contextType: cdcContextTypeDraft,
+        tone: cdcToneDraft,
+        motionLevel: cdcMotionLevelDraft,
+        backgroundContextDescription: cdcBackgroundContextDraft,
+        foregroundDataDescription: cdcForegroundDataDraft,
+        visualStyle: cdcVisualStyleDraft,
+        chartType: cdcChartTypeDraft,
+        title: cdcTitleDraft,
+        labels: cdcLabelsDraft,
+        values: cdcValuesDraft,
+        emphasisKey: cdcEmphasisKeyDraft,
+        sourceType: cdcSourceTypeDraft,
+      },
+      selectedCandidateId: selectedCdcEntry?.selected_asset_id ?? null,
+      onSelectEntry: setSelectedCdcEntryId,
+      onDraftChange: (field: string, value: string) => {
+        if (field === "anchorText") setCdcDraftEditing(setCdcAnchorDraft, value);
+        else if (field === "description") setCdcDraftEditing(setCdcDescriptionDraft, value);
+        else if (field === "placementHint") setCdcDraftEditing(setCdcPlacementHintDraft, value);
+        else if (field === "format") setCdcDraftEditing(setCdcFormatDraft, value);
+        else if (field === "dataType") setCdcDraftEditing(setCdcDataTypeDraft, value);
+        else if (field === "contextType") setCdcDraftEditing(setCdcContextTypeDraft, value);
+        else if (field === "tone") setCdcDraftEditing(setCdcToneDraft, value);
+        else if (field === "motionLevel") setCdcDraftEditing(setCdcMotionLevelDraft, value);
+        else if (field === "backgroundContextDescription") setCdcDraftEditing(setCdcBackgroundContextDraft, value);
+        else if (field === "foregroundDataDescription") setCdcDraftEditing(setCdcForegroundDataDraft, value);
+        else if (field === "visualStyle") setCdcDraftEditing((next) => setCdcVisualStyleDraft(normalizeHearthVisualStyle(next)), value);
+        else if (field === "chartType") setCdcDraftEditing(setCdcChartTypeDraft, value);
+        else if (field === "title") setCdcDraftEditing(setCdcTitleDraft, value);
+        else if (field === "labels") setCdcDraftEditing(setCdcLabelsDraft, value);
+        else if (field === "values") setCdcDraftEditing(setCdcValuesDraft, value);
+        else if (field === "emphasisKey") setCdcDraftEditing(setCdcEmphasisKeyDraft, value);
+        else if (field === "sourceType") setCdcDraftEditing(setCdcSourceTypeDraft, value);
+      },
+      onCreateCdc: () => void onCreateCdcEntry(),
+      onSaveEntry: () => void onSaveCdcEntry(),
+      onDeleteEntry: () => void onDeleteCdcEntry(),
+      onRegenerateStub: () => void onRegenerateCdcEntryStub(),
+      onUploadAsset: (file: File) => void onUploadCdcAsset(file),
+      onSelectCandidate: (candidateId: string) => void onSelectCdcCandidate(candidateId),
+    };
+    const metadataPanelProps = {
+      titles: metadataTitlesDraft,
+      tags: metadataTagsDraft,
+      tagInput: metadataTagInputDraft,
+      tagSuggestions: metadataTagSuggestions,
+      descriptionShort: metadataDescriptionShortDraft,
+      descriptionLong: metadataDescriptionLongDraft,
+      previewMode: metadataPreviewMode,
+      saveState: metadataSaveState,
+      saveError: metadataSaveError,
+      disabled: isApprovingScript || !episodePackage,
+      onTitleChange: onMetadataTitleChange,
+      onSetPrimaryTitle: onMetadataSetPrimaryTitle,
+      onTagInputChange: setMetadataTagInputDraft,
+      onAddTagFromInput: onMetadataAddTagFromInput,
+      onRemoveTag: onMetadataRemoveTag,
+      onAddTagSuggestion: onMetadataAddTagSuggestion,
+      onDescriptionShortChange: onMetadataDescriptionShortChange,
+      onDescriptionLongChange: onMetadataDescriptionLongChange,
+      onPreviewModeChange: onMetadataPreviewModeChange,
+    };
 
     return (
       <section className="hs-draft hs-draft-chat-first">
@@ -11986,340 +12247,34 @@ export default function HearthShell() {
               />
             ) : null}
 
-            {isVisualsWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
-              <section className="hs-media-plan-banner" aria-label="Media plan status">
-                <strong>Media Plan Status</strong>
-                <div>
-                  [{String(mediaMap?.status ?? "draft").toUpperCase()}] · Coverage: {mediaMapCoverageLevel} · Scope: {mediaMapScopeLabel}
-                </div>
-              </section>
-            ) : null}
-
-            {isVisualsWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
-              <CollapsibleFocusPanel
-                panelId="hearth-thumbnail-panel"
-                title="Thumbnails"
-                meta={thumbnailPanelMeta}
-                collapsed={false}
-                onToggle={() => {}}
-                collapsible={false}
-              >
-                <ThumbnailPanel
-                  concepts={thumbnailConcepts}
-                  versions={thumbnailVersions}
-                  titleOptions={thumbnailTitleOptions}
-                  launchVariants={launchVariants}
-                  selectedTitleId={selectedThumbnailTitleId}
-                  selectedTitleText={selectedThumbnailTitle ? resolveHearthThumbnailOverlayText(selectedThumbnailTitle) : ""}
-                  selectedConceptId={selectedThumbnailConceptId}
-                  selectedVersionId={selectedThumbnailVersionId}
-                  selectedLaunchVariantId={selectedLaunchVariantId}
-                  selectedLaunchVariantStatus={launchVariantStatusDraft}
-                  selectedLaunchVariantNotes={launchVariantNotesDraft}
-                  selectedLaunchVariantLastTestedAt={selectedLaunchVariant?.last_tested_at ?? null}
-                  selectedLaunchVariantWinnerSelectedAt={selectedLaunchVariant?.winner_selected_at ?? null}
-                  primaryVersionId={primaryThumbnailVersionId}
-                  selectedConceptLabel={thumbnailConceptLabelDraft}
-                  selectedConceptPrompt={thumbnailConceptPromptDraft}
-                  selectedConceptStylePreset={thumbnailConceptStyleDraft}
-                  selectedConceptTitleStyle={thumbnailTitleStyleDraft}
-                  brandTemplates={thumbnailBrandTemplates}
-                  brandTemplatesLoading={isThumbnailBrandTemplatesLoading}
-                  brandTemplatesError={thumbnailBrandTemplatesError}
-                  selectedConceptBrandTemplateId={thumbnailConceptBrandTemplateIdDraft}
-                  promptOverride={thumbnailPromptOverride}
-                  aspect={thumbnailAspect}
-                  safeZoneEnabled={thumbnailSafeZoneEnabled}
-                  previewDataUrl={thumbnailPreviewDataUrl}
-                  previewState={thumbnailPreviewState}
-                  previewError={thumbnailPreviewError}
-                  generateError={thumbnailGenerateError}
-                  uploadError={thumbnailUploadError}
-                  pairingError={thumbnailPairingError}
-                  isGenerating={isThumbnailGenerating}
-                  isSavingConcept={isThumbnailConceptSaving}
-                  isUploading={isThumbnailUploading}
-                  onSelectTitle={onSelectThumbnailTitle}
-                  onSelectConcept={setSelectedThumbnailConceptId}
-                  onSelectedConceptLabelChange={setThumbnailConceptLabelDraft}
-                  onSelectedConceptPromptChange={setThumbnailConceptPromptDraft}
-                  onSelectedConceptStylePresetChange={(value) => setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(value))}
-                  onSelectedConceptTitleFontPresetChange={(value) => setThumbnailTitleStyleDraft((prev) => ({
-                    ...normalizeEpisodeThumbnailTitleStyle(prev),
-                    font_preset: value as TitleFontPreset,
-                  }))}
-                  onSelectedConceptTitleColorChange={(value) => setThumbnailTitleStyleDraft((prev) => ({
-                    ...normalizeEpisodeThumbnailTitleStyle(prev),
-                    text_color: value.toUpperCase(),
-                  }))}
-                  onSelectedConceptTitleShadowEnabledChange={(value) => setThumbnailTitleStyleDraft((prev) => ({
-                    ...normalizeEpisodeThumbnailTitleStyle(prev),
-                    shadow: {
-                      ...normalizeEpisodeThumbnailTitleStyle(prev).shadow,
-                      enabled: value,
-                    },
-                  }))}
-                  onSelectedConceptTitleShadowStrengthChange={(value) => setThumbnailTitleStyleDraft((prev) => ({
-                    ...normalizeEpisodeThumbnailTitleStyle(prev),
-                    shadow: {
-                      ...normalizeEpisodeThumbnailTitleStyle(prev).shadow,
-                      strength: value as TitleShadowStrength,
-                    },
-                  }))}
-                  onSelectedConceptBrandTemplateChange={setThumbnailConceptBrandTemplateIdDraft}
-                  onCreateConcept={() => void onCreateThumbnailConcept()}
-                  onSaveConcept={() => void onSaveSelectedThumbnailConcept()}
-                  onDeleteConcept={() => void onDeleteSelectedThumbnailConcept()}
-                  onPromptOverrideChange={setThumbnailPromptOverride}
-                  onAspectChange={setThumbnailAspect}
-                  onGenerate={() => void onGenerateThumbnailVersion()}
-                  onRegenerate={() => void onGenerateThumbnailVersion({ forceConceptId: selectedThumbnailConceptId || null })}
-                  onToggleSafeZone={() => setThumbnailSafeZoneEnabled((prev) => !prev)}
-                  onUploadImage={(file) => void onUploadThumbnailImage(file)}
-                  onSelectVersion={onSelectThumbnailVersion}
-                  onSetPrimary={(versionId) => void onSetPrimaryThumbnailVersion(versionId)}
-                  onRetryVersion={(version) => void onRetryFailedThumbnailVersion(version)}
-                  onSelectLaunchVariant={onSelectLaunchVariant}
-                  onCreateLaunchVariant={onCreateLaunchVariant}
-                  onSelectedLaunchVariantStatusChange={setLaunchVariantStatusDraft}
-                  onSelectedLaunchVariantNotesChange={setLaunchVariantNotesDraft}
-                  onSaveLaunchVariant={() => void onSaveLaunchVariant()}
-                />
-              </CollapsibleFocusPanel>
-            ) : null}
-
-            {isVisualsWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
-              <CollapsibleFocusPanel
-                panelId="hearth-media-map-panel"
-                title="Episode Media Map"
-                meta={mediaMapPanelMeta}
-                collapsed={false}
-                onToggle={() => {}}
-                collapsible={false}
-              >
-                <EpisodeMediaMapPanel
-                  entries={mediaMapEntries}
-                  selectedEntryId={selectedMediaMapEntryId}
-                  scriptVersionLabel={approvedScriptVersion ? `v${approvedScriptVersion}` : "none"}
-                  mapStatus={mediaMap?.status ?? "draft"}
-                  stale={Boolean(
-                    mediaMap?.script_version_id
-                    && approvedScriptVersion
-                    && mediaMap.script_version_id !== String(approvedScriptVersion)
-                  )}
-                  saveState={mediaMapSaveState}
-                  saveError={mediaMapSaveError}
-                  message={mediaMapMessage}
-                  disabled={isApprovingScript || isMediaMapBusy || !episodePackage}
-                  generationScope={mediaMapGenerationScope}
-                  draft={{
-                    type: mediaMapTypeDraft,
-                    anchorMode: mediaMapAnchorModeDraft,
-                    anchorTarget: mediaMapAnchorTargetDraft,
-                    inOffsetSec: mediaMapInOffsetDraft,
-                    durationSec: mediaMapDurationDraft,
-                    description: mediaMapDescriptionDraft,
-                    intent: mediaMapIntentDraft,
-                    sourceStatus: mediaMapSourceStatusDraft,
-                    sourceAssetId: mediaMapSourceAssetIdDraft,
-                    confidence: mediaMapConfidenceDraft,
-                    optional: mediaMapOptionalDraft,
-                    critical: mediaMapCriticalDraft,
-                  }}
-                  onSelectEntry={setSelectedMediaMapEntryId}
-                  onDraftChange={(field, value) => {
-                    if (field === "type") setMediaMapDraftEditing(setMediaMapTypeDraft, String(value));
-                    else if (field === "anchorMode") setMediaMapDraftEditing(setMediaMapAnchorModeDraft, String(value));
-                    else if (field === "anchorTarget") setMediaMapDraftEditing(setMediaMapAnchorTargetDraft, String(value));
-                    else if (field === "inOffsetSec") setMediaMapDraftEditing(setMediaMapInOffsetDraft, String(value));
-                    else if (field === "durationSec") setMediaMapDraftEditing(setMediaMapDurationDraft, String(value));
-                    else if (field === "description") setMediaMapDraftEditing(setMediaMapDescriptionDraft, String(value));
-                    else if (field === "intent") setMediaMapDraftEditing(setMediaMapIntentDraft, String(value));
-                    else if (field === "sourceStatus") setMediaMapDraftEditing(setMediaMapSourceStatusDraft, String(value));
-                    else if (field === "sourceAssetId") setMediaMapDraftEditing(setMediaMapSourceAssetIdDraft, String(value));
-                    else if (field === "confidence") setMediaMapDraftEditing(setMediaMapConfidenceDraft, String(value));
-                    else if (field === "optional") setMediaMapDraftEditing(setMediaMapOptionalDraft, Boolean(value));
-                    else if (field === "critical") setMediaMapDraftEditing(setMediaMapCriticalDraft, Boolean(value));
-                  }}
-                  onGenerationScopeChange={(value) => setMediaMapGenerationScope(value as MediaMapGenerationScope)}
-                  onGenerateFromPlans={() => void onGenerateEpisodeMediaMapFromPlans()}
-                  onActivateMap={() => void onActivateEpisodeMediaMap()}
-                  onAddEntry={() => void onAddMediaMapEntry()}
-                  onSaveEntry={() => void onSaveMediaMapEntry()}
-                  onDeleteEntry={() => void onDeleteMediaMapEntry()}
-                />
-              </CollapsibleFocusPanel>
-            ) : null}
-
-            {isVisualsWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
-              <CollapsibleFocusPanel
-                panelId="hearth-broll-plan-panel"
-                title="B-roll Plan"
-                meta={brollPanelMeta}
-                collapsed={false}
-                onToggle={() => {}}
-                collapsible={false}
-              >
-                <BrollPlanPanel
-                  beats={brollBeats}
-                  selectedBeatId={selectedBrollBeatId}
-                  coverageStrength={brollPlan?.coverage_strength ?? null}
-                  saveState={brollSaveState}
-                  saveError={brollSaveError}
-                  message={brollMessage}
-                  disabled={isApprovingScript || isBrollBusy || !episodePackage}
-                  draft={{
-                    anchorText: brollAnchorDraft,
-                    description: brollDescriptionDraft,
-                    motionIntent: brollMotionIntentDraft,
-                    assetCategory: brollAssetCategoryDraft,
-                    priority: brollPriorityDraft,
-                    keywords: brollKeywordsDraft,
-                    mood: brollMoodDraft,
-                    shotType: brollShotTypeDraft,
-                    motionSuggestion: brollMotionSuggestionDraft,
-                    suggestedDurationMs: brollSuggestedDurationDraft,
-                    placementHint: brollPlacementHintDraft,
-                    dataChartType: brollDataChartTypeDraft,
-                    dataTitle: brollDataTitleDraft,
-                    dataLabels: brollDataLabelsDraft,
-                    dataValues: brollDataValuesDraft,
-                    dataEmphasisKey: brollDataEmphasisKeyDraft,
-                    dataAnimationStyle: brollDataAnimationStyleDraft,
-                  }}
-                  selectedCandidateId={selectedBrollBeat?.selected_asset_id ?? null}
-                  onSelectBeat={setSelectedBrollBeatId}
-                  onDraftChange={(field, value) => {
-                    if (field === "anchorText") setBrollDraftEditing(setBrollAnchorDraft, value);
-                    else if (field === "description") setBrollDraftEditing(setBrollDescriptionDraft, value);
-                    else if (field === "motionIntent") setBrollDraftEditing(setBrollMotionIntentDraft, value);
-                    else if (field === "assetCategory") setBrollDraftEditing((next) => setBrollAssetCategoryDraft(next as EpisodeBrollMotionAssetCategory), value);
-                    else if (field === "priority") setBrollDraftEditing(setBrollPriorityDraft, value);
-                    else if (field === "keywords") setBrollDraftEditing(setBrollKeywordsDraft, value);
-                    else if (field === "mood") setBrollDraftEditing(setBrollMoodDraft, value);
-                    else if (field === "shotType") setBrollDraftEditing(setBrollShotTypeDraft, value);
-                    else if (field === "motionSuggestion") setBrollDraftEditing(setBrollMotionSuggestionDraft, value);
-                    else if (field === "suggestedDurationMs") setBrollDraftEditing(setBrollSuggestedDurationDraft, value);
-                    else if (field === "placementHint") setBrollDraftEditing(setBrollPlacementHintDraft, value);
-                    else if (field === "dataChartType") setBrollDraftEditing(setBrollDataChartTypeDraft, value);
-                    else if (field === "dataTitle") setBrollDraftEditing(setBrollDataTitleDraft, value);
-                    else if (field === "dataLabels") setBrollDraftEditing(setBrollDataLabelsDraft, value);
-                    else if (field === "dataValues") setBrollDraftEditing(setBrollDataValuesDraft, value);
-                    else if (field === "dataEmphasisKey") setBrollDraftEditing(setBrollDataEmphasisKeyDraft, value);
-                    else if (field === "dataAnimationStyle") setBrollDraftEditing(setBrollDataAnimationStyleDraft, value);
-                  }}
-                  onSaveBeat={() => void onSaveBrollBeat()}
-                  onDeleteBeat={() => void onDeleteBrollBeat()}
-                  onRegenerateBeat={() => void onRegenerateBrollBeat()}
-                  onGeneratePlan={() => void onGenerateBrollPlan()}
-                  onFindStock={() => void onFindStockForBrollBeat()}
-                  onUploadAsset={(file) => void onUploadBrollBeatAsset(file)}
-                  onSelectCandidate={(candidateId) => void onSelectBrollCandidate(candidateId)}
-                />
-              </CollapsibleFocusPanel>
-            ) : null}
-
-            {isVisualsWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
-              <CollapsibleFocusPanel
-                panelId="hearth-cdc-plan-panel"
-                title="Contextual Data Composites"
-                meta={cdcPanelMeta}
-                collapsed={false}
-                onToggle={() => {}}
-                collapsible={false}
-              >
-                <CdcPlanPanel
-                  entries={cdcEntries}
-                  selectedEntryId={selectedCdcEntryId}
-                  saveState={cdcSaveState}
-                  saveError={cdcSaveError}
-                  message={cdcMessage}
-                  disabled={isApprovingScript || isCdcBusy || !episodePackage}
-                  draft={{
-                    anchorText: cdcAnchorDraft,
-                    description: cdcDescriptionDraft,
-                    placementHint: cdcPlacementHintDraft,
-                    format: cdcFormatDraft,
-                    dataType: cdcDataTypeDraft,
-                    contextType: cdcContextTypeDraft,
-                    tone: cdcToneDraft,
-                    motionLevel: cdcMotionLevelDraft,
-                    backgroundContextDescription: cdcBackgroundContextDraft,
-                    foregroundDataDescription: cdcForegroundDataDraft,
-                    visualStyle: cdcVisualStyleDraft,
-                    chartType: cdcChartTypeDraft,
-                    title: cdcTitleDraft,
-                    labels: cdcLabelsDraft,
-                    values: cdcValuesDraft,
-                    emphasisKey: cdcEmphasisKeyDraft,
-                    sourceType: cdcSourceTypeDraft,
-                  }}
-                  selectedCandidateId={selectedCdcEntry?.selected_asset_id ?? null}
-                  onSelectEntry={setSelectedCdcEntryId}
-                  onDraftChange={(field, value) => {
-                    if (field === "anchorText") setCdcDraftEditing(setCdcAnchorDraft, value);
-                    else if (field === "description") setCdcDraftEditing(setCdcDescriptionDraft, value);
-                    else if (field === "placementHint") setCdcDraftEditing(setCdcPlacementHintDraft, value);
-                    else if (field === "format") setCdcDraftEditing(setCdcFormatDraft, value);
-                    else if (field === "dataType") setCdcDraftEditing(setCdcDataTypeDraft, value);
-                    else if (field === "contextType") setCdcDraftEditing(setCdcContextTypeDraft, value);
-                    else if (field === "tone") setCdcDraftEditing(setCdcToneDraft, value);
-                    else if (field === "motionLevel") setCdcDraftEditing(setCdcMotionLevelDraft, value);
-                    else if (field === "backgroundContextDescription") setCdcDraftEditing(setCdcBackgroundContextDraft, value);
-                    else if (field === "foregroundDataDescription") setCdcDraftEditing(setCdcForegroundDataDraft, value);
-                    else if (field === "visualStyle") setCdcDraftEditing((next) => setCdcVisualStyleDraft(normalizeHearthVisualStyle(next)), value);
-                    else if (field === "chartType") setCdcDraftEditing(setCdcChartTypeDraft, value);
-                    else if (field === "title") setCdcDraftEditing(setCdcTitleDraft, value);
-                    else if (field === "labels") setCdcDraftEditing(setCdcLabelsDraft, value);
-                    else if (field === "values") setCdcDraftEditing(setCdcValuesDraft, value);
-                    else if (field === "emphasisKey") setCdcDraftEditing(setCdcEmphasisKeyDraft, value);
-                    else if (field === "sourceType") setCdcDraftEditing(setCdcSourceTypeDraft, value);
-                  }}
-                  onCreateCdc={() => void onCreateCdcEntry()}
-                  onSaveEntry={() => void onSaveCdcEntry()}
-                  onDeleteEntry={() => void onDeleteCdcEntry()}
-                  onRegenerateStub={() => void onRegenerateCdcEntryStub()}
-                  onUploadAsset={(file) => void onUploadCdcAsset(file)}
-                  onSelectCandidate={(candidateId) => void onSelectCdcCandidate(candidateId)}
-                />
-              </CollapsibleFocusPanel>
-            ) : null}
-
-            {isMetadataWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
-              <CollapsibleFocusPanel
-                panelId="hearth-metadata-panel"
-                title="Metadata"
-                meta={metadataPanelMeta}
-                collapsed={false}
-                onToggle={() => {}}
-                collapsible={false}
-              >
-                <MetadataPanel
-                  titles={metadataTitlesDraft}
-                  tags={metadataTagsDraft}
-                  tagInput={metadataTagInputDraft}
-                  tagSuggestions={metadataTagSuggestions}
-                  descriptionShort={metadataDescriptionShortDraft}
-                  descriptionLong={metadataDescriptionLongDraft}
-                  previewMode={metadataPreviewMode}
-                  saveState={metadataSaveState}
-                  saveError={metadataSaveError}
-                  disabled={isApprovingScript || !episodePackage}
-                  onTitleChange={onMetadataTitleChange}
-                  onSetPrimaryTitle={onMetadataSetPrimaryTitle}
-                  onTagInputChange={setMetadataTagInputDraft}
-                  onAddTagFromInput={onMetadataAddTagFromInput}
-                  onRemoveTag={onMetadataRemoveTag}
-                  onAddTagSuggestion={onMetadataAddTagSuggestion}
-                  onDescriptionShortChange={onMetadataDescriptionShortChange}
-                  onDescriptionLongChange={onMetadataDescriptionLongChange}
-                  onPreviewModeChange={onMetadataPreviewModeChange}
-                />
-              </CollapsibleFocusPanel>
-            ) : null}
+            <VisualsSurface
+              visible={isVisualsWorkspaceTab}
+              hasApprovedScript={hasApprovedScript}
+              approvedScriptVersion={approvedScriptVersion}
+              mediaMapStatus={mediaMap?.status ?? null}
+              mediaMapCoverageLevel={mediaMapCoverageLevel}
+              mediaMapScopeLabel={mediaMapScopeLabel}
+              thumbnailPanelMeta={thumbnailPanelMeta}
+              mediaMapPanelMeta={mediaMapPanelMeta}
+              brollPanelMeta={brollPanelMeta}
+              cdcPanelMeta={cdcPanelMeta}
+              thumbnailPanelProps={thumbnailPanelProps}
+              mediaMapPanelProps={mediaMapPanelProps}
+              brollPlanPanelProps={brollPlanPanelProps}
+              cdcPlanPanelProps={cdcPlanPanelProps}
+            />
+            <MetadataSurface
+              visible={isMetadataWorkspaceTab}
+              hasApprovedScript={hasApprovedScript}
+              approvedScriptVersion={approvedScriptVersion}
+              metadataPanelMeta={metadataPanelMeta}
+              metadataPanelProps={metadataPanelProps}
+            />
           </div>
 
-          {isHistoryWorkspaceTab ? renderRevisionsView() : null}
+          <HistorySurface visible={isHistoryWorkspaceTab}>
+            {renderRevisionsView()}
+          </HistorySurface>
 
           {isScriptWorkspaceTab && showScriptEditor ? (
             <section className="hs-script-panel" aria-label="Manual draft editor">
