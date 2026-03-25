@@ -647,7 +647,7 @@ function clonePlacementRecord(record: HammerVisualPlacementRecord): HammerVisual
 export async function loadHammerWorkpieceVisualPackage(
   workpieceId: string,
 ): Promise<VisualPackageResult> {
-  const [visualResponse, imageMapResponse, mediaMapResponse] = await Promise.all([
+  const [visualResponse, imageMapResponse] = await Promise.all([
     tongsFetch(
       `/tongs/workpieces/${encodeURIComponent(workpieceId)}/visual-package`,
       { method: "GET" },
@@ -656,37 +656,36 @@ export async function loadHammerWorkpieceVisualPackage(
       `/tongs/workpieces/${encodeURIComponent(workpieceId)}/image-map`,
       { method: "GET" },
     ),
-    tongsFetch(
-      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(EPISODE_MEDIA_MAP_PATH)}`,
-      { method: "GET" },
-    ),
   ]);
-  const [visualPayload, imageMapPayload, mediaMapPayload] = await Promise.all([
+  const [visualPayload, imageMapPayload] = await Promise.all([
     readJsonBody(visualResponse),
     readJsonBody(imageMapResponse),
-    readJsonBody(mediaMapResponse),
   ]);
 
-  if (mediaMapResponse.ok) {
-    const mediaMap = normalizeMediaMapArtifact(mediaMapPayload);
-    if (
-      mediaMap
-      && mediaMap.entries.length > 0
-      && mediaMap.status !== "draft"
-      && mediaMap.status !== "review"
-    ) {
-      const mapped = buildVisualPackageFromMediaMap(workpieceId, mediaMap);
-      if (mapped) {
-        return {
-          ok: true,
-          status: mediaMapResponse.status,
-          data: mapped,
-        };
+  if (!visualResponse.ok) {
+    const mediaMapResponse = await tongsFetch(
+      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(EPISODE_MEDIA_MAP_PATH)}`,
+      { method: "GET" },
+    );
+    const mediaMapPayload = await readJsonBody(mediaMapResponse);
+    if (mediaMapResponse.ok) {
+      const mediaMap = normalizeMediaMapArtifact(mediaMapPayload);
+      if (
+        mediaMap
+        && mediaMap.entries.length > 0
+        && mediaMap.status !== "draft"
+        && mediaMap.status !== "review"
+      ) {
+        const mapped = buildVisualPackageFromMediaMap(workpieceId, mediaMap);
+        if (mapped) {
+          return {
+            ok: true,
+            status: mediaMapResponse.status,
+            data: mapped,
+          };
+        }
       }
     }
-  }
-
-  if (!visualResponse.ok) {
     return {
       ok: false,
       status: visualResponse.status,
@@ -705,6 +704,37 @@ export async function loadHammerWorkpieceVisualPackage(
 
   const imageMap = imageMapResponse.ok ? normalizeImageMap(imageMapPayload) : null;
   const mergedVisualPackage = mergeVisualPackageWithImageMap(visualPackage, imageMap);
+  if (mergedVisualPackage.visuals.length > 0) {
+    return {
+      ok: true,
+      status: visualResponse.status,
+      data: mergedVisualPackage,
+    };
+  }
+
+  const mediaMapResponse = await tongsFetch(
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(EPISODE_MEDIA_MAP_PATH)}`,
+    { method: "GET" },
+  );
+  const mediaMapPayload = await readJsonBody(mediaMapResponse);
+  if (mediaMapResponse.ok) {
+    const mediaMap = normalizeMediaMapArtifact(mediaMapPayload);
+    if (
+      mediaMap
+      && mediaMap.entries.length > 0
+      && mediaMap.status !== "draft"
+      && mediaMap.status !== "review"
+    ) {
+      const mapped = buildVisualPackageFromMediaMap(workpieceId, mediaMap);
+      if (mapped) {
+        return {
+          ok: true,
+          status: mediaMapResponse.status,
+          data: mapped,
+        };
+      }
+    }
+  }
 
   return {
     ok: true,
