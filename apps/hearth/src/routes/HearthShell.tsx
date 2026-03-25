@@ -97,6 +97,7 @@ import {
 } from "../hooks/useChatWorkspace";
 import { useHearthAutosave } from "../hooks/useHearthAutosave";
 import { useApprovalFlow } from "../hooks/useApprovalFlow";
+import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
@@ -2264,9 +2265,6 @@ export default function HearthShell({
   const [restoringWorkpieceIds, setRestoringWorkpieceIds] = useState<string[]>([]);
   const [isRestoringReady, setIsRestoringReady] = useState(false);
   const [draggingReadyId, setDraggingReadyId] = useState<string | null>(null);
-  const [revisionModalOpen, setRevisionModalOpen] = useState(false);
-  const [revisionNote, setRevisionNote] = useState("");
-  const [revisionKind, setRevisionKind] = useState<RevisionKind>("manual");
   const [revisionView, setRevisionView] = useState<"list" | "preview" | "compare">("list");
   const [session, setSession] = useState<HearthSession | null>(null);
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
@@ -2680,6 +2678,30 @@ export default function HearthShell({
     retryReasonCode: "ai_rewrite",
     setAiAutosaveWarning,
     setAiAutosaveStatusAt,
+  });
+  const persistRevisionDraft = useCallback(async (params: {
+    draft: Draft;
+    updatedAt: number;
+    revision: { kind: RevisionKind; note?: string };
+  }): Promise<boolean> => {
+    return persistDraft({
+      draft: params.draft,
+      updatedAt: params.updatedAt,
+      createRevision: params.revision,
+    });
+  }, [persistDraft]);
+  const {
+    revisionModalOpen,
+    revisionNote,
+    revisionKind,
+    setRevisionNote,
+    setRevisionKind,
+    openRevisionModal,
+    closeRevisionModal,
+    onConfirmRevision,
+  } = useScriptWorkspace({
+    activeDraft,
+    persistRevisionDraft,
   });
 
   const wordCount = useMemo(() => countWords(activeDraft?.body ?? ""), [activeDraft?.body]);
@@ -6666,7 +6688,7 @@ export default function HearthShell({
         event.preventDefault();
         if (event.shiftKey) {
           if (!revisionModalOpen && activeDraft) {
-            setRevisionModalOpen(true);
+            openRevisionModal();
           }
           return;
         }
@@ -6691,7 +6713,7 @@ export default function HearthShell({
 
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [activeDraft, hasActiveEpisode, onSaveDraft, revisionModalOpen, requestWorkpieceTabChange]);
+  }, [activeDraft, hasActiveEpisode, onSaveDraft, openRevisionModal, revisionModalOpen, requestWorkpieceTabChange]);
 
   async function persistDraft(args: {
     draft: Draft;
@@ -7108,19 +7130,6 @@ export default function HearthShell({
     showArchived,
     workspaceId,
   ]);
-
-  async function onConfirmRevision() {
-    if (!activeDraft) return;
-    const now = Date.now();
-    await persistDraft({
-      draft: activeDraft,
-      updatedAt: now,
-      createRevision: { kind: revisionKind, note: revisionNote.trim() || undefined },
-    });
-    setRevisionModalOpen(false);
-    setRevisionNote("");
-    setRevisionKind("manual");
-  }
 
   async function onRestoreRevision(revision: Revision) {
     if (!activeDraft) return;
@@ -10939,7 +10948,7 @@ export default function HearthShell({
           <button onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
             Delete Draft Buffer
           </button>
-          <button onClick={() => setRevisionModalOpen(true)} disabled={!activeDraft || isSaving}>
+          <button onClick={openRevisionModal} disabled={!activeDraft || isSaving}>
             Create Revision
           </button>
           <button onClick={openRevisionPanel} disabled={!activeDraft}>
@@ -12292,11 +12301,7 @@ export default function HearthShell({
             <div className="hs-modal-actions">
               <button
                 type="button"
-                onClick={() => {
-                  setRevisionModalOpen(false);
-                  setRevisionNote("");
-                  setRevisionKind("manual");
-                }}
+                onClick={closeRevisionModal}
               >
                 Cancel
               </button>
