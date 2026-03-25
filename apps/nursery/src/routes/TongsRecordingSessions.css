@@ -64,8 +64,30 @@
   flex-wrap: wrap;
 }
 
+.trs-subcard__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .trs-card__title {
   font-weight: 700;
+}
+
+.trs-count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 22px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.06);
+  opacity: 0.9;
 }
 
 .trs-create {
@@ -145,11 +167,17 @@
 
 .trs-session-row__delete {
   border-radius: 8px;
-  border: 1px solid rgba(255, 120, 120, 0.45);
-  background: rgba(120, 0, 0, 0.28);
+  border: 1px solid rgba(255, 120, 120, 0.35);
+  background: rgba(120, 0, 0, 0.16);
   color: inherit;
   padding: 8px 10px;
   min-width: 88px;
+}
+
+.trs-session-row__delete--quiet:hover,
+.trs-session-row__delete--quiet:focus-visible {
+  border-color: rgba(255, 120, 120, 0.6);
+  background: rgba(120, 0, 0, 0.28);
 }
 
 .trs-detail-header {
@@ -158,6 +186,22 @@
   gap: 8px;
   align-items: baseline;
   flex-wrap: wrap;
+}
+
+.trs-detail-header__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.trs-dirty-pill {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 215, 140, 0.55);
+  color: #ffdca8;
+  background: rgba(70, 45, 0, 0.38);
 }
 
 .trs-detail__meta {
@@ -200,9 +244,9 @@
 .trs-ready-item {
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .trs-ready-item__title {
@@ -239,12 +283,23 @@
   flex-wrap: wrap;
 }
 
+.trs-button-danger-subtle {
+  border-color: rgba(255, 120, 120, 0.35);
+  background: rgba(120, 0, 0, 0.12);
+}
+
+.trs-button-danger-subtle:hover,
+.trs-button-danger-subtle:focus-visible {
+  border-color: rgba(255, 120, 120, 0.6);
+  background: rgba(120, 0, 0, 0.22);
+}
+
 .trs-plan-item {
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   display: grid;
-  gap: 6px;
+  gap: 8px;
   cursor: grab;
 }
 
@@ -276,6 +331,13 @@
   justify-content: flex-end;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.trs-plan-item__stale {
+  border: 1px solid rgba(255, 211, 145, 0.35);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: rgba(90, 62, 8, 0.22);
 }
 
 .trs-plan-dropzone {
@@ -317,6 +379,10 @@
   }
 
   .trs-role {
+    width: 100%;
+  }
+
+  .trs-detail-header__left {
     width: 100%;
   }
 

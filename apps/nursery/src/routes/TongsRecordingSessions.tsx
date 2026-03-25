@@ -240,6 +240,16 @@ export default function TongsRecordingSessions() {
     return out;
   }, [readyCandidatesForDisplay]);
 
+  const stalePlanItemCount = useMemo(() => {
+    let count = 0;
+    for (const item of planItems) {
+      if (!candidateByPlannerKey.has(plannerKey(item))) {
+        count += 1;
+      }
+    }
+    return count;
+  }, [candidateByPlannerKey, planItems]);
+
   const loadSessions = useCallback(async (preferredId?: string | null) => {
     if (!workspaceId || !session || !canReadSessions) {
       setSessions([]);
@@ -684,7 +694,10 @@ export default function TongsRecordingSessions() {
 
       <div className="trs-detail-grid">
         <section className="trs-subcard">
-          <div className="trs-subcard__title">Ready Candidates</div>
+          <div className="trs-subcard__head">
+            <div className="trs-subcard__title">Ready Candidates</div>
+            <span className="trs-count-pill">{readyCandidatesForDisplay.length}</span>
+          </div>
           {readyLoading ? <div className="trs-message trs-message--subtle">Loading ready candidates...</div> : null}
           {readyError ? <div className="trs-message trs-message--error">{readyError}</div> : null}
           {readyDeleteError ? <div className="trs-message trs-message--error">{readyDeleteError}</div> : null}
@@ -718,6 +731,7 @@ export default function TongsRecordingSessions() {
                         {canEditSessions ? (
                           <button
                             type="button"
+                            className="trs-button-danger-subtle"
                             onClick={() => void deleteReadyCandidate(candidate)}
                             disabled={deletingCandidate}
                           >
@@ -734,7 +748,15 @@ export default function TongsRecordingSessions() {
         </section>
 
         <section className="trs-subcard">
-          <div className="trs-subcard__title">Session Plan</div>
+          <div className="trs-subcard__head">
+            <div className="trs-subcard__title">Session Plan</div>
+            <span className="trs-count-pill">{planItems.length}</span>
+          </div>
+          {stalePlanItemCount > 0 ? (
+            <div className="trs-message trs-message--warning">
+              {stalePlanItemCount} plan item{stalePlanItemCount === 1 ? "" : "s"} no longer in Ready.
+            </div>
+          ) : null}
           {!selectedSessionId ? (
             <div className="trs-message trs-message--subtle">Select a session to build an ordered plan.</div>
           ) : planItems.length === 0 ? (
@@ -778,7 +800,7 @@ export default function TongsRecordingSessions() {
                       <div className="trs-plan-item__path">{item.script_path}</div>
                       <div className="trs-ready-attribution">{formatReadyAttribution(candidate)}</div>
                       {!candidate ? (
-                        <div className="trs-message trs-message--warning">
+                        <div className="trs-message trs-message--warning trs-plan-item__stale">
                           No longer in active Ready candidates. Restore or re-ready in Hearth before recording.
                         </div>
                       ) : null}
@@ -900,7 +922,10 @@ export default function TongsRecordingSessions() {
 
       <section className="trs-card">
         <div className="trs-card__header">
-          <div className="trs-card__title">Sessions</div>
+          <div className="trs-subcard__head">
+            <div className="trs-card__title">Sessions</div>
+            <span className="trs-count-pill">{sessions.length}</span>
+          </div>
           {sessionsLoading ? <span className="trs-message trs-message--subtle">Loading...</span> : null}
         </div>
         {sessionsError ? <div className="trs-message trs-message--error">{sessionsError}</div> : null}
@@ -927,9 +952,10 @@ export default function TongsRecordingSessions() {
                   {canDeleteSessions ? (
                     <button
                       type="button"
-                      className="trs-session-row__delete"
+                      className="trs-session-row__delete trs-session-row__delete--quiet"
                       onClick={() => void deleteSession(entry)}
                       disabled={deletingThis}
+                      aria-label={`Delete session ${entry.title || "Recording Session"}`}
                     >
                       {deletingThis ? "Deleting..." : "Delete"}
                     </button>
@@ -944,7 +970,10 @@ export default function TongsRecordingSessions() {
       {!isMobile ? (
         <section className="trs-card">
           <div className="trs-detail-header">
-            <div className="trs-card__title">{selectedSessionTitle}</div>
+            <div className="trs-detail-header__left">
+              <div className="trs-card__title">{selectedSessionTitle}</div>
+              {isDirty ? <span className="trs-dirty-pill">Unsaved changes</span> : null}
+            </div>
             {canEditSessions ? (
               <button type="button" onClick={() => void savePlan()} disabled={saveDisabled}>
                 {saveBusy ? "Saving..." : "Save Plan"}
