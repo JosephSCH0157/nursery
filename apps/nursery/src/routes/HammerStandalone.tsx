@@ -627,9 +627,9 @@ export default function HammerStandalone() {
               ))}
             </select>
           </div>
-          <span className="hammer-standalone__pill">{routeStatusLabel}</span>
-          <span className="hammer-standalone__pill">{workspaceSummaryLabel}</span>
-          {workspaceId ? (
+          {isEditorRoute ? <span className="hammer-standalone__pill">{routeStatusLabel}</span> : null}
+          {isEditorRoute ? <span className="hammer-standalone__pill">{workspaceSummaryLabel}</span> : null}
+          {isEditorRoute && workspaceId ? (
             <span className="hammer-standalone__pill hammer-standalone__pill--mono">{workspaceId}</span>
           ) : null}
           <button
@@ -642,13 +642,15 @@ export default function HammerStandalone() {
           >
             {loadingWorkspaces ? "Refreshing..." : "Refresh"}
           </button>
-          <button
-            type="button"
-            className="hammer-standalone__meta-button"
-            onClick={() => setAiControlsOpen(true)}
-          >
-            AI Controls
-          </button>
+          {isEditorRoute ? (
+            <button
+              type="button"
+              className="hammer-standalone__meta-button"
+              onClick={() => setAiControlsOpen(true)}
+            >
+              AI Controls
+            </button>
+          ) : null}
           <span className="hammer-standalone__pill">{viewerLabel}</span>
           <button
             type="button"

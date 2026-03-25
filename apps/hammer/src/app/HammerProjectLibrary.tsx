@@ -35,6 +35,33 @@ function getReadinessClassName(project: HammerRuntimeProjectCard): string {
   return `hammer-project-library__status hammer-project-library__status--${project.readiness.tone}`;
 }
 
+function shortId(value: string): string {
+  if (!value) return "";
+  if (value.length <= 12) return value;
+  return `${value.slice(0, 8)}...`;
+}
+
+type ProjectSortMode = "updated_desc" | "title_asc" | "needs_recording";
+
+function sortProjects(items: HammerRuntimeProjectCard[], mode: ProjectSortMode): HammerRuntimeProjectCard[] {
+  const next = [...items];
+  if (mode === "title_asc") {
+    next.sort((left, right) => left.label.localeCompare(right.label, undefined, { sensitivity: "base" }));
+    return next;
+  }
+  if (mode === "needs_recording") {
+    next.sort((left, right) => {
+      const leftHasTake = left.readiness.indicators.some((indicator) => indicator.toLowerCase().includes("kept take"));
+      const rightHasTake = right.readiness.indicators.some((indicator) => indicator.toLowerCase().includes("kept take"));
+      if (leftHasTake !== rightHasTake) return leftHasTake ? 1 : -1;
+      return (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "");
+    });
+    return next;
+  }
+  next.sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""));
+  return next;
+}
+
 function pickDefaultProject(
   projects: HammerRuntimeProjectCard[],
   preferredWorkpieceId: string | null,
@@ -63,6 +90,7 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
   const [loading, setLoading] = useState(Boolean(props.workspaceId));
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [sortMode, setSortMode] = useState<ProjectSortMode>("updated_desc");
 
   useEffect(() => {
     if (!routeWorkpieceId) return;
@@ -109,12 +137,12 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
     [projects, selectedWorkpieceId],
   );
   const readyProjects = useMemo(
-    () => projects.filter((project) => project.isEditReady),
-    [projects],
+    () => sortProjects(projects.filter((project) => project.isEditReady), sortMode),
+    [projects, sortMode],
   );
   const pendingProjects = useMemo(
-    () => projects.filter((project) => !project.isEditReady),
-    [projects],
+    () => sortProjects(projects.filter((project) => !project.isEditReady), sortMode),
+    [projects, sortMode],
   );
 
   const devLaunchHref = useMemo(() => {
@@ -161,7 +189,7 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
                 </div>
                 <div className="hammer-project-library__card-title">{project.label}</div>
                 <div className="hammer-project-library__card-id">
-                  {project.workpieceId}
+                  {shortId(project.workpieceId)}
                 </div>
                 <div className="hammer-project-library__card-meta">
                   <div>
@@ -170,16 +198,29 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
                   </div>
                   <div>
                     <div className="hammer-project-library__label">Workspace</div>
-                    <div>{project.workspaceId}</div>
+                    <div>{shortId(project.workspaceId)}</div>
                   </div>
                 </div>
                 <div className="hammer-project-library__indicator-row">
-                  {project.readiness.indicators.map((indicator) => (
+                  {project.readiness.indicators.slice(0, 3).map((indicator) => (
                     <span key={indicator} className="hammer-project-library__indicator">
                       {indicator}
                     </span>
                   ))}
+                  {project.readiness.indicators.length > 3 ? (
+                    <span className="hammer-project-library__indicator hammer-project-library__indicator--more">
+                      +{project.readiness.indicators.length - 3} more
+                    </span>
+                  ) : null}
                 </div>
+                <details className="hammer-project-library__card-details">
+                  <summary>Details</summary>
+                  <div className="hammer-project-library__card-details-body">
+                    <div><span className="hammer-project-library__label">Workpiece</span> {project.workpieceId}</div>
+                    <div><span className="hammer-project-library__label">Workspace</span> {project.workspaceId}</div>
+                    <div><span className="hammer-project-library__label">Indicators</span> {project.readiness.indicators.join(" • ") || "None"}</div>
+                  </div>
+                </details>
               </div>
             </button>
           );
@@ -230,8 +271,19 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
           >
             Open Project
           </button>
+          <label className="hammer-project-library__sort-field">
+            <span>Sort</span>
+            <select
+              value={sortMode}
+              onChange={(event) => setSortMode(event.target.value as ProjectSortMode)}
+            >
+              <option value="updated_desc">Recently updated</option>
+              <option value="title_asc">Title A-Z</option>
+              <option value="needs_recording">Needs recording first</option>
+            </select>
+          </label>
           {import.meta.env.DEV ? (
-            <Link to={devLaunchHref} className="hammer-project-library__dev-link">
+            <Link to={devLaunchHref} className="hammer-project-library__dev-link" title="Development only">
               Dev scenarios
             </Link>
           ) : null}

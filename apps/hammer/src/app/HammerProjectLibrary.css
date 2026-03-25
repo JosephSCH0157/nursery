@@ -68,6 +68,22 @@
   flex-wrap: wrap;
 }
 
+.hammer-project-library__sort-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  opacity: 0.86;
+}
+
+.hammer-project-library__sort-field > select {
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.72);
+  color: #dbe8ff;
+  padding: 6px 8px;
+}
+
 .hammer-project-library__button,
 .hammer-project-library__dev-link {
   border-radius: 10px;
@@ -98,6 +114,10 @@
   background: rgba(15, 23, 42, 0.72);
 }
 
+.hammer-project-library__dev-link {
+  opacity: 0.78;
+}
+
 .hammer-project-library__section {
   display: grid;
   gap: 12px;
@@ -111,6 +131,12 @@
 .hammer-project-library__section-head {
   display: grid;
   gap: 4px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, rgba(4, 10, 22, 0.96), rgba(4, 10, 22, 0.78));
+  border-radius: 10px;
+  padding: 6px 8px;
 }
 
 .hammer-project-library__section-title {
@@ -203,7 +229,7 @@
   font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 12px;
   color: rgba(191, 219, 254, 0.78);
-  word-break: break-all;
+  word-break: break-word;
 }
 
 .hammer-project-library__card-meta {
@@ -236,6 +262,29 @@
   border: 1px solid rgba(148, 163, 184, 0.22);
   background: rgba(2, 6, 23, 0.44);
   font-size: 12px;
+}
+
+.hammer-project-library__indicator--more {
+  opacity: 0.8;
+}
+
+.hammer-project-library__card-details {
+  border-top: 1px dashed rgba(148, 163, 184, 0.22);
+  padding-top: 8px;
+}
+
+.hammer-project-library__card-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.82;
+}
+
+.hammer-project-library__card-details-body {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.84;
 }
 
 .hammer-project-library__empty-state {
@@ -274,7 +323,7 @@
   content: "";
   position: absolute;
   inset: 50% 0 auto;
-  border-top: 1px solid rgba(96, 165, 250, 0.26);
+  border-top: 1px solid rgba(96, 165, 250, 0.42);
 }
 
 .hammer-project-library__ready-line-label {
