@@ -128,6 +128,8 @@ import {
 import { inferSpeakersFromScript, validateComposeContent } from "../lib/compose-content-validation";
 import { buildComposePrompt } from "../lib/compose-prompt";
 import ComposeSetupModal from "../ui/ComposeSetupModal";
+import ReleaseSurface from "../views/surfaces/ReleaseSurface";
+import WorkpieceTabBar from "../views/surfaces/WorkpieceTabBar";
 import {
   commitWorkpieceProductionArtifact,
   readWorkpieceProductionArtifact,
@@ -11674,37 +11676,12 @@ export default function HearthShell() {
           </>
         ) : null}
 
-        <div className="hs-workpiece-tabs" role="tablist" aria-label="Workpiece workspace tabs">
-          <button type="button" role="tab" aria-selected={isScriptWorkspaceTab} className={`hs-workpiece-tab${isScriptWorkspaceTab ? " is-active" : ""}`} onClick={() => requestWorkpieceTabChange("script")}>
-            <span className="hs-workpiece-tab-label">
-              Script
-              {tabDirtyById.script ? <span className="hs-workpiece-tab-dirty" aria-label="Unsaved changes" /> : null}
-            </span>
-            <span className="hs-workpiece-tab-summary">{tabSummaryById.script}</span>
-          </button>
-          <button type="button" role="tab" aria-selected={isVisualsWorkspaceTab} className={`hs-workpiece-tab${isVisualsWorkspaceTab ? " is-active" : ""}`} onClick={() => requestWorkpieceTabChange("visuals")}>
-            <span className="hs-workpiece-tab-label">
-              Visuals
-              {tabDirtyById.visuals ? <span className="hs-workpiece-tab-dirty" aria-label="Unsaved changes" /> : null}
-            </span>
-            <span className="hs-workpiece-tab-summary">{tabSummaryById.visuals}</span>
-          </button>
-          <button type="button" role="tab" aria-selected={isMetadataWorkspaceTab} className={`hs-workpiece-tab${isMetadataWorkspaceTab ? " is-active" : ""}`} onClick={() => requestWorkpieceTabChange("metadata")}>
-            <span className="hs-workpiece-tab-label">
-              Metadata
-              {tabDirtyById.metadata ? <span className="hs-workpiece-tab-dirty" aria-label="Unsaved changes" /> : null}
-            </span>
-            <span className="hs-workpiece-tab-summary">{tabSummaryById.metadata}</span>
-          </button>
-          <button type="button" role="tab" aria-selected={isReleaseWorkspaceTab} className={`hs-workpiece-tab${isReleaseWorkspaceTab ? " is-active" : ""}`} onClick={() => requestWorkpieceTabChange("release")}>
-            <span className="hs-workpiece-tab-label">Release</span>
-            <span className="hs-workpiece-tab-summary">{tabSummaryById.release}</span>
-          </button>
-          <button type="button" role="tab" aria-selected={isHistoryWorkspaceTab} className={`hs-workpiece-tab${isHistoryWorkspaceTab ? " is-active" : ""}`} onClick={() => requestWorkpieceTabChange("history")}>
-            <span className="hs-workpiece-tab-label">History</span>
-            <span className="hs-workpiece-tab-summary">{tabSummaryById.history}</span>
-          </button>
-        </div>
+        <WorkpieceTabBar
+          activeTab={activeWorkpieceTab}
+          tabSummaryById={tabSummaryById}
+          tabDirtyById={tabDirtyById}
+          onChangeTab={requestWorkpieceTabChange}
+        />
 
         <div className={`hs-draft-stage${showScriptEditor ? " has-script-panel" : ""}`}>
           <div className="hs-focus-stack">
@@ -11988,64 +11965,25 @@ export default function HearthShell() {
             ) : null}
 
             {isReleaseWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
-              <section className="hs-release-prep-viewer" aria-label="Release workspace">
-                <div className="hs-release-prep-viewer__head">
-                  <strong>Release Prep</strong>
-                  <span>Finalize launch packaging and review latest prep output.</span>
-                </div>
-                <div className="hs-production-action-row" role="group" aria-label="Release actions">
-                  <button
-                    type="button"
-                    onClick={() => void onRunProductionAction("release_prep_pack")}
-                    disabled={isAiProcessing || aiCreditsDepleted}
-                  >
-                    {activeProductionAction === "release_prep_pack" && isAiProcessing ? "Generating..." : "Generate Release Prep Pack"}
-                  </button>
-                  <button type="button" onClick={() => requestWorkpieceTabChange("visuals")}>
-                    Open Launch Variants (Visuals)
-                  </button>
-                </div>
-                <div className="hs-release-checklist" aria-label="Release readiness checklist">
-                  <div className="hs-release-checklist-item">{releaseReadiness.completeCount}/{releaseReadiness.totalCount} checks complete</div>
-                  <div className="hs-release-checklist-item">{hasApprovedScript ? "✔" : "○"} Script approved</div>
-                  <div className="hs-release-checklist-item">{mediaPlanActivated ? "✔" : "○"} Media plan activated</div>
-                  <div className="hs-release-checklist-item">{metadataComplete ? "✔" : "○"} Metadata complete</div>
-                  <div className="hs-release-checklist-item">{thumbnailsSelected ? "✔" : "○"} Thumbnails selected</div>
-                </div>
-                <div className="hs-release-prep-viewer__meta">
-                  <span>
-                    {releasePrepScriptVersion
-                      ? `Script v${releasePrepScriptVersion}`
-                      : `Script v${approvedScriptVersion}`}
-                    {latestReleasePrepRawText ? ` · ${latestReleasePrepRawText.length} chars` : ""}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void loadLatestReleasePrepPack(approvedScriptVersion)}
-                    disabled={isAiProcessing || releasePrepLoadState === "loading"}
-                  >
-                    {releasePrepLoadState === "loading" ? "Refreshing..." : "Refresh"}
-                  </button>
-                </div>
-                {releasePrepLoadState === "missing" ? (
-                  <div className="hs-field-label-muted">
-                    No saved Release Prep Pack for this approved script version yet.
-                  </div>
-                ) : null}
-                {releasePrepLoadState === "error" ? (
-                  <div className="hs-error-text-small">Could not load the latest Release Prep Pack artifact.</div>
-                ) : null}
-                {releasePrepLoadState === "ready" && latestReleasePrepSections.length > 0 ? (
-                  <div className="hs-release-prep-viewer__sections">
-                    {latestReleasePrepSections.map((section) => (
-                      <article key={section.key} className="hs-release-prep-viewer__section">
-                        <header>{section.label}</header>
-                        <pre>{section.content}</pre>
-                      </article>
-                    ))}
-                  </div>
-                ) : null}
-              </section>
+              <ReleaseSurface
+                hasApprovedScript={hasApprovedScript}
+                approvedScriptVersion={approvedScriptVersion}
+                aiCreditsDepleted={aiCreditsDepleted}
+                isAiProcessing={isAiProcessing}
+                activeProductionAction={activeProductionAction}
+                releasePrepScriptVersion={releasePrepScriptVersion}
+                latestReleasePrepRawText={latestReleasePrepRawText}
+                releasePrepLoadState={releasePrepLoadState}
+                latestReleasePrepSections={latestReleasePrepSections}
+                onGenerateReleasePrepPack={() => void onRunProductionAction("release_prep_pack")}
+                onOpenVisualsTab={() => requestWorkpieceTabChange("visuals")}
+                onRefreshReleasePrepPack={() => void loadLatestReleasePrepPack(approvedScriptVersion)}
+                hasMetadataComplete={metadataComplete}
+                hasThumbnailsSelected={thumbnailsSelected}
+                mediaMapStatus={mediaMap?.status ?? null}
+                releaseReadinessCompleteCount={releaseReadiness.completeCount}
+                releaseReadinessTotalCount={releaseReadiness.totalCount}
+              />
             ) : null}
 
             {isVisualsWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
