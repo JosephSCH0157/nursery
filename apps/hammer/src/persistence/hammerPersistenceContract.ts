@@ -185,12 +185,67 @@ export type HammerAudioPolishFailureCode =
   | "source_unavailable"
   | "processing_failed";
 
+export interface HammerAudioPolishAnalysisLoudness {
+  integrated_lufs: number | null;
+  loudness_range_lu: number | null;
+  true_peak_dbtp: number | null;
+  rms_dbfs: number | null;
+}
+
+export interface HammerAudioPolishAnalysisSegmentationRegion {
+  id: string;
+  start_sec: number;
+  end_sec: number;
+  kind: "speech" | "silence";
+  confidence: number | null;
+}
+
+export interface HammerAudioPolishAnalysisSegmentation {
+  strategy: "ffmpeg_silencedetect_v1";
+  noise_floor_db: number | null;
+  min_silence_sec: number;
+  regions: HammerAudioPolishAnalysisSegmentationRegion[];
+}
+
+export interface HammerAudioPolishAnalysisTranscriptPrepChunk {
+  id: string;
+  start_sec: number;
+  end_sec: number;
+  duration_sec: number;
+  source: "silence_boundary" | "hard_max_split" | "short_file_single_chunk";
+}
+
+export interface HammerAudioPolishAnalysisTranscriptPrep {
+  strategy: "fixed_chunk_with_silence_bias_v1";
+  target_chunk_sec: number;
+  max_chunk_sec: number;
+  chunks: HammerAudioPolishAnalysisTranscriptPrepChunk[];
+}
+
+export interface HammerAudioPolishAnalysisChannelCharacterization {
+  channel_count: number | null;
+  silent_channel_detected: boolean | null;
+  mono_compatible: boolean | null;
+  phase_correlation: number | null;
+}
+
+export interface HammerAudioPolishAnalysis {
+  schema_version: 1;
+  source_ref: string | null;
+  analyzed_at: string;
+  loudness: HammerAudioPolishAnalysisLoudness;
+  segmentation: HammerAudioPolishAnalysisSegmentation;
+  transcript_prep: HammerAudioPolishAnalysisTranscriptPrep;
+  channel_characterization: HammerAudioPolishAnalysisChannelCharacterization | null;
+}
+
 export interface HammerPersistedAudioPolish {
   schema_version: 1;
   status: HammerAudioPolishStatus;
   prepared_passes: HammerAudioPolishPass[];
   source_artifact_paths: string[];
   settings_summary: Record<string, string | number | boolean | null>;
+  analysis: HammerAudioPolishAnalysis | null;
   source_media_id: string | null;
   source_media_signature: string | null;
   processor_version: string | null;

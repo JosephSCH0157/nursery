@@ -150,6 +150,36 @@ Week 1 closeout:
 - verified: `.wav`, `.mp3`, `.m4a`, `.mp4`, `.mov` route through prep successfully in the automated format matrix
 - deferred: waveform proxy generation and broader playback-polish UX
 
+## Hammer — Week 1: Real Media Backbone (Signed Off)
+
+Hammer now ingests and prepares real media end-to-end without synthetic fallback.
+
+### Shipped
+
+- FFmpeg/ffprobe runtime detection with env override and PATH fallback
+- Deterministic working-audio extraction to canonical WAV (`48 kHz`, `pcm_s16le`)
+- Canonical media truth metadata persisted per prep
+- Production playback path uses real prepared media
+- Operator runbook documented
+
+### Verified
+
+- Automated prep matrix across `.wav`, `.mp3`, `.m4a`, `.mp4`, `.mov`
+- Truth metadata assertions validated
+- Core Hammer prep/backend tests passing
+- Long-file prep smoke (`10-minute` source) successful
+
+### Known Limitations
+
+- Waveform proxy generation deferred
+- Extended in-browser editing soak not yet completed
+- Some media truth fields not yet surfaced prominently in UI
+- Preview uses native playback; render prefers FFmpeg
+
+### Signoff
+
+Week 1 vertical slice complete: Hammer processes real media without cheating.
+
 ## Future Work (V2+)
 
 - Cloud media storage

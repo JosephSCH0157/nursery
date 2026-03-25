@@ -1,5 +1,6 @@
 import type { HammerPersistedAudioPolish } from "../persistence/hammerPersistenceContract";
 import type {
+  HammerAudioPolishAnalysis,
   HammerAudioPolishFailureCode,
   HammerAudioPolishPass,
 } from "../persistence/hammerPersistenceContract";
@@ -22,6 +23,27 @@ function cloneSettingsSummary(
   return value ? { ...value } : {};
 }
 
+function cloneHammerAudioPolishAnalysis(
+  value: HammerAudioPolishAnalysis | null | undefined,
+): HammerAudioPolishAnalysis | null {
+  if (!value) return null;
+  return {
+    ...value,
+    loudness: { ...value.loudness },
+    segmentation: {
+      ...value.segmentation,
+      regions: value.segmentation.regions.map((region) => ({ ...region })),
+    },
+    transcript_prep: {
+      ...value.transcript_prep,
+      chunks: value.transcript_prep.chunks.map((chunk) => ({ ...chunk })),
+    },
+    channel_characterization: value.channel_characterization
+      ? { ...value.channel_characterization }
+      : null,
+  };
+}
+
 export function cloneHammerAudioPolish(
   value: HammerPersistedAudioPolish | null | undefined,
 ): HammerPersistedAudioPolish | null {
@@ -31,6 +53,7 @@ export function cloneHammerAudioPolish(
     prepared_passes: [...value.prepared_passes],
     source_artifact_paths: [...value.source_artifact_paths],
     settings_summary: cloneSettingsSummary(value.settings_summary),
+    analysis: cloneHammerAudioPolishAnalysis(value.analysis),
   };
 }
 
@@ -41,6 +64,7 @@ export function buildNotStartedHammerAudioPolish(): HammerPersistedAudioPolish {
     prepared_passes: [],
     source_artifact_paths: [],
     settings_summary: {},
+    analysis: null,
     source_media_id: null,
     source_media_signature: null,
     processor_version: HAMMER_AUDIO_POLISH_PROCESSOR_VERSION,
@@ -68,6 +92,7 @@ function buildBaseAudioPolish(
       ? [...overrides.source_artifact_paths]
       : [prepSource.canonical_workpiece_path],
     settings_summary: cloneSettingsSummary(overrides.settings_summary),
+    analysis: cloneHammerAudioPolishAnalysis(overrides.analysis),
   };
 }
 
@@ -95,6 +120,7 @@ export function buildPreparedHammerAudioPolish(args: {
   outputMimeType: string;
   outputDurationMs: number | null;
   settingsSummary?: Record<string, string | number | boolean | null>;
+  analysis?: HammerAudioPolishAnalysis | null;
   preparedPasses?: HammerAudioPolishPass[];
   sourceArtifactPaths?: string[];
 }): HammerPersistedAudioPolish {
@@ -108,6 +134,7 @@ export function buildPreparedHammerAudioPolish(args: {
     output_workpiece_path: args.outputWorkpiecePath ?? null,
     output_mime_type: args.outputMimeType,
     output_duration_ms: args.outputDurationMs,
+    analysis: cloneHammerAudioPolishAnalysis(args.analysis),
     failure_code: null,
     failure_reason: null,
     settings_summary: {

@@ -1,5 +1,6 @@
 import type { MediaKind } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type {
+  HammerAudioPolishAnalysis,
   HammerAudioPolishFailureCode,
   HammerAudioPolishPass,
 } from "../persistence/hammerPersistenceContract";
@@ -28,6 +29,7 @@ export interface HammerAudioPolishResponse {
   failure_code: HammerAudioPolishFailureCode | null;
   failure_reason: string | null;
   settings_summary: Record<string, string | number | boolean | null>;
+  analysis: HammerAudioPolishAnalysis | null;
 }
 
 function readString(value: unknown): string | null {
@@ -48,6 +50,117 @@ function readNumber(value: unknown): number | null {
 function readObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+function readBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+function normalizeAudioPolishAnalysis(value: unknown): HammerAudioPolishAnalysis | null {
+  const row = readObject(value);
+  if (!row) return null;
+  const loudness = readObject(row.loudness);
+  const segmentation = readObject(row.segmentation);
+  const transcriptPrep = readObject(row.transcript_prep);
+  if (!loudness || !segmentation || !transcriptPrep) return null;
+
+  const segmentationRegionsRaw = Array.isArray(segmentation.regions) ? segmentation.regions : [];
+  const segmentationRegions = segmentationRegionsRaw
+    .map((entry) => {
+      const region = readObject(entry);
+      const id = readString(region?.id);
+      const startSec = readNumber(region?.start_sec);
+      const endSec = readNumber(region?.end_sec);
+      const kindValue = readString(region?.kind);
+      if (!id || startSec == null || endSec == null || endSec < startSec) return null;
+      if (kindValue !== "speech" && kindValue !== "silence") return null;
+      const kind: "speech" | "silence" = kindValue;
+      return {
+        id,
+        start_sec: startSec,
+        end_sec: endSec,
+        kind,
+        confidence: readNumber(region?.confidence),
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+  const chunksRaw = Array.isArray(transcriptPrep.chunks) ? transcriptPrep.chunks : [];
+  const chunks = chunksRaw
+    .map((entry) => {
+      const chunk = readObject(entry);
+      const id = readString(chunk?.id);
+      const startSec = readNumber(chunk?.start_sec);
+      const endSec = readNumber(chunk?.end_sec);
+      const durationSec = readNumber(chunk?.duration_sec);
+      const sourceValue = readString(chunk?.source);
+      if (!id || startSec == null || endSec == null || durationSec == null || endSec < startSec) return null;
+      if (
+        sourceValue !== "silence_boundary"
+        && sourceValue !== "hard_max_split"
+        && sourceValue !== "short_file_single_chunk"
+      ) {
+        return null;
+      }
+      const source: "silence_boundary" | "hard_max_split" | "short_file_single_chunk" = sourceValue;
+      return {
+        id,
+        start_sec: startSec,
+        end_sec: endSec,
+        duration_sec: durationSec,
+        source,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+  const strategy = readString(segmentation.strategy);
+  const transcriptStrategy = readString(transcriptPrep.strategy);
+  if (strategy !== "ffmpeg_silencedetect_v1" || transcriptStrategy !== "fixed_chunk_with_silence_bias_v1") {
+    return null;
+  }
+
+  const analyzedAt = readString(row.analyzed_at);
+  const schemaVersion = readNumber(row.schema_version);
+  const targetChunkSec = readNumber(transcriptPrep.target_chunk_sec);
+  const maxChunkSec = readNumber(transcriptPrep.max_chunk_sec);
+  const minSilenceSec = readNumber(segmentation.min_silence_sec);
+  if (!analyzedAt || schemaVersion !== 1 || targetChunkSec == null || maxChunkSec == null || minSilenceSec == null) {
+    return null;
+  }
+
+  const channelCharacterization = readObject(row.channel_characterization);
+
+  return {
+    schema_version: 1,
+    source_ref: readString(row.source_ref),
+    analyzed_at: analyzedAt,
+    loudness: {
+      integrated_lufs: readNumber(loudness.integrated_lufs),
+      loudness_range_lu: readNumber(loudness.loudness_range_lu),
+      true_peak_dbtp: readNumber(loudness.true_peak_dbtp),
+      rms_dbfs: readNumber(loudness.rms_dbfs),
+    },
+    segmentation: {
+      strategy,
+      noise_floor_db: readNumber(segmentation.noise_floor_db),
+      min_silence_sec: minSilenceSec,
+      regions: segmentationRegions,
+    },
+    transcript_prep: {
+      strategy: transcriptStrategy,
+      target_chunk_sec: targetChunkSec,
+      max_chunk_sec: maxChunkSec,
+      chunks,
+    },
+    channel_characterization: channelCharacterization
+      ? {
+        channel_count: readNumber(channelCharacterization.channel_count),
+        silent_channel_detected: readBoolean(channelCharacterization.silent_channel_detected),
+        mono_compatible: readBoolean(channelCharacterization.mono_compatible),
+        phase_correlation: readNumber(channelCharacterization.phase_correlation),
+      }
+      : null,
+  };
 }
 
 function readErrorMessage(payload: unknown): string {
@@ -106,6 +219,7 @@ function normalizeResponse(payload: unknown): HammerAudioPolishResponse | null {
       : null,
     failure_reason: readString(data?.failure_reason),
     settings_summary: settingsSummary,
+    analysis: normalizeAudioPolishAnalysis(data?.analysis),
   };
 }
 

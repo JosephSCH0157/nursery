@@ -208,6 +208,51 @@ const snapshot: HammerWorkspaceSnapshot = {
       supported_source: true,
       source_extension: ".wav",
     },
+    analysis: {
+      schema_version: 1,
+      source_ref: "workpiece:recordings/episode-1.wav",
+      analyzed_at: "2026-03-25T12:00:00.000Z",
+      loudness: {
+        integrated_lufs: -18.2,
+        loudness_range_lu: 3.1,
+        true_peak_dbtp: -1.4,
+        rms_dbfs: -20.5,
+      },
+      segmentation: {
+        strategy: "ffmpeg_silencedetect_v1",
+        noise_floor_db: -35,
+        min_silence_sec: 0.25,
+        regions: [
+          {
+            id: "speech_1",
+            start_sec: 0,
+            end_sec: 8,
+            kind: "speech",
+            confidence: 0.99,
+          },
+        ],
+      },
+      transcript_prep: {
+        strategy: "fixed_chunk_with_silence_bias_v1",
+        target_chunk_sec: 60,
+        max_chunk_sec: 90,
+        chunks: [
+          {
+            id: "chunk_1",
+            start_sec: 0,
+            end_sec: 8,
+            duration_sec: 8,
+            source: "short_file_single_chunk",
+          },
+        ],
+      },
+      channel_characterization: {
+        channel_count: 1,
+        silent_channel_detected: false,
+        mono_compatible: true,
+        phase_correlation: 1,
+      },
+    },
     source_media_id: "media_01",
     source_media_signature: "media_sig_01",
     processor_version: "forge-v1.2.0/audio-polish.v2",
@@ -244,6 +289,14 @@ assert.deepEqual(
 assert.equal(
   saveRequest.audio_polish?.data.output_local_relpath,
   "hammer/prep/audio-polish/episode-1--abcd1234.wav",
+);
+assert.equal(
+  saveRequest.audio_polish?.data.analysis?.loudness.integrated_lufs,
+  -18.2,
+);
+assert.equal(
+  saveRequest.audio_polish?.data.analysis?.transcript_prep.chunks[0]?.source,
+  "short_file_single_chunk",
 );
 assert.equal(saveRequest.visual_placements?.data.placements[0]?.asset_ref, "asset_01");
 assert.deepEqual(
@@ -323,6 +376,10 @@ assert.equal(hydrated?.launchContext.transcript.kind, "tongs-stub");
 assert.equal(hydrated?.launchContext.media.kind, "tongs-stub");
 assert.equal(hydrated?.launchContext.edit_plan?.edit_plan_id, "plan_01");
 assert.equal(hydrated?.launchContext.edit_plan?.instructions.length, 0);
+assert.equal(
+  persistedSnapshot.audio_polish.data?.analysis?.segmentation.regions[0]?.kind,
+  "speech",
+);
 
 const legacyOnlySnapshot: HammerPersistenceSnapshot = {
   ...persistedSnapshot,
