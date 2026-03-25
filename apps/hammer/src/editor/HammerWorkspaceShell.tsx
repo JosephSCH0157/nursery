@@ -1065,9 +1065,50 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   const launchContext = props.launchContext;
+  const structuredTranscriptResetKey = useMemo(() => {
+    const transcript = props.structuredTranscript;
+    if (!transcript) return "structured-transcript:none";
+    return `structured-transcript:${stableHashToken(JSON.stringify({
+      transcriptId: transcript.transcript_id,
+      preparedAt: transcript.prepared_at,
+      mediaSignature: transcript.media_signature,
+      segmentCount: transcript.segments.length,
+      segments: transcript.segments.map((segment) => ({
+        id: segment.segment_id,
+        speaker: segment.speaker,
+        text: segment.text,
+        start: segment.start_sec,
+        end: segment.end_sec,
+        disabled: segment.is_disabled === true,
+      })),
+      derivedTextLayers: transcript.derived_text_layers
+        ? {
+          activeLayerId: transcript.derived_text_layers.active_layer_id ?? null,
+          outputLayerId: transcript.derived_text_layers.output_layer_id ?? null,
+          layerIds: transcript.derived_text_layers.layers.map((layer) => layer.layer_id),
+        }
+        : null,
+    }))}`;
+  }, [props.structuredTranscript]);
+  const visualPlacementsResetKey = useMemo(() => {
+    const placements = props.visualPlacements;
+    if (!placements) return "visual-placements:none";
+    return `visual-placements:${stableHashToken(JSON.stringify({
+      placementCount: placements.placements.length,
+      sourceRefs: placements.source_refs,
+      uncertaintyFlags: placements.uncertainty_flags,
+      placements: placements.placements.map((placement) => ({
+        id: placement.placement_id,
+        authorityOperationId: placement.authority_operation_id ?? null,
+        assetRef: placement.asset_ref,
+        start: placement.start_sec,
+        end: placement.end_sec,
+      })),
+    }))}`;
+  }, [props.visualPlacements]);
   const transcriptSegments = useMemo(
     () => readTranscriptSegments(launchContext, props.structuredTranscript ?? null),
-    [launchContext.transcript, props.structuredTranscript],
+    [launchContext.transcript, structuredTranscriptResetKey],
   );
   const transcriptSourceId = props.structuredTranscript?.transcript_id
     ?? (launchContext.transcript.kind === "tongs-stub" ? launchContext.transcript.transcript_id : "runtime-transcript");
@@ -2227,7 +2268,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       active = false;
       clearPersistTimer();
     };
-  }, [launchContext.workpiece_id, props.structuredTranscript, transcriptSourceId]);
+  }, [launchContext.workpiece_id, structuredTranscriptResetKey, transcriptSourceId, visualPlacementsResetKey]);
 
   useEffect(() => {
     const selectedStillExists = selectedSegmentId
@@ -7308,6 +7349,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <header className="hammer-tool-card__head">Audio Adjustments</header>
                   <div className="hammer-tool-hint">Current prep status: {props.audioPolish?.status ?? "not_started"}</div>
                   <div className="hammer-tool-hint">
+                    Preferred backend: {editableStudioRack.backend_preference}
+                  </div>
+                  <div className="hammer-tool-hint">
                     Playback lane: {studioRackPlaybackConfig.backend} ({studioRackPlaybackBackendResolution.status})
                   </div>
                   <div className="hammer-tool-hint">
@@ -7398,7 +7442,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         <span>Global bypass (A/B)</span>
                       </label>
                       <label className="hammer-tool-field">
-                        <span>Processing backend</span>
+                        <span>Preferred render backend</span>
                         <select
                           value={editableStudioRack.backend_preference}
                           onChange={(event) => setStudioRackBackend(event.target.value === "ffmpeg" ? "ffmpeg" : "native")}
