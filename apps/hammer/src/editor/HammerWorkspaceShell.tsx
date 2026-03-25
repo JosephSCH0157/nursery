@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX, MouseEvent } from "react";
 import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type { HammerEditInstruction } from "../../../../packages/contracts/hammer/edit-instruction.contract";
@@ -1212,6 +1212,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const workspaceShellRef = useRef<HTMLElement | null>(null);
+  const lastPlaybackMediaSrcRef = useRef<string | null>(null);
   const captionEditorRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const lastHandledHandoffTokenRef = useRef<number | null>(null);
   const transcriptLineRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -1229,6 +1231,24 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const scrubRectRef = useRef<{ left: number; width: number } | null>(null);
   const scrubAutoPlayRef = useRef(false);
   const scrubReturnToPausedRef = useRef(false);
+
+  const pauseAuxiliaryMediaPlayback = useCallback((): void => {
+    const shell = workspaceShellRef.current;
+    if (!shell) return;
+    const primaryPreviewAudio = previewAudioRef.current;
+    const mediaNodes = shell.querySelectorAll("audio,video");
+    mediaNodes.forEach((node) => {
+      if (!(node instanceof HTMLMediaElement)) return;
+      if (primaryPreviewAudio && node === primaryPreviewAudio) return;
+      node.pause();
+      if (!node.ended) {
+        node.currentTime = 0;
+      }
+      if (node instanceof HTMLVideoElement) {
+        node.muted = true;
+      }
+    });
+  }, []);
 
   const previewMode: HammerPreviewMode = launchContext.preview_mode ?? launchContext.edit_plan?.preview_mode ?? "edit-aware";
   const workspaceFocusMode = focusOverride === "auto" ? resolveWorkspaceFocusMode(activeTool) : focusOverride;
@@ -2285,6 +2305,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const previewAudio = previewAudioRef.current;
     if (!previewAudio) return;
 
+    const srcChanged = lastPlaybackMediaSrcRef.current !== playbackMediaSrc;
+    if (srcChanged) {
+      lastPlaybackMediaSrcRef.current = playbackMediaSrc;
+      previewAudio.pause();
+    }
+
     if (!playbackMediaSrc) {
       previewAudio.pause();
       previewAudio.removeAttribute("src");
@@ -2304,10 +2330,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
 
+    pauseAuxiliaryMediaPlayback();
     void previewAudio.play().catch(() => {
       setIsPlaybackActive(false);
     });
-  }, [isPlaybackActive, playbackMediaSrc, playheadSec, transcriptDurationSec, playbackWindow]);
+  }, [isPlaybackActive, pauseAuxiliaryMediaPlayback, playbackMediaSrc, playheadSec, transcriptDurationSec, playbackWindow]);
+
+  useEffect(() => () => {
+    previewAudioRef.current?.pause();
+    pauseAuxiliaryMediaPlayback();
+  }, [pauseAuxiliaryMediaPlayback]);
 
   useEffect(() => {
     const previewAudio = previewAudioRef.current;
@@ -5417,6 +5449,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   return (
     <section
+      ref={workspaceShellRef}
       className={[
         "hammer-workspace-shell",
         workspaceFocusMode === "source-focus" ? "is-source-focus" : "",
