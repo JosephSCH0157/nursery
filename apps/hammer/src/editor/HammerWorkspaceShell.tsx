@@ -8,11 +8,11 @@ import type { HammerTranscriptSegment } from "../../../../packages/contracts/ham
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
 import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
+import { HAMMER_PASS_ORDER_VERSION } from "../persistence/hammerPersistenceContract";
 import type {
   HammerPassId,
   HammerPassState,
   HammerPassStatusMap,
-  HAMMER_PASS_ORDER_VERSION,
   HammerDerivedTextLayer,
   HammerPersistedAudioPolish,
   HammerPersistedStructuredTranscript,
@@ -279,6 +279,8 @@ type HammerWorkspaceShellProps = {
   structuredTranscript?: HammerPersistedStructuredTranscript | null;
   visualPlacements?: HammerPersistedVisualPlacements | null;
   audioPolish?: HammerPersistedAudioPolish | null;
+  initialCurrentPass?: HammerPassId;
+  initialPassStatus?: HammerPassStatusMap | null;
   releasePrepHref?: string | null;
   selectedMacroRecipeRef?: string | null;
   lastMacroRunRef?: string | null;
@@ -307,6 +309,65 @@ const TOOL_ORDER: Array<{ id: HammerToolId; shortLabel: string; label: string }>
   { id: "finishing", shortLabel: "F", label: "Finishing" },
   { id: "export", shortLabel: "E", label: "Export" },
 ];
+
+const PASS_ORDER: Array<{
+  id: HammerPassId;
+  shortLabel: string;
+  label: string;
+  toolId: HammerToolId;
+  sourceTab: HammerSourceTabId;
+}> = [
+  { id: "transcript_cleanup", shortLabel: "T1", label: "Transcript Cleanup", toolId: "polish", sourceTab: "transcript" },
+  { id: "retakes", shortLabel: "T2", label: "Retakes", toolId: "polish", sourceTab: "transcript" },
+  { id: "gap_pacing", shortLabel: "T3", label: "Gap/Pacing", toolId: "polish", sourceTab: "transcript" },
+  { id: "visual_finishing", shortLabel: "V1", label: "Visual Finishing", toolId: "video", sourceTab: "images" },
+  { id: "image_placement", shortLabel: "V2", label: "Image Placement", toolId: "video", sourceTab: "images" },
+  { id: "image_animation", shortLabel: "V3", label: "Image Animation", toolId: "video", sourceTab: "images" },
+  { id: "audio_finalization", shortLabel: "A", label: "Audio Finalization", toolId: "audio", sourceTab: "assets" },
+  { id: "packaging", shortLabel: "P", label: "Packaging", toolId: "finishing", sourceTab: "introoutro" },
+  { id: "ready", shortLabel: "R", label: "Ready", toolId: "export", sourceTab: "transcript" },
+];
+
+const PASS_ID_SET = new Set<HammerPassId>(PASS_ORDER.map((pass) => pass.id));
+
+function resolveDefaultPassStatus(currentPass: HammerPassId): HammerPassStatusMap {
+  const status: HammerPassStatusMap = {};
+  for (const pass of PASS_ORDER) {
+    status[pass.id] = pass.id === currentPass ? "in_progress" : "not_started";
+  }
+  return status;
+}
+
+function normalizePassStatus(
+  value: HammerPassStatusMap | null | undefined,
+  currentPass: HammerPassId,
+): HammerPassStatusMap {
+  const fallback = resolveDefaultPassStatus(currentPass);
+  if (!value) return fallback;
+  const next: HammerPassStatusMap = { ...fallback };
+  for (const pass of PASS_ORDER) {
+    const status = value[pass.id];
+    if (status === "not_started" || status === "in_progress" || status === "completed") {
+      next[pass.id] = status;
+    }
+  }
+  if (next[currentPass] === "not_started") {
+    next[currentPass] = "in_progress";
+  }
+  return next;
+}
+
+function resolvePassMeta(passId: HammerPassId): (typeof PASS_ORDER)[number] {
+  return PASS_ORDER.find((pass) => pass.id === passId) ?? PASS_ORDER[0];
+}
+
+function resolveDefaultPassForTool(toolId: HammerToolId): HammerPassId {
+  return PASS_ORDER.find((pass) => pass.toolId === toolId)?.id ?? PASS_ORDER[0].id;
+}
+
+function resolveInitialPassId(value: HammerPassId | undefined): HammerPassId {
+  return value && PASS_ID_SET.has(value) ? value : PASS_ORDER[0].id;
+}
 
 type HammerSourceImageItem = {
   id: string;
@@ -1116,8 +1177,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const transcriptSourceId = props.structuredTranscript?.transcript_id
     ?? (launchContext.transcript.kind === "tongs-stub" ? launchContext.transcript.transcript_id : "runtime-transcript");
 
-  const [selectedSourceTab, setSelectedSourceTab] = useState<HammerSourceTabId>("transcript");
-  const [activeTool, setActiveTool] = useState<HammerToolId>("polish");
+  const initialCurrentPass = resolveInitialPassId(props.initialCurrentPass);
+  const initialPassMeta = resolvePassMeta(initialCurrentPass);
+  const [currentPass, setCurrentPass] = useState<HammerPassId>(initialCurrentPass);
+  const [passStatus, setPassStatus] = useState<HammerPassStatusMap>(() => (
+    normalizePassStatus(props.initialPassStatus, initialCurrentPass)
+  ));
+  const [selectedSourceTab, setSelectedSourceTab] = useState<HammerSourceTabId>(initialPassMeta.sourceTab);
+  const [activeTool, setActiveTool] = useState<HammerToolId>(initialPassMeta.toolId);
   const [selectedBoundBrollOperationId, setSelectedBoundBrollOperationId] = useState<string | null>(null);
   const [editableDerivedTextLayers, setEditableDerivedTextLayers] = useState<
     HammerPersistedStructuredTranscript["derived_text_layers"]
