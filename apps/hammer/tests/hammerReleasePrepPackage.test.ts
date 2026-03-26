@@ -104,7 +104,7 @@ function buildAudioPolish(status: HammerPersistedAudioPolish["status"], mediaRef
     },
     source_media_id: mediaRef.media_id,
     source_media_signature: "sig_release_pkg_01",
-    processor_version: "forge-v1.2.0/audio-polish.v2",
+    processor_version: "forge-v1.2.0/audio-polish.v3",
     prepared_at: status === "prepared" ? "2026-03-15T12:07:00.000Z" : null,
     output_local_relpath: status === "prepared" ? "hammer/prep/audio-polish/release-pkg.wav" : null,
     output_mime_type: status === "prepared" ? "audio/wav" : null,
@@ -311,3 +311,4 @@ function buildSnapshot(args?: {
 }
 
 console.log("Hammer release prep package tests passed.");
+

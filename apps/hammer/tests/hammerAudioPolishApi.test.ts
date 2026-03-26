@@ -29,7 +29,7 @@ async function main(): Promise<void> {
           status: "prepared",
           prepared_at: "2026-03-25T12:00:00.000Z",
           prepared_passes: ["studio_sound"],
-          processor_version: "forge-v1.2.0/audio-polish.v2",
+          processor_version: "forge-v1.2.0/audio-polish.v3",
           output_local_relpath: "hammer/prep/audio-polish/example.wav",
           output_workpiece_path: "hammer/prep/audio-polish/example.wav",
           output_mime_type: "audio/wav",
@@ -150,3 +150,4 @@ main()
       (globalThis as typeof globalThis & { window?: unknown }).window = originalWindow;
     }
   });
+

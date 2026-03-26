@@ -329,6 +329,13 @@ async function main(): Promise<void> {
       assert.equal(typeof monoRunA.payload.data?.settings_summary.source_duration_ms, "number");
       assert.equal(typeof monoRunA.payload.data?.settings_summary.working_duration_ms, "number");
       assert.equal(typeof monoRunA.payload.data?.settings_summary.working_audio_workpiece_path, "string");
+      assert.equal(typeof monoRunA.payload.data?.analysis?.loudness.integrated_lufs, "number");
+      assert.equal(typeof monoRunA.payload.data?.analysis?.loudness.loudness_range_lu, "number");
+      assert.equal(typeof monoRunA.payload.data?.analysis?.loudness.true_peak_dbtp, "number");
+      assert.equal((monoRunA.payload.data?.analysis?.loudness.integrated_lufs ?? -Infinity) >= -60, true);
+      assert.equal((monoRunA.payload.data?.analysis?.loudness.integrated_lufs ?? Infinity) <= 0, true);
+      assert.equal((monoRunA.payload.data?.analysis?.loudness.true_peak_dbtp ?? Infinity) <= 0, true);
+      assert.equal((monoRunA.payload.data?.analysis?.loudness.loudness_range_lu ?? -1) >= 0, true);
 
       assert.equal(stereoRun.status, 200);
       assert.equal(stereoRun.payload.ok, true);
@@ -368,6 +375,13 @@ async function main(): Promise<void> {
         assert.equal(typeof formatRun.payload.data?.settings_summary.source_duration_ms, "number", `${testCase.fileName} missing source duration`);
         assert.equal(typeof formatRun.payload.data?.settings_summary.working_duration_ms, "number", `${testCase.fileName} missing working duration`);
         assert.equal(typeof formatRun.payload.data?.settings_summary.timebase, "string", `${testCase.fileName} missing working timebase`);
+        assert.equal(typeof formatRun.payload.data?.analysis?.loudness.integrated_lufs, "number", `${testCase.fileName} missing integrated loudness`);
+        assert.equal(typeof formatRun.payload.data?.analysis?.loudness.loudness_range_lu, "number", `${testCase.fileName} missing loudness range`);
+        assert.equal(typeof formatRun.payload.data?.analysis?.loudness.true_peak_dbtp, "number", `${testCase.fileName} missing true peak`);
+        assert.equal((formatRun.payload.data?.analysis?.loudness.integrated_lufs ?? -Infinity) >= -60, true, `${testCase.fileName} integrated loudness out of range`);
+        assert.equal((formatRun.payload.data?.analysis?.loudness.integrated_lufs ?? Infinity) <= 0, true, `${testCase.fileName} integrated loudness out of range`);
+        assert.equal((formatRun.payload.data?.analysis?.loudness.true_peak_dbtp ?? Infinity) <= 0, true, `${testCase.fileName} true peak out of range`);
+        assert.equal((formatRun.payload.data?.analysis?.loudness.loudness_range_lu ?? -1) >= 0, true, `${testCase.fileName} loudness range out of range`);
         assert.equal(
           formatRun.payload.data?.settings_summary.source_extension,
           path.extname(testCase.fileName).toLowerCase(),

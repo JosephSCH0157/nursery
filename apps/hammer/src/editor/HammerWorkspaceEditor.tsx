@@ -295,6 +295,7 @@ export default function HammerWorkspaceEditor(
           outputMimeType: response.output_mime_type ?? "audio/wav",
           outputDurationMs: response.output_duration_ms,
           settingsSummary: response.settings_summary,
+          analysis: response.analysis,
           preparedPasses: response.prepared_passes,
         })
         : buildFailedHammerAudioPolish({

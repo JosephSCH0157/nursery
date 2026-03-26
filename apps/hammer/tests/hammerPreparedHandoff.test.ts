@@ -43,7 +43,7 @@ import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOu
       },
       source_media_id: "media_01",
       source_media_signature: "sig_01",
-      processor_version: "forge-v1.2.0/audio-polish.v2",
+      processor_version: "forge-v1.2.0/audio-polish.v3",
       prepared_at: "2026-03-14T10:00:00.000Z",
       output_local_relpath: "hammer/prep/audio-polish/example.wav",
       output_mime_type: "audio/wav",
@@ -102,7 +102,7 @@ import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOu
       },
       source_media_id: "media_02",
       source_media_signature: "sig_02",
-      processor_version: "forge-v1.2.0/audio-polish.v2",
+      processor_version: "forge-v1.2.0/audio-polish.v3",
       prepared_at: null,
       output_local_relpath: null,
       output_mime_type: null,
@@ -166,7 +166,7 @@ import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOu
       },
       source_media_id: "media_03",
       source_media_signature: "sig_03",
-      processor_version: "forge-v1.2.0/audio-polish.v2",
+      processor_version: "forge-v1.2.0/audio-polish.v3",
       prepared_at: "2026-03-18T10:05:00.000Z",
       output_local_relpath: "hammer/prep/audio-polish/original.wav",
       output_mime_type: "audio/wav",
@@ -197,7 +197,7 @@ import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOu
       },
       source_media_id: "media_03",
       source_media_signature: "sig_03",
-      processor_version: "forge-v1.2.0/audio-polish.v2",
+      processor_version: "forge-v1.2.0/audio-polish.v3",
       prepared_at: "2026-03-18T10:05:00.000Z",
       output_local_relpath: "hammer/prep/audio-polish/original.wav",
       output_mime_type: "audio/wav",
@@ -213,3 +213,4 @@ import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOu
 }
 
 console.log("Hammer prepared handoff tests passed.");
+

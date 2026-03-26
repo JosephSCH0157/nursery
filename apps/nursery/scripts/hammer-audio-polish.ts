@@ -14,7 +14,10 @@ import type {
   HammerAudioPolishRequest,
   HammerAudioPolishResponse,
 } from "../../hammer/src/prep/hammerAudioPolishApi";
-import type { HammerAudioPolishFailureCode } from "../../hammer/src/persistence/hammerPersistenceContract";
+import type {
+  HammerAudioPolishAnalysis,
+  HammerAudioPolishFailureCode,
+} from "../../hammer/src/persistence/hammerPersistenceContract";
 
 type HammerAudioPolishRouteResult = {
   status: number;
@@ -66,6 +69,8 @@ type HammerFfprobeMediaTruth = {
   bitDepth: number | null;
   timebase: string | null;
 };
+
+type HammerLoudnessAnalysis = HammerAudioPolishAnalysis["loudness"];
 
 const OUTPUT_MIME_TYPE = "audio/wav";
 const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
@@ -235,6 +240,7 @@ function createFailedResponse(args: {
     output_duration_ms: null,
     failure_code: args.code,
     failure_reason: args.reason,
+    analysis: null,
     settings_summary: {
       supported_source: false,
       ...args.settingsSummary,
@@ -868,6 +874,118 @@ function readHeaderString(value: string | string[] | undefined): string | null {
   return readTrimmed(value);
 }
 
+function buildEmptyLoudnessAnalysis(): HammerLoudnessAnalysis {
+  return {
+    integrated_lufs: null,
+    loudness_range_lu: null,
+    true_peak_dbtp: null,
+    rms_dbfs: null,
+  };
+}
+
+function computeWaveRmsDbfs(parsedWave: ParsedWave): number | null {
+  let sumSquares = 0;
+  let sampleTotal = 0;
+  for (const channel of parsedWave.channelData) {
+    for (let index = 0; index < channel.length; index += 1) {
+      const sample = channel[index];
+      sumSquares += sample * sample;
+      sampleTotal += 1;
+    }
+  }
+  if (sampleTotal === 0) return null;
+  const rms = Math.sqrt(sumSquares / sampleTotal);
+  if (!(rms > 0)) return null;
+  return 20 * Math.log10(rms);
+}
+
+function parseLoudnessSummary(stderr: string, sourceLabel: string): HammerLoudnessAnalysis {
+  const integratedMatch = stderr.match(/Integrated loudness:\s*[\r\n]+\s*I:\s*([-\d.]+)\s+LUFS/i);
+  const lraMatch = stderr.match(/Loudness range:\s*[\s\S]*?\bLRA:\s*([-\d.]+)\s+LU/i);
+  const peakMatch = stderr.match(/True peak:\s*[\s\S]*?\bPeak:\s*([-\d.]+)\s+dBF(?:S|TP)/i);
+
+  const integratedLufs = integratedMatch ? Number(integratedMatch[1]) : Number.NaN;
+  const loudnessRangeLu = lraMatch ? Number(lraMatch[1]) : Number.NaN;
+  const truePeakDbtp = peakMatch ? Number(peakMatch[1]) : Number.NaN;
+
+  if (!Number.isFinite(integratedLufs) || !Number.isFinite(loudnessRangeLu) || !Number.isFinite(truePeakDbtp)) {
+    throw new Error(`Hammer could not parse FFmpeg loudness analysis for ${sourceLabel}.`);
+  }
+
+  return {
+    integrated_lufs: integratedLufs,
+    loudness_range_lu: loudnessRangeLu,
+    true_peak_dbtp: truePeakDbtp,
+    rms_dbfs: null,
+  };
+}
+
+async function analyzeLoudnessWithFfmpeg(args: {
+  ffmpegBin: string;
+  wavBytes: Buffer;
+  sourceLabel: string;
+}): Promise<HammerLoudnessAnalysis> {
+  const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-ebur128-"));
+  const inputPath = path.join(tempRoot, "working-audio.wav");
+  try {
+    await fsPromises.writeFile(inputPath, args.wavBytes);
+    const stderr = await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        args.ffmpegBin,
+        [
+          "-hide_banner",
+          "-nostats",
+          "-i",
+          inputPath,
+          "-filter_complex",
+          "ebur128=peak=true",
+          "-f",
+          "null",
+          "-",
+        ],
+        {
+          windowsHide: true,
+          stdio: ["ignore", "ignore", "pipe"],
+        },
+      );
+
+      let stderrText = "";
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        child.kill();
+      }, FFMPEG_PROCESS_TIMEOUT_MS);
+
+      child.stderr.on("data", (chunk) => {
+        const next = chunk.toString("utf8");
+        if (stderrText.length < 64_000) {
+          stderrText += next.slice(0, 64_000 - stderrText.length);
+        }
+      });
+      child.on("error", (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+      child.on("close", (code) => {
+        clearTimeout(timeoutId);
+        if (timedOut) {
+          reject(new Error("Hammer loudness analysis timed out."));
+          return;
+        }
+        if (code === 0) {
+          resolve(stderrText);
+          return;
+        }
+        reject(new Error(stderrText.trim() || `Hammer loudness analysis failed for ${args.sourceLabel}.`));
+      });
+    });
+
+    return parseLoudnessSummary(stderr, args.sourceLabel);
+  } finally {
+    await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 export function createHammerAudioPolishRequestContext(req: IncomingMessage): HammerAudioPolishRequestContext {
   const forwardedProto = readHeaderString(req.headers["x-forwarded-proto"]);
   const host = readHeaderString(req.headers.host) ?? "localhost";
@@ -972,6 +1090,7 @@ export async function handleHammerAudioPolishRequest(
       timebase: null,
     };
     const ffprobeBin = readTrimmed(mediaRuntime.ffmpeg.ffprobe_bin);
+    const ffmpegBin = readTrimmed(mediaRuntime.ffmpeg.ffmpeg_bin);
 
     if (ffprobeBin) {
       try {
@@ -987,7 +1106,6 @@ export async function handleHammerAudioPolishRequest(
     }
 
     if (executionPlan.current_strategy === "ffmpeg_working_audio_v1") {
-      const ffmpegBin = readTrimmed(mediaRuntime.ffmpeg.ffmpeg_bin);
       if (!ffmpegBin) {
         throw new Error("Hammer FFmpeg working audio is configured as the current strategy, but no ffmpeg binary is available.");
       }
@@ -1047,6 +1165,14 @@ export async function handleHammerAudioPolishRequest(
     if (!workingMediaTruth.timebase) {
       workingMediaTruth.timebase = `1/${parsedWave.sampleRate}`;
     }
+    const loudnessAnalysis = ffmpegBin
+      ? await analyzeLoudnessWithFfmpeg({
+        ffmpegBin,
+        wavBytes: workingWaveBytes,
+        sourceLabel: workingAudioWorkpiecePath ?? sourceMedia.sourceLabel,
+      })
+      : buildEmptyLoudnessAnalysis();
+    loudnessAnalysis.rms_dbfs = computeWaveRmsDbfs(parsedWave);
     const polishedWaveBytes = renderPolishedWaveBuffer(parsedWave);
     const outputWorkpiecePath = buildArtifactRelpath("audio-polish", request);
     if (!canUseCanonicalTongsContext(context)) {
@@ -1074,13 +1200,14 @@ export async function handleHammerAudioPolishRequest(
       bytes: polishedWaveBytes,
     });
 
+    const preparedAt = new Date().toISOString();
     return {
       status: 200,
       payload: {
         ok: true,
         data: {
           status: "prepared",
-          prepared_at: new Date().toISOString(),
+          prepared_at: preparedAt,
           prepared_passes: [...HAMMER_AUDIO_POLISH_PREPARED_PASSES],
           processor_version: HAMMER_AUDIO_POLISH_PROCESSOR_VERSION,
           output_local_relpath: localArtifactWrite.outputLocalRelpath,
@@ -1089,6 +1216,25 @@ export async function handleHammerAudioPolishRequest(
           output_duration_ms: Math.round((parsedWave.sampleCount / parsedWave.sampleRate) * 1000),
           failure_code: null,
           failure_reason: null,
+          analysis: {
+            schema_version: 1,
+            source_ref: workingAudioWorkpiecePath ?? sourceMedia.canonicalWorkpiecePath,
+            analyzed_at: preparedAt,
+            loudness: loudnessAnalysis,
+            segmentation: {
+              strategy: "ffmpeg_silencedetect_v1",
+              noise_floor_db: null,
+              min_silence_sec: 0.25,
+              regions: [],
+            },
+            transcript_prep: {
+              strategy: "fixed_chunk_with_silence_bias_v1",
+              target_chunk_sec: 60,
+              max_chunk_sec: 90,
+              chunks: [],
+            },
+            channel_characterization: null,
+          },
           settings_summary: {
             supported_source: true,
             source_media_kind: request.media_kind,
@@ -1119,6 +1265,9 @@ export async function handleHammerAudioPolishRequest(
             audio_polish_current_strategy: executionPlan.current_strategy,
             audio_polish_future_strategy: executionPlan.future_strategy,
             audio_polish_requires_ffmpeg: executionPlan.requires_ffmpeg,
+            analysis_integrated_lufs: loudnessAnalysis.integrated_lufs,
+            analysis_loudness_range_lu: loudnessAnalysis.loudness_range_lu,
+            analysis_true_peak_dbtp: loudnessAnalysis.true_peak_dbtp,
             chain: "dc_remove,high_pass,presence_lift,gentle_noise_reduction,light_compression,peak_normalize",
           },
         },
