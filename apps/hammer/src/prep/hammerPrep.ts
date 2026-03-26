@@ -28,7 +28,11 @@ export type HammerPrepStep =
   | "identifying_speaker_turns"
   | "finalizing_transcript"
   | "placing_initial_visuals"
-  | "polishing_audio"
+  | "extracting_working_audio"
+  | "analyzing_loudness"
+  | "detecting_silence"
+  | "building_chunk_map"
+  | "finalizing_audio_prep"
   | "ready_for_next_step";
 
 export interface HammerPrepState {
@@ -78,7 +82,11 @@ const PREP_STEP_ORDER: HammerPrepStep[] = [
   "identifying_speaker_turns",
   "finalizing_transcript",
   "placing_initial_visuals",
-  "polishing_audio",
+  "extracting_working_audio",
+  "analyzing_loudness",
+  "detecting_silence",
+  "building_chunk_map",
+  "finalizing_audio_prep",
   "ready_for_next_step",
 ];
 
@@ -340,7 +348,11 @@ export function createHammerPrepState(
     identifying_speaker_turns: "Identifying speaker turns…",
     finalizing_transcript: "Finalizing transcript…",
     placing_initial_visuals: "Placing initial visuals…",
-    polishing_audio: "Cleaning audio for studio clarity…",
+    extracting_working_audio: "Preparing working audio…",
+    analyzing_loudness: "Measuring loudness…",
+    detecting_silence: "Detecting silence and speech…",
+    building_chunk_map: "Building transcript chunks…",
+    finalizing_audio_prep: "Finalizing audio prep…",
     ready_for_next_step: "Almost ready…",
   };
 

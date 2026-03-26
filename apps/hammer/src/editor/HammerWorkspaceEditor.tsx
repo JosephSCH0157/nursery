@@ -35,7 +35,11 @@ import {
   buildPreparingHammerAudioPolish,
   isReusableHammerAudioPolish,
 } from "../prep/hammerAudioPolish";
-import { requestHammerAudioPolish } from "../prep/hammerAudioPolishApi";
+import {
+  requestHammerAudioPolish,
+  requestHammerAudioPolishProgress,
+  type HammerAudioPolishPhase,
+} from "../prep/hammerAudioPolishApi";
 import { requestHammerTranscriptPrep } from "../prep/hammerPrepApi";
 import {
   buildHammerLaunchContextFromRecordingTruth,
@@ -82,6 +86,25 @@ function toErrorMessage(error: unknown, fallback: string): string {
 
 function withSessionId(launchContext?: HammerLaunchContext): HammerLaunchContext | undefined {
   return launchContext ? ensureHammerLaunchSessionId(launchContext) : undefined;
+}
+
+function mapAudioPolishPhaseToPrepStep(
+  phase: HammerAudioPolishPhase,
+): Extract<HammerPrepState["step"], "extracting_working_audio" | "analyzing_loudness" | "detecting_silence" | "building_chunk_map" | "finalizing_audio_prep"> {
+  switch (phase) {
+    case "extracting_working_audio":
+      return "extracting_working_audio";
+    case "analyzing_loudness":
+      return "analyzing_loudness";
+    case "detecting_silence":
+      return "detecting_silence";
+    case "building_chunk_map":
+      return "building_chunk_map";
+    case "finalizing_audio_prep":
+      return "finalizing_audio_prep";
+    default:
+      return "extracting_working_audio";
+  }
 }
 
 async function loadCanonicalBootstrapLaunchContext(
@@ -244,6 +267,7 @@ export default function HammerWorkspaceEditor(
   const ensureAudioPolish = async (args: {
     launchContext: HammerLaunchContext;
     currentSnapshot: HammerPersistenceSnapshot | null;
+    onPhaseChange?: (phase: HammerAudioPolishPhase) => void;
   }): Promise<HammerPersistenceSnapshot | null> => {
     if (!persistenceTarget) {
       throw new Error("Hammer audio polish persistence requires a canonical target.");
@@ -275,7 +299,30 @@ export default function HammerWorkspaceEditor(
       throw new Error(preparingSave.error);
     }
 
+    let pollingCancelled = false;
     try {
+      const pollForProgress = async () => {
+        while (!pollingCancelled) {
+          try {
+            const progress = await requestHammerAudioPolishProgress({
+              workspace_id: args.launchContext.workspace_id,
+              workpiece_id: args.launchContext.workpiece_id,
+            });
+            if (progress.phase) {
+              args.onPhaseChange?.(progress.phase);
+            }
+            if (progress.status === "prepared" || progress.status === "failed") {
+              break;
+            }
+          } catch {
+            // keep polling best-effort until request resolves
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+        }
+      };
+      args.onPhaseChange?.("extracting_working_audio");
+      void pollForProgress();
+
       const response = await requestHammerAudioPolish({
         workspace_id: args.launchContext.workspace_id,
         workpiece_id: args.launchContext.workpiece_id,
@@ -285,6 +332,9 @@ export default function HammerWorkspaceEditor(
         canonical_workpiece_path: prepSource.canonical_workpiece_path,
         mime_type: prepSource.mediaRef.kind === "recording_audio" ? "audio/wav" : null,
       });
+      if (response.phase) {
+        args.onPhaseChange?.(response.phase);
+      }
 
       const audioPolish = response.status === "prepared"
         ? buildPreparedHammerAudioPolish({
@@ -301,7 +351,9 @@ export default function HammerWorkspaceEditor(
         : buildFailedHammerAudioPolish({
           prepSource,
           failureCode: response.failure_code ?? "processing_failed",
-          failureReason: response.failure_reason ?? "Hammer could not produce a baseline audio polish artifact.",
+          failureReason: response.failed_phase
+            ? `[${response.failed_phase}] ${response.failure_reason ?? "Hammer could not produce a baseline audio polish artifact."}`
+            : (response.failure_reason ?? "Hammer could not produce a baseline audio polish artifact."),
           settingsSummary: response.settings_summary,
         });
 
@@ -342,6 +394,8 @@ export default function HammerWorkspaceEditor(
         throw new Error(failedSave.error);
       }
       return failedSave.data;
+    } finally {
+      pollingCancelled = true;
     }
   };
 
@@ -495,11 +549,15 @@ export default function HammerWorkspaceEditor(
           if (!isPrepExecutionActive(executionId)) return;
 
           setLoadedPersistenceSnapshot(nextSnapshot);
-          setPrepState(createHammerPrepState("preparing", "polishing_audio"));
+          setPrepState(createHammerPrepState("preparing", "extracting_working_audio"));
           try {
             nextSnapshot = await ensureAudioPolish({
               launchContext: effectiveLaunchContext,
               currentSnapshot: nextSnapshot,
+              onPhaseChange: (phase) => {
+                if (!isPrepExecutionActive(executionId)) return;
+                setPrepState(createHammerPrepState("preparing", mapAudioPolishPhaseToPrepStep(phase)));
+              },
             }) ?? nextSnapshot;
           } catch {
             // Audio polish falls back to raw playback without blocking workspace open.
@@ -610,11 +668,15 @@ export default function HammerWorkspaceEditor(
         }
         if (!isPrepExecutionActive(executionId)) return;
 
-        setPrepState(createHammerPrepState("preparing", "polishing_audio"));
+        setPrepState(createHammerPrepState("preparing", "extracting_working_audio"));
         try {
           const audioSnapshot = await ensureAudioPolish({
             launchContext: nextLaunchContext,
             currentSnapshot: preparedSave.data,
+            onPhaseChange: (phase) => {
+              if (!isPrepExecutionActive(executionId)) return;
+              setPrepState(createHammerPrepState("preparing", mapAudioPolishPhaseToPrepStep(phase)));
+            },
           });
           if (audioSnapshot) {
             preparedSave = {

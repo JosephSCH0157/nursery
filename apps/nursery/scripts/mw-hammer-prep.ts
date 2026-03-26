@@ -6,7 +6,11 @@ import {
   createHammerAudioPolishRequestContext,
   handleHammerAudioPolishRequest,
 } from "./hammer-audio-polish";
-import { HAMMER_AUDIO_POLISH_ROUTE } from "../../hammer/src/prep/hammerAudioPolishApi";
+import {
+  HAMMER_AUDIO_POLISH_ROUTE,
+  HAMMER_AUDIO_POLISH_STATUS_ROUTE,
+  type HammerAudioPolishPhase,
+} from "../../hammer/src/prep/hammerAudioPolishApi";
 import { HAMMER_STUDIO_RACK_RENDER_ROUTE } from "../../hammer/src/editor/hammerStudioRackRenderApi";
 import {
   createHammerStudioRackRenderRequestContext,
@@ -34,6 +38,22 @@ const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
   ".mp3": "audio/mpeg",
   ".m4a": "audio/mp4",
 };
+
+type HammerAudioPolishProgressRecord = {
+  workspaceId: string;
+  workpieceId: string;
+  status: "running" | "prepared" | "failed";
+  phase: HammerAudioPolishPhase | null;
+  failedPhase: HammerAudioPolishPhase | null;
+  errorMessage: string | null;
+  updatedAt: string;
+};
+
+const hammerAudioPolishProgressByKey = new Map<string, HammerAudioPolishProgressRecord>();
+
+function buildAudioPolishProgressKey(workspaceId: string, workpieceId: string): string {
+  return `${workspaceId}:${workpieceId}`;
+}
 
 type NormalizedLocalRequest = HammerTranscriptPrepRequest & {
   local_root_abs: string;
@@ -346,20 +366,118 @@ export function createHammerPrepMiddleware() {
       if (
         url.pathname !== HAMMER_TRANSCRIPT_PREP_ROUTE
         && url.pathname !== HAMMER_AUDIO_POLISH_ROUTE
+        && url.pathname !== HAMMER_AUDIO_POLISH_STATUS_ROUTE
         && url.pathname !== HAMMER_STUDIO_RACK_RENDER_ROUTE
       ) {
         next();
         return;
       }
 
-      if ((req.method || "GET").toUpperCase() !== "POST") {
+      const method = (req.method || "GET").toUpperCase();
+
+      if (url.pathname === HAMMER_AUDIO_POLISH_STATUS_ROUTE) {
+        if (method !== "GET") {
+          sendJson(res, 405, { ok: false, error: { message: "Method not allowed." } });
+          return;
+        }
+        const workspaceId = readTrimmed(url.searchParams.get("workspace_id"));
+        const workpieceId = readTrimmed(url.searchParams.get("workpiece_id"));
+        if (!workspaceId || !workpieceId) {
+          sendJson(res, 400, { ok: false, error: { message: "workspace_id and workpiece_id are required." } });
+          return;
+        }
+        const key = buildAudioPolishProgressKey(workspaceId, workpieceId);
+        const progress = hammerAudioPolishProgressByKey.get(key) ?? null;
+        sendJson(res, 200, {
+          ok: true,
+          data: progress
+            ? {
+              status: progress.status,
+              phase: progress.phase,
+              failed_phase: progress.failedPhase,
+              error_message: progress.errorMessage,
+              updated_at: progress.updatedAt,
+            }
+            : {
+              status: "missing",
+              phase: null,
+              failed_phase: null,
+              error_message: null,
+              updated_at: null,
+            },
+        });
+        return;
+      }
+
+      if (method !== "POST") {
         sendJson(res, 405, { ok: false, error: { message: "Method not allowed." } });
         return;
       }
 
       const body = await readJsonBody(req);
       if (url.pathname === HAMMER_AUDIO_POLISH_ROUTE) {
-        const result = await handleHammerAudioPolishRequest(body, createHammerAudioPolishRequestContext(req));
+        const bodyRow = readJsonObject(body);
+        const workspaceId = readTrimmed(bodyRow?.workspace_id);
+        const workpieceId = readTrimmed(bodyRow?.workpiece_id);
+        const progressKey = workspaceId && workpieceId
+          ? buildAudioPolishProgressKey(workspaceId, workpieceId)
+          : null;
+        if (progressKey && workspaceId && workpieceId) {
+          hammerAudioPolishProgressByKey.set(progressKey, {
+            workspaceId,
+            workpieceId,
+            status: "running",
+            phase: null,
+            failedPhase: null,
+            errorMessage: null,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+
+        let result;
+        try {
+          result = await handleHammerAudioPolishRequest(
+            body,
+            createHammerAudioPolishRequestContext(req),
+            (phase) => {
+              if (!progressKey || !workspaceId || !workpieceId) return;
+              hammerAudioPolishProgressByKey.set(progressKey, {
+                workspaceId,
+                workpieceId,
+                status: "running",
+                phase,
+                failedPhase: null,
+                errorMessage: null,
+                updatedAt: new Date().toISOString(),
+              });
+            },
+          );
+        } catch (error) {
+          if (progressKey && workspaceId && workpieceId) {
+            hammerAudioPolishProgressByKey.set(progressKey, {
+              workspaceId,
+              workpieceId,
+              status: "failed",
+              phase: null,
+              failedPhase: null,
+              errorMessage: error instanceof Error ? error.message : "Hammer audio polish crashed unexpectedly.",
+              updatedAt: new Date().toISOString(),
+            });
+          }
+          throw error;
+        }
+        if (progressKey && workspaceId && workpieceId) {
+          const responseData = result.payload.data;
+          hammerAudioPolishProgressByKey.set(progressKey, {
+            workspaceId,
+            workpieceId,
+            status: responseData?.status === "failed" ? "failed" : "prepared",
+            phase: responseData?.phase ?? null,
+            failedPhase: responseData?.failed_phase ?? null,
+            errorMessage: responseData?.failure_reason ?? null,
+            updatedAt: new Date().toISOString(),
+          });
+        }
         sendJson(res, result.status, result.payload);
         return;
       }

@@ -299,13 +299,15 @@ function testOverlayViewModelTracksPrepStages() {
   const transcribing = buildHammerPrepOverlayViewModel(createHammerPrepState("preparing", "transcribing_audio"));
   const finalizing = buildHammerPrepOverlayViewModel(createHammerPrepState("preparing", "finalizing_transcript"));
   const prepared = buildHammerPrepOverlayViewModel(createHammerPrepState("prepared", "ready_for_next_step"));
-  const polishing = buildHammerPrepOverlayViewModel(createHammerPrepState("preparing", "polishing_audio"));
+  const extracting = buildHammerPrepOverlayViewModel(createHammerPrepState("preparing", "extracting_working_audio"));
+  const detectingSilence = buildHammerPrepOverlayViewModel(createHammerPrepState("preparing", "detecting_silence"));
 
   assert.equal(transcribing.visible, true);
   assert.equal(transcribing.message, "Listening to the recording…");
   assert.equal(finalizing.message, "Finalizing transcript…");
-  assert.equal(polishing.message, "Cleaning audio for studio clarity…");
-  assert.equal(polishing.step_count, 7);
+  assert.equal(extracting.message, "Preparing working audio…");
+  assert.equal(detectingSilence.message, "Detecting silence and speech…");
+  assert.equal(extracting.step_count, 11);
   assert.equal(prepared.visible, false);
 }
 

@@ -6,6 +6,22 @@ import type {
 } from "../persistence/hammerPersistenceContract";
 
 export const HAMMER_AUDIO_POLISH_ROUTE = "/api/hammer/prep/audio-polish";
+export const HAMMER_AUDIO_POLISH_STATUS_ROUTE = "/api/hammer/prep/audio-polish/status";
+
+export type HammerAudioPolishPhase =
+  | "extracting_working_audio"
+  | "analyzing_loudness"
+  | "detecting_silence"
+  | "building_chunk_map"
+  | "finalizing_audio_prep";
+
+export interface HammerAudioPolishProgressResponse {
+  status: "running" | "prepared" | "failed" | "missing";
+  phase: HammerAudioPolishPhase | null;
+  failed_phase: HammerAudioPolishPhase | null;
+  error_message: string | null;
+  updated_at: string | null;
+}
 
 export interface HammerAudioPolishRequest {
   workspace_id: string;
@@ -19,6 +35,8 @@ export interface HammerAudioPolishRequest {
 
 export interface HammerAudioPolishResponse {
   status: "prepared" | "failed";
+  phase: HammerAudioPolishPhase | null;
+  failed_phase: HammerAudioPolishPhase | null;
   prepared_at: string | null;
   prepared_passes: HammerAudioPolishPass[];
   processor_version: string;
@@ -220,8 +238,26 @@ function normalizeResponse(payload: unknown): HammerAudioPolishResponse | null {
   }
 
   const failureCode = readString(data?.failure_code);
+  const phaseValue = readString(data?.phase);
+  const failedPhaseValue = readString(data?.failed_phase);
+  const phase: HammerAudioPolishPhase | null = (
+    phaseValue === "extracting_working_audio"
+    || phaseValue === "analyzing_loudness"
+    || phaseValue === "detecting_silence"
+    || phaseValue === "building_chunk_map"
+    || phaseValue === "finalizing_audio_prep"
+  ) ? phaseValue : null;
+  const failedPhase: HammerAudioPolishPhase | null = (
+    failedPhaseValue === "extracting_working_audio"
+    || failedPhaseValue === "analyzing_loudness"
+    || failedPhaseValue === "detecting_silence"
+    || failedPhaseValue === "building_chunk_map"
+    || failedPhaseValue === "finalizing_audio_prep"
+  ) ? failedPhaseValue : null;
   return {
     status,
+    phase,
+    failed_phase: failedPhase,
     prepared_at: readString(data?.prepared_at),
     prepared_passes: preparedPasses,
     processor_version: processorVersion,
@@ -470,5 +506,70 @@ export async function requestHammerAudioPolish(
   }
 
   return normalized;
+}
+
+export async function requestHammerAudioPolishProgress(args: {
+  workspace_id: string;
+  workpiece_id: string;
+}): Promise<HammerAudioPolishProgressResponse> {
+  const headers = new Headers();
+  const apiToken = resolveTongsApiToken();
+  const userAccessToken = await resolveForgeUserAccessToken();
+  if (apiToken && !headers.has("authorization")) {
+    headers.set("authorization", `Bearer ${apiToken}`);
+  }
+  if (userAccessToken && !headers.has("x-forge-user-authorization")) {
+    headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
+  }
+  if (userAccessToken && !headers.has("x-forge-user-token")) {
+    headers.set("x-forge-user-token", userAccessToken);
+  }
+
+  const search = new URLSearchParams({
+    workspace_id: args.workspace_id,
+    workpiece_id: args.workpiece_id,
+  });
+  const response = await fetch(`${HAMMER_AUDIO_POLISH_STATUS_ROUTE}?${search.toString()}`, {
+    method: "GET",
+    headers,
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(readErrorMessage(payload));
+  }
+  const data = readObject(readObject(payload)?.data);
+  if (!data) {
+    return {
+      status: "missing",
+      phase: null,
+      failed_phase: null,
+      error_message: null,
+      updated_at: null,
+    };
+  }
+  const statusValue = readString(data.status);
+  const phaseValue = readString(data.phase);
+  const failedPhaseValue = readString(data.failed_phase);
+  return {
+    status: statusValue === "running" || statusValue === "prepared" || statusValue === "failed"
+      ? statusValue
+      : "missing",
+    phase: phaseValue === "extracting_working_audio"
+      || phaseValue === "analyzing_loudness"
+      || phaseValue === "detecting_silence"
+      || phaseValue === "building_chunk_map"
+      || phaseValue === "finalizing_audio_prep"
+      ? phaseValue
+      : null,
+    failed_phase: failedPhaseValue === "extracting_working_audio"
+      || failedPhaseValue === "analyzing_loudness"
+      || failedPhaseValue === "detecting_silence"
+      || failedPhaseValue === "building_chunk_map"
+      || failedPhaseValue === "finalizing_audio_prep"
+      ? failedPhaseValue
+      : null,
+    error_message: readString(data.error_message),
+    updated_at: readString(data.updated_at),
+  };
 }
 

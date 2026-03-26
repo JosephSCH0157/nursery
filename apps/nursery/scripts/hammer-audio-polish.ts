@@ -11,6 +11,7 @@ import {
   HAMMER_AUDIO_POLISH_PREPARED_PASSES,
 } from "../../hammer/src/prep/hammerAudioPolish";
 import type {
+  HammerAudioPolishPhase,
   HammerAudioPolishRequest,
   HammerAudioPolishResponse,
 } from "../../hammer/src/prep/hammerAudioPolishApi";
@@ -237,10 +238,14 @@ export function buildArtifactRelpath(
 function createFailedResponse(args: {
   code: HammerAudioPolishFailureCode;
   reason: string;
+  phase?: HammerAudioPolishPhase | null;
+  failedPhase?: HammerAudioPolishPhase | null;
   settingsSummary?: Record<string, string | number | boolean | null>;
 }): HammerAudioPolishResponse {
   return {
     status: "failed",
+    phase: args.phase ?? null,
+    failed_phase: args.failedPhase ?? null,
     prepared_at: null,
     prepared_passes: [],
     processor_version: HAMMER_AUDIO_POLISH_PROCESSOR_VERSION,
@@ -1382,6 +1387,7 @@ export function createHammerAudioPolishRequestContext(req: IncomingMessage): Ham
 export async function handleHammerAudioPolishRequest(
   body: unknown,
   context?: HammerAudioPolishRequestContext,
+  onPhaseChange?: (phase: HammerAudioPolishPhase) => void,
 ): Promise<HammerAudioPolishRouteResult> {
   const request = normalizeAudioPolishRequest(body);
   if (!request) {
@@ -1454,6 +1460,12 @@ export async function handleHammerAudioPolishRequest(
     };
   }
 
+  let activePhase: HammerAudioPolishPhase | null = null;
+  const setPhase = (phase: HammerAudioPolishPhase): void => {
+    activePhase = phase;
+    onPhaseChange?.(phase);
+  };
+
   try {
     let workingWaveBytes = sourceMedia.sourceBytes;
     const sourceArtifactPaths = [sourceMedia.canonicalWorkpiecePath];
@@ -1489,6 +1501,7 @@ export async function handleHammerAudioPolishRequest(
     }
 
     if (executionPlan.current_strategy === "ffmpeg_working_audio_v1") {
+      setPhase("extracting_working_audio");
       if (!ffmpegBin) {
         throw new Error("Hammer FFmpeg working audio is configured as the current strategy, but no ffmpeg binary is available.");
       }
@@ -1549,6 +1562,7 @@ export async function handleHammerAudioPolishRequest(
       workingMediaTruth.timebase = `1/${parsedWave.sampleRate}`;
     }
     const durationSec = parsedWave.sampleCount / parsedWave.sampleRate;
+    setPhase("analyzing_loudness");
     const loudnessAnalysis = ffmpegBin
       ? await analyzeLoudnessWithFfmpeg({
         ffmpegBin,
@@ -1557,6 +1571,7 @@ export async function handleHammerAudioPolishRequest(
       })
       : buildEmptyLoudnessAnalysis();
     loudnessAnalysis.rms_dbfs = computeWaveRmsDbfs(parsedWave);
+    setPhase("detecting_silence");
     const segmentationAnalysis = ffmpegBin
       ? await analyzeSegmentationWithFfmpeg({
         ffmpegBin,
@@ -1565,10 +1580,12 @@ export async function handleHammerAudioPolishRequest(
         durationSec,
       })
       : buildEmptySegmentationAnalysis();
+    setPhase("building_chunk_map");
     const transcriptPrepAnalysis = buildTranscriptPrepChunkMap({
       durationSec,
       segmentation: segmentationAnalysis,
     });
+    setPhase("finalizing_audio_prep");
     const polishedWaveBytes = renderPolishedWaveBuffer(parsedWave);
     const outputWorkpiecePath = buildArtifactRelpath("audio-polish", request);
     if (!canUseCanonicalTongsContext(context)) {
@@ -1603,6 +1620,8 @@ export async function handleHammerAudioPolishRequest(
         ok: true,
         data: {
           status: "prepared",
+          phase: activePhase,
+          failed_phase: null,
           prepared_at: preparedAt,
           prepared_passes: [...HAMMER_AUDIO_POLISH_PREPARED_PASSES],
           processor_version: HAMMER_AUDIO_POLISH_PROCESSOR_VERSION,
@@ -1657,6 +1676,7 @@ export async function handleHammerAudioPolishRequest(
             analysis_speech_region_count: segmentationAnalysis.speech_region_count,
             analysis_silence_region_count: segmentationAnalysis.silence_region_count,
             analysis_chunk_count: transcriptPrepAnalysis.chunk_count,
+            analysis_phase: activePhase,
             chain: "dc_remove,high_pass,presence_lift,gentle_noise_reduction,light_compression,peak_normalize",
           },
         },
@@ -1676,6 +1696,8 @@ export async function handleHammerAudioPolishRequest(
           reason: isUnsupported
             ? `${message} Unsupported sources will open normally without polish.`
             : message,
+          phase: activePhase,
+          failedPhase: activePhase,
           settingsSummary: {
             source_media_kind: request.media_kind,
             source_kind: sourceMedia.sourceKind,
@@ -1691,6 +1713,7 @@ export async function handleHammerAudioPolishRequest(
             audio_polish_current_strategy: executionPlan.current_strategy,
             audio_polish_future_strategy: executionPlan.future_strategy,
             audio_polish_requires_ffmpeg: executionPlan.requires_ffmpeg,
+            failed_phase: activePhase,
           },
         }),
       },
