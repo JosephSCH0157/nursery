@@ -371,6 +371,14 @@ type HammerCandidateCard = {
   timeSavedSec: number;
 };
 
+type HammerVisualLutPreset =
+  | "neutral"
+  | "clean_daylight"
+  | "warm_studio"
+  | "cool_evening"
+  | "high_contrast"
+  | "soft_documentary";
+
 type HammerSourceImageItem = {
   id: string;
   label: string;
@@ -637,6 +645,24 @@ function isSubtractiveTranscriptEdit(previousText: string, nextText: string): bo
     cursor = matchedIndex + 1;
   }
   return true;
+}
+
+function resolveVisualPresetFilter(preset: HammerVisualLutPreset): string {
+  switch (preset) {
+    case "clean_daylight":
+      return "contrast(1.03) saturate(1.05)";
+    case "warm_studio":
+      return "sepia(0.08) saturate(1.08)";
+    case "cool_evening":
+      return "hue-rotate(-8deg) saturate(0.95) contrast(1.02)";
+    case "high_contrast":
+      return "contrast(1.12) saturate(1.04)";
+    case "soft_documentary":
+      return "brightness(1.02) contrast(0.96) saturate(0.92)";
+    case "neutral":
+    default:
+      return "none";
+  }
 }
 
 function isKeyboardEditingTarget(target: EventTarget | null): boolean {
@@ -1298,6 +1324,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
   const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
   const [videoSnapMode, setVideoSnapMode] = useState<"timeline" | "segment">("timeline");
+  const [visualLutPreset, setVisualLutPreset] = useState<HammerVisualLutPreset>("neutral");
+  const [visualWhiteBalance, setVisualWhiteBalance] = useState(0);
+  const [visualColorAmount, setVisualColorAmount] = useState(0);
+  const [visualBackgroundBlur, setVisualBackgroundBlur] = useState(false);
+  const [visualEyeContact, setVisualEyeContact] = useState(false);
   const [captionFormatting, setCaptionFormatting] = useState<HammerCaptionFormattingState>({
     style: "sentence",
     maxCharsPerLine: 42,
@@ -1366,6 +1397,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const scrubAutoPlayRef = useRef(false);
   const scrubReturnToPausedRef = useRef(false);
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
+  const lastGapAutoApplySignatureRef = useRef<string | null>(null);
   const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
 
   useEffect(() => {
@@ -1576,6 +1608,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : isPlaybackActive
     ? "Playing"
     : "Paused";
+  const visualPreviewFilter = useMemo(() => {
+    const base = resolveVisualPresetFilter(visualLutPreset);
+    const temperatureShift = visualWhiteBalance / 3;
+    const colorBoost = 1 + (visualColorAmount / 100) * 0.25;
+    const blurPx = visualBackgroundBlur ? 1.4 : 0;
+    const filterParts = [
+      base !== "none" ? base : "",
+      `hue-rotate(${temperatureShift.toFixed(1)}deg)`,
+      `saturate(${colorBoost.toFixed(2)})`,
+      blurPx > 0 ? `blur(${blurPx.toFixed(1)}px)` : "",
+    ].filter(Boolean);
+    return filterParts.join(" ");
+  }, [visualBackgroundBlur, visualColorAmount, visualLutPreset, visualWhiteBalance]);
   const transcriptSegmentsById = useMemo(() => {
     const byId = new Map<string, HammerTranscriptSegment>();
     for (const segment of editableTranscriptSegments) {
@@ -3698,6 +3743,41 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setActiveCandidateIndex((previous) => Math.max(0, previous - (previous > 0 ? 1 : 0)));
   }
 
+  function applyGapPacingAuto(): void {
+    const preview = previewShortenGaps(editableTranscriptSegments, gapCleanupOptions);
+    const signature = stableHashToken(JSON.stringify({
+      pass: currentPass,
+      options: gapCleanupOptions,
+      summary: preview.summary,
+    }));
+    if (signature === lastGapAutoApplySignatureRef.current) return;
+    lastGapAutoApplySignatureRef.current = signature;
+    if (preview.suggestions.length === 0) {
+      setTranscriptTimingHint("Gap/Pacing is already within the selected max pause length.");
+      return;
+    }
+    const applied = applyHistoryMutation({
+      label: "Auto apply gap pacing",
+      kind: "timing_adjustment",
+      toolId: "polish",
+      affectedSegments: preview.suggestions.map((suggestion) => suggestion.segmentId),
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const synced = syncEditableTranscriptSegments(preview.resultSegments, before.selectedSegmentId);
+        return {
+          ...before,
+          transcriptSegments: synced.segments,
+          selectedSegmentId: synced.selectedSegmentId,
+          transcriptTimingHint: null,
+        };
+      },
+    });
+    if (!applied) return;
+    setCleanupReceipt(buildPolishResultSummaryFromCleanupPreview(preview));
+    setCleanupPreview(null);
+    setTranscriptTimingHint(`Gap pacing applied to ${preview.summary.changedSegments} segment${preview.summary.changedSegments === 1 ? "" : "s"}.`);
+  }
+
   useEffect(() => {
     if (currentPass === "transcript_cleanup") {
       refreshCandidateQueue("fillers");
@@ -3710,6 +3790,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setCandidateCards([]);
     setActiveCandidateIndex(0);
   }, [currentPass]);
+  useEffect(() => {
+    if (currentPass !== "gap_pacing") return;
+    const timerId = window.setTimeout(() => {
+      applyGapPacingAuto();
+    }, 180);
+    return () => window.clearTimeout(timerId);
+  }, [currentPass, gapCleanupOptions, editableTranscriptSegments]);
   useEffect(() => {
     if (candidateCards.length === 0 && activeCandidateIndex !== 0) {
       setActiveCandidateIndex(0);
@@ -5870,6 +5957,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         workspaceFocusMode === "tool-focus" ? "is-tool-focus" : "",
         workspaceFocusMode === "time-focus" ? "is-time-focus" : "",
         workspaceFocusMode === "balanced" ? "is-balanced" : "",
+        currentPass === "visual_finishing" ? "is-visual-finishing" : "",
       ].filter(Boolean).join(" ")}
     >
       <div className="hammer-workspace-shell__main">
@@ -6857,7 +6945,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 }}
                 className="hammer-preview-audio"
               />
-              <div className="hammer-preview-surface">
+              <div className="hammer-preview-surface" style={{ filter: visualPreviewFilter || undefined }}>
                 {playheadSegment ? (
                   <div className="hammer-preview-surface__label">
                     {resolvePreviewLabel(playheadSegment, playheadSec)}
@@ -6872,6 +6960,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <span>{mediaSourceLabel ?? "No media source"}</span>
                 <span>Playback lane: {studioRackPlaybackConfig.backend}</span>
                 <span>{playbackMediaSrc ? "Mapped media ready" : "Mapped media unavailable"}</span>
+                {currentPass === "visual_finishing" ? (
+                  <span>Visual finishing preview mode active</span>
+                ) : null}
                 {playbackWindow ? (
                   <span>
                     Window {playbackWindow.startSec.toFixed(1)}s - {playbackWindow.endSec.toFixed(1)}s
@@ -6980,6 +7071,47 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       </div>
                     )}
                     <div className="hammer-tool-hint">Approve applies immediately. Reject leaves source unchanged.</div>
+                  </section>
+                ) : currentPass === "gap_pacing" ? (
+                  <section className="hammer-tool-card">
+                    <header className="hammer-tool-card__head">Gap / Pacing</header>
+                    <div className="hammer-tool-hint">
+                      Deterministic global pacing pass. Changes apply instantly as you adjust controls.
+                    </div>
+                    <label className="hammer-tool-field">
+                      <span>Max Pause Length (sec)</span>
+                      <input
+                        type="number"
+                        min={0.1}
+                        step={0.05}
+                        value={gapCleanupOptions.maxGapSec}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setGapCleanupOptions((current) => ({
+                            ...current,
+                            maxGapSec: Math.max(0.1, Number(event.target.value) || 0.4),
+                          }));
+                        }}
+                      />
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={gapCleanupOptions.preserveDramaticPauses}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setGapCleanupOptions((current) => ({
+                            ...current,
+                            preserveDramaticPauses: event.target.checked,
+                          }));
+                        }}
+                      />
+                      <span>Preserve dramatic pauses</span>
+                    </label>
+                    {cleanupReceipt ? (
+                      <PolishResultSummary phase="applied" summary={cleanupReceipt} />
+                    ) : null}
+                    <div className="hammer-tool-hint">No per-gap approval cards in this pass.</div>
                   </section>
                 ) : (
                 <section className="hammer-tool-card">
@@ -8063,6 +8195,84 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               ) : null}
 
               {activeTool === "video" ? (
+                currentPass === "visual_finishing" ? (
+                  <section className="hammer-tool-card">
+                    <header className="hammer-tool-card__head">Visual Finishing</header>
+                    <div className="hammer-tool-hint">
+                      Podcast-first finishing controls only. Keep changes simple and fast.
+                    </div>
+                    <label className="hammer-tool-field">
+                      <span>LUT Preset</span>
+                      <select
+                        value={visualLutPreset}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setVisualLutPreset(event.target.value as HammerVisualLutPreset);
+                        }}
+                      >
+                        <option value="neutral">Neutral</option>
+                        <option value="clean_daylight">Clean Daylight</option>
+                        <option value="warm_studio">Warm Studio</option>
+                        <option value="cool_evening">Cool Evening</option>
+                        <option value="high_contrast">High Contrast</option>
+                        <option value="soft_documentary">Soft Documentary</option>
+                      </select>
+                    </label>
+                    <label className="hammer-tool-field">
+                      <span>White Balance ({visualWhiteBalance})</span>
+                      <input
+                        type="range"
+                        min={-100}
+                        max={100}
+                        step={1}
+                        value={visualWhiteBalance}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setVisualWhiteBalance(Number(event.target.value));
+                        }}
+                      />
+                    </label>
+                    <label className="hammer-tool-field">
+                      <span>Color ({visualColorAmount})</span>
+                      <input
+                        type="range"
+                        min={-100}
+                        max={100}
+                        step={1}
+                        value={visualColorAmount}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setVisualColorAmount(Number(event.target.value));
+                        }}
+                      />
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={visualBackgroundBlur}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setVisualBackgroundBlur(event.target.checked);
+                        }}
+                      />
+                      <span>Background Blur</span>
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={visualEyeContact}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setVisualEyeContact(event.target.checked);
+                        }}
+                      />
+                      <span>Eye Contact</span>
+                    </label>
+                    <div className="hammer-tool-hint">
+                      Eye Contact and Background Blur are lightweight preview controls in this phase.
+                    </div>
+                  </section>
+                ) : (
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Visual Placement</header>
                   <label className="hammer-tool-field">

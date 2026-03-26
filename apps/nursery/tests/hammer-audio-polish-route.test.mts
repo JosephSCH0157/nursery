@@ -354,11 +354,19 @@ function assertWaveformProxy(proxy: WaveformProxy | null | undefined, label: str
   assert.equal(proxy.version, "v1", `${label} waveform version mismatch`);
   assert.equal(proxy.channel_mode, "mono_mixdown", `${label} waveform channel mode mismatch`);
   assert.equal(proxy.bucket_count > 0, true, `${label} waveform bucket_count should be > 0`);
+  assert.equal(proxy.bucket_count <= 2400, true, `${label} waveform bucket_count exceeds hard max of 2400`);
   assert.equal(proxy.duration_sec > 0, true, `${label} waveform duration should be > 0`);
   assert.equal(proxy.bucket_duration_sec > 0, true, `${label} waveform bucket duration should be > 0`);
   assert.equal(proxy.peaks.length, proxy.bucket_count, `${label} peaks length mismatch`);
+  // Bucket timing consistency: duration_sec / bucket_count must match bucket_duration_sec within 1ms
+  assert.equal(
+    Math.abs(proxy.duration_sec / proxy.bucket_count - proxy.bucket_duration_sec) < 0.001,
+    true,
+    `${label} waveform bucket timing inconsistent (duration/count != bucket_duration_sec)`,
+  );
   for (const peak of proxy.peaks) {
     assert.equal(Number.isNaN(peak), false, `${label} waveform peak contains NaN`);
+    assert.equal(Number.isFinite(peak), true, `${label} waveform peak is not finite`);
     assert.equal(peak >= 0 && peak <= 1, true, `${label} waveform peak out of range`);
   }
 }
@@ -437,6 +445,11 @@ async function main(): Promise<void> {
         "mono.m4a",
       );
       assertWaveformProxy(monoRunA.payload.data?.analysis?.waveform_proxy, "mono.m4a");
+      assert.equal(
+        (monoRunA.payload.data?.analysis?.waveform_proxy?.peaks.filter((p) => p > 0.01).length ?? 0) > 0,
+        true,
+        "mono.m4a waveform should have nonzero peaks for audio-present input",
+      );
 
       assert.equal(stereoRun.status, 200);
       assert.equal(stereoRun.payload.ok, true);
@@ -482,10 +495,26 @@ async function main(): Promise<void> {
         "normal stereo has no silent_channel"
       );
       assertWaveformProxy(stereoRun.payload.data?.analysis?.waveform_proxy, "stereo.m4a");
+      assert.equal(
+        (stereoRun.payload.data?.analysis?.waveform_proxy?.peaks.filter((p) => p > 0.01).length ?? 0) > 0,
+        true,
+        "stereo.m4a waveform should have nonzero peaks for audio-present input",
+      );
+      // Determinism: same input → identical bucket_count, bucket_duration_sec, and peaks
+      assert.equal(
+        monoRunA.payload.data?.analysis?.waveform_proxy?.bucket_count,
+        monoRunB.payload.data?.analysis?.waveform_proxy?.bucket_count,
+        "waveform proxy bucket_count must be deterministic for same input",
+      );
+      assert.equal(
+        monoRunA.payload.data?.analysis?.waveform_proxy?.bucket_duration_sec,
+        monoRunB.payload.data?.analysis?.waveform_proxy?.bucket_duration_sec,
+        "waveform proxy bucket_duration_sec must be deterministic for same input",
+      );
       assert.deepEqual(
         monoRunA.payload.data?.analysis?.waveform_proxy?.peaks,
         monoRunB.payload.data?.analysis?.waveform_proxy?.peaks,
-        "waveform proxy should be deterministic for same input"
+        "waveform proxy peaks must be deterministic for same input",
       );
 
       const monoWorkingPaths = commitServer.requests
@@ -546,7 +575,13 @@ async function main(): Promise<void> {
         );
         assertWaveformProxy(formatRun.payload.data?.analysis?.waveform_proxy, testCase.fileName);
         assert.equal(
+          (formatRun.payload.data?.analysis?.waveform_proxy?.peaks.filter((p) => p > 0.01).length ?? 0) > 0,
+          true,
+          `${testCase.fileName} waveform should have nonzero peaks for audio-present file`,
+        );
+        assert.equal(
           formatRun.payload.data?.settings_summary.source_extension,
+
           path.extname(testCase.fileName).toLowerCase(),
           `${testCase.fileName} source extension drifted`,
         );
@@ -662,8 +697,38 @@ async function main(): Promise<void> {
         if (fixture.fileName === "seg_silence_tone_silence.wav") {
           const nearZeroCount = waveform.peaks.filter((peak) => peak <= 0.01).length;
           const strongCount = waveform.peaks.filter((peak) => peak >= 0.1).length;
-          assert.equal(nearZeroCount > 0, true, "silence-heavy fixture should produce near-zero waveform sections");
-          assert.equal(strongCount > 0, true, "tone fixture should produce stronger waveform sections");
+          const totalBuckets = waveform.peaks.length;
+          assert.equal(nearZeroCount > 0, true, "seg_silence_tone_silence: should produce near-zero waveform sections");
+          assert.equal(strongCount > 0, true, "seg_silence_tone_silence: should produce stronger waveform sections");
+          // Proportionality: both silence and tone regions should be meaningfully represented
+          assert.equal(
+            nearZeroCount / totalBuckets >= 0.2,
+            true,
+            "seg_silence_tone_silence: silence buckets should be at least 20% of total",
+          );
+          assert.equal(
+            strongCount / totalBuckets >= 0.2,
+            true,
+            "seg_silence_tone_silence: strong buckets should be at least 20% of total",
+          );
+        }
+        if (fixture.fileName === "seg_mostly_silent.wav") {
+          const totalBuckets = waveform.peaks.length;
+          const nearZeroCount = waveform.peaks.filter((peak) => peak <= 0.01).length;
+          assert.equal(
+            nearZeroCount / totalBuckets >= 0.9,
+            true,
+            "seg_mostly_silent: near-silence fixture should have >= 90% near-zero peaks",
+          );
+        }
+        if (fixture.fileName === "seg_dense_continuous.wav") {
+          const totalBuckets = waveform.peaks.length;
+          const elevatedCount = waveform.peaks.filter((peak) => peak > 0.01).length;
+          assert.equal(
+            elevatedCount / totalBuckets >= 0.8,
+            true,
+            "seg_dense_continuous: continuous tone fixture should have >= 80% elevated peaks",
+          );
         }
         fixture.assertRegions(regions);
       }
@@ -694,15 +759,31 @@ async function main(): Promise<void> {
       assert.equal(longWaveRun.status, 200, "wave_long.wav returned non-200");
       assert.equal(longWaveRun.payload.data?.status, "prepared", "wave_long.wav did not prepare");
       assertWaveformProxy(longWaveRun.payload.data?.analysis?.waveform_proxy, "wave_long.wav");
-      assert.equal(
-        (longWaveRun.payload.data?.analysis?.waveform_proxy?.bucket_count ?? 0) <= 2400,
-        true,
-        "wave_long.wav waveform bucket count should be bounded"
-      );
+      // bucket_count <= 2400 is now enforced in assertWaveformProxy universally
       assert.equal(
         typeof longWaveRun.payload.data?.settings_summary.analysis_waveform_bucket_count,
         "number",
-        "wave_long.wav should include minimal waveform summary"
+        "wave_long.wav should include minimal waveform summary",
+      );
+      // Duration should approximate the 10s source
+      assert.equal(
+        (longWaveRun.payload.data?.analysis?.waveform_proxy?.duration_sec ?? 0) >= 9.0 &&
+        (longWaveRun.payload.data?.analysis?.waveform_proxy?.duration_sec ?? 0) <= 11.0,
+        true,
+        "wave_long.wav waveform duration should approximate source duration (~10s)",
+      );
+      // 10s file stays below 2400-bucket cap → uses minimum 50ms bucket
+      assert.equal(
+        (longWaveRun.payload.data?.analysis?.waveform_proxy?.bucket_duration_sec ?? 0) >= 0.049 &&
+        (longWaveRun.payload.data?.analysis?.waveform_proxy?.bucket_duration_sec ?? 0) <= 0.051,
+        true,
+        "wave_long.wav waveform bucket_duration should use minimum bucket size (50ms) for short files",
+      );
+      // Long file waveform should have nonzero peaks (continuous tone)
+      assert.equal(
+        (longWaveRun.payload.data?.analysis?.waveform_proxy?.peaks.filter((p) => p > 0.01).length ?? 0) > 0,
+        true,
+        "wave_long.wav waveform should have nonzero peaks for audio-present input",
       );
     } finally {
       await commitServer.close();
