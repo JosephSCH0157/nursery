@@ -29,7 +29,7 @@ async function main(): Promise<void> {
           status: "prepared",
           prepared_at: "2026-03-25T12:00:00.000Z",
           prepared_passes: ["studio_sound"],
-          processor_version: "forge-v1.2.0/audio-polish.v3",
+          processor_version: "forge-v1.2.0/audio-polish.v4",
           output_local_relpath: "hammer/prep/audio-polish/example.wav",
           output_workpiece_path: "hammer/prep/audio-polish/example.wav",
           output_mime_type: "audio/wav",
@@ -63,6 +63,8 @@ async function main(): Promise<void> {
                   confidence: 0.99,
                 },
               ],
+              speech_region_count: 1,
+              silence_region_count: 0,
             },
             transcript_prep: {
               strategy: "fixed_chunk_with_silence_bias_v1",
@@ -150,4 +152,5 @@ main()
       (globalThis as typeof globalThis & { window?: unknown }).window = originalWindow;
     }
   });
+
 

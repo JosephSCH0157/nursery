@@ -71,6 +71,8 @@ type HammerFfprobeMediaTruth = {
 };
 
 type HammerLoudnessAnalysis = HammerAudioPolishAnalysis["loudness"];
+type HammerSegmentationAnalysis = HammerAudioPolishAnalysis["segmentation"];
+type HammerSegmentationRegion = HammerSegmentationAnalysis["regions"][number];
 
 const OUTPUT_MIME_TYPE = "audio/wav";
 const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
@@ -85,6 +87,9 @@ const MAX_AUDIO_POLISH_SOURCE_BYTES = 256 * 1024 * 1024;
 const CANONICAL_MEDIA_FETCH_TIMEOUT_MS = 60_000;
 const FFMPEG_PROCESS_TIMEOUT_MS = 2 * 60 * 1000;
 const FFPROBE_PROCESS_TIMEOUT_MS = 30_000;
+const SILENCE_DETECT_NOISE_DB = -35;
+const SILENCE_DETECT_MIN_SEC = 0.25;
+const SEGMENT_EDGE_CLAMP_SEC = 0.02;
 
 function readTrimmed(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -883,6 +888,21 @@ function buildEmptyLoudnessAnalysis(): HammerLoudnessAnalysis {
   };
 }
 
+function roundToMillis(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function buildEmptySegmentationAnalysis(): HammerSegmentationAnalysis {
+  return {
+    strategy: "ffmpeg_silencedetect_v1",
+    noise_floor_db: SILENCE_DETECT_NOISE_DB,
+    min_silence_sec: SILENCE_DETECT_MIN_SEC,
+    regions: [],
+    speech_region_count: 0,
+    silence_region_count: 0,
+  };
+}
+
 function computeWaveRmsDbfs(parsedWave: ParsedWave): number | null {
   let sumSquares = 0;
   let sampleTotal = 0;
@@ -902,13 +922,18 @@ function computeWaveRmsDbfs(parsedWave: ParsedWave): number | null {
 function parseLoudnessSummary(stderr: string, sourceLabel: string): HammerLoudnessAnalysis {
   const integratedMatch = stderr.match(/Integrated loudness:\s*[\r\n]+\s*I:\s*([-\d.]+)\s+LUFS/i);
   const lraMatch = stderr.match(/Loudness range:\s*[\s\S]*?\bLRA:\s*([-\d.]+)\s+LU/i);
-  const peakMatch = stderr.match(/True peak:\s*[\s\S]*?\bPeak:\s*([-\d.]+)\s+dBF(?:S|TP)/i);
+  const peakMatch = stderr.match(/True peak:\s*[\s\S]*?\bPeak:\s*(-?inf|[-\d.]+)\s+dBF(?:S|TP)/i);
 
   const integratedLufs = integratedMatch ? Number(integratedMatch[1]) : Number.NaN;
   const loudnessRangeLu = lraMatch ? Number(lraMatch[1]) : Number.NaN;
-  const truePeakDbtp = peakMatch ? Number(peakMatch[1]) : Number.NaN;
+  const peakRaw = peakMatch?.[1]?.toLowerCase() ?? null;
+  const truePeakDbtp = peakRaw === "-inf" || peakRaw === "inf"
+    ? null
+    : peakRaw != null
+    ? Number(peakRaw)
+    : Number.NaN;
 
-  if (!Number.isFinite(integratedLufs) || !Number.isFinite(loudnessRangeLu) || !Number.isFinite(truePeakDbtp)) {
+  if (!Number.isFinite(integratedLufs) || !Number.isFinite(loudnessRangeLu) || (truePeakDbtp != null && !Number.isFinite(truePeakDbtp))) {
     throw new Error(`Hammer could not parse FFmpeg loudness analysis for ${sourceLabel}.`);
   }
 
@@ -981,6 +1006,229 @@ async function analyzeLoudnessWithFfmpeg(args: {
     });
 
     return parseLoudnessSummary(stderr, args.sourceLabel);
+  } finally {
+    await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+type RawSilenceWindow = {
+  start_sec: number;
+  end_sec: number;
+};
+
+function parseSilenceWindows(stderr: string): RawSilenceWindow[] {
+  const windows: RawSilenceWindow[] = [];
+  const starts = [...stderr.matchAll(/silence_start:\s*([-\d.]+)/gi)].map((match) => Number(match[1]));
+  const ends = [...stderr.matchAll(/silence_end:\s*([-\d.]+)/gi)].map((match) => Number(match[1]));
+  const pairCount = Math.min(starts.length, ends.length);
+  for (let index = 0; index < pairCount; index += 1) {
+    const start = starts[index];
+    const end = ends[index];
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    windows.push({
+      start_sec: start,
+      end_sec: end,
+    });
+  }
+  return windows;
+}
+
+function mergeSameKindRegions(regions: HammerSegmentationRegion[]): HammerSegmentationRegion[] {
+  if (regions.length <= 1) return regions;
+  const merged: HammerSegmentationRegion[] = [];
+  for (const region of regions) {
+    const previous = merged[merged.length - 1];
+    if (previous && previous.kind === region.kind && Math.abs(previous.end_sec - region.start_sec) <= 0.001) {
+      previous.end_sec = region.end_sec;
+      previous.confidence = previous.confidence ?? region.confidence;
+      continue;
+    }
+    merged.push({ ...region });
+  }
+  return merged;
+}
+
+function normalizeSegmentationRegions(args: {
+  durationSec: number;
+  silenceWindows: RawSilenceWindow[];
+}): HammerSegmentationAnalysis {
+  const durationSec = roundToMillis(Math.max(0, args.durationSec));
+  if (!(durationSec > 0)) {
+    return buildEmptySegmentationAnalysis();
+  }
+
+  const normalizedSilence = args.silenceWindows
+    .map((window) => ({
+      start_sec: roundToMillis(Math.max(0, Math.min(durationSec, window.start_sec))),
+      end_sec: roundToMillis(Math.max(0, Math.min(durationSec, window.end_sec))),
+    }))
+    .filter((window) => window.end_sec > window.start_sec)
+    .sort((left, right) => left.start_sec - right.start_sec);
+
+  const mergedSilence: RawSilenceWindow[] = [];
+  for (const window of normalizedSilence) {
+    const previous = mergedSilence[mergedSilence.length - 1];
+    if (!previous) {
+      mergedSilence.push({ ...window });
+      continue;
+    }
+    if (window.start_sec <= previous.end_sec + 0.001) {
+      previous.end_sec = Math.max(previous.end_sec, window.end_sec);
+      continue;
+    }
+    mergedSilence.push({ ...window });
+  }
+
+  const regions: HammerSegmentationRegion[] = [];
+  let cursor = 0;
+  for (const window of mergedSilence) {
+    if (window.start_sec > cursor) {
+      regions.push({
+        id: `speech_${regions.length + 1}`,
+        kind: "speech",
+        start_sec: cursor,
+        end_sec: window.start_sec,
+        confidence: null,
+      });
+    }
+    regions.push({
+      id: `silence_${regions.length + 1}`,
+      kind: "silence",
+      start_sec: window.start_sec,
+      end_sec: window.end_sec,
+      confidence: null,
+    });
+    cursor = window.end_sec;
+  }
+  if (cursor < durationSec) {
+    regions.push({
+      id: `speech_${regions.length + 1}`,
+      kind: "speech",
+      start_sec: cursor,
+      end_sec: durationSec,
+      confidence: null,
+    });
+  }
+  if (regions.length === 0) {
+    regions.push({
+      id: "speech_1",
+      kind: "speech",
+      start_sec: 0,
+      end_sec: durationSec,
+      confidence: null,
+    });
+  }
+
+  const compacted = mergeSameKindRegions(
+    regions.filter((region) => region.end_sec - region.start_sec > 0),
+  );
+
+  if (compacted.length > 1 && compacted[0].end_sec - compacted[0].start_sec <= SEGMENT_EDGE_CLAMP_SEC) {
+    compacted[1].start_sec = 0;
+    compacted.shift();
+  }
+  if (compacted.length > 1) {
+    const lastIndex = compacted.length - 1;
+    if (compacted[lastIndex].end_sec - compacted[lastIndex].start_sec <= SEGMENT_EDGE_CLAMP_SEC) {
+      compacted[lastIndex - 1].end_sec = durationSec;
+      compacted.pop();
+    }
+  }
+
+  const finalized = mergeSameKindRegions(
+    compacted
+      .map((region, index) => ({
+        ...region,
+        id: `${region.kind}_${index + 1}`,
+        start_sec: index === 0 ? 0 : region.start_sec,
+        end_sec: index === compacted.length - 1 ? durationSec : region.end_sec,
+      }))
+      .filter((region) => region.end_sec - region.start_sec > 0),
+  ).sort((left, right) => left.start_sec - right.start_sec);
+
+  for (let index = 1; index < finalized.length; index += 1) {
+    finalized[index].start_sec = finalized[index - 1].end_sec;
+  }
+  if (finalized.length > 0) {
+    finalized[0].start_sec = 0;
+    finalized[finalized.length - 1].end_sec = durationSec;
+  }
+
+  return {
+    strategy: "ffmpeg_silencedetect_v1",
+    noise_floor_db: SILENCE_DETECT_NOISE_DB,
+    min_silence_sec: SILENCE_DETECT_MIN_SEC,
+    regions: finalized,
+    speech_region_count: finalized.filter((region) => region.kind === "speech").length,
+    silence_region_count: finalized.filter((region) => region.kind === "silence").length,
+  };
+}
+
+async function analyzeSegmentationWithFfmpeg(args: {
+  ffmpegBin: string;
+  wavBytes: Buffer;
+  sourceLabel: string;
+  durationSec: number;
+}): Promise<HammerSegmentationAnalysis> {
+  const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-silencedetect-"));
+  const inputPath = path.join(tempRoot, "working-audio.wav");
+  try {
+    await fsPromises.writeFile(inputPath, args.wavBytes);
+    const stderr = await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        args.ffmpegBin,
+        [
+          "-hide_banner",
+          "-nostats",
+          "-i",
+          inputPath,
+          "-af",
+          `silencedetect=noise=${SILENCE_DETECT_NOISE_DB}dB:d=${SILENCE_DETECT_MIN_SEC}`,
+          "-f",
+          "null",
+          "-",
+        ],
+        {
+          windowsHide: true,
+          stdio: ["ignore", "ignore", "pipe"],
+        },
+      );
+
+      let stderrText = "";
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        child.kill();
+      }, FFMPEG_PROCESS_TIMEOUT_MS);
+
+      child.stderr.on("data", (chunk) => {
+        const next = chunk.toString("utf8");
+        if (stderrText.length < 64_000) {
+          stderrText += next.slice(0, 64_000 - stderrText.length);
+        }
+      });
+      child.on("error", (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+      child.on("close", (code) => {
+        clearTimeout(timeoutId);
+        if (timedOut) {
+          reject(new Error("Hammer silence detection timed out."));
+          return;
+        }
+        if (code === 0) {
+          resolve(stderrText);
+          return;
+        }
+        reject(new Error(stderrText.trim() || `Hammer silence detection failed for ${args.sourceLabel}.`));
+      });
+    });
+
+    return normalizeSegmentationRegions({
+      durationSec: args.durationSec,
+      silenceWindows: parseSilenceWindows(stderr),
+    });
   } finally {
     await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -1165,6 +1413,7 @@ export async function handleHammerAudioPolishRequest(
     if (!workingMediaTruth.timebase) {
       workingMediaTruth.timebase = `1/${parsedWave.sampleRate}`;
     }
+    const durationSec = parsedWave.sampleCount / parsedWave.sampleRate;
     const loudnessAnalysis = ffmpegBin
       ? await analyzeLoudnessWithFfmpeg({
         ffmpegBin,
@@ -1173,6 +1422,14 @@ export async function handleHammerAudioPolishRequest(
       })
       : buildEmptyLoudnessAnalysis();
     loudnessAnalysis.rms_dbfs = computeWaveRmsDbfs(parsedWave);
+    const segmentationAnalysis = ffmpegBin
+      ? await analyzeSegmentationWithFfmpeg({
+        ffmpegBin,
+        wavBytes: workingWaveBytes,
+        sourceLabel: workingAudioWorkpiecePath ?? sourceMedia.sourceLabel,
+        durationSec,
+      })
+      : buildEmptySegmentationAnalysis();
     const polishedWaveBytes = renderPolishedWaveBuffer(parsedWave);
     const outputWorkpiecePath = buildArtifactRelpath("audio-polish", request);
     if (!canUseCanonicalTongsContext(context)) {
@@ -1221,12 +1478,7 @@ export async function handleHammerAudioPolishRequest(
             source_ref: workingAudioWorkpiecePath ?? sourceMedia.canonicalWorkpiecePath,
             analyzed_at: preparedAt,
             loudness: loudnessAnalysis,
-            segmentation: {
-              strategy: "ffmpeg_silencedetect_v1",
-              noise_floor_db: null,
-              min_silence_sec: 0.25,
-              regions: [],
-            },
+            segmentation: segmentationAnalysis,
             transcript_prep: {
               strategy: "fixed_chunk_with_silence_bias_v1",
               target_chunk_sec: 60,
@@ -1268,6 +1520,8 @@ export async function handleHammerAudioPolishRequest(
             analysis_integrated_lufs: loudnessAnalysis.integrated_lufs,
             analysis_loudness_range_lu: loudnessAnalysis.loudness_range_lu,
             analysis_true_peak_dbtp: loudnessAnalysis.true_peak_dbtp,
+            analysis_speech_region_count: segmentationAnalysis.speech_region_count,
+            analysis_silence_region_count: segmentationAnalysis.silence_region_count,
             chain: "dc_remove,high_pass,presence_lift,gentle_noise_reduction,light_compression,peak_normalize",
           },
         },

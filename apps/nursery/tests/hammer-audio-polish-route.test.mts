@@ -120,6 +120,12 @@ type FormatCase = {
   build: (outputAbs: string, channels: 1 | 2) => void;
 };
 
+type SegmentationRegion = NonNullable<
+  NonNullable<
+    Awaited<ReturnType<typeof handleHammerAudioPolishRequest>>["payload"]["data"]
+  >["analysis"]
+>["segmentation"]["regions"][number];
+
 const FORMAT_CASES: FormatCase[] = [
   {
     fileName: "mono.wav",
@@ -281,6 +287,31 @@ const FORMAT_CASES: FormatCase[] = [
   },
 ];
 
+function assertSegmentationCoverage(
+  regions: SegmentationRegion[],
+  durationMs: number,
+  label: string,
+): void {
+  assert.equal(regions.length > 0, true, `${label} should produce at least one region`);
+  assert.equal(regions[0]?.start_sec, 0, `${label} should start at 0`);
+  const durationSec = durationMs / 1000;
+  const lastRegion = regions[regions.length - 1];
+  assert.equal(Math.abs((lastRegion?.end_sec ?? 0) - durationSec) <= 0.001, true, `${label} should end at file duration`);
+
+  let previousEnd = 0;
+  for (let index = 0; index < regions.length; index += 1) {
+    const region = regions[index];
+    assert.equal(region.start_sec >= 0, true, `${label} region ${index} has negative start`);
+    assert.equal(region.end_sec > region.start_sec, true, `${label} region ${index} has invalid duration`);
+    assert.equal(region.start_sec >= previousEnd, true, `${label} region ${index} is unsorted`);
+    assert.equal(Math.abs(region.start_sec - previousEnd) <= 0.001, true, `${label} region ${index} breaks full coverage`);
+    if (index > 0) {
+      assert.notEqual(regions[index - 1]?.kind, region.kind, `${label} should merge adjacent same-kind regions`);
+    }
+    previousEnd = region.end_sec;
+  }
+}
+
 async function main(): Promise<void> {
   if (!commandAvailable("ffmpeg") || !commandAvailable("ffprobe")) {
     console.log("Skipping hammer audio polish route test (ffmpeg/ffprobe unavailable).");
@@ -332,10 +363,17 @@ async function main(): Promise<void> {
       assert.equal(typeof monoRunA.payload.data?.analysis?.loudness.integrated_lufs, "number");
       assert.equal(typeof monoRunA.payload.data?.analysis?.loudness.loudness_range_lu, "number");
       assert.equal(typeof monoRunA.payload.data?.analysis?.loudness.true_peak_dbtp, "number");
+      assert.equal(typeof monoRunA.payload.data?.settings_summary.analysis_speech_region_count, "number");
+      assert.equal(typeof monoRunA.payload.data?.settings_summary.analysis_silence_region_count, "number");
       assert.equal((monoRunA.payload.data?.analysis?.loudness.integrated_lufs ?? -Infinity) >= -60, true);
       assert.equal((monoRunA.payload.data?.analysis?.loudness.integrated_lufs ?? Infinity) <= 0, true);
       assert.equal((monoRunA.payload.data?.analysis?.loudness.true_peak_dbtp ?? Infinity) <= 0, true);
       assert.equal((monoRunA.payload.data?.analysis?.loudness.loudness_range_lu ?? -1) >= 0, true);
+      assertSegmentationCoverage(
+        monoRunA.payload.data?.analysis?.segmentation.regions ?? [],
+        monoRunA.payload.data?.output_duration_ms ?? 0,
+        "mono.m4a",
+      );
 
       assert.equal(stereoRun.status, 200);
       assert.equal(stereoRun.payload.ok, true);
@@ -378,10 +416,17 @@ async function main(): Promise<void> {
         assert.equal(typeof formatRun.payload.data?.analysis?.loudness.integrated_lufs, "number", `${testCase.fileName} missing integrated loudness`);
         assert.equal(typeof formatRun.payload.data?.analysis?.loudness.loudness_range_lu, "number", `${testCase.fileName} missing loudness range`);
         assert.equal(typeof formatRun.payload.data?.analysis?.loudness.true_peak_dbtp, "number", `${testCase.fileName} missing true peak`);
+        assert.equal(typeof formatRun.payload.data?.settings_summary.analysis_speech_region_count, "number", `${testCase.fileName} missing speech region count`);
+        assert.equal(typeof formatRun.payload.data?.settings_summary.analysis_silence_region_count, "number", `${testCase.fileName} missing silence region count`);
         assert.equal((formatRun.payload.data?.analysis?.loudness.integrated_lufs ?? -Infinity) >= -60, true, `${testCase.fileName} integrated loudness out of range`);
         assert.equal((formatRun.payload.data?.analysis?.loudness.integrated_lufs ?? Infinity) <= 0, true, `${testCase.fileName} integrated loudness out of range`);
         assert.equal((formatRun.payload.data?.analysis?.loudness.true_peak_dbtp ?? Infinity) <= 0, true, `${testCase.fileName} true peak out of range`);
         assert.equal((formatRun.payload.data?.analysis?.loudness.loudness_range_lu ?? -1) >= 0, true, `${testCase.fileName} loudness range out of range`);
+        assertSegmentationCoverage(
+          formatRun.payload.data?.analysis?.segmentation.regions ?? [],
+          formatRun.payload.data?.output_duration_ms ?? 0,
+          testCase.fileName,
+        );
         assert.equal(
           formatRun.payload.data?.settings_summary.source_extension,
           path.extname(testCase.fileName).toLowerCase(),
@@ -392,6 +437,103 @@ async function main(): Promise<void> {
         } else {
           assert.equal(formatRun.payload.data?.settings_summary.working_audio_workpiece_path, null, `${testCase.fileName} unexpectedly created working audio path`);
         }
+      }
+
+      const segmentationFixtures = [
+        {
+          fileName: "seg_silence_tone_silence.wav",
+          build: () => runCommand("ffmpeg", [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=48000:cl=mono:d=0.4",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=0.7",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=48000:cl=mono:d=0.5",
+            "-filter_complex",
+            "[0:a][1:a][2:a]concat=n=3:v=0:a=1[out]",
+            "-map",
+            "[out]",
+            path.join(tempRoot, "seg_silence_tone_silence.wav"),
+          ]),
+          assertRegions: (regions: SegmentationRegion[]) => {
+            assert.equal(regions.length, 3);
+            assert.deepEqual(regions.map((region) => region.kind), ["silence", "speech", "silence"]);
+          },
+        },
+        {
+          fileName: "seg_mostly_silent.wav",
+          build: () => runCommand("ffmpeg", [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=48000:cl=mono:d=1.2",
+            "-acodec",
+            "pcm_s16le",
+            "-ar",
+            "48000",
+            path.join(tempRoot, "seg_mostly_silent.wav"),
+          ]),
+          assertRegions: (regions: SegmentationRegion[]) => {
+            assert.equal(regions.length >= 1, true);
+            assert.equal(regions[0]?.kind, "silence");
+          },
+        },
+        {
+          fileName: "seg_dense_continuous.wav",
+          build: () => runCommand("ffmpeg", [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=520:duration=1.2",
+            "-ac",
+            "1",
+            "-ar",
+            "48000",
+            path.join(tempRoot, "seg_dense_continuous.wav"),
+          ]),
+          assertRegions: (regions: SegmentationRegion[]) => {
+            assert.equal(regions.length, 1);
+            assert.equal(regions[0]?.kind, "speech");
+          },
+        },
+      ] as const;
+
+      for (const fixture of segmentationFixtures) {
+        fixture.build();
+        const fixtureRun = await runOneCase({
+          localRootAbs: tempRoot,
+          localRelpath: fixture.fileName,
+          mimeType: "audio/wav",
+          mediaKind: "recording_audio",
+          context,
+        });
+        assert.equal(fixtureRun.status, 200, `${fixture.fileName} returned non-200`);
+        assert.equal(fixtureRun.payload.data?.status, "prepared", `${fixture.fileName} did not prepare`);
+        const regions = fixtureRun.payload.data?.analysis?.segmentation.regions ?? [];
+        assertSegmentationCoverage(
+          regions,
+          fixtureRun.payload.data?.output_duration_ms ?? 0,
+          fixture.fileName,
+        );
+        fixture.assertRegions(regions);
       }
     } finally {
       await commitServer.close();

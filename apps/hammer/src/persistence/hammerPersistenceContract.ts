@@ -205,6 +205,8 @@ export interface HammerAudioPolishAnalysisSegmentation {
   noise_floor_db: number | null;
   min_silence_sec: number;
   regions: HammerAudioPolishAnalysisSegmentationRegion[];
+  speech_region_count: number;
+  silence_region_count: number;
 }
 
 export interface HammerAudioPolishAnalysisTranscriptPrepChunk {

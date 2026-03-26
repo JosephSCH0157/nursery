@@ -122,7 +122,7 @@ const snapshot: HammerPersistenceSnapshot = {
       },
       source_media_id: "media_media_pkg_01",
       source_media_signature: "sig_media_pkg_01",
-      processor_version: "forge-v1.2.0/audio-polish.v3",
+      processor_version: "forge-v1.2.0/audio-polish.v4",
       prepared_at: "2026-03-15T10:59:00.000Z",
       output_local_relpath: "hammer/prep/audio-polish/media-pkg--abcd1234.wav",
       output_mime_type: "audio/wav",
@@ -230,4 +230,5 @@ const snapshot: HammerPersistenceSnapshot = {
 }
 
 console.log("Hammer media prep outputs package tests passed.");
+
 

@@ -124,6 +124,8 @@ function normalizeAudioPolishAnalysis(value: unknown): HammerAudioPolishAnalysis
   const targetChunkSec = readNumber(transcriptPrep.target_chunk_sec);
   const maxChunkSec = readNumber(transcriptPrep.max_chunk_sec);
   const minSilenceSec = readNumber(segmentation.min_silence_sec);
+  const speechRegionCountRaw = readNumber(segmentation.speech_region_count);
+  const silenceRegionCountRaw = readNumber(segmentation.silence_region_count);
   if (!analyzedAt || schemaVersion !== 1 || targetChunkSec == null || maxChunkSec == null || minSilenceSec == null) {
     return null;
   }
@@ -145,6 +147,8 @@ function normalizeAudioPolishAnalysis(value: unknown): HammerAudioPolishAnalysis
       noise_floor_db: readNumber(segmentation.noise_floor_db),
       min_silence_sec: minSilenceSec,
       regions: segmentationRegions,
+      speech_region_count: speechRegionCountRaw ?? segmentationRegions.filter((region) => region.kind === "speech").length,
+      silence_region_count: silenceRegionCountRaw ?? segmentationRegions.filter((region) => region.kind === "silence").length,
     },
     transcript_prep: {
       strategy: transcriptStrategy,

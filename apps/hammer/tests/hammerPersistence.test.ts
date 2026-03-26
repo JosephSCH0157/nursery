@@ -231,6 +231,8 @@ const snapshot: HammerWorkspaceSnapshot = {
             confidence: 0.99,
           },
         ],
+        speech_region_count: 1,
+        silence_region_count: 0,
       },
       transcript_prep: {
         strategy: "fixed_chunk_with_silence_bias_v1",
@@ -255,7 +257,7 @@ const snapshot: HammerWorkspaceSnapshot = {
     },
     source_media_id: "media_01",
     source_media_signature: "media_sig_01",
-    processor_version: "forge-v1.2.0/audio-polish.v3",
+    processor_version: "forge-v1.2.0/audio-polish.v4",
     prepared_at: "2026-03-13T10:10:05.000Z",
     output_local_relpath: "hammer/prep/audio-polish/episode-1--abcd1234.wav",
     output_mime_type: "audio/wav",
@@ -405,4 +407,5 @@ assert.deepEqual(
   readHammerPersistenceTarget("?workspace_id=aaa&workpiece_id=bbb"),
   { workspaceId: "aaa", workpieceId: "bbb" },
 );
+
 

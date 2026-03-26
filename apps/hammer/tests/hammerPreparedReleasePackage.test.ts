@@ -101,7 +101,7 @@ function buildCurrentReleasePrep(args?: {
     settings_summary: {},
     source_media_id: args?.mediaId ?? "media_prepared_pkg_01",
     source_media_signature: args?.mediaSignature ?? "sig_prepared_pkg_01",
-    processor_version: "forge-v1.2.0/audio-polish.v3",
+    processor_version: "forge-v1.2.0/audio-polish.v4",
     prepared_at: args?.preferredKind === "polished" ? "2026-03-19T12:02:00.000Z" : null,
     output_local_relpath: args?.preferredKind === "polished" ? "hammer/prep/audio-polish/prepared.wav" : null,
     output_workpiece_path: args?.preferredKind === "polished" ? "hammer/prep/audio-polish/prepared.wav" : null,
@@ -208,4 +208,5 @@ function buildCurrentReleasePrep(args?: {
 }
 
 console.log("Hammer prepared release package tests passed.");
+
 

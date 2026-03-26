@@ -63,6 +63,8 @@ const prepSource: HammerPrepSource = {
             confidence: 0.99,
           },
         ],
+        speech_region_count: 1,
+        silence_region_count: 0,
       },
       transcript_prep: {
         strategy: "fixed_chunk_with_silence_bias_v1",
