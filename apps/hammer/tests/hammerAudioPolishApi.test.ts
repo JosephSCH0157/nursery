@@ -90,6 +90,14 @@ async function main(): Promise<void> {
               phase_correlation: 1,
               phase_concern: false,
             },
+            waveform_proxy: {
+              version: "v1",
+              duration_sec: 8,
+              bucket_count: 4,
+              bucket_duration_sec: 2,
+              channel_mode: "mono_mixdown",
+              peaks: [0.2, 0.6, 0.4, 0.7],
+            },
           },
         },
       }), {
@@ -132,6 +140,10 @@ async function main(): Promise<void> {
   assert.equal(withAnalysis.analysis?.transcript_prep.chunks[0]?.chunk_index, 1);
   assert.equal(withAnalysis.analysis?.transcript_prep.chunks[0]?.boundary_reason, "short_file");
   assert.equal(withAnalysis.analysis?.transcript_prep.chunks[0]?.source, "short_file");
+  assert.equal(withAnalysis.analysis?.waveform_proxy?.version, "v1");
+  assert.equal(withAnalysis.analysis?.waveform_proxy?.channel_mode, "mono_mixdown");
+  assert.equal(withAnalysis.analysis?.waveform_proxy?.bucket_count, 4);
+  assert.deepEqual(withAnalysis.analysis?.waveform_proxy?.peaks, [0.2, 0.6, 0.4, 0.7]);
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     assert.equal(String(input), HAMMER_AUDIO_POLISH_ROUTE);
@@ -176,6 +188,14 @@ async function main(): Promise<void> {
               chunks: [{ id: "chunk_1", start_sec: 0, end_sec: 8, duration_sec: 8, source: "short_file_single_chunk" }],
             },
             channel_characterization: null,
+            waveform_proxy: {
+              version: "v1",
+              duration_sec: 8,
+              bucket_count: 3,
+              bucket_duration_sec: 2,
+              channel_mode: "mono_mixdown",
+              peaks: [0.2, 0.6],
+            },
           },
         },
       }), {
@@ -214,6 +234,7 @@ async function main(): Promise<void> {
   assert.equal(legacyReason.analysis?.transcript_prep.chunks[0]?.boundary_reason, "short_file");
   assert.equal(legacyReason.analysis?.transcript_prep.chunks[0]?.source, "short_file");
   assert.equal(legacyReason.analysis?.transcript_prep.chunk_count, 1);
+  assert.equal(legacyReason.analysis?.waveform_proxy, null);
 
   const legacy = await requestHammerAudioPolish({
     workspace_id: "ws_01",

@@ -87,6 +87,14 @@ const prepSource: HammerPrepSource = {
         phase_correlation: 1,
         phase_concern: false,
       },
+      waveform_proxy: {
+        version: "v1",
+        duration_sec: 8,
+        bucket_count: 4,
+        bucket_duration_sec: 2,
+        channel_mode: "mono_mixdown",
+        peaks: [0.2, 0.5, 0.35, 0.8],
+      },
     },
   });
   assert.equal(isReusableHammerAudioPolish(prepared, prepSource), true);
@@ -95,6 +103,7 @@ const prepSource: HammerPrepSource = {
   assert.notEqual(cloned?.analysis, prepared.analysis);
   assert.notEqual(cloned?.analysis?.segmentation, prepared.analysis?.segmentation);
   assert.notEqual(cloned?.analysis?.segmentation.regions, prepared.analysis?.segmentation.regions);
+  assert.notEqual(cloned?.analysis?.waveform_proxy?.peaks, prepared.analysis?.waveform_proxy?.peaks);
   assert.equal(cloned?.analysis?.loudness.integrated_lufs, -18.2);
 }
 
@@ -196,6 +205,14 @@ const prepSource: HammerPrepSource = {
         phase_correlation: 0.85,
         phase_concern: false,
       },
+      waveform_proxy: {
+        version: "v1",
+        duration_sec: 8,
+        bucket_count: 4,
+        bucket_duration_sec: 2,
+        channel_mode: "mono_mixdown",
+        peaks: [0.3, 0.4, 0.5, 0.6],
+      },
     },
   });
 
@@ -208,6 +225,9 @@ const prepSource: HammerPrepSource = {
     prepared.analysis.channel_characterization?.phase_correlation != null,
     "phase_correlation defined"
   );
+  assert.equal(prepared.analysis.waveform_proxy?.version, "v1");
+  assert.equal(prepared.analysis.waveform_proxy?.channel_mode, "mono_mixdown");
+  assert.equal(prepared.analysis.waveform_proxy?.peaks.length, prepared.analysis.waveform_proxy?.bucket_count);
 }
 
 console.log("Hammer audio polish tests passed.");

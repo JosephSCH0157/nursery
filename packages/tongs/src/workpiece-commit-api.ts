@@ -99,6 +99,21 @@ const HAMMER_PREP_STATUS_VALUES = ["idle", "preparing", "prepared", "prep_failed
 const HAMMER_PREP_STATUS_SET = new Set<string>(HAMMER_PREP_STATUS_VALUES);
 const HAMMER_ALIGNMENT_STATUS_VALUES = ["not_started", "pending", "aligned", "needs_review"] as const;
 const HAMMER_ALIGNMENT_STATUS_SET = new Set<string>(HAMMER_ALIGNMENT_STATUS_VALUES);
+const HAMMER_PASS_ID_VALUES = [
+  "transcript_cleanup",
+  "retakes",
+  "gap_pacing",
+  "visual_finishing",
+  "image_placement",
+  "image_animation",
+  "audio_finalization",
+  "packaging",
+  "ready",
+] as const;
+const HAMMER_PASS_ID_SET = new Set<string>(HAMMER_PASS_ID_VALUES);
+const HAMMER_PASS_STATE_VALUES = ["not_started", "in_progress", "completed"] as const;
+const HAMMER_PASS_STATE_SET = new Set<string>(HAMMER_PASS_STATE_VALUES);
+const HAMMER_PASS_ORDER_VERSION = 2;
 const STORAGE_LIST_MAX_DEPTH = 3;
 const STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY = 80;
 const HAMMER_ARTIFACT_PATHS = {
@@ -370,6 +385,8 @@ export type HearthPresenceMode = "viewing" | "editing";
 export type HammerPresenceMode = "viewing" | "editing";
 export type HammerPrepStatus = (typeof HAMMER_PREP_STATUS_VALUES)[number];
 export type HammerAlignmentStatus = (typeof HAMMER_ALIGNMENT_STATUS_VALUES)[number];
+export type HammerPassId = (typeof HAMMER_PASS_ID_VALUES)[number];
+export type HammerPassState = (typeof HAMMER_PASS_STATE_VALUES)[number];
 
 export type UpsertHearthWorkpiecePresenceRequest = {
   mode: HearthPresenceMode;
@@ -395,6 +412,9 @@ export type SaveHammerWorkpieceStateRequest = {
   active_session_id?: string | null;
   prep_status?: HammerPrepStatus;
   alignment_status?: HammerAlignmentStatus;
+  current_pass?: HammerPassId;
+  pass_order_version?: number;
+  pass_status?: Partial<Record<HammerPassId, HammerPassState>>;
   last_opened_at?: string;
   edit_plan_signature?: string | null;
   macro_recipe_ref?: string | null;
@@ -2270,6 +2290,46 @@ function normalizeHammerAlignmentStatus(value: unknown, field = "alignment_statu
   throw new HttpError(400, "invalid_status", `${field} must be one of ${HAMMER_ALIGNMENT_STATUS_VALUES.join(", ")}`);
 }
 
+function normalizeHammerPassId(value: unknown, field = "current_pass"): HammerPassId {
+  const normalized = normalizeNonEmptyString(value, field).toLowerCase();
+  if (HAMMER_PASS_ID_SET.has(normalized)) {
+    return normalized as HammerPassId;
+  }
+  throw new HttpError(400, "invalid_pass", `${field} must be one of ${HAMMER_PASS_ID_VALUES.join(", ")}`);
+}
+
+function normalizeHammerPassOrderVersion(value: unknown, field = "pass_order_version"): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new HttpError(400, "invalid_pass_order_version", `${field} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function normalizeHammerPassStatusMap(
+  value: unknown,
+  field = "pass_status",
+): Partial<Record<HammerPassId, HammerPassState>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new HttpError(400, "invalid_pass_status", `${field} must be an object`);
+  }
+  const row = value as Record<string, unknown>;
+  const normalized: Partial<Record<HammerPassId, HammerPassState>> = {};
+  for (const [rawPassId, rawState] of Object.entries(row)) {
+    if (!HAMMER_PASS_ID_SET.has(rawPassId)) continue;
+    const normalizedState = typeof rawState === "string" ? rawState.trim().toLowerCase() : "";
+    if (!HAMMER_PASS_STATE_SET.has(normalizedState)) {
+      throw new HttpError(
+        400,
+        "invalid_pass_status",
+        `${field}.${rawPassId} must be one of ${HAMMER_PASS_STATE_VALUES.join(", ")}`,
+      );
+    }
+    normalized[rawPassId as HammerPassId] = normalizedState as HammerPassState;
+  }
+  return normalized;
+}
+
 function normalizeHammerArtifactWriteRequest(
   value: unknown,
   field: string,
@@ -2316,6 +2376,15 @@ function normalizeSaveHammerWorkpieceStateRequest(
   const alignmentStatus = typeof body.alignment_status === "undefined"
     ? undefined
     : normalizeHammerAlignmentStatus(body.alignment_status);
+  const currentPass = typeof body.current_pass === "undefined"
+    ? undefined
+    : normalizeHammerPassId(body.current_pass);
+  const passOrderVersion = typeof body.pass_order_version === "undefined"
+    ? undefined
+    : normalizeHammerPassOrderVersion(body.pass_order_version);
+  const passStatus = typeof body.pass_status === "undefined"
+    ? undefined
+    : normalizeHammerPassStatusMap(body.pass_status);
   const macroRecipeRef = typeof body.macro_recipe_ref === "undefined"
     ? undefined
     : body.macro_recipe_ref === null
@@ -2338,6 +2407,9 @@ function normalizeSaveHammerWorkpieceStateRequest(
     ...(typeof lastOpenedAt === "undefined" ? {} : { last_opened_at: lastOpenedAt }),
     ...(typeof prepStatus === "undefined" ? {} : { prep_status: prepStatus }),
     ...(typeof alignmentStatus === "undefined" ? {} : { alignment_status: alignmentStatus }),
+    ...(typeof currentPass === "undefined" ? {} : { current_pass: currentPass }),
+    ...(typeof passOrderVersion === "undefined" ? {} : { pass_order_version: passOrderVersion }),
+    ...(typeof passStatus === "undefined" ? {} : { pass_status: passStatus }),
     ...(typeof macroRecipeRef === "undefined" ? {} : { macro_recipe_ref: macroRecipeRef }),
     ...(typeof lastMacroRunRef === "undefined" ? {} : { last_macro_run_ref: lastMacroRunRef }),
     ...(typeof editPlanSignature === "undefined" ? {} : { edit_plan_signature: editPlanSignature }),
@@ -4598,6 +4670,9 @@ export class TongsCommitService {
         : input.edit_plan_signature,
       prep_status: input.prep_status ?? existingState?.prep_status ?? "idle",
       alignment_status: input.alignment_status ?? existingState?.alignment_status ?? "not_started",
+      current_pass: input.current_pass ?? existingState?.current_pass ?? "transcript_cleanup",
+      pass_order_version: input.pass_order_version ?? existingState?.pass_order_version ?? HAMMER_PASS_ORDER_VERSION,
+      pass_status: (input.pass_status ?? existingState?.pass_status ?? {}) as Json,
       macro_recipe_ref: typeof input.macro_recipe_ref === "undefined"
         ? existingState?.macro_recipe_ref ?? null
         : input.macro_recipe_ref,

@@ -74,6 +74,43 @@ function readBoolean(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null;
 }
 
+function readWaveformProxy(value: unknown): HammerAudioPolishAnalysis["waveform_proxy"] {
+  const row = readObject(value);
+  if (!row) return null;
+  const version = readString(row.version);
+  const durationSec = readNumber(row.duration_sec);
+  const bucketCount = readNumber(row.bucket_count);
+  const bucketDurationSec = readNumber(row.bucket_duration_sec);
+  const channelMode = readString(row.channel_mode);
+  const peaksRaw = Array.isArray(row.peaks) ? row.peaks : null;
+  if (
+    version !== "v1"
+    || durationSec == null
+    || bucketCount == null
+    || bucketDurationSec == null
+    || channelMode !== "mono_mixdown"
+    || !peaksRaw
+  ) {
+    return null;
+  }
+  if (durationSec <= 0 || bucketDurationSec <= 0 || bucketCount <= 0 || !Number.isInteger(bucketCount)) {
+    return null;
+  }
+  const peaks = peaksRaw
+    .map((entry) => readNumber(entry))
+    .filter((entry): entry is number => entry != null);
+  if (peaks.length !== bucketCount) return null;
+  if (peaks.some((value) => value < 0 || value > 1)) return null;
+  return {
+    version: "v1",
+    duration_sec: durationSec,
+    bucket_count: bucketCount,
+    bucket_duration_sec: bucketDurationSec,
+    channel_mode: "mono_mixdown",
+    peaks,
+  };
+}
+
 function normalizeAudioPolishAnalysis(value: unknown): HammerAudioPolishAnalysis | null {
   const row = readObject(value);
   if (!row) return null;
@@ -158,6 +195,7 @@ function normalizeAudioPolishAnalysis(value: unknown): HammerAudioPolishAnalysis
   }
 
   const channelCharacterization = readObject(row.channel_characterization);
+  const waveformProxy = readWaveformProxy(row.waveform_proxy);
 
   return {
     schema_version: 1,
@@ -200,6 +238,7 @@ function normalizeAudioPolishAnalysis(value: unknown): HammerAudioPolishAnalysis
         phase_concern: readBoolean(channelCharacterization.phase_concern) ?? false,
       }
       : null,
+    waveform_proxy: waveformProxy,
   };
 }
 

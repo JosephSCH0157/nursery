@@ -41,6 +41,12 @@ function cloneHammerAudioPolishAnalysis(
     channel_characterization: value.channel_characterization
       ? { ...value.channel_characterization }
       : null,
+    waveform_proxy: value.waveform_proxy
+      ? {
+        ...value.waveform_proxy,
+        peaks: [...value.waveform_proxy.peaks],
+      }
+      : null,
   };
 }
 

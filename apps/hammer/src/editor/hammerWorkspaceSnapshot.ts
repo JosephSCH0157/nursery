@@ -9,6 +9,8 @@ import type {
 } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type {
+  HammerPassId,
+  HammerPassStatusMap,
   HammerPersistedAudioPolish,
   HammerPersistedStructuredTranscript,
   HammerPersistedVisualPlacements,
@@ -26,6 +28,9 @@ export interface HammerWorkspaceSnapshot {
   editPlanStatus: HammerWorkspaceEditPlanStatus;
   editPlanSignature: string;
   transcriptSourceId: string;
+  currentPass: HammerPassId;
+  passOrderVersion: number;
+  passStatus: HammerPassStatusMap;
   transcriptSegments: HammerTranscriptSegment[];
   selectedSegmentId: string | null;
   selectedOverlayRowId: string | null;

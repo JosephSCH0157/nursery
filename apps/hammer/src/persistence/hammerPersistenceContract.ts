@@ -16,6 +16,19 @@ import type { HammerTranscriptSegment } from "../../../../packages/contracts/ham
 export type HammerPrepStatus = "idle" | "preparing" | "prepared" | "prep_failed";
 export type HammerAlignmentStatus = "not_started" | "pending" | "aligned" | "needs_review";
 export type HammerPresenceMode = "viewing" | "editing";
+export type HammerPassId =
+  | "transcript_cleanup"
+  | "retakes"
+  | "gap_pacing"
+  | "visual_finishing"
+  | "image_placement"
+  | "image_animation"
+  | "audio_finalization"
+  | "packaging"
+  | "ready";
+export type HammerPassState = "not_started" | "in_progress" | "completed";
+export type HammerPassStatusMap = Partial<Record<HammerPassId, HammerPassState>>;
+export const HAMMER_PASS_ORDER_VERSION = 2;
 
 export interface HammerPersistenceTarget {
   workspaceId: string;
@@ -235,6 +248,15 @@ export interface HammerAudioPolishAnalysisChannelCharacterization {
   phase_concern: boolean;
 }
 
+export interface HammerAudioPolishAnalysisWaveformProxy {
+  version: "v1";
+  duration_sec: number;
+  bucket_count: number;
+  bucket_duration_sec: number;
+  channel_mode: "mono_mixdown";
+  peaks: number[];
+}
+
 export interface HammerAudioPolishAnalysis {
   schema_version: 1;
   source_ref: string | null;
@@ -243,6 +265,7 @@ export interface HammerAudioPolishAnalysis {
   segmentation: HammerAudioPolishAnalysisSegmentation;
   transcript_prep: HammerAudioPolishAnalysisTranscriptPrep;
   channel_characterization: HammerAudioPolishAnalysisChannelCharacterization | null;
+  waveform_proxy: HammerAudioPolishAnalysisWaveformProxy | null;
 }
 
 export interface HammerPersistedAudioPolish {
@@ -273,6 +296,9 @@ export interface HammerPersistedStateRecord {
   workspace_id: string;
   workpiece_id: string;
   active_session_id: string | null;
+  current_pass: HammerPassId;
+  pass_order_version: number;
+  pass_status: HammerPassStatusMap;
   editor_session_path: string | null;
   transcript_artifact_path: string | null;
   speaker_map_artifact_path: string | null;
@@ -318,6 +344,9 @@ export interface HammerPersistenceSaveRequest {
   active_session_id?: string | null;
   prep_status?: HammerPrepStatus;
   alignment_status?: HammerAlignmentStatus;
+  current_pass?: HammerPassId;
+  pass_order_version?: number;
+  pass_status?: HammerPassStatusMap;
   last_opened_at?: string;
   edit_plan_signature?: string | null;
   macro_recipe_ref?: string | null;

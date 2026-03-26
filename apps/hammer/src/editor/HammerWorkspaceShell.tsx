@@ -9,6 +9,10 @@ import type { HammerEditorialAuthorityGraph } from "../../../../packages/contrac
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
 import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import type {
+  HammerPassId,
+  HammerPassState,
+  HammerPassStatusMap,
+  HAMMER_PASS_ORDER_VERSION,
   HammerDerivedTextLayer,
   HammerPersistedAudioPolish,
   HammerPersistedStructuredTranscript,
@@ -51,7 +55,6 @@ import {
   resolveTranscriptDurationSec,
   syncEditableTranscriptSegments,
   updateTranscriptSegmentSpeaker,
-  updateTranscriptSegmentText,
 } from "./hammerWorkspaceTranscript";
 import {
   previewQuickClean,

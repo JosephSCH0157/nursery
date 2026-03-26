@@ -1749,6 +1749,7 @@ export async function handleHammerAudioPolishRequest(
             segmentation: segmentationAnalysis,
             transcript_prep: transcriptPrepAnalysis,
             channel_characterization: analyzeChannelCharacterization(parsedWave),
+            waveform_proxy: null,
           },
           settings_summary: {
             supported_source: true,

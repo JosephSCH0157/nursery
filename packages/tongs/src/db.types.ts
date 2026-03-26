@@ -702,6 +702,9 @@ export type Database = {
           workspace_id: string
           workpiece_id: string
           active_session_id: string | null
+          current_pass: string
+          pass_order_version: number
+          pass_status: Json
           editor_session_path: string | null
           transcript_artifact_path: string | null
           speaker_map_artifact_path: string | null
@@ -721,6 +724,9 @@ export type Database = {
           workspace_id: string
           workpiece_id: string
           active_session_id?: string | null
+          current_pass?: string
+          pass_order_version?: number
+          pass_status?: Json
           editor_session_path?: string | null
           transcript_artifact_path?: string | null
           speaker_map_artifact_path?: string | null
@@ -740,6 +746,9 @@ export type Database = {
           workspace_id?: string
           workpiece_id?: string
           active_session_id?: string | null
+          current_pass?: string
+          pass_order_version?: number
+          pass_status?: Json
           editor_session_path?: string | null
           transcript_artifact_path?: string | null
           speaker_map_artifact_path?: string | null

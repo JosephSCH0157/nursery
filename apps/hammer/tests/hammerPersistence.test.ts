@@ -255,6 +255,14 @@ const snapshot: HammerWorkspaceSnapshot = {
         phase_correlation: 1,
         phase_concern: false,
       },
+      waveform_proxy: {
+        version: "v1",
+        duration_sec: 8,
+        bucket_count: 4,
+        bucket_duration_sec: 2,
+        channel_mode: "mono_mixdown",
+        peaks: [0.1, 0.45, 0.35, 0.7],
+      },
     },
     source_media_id: "media_01",
     source_media_signature: "media_sig_01",
@@ -300,6 +308,14 @@ assert.equal(
 assert.equal(
   saveRequest.audio_polish?.data.analysis?.transcript_prep.chunks[0]?.source,
   "short_file",
+);
+assert.equal(
+  saveRequest.audio_polish?.data.analysis?.waveform_proxy?.version,
+  "v1",
+);
+assert.equal(
+  saveRequest.audio_polish?.data.analysis?.waveform_proxy?.peaks.length,
+  saveRequest.audio_polish?.data.analysis?.waveform_proxy?.bucket_count,
 );
 assert.equal(saveRequest.visual_placements?.data.placements[0]?.asset_ref, "asset_01");
 assert.deepEqual(
@@ -382,6 +398,10 @@ assert.equal(hydrated?.launchContext.edit_plan?.instructions.length, 0);
 assert.equal(
   persistedSnapshot.audio_polish.data?.analysis?.segmentation.regions[0]?.kind,
   "speech",
+);
+assert.deepEqual(
+  persistedSnapshot.audio_polish.data?.analysis?.waveform_proxy?.peaks,
+  [0.1, 0.45, 0.35, 0.7],
 );
 
 const legacyOnlySnapshot: HammerPersistenceSnapshot = {
