@@ -214,6 +214,7 @@ const PLAYHEAD_SNAP_TOLERANCE_SEC = DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC;
 const PRE_ROLL_SEC = 2;
 const POST_ROLL_SEC = 1;
 const SCRUB_SEEK_THRESHOLD_SEC = 0.05;
+const MIN_IMAGE_PLACEMENT_DURATION_SEC = 0.5;
 const SCRUB_RATE_OPTIONS = [1, 0.75, 0.5] as const;
 const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
 type HammerPlaybackAuthorityWindow = Window & typeof globalThis & {
@@ -458,11 +459,41 @@ type HammerTimelineLaneBlock = {
   label: string;
   startSec: number;
   endSec: number;
+  placementId?: string;
   selected: boolean;
   inRange?: boolean;
   disabled?: boolean;
   tone: "dialogue" | "image" | "broll";
   onSelect: () => void;
+};
+
+type HammerImagePlacementDraftWindow = {
+  startSec: number;
+  endSec: number;
+};
+
+type HammerImagePlacementTransform = {
+  leftPct: number;
+  topPct: number;
+  widthPct: number;
+  heightPct: number;
+};
+
+type HammerTimelineImageDragState = {
+  placementId: string;
+  mode: "move" | "resize_start" | "resize_end";
+  pointerStartX: number;
+  originStartSec: number;
+  originEndSec: number;
+  pxToSec: number;
+};
+
+type HammerPreviewCanvasDragState = {
+  placementId: string;
+  mode: "move" | "resize";
+  pointerStartX: number;
+  pointerStartY: number;
+  origin: HammerImagePlacementTransform;
 };
 
 type HammerTimelineLaneView = {
@@ -903,6 +934,21 @@ function createTimelineMarkerId(): string {
   return `marker:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
+const DEFAULT_IMAGE_PLACEMENT_TRANSFORM: HammerImagePlacementTransform = {
+  leftPct: 28,
+  topPct: 22,
+  widthPct: 44,
+  heightPct: 34,
+};
+
+function clampImagePlacementTransform(transform: HammerImagePlacementTransform): HammerImagePlacementTransform {
+  const widthPct = Math.max(8, Math.min(92, transform.widthPct));
+  const heightPct = Math.max(8, Math.min(92, transform.heightPct));
+  const leftPct = Math.max(0, Math.min(100 - widthPct, transform.leftPct));
+  const topPct = Math.max(0, Math.min(100 - heightPct, transform.topPct));
+  return { leftPct, topPct, widthPct, heightPct };
+}
+
 function toTitleCaseText(value: string): string {
   return value.replace(/\b([a-z])/g, (match) => match.toUpperCase());
 }
@@ -1329,6 +1375,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [visualColorAmount, setVisualColorAmount] = useState(0);
   const [visualBackgroundBlur, setVisualBackgroundBlur] = useState(false);
   const [visualEyeContact, setVisualEyeContact] = useState(false);
+  const [selectedImagePlacementId, setSelectedImagePlacementId] = useState<string | null>(null);
+  const [imagePlacementDraftWindows, setImagePlacementDraftWindows] = useState<Record<string, HammerImagePlacementDraftWindow>>({});
+  const [timelineImageDragState, setTimelineImageDragState] = useState<HammerTimelineImageDragState | null>(null);
+  const [imagePlacementTransforms, setImagePlacementTransforms] = useState<Record<string, HammerImagePlacementTransform>>({});
+  const [previewCanvasDragState, setPreviewCanvasDragState] = useState<HammerPreviewCanvasDragState | null>(null);
   const [captionFormatting, setCaptionFormatting] = useState<HammerCaptionFormattingState>({
     style: "sentence",
     maxCharsPerLine: 42,
@@ -1377,6 +1428,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const previewSurfaceRef = useRef<HTMLDivElement | null>(null);
   const workspaceShellRef = useRef<HTMLElement | null>(null);
   const lastPlaybackMediaSrcRef = useRef<string | null>(null);
   const captionEditorRefs = useRef(new Map<string, HTMLTextAreaElement>());
@@ -1398,6 +1450,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const scrubReturnToPausedRef = useRef(false);
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
   const lastGapAutoApplySignatureRef = useRef<string | null>(null);
+  const imagePlacementDraftWindowsRef = useRef<Record<string, HammerImagePlacementDraftWindow>>({});
   const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
 
   useEffect(() => {
@@ -1640,6 +1693,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setTranscriptSelectionAnchorSegmentId(activeCandidateSegmentId);
     setTranscriptSelectionFocusSegmentId(activeCandidateSegmentId);
   }, [activeCandidateSegmentId, editableTranscriptSegments]);
+  useEffect(() => {
+    imagePlacementDraftWindowsRef.current = imagePlacementDraftWindows;
+  }, [imagePlacementDraftWindows]);
   const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
   const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
   const playheadBoundaryTimesSec = useMemo(
@@ -1659,14 +1715,39 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       id: placement.placement_id,
       label: placement.label ?? placement.asset_ref ?? placement.asset_path ?? placement.entry_id,
       anchorSegmentId: placement.anchor_segment_id,
-      startSec: placement.start_sec,
-      endSec: placement.end_sec,
+      startSec: imagePlacementDraftWindows[placement.placement_id]?.startSec ?? placement.start_sec,
+      endSec: imagePlacementDraftWindows[placement.placement_id]?.endSec ?? placement.end_sec,
       status: placement.status,
       confidence: placement.confidence,
       visualMode: placement.visual_mode,
       assetPath: placement.asset_path,
     }))
-  ), [editableVisualPlacements?.placements]);
+  ), [editableVisualPlacements?.placements, imagePlacementDraftWindows]);
+  const selectedImagePlacement = useMemo(
+    () => sourceImageItems.find((item) => item.id === selectedImagePlacementId) ?? null,
+    [selectedImagePlacementId, sourceImageItems],
+  );
+  const selectedImagePlacementTransform = useMemo(() => {
+    if (!selectedImagePlacementId) return DEFAULT_IMAGE_PLACEMENT_TRANSFORM;
+    return imagePlacementTransforms[selectedImagePlacementId] ?? DEFAULT_IMAGE_PLACEMENT_TRANSFORM;
+  }, [imagePlacementTransforms, selectedImagePlacementId]);
+  const selectedImagePlacementPreviewUrl = useMemo(() => {
+    const path = selectedImagePlacement?.assetPath ?? null;
+    if (!path) return null;
+    return sourceDeskPreviewUrls[path] ?? null;
+  }, [selectedImagePlacement?.assetPath, sourceDeskPreviewUrls]);
+  useEffect(() => {
+    if (!selectedImagePlacementId) return;
+    if (sourceImageItems.some((item) => item.id === selectedImagePlacementId)) return;
+    setSelectedImagePlacementId(null);
+  }, [selectedImagePlacementId, sourceImageItems]);
+  useEffect(() => {
+    if (currentPass !== "image_placement") return;
+    if (selectedImagePlacementId) return;
+    const firstItem = sourceImageItems[0] ?? null;
+    if (!firstItem) return;
+    setSelectedImagePlacementId(firstItem.id);
+  }, [currentPass, selectedImagePlacementId, sourceImageItems]);
   const sourceAssetItems = useMemo<HammerSourceAssetItem[]>(() => {
     const byId = new Map<string, HammerSourceAssetItem>();
     for (const placement of editableVisualPlacements?.placements ?? []) {
@@ -1827,21 +1908,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const imageLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
     sourceImageItems.map((item) => ({
       id: `image:${item.id}`,
+      placementId: item.id,
       label: item.label,
       startSec: item.startSec,
       endSec: item.endSec,
-      selected: item.anchorSegmentId === selectedSegmentId,
+      selected: item.id === selectedImagePlacementId,
       tone: "image",
       onSelect: () => {
         selectionOriginRef.current = "timeline";
         setFocusOverride("time-focus");
+        setSelectedImagePlacementId(item.id);
         setSelectedSegmentId(item.anchorSegmentId);
         setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
         setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
         seekPlayheadToTime(item.startSec, "playhead");
       },
     }))
-  ), [sourceImageItems, selectedSegmentId]);
+  ), [selectedImagePlacementId, sourceImageItems]);
   const brollLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
     sourceBrollItems
       .filter((item) => item.usageCount > 0)
@@ -2373,6 +2456,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     applyWorkspaceState(baselineState);
     selectionOriginRef.current = "system";
     setTimelineMarkers([]);
+    setSelectedImagePlacementId(null);
+    setImagePlacementDraftWindows({});
+    setTimelineImageDragState(null);
+    setImagePlacementTransforms({});
+    setPreviewCanvasDragState(null);
     setEditableDerivedTextLayers(cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers));
     derivedLayerHistoryRef.current.clear();
     setCaptionBuildState(null);
@@ -2802,6 +2890,103 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [isScrubbing]);
+  useEffect(() => {
+    if (!timelineImageDragState) return;
+
+    const handleMouseMove = (event: globalThis.MouseEvent): void => {
+      if (event.buttons === 0) {
+        setTimelineImageDragState(null);
+        return;
+      }
+      const deltaSec = roundToTenth((event.clientX - timelineImageDragState.pointerStartX) * timelineImageDragState.pxToSec);
+      const originalDuration = Math.max(
+        MIN_IMAGE_PLACEMENT_DURATION_SEC,
+        roundToTenth(timelineImageDragState.originEndSec - timelineImageDragState.originStartSec),
+      );
+
+      let startSec = timelineImageDragState.originStartSec;
+      let endSec = timelineImageDragState.originEndSec;
+      if (timelineImageDragState.mode === "move") {
+        const tentativeStart = roundToTenth(timelineImageDragState.originStartSec + deltaSec);
+        const maxStart = Math.max(0, roundToTenth(timelineDurationSec - originalDuration));
+        startSec = Math.max(0, Math.min(maxStart, tentativeStart));
+        endSec = Math.min(timelineDurationSec, roundToTenth(startSec + originalDuration));
+      } else if (timelineImageDragState.mode === "resize_start") {
+        const maxStart = roundToTenth(timelineImageDragState.originEndSec - MIN_IMAGE_PLACEMENT_DURATION_SEC);
+        startSec = Math.max(0, Math.min(maxStart, roundToTenth(timelineImageDragState.originStartSec + deltaSec)));
+        endSec = timelineImageDragState.originEndSec;
+      } else {
+        const minEnd = roundToTenth(timelineImageDragState.originStartSec + MIN_IMAGE_PLACEMENT_DURATION_SEC);
+        endSec = Math.max(minEnd, Math.min(timelineDurationSec, roundToTenth(timelineImageDragState.originEndSec + deltaSec)));
+        startSec = timelineImageDragState.originStartSec;
+      }
+
+      setImagePlacementDraftWindows((current) => ({
+        ...current,
+        [timelineImageDragState.placementId]: { startSec, endSec },
+      }));
+      seekPlayheadToTime(startSec, "playhead", { snapToBoundary: false });
+    };
+
+    const handleMouseUp = (): void => {
+      const draft = imagePlacementDraftWindowsRef.current[timelineImageDragState.placementId] ?? null;
+      if (draft) {
+        commitVisualPlacementWindow(timelineImageDragState.placementId, {
+          startSec: draft.startSec,
+          endSec: draft.endSec,
+          label: timelineImageDragState.mode === "move" ? "Move image clip" : "Resize image clip",
+        });
+      }
+      setImagePlacementDraftWindows((current) => {
+        if (!current[timelineImageDragState.placementId]) return current;
+        const next = { ...current };
+        delete next[timelineImageDragState.placementId];
+        return next;
+      });
+      setTimelineImageDragState(null);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [timelineDurationSec, timelineImageDragState]);
+  useEffect(() => {
+    if (!previewCanvasDragState) return;
+
+    const handleMouseMove = (event: globalThis.MouseEvent): void => {
+      const canvasRect = previewSurfaceRef.current?.getBoundingClientRect() ?? null;
+      if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) return;
+      const deltaXPct = ((event.clientX - previewCanvasDragState.pointerStartX) / canvasRect.width) * 100;
+      const deltaYPct = ((event.clientY - previewCanvasDragState.pointerStartY) / canvasRect.height) * 100;
+      if (previewCanvasDragState.mode === "move") {
+        updateImagePlacementTransform(previewCanvasDragState.placementId, (current) => ({
+          ...current,
+          leftPct: previewCanvasDragState.origin.leftPct + deltaXPct,
+          topPct: previewCanvasDragState.origin.topPct + deltaYPct,
+        }));
+        return;
+      }
+      updateImagePlacementTransform(previewCanvasDragState.placementId, (current) => ({
+        ...current,
+        widthPct: previewCanvasDragState.origin.widthPct + deltaXPct,
+        heightPct: previewCanvasDragState.origin.heightPct + deltaYPct,
+      }));
+    };
+
+    const handleMouseUp = (): void => {
+      setPreviewCanvasDragState(null);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [previewCanvasDragState]);
 
   async function refreshSourceDeskMedia(): Promise<void> {
     setSourceDeskLoading(true);
@@ -3791,6 +3976,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setActiveCandidateIndex(0);
   }, [currentPass]);
   useEffect(() => {
+    if (currentPass === "image_placement") return;
+    setTimelineImageDragState(null);
+    setPreviewCanvasDragState(null);
+    setImagePlacementDraftWindows({});
+  }, [currentPass]);
+  useEffect(() => {
     if (currentPass !== "gap_pacing") return;
     const timerId = window.setTimeout(() => {
       applyGapPacingAuto();
@@ -3967,9 +4158,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
   }
 
-  function updateVisualPlacementTiming(placementId: string, deltaSec: number): void {
+  function commitVisualPlacementWindow(
+    placementId: string,
+    args: { startSec: number; endSec: number; label: string },
+  ): void {
     applyHistoryMutation({
-      label: "Adjust visual placement timing",
+      label: args.label,
       kind: "visual_adjustment",
       toolId: "video",
       affectedPlacementIds: [placementId],
@@ -3979,15 +4173,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         if (!current) return before;
         const nextPlacements = current.placements.map((placement) => {
           if (placement.placement_id !== placementId) return placement;
-          const duration = Math.max(0.5, roundToTenth(placement.end_sec - placement.start_sec));
-          const nextStart = Math.max(0, roundToTenth(placement.start_sec + deltaSec));
-          const maxStart = Math.max(0, roundToTenth(transcriptDurationSec - duration));
-          const clampedStart = Math.min(nextStart, maxStart);
-          const nextEnd = Math.min(transcriptDurationSec, roundToTenth(clampedStart + duration));
+          const clampedStart = Math.max(0, Math.min(timelineDurationSec, roundToTenth(args.startSec)));
+          const clampedEnd = Math.max(
+            roundToTenth(clampedStart + MIN_IMAGE_PLACEMENT_DURATION_SEC),
+            Math.min(timelineDurationSec, roundToTenth(args.endSec)),
+          );
           return {
             ...placement,
             start_sec: clampedStart,
-            end_sec: Math.max(roundToTenth(clampedStart + 0.5), nextEnd),
+            end_sec: clampedEnd,
           };
         });
 
@@ -3999,6 +4193,80 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           },
         };
       },
+    });
+  }
+
+  function updateVisualPlacementTiming(placementId: string, deltaSec: number): void {
+    const placement = sourceImageItems.find((item) => item.id === placementId) ?? null;
+    if (!placement) return;
+    const duration = Math.max(MIN_IMAGE_PLACEMENT_DURATION_SEC, roundToTenth(placement.endSec - placement.startSec));
+    const nextStart = Math.max(0, roundToTenth(placement.startSec + deltaSec));
+    const maxStart = Math.max(0, roundToTenth(timelineDurationSec - duration));
+    const clampedStart = Math.min(nextStart, maxStart);
+    const nextEnd = Math.min(timelineDurationSec, roundToTenth(clampedStart + duration));
+    commitVisualPlacementWindow(placementId, {
+      startSec: clampedStart,
+      endSec: nextEnd,
+      label: "Adjust visual placement timing",
+    });
+  }
+
+  function updateImagePlacementTransform(
+    placementId: string,
+    updater: (current: HammerImagePlacementTransform) => HammerImagePlacementTransform,
+  ): void {
+    setImagePlacementTransforms((current) => {
+      const base = current[placementId] ?? DEFAULT_IMAGE_PLACEMENT_TRANSFORM;
+      const next = clampImagePlacementTransform(updater(base));
+      return {
+        ...current,
+        [placementId]: next,
+      };
+    });
+  }
+
+  function beginTimelineImagePlacementDrag(
+    event: MouseEvent<SVGGElement | SVGRectElement>,
+    args: {
+      placementId: string;
+      mode: HammerTimelineImageDragState["mode"];
+      startSec: number;
+      endSec: number;
+    },
+  ): void {
+    if (currentPass !== "image_placement") return;
+    const trackRect = event.currentTarget.ownerSVGElement?.getBoundingClientRect()
+      ?? event.currentTarget.getBoundingClientRect();
+    if (trackRect.width <= 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setFocusOverride("time-focus");
+    setSelectedImagePlacementId(args.placementId);
+    setTimelineImageDragState({
+      placementId: args.placementId,
+      mode: args.mode,
+      pointerStartX: event.clientX,
+      originStartSec: args.startSec,
+      originEndSec: args.endSec,
+      pxToSec: timelineDurationSec / trackRect.width,
+    });
+  }
+
+  function beginPreviewCanvasDrag(
+    event: MouseEvent<HTMLElement>,
+    args: { placementId: string; mode: HammerPreviewCanvasDragState["mode"] },
+  ): void {
+    if (currentPass !== "image_placement") return;
+    if (!selectedImagePlacementId || selectedImagePlacementId !== args.placementId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setFocusOverride("tool-focus");
+    setPreviewCanvasDragState({
+      placementId: args.placementId,
+      mode: args.mode,
+      pointerStartX: event.clientX,
+      pointerStartY: event.clientY,
+      origin: selectedImagePlacementTransform,
     });
   }
 
@@ -6393,7 +6661,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       }}
                     />
                     {sourceImageItems.map((item) => (
-                      <article key={item.id} className="hammer-source-card">
+                      <article
+                        key={item.id}
+                        className={selectedImagePlacementId === item.id ? "hammer-source-card is-selected" : "hammer-source-card"}
+                      >
                         {item.assetPath && sourceDeskPreviewUrls[item.assetPath] ? (
                           <img
                             className="hammer-source-card__thumb"
@@ -6434,6 +6705,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             onClick={() => {
                               selectionOriginRef.current = "timeline";
                               setFocusOverride("time-focus");
+                              setSelectedImagePlacementId(item.id);
                               setSelectedSegmentId(item.anchorSegmentId);
                               setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
                               setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
@@ -6945,14 +7217,52 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 }}
                 className="hammer-preview-audio"
               />
-              <div className="hammer-preview-surface" style={{ filter: visualPreviewFilter || undefined }}>
-                {playheadSegment ? (
-                  <div className="hammer-preview-surface__label">
-                    {resolvePreviewLabel(playheadSegment, playheadSec)}
+              <div className="hammer-preview-surface" style={{ filter: visualPreviewFilter || undefined }} ref={previewSurfaceRef}>
+                <div className="hammer-preview-surface__label">{resolvePreviewLabel(playheadSegment, playheadSec)}</div>
+                {currentPass === "image_placement" ? (
+                  <div className="hammer-preview-canvas" aria-label="Image placement canvas">
+                    {selectedImagePlacement ? (
+                      <div
+                        className="hammer-preview-canvas__bbox"
+                        style={{
+                          left: `${selectedImagePlacementTransform.leftPct}%`,
+                          top: `${selectedImagePlacementTransform.topPct}%`,
+                          width: `${selectedImagePlacementTransform.widthPct}%`,
+                          height: `${selectedImagePlacementTransform.heightPct}%`,
+                        }}
+                        onMouseDown={(event) => beginPreviewCanvasDrag(event, {
+                          placementId: selectedImagePlacement.id,
+                          mode: "move",
+                        })}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        {selectedImagePlacementPreviewUrl ? (
+                          <img
+                            src={selectedImagePlacementPreviewUrl}
+                            alt={selectedImagePlacement.label}
+                            className="hammer-preview-canvas__image"
+                          />
+                        ) : (
+                          <div className="hammer-preview-canvas__fallback">{selectedImagePlacement.label}</div>
+                        )}
+                        <button
+                          type="button"
+                          className="hammer-preview-canvas__resize-handle"
+                          aria-label="Resize selected image"
+                          onMouseDown={(event) => beginPreviewCanvasDrag(event, {
+                            placementId: selectedImagePlacement.id,
+                            mode: "resize",
+                          })}
+                        />
+                      </div>
+                    ) : (
+                      <div className="hammer-preview-canvas__empty">
+                        Select an image clip in the timeline to edit position and scale.
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="hammer-preview-surface__label">{resolvePreviewLabel(playheadSegment, playheadSec)}</div>
-                )}
+                ) : null}
               </div>
               <div className="hammer-preview-meta">
                 <span>Playhead {playheadSec.toFixed(1)}s</span>
@@ -7112,6 +7422,136 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       <PolishResultSummary phase="applied" summary={cleanupReceipt} />
                     ) : null}
                     <div className="hammer-tool-hint">No per-gap approval cards in this pass.</div>
+                  </section>
+                ) : currentPass === "image_placement" ? (
+                  <section className="hammer-tool-card">
+                    <header className="hammer-tool-card__head">Image Placement</header>
+                    <div className="hammer-tool-hint">
+                      Direct manipulation mode. Drag and resize image clips in timeline or preview.
+                    </div>
+                    {selectedImagePlacement ? (
+                      <>
+                        <div className="hammer-tool-hint">
+                          Selected: {selectedImagePlacement.label}
+                          {` (${selectedImagePlacement.startSec.toFixed(1)}s - ${selectedImagePlacement.endSec.toFixed(1)}s)`}
+                        </div>
+                        <label className="hammer-tool-field">
+                          <span>Start (sec)</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={selectedImagePlacement.startSec}
+                            onChange={(event) => {
+                              const nextStart = Math.max(0, Number(event.target.value) || 0);
+                              const minEnd = roundToTenth(nextStart + MIN_IMAGE_PLACEMENT_DURATION_SEC);
+                              commitVisualPlacementWindow(selectedImagePlacement.id, {
+                                startSec: nextStart,
+                                endSec: Math.max(minEnd, selectedImagePlacement.endSec),
+                                label: "Adjust image clip start",
+                              });
+                            }}
+                          />
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>End (sec)</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={selectedImagePlacement.endSec}
+                            onChange={(event) => {
+                              const nextEnd = Math.max(0, Number(event.target.value) || 0);
+                              commitVisualPlacementWindow(selectedImagePlacement.id, {
+                                startSec: selectedImagePlacement.startSec,
+                                endSec: Math.max(
+                                  roundToTenth(selectedImagePlacement.startSec + MIN_IMAGE_PLACEMENT_DURATION_SEC),
+                                  nextEnd,
+                                ),
+                                label: "Adjust image clip end",
+                              });
+                            }}
+                          />
+                        </label>
+                        <div className="hammer-source-card__actions">
+                          <button type="button" onClick={() => updateVisualPlacementTiming(selectedImagePlacement.id, -0.5)}>
+                            Move -0.5s
+                          </button>
+                          <button type="button" onClick={() => updateVisualPlacementTiming(selectedImagePlacement.id, 0.5)}>
+                            Move +0.5s
+                          </button>
+                          <button type="button" onClick={() => removeVisualPlacement(selectedImagePlacement.id)}>
+                            Remove Clip
+                          </button>
+                        </div>
+                        <label className="hammer-tool-field">
+                          <span>Position X ({Math.round(selectedImagePlacementTransform.leftPct)}%)</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={92}
+                            step={1}
+                            value={selectedImagePlacementTransform.leftPct}
+                            onChange={(event) => {
+                              const next = Number(event.target.value);
+                              updateImagePlacementTransform(selectedImagePlacement.id, (current) => ({
+                                ...current,
+                                leftPct: next,
+                              }));
+                            }}
+                          />
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Position Y ({Math.round(selectedImagePlacementTransform.topPct)}%)</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={92}
+                            step={1}
+                            value={selectedImagePlacementTransform.topPct}
+                            onChange={(event) => {
+                              const next = Number(event.target.value);
+                              updateImagePlacementTransform(selectedImagePlacement.id, (current) => ({
+                                ...current,
+                                topPct: next,
+                              }));
+                            }}
+                          />
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>
+                            Scale ({Math.round((selectedImagePlacementTransform.widthPct / DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct) * 100)}%)
+                          </span>
+                          <input
+                            type="range"
+                            min={50}
+                            max={200}
+                            step={1}
+                            value={Math.round((selectedImagePlacementTransform.widthPct / DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct) * 100)}
+                            onChange={(event) => {
+                              const scale = Number(event.target.value) / 100;
+                              updateImagePlacementTransform(selectedImagePlacement.id, (current) => ({
+                                ...current,
+                                widthPct: DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct * scale,
+                                heightPct: DEFAULT_IMAGE_PLACEMENT_TRANSFORM.heightPct * scale,
+                              }));
+                            }}
+                          />
+                        </label>
+                        <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => updateImagePlacementTransform(selectedImagePlacement.id, () => DEFAULT_IMAGE_PLACEMENT_TRANSFORM)}
+                          >
+                            Center
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="hammer-tool-hint">
+                        Select an image clip in the timeline to open inspector controls.
+                      </div>
+                    )}
                   </section>
                 ) : (
                 <section className="hammer-tool-card">
@@ -8488,6 +8928,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </div>
                   )}
                 </section>
+                )
               ) : null}
 
               {activeTool === "captions" ? (
@@ -9348,15 +9789,27 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           {lane.blocks.map((block) => {
                             const x = (block.startSec / timelineDurationSec) * 1000;
                             const width = Math.max(14, ((block.endSec - block.startSec) / timelineDurationSec) * 1000);
+                            const imagePlacementEditable = currentPass === "image_placement"
+                              && lane.id === "stills"
+                              && block.tone === "image"
+                              && Boolean(block.placementId);
                             return (
                               <g
                                 key={block.id}
                                 role="button"
                                 tabIndex={0}
-                                className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}${block.inRange ? " is-range" : ""}${block.disabled ? " is-disabled" : ""}`}
+                                className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}${block.inRange ? " is-range" : ""}${block.disabled ? " is-disabled" : ""}${imagePlacementEditable ? " is-image-placement-editable" : ""}`}
                                 transform={`translate(${x} 5)`}
                                 onMouseDown={(event) => {
                                   event.stopPropagation();
+                                  if (imagePlacementEditable && block.placementId) {
+                                    beginTimelineImagePlacementDrag(event, {
+                                      placementId: block.placementId,
+                                      mode: "move",
+                                      startSec: block.startSec,
+                                      endSec: block.endSec,
+                                    });
+                                  }
                                 }}
                                 onClick={(event) => {
                                   event.stopPropagation();
@@ -9372,6 +9825,46 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                               >
                                 <title>{`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}</title>
                                 <rect className="hammer-timeline-block__rect" width={width} height={22} rx={3} ry={3} />
+                                {imagePlacementEditable ? (
+                                  <>
+                                    <rect
+                                      className="hammer-timeline-block__resize hammer-timeline-block__resize--start"
+                                      x={0}
+                                      y={2}
+                                      width={4}
+                                      height={18}
+                                      rx={2}
+                                      ry={2}
+                                      onMouseDown={(event) => {
+                                        if (!block.placementId) return;
+                                        beginTimelineImagePlacementDrag(event, {
+                                          placementId: block.placementId,
+                                          mode: "resize_start",
+                                          startSec: block.startSec,
+                                          endSec: block.endSec,
+                                        });
+                                      }}
+                                    />
+                                    <rect
+                                      className="hammer-timeline-block__resize hammer-timeline-block__resize--end"
+                                      x={Math.max(0, width - 4)}
+                                      y={2}
+                                      width={4}
+                                      height={18}
+                                      rx={2}
+                                      ry={2}
+                                      onMouseDown={(event) => {
+                                        if (!block.placementId) return;
+                                        beginTimelineImagePlacementDrag(event, {
+                                          placementId: block.placementId,
+                                          mode: "resize_end",
+                                          startSec: block.startSec,
+                                          endSec: block.endSec,
+                                        });
+                                      }}
+                                    />
+                                  </>
+                                ) : null}
                                 <text className="hammer-timeline-block__text" x={5} y={14}>
                                   {block.label}
                                 </text>
