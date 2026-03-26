@@ -90,25 +90,33 @@ function normalizeAudioPolishAnalysis(value: unknown): HammerAudioPolishAnalysis
     .map((entry) => {
       const chunk = readObject(entry);
       const id = readString(chunk?.id);
+      const chunkIndex = readNumber(chunk?.chunk_index);
       const startSec = readNumber(chunk?.start_sec);
       const endSec = readNumber(chunk?.end_sec);
       const durationSec = readNumber(chunk?.duration_sec);
-      const sourceValue = readString(chunk?.source);
+      const reasonValue = readString(chunk?.boundary_reason) ?? readString(chunk?.source);
       if (!id || startSec == null || endSec == null || durationSec == null || endSec < startSec) return null;
       if (
-        sourceValue !== "silence_boundary"
-        && sourceValue !== "hard_max_split"
-        && sourceValue !== "short_file_single_chunk"
+        reasonValue !== "silence_boundary"
+        && reasonValue !== "hard_max_split"
+        && reasonValue !== "short_file"
+        && reasonValue !== "short_file_single_chunk"
       ) {
         return null;
       }
-      const source: "silence_boundary" | "hard_max_split" | "short_file_single_chunk" = sourceValue;
+      const boundaryReason: "silence_boundary" | "hard_max_split" | "short_file" = (
+        reasonValue === "short_file" || reasonValue === "short_file_single_chunk"
+      )
+        ? "short_file"
+        : reasonValue;
       return {
         id,
+        chunk_index: chunkIndex ?? 0,
         start_sec: startSec,
         end_sec: endSec,
         duration_sec: durationSec,
-        source,
+        boundary_reason: boundaryReason,
+        source: boundaryReason,
       };
     })
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
@@ -123,6 +131,7 @@ function normalizeAudioPolishAnalysis(value: unknown): HammerAudioPolishAnalysis
   const schemaVersion = readNumber(row.schema_version);
   const targetChunkSec = readNumber(transcriptPrep.target_chunk_sec);
   const maxChunkSec = readNumber(transcriptPrep.max_chunk_sec);
+  const chunkCount = readNumber(transcriptPrep.chunk_count);
   const minSilenceSec = readNumber(segmentation.min_silence_sec);
   const speechRegionCountRaw = readNumber(segmentation.speech_region_count);
   const silenceRegionCountRaw = readNumber(segmentation.silence_region_count);
@@ -154,7 +163,11 @@ function normalizeAudioPolishAnalysis(value: unknown): HammerAudioPolishAnalysis
       strategy: transcriptStrategy,
       target_chunk_sec: targetChunkSec,
       max_chunk_sec: maxChunkSec,
-      chunks,
+      chunks: chunks.map((chunk, index) => ({
+        ...chunk,
+        chunk_index: chunk.chunk_index > 0 ? chunk.chunk_index : index + 1,
+      })),
+      chunk_count: chunkCount ?? chunks.length,
     },
     channel_characterization: channelCharacterization
       ? {
@@ -458,3 +471,4 @@ export async function requestHammerAudioPolish(
 
   return normalized;
 }
+

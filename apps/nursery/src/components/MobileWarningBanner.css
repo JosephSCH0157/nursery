@@ -1,0 +1,43 @@
+.mobile-warning-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(245, 158, 11, 0.1);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fcd34d;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.mobile-warning-banner__icon {
+  font-size: 15px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.mobile-warning-banner__text {
+  margin: 0;
+  flex: 1;
+  color: var(--forge-text);
+}
+
+.mobile-warning-banner__text strong {
+  color: #fcd34d;
+}
+
+.mobile-warning-banner__dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--forge-text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.mobile-warning-banner__dismiss:hover {
+  color: var(--forge-text);
+}

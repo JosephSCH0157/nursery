@@ -12,6 +12,7 @@ import {
   warnMissingWorkspaceParamInDev,
 } from "../lib/forge-route-context";
 import { useForgeCloudStatus, type ForgeCloudState } from "../lib/forge-cloud-status";
+import MobileWarningBanner from "../components/MobileWarningBanner";
 import "./AppShell.css";
 
 const AiControlsPanel = lazy(async () => {
@@ -33,6 +34,12 @@ const WORKSPACE_REQUIRED_APP_SEGMENTS = new Set([
   "bar-stock",
   "calendar",
 ]);
+
+const MOBILE_WARNING_TOOLS: Record<string, string> = {
+  anvil: "Anvil",
+  hammer: "Hammer",
+  quench: "Quench",
+};
 
 function getAppSegment(pathname: string): string | null {
   const parts = pathname.split("/").filter(Boolean);
@@ -1146,6 +1153,12 @@ export default function AppShell() {
         </aside>
 
         <main className="appshell-main">
+          {appSegment && MOBILE_WARNING_TOOLS[appSegment] ? (
+            <MobileWarningBanner
+              appName={MOBILE_WARNING_TOOLS[appSegment]}
+              storageKey={`forge_mobile_warn_dismissed_${appSegment}_v1`}
+            />
+          ) : null}
           {shouldBlockWorkspaceRoute ? (
             <section className="appshell-workspace-gate">
               <h2 className="appshell-workspace-gate-title">You need a workspace to use the Forge.</h2>

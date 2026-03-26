@@ -73,6 +73,7 @@ type HammerFfprobeMediaTruth = {
 type HammerLoudnessAnalysis = HammerAudioPolishAnalysis["loudness"];
 type HammerSegmentationAnalysis = HammerAudioPolishAnalysis["segmentation"];
 type HammerSegmentationRegion = HammerSegmentationAnalysis["regions"][number];
+type HammerTranscriptPrepAnalysis = HammerAudioPolishAnalysis["transcript_prep"];
 
 const OUTPUT_MIME_TYPE = "audio/wav";
 const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
@@ -90,6 +91,10 @@ const FFPROBE_PROCESS_TIMEOUT_MS = 30_000;
 const SILENCE_DETECT_NOISE_DB = -35;
 const SILENCE_DETECT_MIN_SEC = 0.25;
 const SEGMENT_EDGE_CLAMP_SEC = 0.02;
+const TRANSCRIPT_CHUNK_TARGET_SEC = 60;
+const TRANSCRIPT_CHUNK_HARD_MAX_SEC = 90;
+const TRANSCRIPT_CHUNK_MIN_SEC = 8;
+const TRANSCRIPT_CHUNK_BOUNDARY_SEARCH_WINDOW_SEC = 18;
 
 function readTrimmed(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -903,6 +908,16 @@ function buildEmptySegmentationAnalysis(): HammerSegmentationAnalysis {
   };
 }
 
+function buildEmptyTranscriptPrepAnalysis(): HammerTranscriptPrepAnalysis {
+  return {
+    strategy: "fixed_chunk_with_silence_bias_v1",
+    target_chunk_sec: TRANSCRIPT_CHUNK_TARGET_SEC,
+    max_chunk_sec: TRANSCRIPT_CHUNK_HARD_MAX_SEC,
+    chunks: [],
+    chunk_count: 0,
+  };
+}
+
 function computeWaveRmsDbfs(parsedWave: ParsedWave): number | null {
   let sumSquares = 0;
   let sampleTotal = 0;
@@ -1234,6 +1249,126 @@ async function analyzeSegmentationWithFfmpeg(args: {
   }
 }
 
+function buildTranscriptPrepChunkMap(args: {
+  durationSec: number;
+  segmentation: HammerSegmentationAnalysis;
+}): HammerTranscriptPrepAnalysis {
+  const durationSec = roundToMillis(Math.max(0, args.durationSec));
+  if (!(durationSec > 0)) {
+    return buildEmptyTranscriptPrepAnalysis();
+  }
+
+  if (durationSec <= TRANSCRIPT_CHUNK_TARGET_SEC) {
+    return {
+      strategy: "fixed_chunk_with_silence_bias_v1",
+      target_chunk_sec: TRANSCRIPT_CHUNK_TARGET_SEC,
+      max_chunk_sec: TRANSCRIPT_CHUNK_HARD_MAX_SEC,
+      chunks: [
+        {
+          id: "chunk_1",
+          chunk_index: 1,
+          start_sec: 0,
+          end_sec: durationSec,
+          duration_sec: durationSec,
+          boundary_reason: "short_file",
+          source: "short_file",
+        },
+      ],
+      chunk_count: 1,
+    };
+  }
+
+  const silenceBoundaries = args.segmentation.regions
+    .filter((region) => region.kind === "silence")
+    .map((region) => roundToMillis(region.start_sec))
+    .filter((point) => point > 0 && point < durationSec)
+    .sort((left, right) => left - right);
+
+  const chunks: HammerTranscriptPrepAnalysis["chunks"] = [];
+  let cursor = 0;
+  while (cursor < durationSec - 0.001) {
+    const remaining = durationSec - cursor;
+    if (remaining <= TRANSCRIPT_CHUNK_HARD_MAX_SEC) {
+      const startSec = roundToMillis(cursor);
+      const endSec = durationSec;
+      if (endSec > startSec) {
+        chunks.push({
+          id: `chunk_${chunks.length + 1}`,
+          chunk_index: chunks.length + 1,
+          start_sec: startSec,
+          end_sec: endSec,
+          duration_sec: roundToMillis(endSec - startSec),
+          boundary_reason: chunks.length === 0 ? "short_file" : "silence_boundary",
+          source: chunks.length === 0 ? "short_file" : "silence_boundary",
+        });
+      }
+      break;
+    }
+
+    const targetBoundary = cursor + TRANSCRIPT_CHUNK_TARGET_SEC;
+    const earliestBoundary = cursor + TRANSCRIPT_CHUNK_MIN_SEC;
+    const latestBoundary = cursor + TRANSCRIPT_CHUNK_HARD_MAX_SEC;
+    const silenceCandidate = silenceBoundaries
+      .filter((boundary) => boundary >= earliestBoundary && boundary <= latestBoundary)
+      .map((boundary) => ({
+        boundary,
+        distance: Math.abs(boundary - targetBoundary),
+      }))
+      .filter((candidate) => candidate.distance <= TRANSCRIPT_CHUNK_BOUNDARY_SEARCH_WINDOW_SEC)
+      .sort((left, right) => left.distance - right.distance || left.boundary - right.boundary)[0]
+      ?? null;
+
+    const endSec = silenceCandidate
+      ? silenceCandidate.boundary
+      : roundToMillis(Math.min(durationSec, cursor + TRANSCRIPT_CHUNK_HARD_MAX_SEC));
+    const startSec = roundToMillis(cursor);
+    if (endSec <= startSec) {
+      break;
+    }
+
+    chunks.push({
+      id: `chunk_${chunks.length + 1}`,
+      chunk_index: chunks.length + 1,
+      start_sec: startSec,
+      end_sec: endSec,
+      duration_sec: roundToMillis(endSec - startSec),
+      boundary_reason: silenceCandidate ? "silence_boundary" : "hard_max_split",
+      source: silenceCandidate ? "silence_boundary" : "hard_max_split",
+    });
+    cursor = endSec;
+  }
+
+  const normalizedChunks = chunks
+    .map((chunk, index) => ({
+      ...chunk,
+      id: `chunk_${index + 1}`,
+      chunk_index: index + 1,
+      start_sec: index === 0 ? 0 : roundToMillis(chunk.start_sec),
+      end_sec: index === chunks.length - 1 ? durationSec : roundToMillis(chunk.end_sec),
+    }))
+    .filter((chunk) => chunk.end_sec - chunk.start_sec > 0)
+    .sort((left, right) => left.start_sec - right.start_sec);
+
+  for (let index = 1; index < normalizedChunks.length; index += 1) {
+    normalizedChunks[index].start_sec = normalizedChunks[index - 1].end_sec;
+  }
+  if (normalizedChunks.length > 0) {
+    normalizedChunks[0].start_sec = 0;
+    normalizedChunks[normalizedChunks.length - 1].end_sec = durationSec;
+  }
+  for (const chunk of normalizedChunks) {
+    chunk.duration_sec = roundToMillis(chunk.end_sec - chunk.start_sec);
+  }
+
+  return {
+    strategy: "fixed_chunk_with_silence_bias_v1",
+    target_chunk_sec: TRANSCRIPT_CHUNK_TARGET_SEC,
+    max_chunk_sec: TRANSCRIPT_CHUNK_HARD_MAX_SEC,
+    chunks: normalizedChunks,
+    chunk_count: normalizedChunks.length,
+  };
+}
+
 export function createHammerAudioPolishRequestContext(req: IncomingMessage): HammerAudioPolishRequestContext {
   const forwardedProto = readHeaderString(req.headers["x-forwarded-proto"]);
   const host = readHeaderString(req.headers.host) ?? "localhost";
@@ -1430,6 +1565,10 @@ export async function handleHammerAudioPolishRequest(
         durationSec,
       })
       : buildEmptySegmentationAnalysis();
+    const transcriptPrepAnalysis = buildTranscriptPrepChunkMap({
+      durationSec,
+      segmentation: segmentationAnalysis,
+    });
     const polishedWaveBytes = renderPolishedWaveBuffer(parsedWave);
     const outputWorkpiecePath = buildArtifactRelpath("audio-polish", request);
     if (!canUseCanonicalTongsContext(context)) {
@@ -1479,12 +1618,7 @@ export async function handleHammerAudioPolishRequest(
             analyzed_at: preparedAt,
             loudness: loudnessAnalysis,
             segmentation: segmentationAnalysis,
-            transcript_prep: {
-              strategy: "fixed_chunk_with_silence_bias_v1",
-              target_chunk_sec: 60,
-              max_chunk_sec: 90,
-              chunks: [],
-            },
+            transcript_prep: transcriptPrepAnalysis,
             channel_characterization: null,
           },
           settings_summary: {
@@ -1522,6 +1656,7 @@ export async function handleHammerAudioPolishRequest(
             analysis_true_peak_dbtp: loudnessAnalysis.true_peak_dbtp,
             analysis_speech_region_count: segmentationAnalysis.speech_region_count,
             analysis_silence_region_count: segmentationAnalysis.silence_region_count,
+            analysis_chunk_count: transcriptPrepAnalysis.chunk_count,
             chain: "dc_remove,high_pass,presence_lift,gentle_noise_reduction,light_compression,peak_normalize",
           },
         },

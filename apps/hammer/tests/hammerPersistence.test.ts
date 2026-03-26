@@ -244,7 +244,7 @@ const snapshot: HammerWorkspaceSnapshot = {
             start_sec: 0,
             end_sec: 8,
             duration_sec: 8,
-            source: "short_file_single_chunk",
+            source: "short_file",
           },
         ],
       },
@@ -298,7 +298,7 @@ assert.equal(
 );
 assert.equal(
   saveRequest.audio_polish?.data.analysis?.transcript_prep.chunks[0]?.source,
-  "short_file_single_chunk",
+  "short_file",
 );
 assert.equal(saveRequest.visual_placements?.data.placements[0]?.asset_ref, "asset_01");
 assert.deepEqual(
@@ -407,5 +407,6 @@ assert.deepEqual(
   readHammerPersistenceTarget("?workspace_id=aaa&workpiece_id=bbb"),
   { workspaceId: "aaa", workpieceId: "bbb" },
 );
+
 
 

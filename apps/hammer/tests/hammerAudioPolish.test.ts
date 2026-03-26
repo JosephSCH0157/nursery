@@ -76,7 +76,7 @@ const prepSource: HammerPrepSource = {
             start_sec: 0,
             end_sec: 8,
             duration_sec: 8,
-            source: "short_file_single_chunk",
+            source: "short_file",
           },
         ],
       },
@@ -138,3 +138,4 @@ const prepSource: HammerPrepSource = {
 }
 
 console.log("Hammer audio polish tests passed.");
+

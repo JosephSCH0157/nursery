@@ -70,13 +70,16 @@ async function main(): Promise<void> {
               strategy: "fixed_chunk_with_silence_bias_v1",
               target_chunk_sec: 60,
               max_chunk_sec: 90,
+              chunk_count: 1,
               chunks: [
                 {
                   id: "chunk_1",
+                  chunk_index: 1,
                   start_sec: 0,
                   end_sec: 8,
                   duration_sec: 8,
-                  source: "short_file_single_chunk",
+                  boundary_reason: "short_file",
+                  source: "short_file",
                 },
               ],
             },
@@ -124,7 +127,92 @@ async function main(): Promise<void> {
   });
   assert.equal(withAnalysis.analysis?.loudness.integrated_lufs, -18.2);
   assert.equal(withAnalysis.analysis?.segmentation.regions[0]?.kind, "speech");
-  assert.equal(withAnalysis.analysis?.transcript_prep.chunks[0]?.source, "short_file_single_chunk");
+  assert.equal(withAnalysis.analysis?.transcript_prep.chunk_count, 1);
+  assert.equal(withAnalysis.analysis?.transcript_prep.chunks[0]?.chunk_index, 1);
+  assert.equal(withAnalysis.analysis?.transcript_prep.chunks[0]?.boundary_reason, "short_file");
+  assert.equal(withAnalysis.analysis?.transcript_prep.chunks[0]?.source, "short_file");
+
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    assert.equal(String(input), HAMMER_AUDIO_POLISH_ROUTE);
+    const requestBody = JSON.parse(String(init?.body ?? "{}")) as { workpiece_id?: string };
+    if (requestBody.workpiece_id === "wp_legacy_reason") {
+      return new Response(JSON.stringify({
+        ok: true,
+        data: {
+          status: "prepared",
+          prepared_at: "2026-03-25T12:00:00.000Z",
+          prepared_passes: ["studio_sound"],
+          processor_version: "forge-v1.2.0/audio-polish.v4",
+          output_local_relpath: "hammer/prep/audio-polish/example.wav",
+          output_workpiece_path: "hammer/prep/audio-polish/example.wav",
+          output_mime_type: "audio/wav",
+          output_duration_ms: 8000,
+          failure_code: null,
+          failure_reason: null,
+          settings_summary: {},
+          analysis: {
+            schema_version: 1,
+            source_ref: "workpiece:recordings/example.wav",
+            analyzed_at: "2026-03-25T12:00:00.000Z",
+            loudness: {
+              integrated_lufs: -18.2,
+              loudness_range_lu: 3.1,
+              true_peak_dbtp: -1.4,
+              rms_dbfs: -20.5,
+            },
+            segmentation: {
+              strategy: "ffmpeg_silencedetect_v1",
+              noise_floor_db: -35,
+              min_silence_sec: 0.25,
+              regions: [{ id: "speech_1", start_sec: 0, end_sec: 8, kind: "speech", confidence: 0.99 }],
+              speech_region_count: 1,
+              silence_region_count: 0,
+            },
+            transcript_prep: {
+              strategy: "fixed_chunk_with_silence_bias_v1",
+              target_chunk_sec: 60,
+              max_chunk_sec: 90,
+              chunks: [{ id: "chunk_1", start_sec: 0, end_sec: 8, duration_sec: 8, source: "short_file_single_chunk" }],
+            },
+            channel_characterization: null,
+          },
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({
+      ok: true,
+      data: {
+        status: "prepared",
+        prepared_at: "2026-03-20T10:00:00.000Z",
+        prepared_passes: ["studio_sound"],
+        processor_version: "forge-v1.2.0/audio-polish.v1",
+        output_local_relpath: null,
+        output_workpiece_path: "hammer/prep/audio-polish/legacy.wav",
+        output_mime_type: "audio/wav",
+        output_duration_ms: 4000,
+        failure_code: null,
+        failure_reason: null,
+        settings_summary: {},
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const legacyReason = await requestHammerAudioPolish({
+    workspace_id: "ws_01",
+    workpiece_id: "wp_legacy_reason",
+    media_kind: "recording_audio",
+    canonical_workpiece_path: "recordings/legacy-reason.wav",
+    mime_type: "audio/wav",
+  });
+  assert.equal(legacyReason.analysis?.transcript_prep.chunks[0]?.boundary_reason, "short_file");
+  assert.equal(legacyReason.analysis?.transcript_prep.chunks[0]?.source, "short_file");
+  assert.equal(legacyReason.analysis?.transcript_prep.chunk_count, 1);
 
   const legacy = await requestHammerAudioPolish({
     workspace_id: "ws_01",
@@ -152,5 +240,6 @@ main()
       (globalThis as typeof globalThis & { window?: unknown }).window = originalWindow;
     }
   });
+
 
 

@@ -126,6 +126,12 @@ type SegmentationRegion = NonNullable<
   >["analysis"]
 >["segmentation"]["regions"][number];
 
+type TranscriptPrepChunk = NonNullable<
+  NonNullable<
+    Awaited<ReturnType<typeof handleHammerAudioPolishRequest>>["payload"]["data"]
+  >["analysis"]
+>["transcript_prep"]["chunks"][number];
+
 const FORMAT_CASES: FormatCase[] = [
   {
     fileName: "mono.wav",
@@ -312,6 +318,31 @@ function assertSegmentationCoverage(
   }
 }
 
+function assertTranscriptChunkCoverage(
+  chunks: TranscriptPrepChunk[],
+  durationMs: number,
+  label: string,
+): void {
+  const durationSec = durationMs / 1000;
+  assert.equal(chunks.length > 0, true, `${label} should produce at least one transcript chunk`);
+  assert.equal(chunks[0]?.chunk_index, 1, `${label} first chunk index should be 1`);
+  assert.equal(chunks[0]?.start_sec, 0, `${label} should start at 0`);
+  const lastChunk = chunks[chunks.length - 1];
+  assert.equal(Math.abs((lastChunk?.end_sec ?? 0) - durationSec) <= 0.001, true, `${label} should end at file duration`);
+
+  let previousEnd = 0;
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index];
+    assert.equal(chunk.chunk_index, index + 1, `${label} chunk indexes must be sequential`);
+    assert.equal(chunk.start_sec >= 0, true, `${label} chunk ${index} has negative start`);
+    assert.equal(chunk.end_sec > chunk.start_sec, true, `${label} chunk ${index} has invalid duration`);
+    assert.equal(Math.abs(chunk.start_sec - previousEnd) <= 0.001, true, `${label} chunk ${index} breaks full coverage`);
+    assert.equal(chunk.duration_sec > 0, true, `${label} chunk ${index} has non-positive duration`);
+    assert.equal(chunk.duration_sec <= 90.001, true, `${label} chunk ${index} exceeds hard max`);
+    previousEnd = chunk.end_sec;
+  }
+}
+
 async function main(): Promise<void> {
   if (!commandAvailable("ffmpeg") || !commandAvailable("ffprobe")) {
     console.log("Skipping hammer audio polish route test (ffmpeg/ffprobe unavailable).");
@@ -365,12 +396,23 @@ async function main(): Promise<void> {
       assert.equal(typeof monoRunA.payload.data?.analysis?.loudness.true_peak_dbtp, "number");
       assert.equal(typeof monoRunA.payload.data?.settings_summary.analysis_speech_region_count, "number");
       assert.equal(typeof monoRunA.payload.data?.settings_summary.analysis_silence_region_count, "number");
+      assert.equal(typeof monoRunA.payload.data?.settings_summary.analysis_chunk_count, "number");
       assert.equal((monoRunA.payload.data?.analysis?.loudness.integrated_lufs ?? -Infinity) >= -60, true);
       assert.equal((monoRunA.payload.data?.analysis?.loudness.integrated_lufs ?? Infinity) <= 0, true);
       assert.equal((monoRunA.payload.data?.analysis?.loudness.true_peak_dbtp ?? Infinity) <= 0, true);
       assert.equal((monoRunA.payload.data?.analysis?.loudness.loudness_range_lu ?? -1) >= 0, true);
+      assert.equal((monoRunA.payload.data?.analysis?.transcript_prep.chunk_count ?? 0) >= 1, true);
+      assert.equal(
+        monoRunA.payload.data?.analysis?.transcript_prep.chunk_count,
+        (monoRunA.payload.data?.analysis?.transcript_prep.chunks ?? []).length,
+      );
       assertSegmentationCoverage(
         monoRunA.payload.data?.analysis?.segmentation.regions ?? [],
+        monoRunA.payload.data?.output_duration_ms ?? 0,
+        "mono.m4a",
+      );
+      assertTranscriptChunkCoverage(
+        monoRunA.payload.data?.analysis?.transcript_prep.chunks ?? [],
         monoRunA.payload.data?.output_duration_ms ?? 0,
         "mono.m4a",
       );
@@ -418,12 +460,23 @@ async function main(): Promise<void> {
         assert.equal(typeof formatRun.payload.data?.analysis?.loudness.true_peak_dbtp, "number", `${testCase.fileName} missing true peak`);
         assert.equal(typeof formatRun.payload.data?.settings_summary.analysis_speech_region_count, "number", `${testCase.fileName} missing speech region count`);
         assert.equal(typeof formatRun.payload.data?.settings_summary.analysis_silence_region_count, "number", `${testCase.fileName} missing silence region count`);
+        assert.equal(typeof formatRun.payload.data?.settings_summary.analysis_chunk_count, "number", `${testCase.fileName} missing chunk count`);
         assert.equal((formatRun.payload.data?.analysis?.loudness.integrated_lufs ?? -Infinity) >= -60, true, `${testCase.fileName} integrated loudness out of range`);
         assert.equal((formatRun.payload.data?.analysis?.loudness.integrated_lufs ?? Infinity) <= 0, true, `${testCase.fileName} integrated loudness out of range`);
         assert.equal((formatRun.payload.data?.analysis?.loudness.true_peak_dbtp ?? Infinity) <= 0, true, `${testCase.fileName} true peak out of range`);
         assert.equal((formatRun.payload.data?.analysis?.loudness.loudness_range_lu ?? -1) >= 0, true, `${testCase.fileName} loudness range out of range`);
+        assert.equal(
+          formatRun.payload.data?.analysis?.transcript_prep.chunk_count,
+          (formatRun.payload.data?.analysis?.transcript_prep.chunks ?? []).length,
+          `${testCase.fileName} chunk count mismatch`,
+        );
         assertSegmentationCoverage(
           formatRun.payload.data?.analysis?.segmentation.regions ?? [],
+          formatRun.payload.data?.output_duration_ms ?? 0,
+          testCase.fileName,
+        );
+        assertTranscriptChunkCoverage(
+          formatRun.payload.data?.analysis?.transcript_prep.chunks ?? [],
           formatRun.payload.data?.output_duration_ms ?? 0,
           testCase.fileName,
         );
@@ -528,8 +581,14 @@ async function main(): Promise<void> {
         assert.equal(fixtureRun.status, 200, `${fixture.fileName} returned non-200`);
         assert.equal(fixtureRun.payload.data?.status, "prepared", `${fixture.fileName} did not prepare`);
         const regions = fixtureRun.payload.data?.analysis?.segmentation.regions ?? [];
+        const chunks = fixtureRun.payload.data?.analysis?.transcript_prep.chunks ?? [];
         assertSegmentationCoverage(
           regions,
+          fixtureRun.payload.data?.output_duration_ms ?? 0,
+          fixture.fileName,
+        );
+        assertTranscriptChunkCoverage(
+          chunks,
           fixtureRun.payload.data?.output_duration_ms ?? 0,
           fixture.fileName,
         );

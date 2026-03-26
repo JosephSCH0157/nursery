@@ -211,10 +211,12 @@ export interface HammerAudioPolishAnalysisSegmentation {
 
 export interface HammerAudioPolishAnalysisTranscriptPrepChunk {
   id: string;
+  chunk_index: number;
   start_sec: number;
   end_sec: number;
   duration_sec: number;
-  source: "silence_boundary" | "hard_max_split" | "short_file_single_chunk";
+  boundary_reason: "silence_boundary" | "hard_max_split" | "short_file";
+  source: "silence_boundary" | "hard_max_split" | "short_file";
 }
 
 export interface HammerAudioPolishAnalysisTranscriptPrep {
@@ -222,6 +224,7 @@ export interface HammerAudioPolishAnalysisTranscriptPrep {
   target_chunk_sec: number;
   max_chunk_sec: number;
   chunks: HammerAudioPolishAnalysisTranscriptPrepChunk[];
+  chunk_count: number;
 }
 
 export interface HammerAudioPolishAnalysisChannelCharacterization {
