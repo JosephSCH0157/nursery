@@ -358,6 +358,19 @@ function resolveInitialPassId(value: HammerPassId | undefined): HammerPassId {
   return value && PASS_ID_SET.has(value) ? value : PASS_ORDER[0].id;
 }
 
+type HammerCandidateReviewKind = "fillers" | "retakes";
+
+type HammerCandidateCard = {
+  id: string;
+  kind: HammerCandidateReviewKind;
+  segmentId: string;
+  description: string;
+  beforeText: string;
+  afterText: string | null;
+  confidence: number;
+  timeSavedSec: number;
+};
+
 type HammerSourceImageItem = {
   id: string;
   label: string;
@@ -613,6 +626,17 @@ function toErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   if (typeof error === "string" && error.trim()) return error;
   return fallback;
+}
+
+function isSubtractiveTranscriptEdit(previousText: string, nextText: string): boolean {
+  if (nextText.length > previousText.length) return false;
+  let cursor = 0;
+  for (const char of nextText) {
+    const matchedIndex = previousText.indexOf(char, cursor);
+    if (matchedIndex < 0) return false;
+    cursor = matchedIndex + 1;
+  }
+  return true;
 }
 
 function isKeyboardEditingTarget(target: EventTarget | null): boolean {
@@ -1267,6 +1291,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     suppressShortCrossTalk: true,
     maxInterruptionSec: 0.8,
   }));
+  const [candidateCards, setCandidateCards] = useState<HammerCandidateCard[]>([]);
+  const [activeCandidateIndex, setActiveCandidateIndex] = useState(0);
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
   const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
@@ -1500,6 +1526,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   );
 
   const selectedSegment = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId) ?? null;
+  const activeCandidateCard = candidateCards[activeCandidateIndex] ?? null;
+  const candidateSegmentIdSet = useMemo(
+    () => new Set(candidateCards.map((card) => card.segmentId)),
+    [candidateCards],
+  );
+  const activeCandidateSegmentId = activeCandidateCard?.segmentId ?? null;
   const transcriptSelectionRange = useMemo(
     () => resolveTranscriptSegmentRange({
       segments: editableTranscriptSegments,
@@ -1556,6 +1588,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       (segmentId) => transcriptSegmentsById.get(segmentId)?.is_disabled === true,
     )
   ), [hasTranscriptSelection, transcriptSelectionRange.segmentIds, transcriptSegmentsById]);
+  useEffect(() => {
+    if (!activeCandidateSegmentId) return;
+    if (!editableTranscriptSegments.some((segment) => segment.segment_id === activeCandidateSegmentId)) return;
+    setSelectedSegmentId(activeCandidateSegmentId);
+    setTranscriptSelectionAnchorSegmentId(activeCandidateSegmentId);
+    setTranscriptSelectionFocusSegmentId(activeCandidateSegmentId);
+  }, [activeCandidateSegmentId, editableTranscriptSegments]);
   const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
   const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
   const playheadBoundaryTimesSec = useMemo(
@@ -3578,6 +3617,108 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }));
     setTranscriptTimingHint(null);
   }
+
+  function buildCandidateCardsFromPreview(
+    kind: HammerCandidateReviewKind,
+    preview: HammerCleanupPreview,
+  ): HammerCandidateCard[] {
+    const beforeById = new Map(editableTranscriptSegments.map((segment) => [segment.segment_id, segment] as const));
+    const afterById = new Map(preview.resultSegments.map((segment) => [segment.segment_id, segment] as const));
+    const cards: HammerCandidateCard[] = [];
+    for (const suggestion of preview.suggestions) {
+      const matchesKind = kind === "fillers"
+        ? suggestion.type === "filler_remove"
+        : suggestion.type === "retake_remove";
+      if (!matchesKind) continue;
+      const before = beforeById.get(suggestion.segmentId);
+      if (!before) continue;
+      const after = afterById.get(suggestion.segmentId) ?? null;
+      cards.push({
+        id: suggestion.id,
+        kind,
+        segmentId: suggestion.segmentId,
+        description: suggestion.description,
+        beforeText: before.text,
+        afterText: after ? after.text : null,
+        confidence: suggestion.confidence,
+        timeSavedSec: suggestion.timeSavedSec,
+      });
+    }
+    return cards;
+  }
+
+  function refreshCandidateQueue(kind: HammerCandidateReviewKind): void {
+    const preview = kind === "fillers"
+      ? previewRemoveFillers(editableTranscriptSegments, fillerCleanupOptions)
+      : previewRemoveRetakes(editableTranscriptSegments, retakeCleanupOptions);
+    const cards = buildCandidateCardsFromPreview(kind, preview);
+    setCandidateCards(cards);
+    setActiveCandidateIndex(0);
+    setCleanupPreview(preview);
+    setCleanupReceipt(null);
+    setTranscriptTimingHint(cards.length === 0
+      ? `No ${kind === "fillers" ? "filler" : "retake"} candidates detected in this pass.`
+      : null);
+  }
+
+  function handleCandidateDecision(approve: boolean): void {
+    const card = activeCandidateCard;
+    if (!card) return;
+    if (approve) {
+      applyHistoryMutation({
+        label: card.kind === "fillers" ? "Approve filler removal" : "Approve retake removal",
+        kind: "cleanup_tool",
+        toolId: "polish",
+        affectedSegments: [card.segmentId],
+        immediatePersist: true,
+        computeAfter: (before) => {
+          let nextSegments = before.transcriptSegments;
+          if (card.afterText == null) {
+            nextSegments = before.transcriptSegments.filter((segment) => segment.segment_id !== card.segmentId);
+          } else {
+            nextSegments = updateSegmentInTimeline(before.transcriptSegments, card.segmentId, (segment) => ({
+              ...segment,
+              text: card.afterText ?? segment.text,
+            }));
+          }
+          const synced = syncEditableTranscriptSegments(nextSegments, before.selectedSegmentId);
+          return {
+            ...before,
+            transcriptSegments: synced.segments,
+            selectedSegmentId: synced.selectedSegmentId,
+            transcriptTimingHint: null,
+          };
+        },
+      });
+      window.setTimeout(() => {
+        refreshCandidateQueue(card.kind);
+      }, 0);
+    }
+    setCandidateCards((previous) => previous.filter((item) => item.id !== card.id));
+    setActiveCandidateIndex((previous) => Math.max(0, previous - (previous > 0 ? 1 : 0)));
+  }
+
+  useEffect(() => {
+    if (currentPass === "transcript_cleanup") {
+      refreshCandidateQueue("fillers");
+      return;
+    }
+    if (currentPass === "retakes") {
+      refreshCandidateQueue("retakes");
+      return;
+    }
+    setCandidateCards([]);
+    setActiveCandidateIndex(0);
+  }, [currentPass]);
+  useEffect(() => {
+    if (candidateCards.length === 0 && activeCandidateIndex !== 0) {
+      setActiveCandidateIndex(0);
+      return;
+    }
+    if (activeCandidateIndex >= candidateCards.length && candidateCards.length > 0) {
+      setActiveCandidateIndex(candidateCards.length - 1);
+    }
+  }, [activeCandidateIndex, candidateCards.length]);
 
   function handlePlaybackProgress(nextTimeSec: number): void {
     const effectiveNext = resolveEffectivePlaybackTime(editableTranscriptSegments, nextTimeSec);
@@ -6020,10 +6161,36 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <textarea
                             value={selectedSegment.text}
                             onFocus={() => setFocusOverride("source-focus")}
-                            readOnly
+                            onChange={(event) => {
+                              const nextValue = event.target.value;
+                              if (!isSubtractiveTranscriptEdit(selectedSegment.text, nextValue)) {
+                                setTranscriptTimingHint("Hammer v2 allows subtractive transcript edits only (deletions, no additions).");
+                                return;
+                              }
+                              setFocusOverride("source-focus");
+                              applyHistoryMutation({
+                                label: "Delete transcript text",
+                                kind: "transcript_text_edit",
+                                affectedSegments: [selectedSegment.segment_id],
+                                transactionId: `text:${selectedSegment.segment_id}:${activeTool}:${selectedSourceTab}`,
+                                allowCoalesce: true,
+                                computeAfter: (before) => ({
+                                  ...before,
+                                  transcriptSegments: updateSegmentInTimeline(
+                                    before.transcriptSegments,
+                                    selectedSegment.segment_id,
+                                    (segment) => ({
+                                      ...segment,
+                                      text: nextValue,
+                                    }),
+                                  ),
+                                  transcriptTimingHint: null,
+                                }),
+                              });
+                            }}
                           />
                           <small className="hammer-transcript-editor__hint">
-                            Transcript text is read-only in Hammer v2. Use cut/disable/tighten actions for subtractive edits.
+                            Subtractive-only editing: delete words/phrases, but you cannot add new words.
                           </small>
                         </label>
                       </section>
@@ -6076,6 +6243,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             segment.segment_id === selectedSegmentId ? "is-active" : "",
                             transcriptSelectionSegmentIdSet.has(segment.segment_id) ? "is-range" : "",
                             modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
+                            candidateSegmentIdSet.has(segment.segment_id) ? "is-candidate" : "",
+                            activeCandidateSegmentId === segment.segment_id ? "is-candidate-active" : "",
                             segment.is_disabled ? "is-disabled" : "",
                           ].filter(Boolean).join(" ")}
                           onClick={(event) => {
@@ -6730,6 +6899,89 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             </header>
             <div className="hammer-bay-body">
               {activeTool === "polish" ? (
+                currentPass === "transcript_cleanup" || currentPass === "retakes" ? (
+                  <section className="hammer-tool-card">
+                    <header className="hammer-tool-card__head">
+                      {currentPass === "transcript_cleanup" ? "Transcript Cleanup" : "Retake Review"}
+                    </header>
+                    <div className="hammer-tool-hint">
+                      {currentPass === "transcript_cleanup"
+                        ? "Review filler candidates and approve or reject each one."
+                        : "Review retake candidates and approve or reject each one."}
+                    </div>
+                    {currentPass === "transcript_cleanup" ? (
+                      <label className="hammer-tool-field">
+                        <span>Aggressiveness</span>
+                        <select
+                          value={fillerCleanupOptions.aggressiveness}
+                          onChange={(event) => setFillerCleanupOptions((current) => ({
+                            ...current,
+                            aggressiveness: event.target.value as FillerCleanupOptions["aggressiveness"],
+                          }))}
+                        >
+                          <option value="light">Light</option>
+                          <option value="medium">Medium</option>
+                          <option value="strong">Strong</option>
+                        </select>
+                      </label>
+                    ) : (
+                      <label className="hammer-tool-field">
+                        <span>Detection mode</span>
+                        <select
+                          value={retakeCleanupOptions.detection}
+                          onChange={(event) => setRetakeCleanupOptions((current) => ({
+                            ...current,
+                            detection: event.target.value as RetakeCleanupOptions["detection"],
+                          }))}
+                        >
+                          <option value="conservative">Conservative</option>
+                          <option value="normal">Normal</option>
+                          <option value="aggressive">Aggressive</option>
+                        </select>
+                      </label>
+                    )}
+                    <div className="hammer-candidate-review__actions">
+                      <button
+                        type="button"
+                        onClick={() => refreshCandidateQueue(currentPass === "transcript_cleanup" ? "fillers" : "retakes")}
+                      >
+                        Refresh Candidates
+                      </button>
+                    </div>
+                    {activeCandidateCard ? (
+                      <article className="hammer-candidate-card">
+                        <header className="hammer-candidate-card__head">
+                          <strong>
+                            {activeCandidateIndex + 1} / {candidateCards.length}
+                          </strong>
+                          <span>{activeCandidateCard.segmentId}</span>
+                        </header>
+                        <p className="hammer-candidate-card__description">{activeCandidateCard.description}</p>
+                        <div className="hammer-candidate-card__context">
+                          <header>Current</header>
+                          <p>{activeCandidateCard.beforeText}</p>
+                        </div>
+                        <div className="hammer-candidate-card__context">
+                          <header>Proposed</header>
+                          <p>{activeCandidateCard.afterText ?? "[segment removed]"}</p>
+                        </div>
+                        <div className="hammer-candidate-card__meta">
+                          <span>Confidence {Math.round(activeCandidateCard.confidence * 100)}%</span>
+                          <span>Time saved {activeCandidateCard.timeSavedSec.toFixed(1)}s</span>
+                        </div>
+                        <div className="hammer-candidate-review__actions">
+                          <button type="button" onClick={() => handleCandidateDecision(true)}>Approve</button>
+                          <button type="button" onClick={() => handleCandidateDecision(false)}>Reject</button>
+                        </div>
+                      </article>
+                    ) : (
+                      <div className="hammer-tool-hint">
+                        No pending candidates in this pass.
+                      </div>
+                    )}
+                    <div className="hammer-tool-hint">Approve applies immediately. Reject leaves source unchanged.</div>
+                  </section>
+                ) : (
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Transcript Polish</header>
                   <label className="hammer-tool-field">
@@ -7464,6 +7716,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   ) : null}
                   <div className="hammer-tool-hint">Deterministic cleanup only. No AI inference path.</div>
                 </section>
+                )
               ) : null}
 
               {activeTool === "audio" ? (

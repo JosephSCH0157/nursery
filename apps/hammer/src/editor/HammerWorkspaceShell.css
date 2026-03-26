@@ -169,6 +169,62 @@ Guardrails:
   gap: 6px;
 }
 
+.hammer-candidate-review__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.hammer-candidate-card {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.hammer-candidate-card__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #dbeafe;
+}
+
+.hammer-candidate-card__description {
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.hammer-candidate-card__context {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(15, 23, 42, 0.5);
+  display: grid;
+  gap: 4px;
+}
+
+.hammer-candidate-card__context header {
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #93c5fd;
+}
+
+.hammer-candidate-card__context p {
+  margin: 0;
+  color: #e2e8f0;
+  font-size: 12px;
+}
+
+.hammer-candidate-card__meta {
+  display: flex;
+  gap: 10px;
+  color: #93c5fd;
+  font-size: 11px;
+}
+
 .hammer-bay-tabs button,
 .hammer-timeline-tools button {
   border: 1px solid rgba(148, 163, 184, 0.22);
@@ -238,6 +294,17 @@ Guardrails:
 .hammer-transcript-line.is-disabled {
   opacity: 0.72;
   box-shadow: inset 2px 0 0 rgba(148, 163, 184, 0.6);
+}
+
+.hammer-transcript-line.is-candidate .hammer-transcript-line__text {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: rgba(148, 163, 184, 0.8);
+}
+
+.hammer-transcript-line.is-candidate-active {
+  background: rgba(30, 64, 175, 0.18);
+  box-shadow: inset 2px 0 0 rgba(125, 211, 252, 0.92);
 }
 
 .hammer-transcript-line__meta {

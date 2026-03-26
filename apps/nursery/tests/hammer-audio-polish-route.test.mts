@@ -132,6 +132,12 @@ type TranscriptPrepChunk = NonNullable<
   >["analysis"]
 >["transcript_prep"]["chunks"][number];
 
+type WaveformProxy = NonNullable<
+  NonNullable<
+    Awaited<ReturnType<typeof handleHammerAudioPolishRequest>>["payload"]["data"]
+  >["analysis"]
+>["waveform_proxy"];
+
 const FORMAT_CASES: FormatCase[] = [
   {
     fileName: "mono.wav",
@@ -343,6 +349,20 @@ function assertTranscriptChunkCoverage(
   }
 }
 
+function assertWaveformProxy(proxy: WaveformProxy | null | undefined, label: string): asserts proxy is WaveformProxy {
+  assert(proxy, `${label} waveform proxy missing`);
+  assert.equal(proxy.version, "v1", `${label} waveform version mismatch`);
+  assert.equal(proxy.channel_mode, "mono_mixdown", `${label} waveform channel mode mismatch`);
+  assert.equal(proxy.bucket_count > 0, true, `${label} waveform bucket_count should be > 0`);
+  assert.equal(proxy.duration_sec > 0, true, `${label} waveform duration should be > 0`);
+  assert.equal(proxy.bucket_duration_sec > 0, true, `${label} waveform bucket duration should be > 0`);
+  assert.equal(proxy.peaks.length, proxy.bucket_count, `${label} peaks length mismatch`);
+  for (const peak of proxy.peaks) {
+    assert.equal(Number.isNaN(peak), false, `${label} waveform peak contains NaN`);
+    assert.equal(peak >= 0 && peak <= 1, true, `${label} waveform peak out of range`);
+  }
+}
+
 async function main(): Promise<void> {
   if (!commandAvailable("ffmpeg") || !commandAvailable("ffprobe")) {
     console.log("Skipping hammer audio polish route test (ffmpeg/ffprobe unavailable).");
@@ -416,6 +436,7 @@ async function main(): Promise<void> {
         monoRunA.payload.data?.output_duration_ms ?? 0,
         "mono.m4a",
       );
+      assertWaveformProxy(monoRunA.payload.data?.analysis?.waveform_proxy, "mono.m4a");
 
       assert.equal(stereoRun.status, 200);
       assert.equal(stereoRun.payload.ok, true);
@@ -459,6 +480,12 @@ async function main(): Promise<void> {
         stereoRun.payload.data?.analysis?.channel_characterization?.silent_channel,
         null,
         "normal stereo has no silent_channel"
+      );
+      assertWaveformProxy(stereoRun.payload.data?.analysis?.waveform_proxy, "stereo.m4a");
+      assert.deepEqual(
+        monoRunA.payload.data?.analysis?.waveform_proxy?.peaks,
+        monoRunB.payload.data?.analysis?.waveform_proxy?.peaks,
+        "waveform proxy should be deterministic for same input"
       );
 
       const monoWorkingPaths = commitServer.requests
@@ -517,6 +544,7 @@ async function main(): Promise<void> {
           formatRun.payload.data?.output_duration_ms ?? 0,
           testCase.fileName,
         );
+        assertWaveformProxy(formatRun.payload.data?.analysis?.waveform_proxy, testCase.fileName);
         assert.equal(
           formatRun.payload.data?.settings_summary.source_extension,
           path.extname(testCase.fileName).toLowerCase(),
@@ -629,8 +657,53 @@ async function main(): Promise<void> {
           fixtureRun.payload.data?.output_duration_ms ?? 0,
           fixture.fileName,
         );
+        const waveform = fixtureRun.payload.data?.analysis?.waveform_proxy;
+        assertWaveformProxy(waveform, fixture.fileName);
+        if (fixture.fileName === "seg_silence_tone_silence.wav") {
+          const nearZeroCount = waveform.peaks.filter((peak) => peak <= 0.01).length;
+          const strongCount = waveform.peaks.filter((peak) => peak >= 0.1).length;
+          assert.equal(nearZeroCount > 0, true, "silence-heavy fixture should produce near-zero waveform sections");
+          assert.equal(strongCount > 0, true, "tone fixture should produce stronger waveform sections");
+        }
         fixture.assertRegions(regions);
       }
+
+      const longWavePath = path.join(tempRoot, "wave_long.wav");
+      runCommand("ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=330:duration=10",
+        "-ac",
+        "1",
+        "-ar",
+        "48000",
+        longWavePath,
+      ]);
+      const longWaveRun = await runOneCase({
+        localRootAbs: tempRoot,
+        localRelpath: "wave_long.wav",
+        mimeType: "audio/wav",
+        mediaKind: "recording_audio",
+        context,
+      });
+      assert.equal(longWaveRun.status, 200, "wave_long.wav returned non-200");
+      assert.equal(longWaveRun.payload.data?.status, "prepared", "wave_long.wav did not prepare");
+      assertWaveformProxy(longWaveRun.payload.data?.analysis?.waveform_proxy, "wave_long.wav");
+      assert.equal(
+        (longWaveRun.payload.data?.analysis?.waveform_proxy?.bucket_count ?? 0) <= 2400,
+        true,
+        "wave_long.wav waveform bucket count should be bounded"
+      );
+      assert.equal(
+        typeof longWaveRun.payload.data?.settings_summary.analysis_waveform_bucket_count,
+        "number",
+        "wave_long.wav should include minimal waveform summary"
+      );
     } finally {
       await commitServer.close();
     }

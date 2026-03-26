@@ -76,6 +76,7 @@ type HammerSegmentationAnalysis = HammerAudioPolishAnalysis["segmentation"];
 type HammerSegmentationRegion = HammerSegmentationAnalysis["regions"][number];
 type HammerTranscriptPrepAnalysis = HammerAudioPolishAnalysis["transcript_prep"];
 type HammerChannelCharacterization = HammerAudioPolishAnalysis["channel_characterization"];
+type HammerWaveformProxy = HammerAudioPolishAnalysis["waveform_proxy"];
 
 const OUTPUT_MIME_TYPE = "audio/wav";
 const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
@@ -100,6 +101,8 @@ const TRANSCRIPT_CHUNK_BOUNDARY_SEARCH_WINDOW_SEC = 18;
 const SILENT_CHANNEL_THRESHOLD_DBFS = -85;
 const DUAL_MONO_CORRELATION_THRESHOLD = 0.99;
 const PHASE_CONCERN_CORRELATION_THRESHOLD = -0.5;
+const WAVEFORM_PROXY_BUCKET_DURATION_SEC = 0.05;
+const WAVEFORM_PROXY_MAX_BUCKET_COUNT = 2400;
 
 function readTrimmed(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -1484,6 +1487,49 @@ function analyzeChannelCharacterization(parsedWave: ParsedWave): HammerChannelCh
   };
 }
 
+function buildWaveformProxy(parsedWave: ParsedWave): HammerWaveformProxy {
+  const durationSec = parsedWave.sampleRate > 0
+    ? parsedWave.sampleCount / parsedWave.sampleRate
+    : 0;
+  const safeDurationSec = Math.max(durationSec, 1 / Math.max(parsedWave.sampleRate, 1));
+  const effectiveBucketDurationSec = Math.max(
+    WAVEFORM_PROXY_BUCKET_DURATION_SEC,
+    safeDurationSec / WAVEFORM_PROXY_MAX_BUCKET_COUNT,
+  );
+  const bucketCount = Math.max(1, Math.ceil(safeDurationSec / effectiveBucketDurationSec));
+  const peaks = new Array<number>(bucketCount).fill(0);
+
+  for (let bucketIndex = 0; bucketIndex < bucketCount; bucketIndex += 1) {
+    const startSample = Math.floor((bucketIndex * parsedWave.sampleCount) / bucketCount);
+    const endSample = Math.floor(((bucketIndex + 1) * parsedWave.sampleCount) / bucketCount);
+    let bucketPeak = 0;
+
+    for (let sampleIndex = startSample; sampleIndex < endSample; sampleIndex += 1) {
+      let mixedSample = 0;
+      if (parsedWave.channelCount === 1) {
+        mixedSample = parsedWave.channelData[0][sampleIndex] ?? 0;
+      } else {
+        mixedSample = ((parsedWave.channelData[0][sampleIndex] ?? 0) + (parsedWave.channelData[1][sampleIndex] ?? 0)) / 2;
+      }
+      const magnitude = Math.abs(mixedSample);
+      if (magnitude > bucketPeak) {
+        bucketPeak = magnitude;
+      }
+    }
+
+    peaks[bucketIndex] = Math.max(0, Math.min(1, bucketPeak));
+  }
+
+  return {
+    version: "v1",
+    duration_sec: roundToMillis(safeDurationSec),
+    bucket_count: bucketCount,
+    bucket_duration_sec: roundToMillis(safeDurationSec / bucketCount),
+    channel_mode: "mono_mixdown",
+    peaks,
+  };
+}
+
 export function createHammerAudioPolishRequestContext(req: IncomingMessage): HammerAudioPolishRequestContext {
   const forwardedProto = readHeaderString(req.headers["x-forwarded-proto"]);
   const host = readHeaderString(req.headers.host) ?? "localhost";
@@ -1695,6 +1741,8 @@ export async function handleHammerAudioPolishRequest(
       durationSec,
       segmentation: segmentationAnalysis,
     });
+    const channelCharacterization = analyzeChannelCharacterization(parsedWave);
+    const waveformProxy = buildWaveformProxy(parsedWave);
     setPhase("finalizing_audio_prep");
     const polishedWaveBytes = renderPolishedWaveBuffer(parsedWave);
     const outputWorkpiecePath = buildArtifactRelpath("audio-polish", request);
@@ -1748,8 +1796,8 @@ export async function handleHammerAudioPolishRequest(
             loudness: loudnessAnalysis,
             segmentation: segmentationAnalysis,
             transcript_prep: transcriptPrepAnalysis,
-            channel_characterization: analyzeChannelCharacterization(parsedWave),
-            waveform_proxy: null,
+            channel_characterization: channelCharacterization,
+            waveform_proxy: waveformProxy,
           },
           settings_summary: {
             supported_source: true,
@@ -1787,8 +1835,9 @@ export async function handleHammerAudioPolishRequest(
             analysis_speech_region_count: segmentationAnalysis.speech_region_count,
             analysis_silence_region_count: segmentationAnalysis.silence_region_count,
             analysis_chunk_count: transcriptPrepAnalysis.chunk_count,
-            analysis_channel_count: parsedWave.channelData.length,
-            analysis_dual_mono: parsedWave.channelData.length > 1,
+            analysis_channel_count: channelCharacterization?.channel_count ?? parsedWave.channelData.length,
+            analysis_dual_mono: channelCharacterization?.dual_mono ?? false,
+            analysis_waveform_bucket_count: waveformProxy.bucket_count,
             analysis_phase: activePhase,
             chain: "dc_remove,high_pass,presence_lift,gentle_noise_reduction,light_compression,peak_normalize",
           },
