@@ -75,6 +75,7 @@ type HammerLoudnessAnalysis = HammerAudioPolishAnalysis["loudness"];
 type HammerSegmentationAnalysis = HammerAudioPolishAnalysis["segmentation"];
 type HammerSegmentationRegion = HammerSegmentationAnalysis["regions"][number];
 type HammerTranscriptPrepAnalysis = HammerAudioPolishAnalysis["transcript_prep"];
+type HammerChannelCharacterization = HammerAudioPolishAnalysis["channel_characterization"];
 
 const OUTPUT_MIME_TYPE = "audio/wav";
 const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
@@ -96,6 +97,9 @@ const TRANSCRIPT_CHUNK_TARGET_SEC = 60;
 const TRANSCRIPT_CHUNK_HARD_MAX_SEC = 90;
 const TRANSCRIPT_CHUNK_MIN_SEC = 8;
 const TRANSCRIPT_CHUNK_BOUNDARY_SEARCH_WINDOW_SEC = 18;
+const SILENT_CHANNEL_THRESHOLD_DBFS = -85;
+const DUAL_MONO_CORRELATION_THRESHOLD = 0.99;
+const PHASE_CONCERN_CORRELATION_THRESHOLD = -0.5;
 
 function readTrimmed(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -1374,6 +1378,112 @@ function buildTranscriptPrepChunkMap(args: {
   };
 }
 
+function computeChannelRmsDbfs(channelData: Float32Array): number | null {
+  let sumSquares = 0;
+  for (let index = 0; index < channelData.length; index += 1) {
+    const sample = channelData[index];
+    sumSquares += sample * sample;
+  }
+  if (channelData.length === 0) return null;
+  const rms = Math.sqrt(sumSquares / channelData.length);
+  if (!(rms > 0)) return null;
+  return 20 * Math.log10(rms);
+}
+
+function computePearsonCorrelation(left: Float32Array, right: Float32Array): number | null {
+  if (left.length === 0 || right.length !== left.length) return null;
+  const length = Math.min(left.length, right.length);
+  if (length === 0) return null;
+
+  let sumXY = 0;
+  let sumX = 0;
+  let sumY = 0;
+  let sumX2 = 0;
+  let sumY2 = 0;
+
+  for (let index = 0; index < length; index += 1) {
+    const x = left[index];
+    const y = right[index];
+    sumXY += x * y;
+    sumX += x;
+    sumY += y;
+    sumX2 += x * x;
+    sumY2 += y * y;
+  }
+
+  const numerator = length * sumXY - sumX * sumY;
+  const denominator = Math.sqrt((length * sumX2 - sumX * sumX) * (length * sumY2 - sumY * sumY));
+  if (!(denominator > 0)) return null;
+  const correlation = numerator / denominator;
+  if (!Number.isFinite(correlation)) return null;
+  return correlation;
+}
+
+function analyzeChannelCharacterization(parsedWave: ParsedWave): HammerChannelCharacterization | null {
+  if (!parsedWave.channelData || parsedWave.channelData.length === 0) {
+    return null;
+  }
+
+  const channelCount = parsedWave.channelData.length;
+  if (channelCount === 1) {
+    return {
+      channel_count: 1,
+      silent_channel: null,
+      dual_mono: false,
+      phase_correlation: 1,
+      phase_concern: false,
+    };
+  }
+
+  const channelRmsValues = parsedWave.channelData.map((channel) => computeChannelRmsDbfs(channel));
+  let silentChannel: "left" | "right" | null = null;
+
+  if (channelCount === 2) {
+    const [leftRms, rightRms] = channelRmsValues;
+    if (leftRms != null && rightRms != null) {
+      const leftIsSilent = leftRms <= SILENT_CHANNEL_THRESHOLD_DBFS;
+      const rightIsSilent = rightRms <= SILENT_CHANNEL_THRESHOLD_DBFS;
+      const rmsDifference = Math.abs(leftRms - rightRms);
+
+      if (leftIsSilent && !rightIsSilent && rmsDifference > 5) {
+        silentChannel = "left";
+      } else if (rightIsSilent && !leftIsSilent && rmsDifference > 5) {
+        silentChannel = "right";
+      }
+    }
+  }
+
+  let dualMono = false;
+  let phaseCorrelation: number | null = null;
+  let phaseConcern = false;
+
+  if (channelCount >= 2) {
+    const correlation = computePearsonCorrelation(parsedWave.channelData[0], parsedWave.channelData[1]);
+    phaseCorrelation = correlation;
+
+    if (correlation != null) {
+      if (Math.abs(correlation) >= DUAL_MONO_CORRELATION_THRESHOLD) {
+        const amplitudeDiff = Math.abs((channelRmsValues[0] ?? 0) - (channelRmsValues[1] ?? 0));
+        if (amplitudeDiff < 2 && correlation > 0) {
+          dualMono = true;
+        }
+      }
+
+      if (correlation <= PHASE_CONCERN_CORRELATION_THRESHOLD) {
+        phaseConcern = true;
+      }
+    }
+  }
+
+  return {
+    channel_count: channelCount,
+    silent_channel: silentChannel,
+    dual_mono: dualMono,
+    phase_correlation: phaseCorrelation,
+    phase_concern: phaseConcern,
+  };
+}
+
 export function createHammerAudioPolishRequestContext(req: IncomingMessage): HammerAudioPolishRequestContext {
   const forwardedProto = readHeaderString(req.headers["x-forwarded-proto"]);
   const host = readHeaderString(req.headers.host) ?? "localhost";
@@ -1638,7 +1748,7 @@ export async function handleHammerAudioPolishRequest(
             loudness: loudnessAnalysis,
             segmentation: segmentationAnalysis,
             transcript_prep: transcriptPrepAnalysis,
-            channel_characterization: null,
+            channel_characterization: analyzeChannelCharacterization(parsedWave),
           },
           settings_summary: {
             supported_source: true,
@@ -1676,6 +1786,8 @@ export async function handleHammerAudioPolishRequest(
             analysis_speech_region_count: segmentationAnalysis.speech_region_count,
             analysis_silence_region_count: segmentationAnalysis.silence_region_count,
             analysis_chunk_count: transcriptPrepAnalysis.chunk_count,
+            analysis_channel_count: parsedWave.channelData.length,
+            analysis_dual_mono: parsedWave.channelData.length > 1,
             analysis_phase: activePhase,
             chain: "dc_remove,high_pass,presence_lift,gentle_noise_reduction,light_compression,peak_normalize",
           },

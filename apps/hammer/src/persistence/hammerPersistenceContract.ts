@@ -228,10 +228,11 @@ export interface HammerAudioPolishAnalysisTranscriptPrep {
 }
 
 export interface HammerAudioPolishAnalysisChannelCharacterization {
-  channel_count: number | null;
-  silent_channel_detected: boolean | null;
-  mono_compatible: boolean | null;
+  channel_count: number;
+  silent_channel: "left" | "right" | null;
+  dual_mono: boolean;
   phase_correlation: number | null;
+  phase_concern: boolean;
 }
 
 export interface HammerAudioPolishAnalysis {

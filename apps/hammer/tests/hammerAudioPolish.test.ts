@@ -82,9 +82,10 @@ const prepSource: HammerPrepSource = {
       },
       channel_characterization: {
         channel_count: 1,
-        silent_channel_detected: false,
-        mono_compatible: true,
+        silent_channel: null,
+        dual_mono: false,
         phase_correlation: 1,
+        phase_concern: false,
       },
     },
   });
@@ -135,6 +136,78 @@ const prepSource: HammerPrepSource = {
     analysis: undefined as never,
   });
   assert.equal(legacy?.analysis ?? null, null);
+}
+
+{
+  // Test channel characterization structure requirements
+  const prepared = buildPreparedHammerAudioPolish({
+    prepSource,
+    preparedAt: "2026-03-14T10:00:00.000Z",
+    outputLocalRelpath: "hammer/prep/audio-polish/workpiece/stereo-example.wav",
+    outputMimeType: "audio/wav",
+    outputDurationMs: 8_000,
+    analysis: {
+      schema_version: 1,
+      source_ref: "workpiece:recordings/stereo-example.wav",
+      analyzed_at: "2026-03-25T12:00:00.000Z",
+      loudness: {
+        integrated_lufs: -18.2,
+        loudness_range_lu: 3.1,
+        true_peak_dbtp: -1.4,
+        rms_dbfs: -20.5,
+      },
+      segmentation: {
+        strategy: "ffmpeg_silencedetect_v1",
+        noise_floor_db: -35,
+        min_silence_sec: 0.25,
+        regions: [
+          {
+            id: "speech_1",
+            start_sec: 0,
+            end_sec: 8,
+            kind: "speech",
+            confidence: 0.99,
+          },
+        ],
+        speech_region_count: 1,
+        silence_region_count: 0,
+      },
+      transcript_prep: {
+        strategy: "fixed_chunk_with_silence_bias_v1",
+        target_chunk_sec: 60,
+        max_chunk_sec: 90,
+        chunks: [
+          {
+            id: "chunk_1",
+            start_sec: 0,
+            end_sec: 8,
+            duration_sec: 8,
+            source: "short_file",
+            chunk_index: 1,
+            boundary_reason: "short_file",
+          },
+        ],
+        chunk_count: 1,
+      },
+      channel_characterization: {
+        channel_count: 2,
+        silent_channel: null,
+        dual_mono: false,
+        phase_correlation: 0.85,
+        phase_concern: false,
+      },
+    },
+  });
+
+  assert(prepared.analysis != null, "analysis populated for stereo");
+  assert.equal(prepared.analysis.channel_characterization?.channel_count, 2);
+  assert.equal(prepared.analysis.channel_characterization?.silent_channel, null);
+  assert.equal(prepared.analysis.channel_characterization?.dual_mono, false);
+  assert.equal(prepared.analysis.channel_characterization?.phase_concern, false);
+  assert(
+    prepared.analysis.channel_characterization?.phase_correlation != null,
+    "phase_correlation defined"
+  );
 }
 
 console.log("Hammer audio polish tests passed.");

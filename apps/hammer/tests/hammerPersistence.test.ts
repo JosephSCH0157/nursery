@@ -250,9 +250,10 @@ const snapshot: HammerWorkspaceSnapshot = {
       },
       channel_characterization: {
         channel_count: 1,
-        silent_channel_detected: false,
-        mono_compatible: true,
+        silent_channel: null,
+        dual_mono: false,
         phase_correlation: 1,
+        phase_concern: false,
       },
     },
     source_media_id: "media_01",

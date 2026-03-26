@@ -189,10 +189,15 @@ function normalizeAudioPolishAnalysis(value: unknown): HammerAudioPolishAnalysis
     },
     channel_characterization: channelCharacterization
       ? {
-        channel_count: readNumber(channelCharacterization.channel_count),
-        silent_channel_detected: readBoolean(channelCharacterization.silent_channel_detected),
-        mono_compatible: readBoolean(channelCharacterization.mono_compatible),
+        channel_count: readNumber(channelCharacterization.channel_count) ?? 0,
+        silent_channel: readString(channelCharacterization.silent_channel) === "left"
+          ? "left"
+          : readString(channelCharacterization.silent_channel) === "right"
+          ? "right"
+          : null,
+        dual_mono: readBoolean(channelCharacterization.dual_mono) ?? false,
         phase_correlation: readNumber(channelCharacterization.phase_correlation),
+        phase_concern: readBoolean(channelCharacterization.phase_concern) ?? false,
       }
       : null,
   };

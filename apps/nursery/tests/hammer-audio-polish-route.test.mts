@@ -424,6 +424,43 @@ async function main(): Promise<void> {
       assert.equal(stereoRun.payload.data?.settings_summary.sample_rate, 48000);
       assert.equal(typeof stereoRun.payload.data?.settings_summary.working_audio_workpiece_path, "string");
 
+      // Channel characterization assertions
+      assert.equal(
+        monoRunA.payload.data?.analysis?.channel_characterization?.channel_count,
+        1,
+        "mono file has channel_count=1"
+      );
+      assert.equal(
+        monoRunA.payload.data?.analysis?.channel_characterization?.silent_channel,
+        null,
+        "mono file has no silent_channel"
+      );
+      assert.equal(
+        monoRunA.payload.data?.analysis?.channel_characterization?.dual_mono,
+        false,
+        "mono file is not dual_mono"
+      );
+      assert.equal(
+        monoRunA.payload.data?.analysis?.channel_characterization?.phase_concern,
+        false,
+        "mono file has no phase_concern"
+      );
+
+      assert.equal(
+        stereoRun.payload.data?.analysis?.channel_characterization?.channel_count,
+        2,
+        "stereo file has channel_count=2"
+      );
+      assert(
+        stereoRun.payload.data?.analysis?.channel_characterization?.phase_correlation != null,
+        "stereo file has phase_correlation defined"
+      );
+      assert.equal(
+        stereoRun.payload.data?.analysis?.channel_characterization?.silent_channel,
+        null,
+        "normal stereo has no silent_channel"
+      );
+
       const monoWorkingPaths = commitServer.requests
         .filter((row) => row.event_name === "hammer.working-audio.committed" && row.path.includes("mono"))
         .map((row) => row.path);
