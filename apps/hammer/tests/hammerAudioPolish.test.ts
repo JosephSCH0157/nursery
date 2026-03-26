@@ -228,6 +228,50 @@ const prepSource: HammerPrepSource = {
   assert.equal(prepared.analysis.waveform_proxy?.version, "v1");
   assert.equal(prepared.analysis.waveform_proxy?.channel_mode, "mono_mixdown");
   assert.equal(prepared.analysis.waveform_proxy?.peaks.length, prepared.analysis.waveform_proxy?.bucket_count);
+  
+  // Day 4: buildPreparedHammerAudioPolish preserves waveform proxy completely
+  assert.equal(prepared.analysis.waveform_proxy?.version, "v1", "waveform version preserved");
+  assert.equal(prepared.analysis.waveform_proxy?.bucket_count, 4, "bucket_count preserved");
+  assert.equal(prepared.analysis.waveform_proxy?.bucket_duration_sec, 2, "bucket_duration_sec preserved");
+  assert.deepEqual(prepared.analysis.waveform_proxy?.peaks, [0.3, 0.4, 0.5, 0.6], "peaks preserved exactly");
+  
+  // Day 4: Backward compatibility - null waveform_proxy stays null through buildPreparedHammerAudioPolish
+  const preparedNoWaveform = buildPreparedHammerAudioPolish({
+    prepSource,
+    preparedAt: "2026-03-25T12:00:00.000Z",
+    outputLocalRelpath: "hammer/prep/audio-polish/legacy.wav",
+    outputMimeType: "audio/wav",
+    outputDurationMs: 4000,
+    analysis: {
+      schema_version: 1,
+      source_ref: "workpiece:recordings/legacy-1.wav",
+      analyzed_at: "2026-03-25T12:00:00.000Z",
+      loudness: {
+        integrated_lufs: -16,
+        loudness_range_lu: 2.5,
+        true_peak_dbtp: -0.5,
+        rms_dbfs: -18,
+      },
+      segmentation: {
+        strategy: "ffmpeg_silencedetect_v1",
+        noise_floor_db: -35,
+        min_silence_sec: 0.25,
+        regions: [],
+        speech_region_count: 0,
+        silence_region_count: 0,
+      },
+      transcript_prep: {
+        strategy: "fixed_chunk_with_silence_bias_v1",
+        target_chunk_sec: 60,
+        max_chunk_sec: 90,
+        chunks: [],
+        chunk_count: 0,
+      },
+      channel_characterization: null,
+      waveform_proxy: null,
+    },
+  });
+  assert.equal(preparedNoWaveform.analysis.waveform_proxy, null, "null waveform_proxy preserved through buildPreparedHammerAudioPolish");
 }
 
 console.log("Hammer audio polish tests passed.");
