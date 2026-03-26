@@ -35,6 +35,11 @@ function buildSnapshot(overrides?: {
       workspace_id: overrides?.stateWorkspaceId ?? "workspace_release_assembly_01",
       workpiece_id: overrides?.stateWorkpieceId ?? "workpiece_release_assembly_01",
       active_session_id: "session_release_assembly_01",
+      current_pass: "transcript_cleanup",
+      pass_order_version: 2,
+      pass_status: {
+        transcript_cleanup: "in_progress",
+      },
       editor_session_path: "hammer/session/editor-state.v1.json",
       transcript_artifact_path: "hammer/transcript/structured.v1.json",
       speaker_map_artifact_path: null,

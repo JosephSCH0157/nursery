@@ -22,6 +22,12 @@ const snapshot: HammerWorkspaceSnapshot = {
   editPlanStatus: "dirty",
   editPlanSignature: "sig_abc",
   transcriptSourceId: "transcript_01",
+  currentPass: "transcript_cleanup",
+  passOrderVersion: 2,
+  passStatus: {
+    transcript_cleanup: "in_progress",
+    retakes: "not_started",
+  },
   transcriptSegments: [
     {
       segment_id: "seg_001",
@@ -279,6 +285,9 @@ const snapshot: HammerWorkspaceSnapshot = {
 const saveRequest = buildHammerPersistenceSaveRequest(snapshot);
 assert.equal(saveRequest.active_session_id, "session_hammer_01");
 assert.equal(saveRequest.edit_plan_signature, "sig_abc");
+assert.equal(saveRequest.current_pass, "transcript_cleanup");
+assert.equal(saveRequest.pass_order_version, 2);
+assert.equal(saveRequest.pass_status?.transcript_cleanup, "in_progress");
 assert.equal(saveRequest.macro_recipe_ref, "macro:podcast_cleanup.v1");
 assert.equal(saveRequest.last_macro_run_ref, null);
 assert.equal(saveRequest.structured_transcript?.data.derived_text_layers?.layers[0]?.layer_id, "macro_run_01");
@@ -330,6 +339,12 @@ const persistedSnapshot: HammerPersistenceSnapshot = {
     workspace_id: target.workspaceId,
     workpiece_id: target.workpieceId,
     active_session_id: "session_hammer_01",
+    current_pass: "transcript_cleanup",
+    pass_order_version: 2,
+    pass_status: {
+      transcript_cleanup: "in_progress",
+      retakes: "not_started",
+    },
     editor_session_path: "hammer/session/editor-state.v1.json",
     transcript_artifact_path: "hammer/transcript/structured.v1.json",
     speaker_map_artifact_path: "hammer/transcript/speaker-map.v1.json",

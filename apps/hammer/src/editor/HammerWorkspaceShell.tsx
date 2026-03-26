@@ -11,7 +11,6 @@ import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import { HAMMER_PASS_ORDER_VERSION } from "../persistence/hammerPersistenceContract";
 import type {
   HammerPassId,
-  HammerPassState,
   HammerPassStatusMap,
   HammerDerivedTextLayer,
   HammerPersistedAudioPolish,
@@ -298,16 +297,6 @@ const SOURCE_TABS: Array<{ id: HammerSourceTabId; label: string }> = [
   { id: "assets", label: "Assets" },
   { id: "broll", label: "B-roll" },
   { id: "introoutro", label: "Intro/Outro" },
-];
-
-const TOOL_ORDER: Array<{ id: HammerToolId; shortLabel: string; label: string }> = [
-  { id: "polish", shortLabel: "P", label: "Polish" },
-  { id: "audio", shortLabel: "A", label: "Audio" },
-  { id: "video", shortLabel: "V", label: "Video" },
-  { id: "captions", shortLabel: "C", label: "Captions" },
-  { id: "details", shortLabel: "D", label: "Details" },
-  { id: "finishing", shortLabel: "F", label: "Finishing" },
-  { id: "export", shortLabel: "E", label: "Export" },
 ];
 
 const PASS_ORDER: Array<{
@@ -1351,6 +1340,71 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const scrubAutoPlayRef = useRef(false);
   const scrubReturnToPausedRef = useRef(false);
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
+  const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
+
+  useEffect(() => {
+    const nextInitialPass = resolveInitialPassId(props.initialCurrentPass);
+    setCurrentPass(nextInitialPass);
+    setPassStatus(normalizePassStatus(props.initialPassStatus, nextInitialPass));
+    const nextMeta = resolvePassMeta(nextInitialPass);
+    setActiveTool(nextMeta.toolId);
+    setSelectedSourceTab(nextMeta.sourceTab);
+  }, [
+    launchContext.workspace_id,
+    launchContext.workpiece_id,
+    props.initialCurrentPass,
+    props.initialPassStatus,
+  ]);
+
+  useEffect(() => {
+    setPassStatus((previous) => {
+      const normalized = normalizePassStatus(previous, currentPass);
+      return normalized;
+    });
+  }, [currentPass]);
+
+  useEffect(() => {
+    if (resolvePassMeta(currentPass).toolId !== activeTool) {
+      setCurrentPass(resolveDefaultPassForTool(activeTool));
+    }
+  }, [activeTool, currentPass]);
+
+  function selectPass(passId: HammerPassId): void {
+    const nextMeta = resolvePassMeta(passId);
+    setCurrentPass(passId);
+    if (activeTool !== nextMeta.toolId) {
+      setActiveTool(nextMeta.toolId);
+    }
+    if (selectedSourceTab !== nextMeta.sourceTab) {
+      setSelectedSourceTab(nextMeta.sourceTab);
+    }
+    setPassStatus((previous) => {
+      const normalized = normalizePassStatus(previous, passId);
+      if (normalized[passId] === "not_started") {
+        normalized[passId] = "in_progress";
+      }
+      return normalized;
+    });
+    setFocusOverride("tool-focus");
+  }
+
+  function markCurrentPassComplete(): void {
+    setPassStatus((previous) => {
+      const normalized = normalizePassStatus(previous, currentPass);
+      normalized[currentPass] = "completed";
+      const currentIndex = PASS_ORDER.findIndex((pass) => pass.id === currentPass);
+      const nextPass = currentIndex >= 0 ? PASS_ORDER[currentIndex + 1] : null;
+      if (nextPass && normalized[nextPass.id] === "not_started") {
+        normalized[nextPass.id] = "in_progress";
+      }
+      return normalized;
+    });
+    const currentIndex = PASS_ORDER.findIndex((pass) => pass.id === currentPass);
+    const nextPass = currentIndex >= 0 ? PASS_ORDER[currentIndex + 1] : null;
+    if (nextPass) {
+      selectPass(nextPass.id);
+    }
+  }
 
   const pauseAuxiliaryMediaPlayback = useCallback((): void => {
     const primaryPreviewAudio = previewAudioRef.current;
@@ -5628,6 +5682,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       editPlanStatus: "clean",
       editPlanSignature: createSemanticEditPlanSignature(transcriptSourceId, previewMode, editPlan.instructions),
       transcriptSourceId: transcriptSourceId,
+      currentPass,
+      passOrderVersion: HAMMER_PASS_ORDER_VERSION,
+      passStatus,
       transcriptSegments: editableTranscriptSegments,
       selectedSegmentId,
       selectedOverlayRowId: selectedSegmentId,
@@ -5655,6 +5712,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     props.selectedMacroRecipeRef,
     exportBasis.transcriptForRelease,
     editableVisualPlacements,
+    currentPass,
+    passStatus,
     selectedSegmentId,
     editableTranscriptSegments,
     transcriptSourceId,
@@ -5961,26 +6020,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <textarea
                             value={selectedSegment.text}
                             onFocus={() => setFocusOverride("source-focus")}
-                            onChange={(event) => {
-                              setFocusOverride("source-focus");
-                              applyHistoryMutation({
-                                label: "Edit transcript text",
-                                kind: "transcript_text_edit",
-                                affectedSegments: [selectedSegment.segment_id],
-                                transactionId: `text:${selectedSegment.segment_id}:${activeTool}:${selectedSourceTab}`,
-                                allowCoalesce: true,
-                                computeAfter: (before) => ({
-                                  ...before,
-                                  transcriptSegments: updateTranscriptSegmentText(
-                                    before.transcriptSegments,
-                                    selectedSegment.segment_id,
-                                    event.target.value,
-                                  ),
-                                  transcriptTimingHint: null,
-                                }),
-                              });
-                            }}
+                            readOnly
                           />
+                          <small className="hammer-transcript-editor__hint">
+                            Transcript text is read-only in Hammer v2. Use cut/disable/tighten actions for subtractive edits.
+                          </small>
                         </label>
                       </section>
                     ) : null}
@@ -6674,7 +6718,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           <section className="hammer-tool-bay">
             <header className="hammer-bay-head">
               <strong>Tool Rack</strong>
-              <span>{TOOL_ORDER.find((tool) => tool.id === activeTool)?.label}</span>
+              <div className="hammer-pass-head">
+                <span>{currentPassMeta.label}</span>
+                <span className={`hammer-pass-badge hammer-pass-badge--${passStatus[currentPass] ?? "not_started"}`}>
+                  {passStatus[currentPass] ?? "not_started"}
+                </span>
+                <button type="button" onClick={markCurrentPassComplete}>
+                  Mark Complete
+                </button>
+              </div>
             </header>
             <div className="hammer-bay-body">
               {activeTool === "polish" ? (
@@ -8876,18 +8928,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         </section>
       </div>
 
-      <nav className="hammer-toolbar" aria-label="Patch Bay Toolbar">
-        <div className="hammer-toolbar__title">Tools</div>
-        {TOOL_ORDER.map((tool) => (
+      <nav className="hammer-toolbar" aria-label="Hammer pass toolbar">
+        <div className="hammer-toolbar__title">Passes</div>
+        {PASS_ORDER.map((pass) => (
           <button
-            key={tool.id}
+            key={pass.id}
             type="button"
-            className={activeTool === tool.id ? "hammer-toolbar__tool is-active" : "hammer-toolbar__tool"}
-            onClick={() => setActiveTool(tool.id)}
-            title={tool.label}
+            className={currentPass === pass.id ? "hammer-toolbar__tool is-active" : "hammer-toolbar__tool"}
+            onClick={() => selectPass(pass.id)}
+            title={`${pass.label} (${pass.toolId})`}
           >
-            <strong>{tool.shortLabel}</strong>
-            <span>{tool.label}</span>
+            <strong>{pass.shortLabel}</strong>
+            <span>{pass.label}</span>
           </button>
         ))}
       </nav>

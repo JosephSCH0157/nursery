@@ -57,6 +57,11 @@ function buildWorkspaceSnapshot(): HammerWorkspaceSnapshot {
     editPlanStatus: "dirty",
     editPlanSignature: "sig_abc",
     transcriptSourceId: "hammer_transcript_prepared",
+    currentPass: "transcript_cleanup",
+    passOrderVersion: 2,
+    passStatus: {
+      transcript_cleanup: "in_progress",
+    },
     transcriptSegments: [
       {
         segment_id: "turn_001",
@@ -108,6 +113,11 @@ const persistedPreparedSnapshot = {
     workspace_id: "11111111-1111-4111-8111-111111111111",
     workpiece_id: "22222222-2222-4222-8222-222222222222",
     active_session_id: "session_hammer_prep",
+    current_pass: "transcript_cleanup",
+    pass_order_version: 2,
+    pass_status: {
+      transcript_cleanup: "in_progress",
+    },
     editor_session_path: "hammer/session/editor-state.v1.json",
     transcript_artifact_path: "hammer/transcript/structured.v1.json",
     speaker_map_artifact_path: "hammer/transcript/speaker-map.v1.json",

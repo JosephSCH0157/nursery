@@ -2291,6 +2291,11 @@ export default function TranscriptSeekMock(
       editPlanStatus,
       editPlanSignature: currentEditPlanSignature,
       transcriptSourceId,
+      currentPass: "transcript_cleanup",
+      passOrderVersion: 2,
+      passStatus: {
+        transcript_cleanup: "in_progress",
+      },
       transcriptSegments: cloneTranscriptSegments(rawTranscriptSegments),
       selectedSegmentId,
       selectedOverlayRowId,
