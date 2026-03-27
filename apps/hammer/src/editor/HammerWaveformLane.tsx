@@ -1,5 +1,21 @@
 import { useEffect, useRef, useMemo } from "react";
-import type { JSX } from "react";
+import type { JSX, MouseEvent as ReactMouseEvent } from "react";
+
+export function resolveWaveformSeekTime(args: {
+  clientX: number;
+  laneLeftPx: number;
+  laneScrollLeftPx: number;
+  canvasWidthPx: number;
+  durationSec: number;
+}): number | null {
+  if (!Number.isFinite(args.durationSec) || args.durationSec <= 0) return null;
+  if (!Number.isFinite(args.canvasWidthPx) || args.canvasWidthPx <= 0) return null;
+
+  const localX = args.clientX - args.laneLeftPx + args.laneScrollLeftPx;
+  if (!Number.isFinite(localX)) return null;
+  const ratio = Math.max(0, Math.min(1, localX / args.canvasWidthPx));
+  return ratio * args.durationSec;
+}
 
 export interface HammerWaveformLaneProps {
   /**
@@ -20,6 +36,12 @@ export interface HammerWaveformLaneProps {
    * Used to render playhead indicator on waveform.
    */
   playheadSec?: number;
+
+  /**
+   * Optional seek seam.
+   * If provided, clicking the lane requests a seek on the canonical transport path.
+   */
+  onSeekRequest?: (targetSec: number) => void;
 
   /**
    * CSS class to apply to the container.
@@ -45,6 +67,21 @@ export interface HammerWaveformLaneProps {
  */
 export function HammerWaveformLane(props: HammerWaveformLaneProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const handleLaneClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
+    if (!props.waveformProxy || !canvasDims || !props.onSeekRequest) return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const targetSec = resolveWaveformSeekTime({
+      clientX: event.clientX,
+      laneLeftPx: rect.left,
+      laneScrollLeftPx: event.currentTarget.scrollLeft,
+      canvasWidthPx: canvasDims.canvasWidth,
+      durationSec: props.waveformProxy.duration_sec,
+    });
+    if (targetSec == null) return;
+    props.onSeekRequest(targetSec);
+  };
 
   /**
    * Compute canvas dimensions and scaling factors.
@@ -135,7 +172,13 @@ export function HammerWaveformLane(props: HammerWaveformLaneProps): JSX.Element 
   }
 
   return (
-    <div className={`hammer-waveform-lane ${props.className ?? ""}`}>
+    <div
+      className={`hammer-waveform-lane${props.onSeekRequest ? " is-seekable" : ""} ${props.className ?? ""}`}
+      onClick={props.onSeekRequest ? handleLaneClick : undefined}
+      role={props.onSeekRequest ? "button" : undefined}
+      aria-label={props.onSeekRequest ? "Waveform seek lane" : undefined}
+      tabIndex={props.onSeekRequest ? 0 : undefined}
+    >
       <canvas
         ref={canvasRef}
         width={canvasDims.canvasWidth}

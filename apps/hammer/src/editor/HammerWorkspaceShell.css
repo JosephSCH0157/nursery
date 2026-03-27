@@ -1950,6 +1950,14 @@ Guardrails:
   align-items: center;
 }
 
+.hammer-waveform-lane.is-seekable {
+  cursor: pointer;
+}
+
+.hammer-waveform-lane.is-seekable:active {
+  cursor: ew-resize;
+}
+
 .hammer-waveform-lane--unavailable {
   background: transparent;
   border-bottom: none;

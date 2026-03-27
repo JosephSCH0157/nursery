@@ -9849,6 +9849,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             <HammerWaveformLane
               waveformProxy={props.audioPolish?.analysis?.waveform_proxy ?? null}
               playheadSec={playheadSec}
+              onSeekRequest={(targetSec) => {
+                seekPlayheadToTime(targetSec, "timeline", { snapToBoundary: false });
+              }}
             />
             <div className="hammer-timeline-tools">
               <button type="button" onClick={togglePlayback}>
