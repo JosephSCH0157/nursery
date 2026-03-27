@@ -514,6 +514,8 @@ type HammerImageAnimationContextMenuState = {
   y: number;
 };
 
+type HammerAudioFinalizationCompareMode = "before" | "after";
+
 type HammerTimelineLaneView = {
   id: string;
   label: string;
@@ -967,6 +969,24 @@ function clampImagePlacementTransform(transform: HammerImagePlacementTransform):
   return { leftPct, topPct, widthPct, heightPct };
 }
 
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function scaleToPercent(value: number, min: number, max: number): number {
+  const safe = clampNumber(value, min, max);
+  const span = max - min;
+  if (span <= 0) return 0;
+  return Math.round(((safe - min) / span) * 100);
+}
+
+function percentToScale(percent: number, min: number, max: number): number {
+  const safePercent = clampNumber(percent, 0, 100);
+  const span = max - min;
+  return clampNumber(min + (span * (safePercent / 100)), min, max);
+}
+
 const IMAGE_ANIMATION_PRESET_OPTIONS: Array<{ id: HammerImageAnimationPreset; label: string }> = [
   { id: "none", label: "None" },
   { id: "fade_in", label: "Fade In" },
@@ -1411,6 +1431,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
   const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
   const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
+  const [audioFinalizationCompareMode, setAudioFinalizationCompareMode] = useState<HammerAudioFinalizationCompareMode>("after");
   const [videoSnapMode, setVideoSnapMode] = useState<"timeline" | "segment">("timeline");
   const [visualLutPreset, setVisualLutPreset] = useState<HammerVisualLutPreset>("neutral");
   const [visualWhiteBalance, setVisualWhiteBalance] = useState(0);
@@ -2130,6 +2151,34 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => Object.values(editableStudioRack.modules).filter((module) => module.is_enabled && !module.is_bypassed).length,
     [editableStudioRack.modules],
   );
+  const audioFinalizationWarmth = useMemo(
+    () => scaleToPercent(editableStudioRack.modules.tubeMicCharacter.warmth, -1, 1),
+    [editableStudioRack.modules.tubeMicCharacter.warmth],
+  );
+  const audioFinalizationPresence = useMemo(
+    () => scaleToPercent(editableStudioRack.modules.eq.mid_gain_db, -6, 6),
+    [editableStudioRack.modules.eq.mid_gain_db],
+  );
+  const audioFinalizationHarshness = useMemo(
+    () => scaleToPercent(editableStudioRack.modules.eq.high_shelf_gain_db, -8, 4),
+    [editableStudioRack.modules.eq.high_shelf_gain_db],
+  );
+  const audioFinalizationOutputLevel = useMemo(
+    () => scaleToPercent(editableStudioRack.modules.compressor.makeup_gain_db, -6, 12),
+    [editableStudioRack.modules.compressor.makeup_gain_db],
+  );
+  const audioStudioSoundApplied = useMemo(
+    () => editableStudioRack.is_enabled
+      && editableStudioRack.modules.compressor.is_enabled
+      && editableStudioRack.modules.eq.is_enabled
+      && editableStudioRack.modules.tubeMicCharacter.is_enabled,
+    [
+      editableStudioRack.is_enabled,
+      editableStudioRack.modules.compressor.is_enabled,
+      editableStudioRack.modules.eq.is_enabled,
+      editableStudioRack.modules.tubeMicCharacter.is_enabled,
+    ],
+  );
   const studioRackRenderAppliedModules = useMemo(() => {
     const summary = studioRackRenderStatus?.rawResponse?.settings_summary ?? null;
     const raw = typeof summary?.applied_modules === "string" ? summary.applied_modules : "";
@@ -2520,6 +2569,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setCaptionBuildState(null);
     setCaptionEditedState(null);
     setActiveCaptionArtifactMode("built");
+    setAudioFinalizationCompareMode("after");
     setCaptionBuildFeedback(null);
 
     void (async () => {
@@ -3719,6 +3769,109 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }));
   }
 
+  function applyStudioSoundProfile(): void {
+    applyStudioRackMutation("Apply Studio Sound", (current) => ({
+      ...current,
+      is_enabled: true,
+      is_bypassed: false,
+      modules: {
+        ...current.modules,
+        compressor: {
+          ...current.modules.compressor,
+          is_enabled: true,
+          is_bypassed: false,
+          threshold_db: -23,
+          ratio: 2.2,
+          makeup_gain_db: 2,
+        },
+        eq: {
+          ...current.modules.eq,
+          is_enabled: true,
+          is_bypassed: false,
+          low_shelf_gain_db: -1.2,
+          mid_gain_db: 1.6,
+          high_shelf_gain_db: 1,
+        },
+        tubeMicCharacter: {
+          ...current.modules.tubeMicCharacter,
+          is_enabled: true,
+          is_bypassed: false,
+          amount: 0.24,
+          warmth: 0.32,
+          air: 0.18,
+        },
+      },
+    }));
+    applyPodcastMasterPass();
+    setAudioFinalizationCompareMode("after");
+  }
+
+  function setAudioFinalizationCompare(nextMode: HammerAudioFinalizationCompareMode): void {
+    setAudioFinalizationCompareMode(nextMode);
+    setStudioRackBypassed(nextMode === "before");
+  }
+
+  function updateAudioFinalizationWarmth(nextPercent: number): void {
+    applyStudioRackMutation("Adjust warmth", (current) => ({
+      ...current,
+      modules: {
+        ...current.modules,
+        tubeMicCharacter: {
+          ...current.modules.tubeMicCharacter,
+          is_enabled: true,
+          is_bypassed: false,
+          warmth: percentToScale(nextPercent, -1, 1),
+          amount: clampNumber(0.18 + (nextPercent / 100) * 0.2, 0, 1),
+        },
+      },
+    }));
+  }
+
+  function updateAudioFinalizationPresence(nextPercent: number): void {
+    applyStudioRackMutation("Adjust presence", (current) => ({
+      ...current,
+      modules: {
+        ...current.modules,
+        eq: {
+          ...current.modules.eq,
+          is_enabled: true,
+          is_bypassed: false,
+          mid_gain_db: percentToScale(nextPercent, -6, 6),
+        },
+      },
+    }));
+  }
+
+  function updateAudioFinalizationHarshness(nextPercent: number): void {
+    applyStudioRackMutation("Adjust harshness", (current) => ({
+      ...current,
+      modules: {
+        ...current.modules,
+        eq: {
+          ...current.modules.eq,
+          is_enabled: true,
+          is_bypassed: false,
+          high_shelf_gain_db: percentToScale(nextPercent, -8, 4),
+        },
+      },
+    }));
+  }
+
+  function updateAudioFinalizationOutputLevel(nextPercent: number): void {
+    applyStudioRackMutation("Adjust output level", (current) => ({
+      ...current,
+      modules: {
+        ...current.modules,
+        compressor: {
+          ...current.modules.compressor,
+          is_enabled: true,
+          is_bypassed: false,
+          makeup_gain_db: percentToScale(nextPercent, -6, 12),
+        },
+      },
+    }));
+  }
+
   function applyTranscriptSelection(segmentId: string, extendRange: boolean): void {
     const segment = editableTranscriptSegments.find((item) => item.segment_id === segmentId) ?? null;
     if (!segment) return;
@@ -4035,6 +4188,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setPreviewCanvasDragState(null);
     setImagePlacementDraftWindows({});
   }, [currentPass]);
+  useEffect(() => {
+    setAudioFinalizationCompareMode(editableStudioRack.is_bypassed ? "before" : "after");
+  }, [editableStudioRack.is_bypassed]);
   useEffect(() => {
     if (!imageAnimationContextMenu) return;
     const closeMenu = (): void => setImageAnimationContextMenu(null);
@@ -7394,6 +7550,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 {currentPass === "image_animation" ? (
                   <span>Image animation preset: {selectedImageAnimationLabel}</span>
                 ) : null}
+                {currentPass === "audio_finalization" ? (
+                  <span>Audio compare: {audioFinalizationCompareMode === "before" ? "Before" : "After"}</span>
+                ) : null}
                 {playbackWindow ? (
                   <span>
                     Window {playbackWindow.startSec.toFixed(1)}s - {playbackWindow.endSec.toFixed(1)}s
@@ -8283,6 +8442,86 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               ) : null}
 
               {activeTool === "audio" ? (
+                currentPass === "audio_finalization" ? (
+                  <section className="hammer-tool-card">
+                    <header className="hammer-tool-card__head">Audio Finalization</header>
+                    <div className="hammer-tool-hint">
+                      Podcast-first finish. Apply Studio Sound once, then make lightweight tweaks only if needed.
+                    </div>
+                    <div className="hammer-source-card__actions">
+                      <button type="button" onClick={applyStudioSoundProfile}>
+                        Apply Studio Sound
+                      </button>
+                    </div>
+                    <div className="hammer-tool-hint">
+                      Status: {audioStudioSoundApplied ? "Studio Sound applied" : "Studio Sound not applied yet"}
+                    </div>
+                    <div className="hammer-source-card__actions">
+                      <button
+                        type="button"
+                        className={audioFinalizationCompareMode === "before" ? "is-selected" : ""}
+                        onClick={() => setAudioFinalizationCompare("before")}
+                      >
+                        Before
+                      </button>
+                      <button
+                        type="button"
+                        className={audioFinalizationCompareMode === "after" ? "is-selected" : ""}
+                        onClick={() => setAudioFinalizationCompare("after")}
+                      >
+                        After
+                      </button>
+                    </div>
+                    <div className="hammer-tool-hint">
+                      Compare mode: {audioFinalizationCompareMode === "before" ? "Before (rack bypassed)" : "After (rack active)"}
+                    </div>
+
+                    <label className="hammer-tool-field">
+                      <span>Warmth ({audioFinalizationWarmth})</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={audioFinalizationWarmth}
+                        onChange={(event) => updateAudioFinalizationWarmth(Number(event.target.value))}
+                      />
+                    </label>
+                    <label className="hammer-tool-field">
+                      <span>Presence ({audioFinalizationPresence})</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={audioFinalizationPresence}
+                        onChange={(event) => updateAudioFinalizationPresence(Number(event.target.value))}
+                      />
+                    </label>
+                    <label className="hammer-tool-field">
+                      <span>Harshness ({audioFinalizationHarshness})</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={audioFinalizationHarshness}
+                        onChange={(event) => updateAudioFinalizationHarshness(Number(event.target.value))}
+                      />
+                    </label>
+                    <label className="hammer-tool-field">
+                      <span>Output Level ({audioFinalizationOutputLevel})</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={audioFinalizationOutputLevel}
+                        onChange={(event) => updateAudioFinalizationOutputLevel(Number(event.target.value))}
+                      />
+                    </label>
+                  </section>
+                ) : (
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Audio Adjustments</header>
                   <div className="hammer-tool-hint">Current prep status: {props.audioPolish?.status ?? "not_started"}</div>
@@ -8623,6 +8862,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     <span>Reduce background noise (legacy prep)</span>
                   </label>
                 </section>
+                )
               ) : null}
 
               {activeTool === "video" ? (
