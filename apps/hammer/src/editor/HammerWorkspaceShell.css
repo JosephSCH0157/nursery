@@ -684,9 +684,9 @@ Guardrails:
   border-radius: 12px;
   min-height: 0;
   display: grid;
-  place-items: center;
+  grid-template-rows: minmax(0, 1fr);
   position: relative;
-  background: radial-gradient(circle at top, rgba(59, 130, 246, 0.18), rgba(2, 6, 23, 0.96));
+  background: rgba(2, 6, 23, 0.96);
   overflow: hidden;
 }
 
@@ -705,17 +705,22 @@ Guardrails:
 .hammer-preview-canvas {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 3;
 }
 
 .hammer-preview-canvas__bbox {
   position: absolute;
-  border: 2px solid rgba(125, 211, 252, 0.94);
+  border: 1px solid rgba(125, 211, 252, 0.54);
   border-radius: 6px;
   background: rgba(15, 23, 42, 0.34);
   overflow: hidden;
   cursor: move;
   box-shadow: 0 0 0 1px rgba(2, 132, 199, 0.5);
+}
+
+.hammer-preview-canvas__bbox.is-selected {
+  border-width: 2px;
+  border-color: rgba(125, 211, 252, 0.96);
 }
 
 .hammer-preview-canvas__bbox.is-anim-fade-in {
@@ -764,6 +769,15 @@ Guardrails:
   pointer-events: none;
 }
 
+.hammer-preview-canvas__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  -webkit-user-select: none;
+  user-select: none;
+  pointer-events: none;
+}
+
 .hammer-preview-canvas__fallback {
   width: 100%;
   height: 100%;
@@ -801,8 +815,14 @@ Guardrails:
   background: rgba(15, 23, 42, 0.36);
 }
 
-.hammer-preview-audio {
-  display: none;
+.hammer-preview-media {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: radial-gradient(circle at top, rgba(59, 130, 246, 0.14), rgba(2, 6, 23, 0.96));
 }
 
 .hammer-preview-meta,

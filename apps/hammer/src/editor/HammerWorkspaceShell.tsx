@@ -2022,6 +2022,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       .filter((item): item is HammerPreviewVisualOverlay => Boolean(item))
       .sort((left, right) => left.zIndex - right.zIndex)
   ), [editableVisualPlacements?.placements, playheadSec, selectedImagePlacementId, sourceDeskPreviewUrls]);
+
+  function applyPreviewOverlayStyle(node: HTMLDivElement | null, overlay: HammerPreviewVisualOverlay): void {
+    if (!node) return;
+    node.style.left = `${overlay.transform.leftPct}%`;
+    node.style.top = `${overlay.transform.topPct}%`;
+    node.style.width = `${overlay.transform.widthPct}%`;
+    node.style.height = `${overlay.transform.heightPct}%`;
+    node.style.zIndex = String(overlay.zIndex);
+    node.style.opacity = String(overlay.opacity);
+  }
+
   useEffect(() => {
     if (!selectedImagePlacementId) return;
     if (sourceVisualPlacementItems.some((item) => item.id === selectedImagePlacementId)) return;
@@ -2240,21 +2251,26 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }))
   ), [selectedImagePlacementId, sourceImageItems]);
   const brollLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
-    sourceBrollItems
-      .filter((item) => item.usageCount > 0)
+    sourceBrollPlacementItems
       .map((item) => ({
-        id: `broll:${item.id}`,
+        id: `broll-placement:${item.id}`,
+        placementId: item.id,
         label: item.label,
-        startSec: item.firstStartSec,
-        endSec: item.lastEndSec,
-        selected: false,
+        startSec: item.startSec,
+        endSec: item.endSec,
+        selected: item.id === selectedImagePlacementId,
         tone: "broll",
         onSelect: () => {
+          selectionOriginRef.current = "timeline";
           setFocusOverride("time-focus");
-          seekPlayheadToTime(item.firstStartSec, "playhead");
+          setSelectedImagePlacementId(item.id);
+          setSelectedSegmentId(item.anchorSegmentId);
+          setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
+          setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
+          seekPlayheadToTime(item.startSec, "playhead");
         },
       }))
-  ), [sourceBrollItems]);
+  ), [selectedImagePlacementId, sourceBrollPlacementItems]);
   const timelineLanes = useMemo<HammerTimelineLaneView[]>(() => ([
     { id: "dialogue", label: "Dialogue", tone: "dialogue", blocks: dialogueLaneBlocks },
     { id: "music", label: "Music", tone: "music", blocks: [] },
@@ -4803,16 +4819,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     args: { placementId: string; mode: HammerPreviewCanvasDragState["mode"] },
   ): void {
     if (currentPass !== "image_placement") return;
-    if (!selectedImagePlacementId || selectedImagePlacementId !== args.placementId) return;
+    const activeTransform = imagePlacementTransforms[args.placementId]
+      ?? geometryToTransform(resolvePlacementGeometry(visualPlacementsById.get(args.placementId)));
     event.preventDefault();
     event.stopPropagation();
     setFocusOverride("tool-focus");
+    setSelectedImagePlacementId(args.placementId);
     setPreviewCanvasDragState({
       placementId: args.placementId,
       mode: args.mode,
       pointerStartX: event.clientX,
       pointerStartY: event.clientY,
-      origin: selectedImagePlacementTransform,
+      origin: activeTransform,
     });
   }
 
@@ -8057,20 +8075,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <div className="hammer-preview-canvas" aria-label="Visual composition canvas">
                   {activePreviewOverlays.map((overlay) => (
                     <div
+                      ref={(node) => applyPreviewOverlayStyle(node, overlay)}
                       key={`${overlay.placementId}:${overlay.startSec}:${overlay.endSec}`}
                       className={[
                         "hammer-preview-canvas__bbox",
                         resolveImageAnimationClass(overlay.animationPreset),
                         overlay.isSelected ? "is-selected" : "",
                       ].filter(Boolean).join(" ")}
-                      style={{
-                        left: `${overlay.transform.leftPct}%`,
-                        top: `${overlay.transform.topPct}%`,
-                        width: `${overlay.transform.widthPct}%`,
-                        height: `${overlay.transform.heightPct}%`,
-                        zIndex: overlay.zIndex,
-                        opacity: overlay.opacity,
-                      }}
                       onMouseDown={(event) => {
                         setSelectedImagePlacementId(overlay.placementId);
                         if (currentPass !== "image_placement") return;
@@ -8079,8 +8090,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           mode: "move",
                         });
                       }}
-                      role="button"
-                      tabIndex={0}
                     >
                       {overlay.kind === "broll" ? (
                         overlay.src ? (
@@ -9611,10 +9620,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             value={selectedImagePlacementTransform.leftPct}
                             onChange={(event) => {
                               const next = Number(event.target.value);
-                              updateImagePlacementTransform(selectedImagePlacement.id, (current) => ({
-                                ...current,
+                              const updated = clampImagePlacementTransform({
+                                ...selectedImagePlacementTransform,
                                 leftPct: next,
-                              }));
+                              });
+                              updateImagePlacementTransform(selectedImagePlacement.id, () => updated);
+                              commitImagePlacementTransform(selectedImagePlacement.id, updated, "Adjust visual overlay X");
                             }}
                           />
                         </label>
@@ -9628,10 +9639,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             value={selectedImagePlacementTransform.topPct}
                             onChange={(event) => {
                               const next = Number(event.target.value);
-                              updateImagePlacementTransform(selectedImagePlacement.id, (current) => ({
-                                ...current,
+                              const updated = clampImagePlacementTransform({
+                                ...selectedImagePlacementTransform,
                                 topPct: next,
-                              }));
+                              });
+                              updateImagePlacementTransform(selectedImagePlacement.id, () => updated);
+                              commitImagePlacementTransform(selectedImagePlacement.id, updated, "Adjust visual overlay Y");
                             }}
                           />
                         </label>
@@ -9647,18 +9660,27 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             value={Math.round((selectedImagePlacementTransform.widthPct / DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct) * 100)}
                             onChange={(event) => {
                               const scale = Number(event.target.value) / 100;
-                              updateImagePlacementTransform(selectedImagePlacement.id, (current) => ({
-                                ...current,
+                              const updated = clampImagePlacementTransform({
+                                ...selectedImagePlacementTransform,
                                 widthPct: DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct * scale,
                                 heightPct: DEFAULT_IMAGE_PLACEMENT_TRANSFORM.heightPct * scale,
-                              }));
+                              });
+                              updateImagePlacementTransform(selectedImagePlacement.id, () => updated);
+                              commitImagePlacementTransform(selectedImagePlacement.id, updated, "Adjust visual overlay scale");
                             }}
                           />
                         </label>
                         <div className="hammer-source-card__actions">
                           <button
                             type="button"
-                            onClick={() => updateImagePlacementTransform(selectedImagePlacement.id, () => DEFAULT_IMAGE_PLACEMENT_TRANSFORM)}
+                            onClick={() => {
+                              updateImagePlacementTransform(selectedImagePlacement.id, () => DEFAULT_IMAGE_PLACEMENT_TRANSFORM);
+                              commitImagePlacementTransform(
+                                selectedImagePlacement.id,
+                                DEFAULT_IMAGE_PLACEMENT_TRANSFORM,
+                                "Center visual overlay",
+                              );
+                            }}
                           >
                             Center
                           </button>
@@ -10917,15 +10939,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             const x = (block.startSec / timelineDurationSec) * 1000;
                             const width = Math.max(14, ((block.endSec - block.startSec) / timelineDurationSec) * 1000);
                             const imagePlacementEditable = currentPass === "image_placement"
-                              && lane.id === "stills"
-                              && block.tone === "image"
+                              && (lane.id === "stills" || lane.id === "broll")
+                              && (block.tone === "image" || block.tone === "broll")
                               && Boolean(block.placementId);
                             const imageAnimationMenuEnabled = currentPass === "image_animation"
                               && lane.id === "stills"
                               && block.tone === "image"
                               && Boolean(block.placementId);
                             const hasImageAnimationPreset = block.placementId
-                              ? (imageAnimationPresetByPlacementId[block.placementId] ?? "none") !== "none"
+                              ? resolvePlacementAnimationPreset(visualPlacementsById.get(block.placementId)) !== "none"
                               : false;
                             return (
                               <g
@@ -11037,7 +11059,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               type="button"
               role="menuitem"
               className={(
-                imageAnimationPresetByPlacementId[imageAnimationContextMenu.placementId] ?? "none"
+                resolvePlacementAnimationPreset(visualPlacementsById.get(imageAnimationContextMenu.placementId))
               ) === option.id
                 ? "hammer-context-menu__item is-active"
                 : "hammer-context-menu__item"}
