@@ -1,6 +1,8 @@
 import { useEffect, useRef, useMemo } from "react";
 import type { JSX, MouseEvent as ReactMouseEvent } from "react";
 
+// cspell:words mixdown playhead
+
 export function resolveWaveformSeekTime(args: {
   clientX: number;
   laneLeftPx: number;
@@ -68,7 +70,7 @@ export interface HammerWaveformLaneProps {
 export function HammerWaveformLane(props: HammerWaveformLaneProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const handleLaneClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
+  const handleLaneClick = (event: ReactMouseEvent<HTMLElement>): void => {
     if (!props.waveformProxy || !canvasDims || !props.onSeekRequest) return;
 
     const rect = event.currentTarget.getBoundingClientRect();
@@ -171,14 +173,26 @@ export function HammerWaveformLane(props: HammerWaveformLaneProps): JSX.Element 
     );
   }
 
+  if (props.onSeekRequest) {
+    return (
+      <button
+        type="button"
+        className={`hammer-waveform-lane is-seekable ${props.className ?? ""}`}
+        onClick={handleLaneClick}
+        aria-label="Waveform seek lane"
+      >
+        <canvas
+          ref={canvasRef}
+          width={canvasDims.canvasWidth}
+          height={canvasDims.canvasHeight}
+          className="hammer-waveform-lane__canvas"
+        />
+      </button>
+    );
+  }
+
   return (
-    <div
-      className={`hammer-waveform-lane${props.onSeekRequest ? " is-seekable" : ""} ${props.className ?? ""}`}
-      onClick={props.onSeekRequest ? handleLaneClick : undefined}
-      role={props.onSeekRequest ? "button" : undefined}
-      aria-label={props.onSeekRequest ? "Waveform seek lane" : undefined}
-      tabIndex={props.onSeekRequest ? 0 : undefined}
-    >
+    <div className={`hammer-waveform-lane ${props.className ?? ""}`}>
       <canvas
         ref={canvasRef}
         width={canvasDims.canvasWidth}

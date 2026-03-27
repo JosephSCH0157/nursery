@@ -2001,8 +2001,14 @@ Guardrails:
   overflow-y: hidden;
   background: rgba(2, 6, 23, 0.5);
   border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  padding: 0;
+  margin: 0;
   display: flex;
   align-items: center;
+  text-align: left;
 }
 
 .hammer-waveform-lane.is-seekable {

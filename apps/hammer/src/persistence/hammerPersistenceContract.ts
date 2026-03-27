@@ -181,6 +181,26 @@ export interface HammerVisualPlacementRecord {
   status: "placed" | "uncertain";
   ingest_state?: "suggested" | "approved";
   uncertainty_flags: string[];
+  overlay_geometry?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    anchor?: "center" | "top_left";
+  } | null;
+  animation_preset?:
+    | "none"
+    | "fade_in"
+    | "fade_out"
+    | "fade_in_out"
+    | "flip_in"
+    | "flip_out"
+    | "shutter_in"
+    | "shutter_out"
+    | "shutter_in_fade_out"
+    | null;
+  overlay_opacity?: number | null;
+  overlay_z_index?: number | null;
 }
 
 export interface HammerPersistedVisualPlacements {
