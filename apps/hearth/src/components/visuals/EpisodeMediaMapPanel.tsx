@@ -210,8 +210,8 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
               </div>
 
               <div className="hs-imap-field">
-                <label>Description</label>
-                <textarea value={props.draft.description} onChange={(event) => props.onDraftChange("description", event.target.value)} disabled={props.disabled} rows={2} />
+                <label htmlFor="description-textarea">Description</label>
+                <textarea id="description-textarea" value={props.draft.description} onChange={(event) => props.onDraftChange("description", event.target.value)} disabled={props.disabled} rows={2} />
               </div>
 
               <div className="hs-imap-field-grid">
