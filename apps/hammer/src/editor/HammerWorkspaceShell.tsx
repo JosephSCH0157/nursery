@@ -394,7 +394,7 @@ type HammerSourceImageItem = {
   assetPath: string | null;
 };
 
-type HammerSourceAssetKind = "image" | "broll" | "audio" | "other";
+type HammerSourceAssetKind = "image" | "broll" | "reference_clip" | "audio" | "other";
 
 type HammerSourceAssetItem = {
   id: string;
@@ -670,6 +670,9 @@ function deriveAssetKind(args: {
 }): HammerSourceAssetKind {
   const mode = (args.visualMode ?? "").toLowerCase();
   const path = (args.assetPath ?? "").toLowerCase();
+  if (mode.includes("reference_clip") || mode.includes("contextual_data_composite") || mode.includes("cdc")) {
+    return "reference_clip";
+  }
   if (mode.includes("broll") || path.includes("broll")) return "broll";
   if (path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".png") || path.endsWith(".webp") || path.endsWith(".gif")) {
     return "image";
@@ -1959,7 +1962,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     [sourceVisualPlacementItems],
   );
   const sourceBrollPlacementItems = useMemo(
-    () => sourceVisualPlacementItems.filter((item) => item.kind === "broll"),
+    () => sourceVisualPlacementItems.filter((item) => item.kind === "broll" || item.kind === "reference_clip"),
     [sourceVisualPlacementItems],
   );
   const visualPlacementsById = useMemo(() => {
@@ -2127,7 +2130,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return [...byId.values()].sort((a, b) => a.firstStartSec - b.firstStartSec);
   }, [editableVisualPlacements?.placements, mediaRef, storedMediaFiles, transcriptDurationSec]);
   const sourceBrollItems = useMemo(
-    () => sourceAssetItems.filter((item) => item.kind === "broll"),
+    () => sourceAssetItems.filter((item) => item.kind === "broll" || item.kind === "reference_clip"),
     [sourceAssetItems],
   );
   const brollSuggestionItems = useMemo<HammerBrollSuggestionItem[]>(() => {

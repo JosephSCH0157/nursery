@@ -2984,7 +2984,7 @@ export default function HearthShell({
   const mediaMapPanelMeta = `${mediaMapEntries.length} visual${mediaMapEntries.length === 1 ? "" : "s"}`;
   const imageMapPanelMeta = `${imageMapEntries.length} anchor${imageMapEntries.length === 1 ? "" : "s"}`;
   const brollPanelMeta = `${brollBeats.length} beat${brollBeats.length === 1 ? "" : "s"} · coverage ${brollPlan?.coverage_strength ?? "low"}`;
-  const cdcPanelMeta = `${cdcEntries.length} CDC${cdcEntries.length === 1 ? "" : "s"}`;
+  const cdcPanelMeta = `${cdcEntries.length} Reference Clip${cdcEntries.length === 1 ? "" : "s"}`;
   const metadataPanelMeta = `${thumbnailTitleOptions.length} title${thumbnailTitleOptions.length === 1 ? "" : "s"} · ${metadataTagsDraft.length} tag${metadataTagsDraft.length === 1 ? "" : "s"}`;
   const hasBrowserSpeech = (
     typeof window !== "undefined"
@@ -7879,7 +7879,7 @@ export default function HearthShell({
     | { ok: false; error: string }
   > {
     if (!episodePackage) {
-      return { ok: false, error: "Unable to save CDC plan for this episode." };
+      return { ok: false, error: "Unable to save Reference Clip plan for this episode." };
     }
     const episodeId = workpieceId?.trim() ?? "";
     const workspace = workspaceId?.trim() ?? "";
@@ -8317,7 +8317,7 @@ export default function HearthShell({
     if (!episodePackage) return;
     const episodeId = workpieceId?.trim() ?? "";
     if (!episodeId) {
-      setCdcSaveError("Select an Episode before creating CDC entries.");
+      setCdcSaveError("Select an Episode before creating Reference Clips.");
       setCdcSaveState("error");
       return;
     }
@@ -8325,7 +8325,7 @@ export default function HearthShell({
       selectedImageMapEntry?.anchor
       || selectedBrollBeat?.anchor_text
       || activeDraft?.title
-      || "New contextual data composite"
+      || "New reference clip"
     ).trim();
     const created = createContextualDataCompositePlan({
       workpieceId: episodeId,
@@ -8361,7 +8361,7 @@ export default function HearthShell({
       setCdcSaveState("saved");
       setCdcMessage("Contextual Data Composite created.");
     } catch {
-      setCdcSaveError("Unable to create this CDC entry.");
+      setCdcSaveError("Unable to create this reference clip.");
       setCdcSaveState("error");
     } finally {
       setIsCdcBusy(false);
@@ -8419,9 +8419,9 @@ export default function HearthShell({
         return;
       }
       setCdcSaveState("saved");
-      setCdcMessage("CDC entry saved.");
+      setCdcMessage("Reference Clip saved.");
     } catch {
-      setCdcSaveError("Unable to save this CDC entry.");
+      setCdcSaveError("Unable to save this reference clip.");
       setCdcSaveState("error");
     } finally {
       setIsCdcBusy(false);
@@ -8456,9 +8456,9 @@ export default function HearthShell({
       }
       setSelectedCdcEntryId(nextEntries[0]?.id ?? null);
       setCdcSaveState("saved");
-      setCdcMessage("CDC entry removed.");
+      setCdcMessage("Reference Clip removed.");
     } catch {
-      setCdcSaveError("Unable to delete this CDC entry.");
+      setCdcSaveError("Unable to delete this reference clip.");
       setCdcSaveState("error");
     } finally {
       setIsCdcBusy(false);
@@ -8523,9 +8523,9 @@ export default function HearthShell({
         return;
       }
       setCdcSaveState("saved");
-      setCdcMessage("CDC guidance refreshed.");
+      setCdcMessage("Reference Clip guidance refreshed.");
     } catch {
-      setCdcSaveError("Unable to regenerate CDC guidance.");
+      setCdcSaveError("Unable to regenerate reference clip guidance.");
       setCdcSaveState("error");
     } finally {
       setIsCdcBusy(false);
@@ -8537,7 +8537,7 @@ export default function HearthShell({
     if (isCdcBusy) return;
     const episodeId = workpieceId?.trim() ?? "";
     if (!episodeId) {
-      setCdcSaveError("Select an Episode before uploading CDC assets.");
+      setCdcSaveError("Select an Episode before uploading Reference Clip assets.");
       setCdcSaveState("error");
       return;
     }
@@ -8584,9 +8584,9 @@ export default function HearthShell({
         return;
       }
       setCdcSaveState("saved");
-      setCdcMessage("Uploaded asset selected for this CDC entry.");
+      setCdcMessage("Uploaded asset selected for this reference clip.");
     } catch {
-      setCdcSaveError("Unable to upload this CDC asset.");
+      setCdcSaveError("Unable to upload this reference clip asset.");
       setCdcSaveState("error");
     } finally {
       setIsCdcBusy(false);
@@ -8599,7 +8599,7 @@ export default function HearthShell({
     if (selectedCdcEntry.selected_asset_id === candidateId) return;
     const candidate = (selectedCdcEntry.candidate_assets ?? []).find((asset) => asset.asset_id === candidateId) ?? null;
     if (!candidate) {
-      setCdcSaveError("Selected candidate is no longer attached to this CDC entry.");
+      setCdcSaveError("Selected candidate is no longer attached to this reference clip.");
       setCdcSaveState("error");
       return;
     }
@@ -8633,9 +8633,9 @@ export default function HearthShell({
         return;
       }
       setCdcSaveState("saved");
-      setCdcMessage("Selected asset attached to CDC entry.");
+      setCdcMessage("Selected asset attached to reference clip.");
     } catch {
-      setCdcSaveError("Unable to select this CDC candidate.");
+      setCdcSaveError("Unable to select this reference clip candidate.");
       setCdcSaveState("error");
     } finally {
       setIsCdcBusy(false);
@@ -8700,7 +8700,7 @@ export default function HearthShell({
       const brollCount = nextMap.entries.filter((entry) => entry.final_media_kind === "b_roll").length;
       const cdcCount = nextMap.entries.filter((entry) => entry.final_media_kind === "contextual_data_composite").length;
       setMediaMapMessage(
-        `${fallbackImageMode ? "Bootstrapped from canonical script. " : ""}Generated ${nextMap.entries.length} media map entries using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, cdc: ${cdcCount}).`,
+        `${fallbackImageMode ? "Bootstrapped from canonical script. " : ""}Generated ${nextMap.entries.length} media map entries using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${cdcCount}).`,
       );
     } catch {
       setMediaMapSaveError("Unable to generate Episode Media Map.");
@@ -8941,7 +8941,7 @@ export default function HearthShell({
         return;
       }
       setMediaMapSaveState("saved");
-      setMediaMapMessage("Media plan activated. Beats routed to image, motion B-roll, and CDC fulfillment paths.");
+      setMediaMapMessage("Media plan activated. Beats routed to image, motion B-roll, and Reference Clip fulfillment paths.");
     } catch {
       setMediaMapSaveError("Unable to activate Episode Media Map.");
       setMediaMapSaveState("error");

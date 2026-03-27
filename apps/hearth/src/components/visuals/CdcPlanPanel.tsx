@@ -84,7 +84,7 @@ function CandidateList(args: {
               disabled={args.disabled}
               onClick={() => args.onSelectCandidate(candidate.asset_id)}
             >
-              {candidate.asset_id === args.selectedCandidateId ? "Selected for CDC" : "Choose Existing Asset"}
+              {candidate.asset_id === args.selectedCandidateId ? "Selected for Reference Clip" : "Choose Existing Asset"}
             </button>
           </div>
         </article>
@@ -105,25 +105,25 @@ export default function CdcPlanPanel(props: CdcPlanPanelProps) {
     <div className="hs-imap-panel">
       <div className="hs-imap-header">
         <div>
-          <h4 className="hs-imap-title">Contextual Data Composites</h4>
-          <p className="hs-imap-subtitle">Plan explanatory visuals that combine real-world context with structured data.</p>
+          <h4 className="hs-imap-title">Reference Clips</h4>
+          <p className="hs-imap-subtitle">Plan explanatory reference visuals that combine real-world context with structured data.</p>
         </div>
         <div className="hs-imap-candidate-action-group">
           <button type="button" className="hs-secondary-btn" onClick={props.onCreateCdc} disabled={props.disabled || props.saveState === "saving"}>
-            Create Contextual Data Composite
+            Create Reference Clip
           </button>
         </div>
       </div>
 
       <div className="hs-imap-toolbar">
-        <span className="hs-pill">{props.entries.length} CDC item{props.entries.length === 1 ? "" : "s"}</span>
+        <span className="hs-pill">{props.entries.length} reference clip{props.entries.length === 1 ? "" : "s"}</span>
         <span className="hs-pill">State: {props.saveState}</span>
       </div>
 
       <div className="hs-imap-grid">
-        <section className="hs-imap-list" aria-label="CDC entries">
+        <section className="hs-imap-list" aria-label="Reference clip entries">
           {props.entries.length === 0 ? (
-            <div className="hs-imap-empty">Create a Contextual Data Composite to start.</div>
+            <div className="hs-imap-empty">Create a Reference Clip to start.</div>
           ) : props.entries.map((entry) => (
             <button
               key={entry.id}
@@ -132,15 +132,15 @@ export default function CdcPlanPanel(props: CdcPlanPanelProps) {
               onClick={() => props.onSelectEntry(entry.id)}
               disabled={props.disabled}
             >
-              <div className="hs-imap-entry-title">{entry.anchor_text || "Untitled CDC"}</div>
+              <div className="hs-imap-entry-title">{entry.anchor_text || "Untitled Reference Clip"}</div>
               <div className="hs-imap-entry-meta">{entry.format} · {entry.data_type} · {entry.context_type}</div>
             </button>
           ))}
         </section>
 
-        <section className="hs-imap-editor" aria-label="Selected CDC editor">
+        <section className="hs-imap-editor" aria-label="Selected reference clip editor">
           {!selectedEntry ? (
-            <div className="hs-imap-empty">Select a CDC entry to edit.</div>
+            <div className="hs-imap-empty">Select a reference clip to edit.</div>
           ) : (
             <>
               <div className="hs-imap-field-grid">
@@ -252,8 +252,8 @@ export default function CdcPlanPanel(props: CdcPlanPanelProps) {
                   <button type="button" onClick={props.onRegenerateStub} disabled={props.disabled}>Regenerate (stub)</button>
                 </div>
                 <div className="hs-imap-candidate-action-group">
-                  <button type="button" onClick={props.onSaveEntry} disabled={props.disabled}>Save CDC</button>
-                  <button type="button" onClick={props.onDeleteEntry} disabled={props.disabled}>Delete CDC</button>
+                  <button type="button" onClick={props.onSaveEntry} disabled={props.disabled}>Save Reference Clip</button>
+                  <button type="button" onClick={props.onDeleteEntry} disabled={props.disabled}>Delete Reference Clip</button>
                 </div>
                 <input
                   ref={uploadInputRef}
