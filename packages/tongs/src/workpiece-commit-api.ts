@@ -3134,6 +3134,28 @@ function estimateImageTokenSpend(prompt: string, tokensFromProvider: number | nu
   return Math.max(1, Math.ceil(prompt.length / 4));
 }
 
+function estimateAiCostUsd(args: {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}): number {
+  const normalized = args.model.trim().toLowerCase();
+  const input = Math.max(0, Math.floor(args.inputTokens));
+  const output = Math.max(0, Math.floor(args.outputTokens));
+  const total = Math.max(0, Math.floor(args.totalTokens));
+  const perK = (() => {
+    if (normalized === "gpt-image-1") return { input: 0.005, output: 0.005 };
+    if (normalized.startsWith("gpt-4o-mini")) return { input: 0.00015, output: 0.0006 };
+    if (normalized.startsWith("gpt-4o")) return { input: 0.0025, output: 0.01 };
+    return { input: 0.001, output: 0.003 };
+  })();
+  if (input > 0 || output > 0) {
+    return ((input / 1000) * perK.input) + ((output / 1000) * perK.output);
+  }
+  return (total / 1000) * perK.input;
+}
+
 function normalizeThumbnailConcept(value: unknown): EpisodeThumbnailConceptRecord | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
@@ -4970,6 +4992,169 @@ export class TongsCommitService {
     return { tokenBalance };
   }
 
+  private async recordAiUsageEvent(args: {
+    userId: string;
+    workspaceId: string;
+    workpieceId: string;
+    sessionId?: string | null;
+    feature: string;
+    subfeature?: string | null;
+    model: string;
+    reasoningEffort?: string | null;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    estimatedCostUsd: number;
+    actualCostUsd: number;
+    billableTokens: number;
+    trigger: "user" | "system";
+    status: "success" | "error";
+    actionId?: string | null;
+    providerRequestId?: string | null;
+  }): Promise<void> {
+    const tableClient = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => {
+        insert: (row: Record<string, unknown>) => Promise<{ error: { message: string } | null }>;
+      };
+    };
+
+    const { error } = await tableClient
+      .from("ai_usage_events")
+      .insert({
+        user_id: args.userId,
+        workspace_id: args.workspaceId,
+        workpiece_id: args.workpieceId,
+        session_id: args.sessionId ?? null,
+        action_id: args.actionId ?? null,
+        feature: args.feature,
+        subfeature: args.subfeature ?? null,
+        model: args.model,
+        reasoning_effort: args.reasoningEffort ?? null,
+        input_tokens: Math.max(0, Math.floor(args.inputTokens)),
+        output_tokens: Math.max(0, Math.floor(args.outputTokens)),
+        total_tokens: Math.max(0, Math.floor(args.totalTokens)),
+        estimated_cost_usd: Number(args.estimatedCostUsd.toFixed(6)),
+        actual_cost_usd: Number(args.actualCostUsd.toFixed(6)),
+        billable_tokens: Math.max(0, Math.floor(args.billableTokens)),
+        trigger: args.trigger,
+        status: args.status,
+        provider_request_id: args.providerRequestId ?? null,
+        occurred_at_ms: Date.now(),
+      });
+
+    if (error) {
+      console.warn("[tongs-workpiece-api] ai_usage_events insert failed", {
+        message: error.message,
+        feature: args.feature,
+      });
+    }
+  }
+
+  private async runAIRequest<T>(args: {
+    lane: "forge" | "byo";
+    userId: string;
+    workspaceId: string;
+    workpieceId: string;
+    sessionId?: string | null;
+    feature: string;
+    subfeature?: string | null;
+    model: string;
+    reasoningEffort?: string | null;
+    trigger: "user" | "system";
+    actionId?: string | null;
+    execute: () => Promise<{
+      result: T;
+      inputTokens: number;
+      outputTokens: number;
+      totalTokens: number;
+      estimatedCostUsd?: number;
+      actualCostUsd?: number;
+      billableTokens?: number;
+      providerRequestId?: string | null;
+    }>;
+  }): Promise<{
+    result: T;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    estimatedCostUsd: number;
+    actualCostUsd: number;
+    billableTokens: number;
+    providerRequestId: string | null;
+  }> {
+    try {
+      const executed = await args.execute();
+      const estimatedCostUsd = typeof executed.estimatedCostUsd === "number"
+        ? executed.estimatedCostUsd
+        : estimateAiCostUsd({
+            model: args.model,
+            inputTokens: executed.inputTokens,
+            outputTokens: executed.outputTokens,
+            totalTokens: executed.totalTokens,
+          });
+      const actualCostUsd = typeof executed.actualCostUsd === "number" ? executed.actualCostUsd : estimatedCostUsd;
+      const billableTokens = typeof executed.billableTokens === "number" ? executed.billableTokens : executed.totalTokens;
+
+      if (args.lane === "forge") {
+        await this.recordAiUsageEvent({
+          userId: args.userId,
+          workspaceId: args.workspaceId,
+          workpieceId: args.workpieceId,
+          sessionId: args.sessionId,
+          feature: args.feature,
+          subfeature: args.subfeature,
+          model: args.model,
+          reasoningEffort: args.reasoningEffort,
+          inputTokens: executed.inputTokens,
+          outputTokens: executed.outputTokens,
+          totalTokens: executed.totalTokens,
+          estimatedCostUsd,
+          actualCostUsd,
+          billableTokens,
+          trigger: args.trigger,
+          status: "success",
+          actionId: args.actionId,
+          providerRequestId: executed.providerRequestId ?? null,
+        });
+      }
+
+      return {
+        result: executed.result,
+        inputTokens: executed.inputTokens,
+        outputTokens: executed.outputTokens,
+        totalTokens: executed.totalTokens,
+        estimatedCostUsd,
+        actualCostUsd,
+        billableTokens,
+        providerRequestId: executed.providerRequestId ?? null,
+      };
+    } catch (error) {
+      if (args.lane === "forge") {
+        await this.recordAiUsageEvent({
+          userId: args.userId,
+          workspaceId: args.workspaceId,
+          workpieceId: args.workpieceId,
+          sessionId: args.sessionId,
+          feature: args.feature,
+          subfeature: args.subfeature,
+          model: args.model,
+          reasoningEffort: args.reasoningEffort,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          estimatedCostUsd: 0,
+          actualCostUsd: 0,
+          billableTokens: 0,
+          trigger: args.trigger,
+          status: "error",
+          actionId: args.actionId,
+          providerRequestId: null,
+        });
+      }
+      throw error;
+    }
+  }
+
   private async upsertWorkpieceFile(rows: Database["tongs"]["Tables"]["workpiece_files"]["Insert"][]): Promise<void> {
     const { error } = await this.supabase
       .schema("tongs")
@@ -5670,11 +5855,37 @@ export class TongsCommitService {
       THUMBNAIL_EDITORIAL_BASE_HINT,
     ].filter(Boolean).join("\n\n");
 
-    const imageResult = await this.imageProvider.generateImage({
-      prompt: finalPrompt,
-      aspect: input.aspect ?? "16:9",
-      size: input.size ?? null,
-    } as GenerateImageInput);
+    const thumbnailActionId = randomUuid();
+    const imageCall = await this.runAIRequest({
+      lane,
+      userId,
+      workspaceId: workspace.id,
+      workpieceId,
+      feature: "thumbnail_generate",
+      subfeature: "concept_render",
+      model: "gpt-image-1",
+      trigger: "user",
+      actionId: thumbnailActionId,
+      execute: async () => {
+        const image = await this.imageProvider!.generateImage({
+          prompt: finalPrompt,
+          aspect: input.aspect ?? "16:9",
+          size: input.size ?? null,
+        } as GenerateImageInput);
+        const totalTokens = estimateImageTokenSpend(finalPrompt, image.tokensUsed);
+        const inputTokens = Math.min(totalTokens, Math.max(1, Math.ceil(finalPrompt.length / 4)));
+        const outputTokens = Math.max(0, totalTokens - inputTokens);
+        return {
+          result: image,
+          inputTokens,
+          outputTokens,
+          totalTokens,
+          billableTokens: totalTokens,
+          providerRequestId: image.providerRequestId,
+        };
+      },
+    });
+    const imageResult = imageCall.result;
 
     const requestId = randomUuid();
     const versionId = randomUuid();
@@ -6849,6 +7060,7 @@ export class TongsCommitService {
       prompt: string;
       image: Awaited<ReturnType<ImageProvider["generateImage"]>>;
     }> = [];
+    const imageMapActionId = randomUuid();
     for (const variant of variants) {
       const prompt = buildImageMapCandidatePrompt({
         entry,
@@ -6858,11 +7070,36 @@ export class TongsCommitService {
         contextAfter: input.context_after ?? null,
         divergenceHint: variant.divergenceHint,
       });
-      const image = await this.imageProvider.generateImage({
-        prompt,
-        aspect,
-        size,
+      const imageCall = await this.runAIRequest({
+        lane,
+        userId: auth.userId,
+        workspaceId: input.workspace_id,
+        workpieceId,
+        feature: "image_map_candidate_generate",
+        subfeature: variant.label,
+        model: "gpt-image-1",
+        trigger: "user",
+        actionId: imageMapActionId,
+        execute: async () => {
+          const image = await this.imageProvider!.generateImage({
+            prompt,
+            aspect,
+            size,
+          });
+          const totalTokens = estimateImageTokenSpend(prompt, image.tokensUsed);
+          const inputTokens = Math.min(totalTokens, Math.max(1, Math.ceil(prompt.length / 4)));
+          const outputTokens = Math.max(0, totalTokens - inputTokens);
+          return {
+            result: image,
+            inputTokens,
+            outputTokens,
+            totalTokens,
+            billableTokens: totalTokens,
+            providerRequestId: image.providerRequestId,
+          };
+        },
       });
+      const image = imageCall.result;
       generatedOutputs.push({
         variantLabel: variant.label,
         visualMode,
@@ -6880,11 +7117,36 @@ export class TongsCommitService {
         contextAfter: input.context_after ?? null,
         divergenceHint: "The prior variant was too similar. Produce a substantially different visual take with different framing, subject arrangement, and editorial emphasis.",
       });
-      const retryImage = await this.imageProvider.generateImage({
-        prompt: retryPrompt,
-        aspect,
-        size,
+      const retryCall = await this.runAIRequest({
+        lane,
+        userId: auth.userId,
+        workspaceId: input.workspace_id,
+        workpieceId,
+        feature: "image_map_candidate_generate",
+        subfeature: "illustrative_retry",
+        model: "gpt-image-1",
+        trigger: "system",
+        actionId: imageMapActionId,
+        execute: async () => {
+          const image = await this.imageProvider!.generateImage({
+            prompt: retryPrompt,
+            aspect,
+            size,
+          });
+          const totalTokens = estimateImageTokenSpend(retryPrompt, image.tokensUsed);
+          const inputTokens = Math.min(totalTokens, Math.max(1, Math.ceil(retryPrompt.length / 4)));
+          const outputTokens = Math.max(0, totalTokens - inputTokens);
+          return {
+            result: image,
+            inputTokens,
+            outputTokens,
+            totalTokens,
+            billableTokens: totalTokens,
+            providerRequestId: image.providerRequestId,
+          };
+        },
       });
+      const retryImage = retryCall.result;
       generatedOutputs[1] = {
         ...generatedOutputs[1],
         prompt: retryPrompt,

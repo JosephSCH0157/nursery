@@ -14,7 +14,13 @@ import {
   type HearthChatMessage as ChatMessage,
   type HearthOp,
 } from "../../../hearth/src/lib/hearth-ai-runtime-contract";
-import { FORGE_ALLOWED_CHAT_MODELS, type HearthRuntimeConfig } from "./hearth-runtime-config";
+import {
+  calculateForgeBillingTokens,
+  estimateOpenAiCostFromPayload,
+  extractOpenAiUsageMetrics,
+  FORGE_ALLOWED_CHAT_MODELS,
+} from "./ai-pricing";
+import type { HearthRuntimeConfig } from "./hearth-runtime-config";
 
 type StructuredReply = {
   assistantText: string;
@@ -897,11 +903,26 @@ function extractAssistantReply(payload: unknown): string {
 }
 
 function extractTotalTokens(payload: unknown): number | null {
-  if (!payload || typeof payload !== "object") return null;
-  const usage = (payload as Record<string, unknown>).usage;
-  if (!usage || typeof usage !== "object") return null;
-  const total = (usage as Record<string, unknown>).total_tokens;
-  return typeof total === "number" && Number.isFinite(total) && total >= 0 ? total : null;
+  const usage = extractOpenAiUsageMetrics(payload);
+  if (!usage) return null;
+  return usage.totalTokens > 0 ? usage.totalTokens : null;
+}
+
+function classifyChatFeature(requestText: string): { feature: string; subfeature: string | null } {
+  const normalized = compactSpaces(requestText);
+  if (READINESS_CHECK_RE.test(normalized)) {
+    return { feature: "script_assist", subfeature: "readiness_check" };
+  }
+  if (CDC_REQUEST_RE.test(normalized)) {
+    return { feature: "cdc_extract", subfeature: "media_map" };
+  }
+  if (requestedOutline(normalized)) {
+    return { feature: "script_assist", subfeature: "outline" };
+  }
+  if (requestedScript(normalized)) {
+    return { feature: "script_assist", subfeature: "rewrite" };
+  }
+  return { feature: "script_assist", subfeature: "chat" };
 }
 
 function extractTranscriptionText(payload: unknown): string | null {
@@ -1103,6 +1124,155 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       billing_mode: mode,
       token_balance: mode === "forge" ? tokenBalance : null,
     };
+  }
+
+  type AiUsageStatus = "success" | "error";
+  type AiUsageTrigger = "user" | "system";
+
+  async function recordAiUsageEvent(args: {
+    userId: string | null;
+    lane: BillingMode;
+    provider: string;
+    workspaceId: string | null;
+    workpieceId: string | null;
+    sessionId: string | null;
+    feature: string;
+    subfeature?: string | null;
+    model: string;
+    reasoningEffort?: string | null;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    estimatedCostUsd: number;
+    actualCostUsd: number;
+    billableTokens: number;
+    trigger: AiUsageTrigger;
+    status: AiUsageStatus;
+    actionId?: string | null;
+    providerRequestId?: string | null;
+    correlationId?: string | null;
+  }): Promise<void> {
+    if (!supabaseService) return;
+    if (!isUuid(args.userId)) return;
+
+    const tableClient = supabaseService.schema("tongs") as unknown as {
+      from: (table: string) => {
+        insert: (row: Record<string, unknown>) => Promise<{ error: { message: string } | null>;
+      };
+    };
+
+    const row: Record<string, unknown> = {
+      user_id: args.userId,
+      lane: args.lane,
+      provider: args.provider,
+      workspace_id: isUuid(args.workspaceId) ? args.workspaceId : null,
+      workpiece_id: isUuid(args.workpieceId) ? args.workpieceId : null,
+      session_id: isUuid(args.sessionId) ? args.sessionId : null,
+      feature: args.feature,
+      subfeature: args.subfeature ?? null,
+      model: args.model,
+      reasoning_effort: args.reasoningEffort ?? null,
+      input_tokens: Math.max(0, Math.floor(args.inputTokens)),
+      output_tokens: Math.max(0, Math.floor(args.outputTokens)),
+      total_tokens: Math.max(0, Math.floor(args.totalTokens)),
+      estimated_cost_usd: Number(args.estimatedCostUsd.toFixed(6)),
+      actual_cost_usd: Number(args.actualCostUsd.toFixed(6)),
+      billable_tokens: Math.max(0, Math.floor(args.billableTokens)),
+      trigger: args.trigger,
+      status: args.status,
+      action_id: args.actionId ?? null,
+      provider_request_id: args.providerRequestId ?? null,
+      correlation_id: args.correlationId ?? null,
+      occurred_at_ms: Date.now(),
+    };
+
+    const { error } = await tableClient
+      .from("ai_usage_events")
+      .insert(row);
+
+    if (error) {
+      console.warn("[hearth-chat-api] ai_usage_events insert failed", {
+        message: error.message,
+        feature: args.feature,
+      });
+    }
+  }
+
+  async function runAIRequest(args: {
+    lane: BillingMode;
+    userId: string | null;
+    workspaceId: string | null;
+    workpieceId: string | null;
+    sessionId: string | null;
+    feature: string;
+    subfeature?: string | null;
+    model: string;
+    reasoningEffort?: string | null;
+    trigger: AiUsageTrigger;
+    actionId?: string | null;
+    request: {
+      url: string;
+      init: RequestInit;
+      signal: AbortSignal;
+    };
+  }): Promise<Response> {
+    try {
+      const response = await fetch(args.request.url, {
+        ...args.request.init,
+        signal: args.request.signal,
+      });
+
+      if (!response.ok) {
+        await recordAiUsageEvent({
+          userId: args.userId,
+          lane: args.lane,
+          provider: "openai",
+          workspaceId: args.workspaceId,
+          workpieceId: args.workpieceId,
+          sessionId: args.sessionId,
+          feature: args.feature,
+          subfeature: args.subfeature,
+          model: args.model,
+          reasoningEffort: args.reasoningEffort,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          estimatedCostUsd: 0,
+          actualCostUsd: 0,
+          billableTokens: 0,
+          trigger: args.trigger,
+          status: "error",
+          actionId: args.actionId,
+          providerRequestId: response.headers.get("x-request-id"),
+        });
+      }
+
+      return response;
+    } catch (error) {
+      await recordAiUsageEvent({
+        userId: args.userId,
+        lane: args.lane,
+        provider: "openai",
+        workspaceId: args.workspaceId,
+        workpieceId: args.workpieceId,
+        sessionId: args.sessionId,
+        feature: args.feature,
+        subfeature: args.subfeature,
+        model: args.model,
+        reasoningEffort: args.reasoningEffort,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        estimatedCostUsd: 0,
+        actualCostUsd: 0,
+        billableTokens: 0,
+        trigger: args.trigger,
+        status: "error",
+        actionId: args.actionId,
+        providerRequestId: null,
+      });
+      throw error;
+    }
   }
 
   async function resolveUserId(accessToken: string | null): Promise<string | null> {
@@ -1391,6 +1561,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         pathname !== HEARTH_AI_ROUTES.chat
         && pathname !== HEARTH_AI_ROUTES.chatStatus
         && pathname !== HEARTH_AI_ROUTES.stt
+        && pathname !== HEARTH_AI_ROUTES.costAudit
       ) {
         return jsonResponse(404, { ok: false, error: "Not found" });
       }
@@ -1406,6 +1577,70 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         return jsonResponse(200, {
           ok: true,
           ...buildBillingSnapshot(lane),
+        });
+      }
+
+      if (pathname === HEARTH_AI_ROUTES.costAudit) {
+        if (method !== "GET") {
+          return jsonResponse(405, { ok: false, error: "Method not allowed" });
+        }
+        if (!supabaseService) {
+          return jsonResponse(500, { ok: false, error: "Supabase service role is not configured." });
+        }
+        const bearerToken = readBearerToken(request.headers.get("authorization"));
+        const userId = await resolveUserId(bearerToken);
+        if (!userId) {
+          return jsonResponse(401, { ok: false, error: "Authentication required." });
+        }
+
+        const tableClient = supabaseService.schema("tongs") as unknown as {
+          from: (table: string) => {
+            select: (fields: string) => {
+              eq: (column: string, value: string) => {
+                gte: (column: string, value: string) => {
+                  order: (column: string, options: { ascending: boolean }) => {
+                    limit: (value: number) => Promise<{ data: unknown; error: { message: string } | null }>;
+                  };
+                };
+              };
+            };
+          };
+        };
+
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        const { data, error } = await tableClient
+          .from("ai_usage_events")
+          .select("created_at, lane, feature, subfeature, model, total_tokens, actual_cost_usd, billable_tokens, workspace_id")
+          .eq("user_id", userId)
+          .gte("created_at", startOfDay.toISOString())
+          .order("created_at", { ascending: false })
+          .limit(200);
+
+        if (error) {
+          return jsonResponse(500, { ok: false, error: error.message });
+        }
+
+        const rows = Array.isArray(data) ? data : [];
+        const totals = rows.reduce((acc, row) => {
+          if (!row || typeof row !== "object") return acc;
+          const record = row as Record<string, unknown>;
+          const totalTokens = typeof record.total_tokens === "number" ? record.total_tokens : 0;
+          const billableTokens = typeof record.billable_tokens === "number" ? record.billable_tokens : 0;
+          const actualCostUsd = typeof record.actual_cost_usd === "number" ? record.actual_cost_usd : 0;
+          return {
+            totalTokens: acc.totalTokens + Math.max(0, totalTokens),
+            billableTokens: acc.billableTokens + Math.max(0, billableTokens),
+            actualCostUsd: Number((acc.actualCostUsd + Math.max(0, actualCostUsd)).toFixed(6)),
+          };
+        }, { totalTokens: 0, billableTokens: 0, actualCostUsd: 0 });
+
+        return jsonResponse(200, {
+          ok: true,
+          generated_at: new Date().toISOString(),
+          window: "today",
+          rows,
+          totals,
         });
       }
 
@@ -1520,6 +1755,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const form = new FormData();
         form.set("model", sttModel);
         form.set("file", audioBlob, `speech.${ext}`);
+        const sttActionId = crypto.randomUUID();
 
         const upstreamAbort = new AbortController();
         let clientAborted = request.signal.aborted;
@@ -1532,13 +1768,28 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         try {
           let upstream: Response;
           try {
-            upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-              method: "POST",
-              headers: {
-                authorization: `Bearer ${textApiKey}`,
+            upstream = await runAIRequest({
+              lane,
+              userId,
+              workspaceId: null,
+              workpieceId,
+              sessionId: null,
+              feature: "speech_transcription",
+              subfeature: "workpiece_audio",
+              model: sttModel,
+              trigger: "user",
+              actionId: sttActionId,
+              request: {
+                url: "https://api.openai.com/v1/audio/transcriptions",
+                init: {
+                  method: "POST",
+                  headers: {
+                    authorization: `Bearer ${textApiKey}`,
+                  },
+                  body: form,
+                },
+                signal: upstreamAbort.signal,
               },
-              body: form,
-              signal: upstreamAbort.signal,
             });
           } catch (error) {
             if (clientAborted || upstreamAbort.signal.aborted) {
@@ -1566,6 +1817,27 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           const payload = (await upstream.json()) as unknown;
           const text = extractTranscriptionText(payload);
           if (!text) {
+            if (lane === "forge") {
+              await recordAiUsageEvent({
+                userId,
+                workspaceId: null,
+                workpieceId,
+                sessionId: null,
+                feature: "speech_transcription",
+                subfeature: "workpiece_audio",
+                model: sttModel,
+                inputTokens: 0,
+                outputTokens: 0,
+                totalTokens: 0,
+                estimatedCostUsd: 0,
+                actualCostUsd: 0,
+                billableTokens: 0,
+                trigger: "user",
+                status: "error",
+                actionId: sttActionId,
+                providerRequestId: upstream.headers.get("x-request-id"),
+              });
+            }
             return jsonResponse(502, {
               ok: false,
               error: "OpenAI returned empty transcription",
@@ -1574,8 +1846,38 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           }
 
           const totalTokens = extractTotalTokens(payload) ?? estimateTranscriptionTokenFallback(text);
+          const inputTokens = extractPromptTokens(payload) ?? totalTokens;
+          const outputTokens = extractCompletionTokens(payload) ?? 0;
+          const estimatedCostUsd = estimateCostUsd({
+            model: sttModel,
+            inputTokens,
+            outputTokens,
+            totalTokens,
+          });
           const openAiRequestId = upstream.headers.get("x-request-id");
           let creditsWarning: string | null = null;
+
+          if (lane === "forge") {
+            await recordAiUsageEvent({
+              userId,
+              workspaceId: null,
+              workpieceId,
+              sessionId: null,
+              feature: "speech_transcription",
+              subfeature: "workpiece_audio",
+              model: sttModel,
+              inputTokens,
+              outputTokens,
+              totalTokens,
+              estimatedCostUsd,
+              actualCostUsd: estimatedCostUsd,
+              billableTokens: totalTokens,
+              trigger: "user",
+              status: "success",
+              actionId: sttActionId,
+              providerRequestId: openAiRequestId,
+            });
+          }
 
           if (lane === "forge" && totalTokens > 0) {
             const deltaResult = await applyTokenDelta({
@@ -1616,6 +1918,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const bodyRaw = (await readJsonBody(request)) as ReqBody;
       const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
       const bearerToken = readBearerToken(request.headers.get("authorization"));
+      const chatActionId = crypto.randomUUID();
       if (lane === "forge" && disableForgeLaneAi) {
         return jsonResponse(503, {
           ok: false,
@@ -1689,6 +1992,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         ? messages[latestUserMessageIndex] ?? null
         : null;
       const requestText = latestUserMessage?.content ?? "";
+      const userId = await resolveUserId(bearerToken);
+      const chatFeature = classifyChatFeature(requestText);
+      const reasoningEffort = isRecord(bodyRaw.behavior)
+        ? readOptionalString((bodyRaw.behavior as Record<string, unknown>).reasoning_effort)
+        : null;
       if (disableCdcGeneration && CDC_REQUEST_RE.test(requestText)) {
         return jsonResponse(503, {
           ok: false,
@@ -1798,14 +2106,30 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 model,
                 messages: completionMessages,
               };
-          return fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${textApiKey}`,
-              "content-type": "application/json",
+          return runAIRequest({
+            lane,
+            userId,
+            workspaceId: episodeContext.workspaceId,
+            workpieceId: episodeContext.episodeId,
+            sessionId: null,
+            feature: chatFeature.feature,
+            subfeature: chatFeature.subfeature,
+            model,
+            reasoningEffort,
+            trigger: "user",
+            actionId: chatActionId,
+            request: {
+              url: "https://api.openai.com/v1/chat/completions",
+              init: {
+                method: "POST",
+                headers: {
+                  authorization: `Bearer ${textApiKey}`,
+                  "content-type": "application/json",
+                },
+                body: JSON.stringify(payload),
+              },
+              signal: upstreamAbort.signal,
             },
-            body: JSON.stringify(payload),
-            signal: upstreamAbort.signal,
           });
         };
 
@@ -1861,6 +2185,28 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const payload = (await upstream.json()) as unknown;
         const rawReply = extractAssistantReply(payload);
         if (!rawReply) {
+          if (lane === "forge") {
+            await recordAiUsageEvent({
+              userId,
+              workspaceId: episodeContext.workspaceId,
+              workpieceId: episodeContext.episodeId,
+              sessionId: null,
+              feature: chatFeature.feature,
+              subfeature: chatFeature.subfeature,
+              model,
+              reasoningEffort,
+              inputTokens: 0,
+              outputTokens: 0,
+              totalTokens: 0,
+              estimatedCostUsd: 0,
+              actualCostUsd: 0,
+              billableTokens: 0,
+              trigger: "user",
+              status: "error",
+              actionId: chatActionId,
+              providerRequestId: upstream.headers.get("x-request-id"),
+            });
+          }
           return jsonResponse(502, {
             ok: false,
             error: "OpenAI returned empty response",
@@ -1921,11 +2267,41 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
         const totalTokens = extractTotalTokens(payload);
         const spent = totalTokens ?? estimateTokenFallback(messages, rawReply);
+        const inputTokens = extractPromptTokens(payload) ?? Math.max(0, spent - (extractCompletionTokens(payload) ?? 0));
+        const outputTokens = extractCompletionTokens(payload) ?? Math.max(0, spent - inputTokens);
+        const estimatedCostUsd = estimateCostUsd({
+          model,
+          inputTokens,
+          outputTokens,
+          totalTokens: spent,
+        });
         const openAiRequestId = upstream.headers.get("x-request-id");
         let creditsWarning: string | null = null;
 
+        if (lane === "forge") {
+          await recordAiUsageEvent({
+            userId,
+            workspaceId: episodeContext.workspaceId,
+            workpieceId: episodeContext.episodeId,
+            sessionId: null,
+            feature: chatFeature.feature,
+            subfeature: chatFeature.subfeature,
+            model,
+            reasoningEffort,
+            inputTokens,
+            outputTokens,
+            totalTokens: spent,
+            estimatedCostUsd,
+            actualCostUsd: estimatedCostUsd,
+            billableTokens: spent,
+            trigger: "user",
+            status: "success",
+            actionId: chatActionId,
+            providerRequestId: openAiRequestId,
+          });
+        }
+
         if (lane === "forge" && spent > 0) {
-          const userId = await resolveUserId(bearerToken);
           if (!userId) {
             creditsWarning = "Unable to update credits.";
           } else {

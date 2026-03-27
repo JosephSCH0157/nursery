@@ -4,6 +4,7 @@ export const HEARTH_AI_ROUTES = {
   chat: "/api/hearth/chat",
   chatStatus: "/api/hearth/chat/status",
   stt: "/api/hearth/stt",
+  costAudit: "/api/hearth/cost-audit",
 } as const;
 
 export type { EpisodeContext, HearthOp } from "./hearth-ai-ops";

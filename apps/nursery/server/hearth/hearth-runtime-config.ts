@@ -2,12 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { HearthAiLane } from "../../../hearth/src/lib/hearth-ai-runtime-contract";
+import { FORGE_ALLOWED_CHAT_MODELS } from "./ai-pricing";
 
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_STT_BUCKET = "forge-workpieces";
 const DEFAULT_CHAT_MODEL = "gpt-5.4-mini";
 const DEFAULT_FORGE_TOKEN_BALANCE = 12430;
-export const FORGE_ALLOWED_CHAT_MODELS = ["gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"] as const;
 const ALLOWED_CHAT_MODELS = new Set<string>(FORGE_ALLOWED_CHAT_MODELS);
 
 const __filename = fileURLToPath(import.meta.url);
