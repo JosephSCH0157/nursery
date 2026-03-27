@@ -33,8 +33,8 @@ Guardrails:
   --hammer-shell-right-min-width: 340px;
   --hammer-shell-preview-min-width: 360px;
   --hammer-shell-preview-width: 520px;
-  --hammer-shell-timeline-height: 376px;
-  --hammer-shell-timeline-time-focus-height: 504px;
+  --hammer-shell-timeline-height: clamp(260px, 35vh, 376px);
+  --hammer-shell-timeline-time-focus-height: clamp(320px, 48vh, 504px);
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--hammer-shell-toolbar-width);
   gap: 8px;
@@ -1832,6 +1832,61 @@ Guardrails:
 
 .hammer-workspace-shell.is-time-focus {
   --hammer-shell-timeline-height: var(--hammer-shell-timeline-time-focus-height);
+}
+
+@media (max-height: 940px) {
+  .hammer-workspace-shell {
+    --hammer-shell-toolbar-width: 64px;
+    --hammer-shell-timeline-height: clamp(230px, 32vh, 320px);
+    --hammer-shell-timeline-time-focus-height: clamp(300px, 44vh, 420px);
+  }
+
+  .hammer-workspace-shell__main,
+  .hammer-workspace-shell__top {
+    gap: 6px;
+  }
+
+  .hammer-toolbar {
+    gap: 6px;
+    padding: 6px 4px;
+  }
+
+  .hammer-toolbar__title {
+    font-size: 10px;
+  }
+
+  .hammer-toolbar__tool {
+    padding: 6px 3px;
+    font-size: 9px;
+    gap: 3px;
+  }
+
+  .hammer-bay-head {
+    padding: 6px 8px;
+    font-size: 10px;
+  }
+
+  .hammer-bay-body {
+    padding: 6px 8px;
+  }
+}
+
+@media (max-height: 820px) {
+  .hammer-workspace-shell {
+    --hammer-shell-timeline-height: clamp(200px, 28vh, 270px);
+    --hammer-shell-timeline-time-focus-height: clamp(250px, 36vh, 340px);
+  }
+
+  .hammer-waveform-lane {
+    min-height: 64px;
+    max-height: 64px;
+  }
+
+  .hammer-bay-tabs button,
+  .hammer-timeline-tools button {
+    padding: 3px 8px;
+    font-size: 10px;
+  }
 }
 
 @media (max-width: 1600px) {

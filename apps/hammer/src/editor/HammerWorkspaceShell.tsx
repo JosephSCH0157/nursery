@@ -515,6 +515,8 @@ type HammerImageAnimationContextMenuState = {
 };
 
 type HammerAudioFinalizationCompareMode = "before" | "after";
+type HammerLogoOverlayPosition = "top_left" | "top_right" | "bottom_left" | "bottom_right";
+type HammerLogoOverlaySize = "small" | "medium" | "large";
 
 type HammerTimelineLaneView = {
   id: string;
@@ -998,6 +1000,20 @@ const IMAGE_ANIMATION_PRESET_OPTIONS: Array<{ id: HammerImageAnimationPreset; la
   { id: "shutter_out", label: "Shutter Out" },
   { id: "shutter_in_fade_out", label: "Shutter In + Fade Out" },
 ];
+const PACKAGING_INTRO_ENTRY_ID = "packaging:intro";
+const PACKAGING_OUTRO_ENTRY_ID = "packaging:outro";
+const PACKAGING_LOGO_ENTRY_ID = "packaging:logo";
+const LOGO_POSITION_OPTIONS: Array<{ id: HammerLogoOverlayPosition; label: string }> = [
+  { id: "top_left", label: "Top Left" },
+  { id: "top_right", label: "Top Right" },
+  { id: "bottom_left", label: "Bottom Left" },
+  { id: "bottom_right", label: "Bottom Right" },
+];
+const LOGO_SIZE_OPTIONS: Array<{ id: HammerLogoOverlaySize; label: string }> = [
+  { id: "small", label: "Small" },
+  { id: "medium", label: "Medium" },
+  { id: "large", label: "Large" },
+];
 
 function resolveImageAnimationClass(preset: HammerImageAnimationPreset): string {
   if (preset === "fade_in") return "is-anim-fade-in";
@@ -1474,6 +1490,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     outro_path: null,
     updated_at: new Date().toISOString(),
   });
+  const [packagingLogoAssetPath, setPackagingLogoAssetPath] = useState<string | null>(null);
+  const [packagingLogoPosition, setPackagingLogoPosition] = useState<HammerLogoOverlayPosition>("top_right");
+  const [packagingLogoSize, setPackagingLogoSize] = useState<HammerLogoOverlaySize>("medium");
   const [savingIntroOutro, setSavingIntroOutro] = useState(false);
   const [sourceDeskPreviewUrls, setSourceDeskPreviewUrls] = useState<Record<string, string>>({});
   const [sourceDeskPreviewFailures, setSourceDeskPreviewFailures] = useState<Record<string, true>>({});
@@ -1936,6 +1955,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const introOutroCandidateItems = useMemo(
     () => storedMediaFiles.filter((file) => file.kind === "broll" || file.kind === "audio" || file.kind === "other"),
     [storedMediaFiles],
+  );
+  const packagingIntroPlacement = useMemo(
+    () => (editableVisualPlacements?.placements ?? []).find((item) => item.entry_id === PACKAGING_INTRO_ENTRY_ID) ?? null,
+    [editableVisualPlacements?.placements],
+  );
+  const packagingOutroPlacement = useMemo(
+    () => (editableVisualPlacements?.placements ?? []).find((item) => item.entry_id === PACKAGING_OUTRO_ENTRY_ID) ?? null,
+    [editableVisualPlacements?.placements],
+  );
+  const packagingLogoPlacement = useMemo(
+    () => (editableVisualPlacements?.placements ?? []).find((item) => item.entry_id === PACKAGING_LOGO_ENTRY_ID) ?? null,
+    [editableVisualPlacements?.placements],
   );
   const timelineDurationSec = Math.max(transcriptDurationSec, 1);
   const timelineTicks = useMemo(() => {
@@ -2570,6 +2601,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setCaptionEditedState(null);
     setActiveCaptionArtifactMode("built");
     setAudioFinalizationCompareMode("after");
+    setPackagingLogoAssetPath(null);
+    setPackagingLogoPosition("top_right");
+    setPackagingLogoSize("medium");
     setCaptionBuildFeedback(null);
 
     void (async () => {
@@ -4192,6 +4226,30 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setAudioFinalizationCompareMode(editableStudioRack.is_bypassed ? "before" : "after");
   }, [editableStudioRack.is_bypassed]);
   useEffect(() => {
+    if (packagingLogoAssetPath) return;
+    const preferred = packagingLogoPlacement?.asset_path
+      ?? sourceImageLibraryItems[0]?.path
+      ?? null;
+    if (!preferred) return;
+    setPackagingLogoAssetPath(preferred);
+  }, [packagingLogoAssetPath, packagingLogoPlacement?.asset_path, sourceImageLibraryItems]);
+  useEffect(() => {
+    if (!packagingLogoPlacement) return;
+    const positionFlag = packagingLogoPlacement.uncertainty_flags.find((flag) => flag.startsWith("logo_position:")) ?? null;
+    const sizeFlag = packagingLogoPlacement.uncertainty_flags.find((flag) => flag.startsWith("logo_size:")) ?? null;
+    const nextPosition = positionFlag?.slice("logo_position:".length) as HammerLogoOverlayPosition | undefined;
+    const nextSize = sizeFlag?.slice("logo_size:".length) as HammerLogoOverlaySize | undefined;
+    if (nextPosition && LOGO_POSITION_OPTIONS.some((option) => option.id === nextPosition)) {
+      setPackagingLogoPosition(nextPosition);
+    }
+    if (nextSize && LOGO_SIZE_OPTIONS.some((option) => option.id === nextSize)) {
+      setPackagingLogoSize(nextSize);
+    }
+    if (packagingLogoPlacement.asset_path) {
+      setPackagingLogoAssetPath(packagingLogoPlacement.asset_path);
+    }
+  }, [packagingLogoPlacement]);
+  useEffect(() => {
     if (!imageAnimationContextMenu) return;
     const closeMenu = (): void => setImageAnimationContextMenu(null);
     const closeOnEscape = (event: KeyboardEvent): void => {
@@ -4615,6 +4673,171 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           },
         };
       },
+    });
+  }
+
+  function upsertPackagingPlacement(args: {
+    entryId: string;
+    assetPath: string;
+    label: string;
+    startSec: number;
+    endSec: number;
+    visualMode: string;
+    uncertaintyFlags?: string[];
+  }): void {
+    applyHistoryMutation({
+      label: `Apply ${args.label}`,
+      kind: "visual_adjustment",
+      toolId: "finishing",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const current = before.visualPlacements;
+        if (!current) return before;
+        const anchorSegment = before.transcriptSegments[0] ?? null;
+        if (!anchorSegment) return before;
+        const hasExisting = current.placements.some((placement) => placement.entry_id === args.entryId);
+        const placementId = hasExisting
+          ? current.placements.find((placement) => placement.entry_id === args.entryId)?.placement_id ?? createVisualPlacementId()
+          : createVisualPlacementId();
+        const nextPlacement: HammerVisualPlacementRecord = {
+          placement_id: placementId,
+          entry_id: args.entryId,
+          anchor_segment_id: anchorSegment.segment_id,
+          matched_segment_ids: [anchorSegment.segment_id],
+          anchor_text: anchorSegment.text,
+          asset_ref: args.assetPath,
+          asset_id: null,
+          asset_path: args.assetPath,
+          storage_key: args.assetPath,
+          label: args.label,
+          visual_mode: args.visualMode,
+          start_sec: Math.max(0, roundToTenth(args.startSec)),
+          end_sec: Math.max(
+            roundToTenth(args.startSec + MIN_IMAGE_PLACEMENT_DURATION_SEC),
+            roundToTenth(args.endSec),
+          ),
+          confidence: null,
+          timing_source: "ordered_fallback",
+          status: "placed",
+          ingest_state: "approved",
+          uncertainty_flags: args.uncertaintyFlags ?? [],
+        };
+        const basePlacements = current.placements.filter((placement) => placement.entry_id !== args.entryId);
+        return {
+          ...before,
+          visualPlacements: {
+            ...current,
+            placements: [...basePlacements, nextPlacement],
+          },
+        };
+      },
+    });
+  }
+
+  function removePackagingPlacement(entryId: string, label: string): void {
+    applyHistoryMutation({
+      label,
+      kind: "visual_adjustment",
+      toolId: "finishing",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const current = before.visualPlacements;
+        if (!current) return before;
+        return {
+          ...before,
+          visualPlacements: {
+            ...current,
+            placements: current.placements.filter((placement) => placement.entry_id !== entryId),
+          },
+        };
+      },
+    });
+  }
+
+  function applyIntroPlacement(): void {
+    if (!introOutroSelection.intro_path) {
+      setTranscriptTimingHint("Select an intro asset first in Intro/Outro Source Desk.");
+      return;
+    }
+    const introDurationSec = Math.min(6, Math.max(2, roundToTenth(Math.max(2, transcriptDurationSec * 0.1))));
+    upsertPackagingPlacement({
+      entryId: PACKAGING_INTRO_ENTRY_ID,
+      assetPath: introOutroSelection.intro_path,
+      label: "Packaging Intro",
+      startSec: 0,
+      endSec: introDurationSec,
+      visualMode: "packaging_intro",
+      uncertaintyFlags: ["packaging:intro"],
+    });
+  }
+
+  function applyOutroPlacement(): void {
+    if (!introOutroSelection.outro_path) {
+      setTranscriptTimingHint("Select an outro asset first in Intro/Outro Source Desk.");
+      return;
+    }
+    const outroDurationSec = Math.min(6, Math.max(2, roundToTenth(Math.max(2, transcriptDurationSec * 0.1))));
+    const startSec = Math.max(0, roundToTenth(transcriptDurationSec - outroDurationSec));
+    upsertPackagingPlacement({
+      entryId: PACKAGING_OUTRO_ENTRY_ID,
+      assetPath: introOutroSelection.outro_path,
+      label: "Packaging Outro",
+      startSec,
+      endSec: transcriptDurationSec,
+      visualMode: "packaging_outro",
+      uncertaintyFlags: ["packaging:outro"],
+    });
+  }
+
+  function toggleLogoOverlay(): void {
+    if (packagingLogoPlacement) {
+      removePackagingPlacement(PACKAGING_LOGO_ENTRY_ID, "Remove logo overlay");
+      return;
+    }
+    if (!packagingLogoAssetPath) {
+      setTranscriptTimingHint("Select a logo asset before enabling overlay.");
+      return;
+    }
+    upsertPackagingPlacement({
+      entryId: PACKAGING_LOGO_ENTRY_ID,
+      assetPath: packagingLogoAssetPath,
+      label: `Logo Overlay (${packagingLogoPosition.replace("_", " ")}, ${packagingLogoSize})`,
+      startSec: 0,
+      endSec: transcriptDurationSec,
+      visualMode: "overlay_graphic",
+      uncertaintyFlags: [
+        "packaging:logo",
+        `logo_position:${packagingLogoPosition}`,
+        `logo_size:${packagingLogoSize}`,
+      ],
+    });
+  }
+
+  function applyLogoOverlayStyle(next: {
+    position?: HammerLogoOverlayPosition;
+    size?: HammerLogoOverlaySize;
+    assetPath?: string | null;
+  }): void {
+    if (next.position) setPackagingLogoPosition(next.position);
+    if (next.size) setPackagingLogoSize(next.size);
+    if (typeof next.assetPath !== "undefined") setPackagingLogoAssetPath(next.assetPath);
+    if (!packagingLogoPlacement) return;
+    const position = next.position ?? packagingLogoPosition;
+    const size = next.size ?? packagingLogoSize;
+    const assetPath = next.assetPath ?? packagingLogoAssetPath ?? packagingLogoPlacement.asset_path ?? "";
+    if (!assetPath) return;
+    upsertPackagingPlacement({
+      entryId: PACKAGING_LOGO_ENTRY_ID,
+      assetPath,
+      label: `Logo Overlay (${position.replace("_", " ")}, ${size})`,
+      startSec: 0,
+      endSec: transcriptDurationSec,
+      visualMode: "overlay_graphic",
+      uncertaintyFlags: [
+        "packaging:logo",
+        `logo_position:${position}`,
+        `logo_size:${size}`,
+      ],
     });
   }
 
@@ -5838,6 +6061,49 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : exportTruthState === "stale"
     ? "Send Updated Packet to Quench"
     : "Send to Quench";
+  const readySummaryAreas = useMemo(() => {
+    const statusRank = (value: HammerPassStatusMap[HammerPassId] | undefined): number => (
+      value === "completed" ? 2 : value === "in_progress" ? 1 : 0
+    );
+    const summarize = (statuses: Array<HammerPassStatusMap[HammerPassId] | undefined>): "completed" | "in_progress" | "not_started" => {
+      const minRank = Math.min(...statuses.map((status) => statusRank(status)));
+      if (minRank >= 2) return "completed";
+      if (statuses.some((status) => status === "in_progress" || status === "completed")) return "in_progress";
+      return "not_started";
+    };
+    return [
+      {
+        id: "transcript",
+        label: "Transcript Cleanup + Retakes",
+        status: summarize([passStatus.transcript_cleanup, passStatus.retakes]),
+      },
+      {
+        id: "pacing",
+        label: "Pacing",
+        status: summarize([passStatus.gap_pacing]),
+      },
+      {
+        id: "visual_finishing",
+        label: "Visual Finishing",
+        status: summarize([passStatus.visual_finishing]),
+      },
+      {
+        id: "image",
+        label: "Image Placement + Animation",
+        status: summarize([passStatus.image_placement, passStatus.image_animation]),
+      },
+      {
+        id: "audio",
+        label: "Audio Finalization",
+        status: summarize([passStatus.audio_finalization]),
+      },
+      {
+        id: "packaging",
+        label: "Packaging",
+        status: summarize([passStatus.packaging]),
+      },
+    ] as const;
+  }, [passStatus]);
   const selectedAttentionIndex = useMemo(
     () => boundAttentionQueue.findIndex((item) => item.operationId === selectedBoundBrollOperationId),
     [boundAttentionQueue, selectedBoundBrollOperationId],
@@ -7552,6 +7818,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 ) : null}
                 {currentPass === "audio_finalization" ? (
                   <span>Audio compare: {audioFinalizationCompareMode === "before" ? "Before" : "After"}</span>
+                ) : null}
+                {currentPass === "packaging" ? (
+                  <span>
+                    Packaging: intro {packagingIntroPlacement ? "on" : "off"} · outro {packagingOutroPlacement ? "on" : "off"} · logo {packagingLogoPlacement ? "on" : "off"}
+                  </span>
                 ) : null}
                 {playbackWindow ? (
                   <span>
@@ -9643,6 +9914,112 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               ) : null}
 
               {activeTool === "finishing" ? (
+                currentPass === "packaging" ? (
+                  <section className="hammer-tool-card">
+                    <header className="hammer-tool-card__head">Packaging</header>
+                    <div className="hammer-tool-hint">
+                      One-click branding pass. Reuses your existing intro/outro assets and timeline placements.
+                    </div>
+                    <div className="hammer-source-card__actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFocusOverride("tool-focus");
+                          applyIntroPlacement();
+                        }}
+                        disabled={!introOutroSelection.intro_path}
+                      >
+                        Apply Intro
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFocusOverride("tool-focus");
+                          applyOutroPlacement();
+                        }}
+                        disabled={!introOutroSelection.outro_path}
+                      >
+                        Apply Outro
+                      </button>
+                    </div>
+                    <div className="hammer-tool-hint">
+                      Intro: {introOutroSelection.intro_path ? "ready" : "not selected"} ·
+                      {" "}Outro: {introOutroSelection.outro_path ? "ready" : "not selected"}
+                    </div>
+                    <div className="hammer-tool-hint">
+                      Intro applied: {packagingIntroPlacement ? "yes" : "no"} ·
+                      {" "}Outro applied: {packagingOutroPlacement ? "yes" : "no"}
+                    </div>
+
+                    <label className="hammer-tool-field">
+                      <span>Logo Asset</span>
+                      <select
+                        value={packagingLogoAssetPath ?? ""}
+                        onChange={(event) => {
+                          const nextPath = event.target.value || null;
+                          setFocusOverride("tool-focus");
+                          applyLogoOverlayStyle({ assetPath: nextPath });
+                        }}
+                      >
+                        <option value="">No logo selected</option>
+                        {sourceImageLibraryItems.map((item) => (
+                          <option key={`logo-${item.path}`} value={item.path}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="hammer-source-card__actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFocusOverride("tool-focus");
+                          toggleLogoOverlay();
+                        }}
+                        disabled={!packagingLogoPlacement && !packagingLogoAssetPath}
+                      >
+                        {packagingLogoPlacement ? "Disable Logo Overlay" : "Toggle Logo Overlay"}
+                      </button>
+                    </div>
+                    <label className="hammer-tool-field">
+                      <span>Logo Position</span>
+                      <select
+                        value={packagingLogoPosition}
+                        onChange={(event) => {
+                          const next = event.target.value as HammerLogoOverlayPosition;
+                          setFocusOverride("tool-focus");
+                          applyLogoOverlayStyle({ position: next });
+                        }}
+                      >
+                        {LOGO_POSITION_OPTIONS.map((option) => (
+                          <option key={`logo-position-${option.id}`} value={option.id}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="hammer-tool-field">
+                      <span>Logo Size</span>
+                      <select
+                        value={packagingLogoSize}
+                        onChange={(event) => {
+                          const next = event.target.value as HammerLogoOverlaySize;
+                          setFocusOverride("tool-focus");
+                          applyLogoOverlayStyle({ size: next });
+                        }}
+                      >
+                        {LOGO_SIZE_OPTIONS.map((option) => (
+                          <option key={`logo-size-${option.id}`} value={option.id}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="hammer-tool-hint">
+                      Logo overlay: {packagingLogoPlacement ? "enabled (episode-wide)" : "disabled"}
+                    </div>
+                  </section>
+                ) : (
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Finishing Checklist</header>
                   <label className="hammer-tool-check">
@@ -9688,9 +10065,47 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     <span>Audio reviewed</span>
                   </label>
                 </section>
+                )
               ) : null}
 
               {activeTool === "export" ? (
+                currentPass === "ready" ? (
+                  <section className="hammer-tool-card">
+                    <header className="hammer-tool-card__head">Ready State</header>
+                    <div className="hammer-tool-hint">
+                      Hammer prepares and hands off. Quench publishes and distributes.
+                    </div>
+                    <div className="hammer-source-list">
+                      {readySummaryAreas.map((item) => (
+                        <article key={`ready-${item.id}`} className="hammer-source-card">
+                          <header className="hammer-source-card__head">
+                            <strong>{item.label}</strong>
+                            <span>{item.status.replace("_", " ")}</span>
+                          </header>
+                        </article>
+                      ))}
+                    </div>
+                    <div className="hammer-tool-hint">
+                      Readiness: {readinessStatusLabel}
+                      {` · blockers ${readinessGate.blocker_count} · review ${readinessGate.review_count}`}
+                    </div>
+                    <div className="hammer-tool-hint">Export packet: {exportStatusLabel}</div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleSendToQuench();
+                      }}
+                      disabled={releasePrepSaving || releasePrepLoading || readinessGate.status === "blocked"}
+                    >
+                      {releasePrepSaving ? "Sending..." : sendToQuenchButtonLabel}
+                    </button>
+                    {quenchHandoffStatus ? (
+                      <div className="hammer-tool-hint">
+                        Handoff status: {quenchHandoffStatus.status} · {quenchHandoffStatus.message}
+                      </div>
+                    ) : null}
+                  </section>
+                ) : (
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Quench Handoff</header>
                   <div className="hammer-tool-hint">
@@ -9820,6 +10235,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </a>
                   ) : null}
                 </section>
+                )
               ) : null}
 
               <div className="hammer-tool-state-grid">
