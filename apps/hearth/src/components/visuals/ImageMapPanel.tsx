@@ -342,6 +342,7 @@ export default function ImageMapPanel({
                       ref={uploadInputRef}
                       type="file"
                       accept="image/*,video/*"
+                      aria-label="Upload visual asset"
                       className="hs-imap-upload-input"
                       onChange={(event) => {
                         const file = event.currentTarget.files?.[0] ?? null;

@@ -1,5 +1,6 @@
 import * as React from "react";
 import type { AiBehavior, AiLane, AiPolicyTestOverride } from "../../lib/hearth/ai-settings";
+import { supabase } from "../../lib/supabase";
 import {
   loadAiSettings,
   saveAiSettings,
@@ -47,6 +48,18 @@ type PendingStyleSample = {
   sourceWorkpieceId: string | null;
   sourcePath: string | null;
   content: string;
+};
+
+type AiCostAuditRow = {
+  created_at: string;
+  lane: string;
+  feature: string;
+  subfeature: string | null;
+  model: string;
+  total_tokens: number;
+  actual_cost_usd: number;
+  billable_tokens: number;
+  workspace_id: string | null;
 };
 
 type MammothApi = {
@@ -221,6 +234,9 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
   const [forgeRefs, setForgeRefs] = React.useState<RecentScriptReference[]>([]);
   const [forgeRefsLoading, setForgeRefsLoading] = React.useState(false);
   const [forgeSelection, setForgeSelection] = React.useState<Record<string, boolean>>({});
+  const [costAuditRows, setCostAuditRows] = React.useState<AiCostAuditRow[]>([]);
+  const [costAuditLoading, setCostAuditLoading] = React.useState(false);
+  const [costAuditError, setCostAuditError] = React.useState<string | null>(null);
   const insightsContainerRef = React.useRef<HTMLDivElement | null>(null);
   const canManageFeatures = roleCanManageFeatures(workspaceRole);
   const devMode = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV === true;
@@ -334,6 +350,63 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
     if (forgeRefsLoading || forgeRefs.length > 0) return;
     void loadForgeReferences();
   }, [accelerateModalOpen, accelerateTab, forgeRefs.length, forgeRefsLoading, loadForgeReferences]);
+
+  const loadCostAudit = React.useCallback(async () => {
+    setCostAuditLoading(true);
+    setCostAuditError(null);
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const { data, error } = await supabase
+      .schema("tongs")
+      .from("ai_usage_events")
+      .select("created_at,lane,feature,subfeature,model,total_tokens,actual_cost_usd,billable_tokens,workspace_id")
+      .gte("created_at", startOfDay.toISOString())
+      .order("created_at", { ascending: false })
+      .limit(120);
+
+    if (error) {
+      setCostAuditRows([]);
+      setCostAuditError(error.message);
+      setCostAuditLoading(false);
+      return;
+    }
+
+    const rows = Array.isArray(data)
+      ? data
+        .filter((row): row is AiCostAuditRow => !!row && typeof row === "object")
+        .map((row) => ({
+          created_at: String((row as { created_at?: unknown }).created_at ?? ""),
+          lane: String((row as { lane?: unknown }).lane ?? "forge"),
+          feature: String((row as { feature?: unknown }).feature ?? "unknown"),
+          subfeature: (row as { subfeature?: unknown }).subfeature == null
+            ? null
+            : String((row as { subfeature?: unknown }).subfeature),
+          model: String((row as { model?: unknown }).model ?? "unknown"),
+          total_tokens: Number((row as { total_tokens?: unknown }).total_tokens ?? 0) || 0,
+          actual_cost_usd: Number((row as { actual_cost_usd?: unknown }).actual_cost_usd ?? 0) || 0,
+          billable_tokens: Number((row as { billable_tokens?: unknown }).billable_tokens ?? 0) || 0,
+          workspace_id: (row as { workspace_id?: unknown }).workspace_id == null
+            ? null
+            : String((row as { workspace_id?: unknown }).workspace_id),
+        }))
+      : [];
+
+    setCostAuditRows(rows);
+    setCostAuditLoading(false);
+  }, []);
+
+  React.useEffect(() => {
+    void loadCostAudit();
+  }, [loadCostAudit]);
+
+  const costAuditTotals = React.useMemo(() => {
+    return costAuditRows.reduce((acc, row) => ({
+      totalTokens: acc.totalTokens + Math.max(0, row.total_tokens),
+      billableTokens: acc.billableTokens + Math.max(0, row.billable_tokens),
+      actualCostUsd: Number((acc.actualCostUsd + Math.max(0, row.actual_cost_usd)).toFixed(6)),
+    }), { totalTokens: 0, billableTokens: 0, actualCostUsd: 0 });
+  }, [costAuditRows]);
 
   function updateLane(lane: AiLane) {
     const next = { ...settings, lane };
@@ -786,6 +859,33 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
           </div>
         </div>
       ) : null}
+
+      <div className="forge-ai-panel__section">
+        <div className="forge-ai-panel__label">AI Cost Today (Internal)</div>
+        <div className="forge-ai-panel__row">
+          <button type="button" onClick={() => void loadCostAudit()} disabled={costAuditLoading}>
+            {costAuditLoading ? "Refreshing..." : "Refresh"}
+          </button>
+          <span>
+            ${costAuditTotals.actualCostUsd.toFixed(4)} | {costAuditTotals.billableTokens} billable | {costAuditTotals.totalTokens} raw tokens
+          </span>
+        </div>
+        {costAuditError ? <div className="forge-ai-panel__hint">{costAuditError}</div> : null}
+        {!costAuditError && !costAuditRows.length ? (
+          <div className="forge-ai-panel__hint">No AI usage events recorded today.</div>
+        ) : null}
+        {!costAuditError && costAuditRows.length ? (
+          <div className="forge-ai-panel__style-insights" style={{ maxHeight: 220 }}>
+            <ul className="forge-ai-panel__style-list">
+              {costAuditRows.slice(0, 12).map((row, idx) => (
+                <li key={`${row.created_at}:${row.feature}:${idx}`}>
+                  {new Date(row.created_at).toLocaleTimeString()} | {row.lane} | {row.feature}{row.subfeature ? `/${row.subfeature}` : ""} | {row.model} | ${row.actual_cost_usd.toFixed(4)} | {row.billable_tokens} billable
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
 
       {!featuresLoading && !featuresError && workspaceId && alignmentEnabled ? (
         <div className="forge-ai-panel__section">
