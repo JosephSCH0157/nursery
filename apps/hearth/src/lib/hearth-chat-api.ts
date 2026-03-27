@@ -15,6 +15,11 @@ import {
   type HearthChatMessage,
   type HearthOp,
 } from "./hearth-ai-runtime-contract";
+import {
+  AI_REASON_CODES,
+  getAiReasonMessage,
+  type AiReasonCode,
+} from "@forge/tongs/ai-policy";
 
 export type {
   HearthAiBehavior,
@@ -113,35 +118,14 @@ const DEFAULT_AI_SETTINGS: AiSettingsSnapshot = {
 };
 
 type AiPolicyDecisionType = "ALLOW" | "SOFT_DENY" | "HARD_DENY";
-type AiPolicyReasonCode =
-  | "ORG_AI_DISABLED"
-  | "ORG_MEMBER_NOT_AUTHORIZED"
-  | "PERSONAL_AI_REQUIRED_NOT_CONFIGURED"
-  | "ORG_CAP_EXCEEDED"
-  | "FEATURE_DISABLED_HEAVY_TASKS"
-  | "FEATURE_DISABLED_IMAGE"
-  | "FEATURE_DISABLED_RESEARCH"
-  | "NO_VALID_FUNDING_SOURCE"
-  | "MEMBERSHIP_REQUIRED_STUDIO_OR_FOUNDER";
+type AiPolicyReasonCode = AiReasonCode;
 
 type AiPolicyResolveRow = {
   decision_type?: unknown;
   reason_code?: unknown;
 };
 
-const AI_POLICY_REASON_MESSAGES: Record<AiPolicyReasonCode, string> = {
-  ORG_AI_DISABLED: "Organization AI is disabled for this workspace.",
-  ORG_MEMBER_NOT_AUTHORIZED: "You are not authorized to use organization AI here.",
-  PERSONAL_AI_REQUIRED_NOT_CONFIGURED:
-    "This action requires personal AI. Connect your own AI provider first.",
-  ORG_CAP_EXCEEDED: "The AI spending limit for this period has been reached.",
-  FEATURE_DISABLED_HEAVY_TASKS: "Heavy AI tasks are disabled by organization policy.",
-  FEATURE_DISABLED_IMAGE: "Image generation is disabled by organization policy.",
-  FEATURE_DISABLED_RESEARCH: "Research flows are disabled by organization policy.",
-  NO_VALID_FUNDING_SOURCE: "No valid AI funding source is available for this request.",
-  MEMBERSHIP_REQUIRED_STUDIO_OR_FOUNDER:
-    "Organization AI controls require Studio or Founder entitlement.",
-};
+const AI_POLICY_REASON_CODE_SET = new Set<string>(AI_REASON_CODES);
 
 function readStringField(payload: unknown, key: string): string | null {
   if (!payload || typeof payload !== "object") return null;
@@ -427,7 +411,7 @@ function readAiPolicyDecisionType(value: unknown): AiPolicyDecisionType | null {
 }
 
 function readAiPolicyReasonCode(value: unknown): AiPolicyReasonCode | null {
-  return typeof value === "string" && value in AI_POLICY_REASON_MESSAGES
+  return typeof value === "string" && AI_POLICY_REASON_CODE_SET.has(value)
     ? (value as AiPolicyReasonCode)
     : null;
 }
@@ -455,7 +439,7 @@ function toPreflightErrorMessage(
   decisionType: AiPolicyDecisionType,
   lane: HearthAiLane,
 ): string {
-  const base = reasonCode ? AI_POLICY_REASON_MESSAGES[reasonCode] : "AI action blocked by policy.";
+  const base = reasonCode ? getAiReasonMessage(reasonCode) : "AI action blocked by policy.";
   if (decisionType === "SOFT_DENY" && lane !== "byo") {
     return `${base} Switch AI lane to BYO in Hearth settings and try again.`;
   }
@@ -502,6 +486,8 @@ async function resolveOrgIdForWorkspace(
 async function runHearthAiPolicyPreflight(args: {
   lane: HearthAiLane;
   workspaceId: string | null;
+  action: "chat" | "stt";
+  feature?: "research_flows" | "heavy_tasks" | "image_generation" | null;
 }): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const config = readSupabaseConfig();
   const accessToken = await readAccessTokenForRequest();
@@ -534,7 +520,8 @@ async function runHearthAiPolicyPreflight(args: {
         p_workspace_id: args.workspaceId && isUuid(args.workspaceId) ? args.workspaceId : null,
         p_user_id: userId,
         p_tool: "hearth",
-        p_action: "chat",
+        p_feature: args.feature ?? null,
+        p_action: args.action,
         p_requested_mode: mapLaneToRequestedMode(args.lane),
         p_personal_ai_configured: args.lane === "byo",
         p_org_ai_available: args.lane !== "byo",
@@ -957,6 +944,7 @@ export async function requestHearthSttTranscript(args: {
   workpieceId: string;
   storageKey: string;
   mimeType?: string;
+  workspaceId?: string | null;
   signal?: AbortSignal;
 }): Promise<HearthSttResult> {
   const settings = resolveAiSettingsFromStorage();
@@ -970,6 +958,21 @@ export async function requestHearthSttTranscript(args: {
       ok: false,
       status: 400,
       error: "workpieceId and storageKey are required.",
+      runtime: { tokenBalance: null, billingMode: lane },
+    };
+  }
+
+  const preflight = await runHearthAiPolicyPreflight({
+    lane,
+    workspaceId: args.workspaceId ?? null,
+    action: "stt",
+    feature: "heavy_tasks",
+  });
+  if (!preflight.ok) {
+    return {
+      ok: false,
+      status: preflight.status,
+      error: preflight.error,
       runtime: { tokenBalance: null, billingMode: lane },
     };
   }
@@ -1089,6 +1092,8 @@ export async function requestHearthChatReply(
   const preflight = await runHearthAiPolicyPreflight({
     lane,
     workspaceId: episodeContext.workspaceId,
+    action: "chat",
+    feature: "research_flows",
   });
   if (!preflight.ok) {
     return {

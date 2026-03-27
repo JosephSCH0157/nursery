@@ -10,6 +10,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./ai-policy": {
+      "types": "./dist/ai-policy.d.ts",
+      "import": "./dist/ai-policy.js",
+      "default": "./dist/ai-policy.js"
     }
   },
   "scripts": {

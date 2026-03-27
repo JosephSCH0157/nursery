@@ -189,6 +189,9 @@ importers:
       '@forge/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@forge/tongs':
+        specifier: workspace:*
+        version: link:../../packages/tongs
       '@forge/ui-mobile':
         specifier: workspace:*
         version: link:../../packages/ui-mobile

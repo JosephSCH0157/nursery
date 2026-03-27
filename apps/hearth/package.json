@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@forge/shared": "workspace:*",
+    "@forge/tongs": "workspace:*",
     "@forge/ui-mobile": "workspace:*",
     "react": "^19.2.0"
   },
