@@ -1122,6 +1122,29 @@ const LOGO_SIZE_OPTIONS: Array<{ id: HammerLogoOverlaySize; label: string }> = [
   { id: "large", label: "Large" },
 ];
 
+function positionFromLogoOption(
+  position: HammerLogoOverlayPosition,
+  size: HammerLogoOverlaySize,
+): HammerVisualPlacementGeometry {
+  const edgePadding = 0.04;
+  const sizeValue = size === "small" ? 0.12 : size === "large" ? 0.24 : 0.18;
+  const width = sizeValue;
+  const height = sizeValue;
+  const x = position === "top_right" || position === "bottom_right"
+    ? 1 - width - edgePadding
+    : edgePadding;
+  const y = position === "bottom_left" || position === "bottom_right"
+    ? 1 - height - edgePadding
+    : edgePadding;
+  return clampVisualPlacementGeometry({
+    x,
+    y,
+    width,
+    height,
+    anchor: "top_left",
+  });
+}
+
 function resolveImageAnimationClass(preset: HammerImageAnimationPreset): string {
   if (preset === "fade_in") return "is-anim-fade-in";
   if (preset === "fade_out") return "is-anim-fade-out";
@@ -1674,19 +1697,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [activeTool, currentPass]);
 
   useEffect(() => {
-    if (!previewSurfaceRef.current) return;
-    previewSurfaceRef.current.style.filter = visualPreviewFilter || "";
-  }, [visualPreviewFilter]);
-
-  useEffect(() => {
-    if (!selectedImagePlacementBBoxRef.current || !selectedImagePlacement) return;
-    selectedImagePlacementBBoxRef.current.style.left = `${selectedImagePlacementTransform.leftPct}%`;
-    selectedImagePlacementBBoxRef.current.style.top = `${selectedImagePlacementTransform.topPct}%`;
-    selectedImagePlacementBBoxRef.current.style.width = `${selectedImagePlacementTransform.widthPct}%`;
-    selectedImagePlacementBBoxRef.current.style.height = `${selectedImagePlacementTransform.heightPct}%`;
-  }, [selectedImagePlacement, selectedImagePlacementTransform]);
-
-  useEffect(() => {
     if (!imageAnimationContextMenuRef.current || !imageAnimationContextMenu) return;
     imageAnimationContextMenuRef.current.style.left = `${imageAnimationContextMenu.x}px`;
     imageAnimationContextMenuRef.current.style.top = `${imageAnimationContextMenu.y}px`;
@@ -1982,6 +1992,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const selectedImageAnimationLabel = IMAGE_ANIMATION_PRESET_OPTIONS.find(
     (option) => option.id === selectedImageAnimationPreset,
   )?.label ?? "None";
+
+  useEffect(() => {
+    if (!previewSurfaceRef.current) return;
+    previewSurfaceRef.current.style.filter = visualPreviewFilter || "";
+  }, [visualPreviewFilter]);
+
+  useEffect(() => {
+    if (!selectedImagePlacementBBoxRef.current || !selectedImagePlacement) return;
+    selectedImagePlacementBBoxRef.current.style.left = `${selectedImagePlacementTransform.leftPct}%`;
+    selectedImagePlacementBBoxRef.current.style.top = `${selectedImagePlacementTransform.topPct}%`;
+    selectedImagePlacementBBoxRef.current.style.width = `${selectedImagePlacementTransform.widthPct}%`;
+    selectedImagePlacementBBoxRef.current.style.height = `${selectedImagePlacementTransform.heightPct}%`;
+  }, [selectedImagePlacement, selectedImagePlacementTransform]);
+
   const activePreviewOverlays = useMemo<HammerPreviewVisualOverlay[]>(() => (
     (editableVisualPlacements?.placements ?? [])
       .filter((placement) => (
@@ -4914,6 +4938,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           status: "placed",
           ingest_state: "approved",
           uncertainty_flags: [],
+          overlay_geometry: DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
+          animation_preset: "none",
+          overlay_opacity: 1,
+          overlay_z_index: current.placements.length + 1,
         };
 
         return {
@@ -4973,6 +5001,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           status: "placed",
           ingest_state: "approved",
           uncertainty_flags: args.uncertaintyFlags ?? [],
+          overlay_geometry: args.entryId === PACKAGING_LOGO_ENTRY_ID
+            ? (
+              positionFromLogoOption(packagingLogoPosition, packagingLogoSize)
+            )
+            : {
+              ...DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
+              x: 0,
+              y: 0,
+              width: 1,
+              height: 1,
+            },
+          animation_preset: "none",
+          overlay_opacity: 1,
+          overlay_z_index: current.placements.length + 1,
         };
         const basePlacements = current.placements.filter((placement) => placement.entry_id !== args.entryId);
         return {
@@ -5135,6 +5177,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           status: "placed",
           ingest_state: "approved",
           uncertainty_flags: [],
+          overlay_geometry: {
+            ...DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
+            x: 0.08,
+            y: 0.08,
+            width: 0.84,
+            height: 0.84,
+          },
+          animation_preset: "none",
+          overlay_opacity: 1,
+          overlay_z_index: current.placements.length + 1,
         };
 
         const brollInstruction = createInsertBrollInstruction({
@@ -5302,6 +5354,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           status: "placed",
           ingest_state: "approved",
           uncertainty_flags: [],
+          overlay_geometry: {
+            ...DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
+            x: 0.08,
+            y: 0.08,
+            width: 0.84,
+            height: 0.84,
+          },
+          animation_preset: "none",
+          overlay_opacity: 1,
+          overlay_z_index: current.placements.length + 1,
         };
 
         return {
