@@ -1642,7 +1642,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
   const previewAudioRef = useRef<HTMLMediaElement | null>(null);
   const previewSurfaceRef = useRef<HTMLDivElement | null>(null);
-  const selectedImagePlacementBBoxRef = useRef<HTMLDivElement | null>(null);
   const imageAnimationContextMenuRef = useRef<HTMLDivElement | null>(null);
   const previewBrollVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const workspaceShellRef = useRef<HTMLElement | null>(null);
@@ -1983,11 +1982,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (draft) return draft;
     return geometryToTransform(resolvePlacementGeometry(selectedPlacementRecord));
   }, [imagePlacementTransforms, selectedImagePlacementId, selectedPlacementRecord]);
-  const selectedImagePlacementPreviewUrl = useMemo(() => {
-    const path = selectedImagePlacement?.assetPath ?? null;
-    if (!path) return null;
-    return sourceDeskPreviewUrls[path] ?? null;
-  }, [selectedImagePlacement?.assetPath, sourceDeskPreviewUrls]);
   const selectedImageAnimationPreset = resolvePlacementAnimationPreset(selectedPlacementRecord);
   const selectedImageAnimationLabel = IMAGE_ANIMATION_PRESET_OPTIONS.find(
     (option) => option.id === selectedImageAnimationPreset,
@@ -1997,14 +1991,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (!previewSurfaceRef.current) return;
     previewSurfaceRef.current.style.filter = visualPreviewFilter || "";
   }, [visualPreviewFilter]);
-
-  useEffect(() => {
-    if (!selectedImagePlacementBBoxRef.current || !selectedImagePlacement) return;
-    selectedImagePlacementBBoxRef.current.style.left = `${selectedImagePlacementTransform.leftPct}%`;
-    selectedImagePlacementBBoxRef.current.style.top = `${selectedImagePlacementTransform.topPct}%`;
-    selectedImagePlacementBBoxRef.current.style.width = `${selectedImagePlacementTransform.widthPct}%`;
-    selectedImagePlacementBBoxRef.current.style.height = `${selectedImagePlacementTransform.heightPct}%`;
-  }, [selectedImagePlacement, selectedImagePlacementTransform]);
 
   const activePreviewOverlays = useMemo<HammerPreviewVisualOverlay[]>(() => (
     (editableVisualPlacements?.placements ?? [])
