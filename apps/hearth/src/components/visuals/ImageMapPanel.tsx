@@ -326,13 +326,6 @@ export default function ImageMapPanel({
                   <div className="hs-imap-candidate-action-group">
                     <button
                       type="button"
-                      onClick={() => onGenerateCandidates("ai")}
-                      disabled={disabled || candidateGenerateBusy}
-                    >
-                      {candidateGenerateBusy ? "Generating..." : "Generate Image"}
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => onGenerateCandidates("stock")}
                       disabled={disabled || candidateGenerateBusy}
                     >

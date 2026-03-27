@@ -5,8 +5,10 @@ import type { HearthAiLane } from "../../../hearth/src/lib/hearth-ai-runtime-con
 
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_STT_BUCKET = "forge-workpieces";
-const DEFAULT_CHAT_MODEL = "gpt-5";
+const DEFAULT_CHAT_MODEL = "gpt-5.4-mini";
 const DEFAULT_FORGE_TOKEN_BALANCE = 12430;
+export const FORGE_ALLOWED_CHAT_MODELS = ["gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"] as const;
+const ALLOWED_CHAT_MODELS = new Set<string>(FORGE_ALLOWED_CHAT_MODELS);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,7 +64,25 @@ export type HearthRuntimeConfig = {
   supabaseServiceRoleKey: string | null;
   supabaseRpcKey: string | null;
   sttBucket: string;
+  disableForgeLaneAi: boolean;
+  disableExpensiveAiActions: boolean;
+  disableCdcGeneration: boolean;
 };
+
+function readBooleanEnv(name: string, defaultValue = false): boolean {
+  const raw = readEnv(name);
+  if (!raw) return defaultValue;
+  const normalized = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return defaultValue;
+}
+
+function resolveAllowedChatModel(candidate: string | undefined): string {
+  const normalized = candidate?.trim().toLowerCase();
+  if (normalized && ALLOWED_CHAT_MODELS.has(normalized)) return normalized;
+  return DEFAULT_CHAT_MODEL;
+}
 
 export function bootstrapHearthRuntimeEnv(): void {
   if (envLoaded) return;
@@ -91,7 +111,7 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
     textApiKey,
     imageApiKey,
     apiKey: textApiKey,
-    model: readEnv("HEARTH_AI_MODEL") || DEFAULT_CHAT_MODEL,
+    model: resolveAllowedChatModel(readEnv("HEARTH_AI_MODEL")),
     sttModel: readEnv("HEARTH_STT_MODEL") || DEFAULT_STT_MODEL,
     configuredBillingMode: readEnv("HEARTH_AI_BILLING_MODE") === "byo" ? "byo" : "forge",
     initialTokenBalance: readIntegerEnv("HEARTH_AI_TOKEN_BALANCE") ?? DEFAULT_FORGE_TOKEN_BALANCE,
@@ -103,5 +123,8 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
       || readEnv("HEARTH_STT_BUCKET")
       || DEFAULT_STT_BUCKET
     ).trim(),
+    disableForgeLaneAi: readBooleanEnv("FORGE_AI_DISABLE_FORGE_LANE", false),
+    disableExpensiveAiActions: readBooleanEnv("FORGE_AI_DISABLE_EXPENSIVE_ACTIONS", false),
+    disableCdcGeneration: readBooleanEnv("FORGE_AI_DISABLE_CDC_GENERATION", false),
   };
 }

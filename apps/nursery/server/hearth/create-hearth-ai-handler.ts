@@ -14,7 +14,7 @@ import {
   type HearthChatMessage as ChatMessage,
   type HearthOp,
 } from "../../../hearth/src/lib/hearth-ai-runtime-contract";
-import type { HearthRuntimeConfig } from "./hearth-runtime-config";
+import { FORGE_ALLOWED_CHAT_MODELS, type HearthRuntimeConfig } from "./hearth-runtime-config";
 
 type StructuredReply = {
   assistantText: string;
@@ -99,6 +99,8 @@ const READINESS_DEEP_REVIEW_RE = /\b(again|recheck|double check|deeper|strict|ha
 const SOURCING_NUDGE_RE = /\b(source|sources|sourcing|citation|citations|cite|evidence|verify|fact[- ]?check|corroborat)\b/i;
 const RISK_NUDGE_RE = /\b(risk|risky|legal|defamation|liability|compliance|sensitive claim|hot take)\b/i;
 const RECORD_ANYWAY_RE = /\b(record anyway|record now anyway|ok to record anyway|okay to record anyway|go ahead and record)\b/i;
+const CDC_REQUEST_RE = /\b(cdc|contextual data composite|chart|graph|plot|dataset|bar chart|line chart|pie chart)\b/i;
+const ALLOWED_CHAT_MODELS = new Set<string>(FORGE_ALLOWED_CHAT_MODELS);
 const DEFAULT_CREATOR_PROFILE: CreatorProfile = {
   userId: null,
   clarifyFirstBias: 0.5,
@@ -1079,7 +1081,12 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     supabaseServiceRoleKey,
     supabaseRpcKey,
     sttBucket,
+    disableForgeLaneAi,
+    disableExpensiveAiActions,
+    disableCdcGeneration,
   } = config;
+  const normalizedModel = model.trim().toLowerCase();
+  const modelAllowlisted = ALLOWED_CHAT_MODELS.has(normalizedModel);
   let tokenBalance = config.initialTokenBalance;
   const supabaseService: SupabaseClient<Database> | null =
     supabaseUrl && supabaseServiceRoleKey
@@ -1410,6 +1417,22 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const bodyRaw = (await readJsonBody(request)) as SttReqBody;
         const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
         const bearerToken = readBearerToken(request.headers.get("authorization"));
+        if (lane === "forge" && disableForgeLaneAi) {
+          return jsonResponse(503, {
+            ok: false,
+            error: "Forge-lane AI is temporarily disabled by emergency control.",
+            code: "forge_lane_disabled",
+            ...buildBillingSnapshot(lane),
+          });
+        }
+        if (disableExpensiveAiActions) {
+          return jsonResponse(503, {
+            ok: false,
+            error: "Higher-cost AI actions are temporarily disabled.",
+            code: "expensive_actions_disabled",
+            ...buildBillingSnapshot(lane),
+          });
+        }
 
         if (!textApiKey) {
           return jsonResponse(500, {
@@ -1593,6 +1616,30 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const bodyRaw = (await readJsonBody(request)) as ReqBody;
       const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
       const bearerToken = readBearerToken(request.headers.get("authorization"));
+      if (lane === "forge" && disableForgeLaneAi) {
+        return jsonResponse(503, {
+          ok: false,
+          error: "Forge-lane AI is temporarily disabled by emergency control.",
+          code: "forge_lane_disabled",
+          ...buildBillingSnapshot(lane),
+        });
+      }
+      if (disableExpensiveAiActions) {
+        return jsonResponse(503, {
+          ok: false,
+          error: "Higher-cost AI actions are temporarily disabled.",
+          code: "expensive_actions_disabled",
+          ...buildBillingSnapshot(lane),
+        });
+      }
+      if (!modelAllowlisted) {
+        return jsonResponse(503, {
+          ok: false,
+          error: `Configured model '${model}' is not allowlisted for Forge lane.`,
+          code: "model_not_allowlisted",
+          ...buildBillingSnapshot(lane),
+        });
+      }
 
       if (!textApiKey) {
         return jsonResponse(500, {
@@ -1642,6 +1689,14 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         ? messages[latestUserMessageIndex] ?? null
         : null;
       const requestText = latestUserMessage?.content ?? "";
+      if (disableCdcGeneration && CDC_REQUEST_RE.test(requestText)) {
+        return jsonResponse(503, {
+          ok: false,
+          error: "CDC generation is temporarily disabled by emergency control.",
+          code: "cdc_generation_disabled",
+          ...buildBillingSnapshot(lane),
+        });
+      }
       const priorMessages = typeof latestUserMessageIndex === "number"
         ? messages.filter((_, index) => index !== latestUserMessageIndex)
         : messages;

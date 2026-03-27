@@ -109,12 +109,14 @@ type AiSettingsSnapshot = {
   lane: HearthAiLane;
   behavior: HearthAiBehavior;
   autoApproveImageSpend: boolean;
+  policyTestOverride: "rpc" | "allow" | "soft_deny" | "hard_deny";
 };
 
 const DEFAULT_AI_SETTINGS: AiSettingsSnapshot = {
   lane: "forge",
   behavior: "careful",
   autoApproveImageSpend: false,
+  policyTestOverride: "rpc",
 };
 
 type AiPolicyDecisionType = "ALLOW" | "SOFT_DENY" | "HARD_DENY";
@@ -489,6 +491,26 @@ async function runHearthAiPolicyPreflight(args: {
   action: "chat" | "stt";
   feature?: "research_flows" | "heavy_tasks" | "image_generation" | null;
 }): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const settings = resolveAiSettingsFromStorage();
+  const devMode = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV === true;
+  if (devMode && settings.policyTestOverride !== "rpc") {
+    if (settings.policyTestOverride === "allow") {
+      return { ok: true };
+    }
+    if (settings.policyTestOverride === "soft_deny") {
+      return {
+        ok: false,
+        status: 403,
+        error: toPreflightErrorMessage("NO_VALID_FUNDING_SOURCE", "SOFT_DENY", args.lane),
+      };
+    }
+    return {
+      ok: false,
+      status: 403,
+      error: toPreflightErrorMessage("ORG_AI_DISABLED", "HARD_DENY", args.lane),
+    };
+  }
+
   const config = readSupabaseConfig();
   const accessToken = await readAccessTokenForRequest();
   if (!config || !accessToken) {
@@ -580,11 +602,22 @@ function resolveAiSettingsFromStorage(): AiSettingsSnapshot {
   try {
     const raw = window.localStorage.getItem(AI_SETTINGS_STORAGE_KEY);
     if (!raw) return DEFAULT_AI_SETTINGS;
-    const parsed = JSON.parse(raw) as { lane?: unknown; behavior?: unknown; autoApproveImageSpend?: unknown };
+    const parsed = JSON.parse(raw) as {
+      lane?: unknown;
+      behavior?: unknown;
+      autoApproveImageSpend?: unknown;
+      policyTestOverride?: unknown;
+    };
     return {
       lane: isLane(parsed.lane) ? parsed.lane : "forge",
       behavior: isBehavior(parsed.behavior) ? parsed.behavior : "careful",
       autoApproveImageSpend: parsed.autoApproveImageSpend === true,
+      policyTestOverride:
+        parsed.policyTestOverride === "allow"
+        || parsed.policyTestOverride === "soft_deny"
+        || parsed.policyTestOverride === "hard_deny"
+          ? parsed.policyTestOverride
+          : "rpc",
     };
   } catch {
     return DEFAULT_AI_SETTINGS;

@@ -1,5 +1,5 @@
 import * as React from "react";
-import type { AiBehavior, AiLane } from "../../lib/hearth/ai-settings";
+import type { AiBehavior, AiLane, AiPolicyTestOverride } from "../../lib/hearth/ai-settings";
 import {
   loadAiSettings,
   saveAiSettings,
@@ -223,6 +223,7 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
   const [forgeSelection, setForgeSelection] = React.useState<Record<string, boolean>>({});
   const insightsContainerRef = React.useRef<HTMLDivElement | null>(null);
   const canManageFeatures = roleCanManageFeatures(workspaceRole);
+  const devMode = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV === true;
   const setFeatureSnapshot = React.useCallback((next: WorkspaceFeatures | null) => {
     setFeatures(next);
     if (!next || next.adaptiveStyleAlignmentEnabled !== true) {
@@ -348,6 +349,12 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
 
   function updateAutoApproveImageSpend(enabled: boolean) {
     const next = { ...settings, autoApproveImageSpend: enabled };
+    setSettings(next);
+    saveAiSettings(next);
+  }
+
+  function updatePolicyTestOverride(policyTestOverride: AiPolicyTestOverride) {
+    const next = { ...settings, policyTestOverride };
     setSettings(next);
     saveAiSettings(next);
   }
@@ -757,6 +764,26 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
           )}
         </div>
       </div>
+
+      {devMode ? (
+        <div className="forge-ai-panel__section">
+          <div className="forge-ai-panel__label">Dev Policy Override</div>
+          <div className="forge-ai-panel__row">
+            <select
+              value={settings.policyTestOverride}
+              onChange={(event) => updatePolicyTestOverride(event.target.value as AiPolicyTestOverride)}
+            >
+              <option value="rpc">Use Resolver (normal)</option>
+              <option value="allow">Force Allow</option>
+              <option value="soft_deny">Force Soft Deny</option>
+              <option value="hard_deny">Force Hard Deny</option>
+            </select>
+          </div>
+          <div className="forge-ai-panel__hint">
+            Dev-only preflight override for smoke testing allow and deny branches.
+          </div>
+        </div>
+      ) : null}
 
       {!featuresLoading && !featuresError && workspaceId && alignmentEnabled ? (
         <div className="forge-ai-panel__section">

@@ -757,20 +757,6 @@ export default function ThumbnailPanel({
             </select>
             <button
               type="button"
-              onClick={onGenerate}
-              disabled={isGenerating || isUploading}
-            >
-              {isGenerating ? "Generating..." : "Generate"}
-            </button>
-            <button
-              type="button"
-              onClick={onRegenerate}
-              disabled={isGenerating || isUploading || !selectedConceptId}
-            >
-              Regenerate
-            </button>
-            <button
-              type="button"
               onClick={onToggleSafeZone}
               disabled={isGenerating || isUploading}
             >
@@ -805,6 +791,9 @@ export default function ThumbnailPanel({
           {uploadError ? (
             <div className="hs-error-text-small">{uploadError}</div>
           ) : null}
+          <div className="hs-field-label-muted">
+            Image generation is currently disabled in Forge. Upload assets or use an external image generator.
+          </div>
 
           <section className="hs-thumb-prompt-section" aria-label="Concept authoring">
             <details className="hs-thumb-advanced-options">

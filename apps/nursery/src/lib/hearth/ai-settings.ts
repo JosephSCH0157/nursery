@@ -1,12 +1,14 @@
 export type AiLane = "forge" | "byo";
 export type AiProvider = "openai";
 export type AiBehavior = "fast" | "careful" | "deterministic" | "creative";
+export type AiPolicyTestOverride = "rpc" | "allow" | "soft_deny" | "hard_deny";
 
 export type AiSettings = {
   lane: AiLane;
   provider: AiProvider;
   behavior: AiBehavior;
   autoApproveImageSpend: boolean;
+  policyTestOverride: AiPolicyTestOverride;
   byoKey?: string;
 };
 
@@ -17,6 +19,7 @@ const DEFAULTS: AiSettings = {
   provider: "openai",
   behavior: "careful",
   autoApproveImageSpend: false,
+  policyTestOverride: "rpc",
 };
 
 function readStorage(): string | null {
@@ -61,6 +64,12 @@ export function loadAiSettings(): AiSettings {
           ? parsed.behavior
           : "careful",
       autoApproveImageSpend: parsed.autoApproveImageSpend === true,
+      policyTestOverride:
+        parsed.policyTestOverride === "allow"
+        || parsed.policyTestOverride === "soft_deny"
+        || parsed.policyTestOverride === "hard_deny"
+          ? parsed.policyTestOverride
+          : "rpc",
       byoKey: typeof parsed.byoKey === "string" ? parsed.byoKey : undefined,
     };
   } catch {
