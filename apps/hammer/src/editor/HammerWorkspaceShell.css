@@ -29,12 +29,12 @@ Guardrails:
 */
 .hammer-workspace-shell {
   --hammer-shell-toolbar-width: 72px;
-  --hammer-shell-left-min-width: 360px;
-  --hammer-shell-right-min-width: 340px;
-  --hammer-shell-preview-min-width: 360px;
-  --hammer-shell-preview-width: 520px;
-  --hammer-shell-timeline-height: clamp(260px, 35vh, 376px);
-  --hammer-shell-timeline-time-focus-height: clamp(320px, 48vh, 504px);
+  --hammer-shell-left-min-width: 320px;
+  --hammer-shell-right-min-width: 300px;
+  --hammer-shell-preview-min-width: 320px;
+  --hammer-shell-preview-width: 460px;
+  --hammer-shell-timeline-height: clamp(220px, 31vh, 330px);
+  --hammer-shell-timeline-time-focus-height: clamp(280px, 42vh, 430px);
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--hammer-shell-toolbar-width);
   gap: 8px;
@@ -724,6 +724,14 @@ Guardrails:
 .hammer-preview-canvas__bbox.is-selected {
   border-width: 2px;
   border-color: rgba(125, 211, 252, 0.96);
+  box-shadow:
+    0 0 0 1px rgba(2, 132, 199, 0.85),
+    0 0 0 3px rgba(56, 189, 248, 0.25);
+}
+
+.hammer-preview-canvas__bbox.is-dimmed {
+  opacity: 0.55;
+  border-style: dashed;
 }
 
 .hammer-preview-canvas__bbox.is-anim-fade-in {
@@ -794,14 +802,15 @@ Guardrails:
 
 .hammer-preview-canvas__resize-handle {
   position: absolute;
-  right: -6px;
-  bottom: -6px;
-  width: 14px;
-  height: 14px;
-  border: 1px solid rgba(8, 47, 73, 0.9);
+  right: -8px;
+  bottom: -8px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(8, 47, 73, 0.95);
   border-radius: 999px;
-  background: rgba(125, 211, 252, 0.98);
+  background: rgba(125, 211, 252, 1);
   cursor: nwse-resize;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.7);
 }
 
 .hammer-preview-canvas__empty {
@@ -1826,21 +1835,21 @@ Guardrails:
 
 .hammer-workspace-shell.is-source-focus .hammer-workspace-shell__top {
   grid-template-columns:
-    minmax(450px, 1.5fr)
+    minmax(360px, 1.35fr)
     minmax(var(--hammer-shell-preview-min-width), var(--hammer-shell-preview-width))
-    minmax(300px, 0.82fr);
+    minmax(240px, 0.78fr);
 }
 
 .hammer-workspace-shell.is-tool-focus .hammer-workspace-shell__top {
   grid-template-columns:
-    minmax(300px, 0.82fr)
+    minmax(240px, 0.78fr)
     minmax(var(--hammer-shell-preview-min-width), var(--hammer-shell-preview-width))
-    minmax(450px, 1.5fr);
+    minmax(360px, 1.35fr);
 }
 
 .hammer-workspace-shell.is-visual-finishing {
-  --hammer-shell-preview-width: 760px;
-  --hammer-shell-preview-min-width: 520px;
+  --hammer-shell-preview-width: 620px;
+  --hammer-shell-preview-min-width: 420px;
 }
 
 .hammer-workspace-shell.is-visual-finishing .hammer-workspace-shell__top {
@@ -1861,8 +1870,8 @@ Guardrails:
 @media (max-height: 940px) {
   .hammer-workspace-shell {
     --hammer-shell-toolbar-width: 64px;
-    --hammer-shell-timeline-height: clamp(230px, 32vh, 320px);
-    --hammer-shell-timeline-time-focus-height: clamp(300px, 44vh, 420px);
+    --hammer-shell-timeline-height: clamp(205px, 29vh, 285px);
+    --hammer-shell-timeline-time-focus-height: clamp(250px, 37vh, 360px);
   }
 
   .hammer-workspace-shell__main,
@@ -1897,8 +1906,8 @@ Guardrails:
 
 @media (max-height: 820px) {
   .hammer-workspace-shell {
-    --hammer-shell-timeline-height: clamp(200px, 28vh, 270px);
-    --hammer-shell-timeline-time-focus-height: clamp(250px, 36vh, 340px);
+    --hammer-shell-timeline-height: clamp(185px, 24vh, 240px);
+    --hammer-shell-timeline-time-focus-height: clamp(220px, 31vh, 300px);
   }
 
   .hammer-waveform-lane {
@@ -1913,57 +1922,68 @@ Guardrails:
   }
 }
 
+@media (max-width: 1720px) {
+  .hammer-workspace-shell {
+    --hammer-shell-left-min-width: 300px;
+    --hammer-shell-right-min-width: 280px;
+    --hammer-shell-preview-min-width: 300px;
+    --hammer-shell-preview-width: 420px;
+  }
+}
+
 @media (max-width: 1600px) {
   .hammer-workspace-shell {
-    --hammer-shell-left-min-width: 330px;
-    --hammer-shell-right-min-width: 310px;
-    --hammer-shell-preview-min-width: 340px;
+    --hammer-shell-left-min-width: 290px;
+    --hammer-shell-right-min-width: 270px;
+    --hammer-shell-preview-min-width: 290px;
+    --hammer-shell-preview-width: 400px;
   }
 
   .hammer-workspace-shell.is-source-focus .hammer-workspace-shell__top {
     grid-template-columns:
-      minmax(400px, 1.4fr)
+      minmax(330px, 1.25fr)
       minmax(var(--hammer-shell-preview-min-width), var(--hammer-shell-preview-width))
-      minmax(280px, 0.82fr);
+      minmax(220px, 0.78fr);
   }
 
   .hammer-workspace-shell.is-tool-focus .hammer-workspace-shell__top {
     grid-template-columns:
-      minmax(280px, 0.82fr)
+      minmax(220px, 0.78fr)
       minmax(var(--hammer-shell-preview-min-width), var(--hammer-shell-preview-width))
-      minmax(400px, 1.4fr);
+      minmax(330px, 1.25fr);
   }
 
   .hammer-workspace-shell.is-visual-finishing {
-    --hammer-shell-preview-width: 700px;
-    --hammer-shell-preview-min-width: 480px;
+    --hammer-shell-preview-width: 560px;
+    --hammer-shell-preview-min-width: 380px;
   }
 }
 
 @media (max-width: 1440px) {
   .hammer-workspace-shell {
-    --hammer-shell-left-min-width: 300px;
-    --hammer-shell-right-min-width: 280px;
-    --hammer-shell-preview-min-width: 320px;
+    --hammer-shell-left-min-width: 260px;
+    --hammer-shell-right-min-width: 240px;
+    --hammer-shell-preview-min-width: 270px;
+    --hammer-shell-preview-width: 360px;
   }
 
   .hammer-workspace-shell.is-source-focus .hammer-workspace-shell__top {
     grid-template-columns:
-      minmax(350px, 1.3fr)
+      minmax(300px, 1.15fr)
       minmax(var(--hammer-shell-preview-min-width), var(--hammer-shell-preview-width))
-      minmax(240px, 0.82fr);
+      minmax(200px, 0.74fr);
   }
 
   .hammer-workspace-shell.is-tool-focus .hammer-workspace-shell__top {
     grid-template-columns:
-      minmax(240px, 0.82fr)
+      minmax(200px, 0.74fr)
       minmax(var(--hammer-shell-preview-min-width), var(--hammer-shell-preview-width))
-      minmax(350px, 1.3fr);
+      minmax(300px, 1.15fr);
   }
 
   .hammer-workspace-shell.is-visual-finishing {
-    --hammer-shell-preview-width: 620px;
-    --hammer-shell-preview-min-width: 420px;
+    --hammer-shell-preview-width: 500px;
+    --hammer-shell-preview-min-width: 340px;
   }
 
   .hammer-workspace-shell.is-visual-finishing .hammer-workspace-shell__top {
@@ -1976,29 +1996,29 @@ Guardrails:
 
 @media (max-width: 1280px) {
   .hammer-workspace-shell {
-    --hammer-shell-left-min-width: 280px;
-    --hammer-shell-right-min-width: 260px;
-    --hammer-shell-preview-min-width: 300px;
-    --hammer-shell-preview-width: 420px;
+    --hammer-shell-left-min-width: 230px;
+    --hammer-shell-right-min-width: 210px;
+    --hammer-shell-preview-min-width: 250px;
+    --hammer-shell-preview-width: 320px;
   }
 
   .hammer-workspace-shell.is-source-focus .hammer-workspace-shell__top {
     grid-template-columns:
-      minmax(320px, 1.2fr)
+      minmax(260px, 1.05fr)
       minmax(var(--hammer-shell-preview-min-width), var(--hammer-shell-preview-width))
-      minmax(220px, 0.8fr);
+      minmax(180px, 0.72fr);
   }
 
   .hammer-workspace-shell.is-tool-focus .hammer-workspace-shell__top {
     grid-template-columns:
-      minmax(220px, 0.8fr)
+      minmax(180px, 0.72fr)
       minmax(var(--hammer-shell-preview-min-width), var(--hammer-shell-preview-width))
-      minmax(320px, 1.2fr);
+      minmax(260px, 1.05fr);
   }
 
   .hammer-workspace-shell.is-visual-finishing {
-    --hammer-shell-preview-width: 520px;
-    --hammer-shell-preview-min-width: 360px;
+    --hammer-shell-preview-width: 420px;
+    --hammer-shell-preview-min-width: 300px;
   }
 }
 

@@ -184,9 +184,9 @@ import {
 } from "../lib/hearth-broll-plan";
 import { uploadBrollBeatAsset } from "../lib/hearth-broll-plan-repo";
 import {
-  createContextualDataCompositePlan,
-  inferCdcSuitabilitySignals,
-} from "../lib/hearth-cdc-plan";
+  createReferenceClipPlan,
+  inferReferenceClipSuitabilitySignals,
+} from "../lib/hearth-reference-clip-plan";
 import {
   readWorkpieceEpisodeMediaMap,
   saveWorkpieceEpisodeMediaMap,
@@ -197,13 +197,13 @@ import {
 import type {
   EpisodeBrollDataVisualSpec,
   EpisodeBrollMotionAssetCategory,
-  EpisodeCdcChartType,
-  EpisodeCdcContextType,
-  EpisodeCdcDataType,
-  EpisodeCdcFormat,
-  EpisodeCdcMotionLevel,
-  EpisodeCdcPlan,
-  EpisodeCdcTone,
+  EpisodeReferenceClipChartType,
+  EpisodeReferenceClipContextType,
+  EpisodeReferenceClipDataType,
+  EpisodeReferenceClipFormat,
+  EpisodeReferenceClipMotionLevel,
+  EpisodeReferenceClipPlan,
+  EpisodeReferenceClipTone,
   EpisodeBrollPlan,
   EpisodeBrollPlanBeat,
   EpisodeContextualDataCompositePlan,
@@ -224,7 +224,7 @@ import {
   addImageMapEntry,
   buildImageMapAnchorLabel,
   ensureBrollPlanV2,
-  ensureCdcPlanV2,
+  ensureReferenceClipPlanV2,
   ensureLaunchVariantsV2,
   ensureSeoV2,
   normalizeSeoTags,
@@ -358,7 +358,14 @@ type DraftConflictState = {
   localBody: string;
 };
 
-type MediaMapGenerationScope = "images_only" | "images_broll" | "images_cdc" | "full_media_plan";
+type MediaMapGenerationScope = "images_only" | "images_broll" | "images_reference_clips" | "full_media_plan";
+
+function normalizeMediaMapGenerationScope(value: string | null | undefined): MediaMapGenerationScope {
+  if (value === "images_reference_clips" || value === "images_cdc") return "images_reference_clips";
+  if (value === "images_broll") return "images_broll";
+  if (value === "images_only") return "images_only";
+  return "full_media_plan";
+}
 
 type ImageBeatSheetEntry = {
   id: string;
@@ -2433,28 +2440,28 @@ export default function HearthShell({
   const [brollSaveError, setBrollSaveError] = useState<string | null>(null);
   const [brollMessage, setBrollMessage] = useState<string | null>(null);
   const [isBrollBusy, setIsBrollBusy] = useState(false);
-  const [selectedCdcEntryId, setSelectedCdcEntryId] = useState<string | null>(null);
-  const [cdcAnchorDraft, setCdcAnchorDraft] = useState("");
-  const [cdcDescriptionDraft, setCdcDescriptionDraft] = useState("");
-  const [cdcPlacementHintDraft, setCdcPlacementHintDraft] = useState("first_occurrence");
-  const [cdcFormatDraft, setCdcFormatDraft] = useState("still");
-  const [cdcDataTypeDraft, setCdcDataTypeDraft] = useState("quantitative");
-  const [cdcContextTypeDraft, setCdcContextTypeDraft] = useState("historical");
-  const [cdcToneDraft, setCdcToneDraft] = useState("neutral");
-  const [cdcMotionLevelDraft, setCdcMotionLevelDraft] = useState("static");
-  const [cdcBackgroundContextDraft, setCdcBackgroundContextDraft] = useState("");
-  const [cdcForegroundDataDraft, setCdcForegroundDataDraft] = useState("");
-  const [cdcVisualStyleDraft, setCdcVisualStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
-  const [cdcChartTypeDraft, setCdcChartTypeDraft] = useState("line");
-  const [cdcTitleDraft, setCdcTitleDraft] = useState("");
-  const [cdcLabelsDraft, setCdcLabelsDraft] = useState("");
-  const [cdcValuesDraft, setCdcValuesDraft] = useState("");
-  const [cdcEmphasisKeyDraft, setCdcEmphasisKeyDraft] = useState("");
-  const [cdcSourceTypeDraft, setCdcSourceTypeDraft] = useState("planned");
-  const [cdcSaveState, setCdcSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
-  const [cdcSaveError, setCdcSaveError] = useState<string | null>(null);
-  const [cdcMessage, setCdcMessage] = useState<string | null>(null);
-  const [isCdcBusy, setIsCdcBusy] = useState(false);
+  const [selectedReferenceClipEntryId, setSelectedReferenceClipEntryId] = useState<string | null>(null);
+  const [referenceClipAnchorDraft, setReferenceClipAnchorDraft] = useState("");
+  const [referenceClipDescriptionDraft, setReferenceClipDescriptionDraft] = useState("");
+  const [referenceClipPlacementHintDraft, setReferenceClipPlacementHintDraft] = useState("first_occurrence");
+  const [referenceClipFormatDraft, setReferenceClipFormatDraft] = useState("still");
+  const [referenceClipDataTypeDraft, setReferenceClipDataTypeDraft] = useState("quantitative");
+  const [referenceClipContextTypeDraft, setReferenceClipContextTypeDraft] = useState("historical");
+  const [referenceClipToneDraft, setReferenceClipToneDraft] = useState("neutral");
+  const [referenceClipMotionLevelDraft, setReferenceClipMotionLevelDraft] = useState("static");
+  const [referenceClipBackgroundContextDraft, setReferenceClipBackgroundContextDraft] = useState("");
+  const [referenceClipForegroundDataDraft, setReferenceClipForegroundDataDraft] = useState("");
+  const [referenceClipVisualStyleDraft, setReferenceClipVisualStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
+  const [referenceClipChartTypeDraft, setReferenceClipChartTypeDraft] = useState("line");
+  const [referenceClipTitleDraft, setReferenceClipTitleDraft] = useState("");
+  const [referenceClipLabelsDraft, setReferenceClipLabelsDraft] = useState("");
+  const [referenceClipValuesDraft, setReferenceClipValuesDraft] = useState("");
+  const [referenceClipEmphasisKeyDraft, setReferenceClipEmphasisKeyDraft] = useState("");
+  const [referenceClipSourceTypeDraft, setReferenceClipSourceTypeDraft] = useState("planned");
+  const [referenceClipSaveState, setReferenceClipSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
+  const [referenceClipSaveError, setReferenceClipSaveError] = useState<string | null>(null);
+  const [referenceClipMessage, setReferenceClipMessage] = useState<string | null>(null);
+  const [isReferenceClipBusy, setIsReferenceClipBusy] = useState(false);
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
   const episodePackageRequestSeqRef = useRef(0);
   const thumbnailPreviewRequestSeqRef = useRef(0);
@@ -2844,9 +2851,9 @@ export default function HearthShell({
   const brollPlan: EpisodeBrollPlan | null = episodePackage?.broll_plan ?? null;
   const brollBeats: EpisodeBrollPlanBeat[] = brollPlan?.beats ?? [];
   const selectedBrollBeat = brollBeats.find((beat) => beat.id === selectedBrollBeatId) ?? null;
-  const cdcPlan: EpisodeCdcPlan | null = episodePackage?.cdc_plan ?? null;
-  const cdcEntries: EpisodeContextualDataCompositePlan[] = cdcPlan?.entries ?? [];
-  const selectedCdcEntry = cdcEntries.find((entry) => entry.id === selectedCdcEntryId) ?? null;
+  const referenceClipPlan: EpisodeReferenceClipPlan | null = episodePackage?.cdc_plan ?? null;
+  const referenceClipEntries: EpisodeContextualDataCompositePlan[] = referenceClipPlan?.entries ?? [];
+  const selectedReferenceClipEntry = referenceClipEntries.find((entry) => entry.id === selectedReferenceClipEntryId) ?? null;
   const selectedImageMapExactAnchor = useMemo(() => {
     if (!selectedImageMapEntry || canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
       return null;
@@ -2984,7 +2991,7 @@ export default function HearthShell({
   const mediaMapPanelMeta = `${mediaMapEntries.length} visual${mediaMapEntries.length === 1 ? "" : "s"}`;
   const imageMapPanelMeta = `${imageMapEntries.length} anchor${imageMapEntries.length === 1 ? "" : "s"}`;
   const brollPanelMeta = `${brollBeats.length} beat${brollBeats.length === 1 ? "" : "s"} · coverage ${brollPlan?.coverage_strength ?? "low"}`;
-  const cdcPanelMeta = `${cdcEntries.length} Reference Clip${cdcEntries.length === 1 ? "" : "s"}`;
+  const referenceClipPanelMeta = `${referenceClipEntries.length} Reference Clip${referenceClipEntries.length === 1 ? "" : "s"}`;
   const metadataPanelMeta = `${thumbnailTitleOptions.length} title${thumbnailTitleOptions.length === 1 ? "" : "s"} · ${metadataTagsDraft.length} tag${metadataTagsDraft.length === 1 ? "" : "s"}`;
   const hasBrowserSpeech = (
     typeof window !== "undefined"
@@ -3025,8 +3032,8 @@ export default function HearthShell({
       || imageMapSaveState === "saving"
       || brollSaveState === "editing"
       || brollSaveState === "saving"
-      || cdcSaveState === "editing"
-      || cdcSaveState === "saving"
+      || referenceClipSaveState === "editing"
+      || referenceClipSaveState === "saving"
       || isThumbnailConceptSaving
       || isThumbnailUploading
     ),
@@ -3886,7 +3893,7 @@ export default function HearthShell({
       setSelectedMediaMapEntryId(null);
       setSelectedImageMapEntryId(null);
       setSelectedBrollBeatId(null);
-      setSelectedCdcEntryId(null);
+      setSelectedReferenceClipEntryId(null);
       setThumbnailGenerateError(null);
       setThumbnailUploadError(null);
       setThumbnailPairingError(null);
@@ -3902,9 +3909,9 @@ export default function HearthShell({
       setBrollSaveState("saved");
       setBrollSaveError(null);
       setBrollMessage(null);
-      setCdcSaveState("saved");
-      setCdcSaveError(null);
-      setCdcMessage(null);
+      setReferenceClipSaveState("saved");
+      setReferenceClipSaveError(null);
+      setReferenceClipMessage(null);
       setLatestReleasePrepRawText(null);
       setLatestReleasePrepSections([]);
       setReleasePrepLoadState("idle");
@@ -5861,10 +5868,10 @@ export default function HearthShell({
   }, [workpieceId]);
 
   useEffect(() => {
-    setSelectedCdcEntryId(null);
-    setCdcSaveState("saved");
-    setCdcSaveError(null);
-    setCdcMessage(null);
+    setSelectedReferenceClipEntryId(null);
+    setReferenceClipSaveState("saved");
+    setReferenceClipSaveError(null);
+    setReferenceClipMessage(null);
   }, [workpieceId]);
 
   useEffect(() => {
@@ -6080,58 +6087,58 @@ export default function HearthShell({
   }, [selectedBrollBeat]);
 
   useEffect(() => {
-    if (cdcEntries.length === 0) {
-      setSelectedCdcEntryId(null);
+    if (referenceClipEntries.length === 0) {
+      setSelectedReferenceClipEntryId(null);
       return;
     }
-    if (selectedCdcEntryId && cdcEntries.some((entry) => entry.id === selectedCdcEntryId)) {
+    if (selectedReferenceClipEntryId && referenceClipEntries.some((entry) => entry.id === selectedReferenceClipEntryId)) {
       return;
     }
-    setSelectedCdcEntryId(cdcEntries[0]?.id ?? null);
-  }, [cdcEntries, selectedCdcEntryId]);
+    setSelectedReferenceClipEntryId(referenceClipEntries[0]?.id ?? null);
+  }, [referenceClipEntries, selectedReferenceClipEntryId]);
 
   useEffect(() => {
-    if (!selectedCdcEntry) {
-      setCdcAnchorDraft("");
-      setCdcDescriptionDraft("");
-      setCdcPlacementHintDraft("first_occurrence");
-      setCdcFormatDraft("still");
-      setCdcDataTypeDraft("quantitative");
-      setCdcContextTypeDraft("historical");
-      setCdcToneDraft("neutral");
-      setCdcMotionLevelDraft("static");
-      setCdcBackgroundContextDraft("");
-      setCdcForegroundDataDraft("");
-      setCdcVisualStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
-      setCdcChartTypeDraft("line");
-      setCdcTitleDraft("");
-      setCdcLabelsDraft("");
-      setCdcValuesDraft("");
-      setCdcEmphasisKeyDraft("");
-      setCdcSourceTypeDraft("planned");
-      setCdcSaveState("saved");
+    if (!selectedReferenceClipEntry) {
+      setReferenceClipAnchorDraft("");
+      setReferenceClipDescriptionDraft("");
+      setReferenceClipPlacementHintDraft("first_occurrence");
+      setReferenceClipFormatDraft("still");
+      setReferenceClipDataTypeDraft("quantitative");
+      setReferenceClipContextTypeDraft("historical");
+      setReferenceClipToneDraft("neutral");
+      setReferenceClipMotionLevelDraft("static");
+      setReferenceClipBackgroundContextDraft("");
+      setReferenceClipForegroundDataDraft("");
+      setReferenceClipVisualStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
+      setReferenceClipChartTypeDraft("line");
+      setReferenceClipTitleDraft("");
+      setReferenceClipLabelsDraft("");
+      setReferenceClipValuesDraft("");
+      setReferenceClipEmphasisKeyDraft("");
+      setReferenceClipSourceTypeDraft("planned");
+      setReferenceClipSaveState("saved");
       return;
     }
-    setCdcAnchorDraft(selectedCdcEntry.anchor_text);
-    setCdcDescriptionDraft(selectedCdcEntry.description);
-    setCdcPlacementHintDraft(selectedCdcEntry.placement_hint ?? "first_occurrence");
-    setCdcFormatDraft(selectedCdcEntry.format);
-    setCdcDataTypeDraft(selectedCdcEntry.data_type);
-    setCdcContextTypeDraft(selectedCdcEntry.context_type);
-    setCdcToneDraft(selectedCdcEntry.tone);
-    setCdcMotionLevelDraft(selectedCdcEntry.motion_level);
-    setCdcBackgroundContextDraft(selectedCdcEntry.background_context_description ?? "");
-    setCdcForegroundDataDraft(selectedCdcEntry.foreground_data_description ?? "");
-    setCdcVisualStyleDraft(normalizeHearthVisualStyle(selectedCdcEntry.visual_style ?? null));
-    setCdcChartTypeDraft(selectedCdcEntry.chart_type ?? "line");
-    setCdcTitleDraft(selectedCdcEntry.title ?? "");
-    setCdcLabelsDraft((selectedCdcEntry.labels ?? []).join(", "));
-    setCdcValuesDraft((selectedCdcEntry.values ?? []).map((value) => String(value)).join(", "));
-    setCdcEmphasisKeyDraft(selectedCdcEntry.emphasis_key ?? "");
-    setCdcSourceTypeDraft(selectedCdcEntry.source_type ?? "planned");
-    setCdcSaveState("saved");
-    setCdcSaveError(null);
-  }, [selectedCdcEntry]);
+    setReferenceClipAnchorDraft(selectedReferenceClipEntry.anchor_text);
+    setReferenceClipDescriptionDraft(selectedReferenceClipEntry.description);
+    setReferenceClipPlacementHintDraft(selectedReferenceClipEntry.placement_hint ?? "first_occurrence");
+    setReferenceClipFormatDraft(selectedReferenceClipEntry.format);
+    setReferenceClipDataTypeDraft(selectedReferenceClipEntry.data_type);
+    setReferenceClipContextTypeDraft(selectedReferenceClipEntry.context_type);
+    setReferenceClipToneDraft(selectedReferenceClipEntry.tone);
+    setReferenceClipMotionLevelDraft(selectedReferenceClipEntry.motion_level);
+    setReferenceClipBackgroundContextDraft(selectedReferenceClipEntry.background_context_description ?? "");
+    setReferenceClipForegroundDataDraft(selectedReferenceClipEntry.foreground_data_description ?? "");
+    setReferenceClipVisualStyleDraft(normalizeHearthVisualStyle(selectedReferenceClipEntry.visual_style ?? null));
+    setReferenceClipChartTypeDraft(selectedReferenceClipEntry.chart_type ?? "line");
+    setReferenceClipTitleDraft(selectedReferenceClipEntry.title ?? "");
+    setReferenceClipLabelsDraft((selectedReferenceClipEntry.labels ?? []).join(", "));
+    setReferenceClipValuesDraft((selectedReferenceClipEntry.values ?? []).map((value) => String(value)).join(", "));
+    setReferenceClipEmphasisKeyDraft(selectedReferenceClipEntry.emphasis_key ?? "");
+    setReferenceClipSourceTypeDraft(selectedReferenceClipEntry.source_type ?? "planned");
+    setReferenceClipSaveState("saved");
+    setReferenceClipSaveError(null);
+  }, [selectedReferenceClipEntry]);
 
   useEffect(() => {
     setIsVisualScriptMode(false);
@@ -7714,8 +7721,8 @@ export default function HearthShell({
       .filter((line) => line.length > 0)
       .flatMap((line) => line.split(/(?<=[.!?])\s+/g).map((segment) => segment.trim()))
       .filter((segment) => segment.length >= 22);
-    const isLikelyCdcMoment = (text: string): boolean => {
-      const signals = inferCdcSuitabilitySignals(text);
+    const isLikelyReferenceClipMoment = (text: string): boolean => {
+      const signals = inferReferenceClipSuitabilitySignals(text);
       const lower = text.toLowerCase();
       const hasNumeric = /\d/.test(lower);
       const hasComparison = /\b(vs\.?|versus|compared to|comparison|higher|lower|increase|decrease|percent|percentage)\b/.test(lower);
@@ -7770,7 +7777,7 @@ export default function HearthShell({
       ? buildBrollPlanFromScript({
         workpieceId: fallbackWorkpieceId,
         scriptText: fallbackScriptText,
-      }).beats.filter((beat) => !isLikelyCdcMoment(beat.description || beat.anchor_text))
+      }).beats.filter((beat) => !isLikelyReferenceClipMoment(beat.description || beat.anchor_text))
       : [];
     const brollSourceBeats = current.broll_plan.beats.length > 0
       ? current.broll_plan.beats
@@ -7803,27 +7810,27 @@ export default function HearthShell({
       created_at: beat.created_at,
       updated_at: beat.updated_at,
     }));
-    const fallbackCdcEntries = (
+    const fallbackReferenceClipEntries = (
       current.cdc_plan.entries.length === 0
       && hasFallbackScript
       && fallbackWorkpieceId
     )
       ? (() => {
         const selected = splitFallbackScriptMoments()
-          .filter((segment) => isLikelyCdcMoment(segment))
+          .filter((segment) => isLikelyReferenceClipMoment(segment))
           .slice(0, 8);
-        return selected.map((segment) => createContextualDataCompositePlan({
+        return selected.map((segment) => createReferenceClipPlan({
           workpieceId: fallbackWorkpieceId,
           anchorText: segment,
           description: segment,
         }));
       })()
       : [];
-    const cdcSourceEntries = current.cdc_plan.entries.length > 0
+    const referenceClipSourceEntries = current.cdc_plan.entries.length > 0
       ? current.cdc_plan.entries
-      : fallbackCdcEntries;
-    const fromCdc: EpisodeMediaMapEntry[] = cdcSourceEntries.map((entry) => ({
-      id: `mm_cdc_${entry.id}`,
+      : fallbackReferenceClipEntries;
+    const fromReferenceClips: EpisodeMediaMapEntry[] = referenceClipSourceEntries.map((entry) => ({
+      id: `mm_reference_clip_${entry.id}`,
       final_media_kind: "contextual_data_composite",
       anchor: {
         mode: entry.placement_hint === "exact_timestamp" ? "absolute_time" : "phrase_match",
@@ -7852,12 +7859,12 @@ export default function HearthShell({
     }));
     const includeImages = true;
     const includeBroll = scope === "images_broll" || scope === "full_media_plan";
-    const includeCdc = scope === "images_cdc" || scope === "full_media_plan";
+    const includeReferenceClips = scope === "images_reference_clips" || scope === "full_media_plan";
     const merged = [
       ...(includeImages ? fromThumbnailPrompts : []),
       ...(includeImages ? fromImageMap : []),
       ...(includeBroll ? fromBroll : []),
-      ...(includeCdc ? fromCdc : []),
+      ...(includeReferenceClips ? fromReferenceClips : []),
     ];
     return {
       id: current.media_map.id || "media-map-v1",
@@ -7870,8 +7877,8 @@ export default function HearthShell({
     };
   }
 
-  async function persistCdcPlan(args: {
-    plan: EpisodeCdcPlan;
+  async function persistReferenceClipPlan(args: {
+    plan: EpisodeReferenceClipPlan;
     eventName: string;
     eventPayload: Record<string, unknown>;
   }): Promise<
@@ -7886,7 +7893,7 @@ export default function HearthShell({
     if (!episodeId || !workspace) {
       return { ok: false, error: "Workspace or workpiece is missing." };
     }
-    const nextEpisodePackage = ensureCdcPlanV2({
+    const nextEpisodePackage = ensureReferenceClipPlanV2({
       ...episodePackage,
       cdc_plan: {
         ...args.plan,
@@ -7916,12 +7923,12 @@ export default function HearthShell({
     setBrollSaveError(null);
   }
 
-  function setCdcDraftEditing(fieldSetter: (value: string) => void, value: string): void {
+  function setReferenceClipDraftEditing(fieldSetter: (value: string) => void, value: string): void {
     fieldSetter(value);
-    if (cdcSaveState !== "editing") {
-      setCdcSaveState("editing");
+    if (referenceClipSaveState !== "editing") {
+      setReferenceClipSaveState("editing");
     }
-    setCdcSaveError(null);
+    setReferenceClipSaveError(null);
   }
 
   function resolveBrollDataVisualSpecFromDraft(intent: EpisodeBrollPlanBeat["motion_intent"]): EpisodeBrollDataVisualSpec | null {
@@ -7953,8 +7960,8 @@ export default function HearthShell({
     return hasContent ? next : null;
   }
 
-  function resolveCdcValuesFromDraft(): Array<number | string> {
-    return cdcValuesDraft
+  function resolveReferenceClipValuesFromDraft(): Array<number | string> {
+    return referenceClipValuesDraft
       .split(",")
       .map((entry) => entry.trim())
       .filter(Boolean)
@@ -8312,13 +8319,13 @@ export default function HearthShell({
     }
   }
 
-  async function onCreateCdcEntry() {
-    if (isCdcBusy) return;
+  async function onCreateReferenceClipEntry() {
+    if (isReferenceClipBusy) return;
     if (!episodePackage) return;
     const episodeId = workpieceId?.trim() ?? "";
     if (!episodeId) {
-      setCdcSaveError("Select an Episode before creating Reference Clips.");
-      setCdcSaveState("error");
+      setReferenceClipSaveError("Select an Episode before creating Reference Clips.");
+      setReferenceClipSaveState("error");
       return;
     }
     const baseAnchor = (
@@ -8327,23 +8334,23 @@ export default function HearthShell({
       || activeDraft?.title
       || "New reference clip"
     ).trim();
-    const created = createContextualDataCompositePlan({
+    const created = createReferenceClipPlan({
       workpieceId: episodeId,
       anchorText: baseAnchor,
       description: baseAnchor,
-      format: (cdcFormatDraft.trim() || "still") as EpisodeCdcFormat,
+      format: (referenceClipFormatDraft.trim() || "still") as EpisodeReferenceClipFormat,
     });
-    const nextPlan: EpisodeCdcPlan = {
+    const nextPlan: EpisodeReferenceClipPlan = {
       ...episodePackage.cdc_plan,
       version: Math.max(1, episodePackage.cdc_plan.version + 1),
       entries: [...episodePackage.cdc_plan.entries, created],
       generated_at: new Date().toISOString(),
     };
-    setIsCdcBusy(true);
-    setCdcSaveState("saving");
-    setCdcSaveError(null);
+    setIsReferenceClipBusy(true);
+    setReferenceClipSaveState("saving");
+    setReferenceClipSaveError(null);
     try {
-      const saved = await persistCdcPlan({
+      const saved = await persistReferenceClipPlan({
         plan: nextPlan,
         eventName: "hearth.cdc_plan.entry_created.v1",
         eventPayload: {
@@ -8353,124 +8360,124 @@ export default function HearthShell({
         },
       });
       if (!saved.ok) {
-        setCdcSaveError(saved.error);
-        setCdcSaveState("error");
+        setReferenceClipSaveError(saved.error);
+        setReferenceClipSaveState("error");
         return;
       }
-      setSelectedCdcEntryId(created.id);
-      setCdcSaveState("saved");
-      setCdcMessage("Contextual Data Composite created.");
+      setSelectedReferenceClipEntryId(created.id);
+      setReferenceClipSaveState("saved");
+      setReferenceClipMessage("Reference Clip created.");
     } catch {
-      setCdcSaveError("Unable to create this reference clip.");
-      setCdcSaveState("error");
+      setReferenceClipSaveError("Unable to create this reference clip.");
+      setReferenceClipSaveState("error");
     } finally {
-      setIsCdcBusy(false);
+      setIsReferenceClipBusy(false);
     }
   }
 
-  async function onSaveCdcEntry() {
-    if (!episodePackage || !selectedCdcEntry) return;
-    if (isCdcBusy) return;
+  async function onSaveReferenceClipEntry() {
+    if (!episodePackage || !selectedReferenceClipEntry) return;
+    if (isReferenceClipBusy) return;
     const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedCdcEntry,
-      anchor_text: cdcAnchorDraft.trim(),
-      placement_hint: (cdcPlacementHintDraft.trim() || "first_occurrence") as EpisodeContextualDataCompositePlan["placement_hint"],
-      format: (cdcFormatDraft.trim() || "still") as EpisodeCdcFormat,
-      data_type: (cdcDataTypeDraft.trim() || "quantitative") as EpisodeCdcDataType,
-      context_type: (cdcContextTypeDraft.trim() || "historical") as EpisodeCdcContextType,
-      tone: (cdcToneDraft.trim() || "neutral") as EpisodeCdcTone,
-      motion_level: (cdcMotionLevelDraft.trim() || "static") as EpisodeCdcMotionLevel,
-      description: cdcDescriptionDraft.trim(),
-      background_context_description: cdcBackgroundContextDraft.trim(),
-      foreground_data_description: cdcForegroundDataDraft.trim(),
-      visual_style: normalizeHearthVisualStyle(cdcVisualStyleDraft),
-      chart_type: (cdcChartTypeDraft.trim() || "line") as EpisodeCdcChartType,
-      title: cdcTitleDraft.trim() || null,
-      labels: cdcLabelsDraft
+      ...selectedReferenceClipEntry,
+      anchor_text: referenceClipAnchorDraft.trim(),
+      placement_hint: (referenceClipPlacementHintDraft.trim() || "first_occurrence") as EpisodeContextualDataCompositePlan["placement_hint"],
+      format: (referenceClipFormatDraft.trim() || "still") as EpisodeReferenceClipFormat,
+      data_type: (referenceClipDataTypeDraft.trim() || "quantitative") as EpisodeReferenceClipDataType,
+      context_type: (referenceClipContextTypeDraft.trim() || "historical") as EpisodeReferenceClipContextType,
+      tone: (referenceClipToneDraft.trim() || "neutral") as EpisodeReferenceClipTone,
+      motion_level: (referenceClipMotionLevelDraft.trim() || "static") as EpisodeReferenceClipMotionLevel,
+      description: referenceClipDescriptionDraft.trim(),
+      background_context_description: referenceClipBackgroundContextDraft.trim(),
+      foreground_data_description: referenceClipForegroundDataDraft.trim(),
+      visual_style: normalizeHearthVisualStyle(referenceClipVisualStyleDraft),
+      chart_type: (referenceClipChartTypeDraft.trim() || "line") as EpisodeReferenceClipChartType,
+      title: referenceClipTitleDraft.trim() || null,
+      labels: referenceClipLabelsDraft
         .split(",")
         .map((entry) => entry.trim())
         .filter(Boolean),
-      values: resolveCdcValuesFromDraft(),
-      emphasis_key: cdcEmphasisKeyDraft.trim() || null,
-      source_type: cdcSourceTypeDraft as EpisodeContextualDataCompositePlan["source_type"],
-      origin: cdcSourceTypeDraft === "hammer_upload" && selectedCdcEntry.origin === "hearth"
+      values: resolveReferenceClipValuesFromDraft(),
+      emphasis_key: referenceClipEmphasisKeyDraft.trim() || null,
+      source_type: referenceClipSourceTypeDraft as EpisodeContextualDataCompositePlan["source_type"],
+      origin: referenceClipSourceTypeDraft === "hammer_upload" && selectedReferenceClipEntry.origin === "hearth"
         ? "mixed"
-        : selectedCdcEntry.origin,
+        : selectedReferenceClipEntry.origin,
       updated_at: new Date().toISOString(),
     };
-    const nextPlan: EpisodeCdcPlan = {
+    const nextPlan: EpisodeReferenceClipPlan = {
       ...episodePackage.cdc_plan,
       version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedCdcEntry.id ? nextEntry : entry)),
+      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
       generated_at: new Date().toISOString(),
     };
-    setIsCdcBusy(true);
-    setCdcSaveState("saving");
-    setCdcSaveError(null);
+    setIsReferenceClipBusy(true);
+    setReferenceClipSaveState("saving");
+    setReferenceClipSaveError(null);
     try {
-      const saved = await persistCdcPlan({
+      const saved = await persistReferenceClipPlan({
         plan: nextPlan,
         eventName: "hearth.cdc_plan.entry_updated.v1",
-        eventPayload: { cdc_id: selectedCdcEntry.id },
+        eventPayload: { cdc_id: selectedReferenceClipEntry.id },
       });
       if (!saved.ok) {
-        setCdcSaveError(saved.error);
-        setCdcSaveState("error");
+        setReferenceClipSaveError(saved.error);
+        setReferenceClipSaveState("error");
         return;
       }
-      setCdcSaveState("saved");
-      setCdcMessage("Reference Clip saved.");
+      setReferenceClipSaveState("saved");
+      setReferenceClipMessage("Reference Clip saved.");
     } catch {
-      setCdcSaveError("Unable to save this reference clip.");
-      setCdcSaveState("error");
+      setReferenceClipSaveError("Unable to save this reference clip.");
+      setReferenceClipSaveState("error");
     } finally {
-      setIsCdcBusy(false);
+      setIsReferenceClipBusy(false);
     }
   }
 
-  async function onDeleteCdcEntry() {
-    if (!episodePackage || !selectedCdcEntry) return;
-    if (isCdcBusy) return;
-    const confirmed = window.confirm("Delete this Contextual Data Composite?");
+  async function onDeleteReferenceClipEntry() {
+    if (!episodePackage || !selectedReferenceClipEntry) return;
+    if (isReferenceClipBusy) return;
+    const confirmed = window.confirm("Delete this Reference Clip?");
     if (!confirmed) return;
-    const nextEntries = episodePackage.cdc_plan.entries.filter((entry) => entry.id !== selectedCdcEntry.id);
-    const nextPlan: EpisodeCdcPlan = {
+    const nextEntries = episodePackage.cdc_plan.entries.filter((entry) => entry.id !== selectedReferenceClipEntry.id);
+    const nextPlan: EpisodeReferenceClipPlan = {
       ...episodePackage.cdc_plan,
       version: Math.max(1, episodePackage.cdc_plan.version + 1),
       entries: nextEntries,
       generated_at: new Date().toISOString(),
     };
-    setIsCdcBusy(true);
-    setCdcSaveState("saving");
-    setCdcSaveError(null);
+    setIsReferenceClipBusy(true);
+    setReferenceClipSaveState("saving");
+    setReferenceClipSaveError(null);
     try {
-      const saved = await persistCdcPlan({
+      const saved = await persistReferenceClipPlan({
         plan: nextPlan,
         eventName: "hearth.cdc_plan.entry_deleted.v1",
-        eventPayload: { cdc_id: selectedCdcEntry.id },
+        eventPayload: { cdc_id: selectedReferenceClipEntry.id },
       });
       if (!saved.ok) {
-        setCdcSaveError(saved.error);
-        setCdcSaveState("error");
+        setReferenceClipSaveError(saved.error);
+        setReferenceClipSaveState("error");
         return;
       }
-      setSelectedCdcEntryId(nextEntries[0]?.id ?? null);
-      setCdcSaveState("saved");
-      setCdcMessage("Reference Clip removed.");
+      setSelectedReferenceClipEntryId(nextEntries[0]?.id ?? null);
+      setReferenceClipSaveState("saved");
+      setReferenceClipMessage("Reference Clip removed.");
     } catch {
-      setCdcSaveError("Unable to delete this reference clip.");
-      setCdcSaveState("error");
+      setReferenceClipSaveError("Unable to delete this reference clip.");
+      setReferenceClipSaveState("error");
     } finally {
-      setIsCdcBusy(false);
+      setIsReferenceClipBusy(false);
     }
   }
 
-  async function onRegenerateCdcEntryStub() {
-    if (!episodePackage || !selectedCdcEntry) return;
-    if (isCdcBusy) return;
-    const nextDescription = cdcDescriptionDraft.trim() || selectedCdcEntry.description || selectedCdcEntry.anchor_text;
-    const signals = inferCdcSuitabilitySignals(nextDescription);
-    const inferredDataType: EpisodeCdcDataType = signals.includes("geographic")
+  async function onRegenerateReferenceClipEntryStub() {
+    if (!episodePackage || !selectedReferenceClipEntry) return;
+    if (isReferenceClipBusy) return;
+    const nextDescription = referenceClipDescriptionDraft.trim() || selectedReferenceClipEntry.description || selectedReferenceClipEntry.anchor_text;
+    const signals = inferReferenceClipSuitabilitySignals(nextDescription);
+    const inferredDataType: EpisodeReferenceClipDataType = signals.includes("geographic")
       ? "geographic"
       : signals.includes("over_time")
         ? "timeline"
@@ -8479,8 +8486,8 @@ export default function HearthShell({
           : signals.includes("statistics")
             ? "quantitative"
             : "categorical";
-    const inferredContextType: EpisodeCdcContextType = signals.includes("geographic") ? "location" : "historical";
-    const inferredChartType: EpisodeCdcChartType = inferredDataType === "timeline"
+    const inferredContextType: EpisodeReferenceClipContextType = signals.includes("geographic") ? "location" : "historical";
+    const inferredChartType: EpisodeReferenceClipChartType = inferredDataType === "timeline"
       ? "timeline"
       : inferredDataType === "geographic"
         ? "map"
@@ -8490,155 +8497,155 @@ export default function HearthShell({
             ? "bar"
             : "line";
     const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedCdcEntry,
+      ...selectedReferenceClipEntry,
       description: nextDescription,
       data_type: inferredDataType,
       context_type: inferredContextType,
       chart_type: inferredChartType,
-      tone: signals.includes("policy_impact") ? "investigative" : (signals.includes("trend") ? "analytical" : selectedCdcEntry.tone),
-      motion_level: (cdcFormatDraft === "animated" || cdcFormatDraft === "hybrid") ? "full_animation" : "static",
+      tone: signals.includes("policy_impact") ? "investigative" : (signals.includes("trend") ? "analytical" : selectedReferenceClipEntry.tone),
+      motion_level: (referenceClipFormatDraft === "animated" || referenceClipFormatDraft === "hybrid") ? "full_animation" : "static",
       updated_at: new Date().toISOString(),
     };
-    const nextPlan: EpisodeCdcPlan = {
+    const nextPlan: EpisodeReferenceClipPlan = {
       ...episodePackage.cdc_plan,
       version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedCdcEntry.id ? nextEntry : entry)),
+      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
       generated_at: new Date().toISOString(),
     };
-    setIsCdcBusy(true);
-    setCdcSaveState("saving");
-    setCdcSaveError(null);
+    setIsReferenceClipBusy(true);
+    setReferenceClipSaveState("saving");
+    setReferenceClipSaveError(null);
     try {
-      const saved = await persistCdcPlan({
+      const saved = await persistReferenceClipPlan({
         plan: nextPlan,
         eventName: "hearth.cdc_plan.entry_regenerated_stub.v1",
         eventPayload: {
-          cdc_id: selectedCdcEntry.id,
+          cdc_id: selectedReferenceClipEntry.id,
           signal_count: signals.length,
         },
       });
       if (!saved.ok) {
-        setCdcSaveError(saved.error);
-        setCdcSaveState("error");
+        setReferenceClipSaveError(saved.error);
+        setReferenceClipSaveState("error");
         return;
       }
-      setCdcSaveState("saved");
-      setCdcMessage("Reference Clip guidance refreshed.");
+      setReferenceClipSaveState("saved");
+      setReferenceClipMessage("Reference Clip guidance refreshed.");
     } catch {
-      setCdcSaveError("Unable to regenerate reference clip guidance.");
-      setCdcSaveState("error");
+      setReferenceClipSaveError("Unable to regenerate reference clip guidance.");
+      setReferenceClipSaveState("error");
     } finally {
-      setIsCdcBusy(false);
+      setIsReferenceClipBusy(false);
     }
   }
 
-  async function onUploadCdcAsset(file: File) {
-    if (!episodePackage || !selectedCdcEntry) return;
-    if (isCdcBusy) return;
+  async function onUploadReferenceClipAsset(file: File) {
+    if (!episodePackage || !selectedReferenceClipEntry) return;
+    if (isReferenceClipBusy) return;
     const episodeId = workpieceId?.trim() ?? "";
     if (!episodeId) {
-      setCdcSaveError("Select an Episode before uploading Reference Clip assets.");
-      setCdcSaveState("error");
+      setReferenceClipSaveError("Select an Episode before uploading Reference Clip assets.");
+      setReferenceClipSaveState("error");
       return;
     }
-    setIsCdcBusy(true);
-    setCdcSaveState("saving");
-    setCdcSaveError(null);
+    setIsReferenceClipBusy(true);
+    setReferenceClipSaveState("saving");
+    setReferenceClipSaveError(null);
     try {
       const uploaded = await uploadBrollBeatAsset({
         workpieceId: episodeId,
-        beatId: selectedCdcEntry.id,
+        beatId: selectedReferenceClipEntry.id,
         file,
         source: "upload",
       });
       if (!uploaded.ok) {
-        setCdcSaveError(uploaded.error);
-        setCdcSaveState("error");
+        setReferenceClipSaveError(uploaded.error);
+        setReferenceClipSaveState("error");
         return;
       }
       const nextEntry: EpisodeContextualDataCompositePlan = {
-        ...selectedCdcEntry,
+        ...selectedReferenceClipEntry,
         source_type: "upload",
-        origin: selectedCdcEntry.origin === "hammer" ? "mixed" : "hearth",
+        origin: selectedReferenceClipEntry.origin === "hammer" ? "mixed" : "hearth",
         candidate_assets: [
-          ...(selectedCdcEntry.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
+          ...(selectedReferenceClipEntry.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
           uploaded.candidateAsset,
         ],
         selected_asset_id: uploaded.candidateAsset.asset_id,
         updated_at: new Date().toISOString(),
       };
-      const nextPlan: EpisodeCdcPlan = {
+      const nextPlan: EpisodeReferenceClipPlan = {
         ...episodePackage.cdc_plan,
         version: Math.max(1, episodePackage.cdc_plan.version + 1),
-        entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedCdcEntry.id ? nextEntry : entry)),
+        entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
         generated_at: new Date().toISOString(),
       };
-      const saved = await persistCdcPlan({
+      const saved = await persistReferenceClipPlan({
         plan: nextPlan,
         eventName: "hearth.cdc_plan.asset_uploaded.v1",
-        eventPayload: { cdc_id: selectedCdcEntry.id, source: "upload" },
+        eventPayload: { cdc_id: selectedReferenceClipEntry.id, source: "upload" },
       });
       if (!saved.ok) {
-        setCdcSaveError(saved.error);
-        setCdcSaveState("error");
+        setReferenceClipSaveError(saved.error);
+        setReferenceClipSaveState("error");
         return;
       }
-      setCdcSaveState("saved");
-      setCdcMessage("Uploaded asset selected for this reference clip.");
+      setReferenceClipSaveState("saved");
+      setReferenceClipMessage("Uploaded asset selected for this reference clip.");
     } catch {
-      setCdcSaveError("Unable to upload this reference clip asset.");
-      setCdcSaveState("error");
+      setReferenceClipSaveError("Unable to upload this reference clip asset.");
+      setReferenceClipSaveState("error");
     } finally {
-      setIsCdcBusy(false);
+      setIsReferenceClipBusy(false);
     }
   }
 
-  async function onSelectCdcCandidate(candidateId: string) {
-    if (!episodePackage || !selectedCdcEntry) return;
-    if (isCdcBusy) return;
-    if (selectedCdcEntry.selected_asset_id === candidateId) return;
-    const candidate = (selectedCdcEntry.candidate_assets ?? []).find((asset) => asset.asset_id === candidateId) ?? null;
+  async function onSelectReferenceClipCandidate(candidateId: string) {
+    if (!episodePackage || !selectedReferenceClipEntry) return;
+    if (isReferenceClipBusy) return;
+    if (selectedReferenceClipEntry.selected_asset_id === candidateId) return;
+    const candidate = (selectedReferenceClipEntry.candidate_assets ?? []).find((asset) => asset.asset_id === candidateId) ?? null;
     if (!candidate) {
-      setCdcSaveError("Selected candidate is no longer attached to this reference clip.");
-      setCdcSaveState("error");
+      setReferenceClipSaveError("Selected candidate is no longer attached to this reference clip.");
+      setReferenceClipSaveState("error");
       return;
     }
     const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedCdcEntry,
+      ...selectedReferenceClipEntry,
       source_type: candidate.source,
-      origin: candidate.source === "hammer_upload" && selectedCdcEntry.origin === "hearth"
+      origin: candidate.source === "hammer_upload" && selectedReferenceClipEntry.origin === "hearth"
         ? "mixed"
-        : selectedCdcEntry.origin,
+        : selectedReferenceClipEntry.origin,
       selected_asset_id: candidate.asset_id,
       updated_at: new Date().toISOString(),
     };
-    const nextPlan: EpisodeCdcPlan = {
+    const nextPlan: EpisodeReferenceClipPlan = {
       ...episodePackage.cdc_plan,
       version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedCdcEntry.id ? nextEntry : entry)),
+      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
       generated_at: new Date().toISOString(),
     };
-    setIsCdcBusy(true);
-    setCdcSaveState("saving");
-    setCdcSaveError(null);
+    setIsReferenceClipBusy(true);
+    setReferenceClipSaveState("saving");
+    setReferenceClipSaveError(null);
     try {
-      const saved = await persistCdcPlan({
+      const saved = await persistReferenceClipPlan({
         plan: nextPlan,
         eventName: "hearth.cdc_plan.asset_selected.v1",
-        eventPayload: { cdc_id: selectedCdcEntry.id, candidate_id: candidate.asset_id },
+        eventPayload: { cdc_id: selectedReferenceClipEntry.id, candidate_id: candidate.asset_id },
       });
       if (!saved.ok) {
-        setCdcSaveError(saved.error);
-        setCdcSaveState("error");
+        setReferenceClipSaveError(saved.error);
+        setReferenceClipSaveState("error");
         return;
       }
-      setCdcSaveState("saved");
-      setCdcMessage("Selected asset attached to reference clip.");
+      setReferenceClipSaveState("saved");
+      setReferenceClipMessage("Selected asset attached to reference clip.");
     } catch {
-      setCdcSaveError("Unable to select this reference clip candidate.");
-      setCdcSaveState("error");
+      setReferenceClipSaveError("Unable to select this reference clip candidate.");
+      setReferenceClipSaveState("error");
     } finally {
-      setIsCdcBusy(false);
+      setIsReferenceClipBusy(false);
     }
   }
 
@@ -8652,9 +8659,9 @@ export default function HearthShell({
     const needsTypeFallback = (
       mediaMapGenerationScope === "full_media_plan"
       || mediaMapGenerationScope === "images_broll"
-      || mediaMapGenerationScope === "images_cdc"
+      || mediaMapGenerationScope === "images_reference_clips"
     ) && (
-      (mediaMapGenerationScope !== "images_cdc" && episodePackage.broll_plan.beats.length === 0)
+      (mediaMapGenerationScope !== "images_reference_clips" && episodePackage.broll_plan.beats.length === 0)
       || (mediaMapGenerationScope !== "images_broll" && episodePackage.cdc_plan.entries.length === 0)
     );
     if (episodePackage.image_map.entries.length === 0 || needsTypeFallback) {
@@ -8698,9 +8705,9 @@ export default function HearthShell({
       setSelectedMediaMapEntryId(nextMap.entries[0]?.id ?? null);
       setMediaMapSaveState("saved");
       const brollCount = nextMap.entries.filter((entry) => entry.final_media_kind === "b_roll").length;
-      const cdcCount = nextMap.entries.filter((entry) => entry.final_media_kind === "contextual_data_composite").length;
+      const referenceClipCount = nextMap.entries.filter((entry) => entry.final_media_kind === "contextual_data_composite").length;
       setMediaMapMessage(
-        `${fallbackImageMode ? "Bootstrapped from canonical script. " : ""}Generated ${nextMap.entries.length} media map entries using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${cdcCount}).`,
+        `${fallbackImageMode ? "Bootstrapped from canonical script. " : ""}Generated ${nextMap.entries.length} media map entries using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}).`,
       );
     } catch {
       setMediaMapSaveError("Unable to generate Episode Media Map.");
@@ -10950,7 +10957,7 @@ export default function HearthShell({
         else if (field === "optional") setMediaMapDraftEditing(setMediaMapOptionalDraft, Boolean(value));
         else if (field === "critical") setMediaMapDraftEditing(setMediaMapCriticalDraft, Boolean(value));
       },
-      onGenerationScopeChange: (value: string) => setMediaMapGenerationScope(value as MediaMapGenerationScope),
+      onGenerationScopeChange: (value: string) => setMediaMapGenerationScope(normalizeMediaMapGenerationScope(value)),
       onGenerateFromPlans: () => void onGenerateEpisodeMediaMapFromPlans(),
       onActivateMap: () => void onActivateEpisodeMediaMap(),
       onAddEntry: () => void onAddMediaMapEntry(),
@@ -11082,59 +11089,59 @@ export default function HearthShell({
       onUploadAsset: (file: File) => void onUploadBrollBeatAsset(file),
       onSelectCandidate: (candidateId: string) => void onSelectBrollCandidate(candidateId),
     };
-    const cdcPlanPanelProps = {
-      entries: cdcEntries,
-      selectedEntryId: selectedCdcEntryId,
-      saveState: cdcSaveState,
-      saveError: cdcSaveError,
-      message: cdcMessage,
-      disabled: isApprovingScript || isCdcBusy || !episodePackage,
+    const referenceClipPlanPanelProps = {
+      entries: referenceClipEntries,
+      selectedEntryId: selectedReferenceClipEntryId,
+      saveState: referenceClipSaveState,
+      saveError: referenceClipSaveError,
+      message: referenceClipMessage,
+      disabled: isApprovingScript || isReferenceClipBusy || !episodePackage,
       draft: {
-        anchorText: cdcAnchorDraft,
-        description: cdcDescriptionDraft,
-        placementHint: cdcPlacementHintDraft,
-        format: cdcFormatDraft,
-        dataType: cdcDataTypeDraft,
-        contextType: cdcContextTypeDraft,
-        tone: cdcToneDraft,
-        motionLevel: cdcMotionLevelDraft,
-        backgroundContextDescription: cdcBackgroundContextDraft,
-        foregroundDataDescription: cdcForegroundDataDraft,
-        visualStyle: cdcVisualStyleDraft,
-        chartType: cdcChartTypeDraft,
-        title: cdcTitleDraft,
-        labels: cdcLabelsDraft,
-        values: cdcValuesDraft,
-        emphasisKey: cdcEmphasisKeyDraft,
-        sourceType: cdcSourceTypeDraft,
+        anchorText: referenceClipAnchorDraft,
+        description: referenceClipDescriptionDraft,
+        placementHint: referenceClipPlacementHintDraft,
+        format: referenceClipFormatDraft,
+        dataType: referenceClipDataTypeDraft,
+        contextType: referenceClipContextTypeDraft,
+        tone: referenceClipToneDraft,
+        motionLevel: referenceClipMotionLevelDraft,
+        backgroundContextDescription: referenceClipBackgroundContextDraft,
+        foregroundDataDescription: referenceClipForegroundDataDraft,
+        visualStyle: referenceClipVisualStyleDraft,
+        chartType: referenceClipChartTypeDraft,
+        title: referenceClipTitleDraft,
+        labels: referenceClipLabelsDraft,
+        values: referenceClipValuesDraft,
+        emphasisKey: referenceClipEmphasisKeyDraft,
+        sourceType: referenceClipSourceTypeDraft,
       },
-      selectedCandidateId: selectedCdcEntry?.selected_asset_id ?? null,
-      onSelectEntry: setSelectedCdcEntryId,
+      selectedCandidateId: selectedReferenceClipEntry?.selected_asset_id ?? null,
+      onSelectEntry: setSelectedReferenceClipEntryId,
       onDraftChange: (field: string, value: string) => {
-        if (field === "anchorText") setCdcDraftEditing(setCdcAnchorDraft, value);
-        else if (field === "description") setCdcDraftEditing(setCdcDescriptionDraft, value);
-        else if (field === "placementHint") setCdcDraftEditing(setCdcPlacementHintDraft, value);
-        else if (field === "format") setCdcDraftEditing(setCdcFormatDraft, value);
-        else if (field === "dataType") setCdcDraftEditing(setCdcDataTypeDraft, value);
-        else if (field === "contextType") setCdcDraftEditing(setCdcContextTypeDraft, value);
-        else if (field === "tone") setCdcDraftEditing(setCdcToneDraft, value);
-        else if (field === "motionLevel") setCdcDraftEditing(setCdcMotionLevelDraft, value);
-        else if (field === "backgroundContextDescription") setCdcDraftEditing(setCdcBackgroundContextDraft, value);
-        else if (field === "foregroundDataDescription") setCdcDraftEditing(setCdcForegroundDataDraft, value);
-        else if (field === "visualStyle") setCdcDraftEditing((next) => setCdcVisualStyleDraft(normalizeHearthVisualStyle(next)), value);
-        else if (field === "chartType") setCdcDraftEditing(setCdcChartTypeDraft, value);
-        else if (field === "title") setCdcDraftEditing(setCdcTitleDraft, value);
-        else if (field === "labels") setCdcDraftEditing(setCdcLabelsDraft, value);
-        else if (field === "values") setCdcDraftEditing(setCdcValuesDraft, value);
-        else if (field === "emphasisKey") setCdcDraftEditing(setCdcEmphasisKeyDraft, value);
-        else if (field === "sourceType") setCdcDraftEditing(setCdcSourceTypeDraft, value);
+        if (field === "anchorText") setReferenceClipDraftEditing(setReferenceClipAnchorDraft, value);
+        else if (field === "description") setReferenceClipDraftEditing(setReferenceClipDescriptionDraft, value);
+        else if (field === "placementHint") setReferenceClipDraftEditing(setReferenceClipPlacementHintDraft, value);
+        else if (field === "format") setReferenceClipDraftEditing(setReferenceClipFormatDraft, value);
+        else if (field === "dataType") setReferenceClipDraftEditing(setReferenceClipDataTypeDraft, value);
+        else if (field === "contextType") setReferenceClipDraftEditing(setReferenceClipContextTypeDraft, value);
+        else if (field === "tone") setReferenceClipDraftEditing(setReferenceClipToneDraft, value);
+        else if (field === "motionLevel") setReferenceClipDraftEditing(setReferenceClipMotionLevelDraft, value);
+        else if (field === "backgroundContextDescription") setReferenceClipDraftEditing(setReferenceClipBackgroundContextDraft, value);
+        else if (field === "foregroundDataDescription") setReferenceClipDraftEditing(setReferenceClipForegroundDataDraft, value);
+        else if (field === "visualStyle") setReferenceClipDraftEditing((next) => setReferenceClipVisualStyleDraft(normalizeHearthVisualStyle(next)), value);
+        else if (field === "chartType") setReferenceClipDraftEditing(setReferenceClipChartTypeDraft, value);
+        else if (field === "title") setReferenceClipDraftEditing(setReferenceClipTitleDraft, value);
+        else if (field === "labels") setReferenceClipDraftEditing(setReferenceClipLabelsDraft, value);
+        else if (field === "values") setReferenceClipDraftEditing(setReferenceClipValuesDraft, value);
+        else if (field === "emphasisKey") setReferenceClipDraftEditing(setReferenceClipEmphasisKeyDraft, value);
+        else if (field === "sourceType") setReferenceClipDraftEditing(setReferenceClipSourceTypeDraft, value);
       },
-      onCreateCdc: () => void onCreateCdcEntry(),
-      onSaveEntry: () => void onSaveCdcEntry(),
-      onDeleteEntry: () => void onDeleteCdcEntry(),
-      onRegenerateStub: () => void onRegenerateCdcEntryStub(),
-      onUploadAsset: (file: File) => void onUploadCdcAsset(file),
-      onSelectCandidate: (candidateId: string) => void onSelectCdcCandidate(candidateId),
+      onCreateReferenceClip: () => void onCreateReferenceClipEntry(),
+      onSaveEntry: () => void onSaveReferenceClipEntry(),
+      onDeleteEntry: () => void onDeleteReferenceClipEntry(),
+      onRegenerateStub: () => void onRegenerateReferenceClipEntryStub(),
+      onUploadAsset: (file: File) => void onUploadReferenceClipAsset(file),
+      onSelectCandidate: (candidateId: string) => void onSelectReferenceClipCandidate(candidateId),
     };
     const metadataPanelProps = {
       titles: metadataTitlesDraft,
@@ -11390,12 +11397,12 @@ export default function HearthShell({
               mediaMapPanelMeta={mediaMapPanelMeta}
               imageMapPanelMeta={imageMapPanelMeta}
               brollPanelMeta={brollPanelMeta}
-              cdcPanelMeta={cdcPanelMeta}
+              referenceClipPanelMeta={referenceClipPanelMeta}
               thumbnailPanelProps={thumbnailPanelProps}
               mediaMapPanelProps={mediaMapPanelProps}
               imageMapPanelProps={imageMapPanelProps}
               brollPlanPanelProps={brollPlanPanelProps}
-              cdcPlanPanelProps={cdcPlanPanelProps}
+              referenceClipPlanPanelProps={referenceClipPlanPanelProps}
             />
             <MetadataSurface
               visible={isMetadataWorkspaceTab}
@@ -12555,3 +12562,5 @@ export default function HearthShell({
     </section>
   );
 }
+
+

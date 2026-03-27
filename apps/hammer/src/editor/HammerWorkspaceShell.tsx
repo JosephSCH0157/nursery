@@ -215,6 +215,7 @@ const PLAYHEAD_SNAP_TOLERANCE_SEC = DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC;
 const PRE_ROLL_SEC = 2;
 const POST_ROLL_SEC = 1;
 const SCRUB_SEEK_THRESHOLD_SEC = 0.05;
+const PLAYHEAD_WINDOW_EPSILON_SEC = 0.001;
 const MIN_IMAGE_PLACEMENT_DURATION_SEC = 0.5;
 const SCRUB_RATE_OPTIONS = [1, 0.75, 0.5] as const;
 const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
@@ -518,6 +519,7 @@ type HammerPreviewCanvasDragState = {
   pointerStartX: number;
   pointerStartY: number;
   origin: HammerImagePlacementTransform;
+  originAspectRatio: number;
 };
 
 type HammerImageAnimationPreset =
@@ -1087,6 +1089,16 @@ function resolvePlacementAnimationPreset(
     || preset === "shutter_in_fade_out"
     || preset === "none"
   ) ? preset : "none";
+}
+
+function isPlacementActiveAtPlayhead(
+  placement: HammerVisualPlacementRecord,
+  playheadSec: number,
+): boolean {
+  const startSec = Number.isFinite(placement.start_sec) ? placement.start_sec : 0;
+  const rawEndSec = Number.isFinite(placement.end_sec) ? placement.end_sec : startSec;
+  const endSec = Math.max(startSec, rawEndSec - PLAYHEAD_WINDOW_EPSILON_SEC);
+  return playheadSec >= (startSec - PLAYHEAD_WINDOW_EPSILON_SEC) && playheadSec <= endSec;
 }
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -2005,10 +2017,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   const activePreviewOverlays = useMemo<HammerPreviewVisualOverlay[]>(() => (
     (editableVisualPlacements?.placements ?? [])
-      .filter((placement) => (
-        playheadSec >= placement.start_sec
-        && playheadSec < placement.end_sec
-      ))
+      .filter((placement) => isPlacementActiveAtPlayhead(placement, playheadSec))
       .map((placement, index) => {
         const kind = deriveAssetKind({
           visualMode: placement.visual_mode,
@@ -2062,16 +2071,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       const node = previewBrollVideoRefs.current.get(overlay.placementId) ?? null;
       if (!node) continue;
       const localTime = Math.max(0, playheadSec - overlay.startSec);
-      if (Math.abs(node.currentTime - localTime) > SCRUB_SEEK_THRESHOLD_SEC) {
+      const seekThresholdSec = isScrubbing ? 0.015 : SCRUB_SEEK_THRESHOLD_SEC;
+      if (Math.abs(node.currentTime - localTime) > seekThresholdSec) {
         node.currentTime = localTime;
       }
-      if (isPlaybackActive) {
+      node.playbackRate = isScrubbing ? scrubRate : 1;
+      if (isPlaybackActive || isScrubbing) {
         void node.play().catch(() => undefined);
       } else {
         node.pause();
       }
     }
-  }, [activePreviewOverlays, isPlaybackActive, playheadSec]);
+  }, [activePreviewOverlays, isPlaybackActive, isScrubbing, playheadSec, scrubRate]);
   const sourceAssetItems = useMemo<HammerSourceAssetItem[]>(() => {
     const byId = new Map<string, HammerSourceAssetItem>();
     for (const placement of editableVisualPlacements?.placements ?? []) {
@@ -3331,6 +3342,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (!previewCanvasDragState) return;
 
     const handleMouseMove = (event: globalThis.MouseEvent): void => {
+      if (event.buttons === 0) {
+        setPreviewCanvasDragState(null);
+        return;
+      }
       const canvasRect = previewSurfaceRef.current?.getBoundingClientRect() ?? null;
       if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) return;
       const deltaXPct = ((event.clientX - previewCanvasDragState.pointerStartX) / canvasRect.width) * 100;
@@ -3343,10 +3358,26 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         }));
         return;
       }
+      const safeAspectRatio = Number.isFinite(previewCanvasDragState.originAspectRatio)
+        && previewCanvasDragState.originAspectRatio > 0
+        ? previewCanvasDragState.originAspectRatio
+        : previewCanvasDragState.origin.widthPct / Math.max(1, previewCanvasDragState.origin.heightPct);
+      const dominantDeltaPct = Math.abs(deltaXPct) >= Math.abs(deltaYPct * safeAspectRatio)
+        ? deltaXPct
+        : deltaYPct * safeAspectRatio;
+      const maxWidthPct = Math.min(92, 100 - previewCanvasDragState.origin.leftPct);
+      const maxHeightPct = Math.min(92, 100 - previewCanvasDragState.origin.topPct);
+      const maxWidthFromHeight = maxHeightPct * safeAspectRatio;
+      const nextWidthPct = clampNumber(
+        previewCanvasDragState.origin.widthPct + dominantDeltaPct,
+        8,
+        Math.min(maxWidthPct, maxWidthFromHeight),
+      );
+      const nextHeightPct = clampNumber(nextWidthPct / safeAspectRatio, 8, maxHeightPct);
       updateImagePlacementTransform(previewCanvasDragState.placementId, (current) => ({
         ...current,
-        widthPct: previewCanvasDragState.origin.widthPct + deltaXPct,
-        heightPct: previewCanvasDragState.origin.heightPct + deltaYPct,
+        widthPct: nextWidthPct,
+        heightPct: nextHeightPct,
       }));
     };
 
@@ -4806,6 +4837,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     },
   ): void {
     if (currentPass !== "image_placement") return;
+    if (event.button !== 0) return;
     const trackRect = event.currentTarget.ownerSVGElement?.getBoundingClientRect()
       ?? event.currentTarget.getBoundingClientRect();
     if (trackRect.width <= 0) return;
@@ -4828,6 +4860,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     args: { placementId: string; mode: HammerPreviewCanvasDragState["mode"] },
   ): void {
     if (currentPass !== "image_placement") return;
+    if (event.button !== 0) return;
     const activeTransform = imagePlacementTransforms[args.placementId]
       ?? geometryToTransform(resolvePlacementGeometry(visualPlacementsById.get(args.placementId)));
     event.preventDefault();
@@ -4840,6 +4873,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       pointerStartX: event.clientX,
       pointerStartY: event.clientY,
       origin: activeTransform,
+      originAspectRatio: activeTransform.widthPct / Math.max(1, activeTransform.heightPct),
     });
   }
 
@@ -8093,6 +8127,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         "hammer-preview-canvas__bbox",
                         resolveImageAnimationClass(overlay.animationPreset),
                         overlay.isSelected ? "is-selected" : "",
+                        currentPass === "image_placement" && selectedImagePlacementId && !overlay.isSelected ? "is-dimmed" : "",
                       ].filter(Boolean).join(" ")}
                       onMouseDown={(event) => {
                         setSelectedImagePlacementId(overlay.placementId);
@@ -8136,10 +8171,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           type="button"
                           className="hammer-preview-canvas__resize-handle"
                           aria-label="Resize selected visual"
-                          onMouseDown={(event) => beginPreviewCanvasDrag(event, {
-                            placementId: overlay.placementId,
-                            mode: "resize",
-                          })}
+                          onMouseDown={(event) => {
+                            event.stopPropagation();
+                            beginPreviewCanvasDrag(event, {
+                              placementId: overlay.placementId,
+                              mode: "resize",
+                            });
+                          }}
                         />
                       ) : null}
                     </div>
@@ -11003,7 +11041,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                       className="hammer-timeline-block__resize hammer-timeline-block__resize--start"
                                       x={0}
                                       y={2}
-                                      width={4}
+                                      width={6}
                                       height={18}
                                       rx={2}
                                       ry={2}
@@ -11019,9 +11057,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                     />
                                     <rect
                                       className="hammer-timeline-block__resize hammer-timeline-block__resize--end"
-                                      x={Math.max(0, width - 4)}
+                                      x={Math.max(0, width - 6)}
                                       y={2}
-                                      width={4}
+                                      width={6}
                                       height={18}
                                       rx={2}
                                       ry={2}

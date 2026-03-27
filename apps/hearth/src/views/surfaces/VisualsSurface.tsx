@@ -1,9 +1,9 @@
 import type { ComponentProps } from "react";
 import CollapsibleFocusPanel from "../../components/focus/CollapsibleFocusPanel";
 import BrollPlanPanel from "../../components/visuals/BrollPlanPanel";
-import CdcPlanPanel from "../../components/visuals/CdcPlanPanel";
 import EpisodeMediaMapPanel from "../../components/visuals/EpisodeMediaMapPanel";
 import ImageMapPanel from "../../components/visuals/ImageMapPanel";
+import ReferenceClipPlanPanel from "../../components/visuals/ReferenceClipPlanPanel";
 import ThumbnailPanel from "../../components/visuals/ThumbnailPanel";
 
 type VisualsSurfaceProps = {
@@ -17,12 +17,12 @@ type VisualsSurfaceProps = {
   mediaMapPanelMeta: string;
   imageMapPanelMeta: string;
   brollPanelMeta: string;
-  cdcPanelMeta: string;
+  referenceClipPanelMeta: string;
   thumbnailPanelProps: ComponentProps<typeof ThumbnailPanel>;
   mediaMapPanelProps: ComponentProps<typeof EpisodeMediaMapPanel>;
   imageMapPanelProps: ComponentProps<typeof ImageMapPanel>;
   brollPlanPanelProps: ComponentProps<typeof BrollPlanPanel>;
-  cdcPlanPanelProps: ComponentProps<typeof CdcPlanPanel>;
+  referenceClipPlanPanelProps: ComponentProps<typeof ReferenceClipPlanPanel>;
 };
 
 export default function VisualsSurface(props: VisualsSurfaceProps) {
@@ -82,14 +82,14 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
       </CollapsibleFocusPanel>
 
       <CollapsibleFocusPanel
-        panelId="hearth-cdc-plan-panel"
-        title="Contextual Data Composites"
-        meta={props.cdcPanelMeta}
+        panelId="hearth-reference-clip-plan-panel"
+        title="Reference Clips"
+        meta={props.referenceClipPanelMeta}
         collapsed={false}
         onToggle={() => {}}
         collapsible={false}
       >
-        <CdcPlanPanel {...props.cdcPlanPanelProps} />
+        <ReferenceClipPlanPanel {...props.referenceClipPlanPanelProps} />
       </CollapsibleFocusPanel>
     </>
   );

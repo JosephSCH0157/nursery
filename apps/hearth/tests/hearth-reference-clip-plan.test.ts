@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  createContextualDataCompositePlan,
-  inferCdcSuitabilitySignals,
-} from "../src/lib/hearth-cdc-plan";
+  createReferenceClipPlan,
+  inferReferenceClipSuitabilitySignals,
+} from "../src/lib/hearth-reference-clip-plan";
 import {
   createEmptyEpisodePackageV2,
-  ensureCdcPlanV2,
+  ensureCdcPlanV2 as ensureReferenceClipPlanV2,
 } from "../src/lib/episode-package-v2";
 
-test("inferCdcSuitabilitySignals detects timeline, statistics, and geographic cues", () => {
-  const signals = inferCdcSuitabilitySignals(
+test("inferReferenceClipSuitabilitySignals detects timeline, statistics, and geographic cues", () => {
+  const signals = inferReferenceClipSuitabilitySignals(
     "Since 2005, the county saw a 42 percent decline compared to neighboring regions.",
   );
   assert.ok(signals.includes("over_time"));
@@ -19,8 +19,8 @@ test("inferCdcSuitabilitySignals detects timeline, statistics, and geographic cu
   assert.ok(signals.includes("comparison"));
 });
 
-test("createContextualDataCompositePlan seeds canonical CDC defaults", () => {
-  const plan = createContextualDataCompositePlan({
+test("createReferenceClipPlan seeds canonical reference clip defaults", () => {
+  const plan = createReferenceClipPlan({
     workpieceId: "workpiece-1",
     anchorText: "Florida citrus production has declined for twenty years.",
     description: "Citrus Tower background with a decline chart.",
@@ -35,14 +35,14 @@ test("createContextualDataCompositePlan seeds canonical CDC defaults", () => {
   assert.equal(Array.isArray(plan.candidate_assets), true);
 });
 
-test("ensureCdcPlanV2 preserves CDC entries as a first-class canonical media plan", () => {
+test("ensureReferenceClipPlanV2 preserves reference clip entries as a first-class canonical media plan", () => {
   const base = createEmptyEpisodePackageV2();
   const seeded = {
     ...base,
     cdc_plan: {
       ...base.cdc_plan,
       entries: [
-        createContextualDataCompositePlan({
+        createReferenceClipPlan({
           workpieceId: base.cdc_plan.workpiece_id,
           anchorText: "Policy rollout changed outcomes over five years.",
           description: "Regional map plus timeline milestones.",
@@ -52,7 +52,7 @@ test("ensureCdcPlanV2 preserves CDC entries as a first-class canonical media pla
     },
   };
 
-  const normalized = ensureCdcPlanV2(seeded);
+  const normalized = ensureReferenceClipPlanV2(seeded);
   assert.equal(normalized.cdc_plan.entries.length, 1);
   assert.equal(normalized.cdc_plan.entries[0]?.media_type, "contextual_data_composite");
   assert.equal(normalized.cdc_plan.entries[0]?.format, "hybrid");

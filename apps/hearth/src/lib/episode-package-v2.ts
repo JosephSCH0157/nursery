@@ -350,6 +350,12 @@ export const EPISODE_CDC_CONTEXT_TYPE_VALUES = ["location", "object", "historica
 export const EPISODE_CDC_TONE_VALUES = ["neutral", "investigative", "nostalgic", "dramatic", "analytical"] as const;
 export const EPISODE_CDC_MOTION_LEVEL_VALUES = ["static", "subtle", "full_animation"] as const;
 export const EPISODE_CDC_CHART_TYPE_VALUES = ["line", "bar", "area", "scatter", "timeline", "map", "stat_card", "comparison"] as const;
+export const EPISODE_REFERENCE_CLIP_FORMAT_VALUES = EPISODE_CDC_FORMAT_VALUES;
+export const EPISODE_REFERENCE_CLIP_DATA_TYPE_VALUES = EPISODE_CDC_DATA_TYPE_VALUES;
+export const EPISODE_REFERENCE_CLIP_CONTEXT_TYPE_VALUES = EPISODE_CDC_CONTEXT_TYPE_VALUES;
+export const EPISODE_REFERENCE_CLIP_TONE_VALUES = EPISODE_CDC_TONE_VALUES;
+export const EPISODE_REFERENCE_CLIP_MOTION_LEVEL_VALUES = EPISODE_CDC_MOTION_LEVEL_VALUES;
+export const EPISODE_REFERENCE_CLIP_CHART_TYPE_VALUES = EPISODE_CDC_CHART_TYPE_VALUES;
 
 export type EpisodeCdcFormat = (typeof EPISODE_CDC_FORMAT_VALUES)[number];
 export type EpisodeCdcDataType = (typeof EPISODE_CDC_DATA_TYPE_VALUES)[number];
@@ -357,6 +363,12 @@ export type EpisodeCdcContextType = (typeof EPISODE_CDC_CONTEXT_TYPE_VALUES)[num
 export type EpisodeCdcTone = (typeof EPISODE_CDC_TONE_VALUES)[number];
 export type EpisodeCdcMotionLevel = (typeof EPISODE_CDC_MOTION_LEVEL_VALUES)[number];
 export type EpisodeCdcChartType = (typeof EPISODE_CDC_CHART_TYPE_VALUES)[number];
+export type EpisodeReferenceClipFormat = EpisodeCdcFormat;
+export type EpisodeReferenceClipDataType = EpisodeCdcDataType;
+export type EpisodeReferenceClipContextType = EpisodeCdcContextType;
+export type EpisodeReferenceClipTone = EpisodeCdcTone;
+export type EpisodeReferenceClipMotionLevel = EpisodeCdcMotionLevel;
+export type EpisodeReferenceClipChartType = EpisodeCdcChartType;
 
 export type EpisodeContextualDataCompositePlan = {
   id: string;
@@ -394,6 +406,7 @@ export type EpisodeCdcPlan = {
   entries: EpisodeContextualDataCompositePlan[];
   generated_at: string;
 };
+export type EpisodeReferenceClipPlan = EpisodeCdcPlan;
 
 export const EPISODE_IMAGE_MAP_INTENT_VALUES = [
   "broll",
@@ -2219,6 +2232,8 @@ export function ensureCdcPlanV2(pkg: EpisodePackageV2): EpisodePackageV2 {
     },
   };
 }
+
+export const ensureReferenceClipPlanV2 = ensureCdcPlanV2;
 
 export function ensureMediaMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
   const normalizedMap = normalizeMediaMap(pkg.media_map);

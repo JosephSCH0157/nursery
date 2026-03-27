@@ -43,7 +43,7 @@ const CONFIDENCE = ["high", "medium", "low"];
 const GENERATION_SCOPES = [
   { value: "images_only", label: "Images only" },
   { value: "images_broll", label: "Images + B-roll" },
-  { value: "images_cdc", label: "Images + Reference Clips" },
+  { value: "images_reference_clips", label: "Images + Reference Clips" },
   { value: "full_media_plan", label: "Full media plan" },
 ];
 
