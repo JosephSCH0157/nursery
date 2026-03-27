@@ -44,6 +44,7 @@ function buildVisualPackage(): WorkpieceVisualPackageResponseData {
     image_map_asset_updated_at: "2026-03-14T10:05:30.000Z",
     visuals: [
       {
+        asset_class: "image",
         entry_id: "image-map-01",
         beat_order: 1,
         paragraph_beat_order: 1,
@@ -76,6 +77,21 @@ function buildVisualPackage(): WorkpieceVisualPackageResponseData {
       },
     ],
   };
+}
+
+function testPreservesReferenceClipClassWithoutInference() {
+  const visualPackage = buildVisualPackage();
+  visualPackage.visuals[0] = {
+    ...visualPackage.visuals[0],
+    asset_class: "reference_clip",
+    visual_mode: null,
+  };
+  const placements = deriveHammerVisualPlacements({
+    transcriptSourceId,
+    transcriptSegments: buildTranscriptSegments(),
+    visualPackage,
+  });
+  assert.equal(placements.placements[0]?.visual_mode, "reference_clip");
 }
 
 function testDerivesDeterministicPlacementFromMatchingAnchor() {
@@ -193,6 +209,7 @@ try {
   testReportsNoSelectedVisualsWithoutFakePlacements();
   testReportsNoSelectedVisualsWhenNoCandidateAssetExists();
   testReusesPlacementArtifactWhenVisualSourcesHaveNotChanged();
+  testPreservesReferenceClipClassWithoutInference();
   console.log("Hammer visual placement tests passed.");
 } catch (error) {
   console.error("Hammer visual placement tests failed:", error);

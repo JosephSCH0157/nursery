@@ -7843,7 +7843,7 @@ export default function HearthShell({
       },
       confidence: "medium",
       fulfillment_status: entry.selected_asset_id ? "resolved" : "planned",
-      fulfillment_path: entry.selected_asset_id ? "cdc" : null,
+      fulfillment_path: entry.selected_asset_id ? "reference_clip" : null,
       optional: false,
       critical: true,
       stale: false,
@@ -8826,7 +8826,7 @@ export default function HearthShell({
         mediaMapTypeDraft === "b_roll"
           ? "motion_broll"
           : mediaMapTypeDraft === "contextual_data_composite"
-            ? "cdc"
+            ? "reference_clip"
             : "image"
       ),
       optional: mediaMapOptionalDraft,

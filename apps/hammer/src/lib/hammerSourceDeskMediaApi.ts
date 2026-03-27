@@ -6,7 +6,7 @@ export { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/w
 const INTRO_OUTRO_SELECTION_PATH = "hammer/session/intro-outro.v1.json";
 const SOURCE_DESK_UPLOAD_BASE_PATH = "assets/uploads";
 
-export type HammerStoredMediaKind = "image" | "broll" | "audio" | "other";
+export type HammerStoredMediaKind = "image" | "broll" | "reference_clip" | "audio" | "other";
 export type HammerSourceDeskUploadCategory = "images" | "broll" | "introoutro";
 
 export type HammerStoredMediaFile = {
@@ -50,6 +50,9 @@ function readNullableNumber(value: unknown): number | null {
 
 function inferStoredMediaKind(path: string): HammerStoredMediaKind {
   const normalized = path.toLowerCase();
+  if (normalized.includes("reference_clip") || normalized.includes("reference-clips") || normalized.includes("reference_clips")) {
+    return "reference_clip";
+  }
   if (
     normalized.endsWith(".jpg")
     || normalized.endsWith(".jpeg")

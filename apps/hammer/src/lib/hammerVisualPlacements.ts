@@ -910,9 +910,13 @@ export function deriveHammerVisualPlacements(args: {
       asset_path: selectedAsset.path,
       storage_key: selectedAsset.storage_key || selectedAsset.path,
       label: selectedAsset.variant_label ?? visual.visual_mode ?? visual.entry_id,
-      visual_mode: visual.visual_mode
-        ?? selectedAsset.visual_mode
-        ?? (visual.asset_class === "broll" ? "b_roll" : visual.asset_class === "reference_clip" ? "reference_clip" : "image"),
+      visual_mode: visual.asset_class === "broll"
+        ? "b_roll"
+        : visual.asset_class === "reference_clip"
+          ? "reference_clip"
+          : visual.visual_mode
+            ?? selectedAsset.visual_mode
+            ?? "image",
       start_sec: startSec,
       end_sec: endSec,
       confidence,

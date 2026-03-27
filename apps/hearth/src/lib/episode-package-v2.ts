@@ -183,7 +183,7 @@ export type EpisodeMediaMapSourceStatus = "unresolved" | "selected" | "attached"
 export type EpisodeMediaMapConfidence = "high" | "medium" | "low";
 export type EpisodeMediaMapStatus = "draft" | "review" | "activated" | "fulfilling" | "fulfilled" | "needs_attention";
 export type EpisodeMediaMapBeatFulfillmentStatus = "planned" | "approved" | "queued" | "generating" | "resolved" | "needs_attention";
-export type EpisodeMediaMapFulfillmentPath = "image" | "motion_broll" | "cdc";
+export type EpisodeMediaMapFulfillmentPath = "image" | "motion_broll" | "reference_clip";
 
 export type EpisodeMediaMapAnchor = {
   mode: EpisodeMediaMapAnchorMode;
@@ -1735,9 +1735,10 @@ function normalizeMediaMapBeatFulfillmentStatus(value: unknown): EpisodeMediaMap
 
 function normalizeMediaMapFulfillmentPath(value: unknown): EpisodeMediaMapFulfillmentPath | null {
   const normalized = readString(value)?.toLowerCase();
-  if (normalized === "image" || normalized === "motion_broll" || normalized === "cdc") {
+  if (normalized === "image" || normalized === "motion_broll" || normalized === "reference_clip") {
     return normalized;
   }
+  if (normalized === "cdc") return "reference_clip";
   return null;
 }
 

@@ -8,7 +8,7 @@ import type {
 function resolveFulfillmentPath(kind: EpisodeMediaMapEntry["final_media_kind"]): EpisodeMediaMapFulfillmentPath {
   if (kind === "image") return "image";
   if (kind === "b_roll") return "motion_broll";
-  return "cdc";
+  return "reference_clip";
 }
 
 function resolveBeatStatusForQueue(entry: EpisodeMediaMapEntry): EpisodeMediaMapBeatFulfillmentStatus {

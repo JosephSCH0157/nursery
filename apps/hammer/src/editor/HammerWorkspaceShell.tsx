@@ -384,7 +384,7 @@ type HammerVisualLutPreset =
 type HammerSourceImageItem = {
   id: string;
   label: string;
-  kind: "image" | "broll";
+  kind: "image" | "broll" | "reference_clip";
   anchorSegmentId: string;
   startSec: number;
   endSec: number;
@@ -684,6 +684,14 @@ function deriveAssetKind(args: {
     return "audio";
   }
   return "other";
+}
+
+function formatAssetKindLabel(kind: HammerSourceAssetKind): string {
+  if (kind === "broll") return "B-roll";
+  if (kind === "reference_clip") return "Reference Clip";
+  if (kind === "image") return "Image";
+  if (kind === "audio") return "Audio";
+  return "Other";
 }
 
 function formatBytes(bytes: number | null): string {
@@ -1941,7 +1949,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           visualMode: placement.visual_mode,
           assetPath: placement.asset_path,
         });
-        if (kind !== "image" && kind !== "broll") return null;
+        if (kind !== "image" && kind !== "broll" && kind !== "reference_clip") return null;
         return {
           id: placement.placement_id,
           label: placement.label ?? placement.asset_ref ?? placement.asset_path ?? placement.entry_id,
@@ -2178,7 +2186,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     [storedMediaFiles],
   );
   const introOutroCandidateItems = useMemo(
-    () => storedMediaFiles.filter((file) => file.kind === "broll" || file.kind === "audio" || file.kind === "other"),
+    () => storedMediaFiles.filter((file) => file.kind === "broll" || file.kind === "reference_clip" || file.kind === "audio" || file.kind === "other"),
     [storedMediaFiles],
   );
   const packagingIntroPlacement = useMemo(
@@ -7709,7 +7717,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 sourceBrollItems.length > 0 ? (
                   <>
                     <div className="hammer-source-summary">
-                      <span>{sourceBrollItems.length} b-roll assets</span>
+                      <span>{sourceBrollItems.length} B-roll / Reference Clip assets</span>
                       <span>{unresolvedBrollSuggestionItems.length} unresolved Hearth suggestions</span>
                       <span>{resolvedBrollBindingItems.length} resolved bindings</span>
                       <button
@@ -7875,10 +7883,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         )}
                         <header className="hammer-source-card__head">
                           <strong>{item.label}</strong>
-                          <span>b-roll</span>
+                          <span>{formatAssetKindLabel(item.kind)}</span>
                         </header>
                         <div className="hammer-source-card__meta">
-                          <span>Type: b-roll</span>
+                          <span>Type: {formatAssetKindLabel(item.kind)}</span>
                           <span>{item.firstStartSec.toFixed(1)}s - {item.lastEndSec.toFixed(1)}s</span>
                           <span>Uses: {item.usageCount}</span>
                           <span>{item.visualMode ?? "mode n/a"}</span>
@@ -7892,7 +7900,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                               seekPlayheadToTime(item.firstStartSec, "playhead");
                             }}
                           >
-                            Cue b-roll window
+                            Cue visual window
                           </button>
                         </div>
                       </article>
