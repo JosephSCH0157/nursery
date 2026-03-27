@@ -1366,7 +1366,8 @@ Guardrails:
 
 .hammer-timeline-dock__body {
   overflow: hidden;
-  grid-template-rows: auto 24px auto minmax(0, 1fr);
+  display: grid;
+  grid-template-rows: auto auto 24px auto minmax(0, 1fr);
   gap: 6px;
 }
 
@@ -1933,4 +1934,31 @@ Guardrails:
 .hammer-workspace-shell__missing-context h2,
 .hammer-workspace-shell__missing-context p {
   margin: 0;
+}
+
+/* Waveform Lane Styles */
+
+.hammer-waveform-lane {
+  flex: 1;
+  min-height: 80px;
+  max-height: 80px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: rgba(2, 6, 23, 0.5);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  display: flex;
+  align-items: center;
+}
+
+.hammer-waveform-lane--unavailable {
+  background: transparent;
+  border-bottom: none;
+  min-height: 0;
+  max-height: 0;
+}
+
+.hammer-waveform-lane__canvas {
+  display: block;
+  height: 100%;
+  image-rendering: pixelated;
 }

@@ -78,6 +78,7 @@ import PolishResultSummary, {
   buildPolishResultSummaryFromCleanupPreview,
   type HammerPolishResultSummary,
 } from "./PolishResultSummary";
+import { HammerWaveformLane } from "./HammerWaveformLane";
 import {
   createHammerHistoryController,
   createHammerHistoryDocument,
@@ -9605,6 +9606,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               </div>
             </header>
           <div className={`hammer-bay-body hammer-timeline-dock__body${isScrubbing ? " is-scrubbing" : ""}`}>
+            <HammerWaveformLane
+              waveformProxy={props.audioPolish?.analysis?.waveform_proxy ?? null}
+              playheadSec={playheadSec}
+            />
             <div className="hammer-timeline-tools">
               <button type="button" onClick={togglePlayback}>
                 {isPlaybackActive ? "Pause" : "Play"}
