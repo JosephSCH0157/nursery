@@ -49,6 +49,8 @@ export type HearthChatResponse = {
   tag_audit: Record<string, unknown> | null;
   gate?: "clarify";
   total_tokens: number | null;
+  actual_cost_usd?: number;
+  billable_tokens?: number;
   billing_mode: HearthAiLane;
   token_balance: number | null;
   credits_warning?: string;
@@ -58,6 +60,8 @@ export type HearthSttResponse = {
   text: string;
   total_tokens: number | null;
   provider_request_id: string | null;
+  actual_cost_usd?: number;
+  billable_tokens?: number;
   billing_mode: HearthAiLane;
   token_balance: number | null;
   credits_warning?: string;
@@ -372,6 +376,8 @@ export function parseHearthChatResponse(
   const gateRaw = readTrimmedField(payload, "gate");
   const tagAuditRaw = readUnknownField(payload, "tag_audit");
   const creditsWarning = readTrimmedField(payload, "credits_warning") ?? undefined;
+  const actualCostUsd = readNumberField(payload, "actual_cost_usd") ?? undefined;
+  const billableTokens = readNumberField(payload, "billable_tokens") ?? undefined;
 
   return {
     assistant_text: assistantText,
@@ -380,6 +386,8 @@ export function parseHearthChatResponse(
     tag_audit: isRecord(tagAuditRaw) ? tagAuditRaw : null,
     ...(gateRaw === "clarify" ? { gate: "clarify" as const } : {}),
     total_tokens: readNumberField(payload, "total_tokens"),
+    ...(typeof actualCostUsd === "number" ? { actual_cost_usd: actualCostUsd } : {}),
+    ...(typeof billableTokens === "number" ? { billable_tokens: billableTokens } : {}),
     billing_mode: runtime.billingMode,
     token_balance: runtime.tokenBalance,
     ...(creditsWarning ? { credits_warning: creditsWarning } : {}),
@@ -394,11 +402,15 @@ export function parseHearthSttResponse(
 
   const runtime = readHearthAiRuntimeSnapshot(payload, fallbackLane);
   const creditsWarning = readTrimmedField(payload, "credits_warning") ?? undefined;
+  const actualCostUsd = readNumberField(payload, "actual_cost_usd") ?? undefined;
+  const billableTokens = readNumberField(payload, "billable_tokens") ?? undefined;
 
   return {
     text: (readStringField(payload, "text") ?? "").trim(),
     total_tokens: readNumberField(payload, "total_tokens"),
     provider_request_id: readStringField(payload, "provider_request_id"),
+    ...(typeof actualCostUsd === "number" ? { actual_cost_usd: actualCostUsd } : {}),
+    ...(typeof billableTokens === "number" ? { billable_tokens: billableTokens } : {}),
     billing_mode: runtime.billingMode,
     token_balance: runtime.tokenBalance,
     ...(creditsWarning ? { credits_warning: creditsWarning } : {}),

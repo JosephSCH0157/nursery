@@ -693,7 +693,7 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
       <div className="forge-ai-panel__section">
         <div className="forge-ai-panel__label">Provider</div>
         <div className="forge-ai-panel__row">
-          <select disabled value="openai">
+          <select aria-label="AI provider" disabled value="openai">
             <option value="openai">OpenAI</option>
           </select>
           <div className="forge-ai-panel__hint">More providers later.</div>
@@ -727,6 +727,7 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
         <div className="forge-ai-panel__label">Behavior</div>
         <div className="forge-ai-panel__row">
           <select
+            aria-label="AI behavior"
             value={settings.behavior}
             onChange={(event) => updateBehavior(event.target.value as AiBehavior)}
           >
@@ -770,6 +771,7 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
           <div className="forge-ai-panel__label">Dev Policy Override</div>
           <div className="forge-ai-panel__row">
             <select
+              aria-label="Development policy override"
               value={settings.policyTestOverride}
               onChange={(event) => updatePolicyTestOverride(event.target.value as AiPolicyTestOverride)}
             >
@@ -910,6 +912,7 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
                   <input
                     type="file"
                     accept=".txt,.md,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    aria-label="Upload writing sample files"
                     multiple
                     onChange={(event) => void onUploadSampleFiles(event)}
                     disabled={sampleImportBusy || sampleIngestBusy}
