@@ -1,5 +1,10 @@
-import assert from "node:assert/strict";
 import { resolveWaveformSeekTime } from "../src/editor/HammerWaveformLane";
+
+function assertEqual<T>(actual: T, expected: T, message: string): void {
+  if (!Object.is(actual, expected)) {
+    throw new Error(`${message}: expected ${String(expected)}, got ${String(actual)}`);
+  }
+}
 
 {
   const atStart = resolveWaveformSeekTime({
@@ -9,7 +14,7 @@ import { resolveWaveformSeekTime } from "../src/editor/HammerWaveformLane";
     canvasWidthPx: 1000,
     durationSec: 10,
   });
-  assert.equal(atStart, 0, "click at lane start should seek to 0s");
+  assertEqual(atStart, 0, "click at lane start should seek to 0s");
 }
 
 {
@@ -20,7 +25,7 @@ import { resolveWaveformSeekTime } from "../src/editor/HammerWaveformLane";
     canvasWidthPx: 1000,
     durationSec: 10,
   });
-  assert.equal(atMid, 5, "click at 50% should seek to midpoint");
+  assertEqual(atMid, 5, "click at 50% should seek to midpoint");
 }
 
 {
@@ -31,7 +36,7 @@ import { resolveWaveformSeekTime } from "../src/editor/HammerWaveformLane";
     canvasWidthPx: 1000,
     durationSec: 10,
   });
-  assert.equal(nearEnd, 9.5, "click near 95% should seek near end");
+  assertEqual(nearEnd, 9.5, "click near 95% should seek near end");
 }
 
 {
@@ -42,7 +47,7 @@ import { resolveWaveformSeekTime } from "../src/editor/HammerWaveformLane";
     canvasWidthPx: 1000,
     durationSec: 10,
   });
-  assert.equal(clampedLow, 0, "seek should clamp below 0 to start");
+  assertEqual(clampedLow, 0, "seek should clamp below 0 to start");
 }
 
 {
@@ -53,7 +58,7 @@ import { resolveWaveformSeekTime } from "../src/editor/HammerWaveformLane";
     canvasWidthPx: 1000,
     durationSec: 10,
   });
-  assert.equal(clampedHigh, 10, "seek should clamp beyond end to duration");
+  assertEqual(clampedHigh, 10, "seek should clamp beyond end to duration");
 }
 
 {
@@ -64,7 +69,7 @@ import { resolveWaveformSeekTime } from "../src/editor/HammerWaveformLane";
     canvasWidthPx: 1000,
     durationSec: 10,
   });
-  assert.equal(withScroll, 5, "seek should account for horizontal scroll offset");
+  assertEqual(withScroll, 5, "seek should account for horizontal scroll offset");
 }
 
 {
@@ -75,7 +80,7 @@ import { resolveWaveformSeekTime } from "../src/editor/HammerWaveformLane";
     canvasWidthPx: 1000,
     durationSec: 0,
   });
-  assert.equal(invalidDuration, null, "invalid duration should return null");
+  assertEqual(invalidDuration, null, "invalid duration should return null");
 }
 
 {
@@ -86,7 +91,7 @@ import { resolveWaveformSeekTime } from "../src/editor/HammerWaveformLane";
     canvasWidthPx: 0,
     durationSec: 10,
   });
-  assert.equal(invalidWidth, null, "invalid canvas width should return null");
+  assertEqual(invalidWidth, null, "invalid canvas width should return null");
 }
 
 console.log("Hammer waveform lane tests passed.");

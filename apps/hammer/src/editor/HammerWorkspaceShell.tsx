@@ -8049,10 +8049,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               <span>{previewMode}</span>
             </header>
             <div className="hammer-bay-body hammer-preview-bay__body">
-              <audio
+              <video
                 ref={previewAudioRef}
                 src={playbackMediaSrc ?? undefined}
                 preload="metadata"
+                playsInline
                 onTimeUpdate={(event) => {
                   if (!isPlaybackActive) return;
                   handlePlaybackProgress(event.currentTarget.currentTime);
@@ -8063,53 +8064,85 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     setPlaybackWindow(null);
                   }
                 }}
-                className="hammer-preview-audio"
+                className="hammer-preview-media"
               />
               <div className="hammer-preview-surface" ref={previewSurfaceRef}>
                 <div className="hammer-preview-surface__label">{resolvePreviewLabel(playheadSegment, playheadSec)}</div>
-                {currentPass === "image_placement" || currentPass === "image_animation" ? (
-                  <div className="hammer-preview-canvas" aria-label="Image placement canvas">
-                    {selectedImagePlacement ? (
-                      <div
-                        ref={selectedImagePlacementBBoxRef}
-                        key={`${selectedImagePlacement.id}:${selectedImageAnimationPreset}:${imageAnimationPreviewNonce}`}
-                        className={[
-                          "hammer-preview-canvas__bbox",
-                          resolveImageAnimationClass(selectedImageAnimationPreset),
-                        ].filter(Boolean).join(" ")}
-                        onMouseDown={(event) => beginPreviewCanvasDrag(event, {
-                          placementId: selectedImagePlacement.id,
+                <div className="hammer-preview-canvas" aria-label="Visual composition canvas">
+                  {activePreviewOverlays.map((overlay) => (
+                    <div
+                      key={`${overlay.placementId}:${overlay.startSec}:${overlay.endSec}`}
+                      className={[
+                        "hammer-preview-canvas__bbox",
+                        resolveImageAnimationClass(overlay.animationPreset),
+                        overlay.isSelected ? "is-selected" : "",
+                      ].filter(Boolean).join(" ")}
+                      style={{
+                        left: `${overlay.transform.leftPct}%`,
+                        top: `${overlay.transform.topPct}%`,
+                        width: `${overlay.transform.widthPct}%`,
+                        height: `${overlay.transform.heightPct}%`,
+                        zIndex: overlay.zIndex,
+                        opacity: overlay.opacity,
+                      }}
+                      onMouseDown={(event) => {
+                        setSelectedImagePlacementId(overlay.placementId);
+                        if (currentPass !== "image_placement") return;
+                        beginPreviewCanvasDrag(event, {
+                          placementId: overlay.placementId,
                           mode: "move",
-                        })}
-                      >
-                        {selectedImagePlacementPreviewUrl ? (
-                          <img
-                            src={selectedImagePlacementPreviewUrl}
-                            alt={selectedImagePlacement.label}
-                            className="hammer-preview-canvas__image"
+                        });
+                      }}
+                      role="button"
+                      tabIndex={0}
+                    >
+                      {overlay.kind === "broll" ? (
+                        overlay.src ? (
+                          <video
+                            ref={(node) => {
+                              if (node) {
+                                previewBrollVideoRefs.current.set(overlay.placementId, node);
+                              } else {
+                                previewBrollVideoRefs.current.delete(overlay.placementId);
+                              }
+                            }}
+                            src={overlay.src}
+                            muted
+                            playsInline
+                            preload="metadata"
+                            className="hammer-preview-canvas__video"
                           />
                         ) : (
-                          <div className="hammer-preview-canvas__fallback">{selectedImagePlacement.label}</div>
-                        )}
+                          <div className="hammer-preview-canvas__fallback">{overlay.label}</div>
+                        )
+                      ) : overlay.src ? (
+                        <img
+                          src={overlay.src}
+                          alt={overlay.label}
+                          className="hammer-preview-canvas__image"
+                        />
+                      ) : (
+                        <div className="hammer-preview-canvas__fallback">{overlay.label}</div>
+                      )}
+                      {currentPass === "image_placement" && overlay.isSelected ? (
                         <button
                           type="button"
                           className="hammer-preview-canvas__resize-handle"
-                          aria-label="Resize selected image"
+                          aria-label="Resize selected visual"
                           onMouseDown={(event) => beginPreviewCanvasDrag(event, {
-                            placementId: selectedImagePlacement.id,
+                            placementId: overlay.placementId,
                             mode: "resize",
                           })}
                         />
-                      </div>
-                    ) : (
-                      <div className="hammer-preview-canvas__empty">
-                        {currentPass === "image_placement"
-                          ? "Select an image clip in the timeline to edit position and scale."
-                          : "Select an image clip in the timeline to preview animation presets."}
-                      </div>
-                    )}
-                  </div>
-                ) : null}
+                      ) : null}
+                    </div>
+                  ))}
+                  {activePreviewOverlays.length === 0 ? (
+                    <div className="hammer-preview-canvas__empty">
+                      No active visual overlay at this playhead time.
+                    </div>
+                  ) : null}
+                </div>
               </div>
               <div className="hammer-preview-meta">
                 <span>Playhead {playheadSec.toFixed(1)}s</span>
