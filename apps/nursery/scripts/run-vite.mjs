@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import childProcess from "node:child_process";
 import { createRequire } from "node:module";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const originalExec = childProcess.exec.bind(childProcess);
@@ -19,5 +20,6 @@ childProcess.exec = function patchedExec(command, ...rest) {
 };
 
 const require = createRequire(import.meta.url);
-const viteCliPath = require.resolve("vite/bin/vite.js");
+const vitePackageJsonPath = require.resolve("vite/package.json");
+const viteCliPath = path.join(path.dirname(vitePackageJsonPath), "bin", "vite.js");
 await import(pathToFileURL(viteCliPath).href);
