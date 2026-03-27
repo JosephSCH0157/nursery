@@ -1640,7 +1640,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
   const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
-  const previewAudioRef = useRef<HTMLMediaElement | null>(null);
+  const previewAudioRef = useRef<HTMLVideoElement | null>(null);
   const previewSurfaceRef = useRef<HTMLDivElement | null>(null);
   const imageAnimationContextMenuRef = useRef<HTMLDivElement | null>(null);
   const previewBrollVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
@@ -2819,9 +2819,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setTimelineImageDragState(null);
     setImagePlacementTransforms({});
     setPreviewCanvasDragState(null);
-    setImageAnimationPresetByPlacementId({});
     setImageAnimationContextMenu(null);
-    setImageAnimationPreviewNonce(0);
     setEditableDerivedTextLayers(cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers));
     derivedLayerHistoryRef.current.clear();
     setCaptionBuildState(null);
@@ -4968,6 +4966,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     endSec: number;
     visualMode: string;
     uncertaintyFlags?: string[];
+    overlayGeometry?: HammerVisualPlacementGeometry;
   }): void {
     applyHistoryMutation({
       label: `Apply ${args.label}`,
@@ -5007,7 +5006,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           uncertainty_flags: args.uncertaintyFlags ?? [],
           overlay_geometry: args.entryId === PACKAGING_LOGO_ENTRY_ID
             ? (
-              positionFromLogoOption(packagingLogoPosition, packagingLogoSize)
+              args.overlayGeometry ?? positionFromLogoOption(packagingLogoPosition, packagingLogoSize)
             )
             : {
               ...DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
@@ -5103,6 +5102,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       startSec: 0,
       endSec: transcriptDurationSec,
       visualMode: "overlay_graphic",
+      overlayGeometry: positionFromLogoOption(packagingLogoPosition, packagingLogoSize),
       uncertaintyFlags: [
         "packaging:logo",
         `logo_position:${packagingLogoPosition}`,
@@ -5131,6 +5131,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       startSec: 0,
       endSec: transcriptDurationSec,
       visualMode: "overlay_graphic",
+      overlayGeometry: positionFromLogoOption(position, size),
       uncertaintyFlags: [
         "packaging:logo",
         `logo_position:${position}`,

@@ -397,6 +397,97 @@ async function testTranscriptSpanCutMutationUndoRedo() {
   assert.equal(controller.getState().transcriptSegments[1]?.segment_id, "c");
 }
 
+async function testVisualCompositionFieldsPersistAcrossUndoRedo() {
+  const initial = baseState();
+  initial.visualPlacements = {
+    schema_version: 1,
+    status: "prepared",
+    source_refs: [],
+    uncertainty_flags: [],
+    placements: [
+      {
+        placement_id: "placement-01",
+        entry_id: "manual:placement-01",
+        anchor_segment_id: "a",
+        matched_segment_ids: ["a"],
+        anchor_text: "hello",
+        asset_ref: "asset-1",
+        asset_id: "asset-1",
+        asset_path: "assets/image.png",
+        storage_key: "workpieces/example/assets/image.png",
+        label: "Image",
+        visual_mode: "still_image",
+        start_sec: 0,
+        end_sec: 2,
+        confidence: 1,
+        timing_source: "ordered_fallback",
+        status: "placed",
+        ingest_state: "approved",
+        uncertainty_flags: [],
+        overlay_geometry: {
+          x: 0.2,
+          y: 0.3,
+          width: 0.4,
+          height: 0.5,
+          anchor: "top_left",
+        },
+        animation_preset: "fade_in",
+        overlay_opacity: 0.85,
+        overlay_z_index: 7,
+      },
+    ],
+  };
+  const controller = createHammerHistoryController({
+    document: createHammerHistoryDocument({
+      workpieceId: "wp-visual",
+      sessionId: "session-visual",
+      baseRevisionId: hashEditorState(initial),
+    }),
+    initialState: initial,
+  });
+
+  const updated = cloneEditorState(initial);
+  if (!updated.visualPlacements?.placements[0]) {
+    throw new Error("Expected seeded visual placement");
+  }
+  updated.visualPlacements.placements[0].overlay_geometry = {
+    x: 0.25,
+    y: 0.35,
+    width: 0.45,
+    height: 0.55,
+    anchor: "top_left",
+  };
+  updated.visualPlacements.placements[0].animation_preset = "shutter_in";
+  controller.applyMutation({
+    label: "Adjust visual composition",
+    kind: "visual_adjustment",
+    affectedPlacementIds: ["placement-01"],
+    nextState: updated,
+  });
+
+  const after = controller.getState().visualPlacements?.placements[0] ?? null;
+  assert.ok(after);
+  assert.deepEqual(after?.overlay_geometry, {
+    x: 0.25,
+    y: 0.35,
+    width: 0.45,
+    height: 0.55,
+    anchor: "top_left",
+  });
+  assert.equal(after?.animation_preset, "shutter_in");
+  controller.undo();
+  const undone = controller.getState().visualPlacements?.placements[0] ?? null;
+  assert.ok(undone);
+  assert.deepEqual(undone?.overlay_geometry, {
+    x: 0.2,
+    y: 0.3,
+    width: 0.4,
+    height: 0.5,
+    anchor: "top_left",
+  });
+  assert.equal(undone?.animation_preset, "fade_in");
+}
+
 async function run() {
   await testPatchRoundTrip();
   await testControllerUndoRedoAndRedoClear();
@@ -407,6 +498,7 @@ async function run() {
   await testReplayFromSnapshotTail();
   await testDisabledAndGainPersistThroughHistory();
   await testTranscriptSpanCutMutationUndoRedo();
+  await testVisualCompositionFieldsPersistAcrossUndoRedo();
   // eslint-disable-next-line no-console
   console.log("Hammer workspace history tests passed.");
 }
