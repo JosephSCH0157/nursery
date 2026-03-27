@@ -1,5 +1,6 @@
 import { useMemo, useRef } from "react";
 import type { EpisodeBrollAssetCandidate, EpisodeContextualDataCompositePlan } from "../../lib/episode-package-v2";
+import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actionability";
 
 type ReferenceClipPlanPanelProps = {
   entries: EpisodeContextualDataCompositePlan[];
@@ -26,7 +27,15 @@ type ReferenceClipPlanPanelProps = {
     values: string;
     emphasisKey: string;
     sourceType: string;
+    providerId: string;
+    sourceLabel: string;
+    sourceUrl: string;
+    providerNote: string;
+    usageNote: string;
+    resultMetadata: string;
   };
+  requestState: string;
+  providers: ExternalGenerationProvider[];
   selectedCandidateId: string | null;
   onSelectEntry: (entryId: string) => void;
   onDraftChange: (field: string, value: string) => void;
@@ -36,6 +45,14 @@ type ReferenceClipPlanPanelProps = {
   onRegenerateStub: () => void;
   onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
+  onCopyPrompt: () => void;
+  onDownloadBrief: () => void;
+  onDownloadBriefJson: () => void;
+  onOpenProvider: () => void;
+  onMarkSent: () => void;
+  onMarkAwaitingResult: () => void;
+  onClearRequestState: () => void;
+  onAttachResultFromUrl: () => void;
 };
 
 const PLACEMENT_HINTS = ["first_occurrence", "exact_timestamp", "manual"];
@@ -248,7 +265,7 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
 
               <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
                 <div className="hs-imap-candidate-action-group">
-                  <button type="button" onClick={() => uploadInputRef.current?.click()} disabled={props.disabled}>Upload Asset</button>
+                  <button type="button" onClick={() => uploadInputRef.current?.click()} disabled={props.disabled}>Attach Result File</button>
                   <button type="button" onClick={props.onRegenerateStub} disabled={props.disabled}>Regenerate (stub)</button>
                 </div>
                 <div className="hs-imap-candidate-action-group">
@@ -267,6 +284,63 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
                     event.currentTarget.value = "";
                   }}
                 />
+              </div>
+
+              <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
+                <div className="hs-imap-candidate-action-group">
+                  <button type="button" onClick={props.onCopyPrompt} disabled={props.disabled}>Copy Prompt</button>
+                  <button type="button" onClick={props.onDownloadBrief} disabled={props.disabled}>Download Brief</button>
+                  <button type="button" onClick={props.onDownloadBriefJson} disabled={props.disabled}>Download JSON Brief</button>
+                </div>
+                <div className="hs-imap-candidate-action-group">
+                  <span className="hs-pill">Manual bridge: {props.requestState}</span>
+                </div>
+              </div>
+
+              <div className="hs-imap-field-grid">
+                <label>
+                  Provider
+                  <select value={props.draft.providerId} onChange={(event) => props.onDraftChange("providerId", event.target.value)} disabled={props.disabled}>
+                    <option value="">Select provider</option>
+                    {props.providers.map((provider) => (
+                      <option key={provider.id} value={provider.id}>{provider.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Source Label
+                  <input value={props.draft.sourceLabel} onChange={(event) => props.onDraftChange("sourceLabel", event.target.value)} disabled={props.disabled} />
+                </label>
+                <label>
+                  Source URL
+                  <input value={props.draft.sourceUrl} onChange={(event) => props.onDraftChange("sourceUrl", event.target.value)} disabled={props.disabled} />
+                </label>
+              </div>
+              <div className="hs-imap-field-grid">
+                <label>
+                  Provider Note
+                  <input value={props.draft.providerNote} onChange={(event) => props.onDraftChange("providerNote", event.target.value)} disabled={props.disabled} />
+                </label>
+                <label>
+                  Usage / Licensing Note
+                  <input value={props.draft.usageNote} onChange={(event) => props.onDraftChange("usageNote", event.target.value)} disabled={props.disabled} />
+                </label>
+                <label>
+                  Result Metadata
+                  <input value={props.draft.resultMetadata} onChange={(event) => props.onDraftChange("resultMetadata", event.target.value)} disabled={props.disabled} />
+                </label>
+              </div>
+
+              <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
+                <div className="hs-imap-candidate-action-group">
+                  <button type="button" onClick={props.onOpenProvider} disabled={props.disabled}>Open Provider</button>
+                  <button type="button" onClick={props.onMarkSent} disabled={props.disabled}>Mark as Sent</button>
+                  <button type="button" onClick={props.onMarkAwaitingResult} disabled={props.disabled}>Mark Awaiting Result</button>
+                  <button type="button" onClick={props.onAttachResultFromUrl} disabled={props.disabled}>Attach Result URL</button>
+                </div>
+                <div className="hs-imap-candidate-action-group">
+                  <button type="button" onClick={props.onClearRequestState} disabled={props.disabled}>Clear Request State</button>
+                </div>
               </div>
 
               <CandidateList

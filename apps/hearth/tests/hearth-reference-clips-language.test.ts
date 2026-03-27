@@ -18,6 +18,7 @@ function readSource(relativePath: string): string {
 
 run("visual panels use Reference Clip user-facing language", () => {
   const referenceClipPanel = readSource("src/components/visuals/ReferenceClipPlanPanel.tsx");
+  const brollPanel = readSource("src/components/visuals/BrollPlanPanel.tsx");
   const mediaMapPanel = readSource("src/components/visuals/EpisodeMediaMapPanel.tsx");
   const hearthShell = readSource("src/routes/HearthShell.tsx");
 
@@ -26,6 +27,14 @@ run("visual panels use Reference Clip user-facing language", () => {
   assert.equal(/\bCDC\b/.test(hearthShell), false);
 
   assert.equal(referenceClipPanel.includes("Reference Clip"), true);
+  assert.equal(referenceClipPanel.includes("Open Provider"), true);
+  assert.equal(referenceClipPanel.includes("Attach Result URL"), true);
+  assert.equal(referenceClipPanel.includes("Manual bridge"), true);
+  assert.equal(brollPanel.includes("Open Provider"), true);
+  assert.equal(brollPanel.includes("Attach Result URL"), true);
+  assert.equal(brollPanel.includes("Manual bridge"), true);
   assert.equal(mediaMapPanel.includes("Reference Clip"), true);
   assert.equal(hearthShell.includes("Reference Clip"), true);
+  assert.equal(referenceClipPanel.includes("Automated round-trip"), false);
+  assert.equal(brollPanel.includes("Automated round-trip"), false);
 });

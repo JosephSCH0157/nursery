@@ -274,12 +274,23 @@ export const EPISODE_BROLL_PLAN_FULFILLMENT_STATE_VALUES = [
   "resolved",
   "stale",
 ] as const;
+export const EPISODE_VISUAL_ASSET_CLASS_VALUES = ["broll", "reference_clip"] as const;
+export const EPISODE_EXTERNAL_REQUEST_STATE_VALUES = [
+  "planned",
+  "brief_exported",
+  "sent_external",
+  "awaiting_result",
+  "asset_attached",
+  "resolved",
+] as const;
 
 export type EpisodeBrollMotionIntent = (typeof EPISODE_BROLL_PLAN_MOTION_INTENT_VALUES)[number];
 export type EpisodeBrollSourceType = (typeof EPISODE_BROLL_PLAN_SOURCE_TYPE_VALUES)[number];
 export type EpisodeBrollMotionAssetCategory = (typeof EPISODE_BROLL_PLAN_MOTION_ASSET_CATEGORY_VALUES)[number];
 export type EpisodeBrollCoverageStrength = (typeof EPISODE_BROLL_PLAN_COVERAGE_STRENGTH_VALUES)[number];
 export type EpisodeBrollFulfillmentState = (typeof EPISODE_BROLL_PLAN_FULFILLMENT_STATE_VALUES)[number];
+export type EpisodeVisualAssetClass = (typeof EPISODE_VISUAL_ASSET_CLASS_VALUES)[number];
+export type EpisodeExternalRequestState = (typeof EPISODE_EXTERNAL_REQUEST_STATE_VALUES)[number];
 
 export type EpisodeBrollShotType = "close" | "medium" | "wide" | "macro" | "aerial" | "mixed";
 export type EpisodeBrollPriority = "primary" | "supporting" | "background";
@@ -299,6 +310,14 @@ export type EpisodeBrollDataVisualSpec = {
 export type EpisodeBrollAssetCandidate = {
   asset_id: string;
   source: EpisodeBrollSourceType;
+  asset_class?: EpisodeVisualAssetClass | null;
+  source_beat_id?: string | null;
+  source_label?: string | null;
+  source_url?: string | null;
+  provider_note?: string | null;
+  usage_note?: string | null;
+  thumbnail_path?: string | null;
+  attached_at?: string | null;
   asset_category?: EpisodeBrollMotionAssetCategory | null;
   label?: string | null;
   path?: string | null;
@@ -307,6 +326,17 @@ export type EpisodeBrollAssetCandidate = {
   duration_ms?: number | null;
   data_visual_spec?: EpisodeBrollDataVisualSpec | null;
   created_at?: string | null;
+};
+
+export type EpisodeExternalRequestTracker = {
+  state: EpisodeExternalRequestState;
+  provider_id?: string | null;
+  source_url?: string | null;
+  provider_note?: string | null;
+  usage_note?: string | null;
+  result_metadata?: string | null;
+  attached_asset_id?: string | null;
+  updated_at: string;
 };
 
 export type EpisodeBrollPlanBeat = {
@@ -329,6 +359,7 @@ export type EpisodeBrollPlanBeat = {
   data_visual_spec?: EpisodeBrollDataVisualSpec | null;
   selected_asset_id?: string | null;
   candidate_assets?: EpisodeBrollAssetCandidate[];
+  external_request?: EpisodeExternalRequestTracker | null;
   fulfillment_state?: EpisodeBrollFulfillmentState;
   origin: EpisodeBrollOrigin;
   created_at: string;
@@ -392,6 +423,7 @@ export type EpisodeContextualDataCompositePlan = {
   values?: Array<number | string>;
   emphasis_key?: string | null;
   candidate_assets?: EpisodeBrollAssetCandidate[];
+  external_request?: EpisodeExternalRequestTracker | null;
   selected_asset_id?: string | null;
   source_type: EpisodeBrollSourceType;
   origin: EpisodeBrollOrigin;
@@ -1449,6 +1481,14 @@ function normalizeBrollCandidateAssets(value: unknown): EpisodeBrollAssetCandida
     candidates.push({
       asset_id: assetId,
       source,
+      asset_class: normalizeVisualAssetClass(entry.asset_class),
+      source_beat_id: readString(entry.source_beat_id),
+      source_label: readString(entry.source_label),
+      source_url: readString(entry.source_url),
+      provider_note: readString(entry.provider_note),
+      usage_note: readString(entry.usage_note),
+      thumbnail_path: readString(entry.thumbnail_path),
+      attached_at: normalizeOptionalIso(entry.attached_at),
       asset_category: normalizeBrollMotionAssetCategory(entry.asset_category)
         ?? deriveBrollAssetCategoryFromSource({
           sourceType: source,
@@ -1465,6 +1505,36 @@ function normalizeBrollCandidateAssets(value: unknown): EpisodeBrollAssetCandida
     });
   }
   return candidates;
+}
+
+function normalizeVisualAssetClass(value: unknown): EpisodeVisualAssetClass | null {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized && EPISODE_VISUAL_ASSET_CLASS_VALUES.includes(normalized as EpisodeVisualAssetClass)) {
+    return normalized as EpisodeVisualAssetClass;
+  }
+  return null;
+}
+
+function normalizeExternalRequestState(value: unknown): EpisodeExternalRequestState {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized && EPISODE_EXTERNAL_REQUEST_STATE_VALUES.includes(normalized as EpisodeExternalRequestState)) {
+    return normalized as EpisodeExternalRequestState;
+  }
+  return "planned";
+}
+
+function normalizeExternalRequestTracker(value: unknown): EpisodeExternalRequestTracker | null {
+  if (!isRecord(value)) return null;
+  return {
+    state: normalizeExternalRequestState(value.state),
+    provider_id: readString(value.provider_id),
+    source_url: readString(value.source_url),
+    provider_note: readString(value.provider_note),
+    usage_note: readString(value.usage_note),
+    result_metadata: readString(value.result_metadata),
+    attached_asset_id: readString(value.attached_asset_id),
+    updated_at: normalizeIso(value.updated_at),
+  };
 }
 
 function normalizeBrollFulfillmentState(
@@ -1495,6 +1565,7 @@ function normalizeBrollPlanBeat(value: unknown, fallbackId: string, fallbackWork
   const selectedAssetId = readString(value.selected_asset_id);
   const motionIntent = normalizeBrollMotionIntent(value.motion_intent);
   const sourceType = normalizeBrollSourceType(value.source_type);
+  const externalRequest = normalizeExternalRequestTracker(value.external_request);
   const assetCategory = normalizeBrollMotionAssetCategory(value.asset_category)
     ?? deriveBrollAssetCategoryFromSource({
       sourceType,
@@ -1522,6 +1593,8 @@ function normalizeBrollPlanBeat(value: unknown, fallbackId: string, fallbackWork
     selected_asset_id: selectedAssetId,
     candidate_assets: candidateAssets.map((candidate) => ({
       ...candidate,
+      asset_class: candidate.asset_class ?? "broll",
+      source_beat_id: candidate.source_beat_id ?? id,
       asset_category: candidate.asset_category
         ?? deriveBrollAssetCategoryFromSource({
           sourceType: candidate.source,
@@ -1529,6 +1602,7 @@ function normalizeBrollPlanBeat(value: unknown, fallbackId: string, fallbackWork
           mimeType: candidate.mime_type ?? null,
         }),
     })),
+    external_request: externalRequest,
     fulfillment_state: normalizeBrollFulfillmentState(value.fulfillment_state, candidateAssets, selectedAssetId),
     origin: normalizeBrollOrigin(value.origin),
     created_at: normalizeIso(value.created_at),
@@ -1626,6 +1700,7 @@ function normalizeCdcEntry(value: unknown, fallbackId: string, fallbackWorkpiece
   const workpieceId = readString(value.workpiece_id) ?? fallbackWorkpieceId;
   const candidateAssets = normalizeBrollCandidateAssets(value.candidate_assets);
   const selectedAssetId = readString(value.selected_asset_id);
+  const externalRequest = normalizeExternalRequestTracker(value.external_request);
   return {
     id,
     workpiece_id: workpieceId,
@@ -1647,7 +1722,12 @@ function normalizeCdcEntry(value: unknown, fallbackId: string, fallbackWorkpiece
     labels: readStringArray(value.labels).slice(0, 32),
     values: normalizeCdcValues(value.values),
     emphasis_key: readString(value.emphasis_key),
-    candidate_assets: candidateAssets,
+    candidate_assets: candidateAssets.map((candidate) => ({
+      ...candidate,
+      asset_class: candidate.asset_class ?? "reference_clip",
+      source_beat_id: candidate.source_beat_id ?? id,
+    })),
+    external_request: externalRequest,
     selected_asset_id: selectedAssetId,
     source_type: normalizeBrollSourceType(value.source_type),
     origin: normalizeBrollOrigin(value.origin),
@@ -2163,6 +2243,8 @@ export function ensureBrollPlanV2(pkg: EpisodePackageV2): EpisodePackageV2 {
     keywords: dedupeTags(beat.keywords),
     candidate_assets: normalizeBrollCandidateAssets(beat.candidate_assets).map((candidate) => ({
       ...candidate,
+      asset_class: candidate.asset_class ?? "broll",
+      source_beat_id: candidate.source_beat_id ?? beat.id,
       asset_category: candidate.asset_category
         ?? deriveBrollAssetCategoryFromSource({
           sourceType: candidate.source,
@@ -2177,6 +2259,11 @@ export function ensureBrollPlanV2(pkg: EpisodePackageV2): EpisodePackageV2 {
       beat.selected_asset_id ?? null,
     ),
     source_type: normalizeBrollSourceType(beat.source_type),
+    external_request: normalizeExternalRequestTracker(beat.external_request) ?? {
+      state: beat.selected_asset_id ? "resolved" : "planned",
+      attached_asset_id: beat.selected_asset_id ?? null,
+      updated_at: normalizeIso(beat.updated_at, beat.created_at),
+    },
     motion_intent: normalizeBrollMotionIntent(beat.motion_intent),
     asset_category: normalizeBrollMotionAssetCategory(beat.asset_category)
       ?? deriveBrollAssetCategoryFromSource({
@@ -2218,7 +2305,16 @@ export function ensureCdcPlanV2(pkg: EpisodePackageV2): EpisodePackageV2 {
     chart_type: normalizeCdcChartType(entry.chart_type),
     labels: readStringArray(entry.labels).slice(0, 32),
     values: normalizeCdcValues(entry.values),
-    candidate_assets: normalizeBrollCandidateAssets(entry.candidate_assets),
+    candidate_assets: normalizeBrollCandidateAssets(entry.candidate_assets).map((candidate) => ({
+      ...candidate,
+      asset_class: candidate.asset_class ?? "reference_clip",
+      source_beat_id: candidate.source_beat_id ?? entry.id,
+    })),
+    external_request: normalizeExternalRequestTracker(entry.external_request) ?? {
+      state: entry.selected_asset_id ? "resolved" : "planned",
+      attached_asset_id: entry.selected_asset_id ?? null,
+      updated_at: normalizeIso(entry.updated_at, entry.created_at),
+    },
     selected_asset_id: readString(entry.selected_asset_id),
     source_type: normalizeBrollSourceType(entry.source_type),
     origin: normalizeBrollOrigin(entry.origin),

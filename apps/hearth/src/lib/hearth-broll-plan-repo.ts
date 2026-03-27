@@ -53,6 +53,11 @@ export async function uploadBrollBeatAsset(args: {
   beatId: string;
   file: File;
   source: EpisodeBrollSourceType;
+  assetClass?: "broll" | "reference_clip";
+  sourceLabel?: string | null;
+  sourceUrl?: string | null;
+  providerNote?: string | null;
+  usageNote?: string | null;
 }): Promise<UploadBrollBeatAssetResult> {
   const mimeType = resolveUploadMimeType(args.file);
   const accepted = mimeType.startsWith("video/") || mimeType.startsWith("image/");
@@ -113,10 +118,17 @@ export async function uploadBrollBeatAsset(args: {
     candidateAsset: {
       asset_id: candidateId,
       source: args.source,
+      asset_class: args.assetClass ?? "broll",
+      source_beat_id: args.beatId,
+      source_label: readString(args.sourceLabel),
+      source_url: readString(args.sourceUrl),
+      provider_note: readString(args.providerNote),
+      usage_note: readString(args.usageNote),
       asset_category: "uploaded_video",
       label: args.file.name,
       path: uploadPath,
       mime_type: mimeType,
+      attached_at: new Date().toISOString(),
       created_at: new Date().toISOString(),
     },
   };

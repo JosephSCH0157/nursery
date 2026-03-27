@@ -91,6 +91,10 @@ export function createReferenceClipPlan(args: {
     values: [],
     emphasis_key: null,
     candidate_assets: [],
+    external_request: {
+      state: "planned",
+      updated_at: generatedAt,
+    },
     selected_asset_id: null,
     source_type: "planned",
     origin: "hearth",

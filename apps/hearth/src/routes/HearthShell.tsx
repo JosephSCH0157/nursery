@@ -188,6 +188,15 @@ import {
   inferReferenceClipSuitabilitySignals,
 } from "../lib/hearth-reference-clip-plan";
 import {
+  advanceExternalRequestTracker,
+  buildBrollBeatBrief,
+  buildReferenceClipBrief,
+  createManualResultCandidate,
+  formatVisualBriefAsText,
+  listExternalGenerationProviders,
+  type ExternalGenerationProvider,
+} from "../lib/hearth-visual-actionability";
+import {
   readWorkpieceEpisodeMediaMap,
   saveWorkpieceEpisodeMediaMap,
 } from "../lib/hearth-media-map-repo";
@@ -196,6 +205,7 @@ import {
 } from "../lib/hearth-media-map-fulfillment";
 import type {
   EpisodeBrollDataVisualSpec,
+  EpisodeExternalRequestState,
   EpisodeBrollMotionAssetCategory,
   EpisodeReferenceClipChartType,
   EpisodeReferenceClipContextType,
@@ -1415,6 +1425,34 @@ async function writeTextToClipboard(text: string): Promise<boolean> {
   }
 }
 
+function downloadTextFile(args: { text: string; filename: string; mimeType?: string }): void {
+  if (typeof document === "undefined" || typeof URL === "undefined") return;
+  const blob = new Blob([args.text], { type: args.mimeType ?? "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = args.filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function resolveVisualRequestStateLabel(state: EpisodeExternalRequestState | null | undefined): string {
+  switch (state) {
+    case "brief_exported":
+      return "brief_exported";
+    case "sent_external":
+      return "sent_external";
+    case "awaiting_result":
+      return "awaiting_result";
+    case "asset_attached":
+      return "asset_attached";
+    case "resolved":
+      return "resolved";
+    default:
+      return "planned";
+  }
+}
+
 function CopyIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -2436,6 +2474,12 @@ export default function HearthShell({
   const [brollDataValuesDraft, setBrollDataValuesDraft] = useState("");
   const [brollDataEmphasisKeyDraft, setBrollDataEmphasisKeyDraft] = useState("");
   const [brollDataAnimationStyleDraft, setBrollDataAnimationStyleDraft] = useState("");
+  const [brollProviderIdDraft, setBrollProviderIdDraft] = useState("");
+  const [brollSourceLabelDraft, setBrollSourceLabelDraft] = useState("");
+  const [brollSourceUrlDraft, setBrollSourceUrlDraft] = useState("");
+  const [brollProviderNoteDraft, setBrollProviderNoteDraft] = useState("");
+  const [brollUsageNoteDraft, setBrollUsageNoteDraft] = useState("");
+  const [brollResultMetadataDraft, setBrollResultMetadataDraft] = useState("");
   const [brollSaveState, setBrollSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
   const [brollSaveError, setBrollSaveError] = useState<string | null>(null);
   const [brollMessage, setBrollMessage] = useState<string | null>(null);
@@ -2458,6 +2502,12 @@ export default function HearthShell({
   const [referenceClipValuesDraft, setReferenceClipValuesDraft] = useState("");
   const [referenceClipEmphasisKeyDraft, setReferenceClipEmphasisKeyDraft] = useState("");
   const [referenceClipSourceTypeDraft, setReferenceClipSourceTypeDraft] = useState("planned");
+  const [referenceClipProviderIdDraft, setReferenceClipProviderIdDraft] = useState("");
+  const [referenceClipSourceLabelDraft, setReferenceClipSourceLabelDraft] = useState("");
+  const [referenceClipSourceUrlDraft, setReferenceClipSourceUrlDraft] = useState("");
+  const [referenceClipProviderNoteDraft, setReferenceClipProviderNoteDraft] = useState("");
+  const [referenceClipUsageNoteDraft, setReferenceClipUsageNoteDraft] = useState("");
+  const [referenceClipResultMetadataDraft, setReferenceClipResultMetadataDraft] = useState("");
   const [referenceClipSaveState, setReferenceClipSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
   const [referenceClipSaveError, setReferenceClipSaveError] = useState<string | null>(null);
   const [referenceClipMessage, setReferenceClipMessage] = useState<string | null>(null);
@@ -2851,9 +2901,13 @@ export default function HearthShell({
   const brollPlan: EpisodeBrollPlan | null = episodePackage?.broll_plan ?? null;
   const brollBeats: EpisodeBrollPlanBeat[] = brollPlan?.beats ?? [];
   const selectedBrollBeat = brollBeats.find((beat) => beat.id === selectedBrollBeatId) ?? null;
+  const brollProviders: ExternalGenerationProvider[] = listExternalGenerationProviders("broll");
+  const brollRequestStateLabel = resolveVisualRequestStateLabel(selectedBrollBeat?.external_request?.state);
   const referenceClipPlan: EpisodeReferenceClipPlan | null = episodePackage?.cdc_plan ?? null;
   const referenceClipEntries: EpisodeContextualDataCompositePlan[] = referenceClipPlan?.entries ?? [];
   const selectedReferenceClipEntry = referenceClipEntries.find((entry) => entry.id === selectedReferenceClipEntryId) ?? null;
+  const referenceClipProviders: ExternalGenerationProvider[] = listExternalGenerationProviders("reference_clip");
+  const referenceClipRequestStateLabel = resolveVisualRequestStateLabel(selectedReferenceClipEntry?.external_request?.state);
   const selectedImageMapExactAnchor = useMemo(() => {
     if (!selectedImageMapEntry || canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
       return null;
@@ -6060,6 +6114,12 @@ export default function HearthShell({
       setBrollDataValuesDraft("");
       setBrollDataEmphasisKeyDraft("");
       setBrollDataAnimationStyleDraft("");
+      setBrollProviderIdDraft("");
+      setBrollSourceLabelDraft("");
+      setBrollSourceUrlDraft("");
+      setBrollProviderNoteDraft("");
+      setBrollUsageNoteDraft("");
+      setBrollResultMetadataDraft("");
       setBrollSaveState("saved");
       return;
     }
@@ -6082,6 +6142,16 @@ export default function HearthShell({
     setBrollDataValuesDraft((selectedBrollBeat.data_visual_spec?.values ?? []).map((value) => String(value)).join(", "));
     setBrollDataEmphasisKeyDraft(selectedBrollBeat.data_visual_spec?.emphasis_key ?? "");
     setBrollDataAnimationStyleDraft(selectedBrollBeat.data_visual_spec?.animation_style ?? "");
+    setBrollProviderIdDraft(selectedBrollBeat.external_request?.provider_id ?? "");
+    setBrollSourceLabelDraft(
+      (selectedBrollBeat.selected_asset_id
+        ? (selectedBrollBeat.candidate_assets ?? []).find((asset) => asset.asset_id === selectedBrollBeat.selected_asset_id)?.source_label
+        : null) ?? "",
+    );
+    setBrollSourceUrlDraft(selectedBrollBeat.external_request?.source_url ?? "");
+    setBrollProviderNoteDraft(selectedBrollBeat.external_request?.provider_note ?? "");
+    setBrollUsageNoteDraft(selectedBrollBeat.external_request?.usage_note ?? "");
+    setBrollResultMetadataDraft(selectedBrollBeat.external_request?.result_metadata ?? "");
     setBrollSaveState("saved");
     setBrollSaveError(null);
   }, [selectedBrollBeat]);
@@ -6116,6 +6186,12 @@ export default function HearthShell({
       setReferenceClipValuesDraft("");
       setReferenceClipEmphasisKeyDraft("");
       setReferenceClipSourceTypeDraft("planned");
+      setReferenceClipProviderIdDraft("");
+      setReferenceClipSourceLabelDraft("");
+      setReferenceClipSourceUrlDraft("");
+      setReferenceClipProviderNoteDraft("");
+      setReferenceClipUsageNoteDraft("");
+      setReferenceClipResultMetadataDraft("");
       setReferenceClipSaveState("saved");
       return;
     }
@@ -6136,6 +6212,16 @@ export default function HearthShell({
     setReferenceClipValuesDraft((selectedReferenceClipEntry.values ?? []).map((value) => String(value)).join(", "));
     setReferenceClipEmphasisKeyDraft(selectedReferenceClipEntry.emphasis_key ?? "");
     setReferenceClipSourceTypeDraft(selectedReferenceClipEntry.source_type ?? "planned");
+    setReferenceClipProviderIdDraft(selectedReferenceClipEntry.external_request?.provider_id ?? "");
+    setReferenceClipSourceLabelDraft(
+      (selectedReferenceClipEntry.selected_asset_id
+        ? (selectedReferenceClipEntry.candidate_assets ?? []).find((asset) => asset.asset_id === selectedReferenceClipEntry.selected_asset_id)?.source_label
+        : null) ?? "",
+    );
+    setReferenceClipSourceUrlDraft(selectedReferenceClipEntry.external_request?.source_url ?? "");
+    setReferenceClipProviderNoteDraft(selectedReferenceClipEntry.external_request?.provider_note ?? "");
+    setReferenceClipUsageNoteDraft(selectedReferenceClipEntry.external_request?.usage_note ?? "");
+    setReferenceClipResultMetadataDraft(selectedReferenceClipEntry.external_request?.result_metadata ?? "");
     setReferenceClipSaveState("saved");
     setReferenceClipSaveError(null);
   }, [selectedReferenceClipEntry]);
@@ -8042,6 +8128,14 @@ export default function HearthShell({
         : null,
       data_visual_spec: nextDataVisualSpec,
       placement_hint: (brollPlacementHintDraft.trim() || "first_occurrence") as EpisodeBrollPlanBeat["placement_hint"],
+      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, selectedBrollBeat.external_request?.state ?? "planned", {
+        providerId: brollProviderIdDraft,
+        sourceUrl: brollSourceUrlDraft,
+        providerNote: brollProviderNoteDraft,
+        usageNote: brollUsageNoteDraft,
+        resultMetadata: brollResultMetadataDraft,
+        attachedAssetId: selectedBrollBeat.selected_asset_id ?? null,
+      }),
       updated_at: new Date().toISOString(),
       fulfillment_state: selectedBrollBeat.selected_asset_id ? "stale" : selectedBrollBeat.fulfillment_state,
     };
@@ -8149,6 +8243,254 @@ export default function HearthShell({
     }
   }
 
+  async function onCopyBrollPrompt() {
+    if (!episodePackage || !selectedBrollBeat) return;
+    const brief = buildBrollBeatBrief({
+      beat: {
+        ...selectedBrollBeat,
+        anchor_text: brollAnchorDraft.trim() || selectedBrollBeat.anchor_text,
+        description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
+      },
+      workpieceId: workpieceId?.trim() ?? "",
+      workpieceTitle: activeDraft?.title ?? null,
+    });
+    const text = formatVisualBriefAsText(brief);
+    const copied = await writeTextToClipboard(text);
+    if (!copied) {
+      setBrollSaveError("Unable to copy prompt to clipboard.");
+      setBrollSaveState("error");
+      return;
+    }
+    const nextBeat: EpisodeBrollPlanBeat = {
+      ...selectedBrollBeat,
+      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "brief_exported", {
+        providerId: brollProviderIdDraft,
+        sourceUrl: brollSourceUrlDraft,
+        providerNote: brollProviderNoteDraft,
+        usageNote: brollUsageNoteDraft,
+        resultMetadata: brollResultMetadataDraft,
+      }),
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
+      generated_at: new Date().toISOString(),
+    };
+    const saved = await persistBrollPlan({
+      plan: nextPlan,
+      eventName: "hearth.broll_plan.brief_copied.v1",
+      eventPayload: { beat_id: selectedBrollBeat.id },
+    });
+    if (!saved.ok) {
+      setBrollSaveError(saved.error);
+      setBrollSaveState("error");
+      return;
+    }
+    setBrollMessage("Prompt copied. Manual bridge state updated.");
+    setBrollSaveState("saved");
+  }
+
+  async function onDownloadBrollBrief(format: "text" | "json") {
+    if (!episodePackage || !selectedBrollBeat) return;
+    const brief = buildBrollBeatBrief({
+      beat: {
+        ...selectedBrollBeat,
+        anchor_text: brollAnchorDraft.trim() || selectedBrollBeat.anchor_text,
+        description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
+      },
+      workpieceId: workpieceId?.trim() ?? "",
+      workpieceTitle: activeDraft?.title ?? null,
+    });
+    const suffix = (workpieceId?.slice(0, 8) ?? "episode").toLowerCase();
+    if (format === "json") {
+      downloadTextFile({
+        text: JSON.stringify(brief, null, 2),
+        filename: `broll-brief-${suffix}-${selectedBrollBeat.id}.json`,
+        mimeType: "application/json;charset=utf-8",
+      });
+    } else {
+      downloadTextFile({
+        text: formatVisualBriefAsText(brief),
+        filename: `broll-brief-${suffix}-${selectedBrollBeat.id}.txt`,
+      });
+    }
+    const nextBeat: EpisodeBrollPlanBeat = {
+      ...selectedBrollBeat,
+      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "brief_exported", {
+        providerId: brollProviderIdDraft,
+        sourceUrl: brollSourceUrlDraft,
+        providerNote: brollProviderNoteDraft,
+        usageNote: brollUsageNoteDraft,
+        resultMetadata: brollResultMetadataDraft,
+      }),
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
+      generated_at: new Date().toISOString(),
+    };
+    const saved = await persistBrollPlan({
+      plan: nextPlan,
+      eventName: "hearth.broll_plan.brief_downloaded.v1",
+      eventPayload: { beat_id: selectedBrollBeat.id, format },
+    });
+    if (!saved.ok) {
+      setBrollSaveError(saved.error);
+      setBrollSaveState("error");
+      return;
+    }
+    setBrollMessage(format === "json" ? "JSON brief downloaded." : "Brief downloaded.");
+    setBrollSaveState("saved");
+  }
+
+  async function onOpenBrollProvider() {
+    if (!selectedBrollBeat) return;
+    const provider = brollProviders.find((entry) => entry.id === brollProviderIdDraft) ?? null;
+    if (!provider) {
+      setBrollSaveError("Choose a provider before opening a manual bridge.");
+      setBrollSaveState("error");
+      return;
+    }
+    const brief = buildBrollBeatBrief({
+      beat: {
+        ...selectedBrollBeat,
+        anchor_text: brollAnchorDraft.trim() || selectedBrollBeat.anchor_text,
+        description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
+      },
+      workpieceId: workpieceId?.trim() ?? "",
+      workpieceTitle: activeDraft?.title ?? null,
+    });
+    await writeTextToClipboard(formatVisualBriefAsText(brief));
+    if (typeof window !== "undefined") {
+      window.open(provider.launchUrl, "_blank", "noopener,noreferrer");
+    }
+    await onMarkBrollRequestState("sent_external");
+    setBrollMessage(`Opened ${provider.name}. Prompt copied for manual paste.`);
+  }
+
+  async function onMarkBrollRequestState(nextState: EpisodeExternalRequestState) {
+    if (!episodePackage || !selectedBrollBeat) return;
+    const nextBeat: EpisodeBrollPlanBeat = {
+      ...selectedBrollBeat,
+      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, nextState, {
+        providerId: brollProviderIdDraft,
+        sourceUrl: brollSourceUrlDraft,
+        providerNote: brollProviderNoteDraft,
+        usageNote: brollUsageNoteDraft,
+        resultMetadata: brollResultMetadataDraft,
+        attachedAssetId: selectedBrollBeat.selected_asset_id ?? null,
+      }),
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
+      generated_at: new Date().toISOString(),
+    };
+    const saved = await persistBrollPlan({
+      plan: nextPlan,
+      eventName: "hearth.broll_plan.request_state.updated.v1",
+      eventPayload: { beat_id: selectedBrollBeat.id, request_state: nextState },
+    });
+    if (!saved.ok) {
+      setBrollSaveError(saved.error);
+      setBrollSaveState("error");
+      return;
+    }
+    setBrollSaveState("saved");
+  }
+
+  async function onClearBrollRequestState() {
+    if (!episodePackage || !selectedBrollBeat) return;
+    const nextBeat: EpisodeBrollPlanBeat = {
+      ...selectedBrollBeat,
+      external_request: {
+        state: "planned",
+        updated_at: new Date().toISOString(),
+      },
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
+      generated_at: new Date().toISOString(),
+    };
+    const saved = await persistBrollPlan({
+      plan: nextPlan,
+      eventName: "hearth.broll_plan.request_state.cleared.v1",
+      eventPayload: { beat_id: selectedBrollBeat.id },
+    });
+    if (!saved.ok) {
+      setBrollSaveError(saved.error);
+      setBrollSaveState("error");
+      return;
+    }
+    setBrollSaveState("saved");
+    setBrollMessage("Request state cleared.");
+  }
+
+  async function onAttachBrollResultFromUrl() {
+    if (!episodePackage || !selectedBrollBeat) return;
+    const sourceUrl = brollSourceUrlDraft.trim();
+    if (!sourceUrl) {
+      setBrollSaveError("Add a source URL before attaching a result.");
+      setBrollSaveState("error");
+      return;
+    }
+    const candidate = createManualResultCandidate({
+      assetClass: "broll",
+      beatId: selectedBrollBeat.id,
+      sourceLabel: brollSourceLabelDraft || "External provider",
+      sourceUrl,
+      title: brollDescriptionDraft || selectedBrollBeat.description,
+      providerNote: brollProviderNoteDraft,
+      usageNote: brollUsageNoteDraft,
+    });
+    const nextBeat: EpisodeBrollPlanBeat = {
+      ...selectedBrollBeat,
+      source_type: "external",
+      candidate_assets: [
+        ...(selectedBrollBeat.candidate_assets ?? []).filter((asset) => asset.asset_id !== candidate.asset_id),
+        candidate,
+      ],
+      selected_asset_id: candidate.asset_id,
+      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "asset_attached", {
+        providerId: brollProviderIdDraft,
+        sourceUrl: brollSourceUrlDraft,
+        providerNote: brollProviderNoteDraft,
+        usageNote: brollUsageNoteDraft,
+        resultMetadata: brollResultMetadataDraft,
+        attachedAssetId: candidate.asset_id,
+      }),
+      fulfillment_state: "resolved",
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeBrollPlan = {
+      ...episodePackage.broll_plan,
+      version: Math.max(1, episodePackage.broll_plan.version + 1),
+      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
+      generated_at: new Date().toISOString(),
+    };
+    const saved = await persistBrollPlan({
+      plan: nextPlan,
+      eventName: "hearth.broll_plan.result_url_attached.v1",
+      eventPayload: { beat_id: selectedBrollBeat.id },
+    });
+    if (!saved.ok) {
+      setBrollSaveError(saved.error);
+      setBrollSaveState("error");
+      return;
+    }
+    setBrollSaveState("saved");
+    setBrollMessage("Result URL attached as a classed B-roll candidate.");
+  }
+
   async function onFindStockForBrollBeat() {
     if (!episodePackage || !selectedBrollBeat) return;
     if (isBrollBusy) return;
@@ -8222,6 +8564,11 @@ export default function HearthShell({
       beatId: selectedBrollBeat.id,
       file,
       source: "upload",
+      assetClass: "broll",
+      sourceLabel: brollSourceLabelDraft,
+      sourceUrl: brollSourceUrlDraft,
+      providerNote: brollProviderNoteDraft,
+      usageNote: brollUsageNoteDraft,
     });
       if (!uploaded.ok) {
         setBrollSaveError(uploaded.error);
@@ -8240,6 +8587,14 @@ export default function HearthShell({
         ...(selectedBrollBeat.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
         uploaded.candidateAsset,
       ],
+        external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "asset_attached", {
+          providerId: brollProviderIdDraft,
+          sourceUrl: brollSourceUrlDraft,
+          providerNote: brollProviderNoteDraft,
+          usageNote: brollUsageNoteDraft,
+          resultMetadata: brollResultMetadataDraft,
+          attachedAssetId: uploaded.candidateAsset.asset_id,
+        }),
         selected_asset_id: uploaded.candidateAsset.asset_id,
         fulfillment_state: "resolved",
         updated_at: new Date().toISOString(),
@@ -8285,6 +8640,14 @@ export default function HearthShell({
       source_type: candidate.source,
       asset_category: candidate.asset_category ?? selectedBrollBeat.asset_category,
       data_visual_spec: candidate.data_visual_spec ?? selectedBrollBeat.data_visual_spec ?? null,
+      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "resolved", {
+        providerId: brollProviderIdDraft,
+        sourceUrl: candidate.source_url ?? brollSourceUrlDraft,
+        providerNote: candidate.provider_note ?? brollProviderNoteDraft,
+        usageNote: candidate.usage_note ?? brollUsageNoteDraft,
+        resultMetadata: brollResultMetadataDraft,
+        attachedAssetId: candidate.asset_id,
+      }),
       selected_asset_id: candidate.asset_id,
       fulfillment_state: "resolved",
       updated_at: new Date().toISOString(),
@@ -8400,6 +8763,18 @@ export default function HearthShell({
       values: resolveReferenceClipValuesFromDraft(),
       emphasis_key: referenceClipEmphasisKeyDraft.trim() || null,
       source_type: referenceClipSourceTypeDraft as EpisodeContextualDataCompositePlan["source_type"],
+      external_request: advanceExternalRequestTracker(
+        selectedReferenceClipEntry.external_request,
+        selectedReferenceClipEntry.external_request?.state ?? "planned",
+        {
+          providerId: referenceClipProviderIdDraft,
+          sourceUrl: referenceClipSourceUrlDraft,
+          providerNote: referenceClipProviderNoteDraft,
+          usageNote: referenceClipUsageNoteDraft,
+          resultMetadata: referenceClipResultMetadataDraft,
+          attachedAssetId: selectedReferenceClipEntry.selected_asset_id ?? null,
+        },
+      ),
       origin: referenceClipSourceTypeDraft === "hammer_upload" && selectedReferenceClipEntry.origin === "hearth"
         ? "mixed"
         : selectedReferenceClipEntry.origin,
@@ -8539,6 +8914,253 @@ export default function HearthShell({
     }
   }
 
+  async function onCopyReferenceClipPrompt() {
+    if (!episodePackage || !selectedReferenceClipEntry) return;
+    const brief = buildReferenceClipBrief({
+      entry: {
+        ...selectedReferenceClipEntry,
+        anchor_text: referenceClipAnchorDraft.trim() || selectedReferenceClipEntry.anchor_text,
+        description: referenceClipDescriptionDraft.trim() || selectedReferenceClipEntry.description,
+      },
+      workpieceId: workpieceId?.trim() ?? "",
+      workpieceTitle: activeDraft?.title ?? null,
+    });
+    const text = formatVisualBriefAsText(brief);
+    const copied = await writeTextToClipboard(text);
+    if (!copied) {
+      setReferenceClipSaveError("Unable to copy prompt to clipboard.");
+      setReferenceClipSaveState("error");
+      return;
+    }
+    const nextEntry: EpisodeContextualDataCompositePlan = {
+      ...selectedReferenceClipEntry,
+      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "brief_exported", {
+        providerId: referenceClipProviderIdDraft,
+        sourceUrl: referenceClipSourceUrlDraft,
+        providerNote: referenceClipProviderNoteDraft,
+        usageNote: referenceClipUsageNoteDraft,
+        resultMetadata: referenceClipResultMetadataDraft,
+      }),
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeReferenceClipPlan = {
+      ...episodePackage.cdc_plan,
+      version: Math.max(1, episodePackage.cdc_plan.version + 1),
+      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
+      generated_at: new Date().toISOString(),
+    };
+    const saved = await persistReferenceClipPlan({
+      plan: nextPlan,
+      eventName: "hearth.cdc_plan.brief_copied.v1",
+      eventPayload: { cdc_id: selectedReferenceClipEntry.id },
+    });
+    if (!saved.ok) {
+      setReferenceClipSaveError(saved.error);
+      setReferenceClipSaveState("error");
+      return;
+    }
+    setReferenceClipSaveState("saved");
+    setReferenceClipMessage("Prompt copied. Manual bridge state updated.");
+  }
+
+  async function onDownloadReferenceClipBrief(format: "text" | "json") {
+    if (!episodePackage || !selectedReferenceClipEntry) return;
+    const brief = buildReferenceClipBrief({
+      entry: {
+        ...selectedReferenceClipEntry,
+        anchor_text: referenceClipAnchorDraft.trim() || selectedReferenceClipEntry.anchor_text,
+        description: referenceClipDescriptionDraft.trim() || selectedReferenceClipEntry.description,
+      },
+      workpieceId: workpieceId?.trim() ?? "",
+      workpieceTitle: activeDraft?.title ?? null,
+    });
+    const suffix = (workpieceId?.slice(0, 8) ?? "episode").toLowerCase();
+    if (format === "json") {
+      downloadTextFile({
+        text: JSON.stringify(brief, null, 2),
+        filename: `reference-clip-brief-${suffix}-${selectedReferenceClipEntry.id}.json`,
+        mimeType: "application/json;charset=utf-8",
+      });
+    } else {
+      downloadTextFile({
+        text: formatVisualBriefAsText(brief),
+        filename: `reference-clip-brief-${suffix}-${selectedReferenceClipEntry.id}.txt`,
+      });
+    }
+    const nextEntry: EpisodeContextualDataCompositePlan = {
+      ...selectedReferenceClipEntry,
+      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "brief_exported", {
+        providerId: referenceClipProviderIdDraft,
+        sourceUrl: referenceClipSourceUrlDraft,
+        providerNote: referenceClipProviderNoteDraft,
+        usageNote: referenceClipUsageNoteDraft,
+        resultMetadata: referenceClipResultMetadataDraft,
+      }),
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeReferenceClipPlan = {
+      ...episodePackage.cdc_plan,
+      version: Math.max(1, episodePackage.cdc_plan.version + 1),
+      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
+      generated_at: new Date().toISOString(),
+    };
+    const saved = await persistReferenceClipPlan({
+      plan: nextPlan,
+      eventName: "hearth.cdc_plan.brief_downloaded.v1",
+      eventPayload: { cdc_id: selectedReferenceClipEntry.id, format },
+    });
+    if (!saved.ok) {
+      setReferenceClipSaveError(saved.error);
+      setReferenceClipSaveState("error");
+      return;
+    }
+    setReferenceClipSaveState("saved");
+    setReferenceClipMessage(format === "json" ? "JSON brief downloaded." : "Brief downloaded.");
+  }
+
+  async function onOpenReferenceClipProvider() {
+    if (!selectedReferenceClipEntry) return;
+    const provider = referenceClipProviders.find((entry) => entry.id === referenceClipProviderIdDraft) ?? null;
+    if (!provider) {
+      setReferenceClipSaveError("Choose a provider before opening a manual bridge.");
+      setReferenceClipSaveState("error");
+      return;
+    }
+    const brief = buildReferenceClipBrief({
+      entry: {
+        ...selectedReferenceClipEntry,
+        anchor_text: referenceClipAnchorDraft.trim() || selectedReferenceClipEntry.anchor_text,
+        description: referenceClipDescriptionDraft.trim() || selectedReferenceClipEntry.description,
+      },
+      workpieceId: workpieceId?.trim() ?? "",
+      workpieceTitle: activeDraft?.title ?? null,
+    });
+    await writeTextToClipboard(formatVisualBriefAsText(brief));
+    if (typeof window !== "undefined") {
+      window.open(provider.launchUrl, "_blank", "noopener,noreferrer");
+    }
+    await onMarkReferenceClipRequestState("sent_external");
+    setReferenceClipMessage(`Opened ${provider.name}. Prompt copied for manual paste.`);
+  }
+
+  async function onMarkReferenceClipRequestState(nextState: EpisodeExternalRequestState) {
+    if (!episodePackage || !selectedReferenceClipEntry) return;
+    const nextEntry: EpisodeContextualDataCompositePlan = {
+      ...selectedReferenceClipEntry,
+      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, nextState, {
+        providerId: referenceClipProviderIdDraft,
+        sourceUrl: referenceClipSourceUrlDraft,
+        providerNote: referenceClipProviderNoteDraft,
+        usageNote: referenceClipUsageNoteDraft,
+        resultMetadata: referenceClipResultMetadataDraft,
+        attachedAssetId: selectedReferenceClipEntry.selected_asset_id ?? null,
+      }),
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeReferenceClipPlan = {
+      ...episodePackage.cdc_plan,
+      version: Math.max(1, episodePackage.cdc_plan.version + 1),
+      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
+      generated_at: new Date().toISOString(),
+    };
+    const saved = await persistReferenceClipPlan({
+      plan: nextPlan,
+      eventName: "hearth.cdc_plan.request_state.updated.v1",
+      eventPayload: { cdc_id: selectedReferenceClipEntry.id, request_state: nextState },
+    });
+    if (!saved.ok) {
+      setReferenceClipSaveError(saved.error);
+      setReferenceClipSaveState("error");
+      return;
+    }
+    setReferenceClipSaveState("saved");
+  }
+
+  async function onClearReferenceClipRequestState() {
+    if (!episodePackage || !selectedReferenceClipEntry) return;
+    const nextEntry: EpisodeContextualDataCompositePlan = {
+      ...selectedReferenceClipEntry,
+      external_request: {
+        state: "planned",
+        updated_at: new Date().toISOString(),
+      },
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeReferenceClipPlan = {
+      ...episodePackage.cdc_plan,
+      version: Math.max(1, episodePackage.cdc_plan.version + 1),
+      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
+      generated_at: new Date().toISOString(),
+    };
+    const saved = await persistReferenceClipPlan({
+      plan: nextPlan,
+      eventName: "hearth.cdc_plan.request_state.cleared.v1",
+      eventPayload: { cdc_id: selectedReferenceClipEntry.id },
+    });
+    if (!saved.ok) {
+      setReferenceClipSaveError(saved.error);
+      setReferenceClipSaveState("error");
+      return;
+    }
+    setReferenceClipSaveState("saved");
+    setReferenceClipMessage("Request state cleared.");
+  }
+
+  async function onAttachReferenceClipResultFromUrl() {
+    if (!episodePackage || !selectedReferenceClipEntry) return;
+    const sourceUrl = referenceClipSourceUrlDraft.trim();
+    if (!sourceUrl) {
+      setReferenceClipSaveError("Add a source URL before attaching a result.");
+      setReferenceClipSaveState("error");
+      return;
+    }
+    const candidate = createManualResultCandidate({
+      assetClass: "reference_clip",
+      beatId: selectedReferenceClipEntry.id,
+      sourceLabel: referenceClipSourceLabelDraft || "External provider",
+      sourceUrl,
+      title: referenceClipTitleDraft || selectedReferenceClipEntry.description,
+      providerNote: referenceClipProviderNoteDraft,
+      usageNote: referenceClipUsageNoteDraft,
+    });
+    const nextEntry: EpisodeContextualDataCompositePlan = {
+      ...selectedReferenceClipEntry,
+      source_type: "external",
+      candidate_assets: [
+        ...(selectedReferenceClipEntry.candidate_assets ?? []).filter((asset) => asset.asset_id !== candidate.asset_id),
+        candidate,
+      ],
+      selected_asset_id: candidate.asset_id,
+      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "asset_attached", {
+        providerId: referenceClipProviderIdDraft,
+        sourceUrl: referenceClipSourceUrlDraft,
+        providerNote: referenceClipProviderNoteDraft,
+        usageNote: referenceClipUsageNoteDraft,
+        resultMetadata: referenceClipResultMetadataDraft,
+        attachedAssetId: candidate.asset_id,
+      }),
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeReferenceClipPlan = {
+      ...episodePackage.cdc_plan,
+      version: Math.max(1, episodePackage.cdc_plan.version + 1),
+      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
+      generated_at: new Date().toISOString(),
+    };
+    const saved = await persistReferenceClipPlan({
+      plan: nextPlan,
+      eventName: "hearth.cdc_plan.result_url_attached.v1",
+      eventPayload: { cdc_id: selectedReferenceClipEntry.id },
+    });
+    if (!saved.ok) {
+      setReferenceClipSaveError(saved.error);
+      setReferenceClipSaveState("error");
+      return;
+    }
+    setReferenceClipSaveState("saved");
+    setReferenceClipMessage("Result URL attached as a classed reference clip candidate.");
+  }
+
   async function onUploadReferenceClipAsset(file: File) {
     if (!episodePackage || !selectedReferenceClipEntry) return;
     if (isReferenceClipBusy) return;
@@ -8557,6 +9179,11 @@ export default function HearthShell({
         beatId: selectedReferenceClipEntry.id,
         file,
         source: "upload",
+        assetClass: "reference_clip",
+        sourceLabel: referenceClipSourceLabelDraft,
+        sourceUrl: referenceClipSourceUrlDraft,
+        providerNote: referenceClipProviderNoteDraft,
+        usageNote: referenceClipUsageNoteDraft,
       });
       if (!uploaded.ok) {
         setReferenceClipSaveError(uploaded.error);
@@ -8571,6 +9198,14 @@ export default function HearthShell({
           ...(selectedReferenceClipEntry.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
           uploaded.candidateAsset,
         ],
+        external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "asset_attached", {
+          providerId: referenceClipProviderIdDraft,
+          sourceUrl: referenceClipSourceUrlDraft,
+          providerNote: referenceClipProviderNoteDraft,
+          usageNote: referenceClipUsageNoteDraft,
+          resultMetadata: referenceClipResultMetadataDraft,
+          attachedAssetId: uploaded.candidateAsset.asset_id,
+        }),
         selected_asset_id: uploaded.candidateAsset.asset_id,
         updated_at: new Date().toISOString(),
       };
@@ -8616,6 +9251,14 @@ export default function HearthShell({
       origin: candidate.source === "hammer_upload" && selectedReferenceClipEntry.origin === "hearth"
         ? "mixed"
         : selectedReferenceClipEntry.origin,
+      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "resolved", {
+        providerId: referenceClipProviderIdDraft,
+        sourceUrl: candidate.source_url ?? referenceClipSourceUrlDraft,
+        providerNote: candidate.provider_note ?? referenceClipProviderNoteDraft,
+        usageNote: candidate.usage_note ?? referenceClipUsageNoteDraft,
+        resultMetadata: referenceClipResultMetadataDraft,
+        attachedAssetId: candidate.asset_id,
+      }),
       selected_asset_id: candidate.asset_id,
       updated_at: new Date().toISOString(),
     };
@@ -11059,7 +11702,15 @@ export default function HearthShell({
         dataValues: brollDataValuesDraft,
         dataEmphasisKey: brollDataEmphasisKeyDraft,
         dataAnimationStyle: brollDataAnimationStyleDraft,
+        providerId: brollProviderIdDraft,
+        sourceLabel: brollSourceLabelDraft,
+        sourceUrl: brollSourceUrlDraft,
+        providerNote: brollProviderNoteDraft,
+        usageNote: brollUsageNoteDraft,
+        resultMetadata: brollResultMetadataDraft,
       },
+      requestState: brollRequestStateLabel,
+      providers: brollProviders,
       selectedCandidateId: selectedBrollBeat?.selected_asset_id ?? null,
       onSelectBeat: setSelectedBrollBeatId,
       onDraftChange: (field: string, value: string) => {
@@ -11080,6 +11731,12 @@ export default function HearthShell({
         else if (field === "dataValues") setBrollDraftEditing(setBrollDataValuesDraft, value);
         else if (field === "dataEmphasisKey") setBrollDraftEditing(setBrollDataEmphasisKeyDraft, value);
         else if (field === "dataAnimationStyle") setBrollDraftEditing(setBrollDataAnimationStyleDraft, value);
+        else if (field === "providerId") setBrollDraftEditing(setBrollProviderIdDraft, value);
+        else if (field === "sourceLabel") setBrollDraftEditing(setBrollSourceLabelDraft, value);
+        else if (field === "sourceUrl") setBrollDraftEditing(setBrollSourceUrlDraft, value);
+        else if (field === "providerNote") setBrollDraftEditing(setBrollProviderNoteDraft, value);
+        else if (field === "usageNote") setBrollDraftEditing(setBrollUsageNoteDraft, value);
+        else if (field === "resultMetadata") setBrollDraftEditing(setBrollResultMetadataDraft, value);
       },
       onSaveBeat: () => void onSaveBrollBeat(),
       onDeleteBeat: () => void onDeleteBrollBeat(),
@@ -11088,6 +11745,14 @@ export default function HearthShell({
       onFindStock: () => void onFindStockForBrollBeat(),
       onUploadAsset: (file: File) => void onUploadBrollBeatAsset(file),
       onSelectCandidate: (candidateId: string) => void onSelectBrollCandidate(candidateId),
+      onCopyPrompt: () => void onCopyBrollPrompt(),
+      onDownloadBrief: () => void onDownloadBrollBrief("text"),
+      onDownloadBriefJson: () => void onDownloadBrollBrief("json"),
+      onOpenProvider: () => void onOpenBrollProvider(),
+      onMarkSent: () => void onMarkBrollRequestState("sent_external"),
+      onMarkAwaitingResult: () => void onMarkBrollRequestState("awaiting_result"),
+      onClearRequestState: () => void onClearBrollRequestState(),
+      onAttachResultFromUrl: () => void onAttachBrollResultFromUrl(),
     };
     const referenceClipPlanPanelProps = {
       entries: referenceClipEntries,
@@ -11114,7 +11779,15 @@ export default function HearthShell({
         values: referenceClipValuesDraft,
         emphasisKey: referenceClipEmphasisKeyDraft,
         sourceType: referenceClipSourceTypeDraft,
+        providerId: referenceClipProviderIdDraft,
+        sourceLabel: referenceClipSourceLabelDraft,
+        sourceUrl: referenceClipSourceUrlDraft,
+        providerNote: referenceClipProviderNoteDraft,
+        usageNote: referenceClipUsageNoteDraft,
+        resultMetadata: referenceClipResultMetadataDraft,
       },
+      requestState: referenceClipRequestStateLabel,
+      providers: referenceClipProviders,
       selectedCandidateId: selectedReferenceClipEntry?.selected_asset_id ?? null,
       onSelectEntry: setSelectedReferenceClipEntryId,
       onDraftChange: (field: string, value: string) => {
@@ -11135,6 +11808,12 @@ export default function HearthShell({
         else if (field === "values") setReferenceClipDraftEditing(setReferenceClipValuesDraft, value);
         else if (field === "emphasisKey") setReferenceClipDraftEditing(setReferenceClipEmphasisKeyDraft, value);
         else if (field === "sourceType") setReferenceClipDraftEditing(setReferenceClipSourceTypeDraft, value);
+        else if (field === "providerId") setReferenceClipDraftEditing(setReferenceClipProviderIdDraft, value);
+        else if (field === "sourceLabel") setReferenceClipDraftEditing(setReferenceClipSourceLabelDraft, value);
+        else if (field === "sourceUrl") setReferenceClipDraftEditing(setReferenceClipSourceUrlDraft, value);
+        else if (field === "providerNote") setReferenceClipDraftEditing(setReferenceClipProviderNoteDraft, value);
+        else if (field === "usageNote") setReferenceClipDraftEditing(setReferenceClipUsageNoteDraft, value);
+        else if (field === "resultMetadata") setReferenceClipDraftEditing(setReferenceClipResultMetadataDraft, value);
       },
       onCreateReferenceClip: () => void onCreateReferenceClipEntry(),
       onSaveEntry: () => void onSaveReferenceClipEntry(),
@@ -11142,6 +11821,14 @@ export default function HearthShell({
       onRegenerateStub: () => void onRegenerateReferenceClipEntryStub(),
       onUploadAsset: (file: File) => void onUploadReferenceClipAsset(file),
       onSelectCandidate: (candidateId: string) => void onSelectReferenceClipCandidate(candidateId),
+      onCopyPrompt: () => void onCopyReferenceClipPrompt(),
+      onDownloadBrief: () => void onDownloadReferenceClipBrief("text"),
+      onDownloadBriefJson: () => void onDownloadReferenceClipBrief("json"),
+      onOpenProvider: () => void onOpenReferenceClipProvider(),
+      onMarkSent: () => void onMarkReferenceClipRequestState("sent_external"),
+      onMarkAwaitingResult: () => void onMarkReferenceClipRequestState("awaiting_result"),
+      onClearRequestState: () => void onClearReferenceClipRequestState(),
+      onAttachResultFromUrl: () => void onAttachReferenceClipResultFromUrl(),
     };
     const metadataPanelProps = {
       titles: metadataTitlesDraft,

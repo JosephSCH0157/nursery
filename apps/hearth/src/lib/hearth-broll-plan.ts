@@ -191,6 +191,10 @@ export function buildBrollPlanFromScript(args: {
       }),
       selected_asset_id: previous?.selected_asset_id ?? null,
       candidate_assets: previous?.candidate_assets ?? [],
+      external_request: previous?.external_request ?? {
+        state: "planned",
+        updated_at: generatedAt,
+      },
       fulfillment_state: previous?.selected_asset_id
         ? "resolved"
         : previous?.candidate_assets?.length
@@ -248,6 +252,10 @@ export function buildStockCandidatesForBrollBeat(beat: EpisodeBrollPlanBeat): Ep
     {
       asset_id: createClientId("stock"),
       source: "stock",
+      asset_class: "broll",
+      source_beat_id: beat.id,
+      source_label: "Pexels",
+      source_url: `https://www.pexels.com/search/videos/${query}/`,
       asset_category: beat.motion_intent === "data_visual"
         ? "animated_chart"
         : beat.motion_intent === "map"
@@ -264,6 +272,10 @@ export function buildStockCandidatesForBrollBeat(beat: EpisodeBrollPlanBeat): Ep
     {
       asset_id: createClientId("stock"),
       source: "stock",
+      asset_class: "broll",
+      source_beat_id: beat.id,
+      source_label: "Pixabay",
+      source_url: `https://pixabay.com/videos/search/${query}/`,
       asset_category: beat.motion_intent === "data_visual"
         ? "animated_chart"
         : beat.motion_intent === "map"
