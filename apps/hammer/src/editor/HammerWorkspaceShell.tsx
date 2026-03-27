@@ -8054,24 +8054,24 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               <span>{previewMode}</span>
             </header>
             <div className="hammer-bay-body hammer-preview-bay__body">
-              <video
-                ref={previewAudioRef}
-                src={playbackMediaSrc ?? undefined}
-                preload="metadata"
-                playsInline
-                onTimeUpdate={(event) => {
-                  if (!isPlaybackActive) return;
-                  handlePlaybackProgress(event.currentTarget.currentTime);
-                }}
-                onEnded={() => {
-                  setIsPlaybackActive(false);
-                  if (playbackWindow?.mode === "roll") {
-                    setPlaybackWindow(null);
-                  }
-                }}
-                className="hammer-preview-media"
-              />
               <div className="hammer-preview-surface" ref={previewSurfaceRef}>
+                <video
+                  ref={previewAudioRef}
+                  src={playbackMediaSrc ?? undefined}
+                  preload="metadata"
+                  playsInline
+                  onTimeUpdate={(event) => {
+                    if (!isPlaybackActive) return;
+                    handlePlaybackProgress(event.currentTarget.currentTime);
+                  }}
+                  onEnded={() => {
+                    setIsPlaybackActive(false);
+                    if (playbackWindow?.mode === "roll") {
+                      setPlaybackWindow(null);
+                    }
+                  }}
+                  className="hammer-preview-media"
+                />
                 <div className="hammer-preview-surface__label">{resolvePreviewLabel(playheadSegment, playheadSec)}</div>
                 <div className="hammer-preview-canvas" aria-label="Visual composition canvas">
                   {activePreviewOverlays.map((overlay) => (

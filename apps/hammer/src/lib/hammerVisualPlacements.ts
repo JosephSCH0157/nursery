@@ -35,7 +35,7 @@ type PlacementCandidate = {
 
 type EpisodeMediaMapArtifactEntry = {
   id: string;
-  final_media_kind: "image" | "b_roll" | "contextual_data_composite";
+  final_media_kind: "image" | "b_roll" | "contextual_data_composite" | "reference_clip";
   anchor: {
     mode: "line_anchor" | "phrase_match" | "speaker_turn" | "section_marker" | "absolute_time";
     target: string;
@@ -90,7 +90,7 @@ function normalizeMediaMapArtifact(payload: unknown): EpisodeMediaMapArtifact | 
     const sourceStatus = readString(source.status);
     const assetId = readString(source.asset_id);
     if (!mode || !target || !sourceStatus) continue;
-    if (kind !== "image" && kind !== "b_roll" && kind !== "contextual_data_composite") continue;
+    if (kind !== "image" && kind !== "b_roll" && kind !== "contextual_data_composite" && kind !== "reference_clip") continue;
     if (
       mode !== "line_anchor"
       && mode !== "phrase_match"
@@ -129,6 +129,31 @@ function normalizeMediaMapArtifact(payload: unknown): EpisodeMediaMapArtifact | 
     generated_at: generatedAt,
     entries,
   };
+}
+
+function normalizeVisualAssetClass(value: unknown): "image" | "broll" | "reference_clip" | null {
+  const normalized = readString(value)?.toLowerCase();
+  if (normalized === "image" || normalized === "broll" || normalized === "reference_clip") {
+    return normalized;
+  }
+  return null;
+}
+
+function resolveFinalMediaKind(args: {
+  assetClass: "image" | "broll" | "reference_clip" | null;
+  visualMode: string | null;
+}): "image" | "b_roll" | "contextual_data_composite" | "reference_clip" {
+  if (args.assetClass === "broll") return "b_roll";
+  if (args.assetClass === "reference_clip") return "reference_clip";
+  if (args.assetClass === "image") return "image";
+  const mode = (args.visualMode ?? "").toLowerCase();
+  if (mode.includes("reference_clip") || mode.includes("contextual_data_composite") || mode.includes("cdc")) {
+    return "reference_clip";
+  }
+  if (mode.includes("broll") || mode.includes("b_roll")) {
+    return "b_roll";
+  }
+  return "image";
 }
 
 function readJsonObject(value: unknown): Record<string, unknown> | null {
@@ -295,13 +320,21 @@ function normalizeVisualPackage(payload: unknown): WorkpieceVisualPackageRespons
       }
 
       const selectedAssetRow = readJsonObject(row?.selected_asset);
+      const assetClass = normalizeVisualAssetClass(row?.asset_class);
+      const visualMode = readString(row?.visual_mode);
       return {
+        asset_class: assetClass
+          ?? (resolveFinalMediaKind({ assetClass: null, visualMode }) === "b_roll"
+            ? "broll"
+            : resolveFinalMediaKind({ assetClass: null, visualMode }) === "reference_clip"
+              ? "reference_clip"
+              : "image"),
         entry_id: entryId,
         beat_order: beatOrder,
         paragraph_beat_order: paragraphBeatOrder,
         status,
         script_anchor: normalizeScriptAnchor(row?.script_anchor),
-        visual_mode: readString(row?.visual_mode),
+        visual_mode: visualMode,
         selected_asset_id: readString(row?.selected_asset_id),
         selected_asset: selectedAssetRow
           ? {
@@ -337,8 +370,14 @@ function buildVisualPackageFromMediaMap(
   mediaMap: EpisodeMediaMapArtifact,
 ): WorkpieceVisualPackageResponseData | null {
   const visuals: WorkpieceVisualPackageResponseData["visuals"] = mediaMap.entries.map((entry, index) => {
+    const assetClass = entry.final_media_kind === "b_roll"
+      ? "broll"
+      : entry.final_media_kind === "reference_clip" || entry.final_media_kind === "contextual_data_composite"
+        ? "reference_clip"
+        : "image";
     const hasAsset = Boolean(entry.source.asset_id) && (entry.source.status === "selected" || entry.source.status === "attached");
     return {
+      asset_class: assetClass,
       entry_id: entry.id,
       beat_order: index + 1,
       paragraph_beat_order: 1,
@@ -354,7 +393,7 @@ function buildVisualPackageFromMediaMap(
         span_text: entry.anchor.target,
         speaker_block_id: entry.anchor.mode === "speaker_turn" ? entry.anchor.target : null,
       },
-      visual_mode: entry.final_media_kind,
+      visual_mode: entry.final_media_kind === "contextual_data_composite" ? "reference_clip" : entry.final_media_kind,
       selected_asset_id: hasAsset ? entry.source.asset_id : null,
       selected_asset: hasAsset
         ? {
@@ -448,6 +487,17 @@ function mergeVisualPackageWithImageMap(
     const fallbackSelectedAsset = fallbackCandidate ? buildFallbackSelectedAsset(fallbackCandidate) : null;
     if (!fallbackSelectedAsset) continue;
     mergedVisuals.push({
+      asset_class: resolveFinalMediaKind({
+        assetClass: null,
+        visualMode: fallbackSelectedAsset.visual_mode ?? null,
+      }) === "b_roll"
+        ? "broll"
+        : resolveFinalMediaKind({
+          assetClass: null,
+          visualMode: fallbackSelectedAsset.visual_mode ?? null,
+        }) === "reference_clip"
+          ? "reference_clip"
+          : "image",
       entry_id: entry.id,
       beat_order: entry.beat_order,
       paragraph_beat_order: entry.paragraph_beat_order,
@@ -860,7 +910,9 @@ export function deriveHammerVisualPlacements(args: {
       asset_path: selectedAsset.path,
       storage_key: selectedAsset.storage_key || selectedAsset.path,
       label: selectedAsset.variant_label ?? visual.visual_mode ?? visual.entry_id,
-      visual_mode: visual.visual_mode ?? selectedAsset.visual_mode,
+      visual_mode: visual.visual_mode
+        ?? selectedAsset.visual_mode
+        ?? (visual.asset_class === "broll" ? "b_roll" : visual.asset_class === "reference_clip" ? "reference_clip" : "image"),
       start_sec: startSec,
       end_sec: endSec,
       confidence,

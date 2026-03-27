@@ -43,9 +43,15 @@ const CONFIDENCE = ["high", "medium", "low"];
 const GENERATION_SCOPES = [
   { value: "images_only", label: "Images only" },
   { value: "images_broll", label: "Images + B-roll" },
-  { value: "images_cdc", label: "Images + CDC" },
+  { value: "images_cdc", label: "Images + Reference Clips" },
   { value: "full_media_plan", label: "Full media plan" },
 ];
+
+function formatMediaKindLabel(kind: string): string {
+  if (kind === "b_roll") return "B-roll";
+  if (kind === "contextual_data_composite" || kind === "reference_clip") return "Reference Clip";
+  return "Image";
+}
 
 function resolveEntryClassificationReason(entry: EpisodeMediaMapEntry): string {
   const lowerIntent = (entry.intent ?? "").toLowerCase();
@@ -83,7 +89,7 @@ function resolveEntryClassificationReason(entry: EpisodeMediaMapEntry): string {
     if (/\b(state|county|city|region|country|map)\b/.test(mergedText)) {
       return "Geographic context";
     }
-    return "Structured contextual data";
+    return "Reference clip with structured context";
   }
 
   return "Classifier heuristic";
@@ -109,7 +115,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
             {props.stale ? " (needs review)" : ""}
           </p>
           <p className="hs-imap-help-text">
-            Activate this media plan to finalize beat decisions and route image, B-roll, and CDC cues to their fulfillment paths.
+            Activate this media plan to finalize beat decisions and route image, B-roll, and reference clip cues to their fulfillment paths.
           </p>
         </div>
         <div className="hs-imap-candidate-action-group">
@@ -156,7 +162,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
               disabled={props.disabled}
             >
               <div className="hs-imap-entry-title">{entry.description || entry.anchor.target || "Untitled entry"}</div>
-              <div className="hs-imap-entry-meta">{entry.final_media_kind} · {entry.anchor.mode} · {entry.source.status}</div>
+              <div className="hs-imap-entry-meta">{formatMediaKindLabel(entry.final_media_kind)} · {entry.anchor.mode} · {entry.source.status}</div>
               <div className="hs-imap-entry-meta">Reason: {resolveEntryClassificationReason(entry)}</div>
             </button>
           ))}
@@ -171,7 +177,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
                 <label>
                   Type
                   <select value={props.draft.type} onChange={(event) => props.onDraftChange("type", event.target.value)} disabled={props.disabled}>
-                    {TYPES.map((value) => <option key={value} value={value}>{value}</option>)}
+                    {TYPES.map((value) => <option key={value} value={value}>{formatMediaKindLabel(value)}</option>)}
                   </select>
                 </label>
                 <label>

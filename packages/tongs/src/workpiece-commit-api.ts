@@ -496,6 +496,7 @@ export type EpisodeImageMapAssetRefRecord = {
   variant_label?: string | null;
   visual_mode?: string | null;
   mime_type?: string | null;
+  source?: string | null;
 };
 
 export type EpisodeImageMapEntryRecord = {
@@ -508,6 +509,7 @@ export type EpisodeImageMapEntryRecord = {
   style_preset: HearthVisualStyleValue | null;
   intent: string;
   source_type: string;
+  visual_type?: string | null;
   beat_order: number;
   paragraph_beat_order: number;
   candidate_assets: EpisodeImageMapAssetRefRecord[];
@@ -575,12 +577,15 @@ export type WorkpieceVisualPackageSelectedAsset = {
 };
 
 export type WorkpieceVisualPackageVisual = {
+  asset_class: "image" | "broll" | "reference_clip";
   entry_id: string;
   beat_order: number;
   paragraph_beat_order: number;
   status: string;
   script_anchor: EpisodeImageMapScriptAnchorRecord | null;
   visual_mode: string | null;
+  source_provider?: string | null;
+  source_label?: string | null;
   selected_asset_id: string | null;
   selected_asset: WorkpieceVisualPackageSelectedAsset | null;
 };
@@ -2562,6 +2567,22 @@ function normalizeImageMapVisualMode(value: unknown): string | null {
   return IMAGE_MAP_VISUAL_MODE_SET.has(normalized) ? normalized : null;
 }
 
+function normalizeImageMapVisualType(value: unknown): string | null {
+  const normalized = readStringField({ value }, "value")?.toLowerCase() ?? null;
+  if (!normalized) return null;
+  if (
+    normalized === "b_roll"
+    || normalized === "still_image"
+    || normalized === "text_overlay"
+    || normalized === "diagram"
+    || normalized === "archival"
+    || normalized === "motion_graphic"
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
 function normalizeImageMapAssetRef(
   value: unknown,
   field: string,
@@ -2581,6 +2602,7 @@ function normalizeImageMapAssetRef(
     variant_label: readStringField(value, "variant_label"),
     visual_mode: normalizeImageMapVisualMode(value.visual_mode),
     mime_type: readStringField(value, "mime_type"),
+    source: readStringField(value, "source"),
   };
 }
 
@@ -2704,6 +2726,7 @@ function normalizeEpisodeImageMapEntry(
     style_preset: normalizeHearthVisualStyle(value.style_preset ?? null),
     intent: normalizeImageMapIntent(value.intent),
     source_type: normalizeImageMapSourceType(value.source_type),
+    visual_type: normalizeImageMapVisualType(value.visual_type),
     beat_order: typeof value.beat_order === "number" ? Math.max(1, Math.trunc(value.beat_order)) : index + 1,
     paragraph_beat_order: typeof value.paragraph_beat_order === "number"
       ? Math.max(1, Math.trunc(value.paragraph_beat_order))
@@ -3044,6 +3067,41 @@ function normalizeWorkpieceVisualPackageSelectedAsset(
     variant_label: variantLabel,
     visual_mode: visualMode,
   };
+}
+
+function resolveVisualAssetClass(args: {
+  entry: EpisodeImageMapEntryRecord;
+  visualMode: string | null;
+}): "image" | "broll" | "reference_clip" {
+  const intent = (args.entry.intent ?? "").toLowerCase();
+  const visualType = (args.entry.visual_type ?? "").toLowerCase();
+  const visualMode = (args.visualMode ?? "").toLowerCase();
+
+  if (
+    intent === "contextual_data_composite"
+    || intent === "cdc"
+    || intent === "reference_clip"
+    || visualType === "diagram"
+    || visualType === "text_overlay"
+    || visualType === "motion_graphic"
+    || visualMode.includes("contextual_data_composite")
+    || visualMode.includes("reference_clip")
+    || visualMode.includes("cdc")
+  ) {
+    return "reference_clip";
+  }
+
+  if (
+    intent === "broll"
+    || intent === "b_roll"
+    || visualType === "b_roll"
+    || visualMode.includes("broll")
+    || visualMode.includes("b_roll")
+  ) {
+    return "broll";
+  }
+
+  return "image";
 }
 
 function randomId(prefix: string): string {
@@ -4428,14 +4486,21 @@ export class TongsCommitService {
         const visualMode = selectedAsset?.visual_mode
           ?? selectedAssetRef?.visual_mode
           ?? (entry.candidate_assets.find((asset) => asset.visual_mode)?.visual_mode ?? null);
+        const assetClass = resolveVisualAssetClass({
+          entry,
+          visualMode,
+        });
 
         return {
+          asset_class: assetClass,
           entry_id: entry.id,
           beat_order: entry.beat_order,
           paragraph_beat_order: entry.paragraph_beat_order,
           status: entry.status,
           script_anchor: entry.script_anchor,
           visual_mode: visualMode,
+          source_provider: selectedAssetRef?.source ?? null,
+          source_label: selectedAsset?.variant_label ?? null,
           selected_asset_id: entry.selected_asset_id,
           selected_asset: selectedAsset,
         };
