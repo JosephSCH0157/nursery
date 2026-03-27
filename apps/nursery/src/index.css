@@ -207,6 +207,11 @@ textarea:focus-visible {
   gap: 8px;
 }
 
+.forge-ai-panel__style-insights--audit {
+  max-height: 220px;
+  overflow: auto;
+}
+
 .forge-ai-panel__style-meta {
   font-size: 12px;
   opacity: 0.78;
@@ -230,6 +235,7 @@ textarea:focus-visible {
   justify-content: center;
   padding: 16px;
   background: rgba(4, 8, 16, 0.72);
+  -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
 }
 

@@ -875,7 +875,7 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
           <div className="forge-ai-panel__hint">No AI usage events recorded today.</div>
         ) : null}
         {!costAuditError && costAuditRows.length ? (
-          <div className="forge-ai-panel__style-insights" style={{ maxHeight: 220 }}>
+          <div className="forge-ai-panel__style-insights forge-ai-panel__style-insights--audit">
             <ul className="forge-ai-panel__style-list">
               {costAuditRows.slice(0, 12).map((row, idx) => (
                 <li key={`${row.created_at}:${row.feature}:${idx}`}>
