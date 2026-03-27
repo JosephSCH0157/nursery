@@ -1619,6 +1619,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
   const previewAudioRef = useRef<HTMLMediaElement | null>(null);
   const previewSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const selectedImagePlacementBBoxRef = useRef<HTMLDivElement | null>(null);
+  const imageAnimationContextMenuRef = useRef<HTMLDivElement | null>(null);
   const previewBrollVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const workspaceShellRef = useRef<HTMLElement | null>(null);
   const lastPlaybackMediaSrcRef = useRef<string | null>(null);
@@ -1670,6 +1672,25 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       setCurrentPass(resolveDefaultPassForTool(activeTool));
     }
   }, [activeTool, currentPass]);
+
+  useEffect(() => {
+    if (!previewSurfaceRef.current) return;
+    previewSurfaceRef.current.style.filter = visualPreviewFilter || "";
+  }, [visualPreviewFilter]);
+
+  useEffect(() => {
+    if (!selectedImagePlacementBBoxRef.current || !selectedImagePlacement) return;
+    selectedImagePlacementBBoxRef.current.style.left = `${selectedImagePlacementTransform.leftPct}%`;
+    selectedImagePlacementBBoxRef.current.style.top = `${selectedImagePlacementTransform.topPct}%`;
+    selectedImagePlacementBBoxRef.current.style.width = `${selectedImagePlacementTransform.widthPct}%`;
+    selectedImagePlacementBBoxRef.current.style.height = `${selectedImagePlacementTransform.heightPct}%`;
+  }, [selectedImagePlacement, selectedImagePlacementTransform]);
+
+  useEffect(() => {
+    if (!imageAnimationContextMenuRef.current || !imageAnimationContextMenu) return;
+    imageAnimationContextMenuRef.current.style.left = `${imageAnimationContextMenu.x}px`;
+    imageAnimationContextMenuRef.current.style.top = `${imageAnimationContextMenu.y}px`;
+  }, [imageAnimationContextMenu]);
 
   function selectPass(passId: HammerPassId): void {
     const nextMeta = resolvePassMeta(passId);
@@ -1961,6 +1982,36 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const selectedImageAnimationLabel = IMAGE_ANIMATION_PRESET_OPTIONS.find(
     (option) => option.id === selectedImageAnimationPreset,
   )?.label ?? "None";
+  const activePreviewOverlays = useMemo<HammerPreviewVisualOverlay[]>(() => (
+    (editableVisualPlacements?.placements ?? [])
+      .filter((placement) => (
+        playheadSec >= placement.start_sec
+        && playheadSec < placement.end_sec
+      ))
+      .map((placement, index) => {
+        const kind = deriveAssetKind({
+          visualMode: placement.visual_mode,
+          assetPath: placement.asset_path,
+        });
+        if (kind !== "image" && kind !== "broll") return null;
+        const animationPreset = resolvePlacementAnimationPreset(placement);
+        return {
+          placementId: placement.placement_id,
+          label: placement.label ?? placement.asset_ref ?? placement.asset_path ?? placement.entry_id,
+          kind,
+          src: placement.asset_path ? (sourceDeskPreviewUrls[placement.asset_path] ?? null) : null,
+          startSec: placement.start_sec,
+          endSec: placement.end_sec,
+          transform: geometryToTransform(resolvePlacementGeometry(placement)),
+          animationPreset,
+          zIndex: Math.round(Number.isFinite(placement.overlay_z_index ?? NaN) ? Number(placement.overlay_z_index) : index + 1),
+          opacity: Math.max(0, Math.min(1, Number.isFinite(placement.overlay_opacity ?? NaN) ? Number(placement.overlay_opacity) : 1)),
+          isSelected: placement.placement_id === selectedImagePlacementId,
+        };
+      })
+      .filter((item): item is HammerPreviewVisualOverlay => Boolean(item))
+      .sort((left, right) => left.zIndex - right.zIndex)
+  ), [editableVisualPlacements?.placements, playheadSec, selectedImagePlacementId, sourceDeskPreviewUrls]);
   useEffect(() => {
     if (!selectedImagePlacementId) return;
     if (sourceVisualPlacementItems.some((item) => item.id === selectedImagePlacementId)) return;
@@ -1973,6 +2024,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (!firstItem) return;
     setSelectedImagePlacementId(firstItem.id);
   }, [currentPass, selectedImagePlacementId, sourceImageItems]);
+  useEffect(() => {
+    for (const overlay of activePreviewOverlays) {
+      if (overlay.kind !== "broll") continue;
+      const node = previewBrollVideoRefs.current.get(overlay.placementId) ?? null;
+      if (!node) continue;
+      const localTime = Math.max(0, playheadSec - overlay.startSec);
+      if (Math.abs(node.currentTime - localTime) > SCRUB_SEEK_THRESHOLD_SEC) {
+        node.currentTime = localTime;
+      }
+      if (isPlaybackActive) {
+        void node.play().catch(() => undefined);
+      } else {
+        node.pause();
+      }
+    }
+  }, [activePreviewOverlays, isPlaybackActive, playheadSec]);
   const sourceAssetItems = useMemo<HammerSourceAssetItem[]>(() => {
     const byId = new Map<string, HammerSourceAssetItem>();
     for (const placement of editableVisualPlacements?.placements ?? []) {
@@ -4415,19 +4482,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setImageAnimationContextMenu(null);
   }, [currentPass]);
   useEffect(() => {
-    const validIds = new Set(sourceImageItems.map((item) => item.id));
-    setImageAnimationPresetByPlacementId((current) => {
-      const next: Record<string, HammerImageAnimationPreset> = {};
-      let changed = false;
-      for (const [placementId, preset] of Object.entries(current)) {
-        if (!validIds.has(placementId)) {
-          changed = true;
-          continue;
-        }
-        next[placementId] = preset;
-      }
-      return changed ? next : current;
-    });
   }, [sourceImageItems]);
   useEffect(() => {
     if (currentPass !== "gap_pacing") return;
@@ -4766,11 +4820,31 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   function applyImageAnimationPreset(placementId: string, preset: HammerImageAnimationPreset): void {
-    setImageAnimationPresetByPlacementId((current) => ({
-      ...current,
-      [placementId]: preset,
-    }));
-    setImageAnimationPreviewNonce((current) => current + 1);
+    applyHistoryMutation({
+      label: "Set image animation preset",
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedPlacementIds: [placementId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const current = before.visualPlacements;
+        if (!current) return before;
+        return {
+          ...before,
+          visualPlacements: {
+            ...current,
+            placements: current.placements.map((placement) => (
+              placement.placement_id === placementId
+                ? {
+                  ...placement,
+                  animation_preset: preset,
+                }
+                : placement
+            )),
+          },
+        };
+      },
+    });
     setImageAnimationContextMenu(null);
   }
 
@@ -7929,29 +8003,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 }}
                 className="hammer-preview-audio"
               />
-              <div className="hammer-preview-surface" style={{ filter: visualPreviewFilter || undefined }} ref={previewSurfaceRef}>
+              <div className="hammer-preview-surface" ref={previewSurfaceRef}>
                 <div className="hammer-preview-surface__label">{resolvePreviewLabel(playheadSegment, playheadSec)}</div>
                 {currentPass === "image_placement" || currentPass === "image_animation" ? (
                   <div className="hammer-preview-canvas" aria-label="Image placement canvas">
                     {selectedImagePlacement ? (
                       <div
+                        ref={selectedImagePlacementBBoxRef}
                         key={`${selectedImagePlacement.id}:${selectedImageAnimationPreset}:${imageAnimationPreviewNonce}`}
                         className={[
                           "hammer-preview-canvas__bbox",
                           resolveImageAnimationClass(selectedImageAnimationPreset),
                         ].filter(Boolean).join(" ")}
-                        style={{
-                          left: `${selectedImagePlacementTransform.leftPct}%`,
-                          top: `${selectedImagePlacementTransform.topPct}%`,
-                          width: `${selectedImagePlacementTransform.widthPct}%`,
-                          height: `${selectedImagePlacementTransform.heightPct}%`,
-                        }}
                         onMouseDown={(event) => beginPreviewCanvasDrag(event, {
                           placementId: selectedImagePlacement.id,
                           mode: "move",
                         })}
-                        role="button"
-                        tabIndex={0}
                       >
                         {selectedImagePlacementPreviewUrl ? (
                           <img
@@ -10875,13 +10942,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       </div>
       {imageAnimationContextMenu ? (
         <div
+          ref={imageAnimationContextMenuRef}
           className="hammer-context-menu"
           role="menu"
           aria-label="Image animation preset menu"
-          style={{
-            left: imageAnimationContextMenu.x,
-            top: imageAnimationContextMenu.y,
-          }}
           onMouseDown={(event) => {
             event.stopPropagation();
           }}
