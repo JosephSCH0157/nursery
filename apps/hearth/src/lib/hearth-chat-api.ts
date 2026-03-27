@@ -112,6 +112,37 @@ const DEFAULT_AI_SETTINGS: AiSettingsSnapshot = {
   autoApproveImageSpend: false,
 };
 
+type AiPolicyDecisionType = "ALLOW" | "SOFT_DENY" | "HARD_DENY";
+type AiPolicyReasonCode =
+  | "ORG_AI_DISABLED"
+  | "ORG_MEMBER_NOT_AUTHORIZED"
+  | "PERSONAL_AI_REQUIRED_NOT_CONFIGURED"
+  | "ORG_CAP_EXCEEDED"
+  | "FEATURE_DISABLED_HEAVY_TASKS"
+  | "FEATURE_DISABLED_IMAGE"
+  | "FEATURE_DISABLED_RESEARCH"
+  | "NO_VALID_FUNDING_SOURCE"
+  | "MEMBERSHIP_REQUIRED_STUDIO_OR_FOUNDER";
+
+type AiPolicyResolveRow = {
+  decision_type?: unknown;
+  reason_code?: unknown;
+};
+
+const AI_POLICY_REASON_MESSAGES: Record<AiPolicyReasonCode, string> = {
+  ORG_AI_DISABLED: "Organization AI is disabled for this workspace.",
+  ORG_MEMBER_NOT_AUTHORIZED: "You are not authorized to use organization AI here.",
+  PERSONAL_AI_REQUIRED_NOT_CONFIGURED:
+    "This action requires personal AI. Connect your own AI provider first.",
+  ORG_CAP_EXCEEDED: "The AI spending limit for this period has been reached.",
+  FEATURE_DISABLED_HEAVY_TASKS: "Heavy AI tasks are disabled by organization policy.",
+  FEATURE_DISABLED_IMAGE: "Image generation is disabled by organization policy.",
+  FEATURE_DISABLED_RESEARCH: "Research flows are disabled by organization policy.",
+  NO_VALID_FUNDING_SOURCE: "No valid AI funding source is available for this request.",
+  MEMBERSHIP_REQUIRED_STUDIO_OR_FOUNDER:
+    "Organization AI controls require Studio or Founder entitlement.",
+};
+
 function readStringField(payload: unknown, key: string): string | null {
   if (!payload || typeof payload !== "object") return null;
   const value = (payload as Record<string, unknown>)[key];
@@ -377,6 +408,184 @@ async function buildAuthHeaders(opts?: { includeJson?: boolean }): Promise<Heade
     headers.set("authorization", `Bearer ${accessToken}`);
   }
   return headers;
+}
+
+function buildSupabaseRpcHeaders(config: { anonKey: string }, accessToken: string): Headers {
+  const headers = new Headers();
+  headers.set("apikey", config.anonKey);
+  headers.set("authorization", `Bearer ${accessToken}`);
+  headers.set("accept-profile", "tongs");
+  headers.set("content-profile", "tongs");
+  headers.set("content-type", "application/json");
+  return headers;
+}
+
+function readAiPolicyDecisionType(value: unknown): AiPolicyDecisionType | null {
+  return value === "ALLOW" || value === "SOFT_DENY" || value === "HARD_DENY"
+    ? value
+    : null;
+}
+
+function readAiPolicyReasonCode(value: unknown): AiPolicyReasonCode | null {
+  return typeof value === "string" && value in AI_POLICY_REASON_MESSAGES
+    ? (value as AiPolicyReasonCode)
+    : null;
+}
+
+function readUserIdFromAccessToken(accessToken: string): string | null {
+  const payload = parseJwtPayload(accessToken);
+  if (!payload) return null;
+  const sub = readTokenString(payload.sub);
+  if (!sub || !isUuid(sub)) return null;
+  return sub;
+}
+
+function mapLaneToRequestedMode(lane: HearthAiLane): "PERSONAL_ONLY" | "ORG_FIRST_PERSONAL_FALLBACK" {
+  return lane === "byo" ? "PERSONAL_ONLY" : "ORG_FIRST_PERSONAL_FALLBACK";
+}
+
+function mapLaneToRequestedFundingSource(
+  lane: HearthAiLane,
+): "personal_byo_key" | "org_shared_credits" {
+  return lane === "byo" ? "personal_byo_key" : "org_shared_credits";
+}
+
+function toPreflightErrorMessage(
+  reasonCode: AiPolicyReasonCode | null,
+  decisionType: AiPolicyDecisionType,
+  lane: HearthAiLane,
+): string {
+  const base = reasonCode ? AI_POLICY_REASON_MESSAGES[reasonCode] : "AI action blocked by policy.";
+  if (decisionType === "SOFT_DENY" && lane !== "byo") {
+    return `${base} Switch AI lane to BYO in Hearth settings and try again.`;
+  }
+  return base;
+}
+
+async function resolveOrgIdForWorkspace(
+  config: { url: string; anonKey: string },
+  accessToken: string,
+  workspaceId: string | null,
+): Promise<string | null> {
+  if (!workspaceId || !isUuid(workspaceId)) return null;
+
+  const headers = buildSupabaseRpcHeaders(config, accessToken);
+  let response: Response;
+  try {
+    response = await fetch(
+      `${config.url}/rest/v1/workspaces?id=eq.${encodeURIComponent(workspaceId)}&select=org_id`,
+      {
+        method: "GET",
+        headers,
+      },
+    );
+  } catch {
+    return null;
+  }
+
+  if (!response.ok) return null;
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!Array.isArray(payload) || payload.length === 0) return null;
+  const row = payload[0];
+  if (!row || typeof row !== "object") return null;
+  const orgId = readTokenString((row as Record<string, unknown>).org_id);
+  return orgId && isUuid(orgId) ? orgId : null;
+}
+
+async function runHearthAiPolicyPreflight(args: {
+  lane: HearthAiLane;
+  workspaceId: string | null;
+}): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const config = readSupabaseConfig();
+  const accessToken = await readAccessTokenForRequest();
+  if (!config || !accessToken) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Sign in required before AI policy preflight can run.",
+    };
+  }
+
+  const userId = readUserIdFromAccessToken(accessToken);
+  if (!userId) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Unable to resolve your user session for AI policy preflight.",
+    };
+  }
+
+  const orgId = await resolveOrgIdForWorkspace(config, accessToken, args.workspaceId);
+  const headers = buildSupabaseRpcHeaders(config, accessToken);
+  let response: Response;
+  try {
+    response = await fetch(`${config.url}/rest/v1/rpc/resolve_ai_policy`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        p_org_id: orgId,
+        p_workspace_id: args.workspaceId && isUuid(args.workspaceId) ? args.workspaceId : null,
+        p_user_id: userId,
+        p_tool: "hearth",
+        p_action: "chat",
+        p_requested_mode: mapLaneToRequestedMode(args.lane),
+        p_personal_ai_configured: args.lane === "byo",
+        p_org_ai_available: args.lane !== "byo",
+        p_requested_funding_source: mapLaneToRequestedFundingSource(args.lane),
+        p_write_ledger: true,
+      }),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network error";
+    return {
+      ok: false,
+      status: 0,
+      error: `AI policy preflight failed: ${message}`,
+    };
+  }
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: readErrorText(payload, `AI policy preflight failed (${response.status}).`),
+    };
+  }
+
+  const row = Array.isArray(payload) ? (payload[0] as AiPolicyResolveRow | undefined) : undefined;
+  const decisionType = readAiPolicyDecisionType(row?.decision_type);
+  const reasonCode = readAiPolicyReasonCode(row?.reason_code);
+  if (decisionType == null) {
+    return {
+      ok: false,
+      status: 500,
+      error: "AI policy preflight returned an invalid decision payload.",
+    };
+  }
+
+  if (decisionType !== "ALLOW") {
+    return {
+      ok: false,
+      status: 403,
+      error: toPreflightErrorMessage(reasonCode, decisionType, args.lane),
+    };
+  }
+
+  return { ok: true };
 }
 
 function resolveAiSettingsFromStorage(): AiSettingsSnapshot {
@@ -873,6 +1082,19 @@ export async function requestHearthChatReply(
       ok: false,
       status: 400,
       error: "Episode context is required.",
+      runtime: { tokenBalance: null, billingMode: lane },
+    };
+  }
+
+  const preflight = await runHearthAiPolicyPreflight({
+    lane,
+    workspaceId: episodeContext.workspaceId,
+  });
+  if (!preflight.ok) {
+    return {
+      ok: false,
+      status: preflight.status,
+      error: preflight.error,
       runtime: { tokenBalance: null, billingMode: lane },
     };
   }
