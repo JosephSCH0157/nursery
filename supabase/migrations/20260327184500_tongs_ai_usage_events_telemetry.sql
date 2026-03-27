@@ -1,3 +1,5 @@
+-- cspell:words subfeature btrim
+
 begin;
 
 create table if not exists tongs.ai_usage_events (

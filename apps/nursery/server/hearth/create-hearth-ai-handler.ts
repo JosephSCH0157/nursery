@@ -1817,27 +1817,28 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           const payload = (await upstream.json()) as unknown;
           const text = extractTranscriptionText(payload);
           if (!text) {
-            if (lane === "forge") {
-              await recordAiUsageEvent({
-                userId,
-                workspaceId: null,
-                workpieceId,
-                sessionId: null,
-                feature: "speech_transcription",
-                subfeature: "workpiece_audio",
-                model: sttModel,
-                inputTokens: 0,
-                outputTokens: 0,
-                totalTokens: 0,
-                estimatedCostUsd: 0,
-                actualCostUsd: 0,
-                billableTokens: 0,
-                trigger: "user",
-                status: "error",
-                actionId: sttActionId,
-                providerRequestId: upstream.headers.get("x-request-id"),
-              });
-            }
+            await recordAiUsageEvent({
+              userId,
+              lane,
+              provider: "openai",
+              workspaceId: null,
+              workpieceId,
+              sessionId: null,
+              feature: "speech_transcription",
+              subfeature: "workpiece_audio",
+              model: sttModel,
+              inputTokens: 0,
+              outputTokens: 0,
+              totalTokens: 0,
+              estimatedCostUsd: 0,
+              actualCostUsd: 0,
+              billableTokens: 0,
+              trigger: "user",
+              status: "error",
+              actionId: sttActionId,
+              providerRequestId: upstream.headers.get("x-request-id"),
+              correlationId: sttActionId,
+            });
             return jsonResponse(502, {
               ok: false,
               error: "OpenAI returned empty transcription",
@@ -1846,46 +1847,44 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           }
 
           const totalTokens = extractTotalTokens(payload) ?? estimateTranscriptionTokenFallback(text);
-          const inputTokens = extractPromptTokens(payload) ?? totalTokens;
-          const outputTokens = extractCompletionTokens(payload) ?? 0;
-          const estimatedCostUsd = estimateCostUsd({
+          const costEstimate = estimateOpenAiCostFromPayload(sttModel, payload, totalTokens);
+          const inputTokens = costEstimate.usage.inputTokens;
+          const outputTokens = costEstimate.usage.outputTokens;
+          const estimatedCostUsd = costEstimate.estimatedCostUsd;
+          const billableTokens = calculateForgeBillingTokens(estimatedCostUsd);
+          const openAiRequestId = upstream.headers.get("x-request-id");
+          let creditsWarning: string | null = null;
+
+          await recordAiUsageEvent({
+            userId,
+            lane,
+            provider: "openai",
+            workspaceId: null,
+            workpieceId,
+            sessionId: null,
+            feature: "speech_transcription",
+            subfeature: "workpiece_audio",
             model: sttModel,
             inputTokens,
             outputTokens,
             totalTokens,
+            estimatedCostUsd,
+            actualCostUsd: estimatedCostUsd,
+            billableTokens,
+            trigger: "user",
+            status: "success",
+            actionId: sttActionId,
+            providerRequestId: openAiRequestId,
+            correlationId: sttActionId,
           });
-          const openAiRequestId = upstream.headers.get("x-request-id");
-          let creditsWarning: string | null = null;
 
-          if (lane === "forge") {
-            await recordAiUsageEvent({
-              userId,
-              workspaceId: null,
-              workpieceId,
-              sessionId: null,
-              feature: "speech_transcription",
-              subfeature: "workpiece_audio",
-              model: sttModel,
-              inputTokens,
-              outputTokens,
-              totalTokens,
-              estimatedCostUsd,
-              actualCostUsd: estimatedCostUsd,
-              billableTokens: totalTokens,
-              trigger: "user",
-              status: "success",
-              actionId: sttActionId,
-              providerRequestId: openAiRequestId,
-            });
-          }
-
-          if (lane === "forge" && totalTokens > 0) {
+          if (lane === "forge" && billableTokens > 0) {
             const deltaResult = await applyTokenDelta({
               userId,
-              spent: totalTokens,
+              spent: billableTokens,
               requestId: crypto.randomUUID(),
               openAiRequestId,
-              reason: "speech_transcription",
+              reason: "speech_transcription:forge_billing_tokens",
             });
             if (!deltaResult.ok) {
               creditsWarning = deltaResult.warning;
@@ -1904,6 +1903,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             total_tokens: totalTokens,
             provider_request_id: openAiRequestId,
             credits_warning: creditsWarning,
+            actual_cost_usd: estimatedCostUsd,
+            billable_tokens: billableTokens,
             ...buildBillingSnapshot(lane),
           });
         } finally {
@@ -2185,28 +2186,29 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const payload = (await upstream.json()) as unknown;
         const rawReply = extractAssistantReply(payload);
         if (!rawReply) {
-          if (lane === "forge") {
-            await recordAiUsageEvent({
-              userId,
-              workspaceId: episodeContext.workspaceId,
-              workpieceId: episodeContext.episodeId,
-              sessionId: null,
-              feature: chatFeature.feature,
-              subfeature: chatFeature.subfeature,
-              model,
-              reasoningEffort,
-              inputTokens: 0,
-              outputTokens: 0,
-              totalTokens: 0,
-              estimatedCostUsd: 0,
-              actualCostUsd: 0,
-              billableTokens: 0,
-              trigger: "user",
-              status: "error",
-              actionId: chatActionId,
-              providerRequestId: upstream.headers.get("x-request-id"),
-            });
-          }
+          await recordAiUsageEvent({
+            userId,
+            lane,
+            provider: "openai",
+            workspaceId: episodeContext.workspaceId,
+            workpieceId: episodeContext.episodeId,
+            sessionId: null,
+            feature: chatFeature.feature,
+            subfeature: chatFeature.subfeature,
+            model,
+            reasoningEffort,
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            estimatedCostUsd: 0,
+            actualCostUsd: 0,
+            billableTokens: 0,
+            trigger: "user",
+            status: "error",
+            actionId: chatActionId,
+            providerRequestId: upstream.headers.get("x-request-id"),
+            correlationId: chatActionId,
+          });
           return jsonResponse(502, {
             ok: false,
             error: "OpenAI returned empty response",
@@ -2267,50 +2269,48 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
         const totalTokens = extractTotalTokens(payload);
         const spent = totalTokens ?? estimateTokenFallback(messages, rawReply);
-        const inputTokens = extractPromptTokens(payload) ?? Math.max(0, spent - (extractCompletionTokens(payload) ?? 0));
-        const outputTokens = extractCompletionTokens(payload) ?? Math.max(0, spent - inputTokens);
-        const estimatedCostUsd = estimateCostUsd({
-          model,
-          inputTokens,
-          outputTokens,
-          totalTokens: spent,
-        });
+        const costEstimate = estimateOpenAiCostFromPayload(model, payload, spent);
+        const inputTokens = costEstimate.usage.inputTokens;
+        const outputTokens = costEstimate.usage.outputTokens;
+        const estimatedCostUsd = costEstimate.estimatedCostUsd;
+        const billableTokens = calculateForgeBillingTokens(estimatedCostUsd);
         const openAiRequestId = upstream.headers.get("x-request-id");
         let creditsWarning: string | null = null;
 
-        if (lane === "forge") {
-          await recordAiUsageEvent({
-            userId,
-            workspaceId: episodeContext.workspaceId,
-            workpieceId: episodeContext.episodeId,
-            sessionId: null,
-            feature: chatFeature.feature,
-            subfeature: chatFeature.subfeature,
-            model,
-            reasoningEffort,
-            inputTokens,
-            outputTokens,
-            totalTokens: spent,
-            estimatedCostUsd,
-            actualCostUsd: estimatedCostUsd,
-            billableTokens: spent,
-            trigger: "user",
-            status: "success",
-            actionId: chatActionId,
-            providerRequestId: openAiRequestId,
-          });
-        }
+        await recordAiUsageEvent({
+          userId,
+          lane,
+          provider: "openai",
+          workspaceId: episodeContext.workspaceId,
+          workpieceId: episodeContext.episodeId,
+          sessionId: null,
+          feature: chatFeature.feature,
+          subfeature: chatFeature.subfeature,
+          model,
+          reasoningEffort,
+          inputTokens,
+          outputTokens,
+          totalTokens: spent,
+          estimatedCostUsd,
+          actualCostUsd: estimatedCostUsd,
+          billableTokens,
+          trigger: "user",
+          status: "success",
+          actionId: chatActionId,
+          providerRequestId: openAiRequestId,
+          correlationId: chatActionId,
+        });
 
-        if (lane === "forge" && spent > 0) {
+        if (lane === "forge" && billableTokens > 0) {
           if (!userId) {
             creditsWarning = "Unable to update credits.";
           } else {
             const deltaResult = await applyTokenDelta({
               userId,
-              spent,
+              spent: billableTokens,
               requestId: crypto.randomUUID(),
               openAiRequestId,
-              reason: "hearth:chat",
+              reason: "hearth:chat:forge_billing_tokens",
             });
             if (!deltaResult.ok) {
               creditsWarning = deltaResult.warning;
@@ -2332,6 +2332,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           script_text: structured.scriptText,
           tag_audit: structured.tagAudit,
           total_tokens: spent,
+          actual_cost_usd: estimatedCostUsd,
+          billable_tokens: billableTokens,
           credits_warning: creditsWarning,
           ...buildBillingSnapshot(lane),
         });
