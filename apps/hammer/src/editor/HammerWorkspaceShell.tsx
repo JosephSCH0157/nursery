@@ -220,7 +220,7 @@ const SCRUB_RATE_OPTIONS = [1, 0.75, 0.5] as const;
 const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
 type HammerPlaybackAuthorityWindow = Window & typeof globalThis & {
   __forgeHammerActivePreviewOwnerId__?: string;
-  __forgeHammerActivePreviewAudio__?: HTMLAudioElement;
+  __forgeHammerActivePreviewAudio__?: HTMLMediaElement;
 };
 const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
   preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut"],
@@ -384,6 +384,7 @@ type HammerVisualLutPreset =
 type HammerSourceImageItem = {
   id: string;
   label: string;
+  kind: "image" | "broll";
   anchorSegmentId: string;
   startSec: number;
   endSec: number;
@@ -478,6 +479,28 @@ type HammerImagePlacementTransform = {
   topPct: number;
   widthPct: number;
   heightPct: number;
+};
+
+type HammerVisualPlacementGeometry = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  anchor: "center" | "top_left";
+};
+
+type HammerPreviewVisualOverlay = {
+  placementId: string;
+  label: string;
+  kind: "image" | "broll";
+  src: string | null;
+  startSec: number;
+  endSec: number;
+  transform: HammerImagePlacementTransform;
+  animationPreset: HammerImageAnimationPreset;
+  zIndex: number;
+  opacity: number;
+  isSelected: boolean;
 };
 
 type HammerTimelineImageDragState = {
@@ -963,12 +986,96 @@ const DEFAULT_IMAGE_PLACEMENT_TRANSFORM: HammerImagePlacementTransform = {
   heightPct: 34,
 };
 
+const DEFAULT_VISUAL_PLACEMENT_GEOMETRY: HammerVisualPlacementGeometry = {
+  x: 0.28,
+  y: 0.22,
+  width: 0.44,
+  height: 0.34,
+  anchor: "top_left",
+};
+
 function clampImagePlacementTransform(transform: HammerImagePlacementTransform): HammerImagePlacementTransform {
   const widthPct = Math.max(8, Math.min(92, transform.widthPct));
   const heightPct = Math.max(8, Math.min(92, transform.heightPct));
   const leftPct = Math.max(0, Math.min(100 - widthPct, transform.leftPct));
   const topPct = Math.max(0, Math.min(100 - heightPct, transform.topPct));
   return { leftPct, topPct, widthPct, heightPct };
+}
+
+function clampVisualPlacementGeometry(
+  geometry: HammerVisualPlacementGeometry,
+): HammerVisualPlacementGeometry {
+  const width = Math.max(0.08, Math.min(0.92, geometry.width));
+  const height = Math.max(0.08, Math.min(0.92, geometry.height));
+  const x = Math.max(0, Math.min(1 - width, geometry.x));
+  const y = Math.max(0, Math.min(1 - height, geometry.y));
+  return {
+    x,
+    y,
+    width,
+    height,
+    anchor: geometry.anchor === "center" ? "center" : "top_left",
+  };
+}
+
+function resolvePlacementGeometry(
+  placement: HammerVisualPlacementRecord | null | undefined,
+): HammerVisualPlacementGeometry {
+  const candidate = placement?.overlay_geometry ?? null;
+  if (!candidate) {
+    return DEFAULT_VISUAL_PLACEMENT_GEOMETRY;
+  }
+  const x = Number(candidate.x);
+  const y = Number(candidate.y);
+  const width = Number(candidate.width);
+  const height = Number(candidate.height);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) {
+    return DEFAULT_VISUAL_PLACEMENT_GEOMETRY;
+  }
+  return clampVisualPlacementGeometry({
+    x,
+    y,
+    width,
+    height,
+    anchor: candidate.anchor === "center" ? "center" : "top_left",
+  });
+}
+
+function geometryToTransform(geometry: HammerVisualPlacementGeometry): HammerImagePlacementTransform {
+  return clampImagePlacementTransform({
+    leftPct: geometry.x * 100,
+    topPct: geometry.y * 100,
+    widthPct: geometry.width * 100,
+    heightPct: geometry.height * 100,
+  });
+}
+
+function transformToGeometry(transform: HammerImagePlacementTransform): HammerVisualPlacementGeometry {
+  const clamped = clampImagePlacementTransform(transform);
+  return clampVisualPlacementGeometry({
+    x: clamped.leftPct / 100,
+    y: clamped.topPct / 100,
+    width: clamped.widthPct / 100,
+    height: clamped.heightPct / 100,
+    anchor: "top_left",
+  });
+}
+
+function resolvePlacementAnimationPreset(
+  placement: HammerVisualPlacementRecord | null | undefined,
+): HammerImageAnimationPreset {
+  const preset = placement?.animation_preset ?? null;
+  return (
+    preset === "fade_in"
+    || preset === "fade_out"
+    || preset === "fade_in_out"
+    || preset === "flip_in"
+    || preset === "flip_out"
+    || preset === "shutter_in"
+    || preset === "shutter_out"
+    || preset === "shutter_in_fade_out"
+    || preset === "none"
+  ) ? preset : "none";
 }
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -1459,9 +1566,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [timelineImageDragState, setTimelineImageDragState] = useState<HammerTimelineImageDragState | null>(null);
   const [imagePlacementTransforms, setImagePlacementTransforms] = useState<Record<string, HammerImagePlacementTransform>>({});
   const [previewCanvasDragState, setPreviewCanvasDragState] = useState<HammerPreviewCanvasDragState | null>(null);
-  const [imageAnimationPresetByPlacementId, setImageAnimationPresetByPlacementId] = useState<Record<string, HammerImageAnimationPreset>>({});
   const [imageAnimationContextMenu, setImageAnimationContextMenu] = useState<HammerImageAnimationContextMenuState | null>(null);
-  const [imageAnimationPreviewNonce, setImageAnimationPreviewNonce] = useState(0);
   const [captionFormatting, setCaptionFormatting] = useState<HammerCaptionFormattingState>({
     style: "sentence",
     maxCharsPerLine: 42,
@@ -1512,8 +1617,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
   const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
-  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const previewAudioRef = useRef<HTMLMediaElement | null>(null);
   const previewSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const previewBrollVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const workspaceShellRef = useRef<HTMLElement | null>(null);
   const lastPlaybackMediaSrcRef = useRef<string | null>(null);
   const captionEditorRefs = useRef(new Map<string, HTMLTextAreaElement>());
@@ -1618,7 +1724,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }, []);
 
-  const claimGlobalPlaybackAuthority = useCallback((previewAudio: HTMLAudioElement): void => {
+  const claimGlobalPlaybackAuthority = useCallback((previewAudio: HTMLMediaElement): void => {
     const runtimeWindow = window as HammerPlaybackAuthorityWindow;
     const activePreviewAudio = runtimeWindow.__forgeHammerActivePreviewAudio__;
     if (activePreviewAudio && activePreviewAudio !== previewAudio) {
@@ -1632,7 +1738,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     pauseAuxiliaryMediaPlayback();
   }, [pauseAuxiliaryMediaPlayback]);
 
-  const releaseGlobalPlaybackAuthority = useCallback((previewAudio: HTMLAudioElement | null): void => {
+  const releaseGlobalPlaybackAuthority = useCallback((previewAudio: HTMLMediaElement | null): void => {
     const runtimeWindow = window as HammerPlaybackAuthorityWindow;
     if (
       runtimeWindow.__forgeHammerActivePreviewOwnerId__ === playbackOwnerIdRef.current
@@ -1795,43 +1901,71 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => sortedTimelineMarkers.map((marker) => marker.timeSec),
     [sortedTimelineMarkers],
   );
-  const sourceImageItems = useMemo<HammerSourceImageItem[]>(() => (
-    (editableVisualPlacements?.placements ?? []).map((placement) => ({
-      id: placement.placement_id,
-      label: placement.label ?? placement.asset_ref ?? placement.asset_path ?? placement.entry_id,
-      anchorSegmentId: placement.anchor_segment_id,
-      startSec: imagePlacementDraftWindows[placement.placement_id]?.startSec ?? placement.start_sec,
-      endSec: imagePlacementDraftWindows[placement.placement_id]?.endSec ?? placement.end_sec,
-      status: placement.status,
-      confidence: placement.confidence,
-      visualMode: placement.visual_mode,
-      assetPath: placement.asset_path,
-    }))
+  const sourceVisualPlacementItems = useMemo<HammerSourceImageItem[]>(() => (
+    (editableVisualPlacements?.placements ?? [])
+      .map((placement) => {
+        const kind = deriveAssetKind({
+          visualMode: placement.visual_mode,
+          assetPath: placement.asset_path,
+        });
+        if (kind !== "image" && kind !== "broll") return null;
+        return {
+          id: placement.placement_id,
+          label: placement.label ?? placement.asset_ref ?? placement.asset_path ?? placement.entry_id,
+          kind,
+          anchorSegmentId: placement.anchor_segment_id,
+          startSec: imagePlacementDraftWindows[placement.placement_id]?.startSec ?? placement.start_sec,
+          endSec: imagePlacementDraftWindows[placement.placement_id]?.endSec ?? placement.end_sec,
+          status: placement.status,
+          confidence: placement.confidence,
+          visualMode: placement.visual_mode,
+          assetPath: placement.asset_path,
+        };
+      })
+      .filter((item): item is HammerSourceImageItem => Boolean(item))
   ), [editableVisualPlacements?.placements, imagePlacementDraftWindows]);
-  const selectedImagePlacement = useMemo(
-    () => sourceImageItems.find((item) => item.id === selectedImagePlacementId) ?? null,
-    [selectedImagePlacementId, sourceImageItems],
+  const sourceImageItems = useMemo(
+    () => sourceVisualPlacementItems.filter((item) => item.kind === "image"),
+    [sourceVisualPlacementItems],
   );
+  const sourceBrollPlacementItems = useMemo(
+    () => sourceVisualPlacementItems.filter((item) => item.kind === "broll"),
+    [sourceVisualPlacementItems],
+  );
+  const visualPlacementsById = useMemo(() => {
+    const byId = new Map<string, HammerVisualPlacementRecord>();
+    for (const placement of editableVisualPlacements?.placements ?? []) {
+      byId.set(placement.placement_id, placement);
+    }
+    return byId;
+  }, [editableVisualPlacements?.placements]);
+  const selectedImagePlacement = useMemo(
+    () => sourceVisualPlacementItems.find((item) => item.id === selectedImagePlacementId) ?? null,
+    [selectedImagePlacementId, sourceVisualPlacementItems],
+  );
+  const selectedPlacementRecord = selectedImagePlacementId
+    ? (visualPlacementsById.get(selectedImagePlacementId) ?? null)
+    : null;
   const selectedImagePlacementTransform = useMemo(() => {
     if (!selectedImagePlacementId) return DEFAULT_IMAGE_PLACEMENT_TRANSFORM;
-    return imagePlacementTransforms[selectedImagePlacementId] ?? DEFAULT_IMAGE_PLACEMENT_TRANSFORM;
-  }, [imagePlacementTransforms, selectedImagePlacementId]);
+    const draft = imagePlacementTransforms[selectedImagePlacementId];
+    if (draft) return draft;
+    return geometryToTransform(resolvePlacementGeometry(selectedPlacementRecord));
+  }, [imagePlacementTransforms, selectedImagePlacementId, selectedPlacementRecord]);
   const selectedImagePlacementPreviewUrl = useMemo(() => {
     const path = selectedImagePlacement?.assetPath ?? null;
     if (!path) return null;
     return sourceDeskPreviewUrls[path] ?? null;
   }, [selectedImagePlacement?.assetPath, sourceDeskPreviewUrls]);
-  const selectedImageAnimationPreset = selectedImagePlacementId
-    ? imageAnimationPresetByPlacementId[selectedImagePlacementId] ?? "none"
-    : "none";
+  const selectedImageAnimationPreset = resolvePlacementAnimationPreset(selectedPlacementRecord);
   const selectedImageAnimationLabel = IMAGE_ANIMATION_PRESET_OPTIONS.find(
     (option) => option.id === selectedImageAnimationPreset,
   )?.label ?? "None";
   useEffect(() => {
     if (!selectedImagePlacementId) return;
-    if (sourceImageItems.some((item) => item.id === selectedImagePlacementId)) return;
+    if (sourceVisualPlacementItems.some((item) => item.id === selectedImagePlacementId)) return;
     setSelectedImagePlacementId(null);
-  }, [selectedImagePlacementId, sourceImageItems]);
+  }, [selectedImagePlacementId, sourceVisualPlacementItems]);
   useEffect(() => {
     if (currentPass !== "image_placement" && currentPass !== "image_animation") return;
     if (selectedImagePlacementId) return;
@@ -3115,6 +3249,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     };
 
     const handleMouseUp = (): void => {
+      const draft = imagePlacementTransforms[previewCanvasDragState.placementId] ?? null;
+      if (draft) {
+        commitImagePlacementTransform(previewCanvasDragState.placementId, draft, "Adjust visual overlay geometry");
+      }
+      setImagePlacementTransforms((current) => {
+        if (!current[previewCanvasDragState.placementId]) return current;
+        const next = { ...current };
+        delete next[previewCanvasDragState.placementId];
+        return next;
+      });
       setPreviewCanvasDragState(null);
     };
 
@@ -3124,7 +3268,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [previewCanvasDragState]);
+  }, [commitImagePlacementTransform, imagePlacementTransforms, previewCanvasDragState]);
 
   async function refreshSourceDeskMedia(): Promise<void> {
     setSourceDeskLoading(true);
@@ -4501,7 +4645,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   function updateVisualPlacementTiming(placementId: string, deltaSec: number): void {
-    const placement = sourceImageItems.find((item) => item.id === placementId) ?? null;
+    const placement = sourceVisualPlacementItems.find((item) => item.id === placementId) ?? null;
     if (!placement) return;
     const duration = Math.max(MIN_IMAGE_PLACEMENT_DURATION_SEC, roundToTenth(placement.endSec - placement.startSec));
     const nextStart = Math.max(0, roundToTenth(placement.startSec + deltaSec));
@@ -4520,12 +4664,46 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     updater: (current: HammerImagePlacementTransform) => HammerImagePlacementTransform,
   ): void {
     setImagePlacementTransforms((current) => {
-      const base = current[placementId] ?? DEFAULT_IMAGE_PLACEMENT_TRANSFORM;
+      const base = current[placementId]
+        ?? geometryToTransform(resolvePlacementGeometry(visualPlacementsById.get(placementId)));
       const next = clampImagePlacementTransform(updater(base));
       return {
         ...current,
         [placementId]: next,
       };
+    });
+  }
+
+  function commitImagePlacementTransform(
+    placementId: string,
+    transform: HammerImagePlacementTransform,
+    label: string,
+  ): void {
+    const nextGeometry = transformToGeometry(transform);
+    applyHistoryMutation({
+      label,
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedPlacementIds: [placementId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const current = before.visualPlacements;
+        if (!current) return before;
+        return {
+          ...before,
+          visualPlacements: {
+            ...current,
+            placements: current.placements.map((placement) => (
+              placement.placement_id === placementId
+                ? {
+                  ...placement,
+                  overlay_geometry: nextGeometry,
+                }
+                : placement
+            )),
+          },
+        };
+      },
     });
   }
 

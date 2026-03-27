@@ -498,6 +498,26 @@ function normalizeVisualPlacementsFromValue(value: unknown): HammerPersistedVisu
       const status = readString(placement.status);
       const startSec = Number(placement.start_sec);
       const endSec = Number(placement.end_sec);
+      const overlayGeometryRow = readJsonObject(placement.overlay_geometry);
+      const geometryX = Number(overlayGeometryRow?.x);
+      const geometryY = Number(overlayGeometryRow?.y);
+      const geometryWidth = Number(overlayGeometryRow?.width);
+      const geometryHeight = Number(overlayGeometryRow?.height);
+      const overlayGeometry = (
+        Number.isFinite(geometryX)
+        && Number.isFinite(geometryY)
+        && Number.isFinite(geometryWidth)
+        && Number.isFinite(geometryHeight)
+      )
+        ? {
+          x: Math.max(0, Math.min(1, geometryX)),
+          y: Math.max(0, Math.min(1, geometryY)),
+          width: Math.max(0.05, Math.min(1, geometryWidth)),
+          height: Math.max(0.05, Math.min(1, geometryHeight)),
+          anchor: overlayGeometryRow?.anchor === "center" ? "center" : "top_left",
+        } as const
+        : null;
+      const animationPreset = readString(placement.animation_preset);
       if (
         !placementId
         || !entryId
@@ -538,6 +558,24 @@ function normalizeVisualPlacementsFromValue(value: unknown): HammerPersistedVisu
             .map((flag) => readString(flag))
             .filter((flag): flag is string => Boolean(flag))
           : [],
+        overlay_geometry: overlayGeometry,
+        animation_preset: (
+          animationPreset === "fade_in"
+          || animationPreset === "fade_out"
+          || animationPreset === "fade_in_out"
+          || animationPreset === "flip_in"
+          || animationPreset === "flip_out"
+          || animationPreset === "shutter_in"
+          || animationPreset === "shutter_out"
+          || animationPreset === "shutter_in_fade_out"
+          || animationPreset === "none"
+        ) ? animationPreset : null,
+        overlay_opacity: Number.isFinite(Number(placement.overlay_opacity))
+          ? Number(placement.overlay_opacity)
+          : null,
+        overlay_z_index: Number.isFinite(Number(placement.overlay_z_index))
+          ? Number(placement.overlay_z_index)
+          : null,
       } as HammerVisualPlacementRecord;
     })
     .filter((placement): placement is HammerVisualPlacementRecord => Boolean(placement));

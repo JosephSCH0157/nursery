@@ -1,4 +1,16 @@
-import assert from "node:assert/strict";
+// cspell:words dbfs
+
+function assertCondition(condition: unknown, message: string): asserts condition {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+function assertEqual<T>(actual: T, expected: T, message: string): void {
+  if (!Object.is(actual, expected)) {
+    throw new Error(`${message}: expected ${String(expected)}, got ${String(actual)}`);
+  }
+}
 
 /**
  * Hammer Channel Characterization Tests
@@ -67,7 +79,7 @@ function computePearsonCorrelation(left: Float32Array, right: Float32Array): num
     monoSamples[i] = Math.sin((i / sampleCount) * Math.PI * 4) * 0.3;
   }
 
-  assert.equal(monoSamples.length, sampleCount, "mono fixture created");
+  assertEqual(monoSamples.length, sampleCount, "mono fixture created");
 }
 
 {
@@ -82,14 +94,14 @@ function computePearsonCorrelation(left: Float32Array, right: Float32Array): num
   }
 
   const correlation = computePearsonCorrelation(leftSamples, rightSamples);
-  assert(correlation != null, "correlation computed for normal stereo");
-  assert(correlation > 0.8, "normal stereo has positive correlation");
-  assert(correlation < 0.99, "normal stereo does not have dual_mono correlation");
+  assertCondition(correlation != null, "correlation computed for normal stereo");
+  assertCondition(correlation > 0.8, "normal stereo has positive correlation");
+  assertCondition(correlation < 0.99, "normal stereo does not have dual_mono correlation");
 
   const leftRms = computeChannelRmsDbfs(leftSamples);
   const rightRms = computeChannelRmsDbfs(rightSamples);
-  assert(leftRms != null && rightRms != null, "RMS computed for both channels");
-  assert(Math.abs(leftRms - rightRms) < 2, "RMS values are similar");
+  assertCondition(leftRms != null && rightRms != null, "RMS computed for both channels");
+  assertCondition(Math.abs(leftRms - rightRms) < 2, "RMS values are similar");
 }
 
 {
@@ -106,8 +118,8 @@ function computePearsonCorrelation(left: Float32Array, right: Float32Array): num
   const leftRms = computeChannelRmsDbfs(leftSilent);
   const rightRms = computeChannelRmsDbfs(rightActive);
 
-  assert.equal(leftRms, null, "completely silent channel returns null");
-  assert(rightRms != null && rightRms > -85, "right channel is above silence threshold");
+  assertEqual(leftRms, null, "completely silent channel returns null");
+  assertCondition(rightRms != null && rightRms > -85, "right channel is above silence threshold");
 }
 
 {
@@ -126,9 +138,9 @@ function computePearsonCorrelation(left: Float32Array, right: Float32Array): num
   const leftRms = computeChannelRmsDbfs(leftDual);
   const rightRms = computeChannelRmsDbfs(rightDual);
 
-  assert(correlation != null && correlation > 0.99, "dual mono has high positive correlation");
-  assert(leftRms != null && rightRms != null, "RMS computed");
-  assert(Math.abs(leftRms - rightRms) < 0.1, "amplitude nearly identical");
+  assertCondition(correlation != null && correlation > 0.99, "dual mono has high positive correlation");
+  assertCondition(leftRms != null && rightRms != null, "RMS computed");
+  assertCondition(Math.abs(leftRms - rightRms) < 0.1, "amplitude nearly identical");
 }
 
 {
@@ -147,7 +159,7 @@ function computePearsonCorrelation(left: Float32Array, right: Float32Array): num
   }
 
   const correlation = computePearsonCorrelation(left, right);
-  assert(correlation != null && correlation < -0.5, "phase-reversed channels show negative correlation");
+  assertCondition(correlation != null && correlation < -0.5, "phase-reversed channels show negative correlation");
 }
 
 console.log("Hammer channel characterization unit tests passed.");
