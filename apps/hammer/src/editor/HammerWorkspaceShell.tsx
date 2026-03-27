@@ -496,6 +496,23 @@ type HammerPreviewCanvasDragState = {
   origin: HammerImagePlacementTransform;
 };
 
+type HammerImageAnimationPreset =
+  | "none"
+  | "fade_in"
+  | "fade_out"
+  | "fade_in_out"
+  | "flip_in"
+  | "flip_out"
+  | "shutter_in"
+  | "shutter_out"
+  | "shutter_in_fade_out";
+
+type HammerImageAnimationContextMenuState = {
+  placementId: string;
+  x: number;
+  y: number;
+};
+
 type HammerTimelineLaneView = {
   id: string;
   label: string;
@@ -949,6 +966,30 @@ function clampImagePlacementTransform(transform: HammerImagePlacementTransform):
   return { leftPct, topPct, widthPct, heightPct };
 }
 
+const IMAGE_ANIMATION_PRESET_OPTIONS: Array<{ id: HammerImageAnimationPreset; label: string }> = [
+  { id: "none", label: "None" },
+  { id: "fade_in", label: "Fade In" },
+  { id: "fade_out", label: "Fade Out" },
+  { id: "fade_in_out", label: "Fade In + Out" },
+  { id: "flip_in", label: "Flip In" },
+  { id: "flip_out", label: "Flip Out" },
+  { id: "shutter_in", label: "Shutter In" },
+  { id: "shutter_out", label: "Shutter Out" },
+  { id: "shutter_in_fade_out", label: "Shutter In + Fade Out" },
+];
+
+function resolveImageAnimationClass(preset: HammerImageAnimationPreset): string {
+  if (preset === "fade_in") return "is-anim-fade-in";
+  if (preset === "fade_out") return "is-anim-fade-out";
+  if (preset === "fade_in_out") return "is-anim-fade-in-out";
+  if (preset === "flip_in") return "is-anim-flip-in";
+  if (preset === "flip_out") return "is-anim-flip-out";
+  if (preset === "shutter_in") return "is-anim-shutter-in";
+  if (preset === "shutter_out") return "is-anim-shutter-out";
+  if (preset === "shutter_in_fade_out") return "is-anim-shutter-in-fade-out";
+  return "";
+}
+
 function toTitleCaseText(value: string): string {
   return value.replace(/\b([a-z])/g, (match) => match.toUpperCase());
 }
@@ -1380,6 +1421,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [timelineImageDragState, setTimelineImageDragState] = useState<HammerTimelineImageDragState | null>(null);
   const [imagePlacementTransforms, setImagePlacementTransforms] = useState<Record<string, HammerImagePlacementTransform>>({});
   const [previewCanvasDragState, setPreviewCanvasDragState] = useState<HammerPreviewCanvasDragState | null>(null);
+  const [imageAnimationPresetByPlacementId, setImageAnimationPresetByPlacementId] = useState<Record<string, HammerImageAnimationPreset>>({});
+  const [imageAnimationContextMenu, setImageAnimationContextMenu] = useState<HammerImageAnimationContextMenuState | null>(null);
+  const [imageAnimationPreviewNonce, setImageAnimationPreviewNonce] = useState(0);
   const [captionFormatting, setCaptionFormatting] = useState<HammerCaptionFormattingState>({
     style: "sentence",
     maxCharsPerLine: 42,
@@ -1736,13 +1780,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (!path) return null;
     return sourceDeskPreviewUrls[path] ?? null;
   }, [selectedImagePlacement?.assetPath, sourceDeskPreviewUrls]);
+  const selectedImageAnimationPreset = selectedImagePlacementId
+    ? imageAnimationPresetByPlacementId[selectedImagePlacementId] ?? "none"
+    : "none";
+  const selectedImageAnimationLabel = IMAGE_ANIMATION_PRESET_OPTIONS.find(
+    (option) => option.id === selectedImageAnimationPreset,
+  )?.label ?? "None";
   useEffect(() => {
     if (!selectedImagePlacementId) return;
     if (sourceImageItems.some((item) => item.id === selectedImagePlacementId)) return;
     setSelectedImagePlacementId(null);
   }, [selectedImagePlacementId, sourceImageItems]);
   useEffect(() => {
-    if (currentPass !== "image_placement") return;
+    if (currentPass !== "image_placement" && currentPass !== "image_animation") return;
     if (selectedImagePlacementId) return;
     const firstItem = sourceImageItems[0] ?? null;
     if (!firstItem) return;
@@ -2461,6 +2511,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setTimelineImageDragState(null);
     setImagePlacementTransforms({});
     setPreviewCanvasDragState(null);
+    setImageAnimationPresetByPlacementId({});
+    setImageAnimationContextMenu(null);
+    setImageAnimationPreviewNonce(0);
     setEditableDerivedTextLayers(cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers));
     derivedLayerHistoryRef.current.clear();
     setCaptionBuildState(null);
@@ -3982,6 +4035,42 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setImagePlacementDraftWindows({});
   }, [currentPass]);
   useEffect(() => {
+    if (!imageAnimationContextMenu) return;
+    const closeMenu = (): void => setImageAnimationContextMenu(null);
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") setImageAnimationContextMenu(null);
+    };
+    window.addEventListener("mousedown", closeMenu);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("mousedown", closeMenu);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [imageAnimationContextMenu]);
+  useEffect(() => {
+    if (currentPass === "image_animation") return;
+    setImageAnimationContextMenu(null);
+  }, [currentPass]);
+  useEffect(() => {
+    const validIds = new Set(sourceImageItems.map((item) => item.id));
+    setImageAnimationPresetByPlacementId((current) => {
+      const next: Record<string, HammerImageAnimationPreset> = {};
+      let changed = false;
+      for (const [placementId, preset] of Object.entries(current)) {
+        if (!validIds.has(placementId)) {
+          changed = true;
+          continue;
+        }
+        next[placementId] = preset;
+      }
+      return changed ? next : current;
+    });
+  }, [sourceImageItems]);
+  useEffect(() => {
     if (currentPass !== "gap_pacing") return;
     const timerId = window.setTimeout(() => {
       applyGapPacingAuto();
@@ -4268,6 +4357,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       pointerStartY: event.clientY,
       origin: selectedImagePlacementTransform,
     });
+  }
+
+  function openImageAnimationContextMenu(event: MouseEvent<SVGGElement>, placementId: string): void {
+    if (currentPass !== "image_animation") return;
+    event.preventDefault();
+    event.stopPropagation();
+    setFocusOverride("time-focus");
+    setSelectedImagePlacementId(placementId);
+    setImageAnimationContextMenu({
+      placementId,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }
+
+  function applyImageAnimationPreset(placementId: string, preset: HammerImageAnimationPreset): void {
+    setImageAnimationPresetByPlacementId((current) => ({
+      ...current,
+      [placementId]: preset,
+    }));
+    setImageAnimationPreviewNonce((current) => current + 1);
+    setImageAnimationContextMenu(null);
   }
 
   function removeVisualPlacement(placementId: string): void {
@@ -7219,11 +7330,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               />
               <div className="hammer-preview-surface" style={{ filter: visualPreviewFilter || undefined }} ref={previewSurfaceRef}>
                 <div className="hammer-preview-surface__label">{resolvePreviewLabel(playheadSegment, playheadSec)}</div>
-                {currentPass === "image_placement" ? (
+                {currentPass === "image_placement" || currentPass === "image_animation" ? (
                   <div className="hammer-preview-canvas" aria-label="Image placement canvas">
                     {selectedImagePlacement ? (
                       <div
-                        className="hammer-preview-canvas__bbox"
+                        key={`${selectedImagePlacement.id}:${selectedImageAnimationPreset}:${imageAnimationPreviewNonce}`}
+                        className={[
+                          "hammer-preview-canvas__bbox",
+                          resolveImageAnimationClass(selectedImageAnimationPreset),
+                        ].filter(Boolean).join(" ")}
                         style={{
                           left: `${selectedImagePlacementTransform.leftPct}%`,
                           top: `${selectedImagePlacementTransform.topPct}%`,
@@ -7258,7 +7373,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       </div>
                     ) : (
                       <div className="hammer-preview-canvas__empty">
-                        Select an image clip in the timeline to edit position and scale.
+                        {currentPass === "image_placement"
+                          ? "Select an image clip in the timeline to edit position and scale."
+                          : "Select an image clip in the timeline to preview animation presets."}
                       </div>
                     )}
                   </div>
@@ -7272,6 +7389,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <span>{playbackMediaSrc ? "Mapped media ready" : "Mapped media unavailable"}</span>
                 {currentPass === "visual_finishing" ? (
                   <span>Visual finishing preview mode active</span>
+                ) : null}
+                {currentPass === "image_animation" ? (
+                  <span>Image animation preset: {selectedImageAnimationLabel}</span>
                 ) : null}
                 {playbackWindow ? (
                   <span>
@@ -7422,136 +7542,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       <PolishResultSummary phase="applied" summary={cleanupReceipt} />
                     ) : null}
                     <div className="hammer-tool-hint">No per-gap approval cards in this pass.</div>
-                  </section>
-                ) : currentPass === "image_placement" ? (
-                  <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Image Placement</header>
-                    <div className="hammer-tool-hint">
-                      Direct manipulation mode. Drag and resize image clips in timeline or preview.
-                    </div>
-                    {selectedImagePlacement ? (
-                      <>
-                        <div className="hammer-tool-hint">
-                          Selected: {selectedImagePlacement.label}
-                          {` (${selectedImagePlacement.startSec.toFixed(1)}s - ${selectedImagePlacement.endSec.toFixed(1)}s)`}
-                        </div>
-                        <label className="hammer-tool-field">
-                          <span>Start (sec)</span>
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.1}
-                            value={selectedImagePlacement.startSec}
-                            onChange={(event) => {
-                              const nextStart = Math.max(0, Number(event.target.value) || 0);
-                              const minEnd = roundToTenth(nextStart + MIN_IMAGE_PLACEMENT_DURATION_SEC);
-                              commitVisualPlacementWindow(selectedImagePlacement.id, {
-                                startSec: nextStart,
-                                endSec: Math.max(minEnd, selectedImagePlacement.endSec),
-                                label: "Adjust image clip start",
-                              });
-                            }}
-                          />
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>End (sec)</span>
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.1}
-                            value={selectedImagePlacement.endSec}
-                            onChange={(event) => {
-                              const nextEnd = Math.max(0, Number(event.target.value) || 0);
-                              commitVisualPlacementWindow(selectedImagePlacement.id, {
-                                startSec: selectedImagePlacement.startSec,
-                                endSec: Math.max(
-                                  roundToTenth(selectedImagePlacement.startSec + MIN_IMAGE_PLACEMENT_DURATION_SEC),
-                                  nextEnd,
-                                ),
-                                label: "Adjust image clip end",
-                              });
-                            }}
-                          />
-                        </label>
-                        <div className="hammer-source-card__actions">
-                          <button type="button" onClick={() => updateVisualPlacementTiming(selectedImagePlacement.id, -0.5)}>
-                            Move -0.5s
-                          </button>
-                          <button type="button" onClick={() => updateVisualPlacementTiming(selectedImagePlacement.id, 0.5)}>
-                            Move +0.5s
-                          </button>
-                          <button type="button" onClick={() => removeVisualPlacement(selectedImagePlacement.id)}>
-                            Remove Clip
-                          </button>
-                        </div>
-                        <label className="hammer-tool-field">
-                          <span>Position X ({Math.round(selectedImagePlacementTransform.leftPct)}%)</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={92}
-                            step={1}
-                            value={selectedImagePlacementTransform.leftPct}
-                            onChange={(event) => {
-                              const next = Number(event.target.value);
-                              updateImagePlacementTransform(selectedImagePlacement.id, (current) => ({
-                                ...current,
-                                leftPct: next,
-                              }));
-                            }}
-                          />
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>Position Y ({Math.round(selectedImagePlacementTransform.topPct)}%)</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={92}
-                            step={1}
-                            value={selectedImagePlacementTransform.topPct}
-                            onChange={(event) => {
-                              const next = Number(event.target.value);
-                              updateImagePlacementTransform(selectedImagePlacement.id, (current) => ({
-                                ...current,
-                                topPct: next,
-                              }));
-                            }}
-                          />
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>
-                            Scale ({Math.round((selectedImagePlacementTransform.widthPct / DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct) * 100)}%)
-                          </span>
-                          <input
-                            type="range"
-                            min={50}
-                            max={200}
-                            step={1}
-                            value={Math.round((selectedImagePlacementTransform.widthPct / DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct) * 100)}
-                            onChange={(event) => {
-                              const scale = Number(event.target.value) / 100;
-                              updateImagePlacementTransform(selectedImagePlacement.id, (current) => ({
-                                ...current,
-                                widthPct: DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct * scale,
-                                heightPct: DEFAULT_IMAGE_PLACEMENT_TRANSFORM.heightPct * scale,
-                              }));
-                            }}
-                          />
-                        </label>
-                        <div className="hammer-source-card__actions">
-                          <button
-                            type="button"
-                            onClick={() => updateImagePlacementTransform(selectedImagePlacement.id, () => DEFAULT_IMAGE_PLACEMENT_TRANSFORM)}
-                          >
-                            Center
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="hammer-tool-hint">
-                        Select an image clip in the timeline to open inspector controls.
-                      </div>
-                    )}
                   </section>
                 ) : (
                 <section className="hammer-tool-card">
@@ -8712,6 +8702,153 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       Eye Contact and Background Blur are lightweight preview controls in this phase.
                     </div>
                   </section>
+                ) : currentPass === "image_placement" ? (
+                  <section className="hammer-tool-card">
+                    <header className="hammer-tool-card__head">Image Placement</header>
+                    <div className="hammer-tool-hint">
+                      Direct manipulation mode. Drag and resize image clips in timeline or preview.
+                    </div>
+                    {selectedImagePlacement ? (
+                      <>
+                        <div className="hammer-tool-hint">
+                          Selected: {selectedImagePlacement.label}
+                          {` (${selectedImagePlacement.startSec.toFixed(1)}s - ${selectedImagePlacement.endSec.toFixed(1)}s)`}
+                        </div>
+                        <label className="hammer-tool-field">
+                          <span>Start (sec)</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={selectedImagePlacement.startSec}
+                            onChange={(event) => {
+                              const nextStart = Math.max(0, Number(event.target.value) || 0);
+                              const minEnd = roundToTenth(nextStart + MIN_IMAGE_PLACEMENT_DURATION_SEC);
+                              commitVisualPlacementWindow(selectedImagePlacement.id, {
+                                startSec: nextStart,
+                                endSec: Math.max(minEnd, selectedImagePlacement.endSec),
+                                label: "Adjust image clip start",
+                              });
+                            }}
+                          />
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>End (sec)</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={selectedImagePlacement.endSec}
+                            onChange={(event) => {
+                              const nextEnd = Math.max(0, Number(event.target.value) || 0);
+                              commitVisualPlacementWindow(selectedImagePlacement.id, {
+                                startSec: selectedImagePlacement.startSec,
+                                endSec: Math.max(
+                                  roundToTenth(selectedImagePlacement.startSec + MIN_IMAGE_PLACEMENT_DURATION_SEC),
+                                  nextEnd,
+                                ),
+                                label: "Adjust image clip end",
+                              });
+                            }}
+                          />
+                        </label>
+                        <div className="hammer-source-card__actions">
+                          <button type="button" onClick={() => updateVisualPlacementTiming(selectedImagePlacement.id, -0.5)}>
+                            Move -0.5s
+                          </button>
+                          <button type="button" onClick={() => updateVisualPlacementTiming(selectedImagePlacement.id, 0.5)}>
+                            Move +0.5s
+                          </button>
+                          <button type="button" onClick={() => removeVisualPlacement(selectedImagePlacement.id)}>
+                            Remove Clip
+                          </button>
+                        </div>
+                        <label className="hammer-tool-field">
+                          <span>Position X ({Math.round(selectedImagePlacementTransform.leftPct)}%)</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={92}
+                            step={1}
+                            value={selectedImagePlacementTransform.leftPct}
+                            onChange={(event) => {
+                              const next = Number(event.target.value);
+                              updateImagePlacementTransform(selectedImagePlacement.id, (current) => ({
+                                ...current,
+                                leftPct: next,
+                              }));
+                            }}
+                          />
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Position Y ({Math.round(selectedImagePlacementTransform.topPct)}%)</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={92}
+                            step={1}
+                            value={selectedImagePlacementTransform.topPct}
+                            onChange={(event) => {
+                              const next = Number(event.target.value);
+                              updateImagePlacementTransform(selectedImagePlacement.id, (current) => ({
+                                ...current,
+                                topPct: next,
+                              }));
+                            }}
+                          />
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>
+                            Scale ({Math.round((selectedImagePlacementTransform.widthPct / DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct) * 100)}%)
+                          </span>
+                          <input
+                            type="range"
+                            min={50}
+                            max={200}
+                            step={1}
+                            value={Math.round((selectedImagePlacementTransform.widthPct / DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct) * 100)}
+                            onChange={(event) => {
+                              const scale = Number(event.target.value) / 100;
+                              updateImagePlacementTransform(selectedImagePlacement.id, (current) => ({
+                                ...current,
+                                widthPct: DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct * scale,
+                                heightPct: DEFAULT_IMAGE_PLACEMENT_TRANSFORM.heightPct * scale,
+                              }));
+                            }}
+                          />
+                        </label>
+                        <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => updateImagePlacementTransform(selectedImagePlacement.id, () => DEFAULT_IMAGE_PLACEMENT_TRANSFORM)}
+                          >
+                            Center
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="hammer-tool-hint">
+                        Select an image clip in the timeline to open inspector controls.
+                      </div>
+                    )}
+                  </section>
+                ) : currentPass === "image_animation" ? (
+                  <section className="hammer-tool-card">
+                    <header className="hammer-tool-card__head">Image Animation</header>
+                    <div className="hammer-tool-hint">
+                      Right-click an image clip in the timeline to assign an animation preset.
+                    </div>
+                    <div className="hammer-tool-hint">
+                      One preset per clip. Current selection: {selectedImageAnimationLabel}
+                    </div>
+                    {selectedImagePlacement ? (
+                      <div className="hammer-tool-hint">
+                        Selected clip: {selectedImagePlacement.label}
+                      </div>
+                    ) : (
+                      <div className="hammer-tool-hint">Select an image clip to preview its animation preset.</div>
+                    )}
+                  </section>
                 ) : (
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Visual Placement</header>
@@ -9793,12 +9930,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                               && lane.id === "stills"
                               && block.tone === "image"
                               && Boolean(block.placementId);
+                            const imageAnimationMenuEnabled = currentPass === "image_animation"
+                              && lane.id === "stills"
+                              && block.tone === "image"
+                              && Boolean(block.placementId);
+                            const hasImageAnimationPreset = block.placementId
+                              ? (imageAnimationPresetByPlacementId[block.placementId] ?? "none") !== "none"
+                              : false;
                             return (
                               <g
                                 key={block.id}
                                 role="button"
                                 tabIndex={0}
-                                className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}${block.inRange ? " is-range" : ""}${block.disabled ? " is-disabled" : ""}${imagePlacementEditable ? " is-image-placement-editable" : ""}`}
+                                className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}${block.inRange ? " is-range" : ""}${block.disabled ? " is-disabled" : ""}${imagePlacementEditable ? " is-image-placement-editable" : ""}${hasImageAnimationPreset ? " has-animation-preset" : ""}`}
                                 transform={`translate(${x} 5)`}
                                 onMouseDown={(event) => {
                                   event.stopPropagation();
@@ -9810,6 +9954,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                       endSec: block.endSec,
                                     });
                                   }
+                                }}
+                                onContextMenu={(event) => {
+                                  if (!imageAnimationMenuEnabled || !block.placementId) return;
+                                  openImageAnimationContextMenu(event, block.placementId);
                                 }}
                                 onClick={(event) => {
                                   event.stopPropagation();
@@ -9883,6 +10031,36 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           </div>
         </section>
       </div>
+      {imageAnimationContextMenu ? (
+        <div
+          className="hammer-context-menu"
+          role="menu"
+          aria-label="Image animation preset menu"
+          style={{
+            left: imageAnimationContextMenu.x,
+            top: imageAnimationContextMenu.y,
+          }}
+          onMouseDown={(event) => {
+            event.stopPropagation();
+          }}
+        >
+          {IMAGE_ANIMATION_PRESET_OPTIONS.map((option) => (
+            <button
+              key={`anim:${option.id}`}
+              type="button"
+              role="menuitem"
+              className={(
+                imageAnimationPresetByPlacementId[imageAnimationContextMenu.placementId] ?? "none"
+              ) === option.id
+                ? "hammer-context-menu__item is-active"
+                : "hammer-context-menu__item"}
+              onClick={() => applyImageAnimationPreset(imageAnimationContextMenu.placementId, option.id)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <nav className="hammer-toolbar" aria-label="Hammer pass toolbar">
         <div className="hammer-toolbar__title">Passes</div>

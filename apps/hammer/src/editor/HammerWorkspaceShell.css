@@ -718,6 +718,43 @@ Guardrails:
   box-shadow: 0 0 0 1px rgba(2, 132, 199, 0.5);
 }
 
+.hammer-preview-canvas__bbox.is-anim-fade-in {
+  animation: hammer-fade-in 420ms ease-out;
+}
+
+.hammer-preview-canvas__bbox.is-anim-fade-out {
+  animation: hammer-fade-out 420ms ease-out;
+}
+
+.hammer-preview-canvas__bbox.is-anim-fade-in-out {
+  animation: hammer-fade-in-out 720ms ease-in-out;
+}
+
+.hammer-preview-canvas__bbox.is-anim-flip-in {
+  animation: hammer-flip-in 520ms ease-out;
+  transform-origin: center;
+}
+
+.hammer-preview-canvas__bbox.is-anim-flip-out {
+  animation: hammer-flip-out 520ms ease-out;
+  transform-origin: center;
+}
+
+.hammer-preview-canvas__bbox.is-anim-shutter-in {
+  animation: hammer-shutter-in 520ms ease-out;
+  transform-origin: center;
+}
+
+.hammer-preview-canvas__bbox.is-anim-shutter-out {
+  animation: hammer-shutter-out 520ms ease-out;
+  transform-origin: center;
+}
+
+.hammer-preview-canvas__bbox.is-anim-shutter-in-fade-out {
+  animation: hammer-shutter-in-fade-out 900ms ease-out;
+  transform-origin: center;
+}
+
 .hammer-preview-canvas__image {
   width: 100%;
   height: 100%;
@@ -1594,6 +1631,11 @@ Guardrails:
   fill: rgba(234, 88, 12, 0.24);
 }
 
+.hammer-timeline-block.has-animation-preset .hammer-timeline-block__rect {
+  stroke-width: 1.5;
+  stroke: rgba(245, 158, 11, 0.95);
+}
+
 .hammer-timeline-block.is-active .hammer-timeline-block__rect {
   stroke: rgba(245, 158, 11, 0.95);
 }
@@ -1622,6 +1664,81 @@ Guardrails:
   stroke: rgba(15, 23, 42, 0.76);
   stroke-width: 0.8;
   cursor: ew-resize;
+}
+
+.hammer-context-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 176px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.96);
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.62);
+}
+
+.hammer-context-menu__item {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 7px;
+  background: rgba(15, 23, 42, 0.84);
+  color: #dbeafe;
+  text-align: left;
+  font-size: 12px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.hammer-context-menu__item:hover {
+  border-color: rgba(125, 211, 252, 0.64);
+}
+
+.hammer-context-menu__item.is-active {
+  border-color: rgba(251, 191, 36, 0.74);
+  background: rgba(120, 53, 15, 0.35);
+}
+
+@keyframes hammer-fade-in {
+  from { opacity: 0.1; }
+  to { opacity: 1; }
+}
+
+@keyframes hammer-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0.25; }
+}
+
+@keyframes hammer-fade-in-out {
+  0% { opacity: 0.1; }
+  35% { opacity: 1; }
+  100% { opacity: 0.3; }
+}
+
+@keyframes hammer-flip-in {
+  from { transform: rotateY(75deg); opacity: 0.15; }
+  to { transform: rotateY(0deg); opacity: 1; }
+}
+
+@keyframes hammer-flip-out {
+  from { transform: rotateY(0deg); opacity: 1; }
+  to { transform: rotateY(-80deg); opacity: 0.25; }
+}
+
+@keyframes hammer-shutter-in {
+  from { clip-path: inset(0 48% 0 48%); opacity: 0.25; }
+  to { clip-path: inset(0 0 0 0); opacity: 1; }
+}
+
+@keyframes hammer-shutter-out {
+  from { clip-path: inset(0 0 0 0); opacity: 1; }
+  to { clip-path: inset(0 48% 0 48%); opacity: 0.3; }
+}
+
+@keyframes hammer-shutter-in-fade-out {
+  0% { clip-path: inset(0 48% 0 48%); opacity: 0.2; }
+  45% { clip-path: inset(0 0 0 0); opacity: 1; }
+  100% { clip-path: inset(0 0 0 0); opacity: 0.25; }
 }
 
 .hammer-timeline-editor {
