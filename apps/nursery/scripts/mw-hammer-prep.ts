@@ -397,7 +397,44 @@ function normalizeCleanupAssistRequest(body: unknown): CleanupAssistRequest | nu
   };
 }
 
+function normalizeQuenchMetadataAssistRequest(body: unknown): QuenchMetadataAssistRequest | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const row = body as Record<string, unknown>;
+  const workspaceId = readTrimmed(row.workspace_id);
+  const workpieceId = readTrimmed(row.workpiece_id);
+  const title = readTrimmed(row.title);
+  const description = readTrimmed(row.description);
+  const tagsRaw = Array.isArray(row.tags) ? row.tags : [];
+  const tags = Array.from(new Set(
+    tagsRaw
+      .map((value) => readTrimmed(value))
+      .filter((value): value is string => Boolean(value))
+      .slice(0, 12),
+  ));
+  if (!workspaceId || !workpieceId || !title || !description) {
+    return null;
+  }
+  return {
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    title,
+    description,
+    tags,
+  };
+}
+
 function toHammerPreflightErrorMessage(
+  reasonCode: AiReasonCode | null,
+  decisionType: AiDecisionType,
+): string {
+  const base = reasonCode ? getAiReasonMessage(reasonCode) : "AI action blocked by policy.";
+  if (decisionType === "SOFT_DENY") {
+    return `${base} Configure a personal AI connection and retry.`;
+  }
+  return base;
+}
+
+function toQuenchPreflightErrorMessage(
   reasonCode: AiReasonCode | null,
   decisionType: AiDecisionType,
 ): string {
@@ -543,6 +580,85 @@ async function runHammerTranscriptPolicyPreflight(args: {
   return { ok: true };
 }
 
+async function runQuenchMetadataPolicyPreflight(args: {
+  supabaseUrl: string;
+  rpcKey: string;
+  userAccessToken: string;
+  workspaceId: string;
+}): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const userId = await resolveUserIdFromAccessToken(args);
+  if (!userId) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Sign in required before Quench metadata assist can run AI policy preflight.",
+    };
+  }
+
+  const orgId = await resolveOrgIdForWorkspace(args);
+  const headers = buildSupabaseRpcHeaders({
+    rpcKey: args.rpcKey,
+    userAccessToken: args.userAccessToken,
+  });
+
+  let response: Response;
+  try {
+    response = await fetch(`${args.supabaseUrl}/rest/v1/rpc/resolve_ai_policy`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        p_org_id: orgId,
+        p_workspace_id: args.workspaceId,
+        p_user_id: userId,
+        p_tool: "quench",
+        p_feature: "research_flows",
+        p_action: "chat",
+        p_requested_mode: "ORG_FIRST_PERSONAL_FALLBACK",
+        p_personal_ai_configured: false,
+        p_org_ai_available: true,
+        p_requested_funding_source: "org_shared_credits",
+        p_write_ledger: true,
+      }),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      error: `AI policy preflight failed: ${error instanceof Error ? error.message : "Network error"}`,
+    };
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: readErrorMessage(payload, `AI policy preflight failed (${response.status}).`),
+    };
+  }
+
+  const row = Array.isArray(payload) ? (payload[0] as AiPolicyResolveRow | undefined) : undefined;
+  const decisionType = readAiPolicyDecisionType(row?.decision_type);
+  const reasonCode = readAiPolicyReasonCode(row?.reason_code);
+  if (!decisionType) {
+    return {
+      ok: false,
+      status: 500,
+      error: "AI policy preflight returned an invalid decision payload.",
+    };
+  }
+
+  if (decisionType !== "ALLOW") {
+    return {
+      ok: false,
+      status: 403,
+      error: toQuenchPreflightErrorMessage(reasonCode, decisionType),
+    };
+  }
+
+  return { ok: true };
+}
+
 function estimateCleanupTimeSavedSec(before: string, after: string): number {
   const beforeWords = before.trim().split(/\s+/).filter(Boolean).length;
   const afterWords = after.trim().split(/\s+/).filter(Boolean).length;
@@ -679,6 +795,101 @@ async function runOpenAiTranscriptCleanupAssist(args: {
   };
 }
 
+function normalizeOpenAiQuenchMetadataDraft(payload: unknown): {
+  title: string;
+  description: string;
+  tags: string[];
+} | null {
+  const row = readJsonObject(payload);
+  const title = readTrimmed(row?.title);
+  const description = readTrimmed(row?.description);
+  const tagsRaw = Array.isArray(row?.tags) ? row.tags : [];
+  const tags = Array.from(new Set(
+    tagsRaw
+      .map((value) => readTrimmed(value))
+      .filter((value): value is string => Boolean(value))
+      .slice(0, 12),
+  ));
+  if (!title || !description) return null;
+  return {
+    title,
+    description,
+    tags,
+  };
+}
+
+async function runOpenAiQuenchMetadataAssist(args: {
+  apiKey: string;
+  model: string;
+  request: QuenchMetadataAssistRequest;
+}): Promise<{
+  title: string;
+  description: string;
+  tags: string[];
+}> {
+  const systemPrompt =
+    "You are a podcast release metadata assistant. Improve clarity and discoverability while staying faithful to source intent. " +
+    "Return JSON only: {\"title\":\"...\",\"description\":\"...\",\"tags\":[\"...\"]}.";
+  const userPrompt = JSON.stringify({
+    instruction: "Draft a tighter title, cleaner description, and concise tags for release packaging.",
+    title: args.request.title,
+    description: args.request.description,
+    tags: args.request.tags,
+  });
+
+  const upstreamTimeout = createTimeoutAbortController(OPENAI_CLEANUP_TIMEOUT_MS);
+  let upstream: Response;
+  try {
+    upstream = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${args.apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: args.model,
+        temperature: 0.3,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+      signal: upstreamTimeout.controller.signal,
+    });
+  } finally {
+    upstreamTimeout.dispose();
+  }
+
+  if (!upstream.ok) {
+    const detail = await upstream.text().catch(() => "");
+    throw new Error(readUpstreamErrorMessage(detail) ?? "OpenAI Quench metadata assist failed.");
+  }
+
+  const payload = await upstream.json().catch(() => null);
+  const payloadRow = readJsonObject(payload);
+  const choices = Array.isArray(payloadRow?.choices) ? payloadRow.choices : [];
+  const firstChoice = readJsonObject(choices[0]);
+  const message = readJsonObject(firstChoice?.message);
+  const rawContent = readChatMessageContent(message?.content);
+  if (!rawContent) {
+    throw new Error("OpenAI Quench metadata assist returned an empty response.");
+  }
+
+  let parsedContent: unknown = null;
+  try {
+    parsedContent = JSON.parse(rawContent);
+  } catch {
+    throw new Error("OpenAI Quench metadata assist returned invalid JSON.");
+  }
+
+  const draft = normalizeOpenAiQuenchMetadataDraft(parsedContent);
+  if (!draft) {
+    throw new Error("OpenAI Quench metadata assist returned an invalid draft payload.");
+  }
+  return draft;
+}
+
 async function loadCanonicalWorkpieceMediaFile(
   req: IncomingMessage,
   request: NormalizedCanonicalWorkpieceRequest,
@@ -798,6 +1009,7 @@ export function createHammerPrepMiddleware() {
   const textApiKey = runtimeConfig.textApiKey ?? runtimeConfig.apiKey ?? null;
   const model = readTrimmed(process.env.HAMMER_TRANSCRIBE_MODEL) ?? DEFAULT_TRANSCRIBE_MODEL;
   const cleanupModel = readTrimmed(process.env.HAMMER_EDITORIAL_AI_MODEL) ?? "gpt-5.4-mini";
+  const quenchMetadataModel = readTrimmed(process.env.QUENCH_METADATA_AI_MODEL) ?? "gpt-5.4-mini";
 
   return async function hammerPrepMiddleware(req: IncomingMessage, res: ServerResponse, next: Next) {
     try {
@@ -806,6 +1018,7 @@ export function createHammerPrepMiddleware() {
       const url = new URL(rawUrl, origin);
       if (
         url.pathname !== HAMMER_TRANSCRIPT_PREP_ROUTE
+        && url.pathname !== QUENCH_METADATA_ASSIST_ROUTE
         && url.pathname !== HAMMER_TRANSCRIPT_CLEANUP_ASSIST_ROUTE
         && url.pathname !== HAMMER_VISUAL_ASSIST_PREFLIGHT_ROUTE
         && url.pathname !== HAMMER_AUDIO_POLISH_ROUTE
@@ -928,6 +1141,60 @@ export function createHammerPrepMiddleware() {
       if (url.pathname === HAMMER_STUDIO_RACK_RENDER_ROUTE) {
         const result = await handleHammerStudioRackRenderRequest(body, createHammerStudioRackRenderRequestContext(req));
         sendJson(res, result.status, result.payload);
+        return;
+      }
+
+      if (url.pathname === QUENCH_METADATA_ASSIST_ROUTE) {
+        if (!textApiKey) {
+          sendJson(res, 500, {
+            ok: false,
+            error: { message: "Missing OPENAI_TEXT_API_KEY (or OPENAI_API_KEY) in server env." },
+          });
+          return;
+        }
+
+        const assistRequest = normalizeQuenchMetadataAssistRequest(body);
+        if (!assistRequest) {
+          sendJson(res, 400, { ok: false, error: { message: "Invalid Quench metadata assist payload." } });
+          return;
+        }
+
+        const userAccessToken = readForgeUserAccessToken(req);
+        if (!userAccessToken) {
+          sendJson(res, 401, {
+            ok: false,
+            error: { message: "Sign in required before Quench metadata assist can run AI policy preflight." },
+          });
+          return;
+        }
+        if (!runtimeConfig.supabaseUrl || !runtimeConfig.supabaseRpcKey) {
+          sendJson(res, 500, {
+            ok: false,
+            error: { message: "Quench AI policy preflight is not configured on this server." },
+          });
+          return;
+        }
+
+        const preflight = await runQuenchMetadataPolicyPreflight({
+          supabaseUrl: runtimeConfig.supabaseUrl,
+          rpcKey: runtimeConfig.supabaseRpcKey,
+          userAccessToken,
+          workspaceId: assistRequest.workspace_id,
+        });
+        if (!preflight.ok) {
+          sendJson(res, preflight.status || 500, { ok: false, error: { message: preflight.error } });
+          return;
+        }
+
+        const draft = await runOpenAiQuenchMetadataAssist({
+          apiKey: textApiKey,
+          model: quenchMetadataModel,
+          request: assistRequest,
+        });
+        sendJson(res, 200, {
+          ok: true,
+          data: { draft },
+        });
         return;
       }
 

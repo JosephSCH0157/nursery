@@ -23,6 +23,7 @@ import {
 } from "@forge/quench";
 import type { HammerPreparedReleasePackage } from "../../../hammer/src/lib/hammerPreparedReleasePackage";
 import { tongsFetch } from "../../../hammer/src/lib/tongsFetch";
+import { requestQuenchMetadataAssist } from "./quenchMetadataAssistApi";
 import { parseForgeRouteContext } from "../lib/forge-route-context";
 import { useWorkspaceBootstrap } from "../hooks/useWorkspaceBootstrap";
 import EpisodeContinuityStrip from "../shell/EpisodeContinuityStrip";
@@ -329,6 +330,13 @@ export default function QuenchRoute() {
   const [validations, setValidations] = useState<Partial<Record<QuenchPlatform, AdapterValidationResult>>>({});
   const [publishResults, setPublishResults] = useState<Partial<Record<QuenchPlatform, AdapterPublishResult>>>({});
   const [boardUpdatedAt, setBoardUpdatedAt] = useState<string | null>(null);
+  const [metadataAssistState, setMetadataAssistState] = useState<"idle" | "running" | "ready" | "error">("idle");
+  const [metadataAssistError, setMetadataAssistError] = useState<string | null>(null);
+  const [metadataAssistDraft, setMetadataAssistDraft] = useState<{
+    title: string;
+    description: string;
+    tags: string[];
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -654,6 +662,45 @@ export default function QuenchRoute() {
     };
   }, [publishOptions, resolvedAssets, runMode, selectedCase, selectedPlatforms]);
 
+  const requestMetadataAssist = useCallback(async () => {
+    if (!selectedCase) return;
+    const workspaceId = readString(shell.workspaceId) ?? readString(selectedCase.packet.workspace_id);
+    const workpieceId = readString(routeCtx.workpieceId) ?? readString(selectedCase.packet.workpiece_id);
+    if (!workspaceId || !workpieceId) {
+      setMetadataAssistState("error");
+      setMetadataAssistError("Workspace and workpiece context are required before metadata assist can run.");
+      return;
+    }
+
+    setMetadataAssistState("running");
+    setMetadataAssistError(null);
+    try {
+      const draft = await requestQuenchMetadataAssist({
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        title: selectedCase.packet.title,
+        description: selectedCase.packet.description,
+        tags: selectedCase.packet.tags,
+      });
+      setMetadataAssistDraft(draft);
+      setMetadataAssistState("ready");
+    } catch (error) {
+      setMetadataAssistDraft(null);
+      setMetadataAssistState("error");
+      setMetadataAssistError(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "Quench metadata assist failed.",
+      );
+    }
+  }, [routeCtx.workpieceId, selectedCase, shell.workspaceId]);
+
+  useEffect(() => {
+    setMetadataAssistState("idle");
+    setMetadataAssistError(null);
+    setMetadataAssistDraft(null);
+  }, [selectedCaseId]);
+
   function togglePlatform(platform: QuenchPlatform) {
     setSelectedPlatforms((current) => (
       current.includes(platform)
@@ -875,6 +922,43 @@ export default function QuenchRoute() {
                   <div className="quench-console__copy-block">
                     <strong>Description</strong>
                     <p>{selectedCase.packet.description}</p>
+                  </div>
+                  <div className="quench-console__copy-block">
+                    <div className="quench-console__card-head">
+                      <h3>Metadata Assist</h3>
+                      <button
+                        type="button"
+                        onClick={() => { void requestMetadataAssist(); }}
+                        disabled={metadataAssistState === "running"}
+                      >
+                        {metadataAssistState === "running" ? "Generating..." : "Generate AI Draft"}
+                      </button>
+                    </div>
+                    <p>
+                      Generates a tighter title and description draft for release packaging.
+                    </p>
+                    {metadataAssistState === "error" && metadataAssistError ? (
+                      <div className="quench-console__issue is-bad">{metadataAssistError}</div>
+                    ) : null}
+                    {metadataAssistDraft ? (
+                      <div className="quench-console__issue-list">
+                        <div className="quench-console__issue is-good">
+                          <strong>Suggested title</strong>
+                          <span>{metadataAssistDraft.title}</span>
+                        </div>
+                        <div className="quench-console__issue is-good">
+                          <strong>Suggested description</strong>
+                          <span>{metadataAssistDraft.description}</span>
+                        </div>
+                        <div className="quench-console__tag-row">
+                          {metadataAssistDraft.tags.length > 0
+                            ? metadataAssistDraft.tags.map((tag) => (
+                              <span key={`ai-draft-tag-${tag}`} className="quench-console__tag">{tag}</span>
+                            ))
+                            : <span className="quench-console__empty-note">No suggested tags.</span>}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                   <div className="quench-console__tag-row">
                     {selectedCase.packet.tags.length ? selectedCase.packet.tags.map((tag) => (
