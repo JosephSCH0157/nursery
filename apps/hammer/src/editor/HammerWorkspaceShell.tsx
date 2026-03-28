@@ -409,6 +409,21 @@ type HammerSourceAssetItem = {
   lastEndSec: number;
 };
 
+type HammerVisualFlowStepId = "media_map" | "images" | "broll" | "reference_clips";
+
+type HammerMediaMapSuggestionType = "broll" | "reference_clip";
+
+type HammerMediaMapBeat = {
+  id: string;
+  segmentId: string;
+  sourceText: string;
+  suggestedType: HammerMediaMapSuggestionType;
+  selectedType: HammerMediaMapSuggestionType;
+  reason: string;
+  tweak: string;
+  linkedPlacementId: string | null;
+};
+
 type HammerBrollSuggestionItem = {
   operationId: string;
   segmentId: string;
@@ -695,6 +710,34 @@ function formatAssetKindLabel(kind: HammerSourceAssetKind): string {
   if (kind === "image") return "Image";
   if (kind === "audio") return "Audio";
   return "Other";
+}
+
+const NUMERIC_SIGNAL_RE = /\b(\d+([.,]\d+)?%?|\d{4}|increase|decrease|up|down|trend|timeline|year|month|week|compared|versus|vs\.?)\b/i;
+const MOTION_SIGNAL_RE = /\b(move|moving|walk|walking|run|running|drive|driving|enter|entering|exit|transition|story|journey|reveal|show|follow)\b/i;
+
+function resolveMediaMapSuggestionType(text: string): {
+  type: HammerMediaMapSuggestionType;
+  reason: string;
+} {
+  if (NUMERIC_SIGNAL_RE.test(text)) {
+    return { type: "reference_clip", reason: "numbers detected" };
+  }
+  if (MOTION_SIGNAL_RE.test(text)) {
+    return { type: "broll", reason: "motion detected" };
+  }
+  return { type: "broll", reason: "story context detected" };
+}
+
+function buildMediaMapPrompt(args: {
+  type: HammerMediaMapSuggestionType;
+  text: string;
+  tweak: string;
+}): string {
+  const base = args.type === "reference_clip"
+    ? `Reference clip: visualize factual context for "${args.text}".`
+    : `B-roll: support story motion for "${args.text}".`;
+  const tweak = args.tweak.trim();
+  return tweak ? `${base} Tweak: ${tweak}` : base;
 }
 
 function formatBytes(bytes: number | null): string {
@@ -1501,6 +1544,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     normalizePassStatus(props.initialPassStatus, initialCurrentPass)
   ));
   const [selectedSourceTab, setSelectedSourceTab] = useState<HammerSourceTabId>(initialPassMeta.sourceTab);
+  const [selectedVisualFlowStep, setSelectedVisualFlowStep] = useState<HammerVisualFlowStepId>("media_map");
   const [activeTool, setActiveTool] = useState<HammerToolId>(initialPassMeta.toolId);
   const [selectedBoundBrollOperationId, setSelectedBoundBrollOperationId] = useState<string | null>(null);
   const [editableDerivedTextLayers, setEditableDerivedTextLayers] = useState<
@@ -1634,6 +1678,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     audioReviewed: false,
   });
   const [storedMediaFiles, setStoredMediaFiles] = useState<HammerStoredMediaFile[]>([]);
+  const [mediaMapBeats, setMediaMapBeats] = useState<HammerMediaMapBeat[]>([]);
   const [sourceDeskLoading, setSourceDeskLoading] = useState(false);
   const [sourceDeskError, setSourceDeskError] = useState<string | null>(null);
   const [uploadingCategory, setUploadingCategory] = useState<"images" | "broll" | "introoutro" | null>(null);
@@ -1986,6 +2031,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => sourceVisualPlacementItems.filter((item) => item.kind === "broll" || item.kind === "reference_clip"),
     [sourceVisualPlacementItems],
   );
+  const sourceVisualPlacementBySegmentId = useMemo(() => {
+    const bySegment = new Map<string, HammerSourceImageItem>();
+    for (const item of sourceBrollPlacementItems) {
+      if (!bySegment.has(item.anchorSegmentId)) {
+        bySegment.set(item.anchorSegmentId, item);
+      }
+    }
+    return bySegment;
+  }, [sourceBrollPlacementItems]);
   const visualPlacementsById = useMemo(() => {
     const byId = new Map<string, HammerVisualPlacementRecord>();
     for (const placement of editableVisualPlacements?.placements ?? []) {
@@ -2153,6 +2207,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => sourceAssetItems.filter((item) => item.kind === "broll" || item.kind === "reference_clip"),
     [sourceAssetItems],
   );
+  const sourceReferenceClipItems = useMemo(
+    () => sourceBrollItems.filter((item) => item.kind === "reference_clip"),
+    [sourceBrollItems],
+  );
+  const sourceBrollOnlyItems = useMemo(
+    () => sourceBrollItems.filter((item) => item.kind === "broll"),
+    [sourceBrollItems],
+  );
   const brollSuggestionItems = useMemo<HammerBrollSuggestionItem[]>(() => {
     const operations = editableEditorialAuthorityGraph?.operations ?? [];
     return operations.flatMap((operation) => {
@@ -2193,6 +2255,33 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         };
       });
   }, [brollSuggestionItems, editableVisualPlacements?.placements]);
+
+  useEffect(() => {
+    setMediaMapBeats((current) => {
+      const nextBase = editableTranscriptSegments
+        .slice(0, 12)
+        .map((segment) => {
+          const suggested = resolveMediaMapSuggestionType(segment.text);
+          const existing = current.find((item) => item.segmentId === segment.segment_id) ?? null;
+          const linkedPlacement = sourceVisualPlacementBySegmentId.get(segment.segment_id) ?? null;
+          const linkedType: HammerMediaMapSuggestionType | null = linkedPlacement
+            ? (linkedPlacement.kind === "reference_clip" ? "reference_clip" : "broll")
+            : null;
+          return {
+            id: existing?.id ?? `map:${segment.segment_id}`,
+            segmentId: segment.segment_id,
+            sourceText: segment.text,
+            suggestedType: suggested.type,
+            selectedType: linkedType ?? existing?.selectedType ?? suggested.type,
+            reason: suggested.reason,
+            tweak: existing?.tweak ?? "",
+            linkedPlacementId: linkedPlacement?.id ?? null,
+          } satisfies HammerMediaMapBeat;
+        });
+      const changed = JSON.stringify(current) !== JSON.stringify(nextBase);
+      return changed ? nextBase : current;
+    });
+  }, [editableTranscriptSegments, sourceVisualPlacementBySegmentId]);
   const sourceImageLibraryItems = useMemo(
     () => storedMediaFiles.filter((file) => file.kind === "image"),
     [storedMediaFiles],
@@ -5334,6 +5423,93 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         editorialAuthorityGraph: appendAuthorityInstructionForState(before, suggestion),
       }),
     });
+  }
+
+  function updatePlacementKindFromMediaMap(placementId: string, nextType: HammerMediaMapSuggestionType): void {
+    applyHistoryMutation({
+      label: `Change visual type to ${nextType === "reference_clip" ? "Reference Clip" : "B-roll"}`,
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedPlacementIds: [placementId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const current = before.visualPlacements;
+        if (!current) return before;
+        const nextPlacements = current.placements.map((placement) => (
+          placement.placement_id === placementId
+            ? {
+              ...placement,
+              visual_mode: nextType === "reference_clip" ? "reference_clip" : "broll",
+              label: placement.label ?? (nextType === "reference_clip" ? "Reference Clip" : "B-roll"),
+            }
+            : placement
+        ));
+        return {
+          ...before,
+          visualPlacements: {
+            ...current,
+            placements: nextPlacements,
+          },
+        };
+      },
+    });
+  }
+
+  function queueMediaMapBeatSuggestion(beat: HammerMediaMapBeat): void {
+    applyHistoryMutation({
+      label: "Queue Media Map suggestion",
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedSegments: [beat.segmentId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const segment = before.transcriptSegments.find((item) => item.segment_id === beat.segmentId) ?? null;
+        if (!segment) return before;
+        const startSec = Math.max(0, roundToTenth(segment.start_sec));
+        const endSec = Math.max(startSec + 0.5, roundToTenth(Math.min(transcriptDurationSec, segment.end_sec + 0.8)));
+        const prompt = buildMediaMapPrompt({
+          type: beat.selectedType,
+          text: beat.sourceText,
+          tweak: beat.tweak,
+        });
+        const suggestion = createHearthBrollSuggestionInstruction({
+          segmentId: beat.segmentId,
+          intentRef: `media-map:${beat.id}:${Date.now().toString(36)}`,
+          intentDescription: prompt,
+          startSec,
+          endSec,
+          duckPreference: "auto",
+        });
+        return {
+          ...before,
+          selectedSegmentId: beat.segmentId,
+          editorialAuthorityGraph: appendAuthorityInstructionForState(before, suggestion),
+        };
+      },
+    });
+    setSelectedVisualFlowStep(beat.selectedType === "reference_clip" ? "reference_clips" : "broll");
+  }
+
+  function redoMediaMapFromScript(): void {
+    const nextBeats = editableTranscriptSegments.slice(0, 12).map((segment) => {
+      const suggested = resolveMediaMapSuggestionType(segment.text);
+      const linkedPlacement = sourceVisualPlacementBySegmentId.get(segment.segment_id) ?? null;
+      const linkedType: HammerMediaMapSuggestionType | null = linkedPlacement
+        ? (linkedPlacement.kind === "reference_clip" ? "reference_clip" : "broll")
+        : null;
+      return {
+        id: `map:${segment.segment_id}`,
+        segmentId: segment.segment_id,
+        sourceText: segment.text,
+        suggestedType: suggested.type,
+        selectedType: linkedType ?? suggested.type,
+        reason: suggested.reason,
+        tweak: "",
+        linkedPlacementId: linkedPlacement?.id ?? null,
+      } satisfies HammerMediaMapBeat;
+    });
+    setMediaMapBeats(nextBeats);
+    setTranscriptTimingHint("Media Map regenerated from current transcript. Removed beats may reappear.");
   }
 
   function resolveHearthBrollSuggestion(args: {
