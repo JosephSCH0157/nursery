@@ -60,6 +60,26 @@
   gap: 4px;
 }
 
+.settings-org__policy {
+  border-top: 1px solid var(--forge-border);
+  padding-top: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.settings-org__policy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-org__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
 .settings-org__members {
   border-top: 1px solid var(--forge-border);
   padding-top: 10px;
@@ -278,6 +298,7 @@
 }
 
 @media (max-width: 980px) {
+  .settings-org__policy-grid,
   .settings-org__members-layout {
     grid-template-columns: 1fr;
   }

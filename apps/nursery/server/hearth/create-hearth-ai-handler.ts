@@ -1174,6 +1174,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     reasoningEffort?: string | null;
     trigger: AiUsageTrigger;
     actionId?: string | null;
+    isRecoverableHttpError?: (response: Response) => Promise<boolean>;
     request: {
       url: string;
       init: RequestInit;
@@ -1187,28 +1188,38 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       });
 
       if (!response.ok) {
-        await recordAiUsageEvent({
-          userId: args.userId,
-          lane: args.lane,
-          provider: "openai",
-          workspaceId: args.workspaceId,
-          workpieceId: args.workpieceId,
-          sessionId: args.sessionId,
-          feature: args.feature,
-          subfeature: args.subfeature,
-          model: args.model,
-          reasoningEffort: args.reasoningEffort,
-          inputTokens: 0,
-          outputTokens: 0,
-          totalTokens: 0,
-          estimatedCostUsd: 0,
-          actualCostUsd: 0,
-          billableTokens: 0,
-          trigger: args.trigger,
-          status: "error",
-          actionId: args.actionId,
-          providerRequestId: response.headers.get("x-request-id"),
-        });
+        let isRecoverable = false;
+        if (args.isRecoverableHttpError) {
+          try {
+            isRecoverable = await args.isRecoverableHttpError(response.clone());
+          } catch {
+            isRecoverable = false;
+          }
+        }
+        if (!isRecoverable) {
+          await recordAiUsageEvent({
+            userId: args.userId,
+            lane: args.lane,
+            provider: "openai",
+            workspaceId: args.workspaceId,
+            workpieceId: args.workpieceId,
+            sessionId: args.sessionId,
+            feature: args.feature,
+            subfeature: args.subfeature,
+            model: args.model,
+            reasoningEffort: args.reasoningEffort,
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            estimatedCostUsd: 0,
+            actualCostUsd: 0,
+            billableTokens: 0,
+            trigger: args.trigger,
+            status: "error",
+            actionId: args.actionId,
+            providerRequestId: response.headers.get("x-request-id"),
+          });
+        }
       }
 
       return response;
@@ -2064,6 +2075,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             reasoningEffort,
             trigger: "user",
             actionId: chatActionId,
+            isRecoverableHttpError: async (response) => {
+              if (!allowTemperatureOverride || response.status !== 400) return false;
+              const detail = await response.text();
+              return isTemperatureUnsupportedError(detail);
+            },
             request: {
               url: "https://api.openai.com/v1/chat/completions",
               init: {

@@ -204,14 +204,15 @@ export default function SettingsOrg() {
           .from("organization_ai_policy")
           .select("org_id,default_mode,shared_org_ai_enabled,member_byo_allowed")
           .eq("org_id", selectedOrgId)
-          .maybeSingle<OrgPolicyRow>();
+          .maybeSingle();
         if (cancelled) return;
         if (error) throw error;
+        const row = (data ?? null) as OrgPolicyRow | null;
 
         setOrgPolicyDraft({
-          defaultMode: normalizeAiMode(data?.default_mode) ?? "ORG_FIRST_PERSONAL_FALLBACK",
-          sharedOrgAiEnabled: data?.shared_org_ai_enabled ?? true,
-          memberByoAllowed: data?.member_byo_allowed ?? true,
+          defaultMode: normalizeAiMode(row?.default_mode) ?? "ORG_FIRST_PERSONAL_FALLBACK",
+          sharedOrgAiEnabled: row?.shared_org_ai_enabled ?? true,
+          memberByoAllowed: row?.member_byo_allowed ?? true,
         });
       } catch (error: unknown) {
         if (cancelled) return;
@@ -250,13 +251,14 @@ export default function SettingsOrg() {
           .select("org_id,user_id,mode_override,allow_heavy_tasks")
           .eq("org_id", selectedOrgId)
           .eq("user_id", selectedMember.userId)
-          .maybeSingle<MemberPolicyRow>();
+          .maybeSingle();
         if (cancelled) return;
         if (error) throw error;
+        const row = (data ?? null) as MemberPolicyRow | null;
 
         setMemberPolicyDraft({
-          modeOverride: normalizeAiMode(data?.mode_override) ?? "INHERIT",
-          allowHeavyTasks: data?.allow_heavy_tasks ?? true,
+          modeOverride: normalizeAiMode(row?.mode_override) ?? "INHERIT",
+          allowHeavyTasks: row?.allow_heavy_tasks ?? true,
         });
       } catch (error: unknown) {
         if (cancelled) return;
@@ -555,6 +557,130 @@ export default function SettingsOrg() {
               <div><strong>Org ID:</strong> {activeOrg.org_id}</div>
             </div>
           ) : null}
+
+          <section className="settings-org__policy">
+            <h4 className="settings-org__members-title">AI Policy</h4>
+            {!canManageWorkspaceAccess ? (
+              <p className="settings-org__copy">Owner/Admin role is required to manage organization AI policy.</p>
+            ) : null}
+
+            <div className="settings-org__policy-grid">
+              <article className="settings-org__member-panel">
+                <h5 className="settings-org__panel-title">Org Defaults</h5>
+                {orgPolicyLoading ? <p className="settings-org__copy">Loading policy...</p> : null}
+                <label className="settings-org__access-field">
+                  <span className="settings-org__label">Default AI Mode</span>
+                  <select
+                    className="settings-org__select"
+                    value={orgPolicyDraft.defaultMode}
+                    disabled={!canManageWorkspaceAccess || orgPolicyLoading || orgPolicySaving}
+                    onChange={(event) => {
+                      const mode = normalizeAiMode(event.target.value);
+                      if (!mode) return;
+                      setOrgPolicyDraft((current) => ({ ...current, defaultMode: mode }));
+                    }}
+                  >
+                    {AI_MODE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="settings-org__toggle">
+                  <input
+                    type="checkbox"
+                    checked={orgPolicyDraft.sharedOrgAiEnabled}
+                    disabled={!canManageWorkspaceAccess || orgPolicyLoading || orgPolicySaving}
+                    onChange={(event) => {
+                      const checked = event.target.checked;
+                      setOrgPolicyDraft((current) => ({ ...current, sharedOrgAiEnabled: checked }));
+                    }}
+                  />
+                  <span>Shared org AI enabled</span>
+                </label>
+                <label className="settings-org__toggle">
+                  <input
+                    type="checkbox"
+                    checked={orgPolicyDraft.memberByoAllowed}
+                    disabled={!canManageWorkspaceAccess || orgPolicyLoading || orgPolicySaving}
+                    onChange={(event) => {
+                      const checked = event.target.checked;
+                      setOrgPolicyDraft((current) => ({ ...current, memberByoAllowed: checked }));
+                    }}
+                  />
+                  <span>Personal BYO allowed</span>
+                </label>
+                <button
+                  type="button"
+                  className="settings-org__access-button"
+                  disabled={!canManageWorkspaceAccess || orgPolicyLoading || orgPolicySaving}
+                  onClick={() => void onSaveOrgPolicy()}
+                >
+                  {orgPolicySaving ? "Saving..." : "Save Org Policy"}
+                </button>
+                {orgPolicyError ? <div className="settings-org__error">{orgPolicyError}</div> : null}
+                {orgPolicyNotice ? <div className="settings-org__notice">{orgPolicyNotice}</div> : null}
+              </article>
+
+              <article className="settings-org__member-panel">
+                <h5 className="settings-org__panel-title">Member Override</h5>
+                {!selectedMember ? (
+                  <p className="settings-org__copy">Select a member to edit override policy.</p>
+                ) : (
+                  <>
+                    <p className="settings-org__copy">
+                      Target: {selectedMember.displayName ?? selectedMember.email ?? selectedMember.userId}
+                    </p>
+                    {memberPolicyLoading ? <p className="settings-org__copy">Loading override...</p> : null}
+                    <label className="settings-org__access-field">
+                      <span className="settings-org__label">Mode Override</span>
+                      <select
+                        className="settings-org__select"
+                        value={memberPolicyDraft.modeOverride}
+                        disabled={!canManageWorkspaceAccess || memberPolicyLoading || memberPolicySaving}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          if (value === "INHERIT") {
+                            setMemberPolicyDraft((current) => ({ ...current, modeOverride: "INHERIT" }));
+                            return;
+                          }
+                          const mode = normalizeAiMode(value);
+                          if (!mode) return;
+                          setMemberPolicyDraft((current) => ({ ...current, modeOverride: mode }));
+                        }}
+                      >
+                        <option value="INHERIT">Inherit Org Default</option>
+                        {AI_MODE_OPTIONS.map((option) => (
+                          <option key={`member-${option.value}`} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="settings-org__toggle">
+                      <input
+                        type="checkbox"
+                        checked={memberPolicyDraft.allowHeavyTasks}
+                        disabled={!canManageWorkspaceAccess || memberPolicyLoading || memberPolicySaving}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          setMemberPolicyDraft((current) => ({ ...current, allowHeavyTasks: checked }));
+                        }}
+                      />
+                      <span>Allow heavy tasks</span>
+                    </label>
+                    <button
+                      type="button"
+                      className="settings-org__access-button"
+                      disabled={!canManageWorkspaceAccess || memberPolicyLoading || memberPolicySaving}
+                      onClick={() => void onSaveMemberPolicy()}
+                    >
+                      {memberPolicySaving ? "Saving..." : "Save Member Override"}
+                    </button>
+                    {memberPolicyError ? <div className="settings-org__error">{memberPolicyError}</div> : null}
+                    {memberPolicyNotice ? <div className="settings-org__notice">{memberPolicyNotice}</div> : null}
+                  </>
+                )}
+              </article>
+            </div>
+          </section>
 
           <div className="settings-org__members">
             <h4 className="settings-org__members-title">Members</h4>
