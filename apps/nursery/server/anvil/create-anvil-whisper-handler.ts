@@ -31,6 +31,7 @@ type AnvilWhisperResponse = {
   text: string;
   empty?: boolean;
   error?: string;
+  code?: string;
   detail?: string;
   model?: string;
   provider_request_id?: string | null;
@@ -215,7 +216,10 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           billing_mode: lane,
         });
       }
-      const actionId = crypto.randomUUID();
+      const providedActionId = readOptionalString(formData.get("action_id"));
+      const actionId = providedActionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(providedActionId)
+        ? providedActionId
+        : crypto.randomUUID();
 
       const language = readOptionalString(formData.get("language"));
       const prompt = readOptionalString(formData.get("prompt"));
@@ -331,18 +335,25 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           correlationId: actionId,
         });
 
-        let creditsWarning: string | null = null;
         if (lane === "forge" && accounting.billableTokens > 0 && userId) {
           const deltaResult = await applyAiTokenDelta({
             supabaseService,
             userId,
             spent: accounting.billableTokens,
-            requestId: crypto.randomUUID(),
+            requestId: actionId,
             openAiRequestId: providerRequestId,
             reason: "speech_transcription:anvil_whisper:forge_billing_tokens",
           });
           if (!deltaResult.ok) {
-            creditsWarning = deltaResult.warning;
+            return jsonResponse(502, {
+              ok: false,
+              text: "",
+              error: "Failed to apply Forge credit deduction.",
+              code: "forge_deduction_failed",
+              model: sttModel,
+              provider_request_id: providerRequestId,
+              billing_mode: lane,
+            });
           }
         }
 
@@ -355,7 +366,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           billing_mode: lane,
           actual_cost_usd: accounting.actualCostUsd,
           billable_tokens: accounting.billableTokens,
-          credits_warning: creditsWarning,
+          credits_warning: null,
         });
       } finally {
         request.signal.removeEventListener("abort", onAborted);

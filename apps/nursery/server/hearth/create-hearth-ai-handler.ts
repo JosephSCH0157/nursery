@@ -88,6 +88,7 @@ type ReqBody = {
   episode_context?: unknown;
   behavior?: unknown;
   lane?: unknown;
+  action_id?: unknown;
 };
 
 type SttReqBody = {
@@ -95,6 +96,7 @@ type SttReqBody = {
   storage_key?: unknown;
   mime_type?: unknown;
   lane?: unknown;
+  action_id?: unknown;
 };
 
 const STT_MAX_BYTES = 10 * 1024 * 1024;
@@ -1706,7 +1708,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const form = new FormData();
         form.set("model", sttModel);
         form.set("file", audioBlob, `speech.${ext}`);
-        const sttActionId = crypto.randomUUID();
+        const providedSttActionId = readOptionalString(bodyRaw.action_id);
+        const sttActionId = isUuid(providedSttActionId) ? providedSttActionId : crypto.randomUUID();
 
         const upstreamAbort = new AbortController();
         let clientAborted = request.signal.aborted;
@@ -1838,12 +1841,17 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             const deltaResult = await applyTokenDelta({
               userId,
               spent: billableTokens,
-              requestId: crypto.randomUUID(),
+              requestId: sttActionId,
               openAiRequestId,
               reason: "speech_transcription:forge_billing_tokens",
             });
             if (!deltaResult.ok) {
-              creditsWarning = deltaResult.warning;
+              return jsonResponse(502, {
+                ok: false,
+                error: "Failed to apply Forge credit deduction.",
+                code: "forge_deduction_failed",
+                ...buildBillingSnapshot(lane),
+              });
             } else if (deltaResult.tokenBalance != null) {
               tokenBalance = deltaResult.tokenBalance;
             }
@@ -1875,7 +1883,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const bodyRaw = (await readJsonBody(request)) as ReqBody;
       const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
       const bearerToken = readBearerToken(request.headers.get("authorization"));
-      const chatActionId = crypto.randomUUID();
+      const providedChatActionId = readOptionalString(bodyRaw.action_id);
+      const chatActionId = isUuid(providedChatActionId) ? providedChatActionId : crypto.randomUUID();
       if (lane === "forge" && disableForgeLaneAi) {
         return jsonResponse(503, {
           ok: false,
@@ -1950,6 +1959,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         : null;
       const requestText = latestUserMessage?.content ?? "";
       const userId = await resolveUserId(bearerToken);
+      if (lane === "forge" && !userId) {
+        return jsonResponse(401, {
+          ok: false,
+          error: "Authentication required.",
+          ...buildBillingSnapshot(lane),
+        });
+      }
       const chatFeature = classifyChatFeature(requestText);
       const reasoningEffort = isRecord(bodyRaw.behavior)
         ? readOptionalString((bodyRaw.behavior as Record<string, unknown>).reasoning_effort)
@@ -2269,17 +2285,26 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
         if (lane === "forge" && billableTokens > 0) {
           if (!userId) {
-            creditsWarning = "Unable to update credits.";
+            return jsonResponse(401, {
+              ok: false,
+              error: "Authentication required.",
+              ...buildBillingSnapshot(lane),
+            });
           } else {
             const deltaResult = await applyTokenDelta({
               userId,
               spent: billableTokens,
-              requestId: crypto.randomUUID(),
+              requestId: chatActionId,
               openAiRequestId,
               reason: "hearth:chat:forge_billing_tokens",
             });
             if (!deltaResult.ok) {
-              creditsWarning = deltaResult.warning;
+              return jsonResponse(502, {
+                ok: false,
+                error: "Failed to apply Forge credit deduction.",
+                code: "forge_deduction_failed",
+                ...buildBillingSnapshot(lane),
+              });
             } else if (deltaResult.tokenBalance != null) {
               tokenBalance = deltaResult.tokenBalance;
             }
