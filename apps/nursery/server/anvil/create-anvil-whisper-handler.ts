@@ -1,4 +1,17 @@
+import crypto from "node:crypto";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@forge/tongs";
 import { resolveHearthRuntimeConfig } from "../hearth/hearth-runtime-config";
+import {
+  applyAiTokenDelta,
+  buildTranscriptionAccounting,
+  normalizeBillingMode,
+  readBearerToken,
+  readOptionalString,
+  recordAiUsageEvent,
+  resolveUserIdFromAccessToken,
+  type BillingMode,
+} from "../ai-usage-accounting";
 
 export const ANVIL_WHISPER_ROUTE = "/api/anvil/asr/whisper";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
@@ -8,6 +21,9 @@ const MISSING_OPENAI_API_KEY_ERROR = "Missing OPENAI_TEXT_API_KEY (or OPENAI_API
 export type AnvilWhisperRuntimeConfig = {
   apiKey: string | null;
   sttModel: string;
+  configuredBillingMode?: BillingMode;
+  supabaseUrl?: string | null;
+  supabaseServiceRoleKey?: string | null;
 };
 
 type AnvilWhisperResponse = {
@@ -18,6 +34,10 @@ type AnvilWhisperResponse = {
   detail?: string;
   model?: string;
   provider_request_id?: string | null;
+  billing_mode?: BillingMode;
+  actual_cost_usd?: number;
+  billable_tokens?: number;
+  credits_warning?: string | null;
 };
 
 function jsonResponse(status: number, obj: AnvilWhisperResponse): Response {
@@ -28,12 +48,6 @@ function jsonResponse(status: number, obj: AnvilWhisperResponse): Response {
       "cache-control": "no-store",
     },
   });
-}
-
-function readOptionalString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
 }
 
 function isBlobLike(value: unknown): value is Blob & { name?: string; type?: string } {
@@ -85,12 +99,32 @@ export function resolveAnvilWhisperRuntimeConfig(): AnvilWhisperRuntimeConfig {
   return {
     apiKey: runtime.textApiKey ?? runtime.apiKey ?? null,
     sttModel: modelOverride ?? runtime.sttModel ?? DEFAULT_MODEL,
+    configuredBillingMode: runtime.configuredBillingMode,
+    supabaseUrl: runtime.supabaseUrl,
+    supabaseServiceRoleKey: runtime.supabaseServiceRoleKey,
   };
 }
 
 export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
   const apiKey = readOptionalString(config.apiKey);
   const sttModel = readOptionalString(config.sttModel) ?? DEFAULT_MODEL;
+  const configuredBillingMode = normalizeBillingMode(config.configuredBillingMode, "forge");
+  const supabaseService: SupabaseClient<Database> | null = config.supabaseUrl && config.supabaseServiceRoleKey
+    ? createClient<Database>(config.supabaseUrl, config.supabaseServiceRoleKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      })
+    : null;
+
+  function readUserAccessToken(headers: Headers): string | null {
+    const explicitToken = readBearerToken(headers.get("x-forge-user-token"));
+    if (explicitToken) return explicitToken;
+    const forgeAuth = readBearerToken(headers.get("x-forge-user-authorization"));
+    if (forgeAuth) return forgeAuth;
+    return readBearerToken(headers.get("authorization"));
+  }
 
   return async function anvilWhisperHandler(request: Request): Promise<Response> {
     try {
@@ -148,6 +182,41 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         });
       }
 
+      const laneFromBody = readOptionalString(formData.get("lane"));
+      const laneFromQuery = readOptionalString(url.searchParams.get("lane"));
+      const lane = normalizeBillingMode(laneFromBody ?? laneFromQuery, configuredBillingMode);
+      if (lane === "forge" && !supabaseService) {
+        return jsonResponse(500, {
+          ok: false,
+          text: "",
+          error: "Supabase service role is not configured.",
+          billing_mode: lane,
+        });
+      }
+      const userAccessToken = readUserAccessToken(request.headers);
+      if (lane === "forge" && !userAccessToken) {
+        return jsonResponse(401, {
+          ok: false,
+          text: "",
+          error: "Authentication required.",
+          billing_mode: lane,
+        });
+      }
+
+      const userId = await resolveUserIdFromAccessToken({
+        supabaseService,
+        accessToken: userAccessToken,
+      });
+      if (lane === "forge" && !userId) {
+        return jsonResponse(401, {
+          ok: false,
+          text: "",
+          error: "Authentication required.",
+          billing_mode: lane,
+        });
+      }
+      const actionId = crypto.randomUUID();
+
       const language = readOptionalString(formData.get("language"));
       const prompt = readOptionalString(formData.get("prompt"));
       const fileName = readOptionalString((fileValue as { name?: unknown }).name);
@@ -195,6 +264,29 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           const detail = await upstream.text();
           const upstreamMessage = readUpstreamErrorMessage(detail) ?? "OpenAI error";
           const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
+          await recordAiUsageEvent({
+            supabaseService,
+            userId,
+            lane,
+            provider: "openai",
+            workspaceId: null,
+            workpieceId: null,
+            sessionId: null,
+            feature: "speech_transcription",
+            subfeature: "anvil_whisper",
+            model: sttModel,
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            estimatedCostUsd: 0,
+            actualCostUsd: 0,
+            billableTokens: 0,
+            trigger: "user",
+            status: "error",
+            actionId,
+            providerRequestId: upstream.headers.get("x-request-id"),
+            correlationId: actionId,
+          });
           return jsonResponse(status, {
             ok: false,
             text: "",
@@ -202,17 +294,68 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             detail,
             model: sttModel,
             provider_request_id: upstream.headers.get("x-request-id"),
+            billing_mode: lane,
           });
         }
 
         const payload = (await upstream.json()) as unknown;
         const text = extractTranscriptionText(payload);
+        const providerRequestId = upstream.headers.get("x-request-id");
+        const accounting = buildTranscriptionAccounting({
+          model: sttModel,
+          payload,
+          text,
+          billableMode: lane === "forge" ? "forge" : "non-billable",
+        });
+        await recordAiUsageEvent({
+          supabaseService,
+          userId,
+          lane,
+          provider: "openai",
+          workspaceId: null,
+          workpieceId: null,
+          sessionId: null,
+          feature: "speech_transcription",
+          subfeature: "anvil_whisper",
+          model: sttModel,
+          inputTokens: accounting.inputTokens,
+          outputTokens: accounting.outputTokens,
+          totalTokens: accounting.totalTokens,
+          estimatedCostUsd: accounting.estimatedCostUsd,
+          actualCostUsd: accounting.actualCostUsd,
+          billableTokens: accounting.billableTokens,
+          trigger: "user",
+          status: "success",
+          actionId,
+          providerRequestId,
+          correlationId: actionId,
+        });
+
+        let creditsWarning: string | null = null;
+        if (lane === "forge" && accounting.billableTokens > 0 && userId) {
+          const deltaResult = await applyAiTokenDelta({
+            supabaseService,
+            userId,
+            spent: accounting.billableTokens,
+            requestId: crypto.randomUUID(),
+            openAiRequestId: providerRequestId,
+            reason: "speech_transcription:anvil_whisper:forge_billing_tokens",
+          });
+          if (!deltaResult.ok) {
+            creditsWarning = deltaResult.warning;
+          }
+        }
+
         return jsonResponse(200, {
           ok: true,
           text,
           empty: text.length === 0,
           model: sttModel,
-          provider_request_id: upstream.headers.get("x-request-id"),
+          provider_request_id: providerRequestId,
+          billing_mode: lane,
+          actual_cost_usd: accounting.actualCostUsd,
+          billable_tokens: accounting.billableTokens,
+          credits_warning: creditsWarning,
         });
       } finally {
         request.signal.removeEventListener("abort", onAborted);

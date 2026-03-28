@@ -1,7 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@forge/tongs";
 import {
   createHammerAudioPolishRequestContext,
   handleHammerAudioPolishRequest,
@@ -24,6 +27,13 @@ import {
 import { HAMMER_TRANSCRIPT_CLEANUP_ASSIST_ROUTE } from "../../hammer/src/editor/hammerTranscriptCleanupAssistApi";
 import { HAMMER_VISUAL_ASSIST_PREFLIGHT_ROUTE } from "../../hammer/src/lib/hammerVisualAssistApi";
 import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
+import {
+  buildTranscriptionAccounting,
+  recordAiUsageEvent,
+  resolveUserIdFromAccessToken,
+  type BillingMode,
+}
+from "../server/ai-usage-accounting";
 import {
   AI_REASON_CODES,
   getAiReasonMessage,
@@ -1010,6 +1020,15 @@ export function createHammerPrepMiddleware() {
   const model = readTrimmed(process.env.HAMMER_TRANSCRIBE_MODEL) ?? DEFAULT_TRANSCRIBE_MODEL;
   const cleanupModel = readTrimmed(process.env.HAMMER_EDITORIAL_AI_MODEL) ?? "gpt-5.4-mini";
   const quenchMetadataModel = readTrimmed(process.env.QUENCH_METADATA_AI_MODEL) ?? "gpt-5.4-mini";
+  const supabaseService: SupabaseClient<Database> | null = runtimeConfig.supabaseUrl && runtimeConfig.supabaseServiceRoleKey
+    ? createClient<Database>(runtimeConfig.supabaseUrl, runtimeConfig.supabaseServiceRoleKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      })
+    : null;
+  const hammerTelemetryLane: BillingMode = "forge";
 
   return async function hammerPrepMiddleware(req: IncomingMessage, res: ServerResponse, next: Next) {
     try {
@@ -1361,6 +1380,19 @@ export function createHammerPrepMiddleware() {
         return;
       }
 
+      const userId = await resolveUserIdFromAccessToken({
+        supabaseService,
+        accessToken: userAccessToken,
+      });
+      if (!userId) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { message: "Sign in required before Hammer transcript prep can log AI usage." },
+        });
+        return;
+      }
+      const telemetryActionId = crypto.randomUUID();
+
       let fileBytes: Buffer;
       let sourceLabel: string;
       let contentType: string;
@@ -1444,6 +1476,29 @@ export function createHammerPrepMiddleware() {
 
       if (!upstream.ok) {
         const detail = await upstream.text();
+        await recordAiUsageEvent({
+          supabaseService,
+          userId,
+          lane: hammerTelemetryLane,
+          provider: "openai",
+          workspaceId: request.workspace_id,
+          workpieceId: request.workpiece_id,
+          sessionId: null,
+          feature: "speech_transcription",
+          subfeature: "hammer_prep_nonbillable",
+          model,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          estimatedCostUsd: 0,
+          actualCostUsd: 0,
+          billableTokens: 0,
+          trigger: "user",
+          status: "error",
+          actionId: telemetryActionId,
+          providerRequestId: upstream.headers.get("x-request-id"),
+          correlationId: telemetryActionId,
+        });
         sendJson(res, upstream.status, {
           ok: false,
           error: {
@@ -1457,6 +1512,29 @@ export function createHammerPrepMiddleware() {
       const payload = (await upstream.json()) as unknown;
       const segments = normalizeSegments(payload);
       if (segments.length === 0) {
+        await recordAiUsageEvent({
+          supabaseService,
+          userId,
+          lane: hammerTelemetryLane,
+          provider: "openai",
+          workspaceId: request.workspace_id,
+          workpieceId: request.workpiece_id,
+          sessionId: null,
+          feature: "speech_transcription",
+          subfeature: "hammer_prep_nonbillable",
+          model,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          estimatedCostUsd: 0,
+          actualCostUsd: 0,
+          billableTokens: 0,
+          trigger: "user",
+          status: "error",
+          actionId: telemetryActionId,
+          providerRequestId: upstream.headers.get("x-request-id"),
+          correlationId: telemetryActionId,
+        });
         sendJson(res, 502, {
           ok: false,
           error: {
@@ -1469,6 +1547,37 @@ export function createHammerPrepMiddleware() {
       const payloadRow = payload && typeof payload === "object" && !Array.isArray(payload)
         ? payload as Record<string, unknown>
         : {};
+      const transcriptText = readTrimmed(payloadRow.text)
+        ?? segments.map((segment) => segment.text).filter(Boolean).join(" ");
+      const accounting = buildTranscriptionAccounting({
+        model,
+        payload,
+        text: transcriptText,
+        billableMode: "non-billable",
+      });
+      await recordAiUsageEvent({
+        supabaseService,
+        userId,
+        lane: hammerTelemetryLane,
+        provider: "openai",
+        workspaceId: request.workspace_id,
+        workpieceId: request.workpiece_id,
+        sessionId: null,
+        feature: "speech_transcription",
+        subfeature: "hammer_prep_nonbillable",
+        model,
+        inputTokens: accounting.inputTokens,
+        outputTokens: accounting.outputTokens,
+        totalTokens: accounting.totalTokens,
+        estimatedCostUsd: accounting.estimatedCostUsd,
+        actualCostUsd: accounting.actualCostUsd,
+        billableTokens: accounting.billableTokens,
+        trigger: "user",
+        status: "success",
+        actionId: telemetryActionId,
+        providerRequestId: upstream.headers.get("x-request-id"),
+        correlationId: telemetryActionId,
+      });
       sendJson(res, 200, {
         ok: true,
         data: {
