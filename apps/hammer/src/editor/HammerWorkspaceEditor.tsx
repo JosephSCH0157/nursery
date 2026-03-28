@@ -216,7 +216,10 @@ export default function HammerWorkspaceEditor(
       throw new Error("Hammer visual placement persistence requires a canonical target.");
     }
 
-    const visualPackageResult = await loadHammerWorkpieceVisualPackage(args.launchContext.workpiece_id);
+    const visualPackageResult = await loadHammerWorkpieceVisualPackage(
+      args.launchContext.workpiece_id,
+      args.launchContext.workspace_id,
+    );
     const visualPlacements = visualPackageResult.ok
       ? deriveHammerVisualPlacements({
         transcriptSourceId: args.transcriptSourceId,
@@ -642,7 +645,10 @@ export default function HammerWorkspaceEditor(
         if (!isPrepExecutionActive(executionId)) return;
 
         setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
-        const visualPackageResult = await loadHammerWorkpieceVisualPackage(nextLaunchContext.workpiece_id);
+        const visualPackageResult = await loadHammerWorkpieceVisualPackage(
+          nextLaunchContext.workpiece_id,
+          nextLaunchContext.workspace_id,
+        );
         if (!isPrepExecutionActive(executionId)) return;
 
         const visualPlacements = visualPackageResult.ok

@@ -12,6 +12,7 @@ import type {
   HammerVisualPlacementRecord,
 } from "../persistence/hammerPersistenceContract";
 import { tongsFetch } from "./tongsFetch";
+import { requestHammerVisualAssistPreflight } from "./hammerVisualAssistApi";
 
 const MATCH_WINDOW_MAX_SEGMENTS = 3;
 const MATCH_MIN_SCORE = 0.18;
@@ -696,7 +697,20 @@ function clonePlacementRecord(record: HammerVisualPlacementRecord): HammerVisual
 
 export async function loadHammerWorkpieceVisualPackage(
   workpieceId: string,
+  workspaceId: string,
 ): Promise<VisualPackageResult> {
+  const preflight = await requestHammerVisualAssistPreflight({
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+  });
+  if (!preflight.ok) {
+    return {
+      ok: false,
+      status: preflight.status,
+      error: preflight.error,
+    };
+  }
+
   const [visualResponse, imageMapResponse] = await Promise.all([
     tongsFetch(
       `/tongs/workpieces/${encodeURIComponent(workpieceId)}/visual-package`,

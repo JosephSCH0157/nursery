@@ -22,6 +22,7 @@ type SessionUser = {
 type ResolverCase = {
   key: string;
   user: SessionUser;
+  tool?: "hearth" | "hammer";
   action: "chat" | "stt";
   feature: "research_flows" | "heavy_tasks";
   orgId: string | null;
@@ -117,6 +118,17 @@ function toHearthPolicyMessage(
   return base;
 }
 
+function toHammerPolicyMessage(
+  reasonCode: AiReasonCode | null,
+  decisionType: AiDecisionType,
+): string {
+  const base = reasonCode ? getAiReasonMessage(reasonCode) : "AI action blocked by policy.";
+  if (decisionType === "SOFT_DENY") {
+    return `${base} Configure a personal AI connection and retry.`;
+  }
+  return base;
+}
+
 function expectUuid(value: string | null, label: string): string {
   if (!value) fail(`${label} is missing`);
   return value;
@@ -176,7 +188,7 @@ async function resolveCase(args: {
     p_org_id: args.c.orgId,
     p_workspace_id: args.c.workspaceId,
     p_user_id: args.c.user.userId,
-    p_tool: "hearth",
+    p_tool: args.c.tool ?? "hearth",
     p_feature: args.c.feature,
     p_action: args.c.action,
     p_requested_mode: args.c.requestedMode,
@@ -654,9 +666,313 @@ async function main(): Promise<void> {
       }
     }
 
+    // Hammer transcript-preflight aligned verification.
+    const hammerCases: Array<{
+      key: string;
+      user: SessionUser;
+      action: "stt";
+      feature: "heavy_tasks";
+      workspaceId: string | null;
+      expectedDecision: AiDecisionType;
+      expectedReason: AiReasonCode | null;
+    }> = [
+      {
+        key: "hammer-transcript-allow-founder",
+        user: founder,
+        action: "stt",
+        feature: "heavy_tasks",
+        workspaceId,
+        expectedDecision: "ALLOW",
+        expectedReason: null,
+      },
+      {
+        key: "hammer-transcript-allow-studio",
+        user: studio,
+        action: "stt",
+        feature: "heavy_tasks",
+        workspaceId,
+        expectedDecision: "ALLOW",
+        expectedReason: null,
+      },
+      {
+        key: "hammer-transcript-hard-deny-free",
+        user: free,
+        action: "stt",
+        feature: "heavy_tasks",
+        workspaceId,
+        expectedDecision: "HARD_DENY",
+        expectedReason: "MEMBERSHIP_REQUIRED_STUDIO_OR_FOUNDER",
+      },
+    ];
+
+    for (const c of hammerCases) {
+      const requestId = `slice-c-hammer-${c.key}-${crypto.randomUUID()}`;
+      const resolved = await resolveCase({
+        actingClient: c.user.client,
+        c: {
+          key: c.key,
+          user: c.user,
+          tool: "hammer",
+          action: c.action,
+          feature: c.feature,
+          orgId,
+          workspaceId: c.workspaceId,
+          requestedMode: "ORG_FIRST_PERSONAL_FALLBACK",
+          personalAiConfigured: false,
+          orgAiAvailable: true,
+          requestedFundingSource: "org_shared_credits",
+          expectedDecision: c.expectedDecision,
+          expectedReasonCode: c.expectedReason,
+          expectedFallbackUsed: false,
+        },
+        requestId,
+      });
+
+      const reasonCode = (readString(resolved.reason_code) ?? null) as AiReasonCode | null;
+      if (resolved.decision_type !== c.expectedDecision) {
+        fail(`${c.key} hammer-preflight decision mismatch`);
+      }
+      if (reasonCode !== c.expectedReason) {
+        fail(`${c.key} hammer-preflight reason mismatch`);
+      }
+
+      const ledgerLookup = await admin
+        .from("ai_usage_ledger")
+        .select("request_id,tool,decision_type,reason_code,effective_policy_snapshot")
+        .eq("request_id", requestId)
+        .single<Pick<LedgerRow, "request_id" | "tool" | "decision_type" | "reason_code" | "effective_policy_snapshot">>();
+      if (ledgerLookup.error || !ledgerLookup.data) {
+        fail(`${c.key} missing ai_usage_ledger row for request_id=${requestId}`);
+      }
+      if (ledgerLookup.data.tool !== "hammer") {
+        fail(`${c.key} hammer ledger tool mismatch`);
+      }
+      if (ledgerLookup.data.decision_type !== c.expectedDecision) {
+        fail(`${c.key} hammer ledger decision mismatch`);
+      }
+      if ((readString(ledgerLookup.data.reason_code) ?? null) !== c.expectedReason) {
+        fail(`${c.key} hammer ledger reason mismatch`);
+      }
+      if (!ledgerLookup.data.effective_policy_snapshot || typeof ledgerLookup.data.effective_policy_snapshot !== "object") {
+        fail(`${c.key} hammer ledger effective_policy_snapshot missing/object mismatch`);
+      }
+
+      if (resolved.decision_type === "ALLOW") {
+        pass(`${c.key} hammer behavior`, "allowed -> request can proceed");
+      } else {
+        const message = toHammerPolicyMessage(reasonCode, resolved.decision_type);
+        if (!message || message.length < 8) {
+          fail(`${c.key} hammer deny message mapping invalid`);
+        }
+        pass(`${c.key} hammer behavior`, `blocked -> ${resolved.decision_type} (${reasonCode ?? "no_code"})`);
+      }
+    }
+
+    const hammerCleanupCases: Array<{
+      key: string;
+      user: SessionUser;
+      action: "chat";
+      feature: "heavy_tasks";
+      workspaceId: string | null;
+      expectedDecision: AiDecisionType;
+      expectedReason: AiReasonCode | null;
+    }> = [
+      {
+        key: "hammer-cleanup-allow-founder",
+        user: founder,
+        action: "chat",
+        feature: "heavy_tasks",
+        workspaceId,
+        expectedDecision: "ALLOW",
+        expectedReason: null,
+      },
+      {
+        key: "hammer-cleanup-allow-studio",
+        user: studio,
+        action: "chat",
+        feature: "heavy_tasks",
+        workspaceId,
+        expectedDecision: "ALLOW",
+        expectedReason: null,
+      },
+      {
+        key: "hammer-cleanup-hard-deny-free",
+        user: free,
+        action: "chat",
+        feature: "heavy_tasks",
+        workspaceId,
+        expectedDecision: "HARD_DENY",
+        expectedReason: "MEMBERSHIP_REQUIRED_STUDIO_OR_FOUNDER",
+      },
+    ];
+
+    for (const c of hammerCleanupCases) {
+      const requestId = `slice-c-hammer-cleanup-${c.key}-${crypto.randomUUID()}`;
+      const resolved = await resolveCase({
+        actingClient: c.user.client,
+        c: {
+          key: c.key,
+          user: c.user,
+          tool: "hammer",
+          action: c.action,
+          feature: c.feature,
+          orgId,
+          workspaceId: c.workspaceId,
+          requestedMode: "ORG_FIRST_PERSONAL_FALLBACK",
+          personalAiConfigured: false,
+          orgAiAvailable: true,
+          requestedFundingSource: "org_shared_credits",
+          expectedDecision: c.expectedDecision,
+          expectedReasonCode: c.expectedReason,
+          expectedFallbackUsed: false,
+        },
+        requestId,
+      });
+
+      const reasonCode = (readString(resolved.reason_code) ?? null) as AiReasonCode | null;
+      if (resolved.decision_type !== c.expectedDecision) {
+        fail(`${c.key} hammer-cleanup-preflight decision mismatch`);
+      }
+      if (reasonCode !== c.expectedReason) {
+        fail(`${c.key} hammer-cleanup-preflight reason mismatch`);
+      }
+
+      const ledgerLookup = await admin
+        .from("ai_usage_ledger")
+        .select("request_id,tool,decision_type,reason_code,effective_policy_snapshot")
+        .eq("request_id", requestId)
+        .single<Pick<LedgerRow, "request_id" | "tool" | "decision_type" | "reason_code" | "effective_policy_snapshot">>();
+      if (ledgerLookup.error || !ledgerLookup.data) {
+        fail(`${c.key} missing ai_usage_ledger row for request_id=${requestId}`);
+      }
+      if (ledgerLookup.data.tool !== "hammer") {
+        fail(`${c.key} hammer-cleanup ledger tool mismatch`);
+      }
+      if (ledgerLookup.data.decision_type !== c.expectedDecision) {
+        fail(`${c.key} hammer-cleanup ledger decision mismatch`);
+      }
+      if ((readString(ledgerLookup.data.reason_code) ?? null) !== c.expectedReason) {
+        fail(`${c.key} hammer-cleanup ledger reason mismatch`);
+      }
+      if (!ledgerLookup.data.effective_policy_snapshot || typeof ledgerLookup.data.effective_policy_snapshot !== "object") {
+        fail(`${c.key} hammer-cleanup ledger effective_policy_snapshot missing/object mismatch`);
+      }
+
+      if (resolved.decision_type === "ALLOW") {
+        pass(`${c.key} hammer cleanup behavior`, "allowed -> request can proceed");
+      } else {
+        const message = toHammerPolicyMessage(reasonCode, resolved.decision_type);
+        if (!message || message.length < 8) {
+          fail(`${c.key} hammer cleanup deny message mapping invalid`);
+        }
+        pass(`${c.key} hammer cleanup behavior`, `blocked -> ${resolved.decision_type} (${reasonCode ?? "no_code"})`);
+      }
+    }
+
+    const hammerVisualCases: Array<{
+      key: string;
+      user: SessionUser;
+      action: "chat";
+      feature: "research_flows";
+      workspaceId: string | null;
+      expectedDecision: AiDecisionType;
+      expectedReason: AiReasonCode | null;
+    }> = [
+      {
+        key: "hammer-visual-allow-founder",
+        user: founder,
+        action: "chat",
+        feature: "research_flows",
+        workspaceId,
+        expectedDecision: "ALLOW",
+        expectedReason: null,
+      },
+      {
+        key: "hammer-visual-allow-studio",
+        user: studio,
+        action: "chat",
+        feature: "research_flows",
+        workspaceId,
+        expectedDecision: "ALLOW",
+        expectedReason: null,
+      },
+      {
+        key: "hammer-visual-hard-deny-free",
+        user: free,
+        action: "chat",
+        feature: "research_flows",
+        workspaceId,
+        expectedDecision: "HARD_DENY",
+        expectedReason: "MEMBERSHIP_REQUIRED_STUDIO_OR_FOUNDER",
+      },
+    ];
+
+    for (const c of hammerVisualCases) {
+      const requestId = `slice-c-hammer-visual-${c.key}-${crypto.randomUUID()}`;
+      const resolved = await resolveCase({
+        actingClient: c.user.client,
+        c: {
+          key: c.key,
+          user: c.user,
+          tool: "hammer",
+          action: c.action,
+          feature: c.feature,
+          orgId,
+          workspaceId: c.workspaceId,
+          requestedMode: "ORG_FIRST_PERSONAL_FALLBACK",
+          personalAiConfigured: false,
+          orgAiAvailable: true,
+          requestedFundingSource: "org_shared_credits",
+          expectedDecision: c.expectedDecision,
+          expectedReasonCode: c.expectedReason,
+          expectedFallbackUsed: false,
+        },
+        requestId,
+      });
+
+      const reasonCode = (readString(resolved.reason_code) ?? null) as AiReasonCode | null;
+      if (resolved.decision_type !== c.expectedDecision) {
+        fail(`${c.key} hammer-visual-preflight decision mismatch`);
+      }
+      if (reasonCode !== c.expectedReason) {
+        fail(`${c.key} hammer-visual-preflight reason mismatch`);
+      }
+
+      const ledgerLookup = await admin
+        .from("ai_usage_ledger")
+        .select("request_id,tool,decision_type,reason_code,effective_policy_snapshot")
+        .eq("request_id", requestId)
+        .single<Pick<LedgerRow, "request_id" | "tool" | "decision_type" | "reason_code" | "effective_policy_snapshot">>();
+      if (ledgerLookup.error || !ledgerLookup.data) {
+        fail(`${c.key} missing ai_usage_ledger row for request_id=${requestId}`);
+      }
+      if (ledgerLookup.data.tool !== "hammer") {
+        fail(`${c.key} hammer-visual ledger tool mismatch`);
+      }
+      if (ledgerLookup.data.decision_type !== c.expectedDecision) {
+        fail(`${c.key} hammer-visual ledger decision mismatch`);
+      }
+      if ((readString(ledgerLookup.data.reason_code) ?? null) !== c.expectedReason) {
+        fail(`${c.key} hammer-visual ledger reason mismatch`);
+      }
+      if (!ledgerLookup.data.effective_policy_snapshot || typeof ledgerLookup.data.effective_policy_snapshot !== "object") {
+        fail(`${c.key} hammer-visual ledger effective_policy_snapshot missing/object mismatch`);
+      }
+
+      if (resolved.decision_type === "ALLOW") {
+        pass(`${c.key} hammer visual behavior`, "allowed -> request can proceed");
+      } else {
+        const message = toHammerPolicyMessage(reasonCode, resolved.decision_type);
+        if (!message || message.length < 8) {
+          fail(`${c.key} hammer visual deny message mapping invalid`);
+        }
+        pass(`${c.key} hammer visual behavior`, `blocked -> ${resolved.decision_type} (${reasonCode ?? "no_code"})`);
+      }
+    }
+
     console.log("");
     console.log(
-      "SLICE_C_GATE: Hearth chat and STT both obey the real resolver in live conditions, " +
+      "SLICE_C_GATE: Hearth chat, Hearth STT, Hammer transcript prep, Hammer transcript cleanup assist, and Hammer visual assist obey the real resolver in live conditions, " +
       "across allow/soft/hard deny paths, with ledger attribution validated.",
     );
   } finally {

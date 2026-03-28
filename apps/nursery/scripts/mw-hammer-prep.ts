@@ -21,6 +21,8 @@ import {
   type HammerTranscriptPrepRequest,
   type HammerTranscriptPrepSegment,
 } from "../../hammer/src/prep/hammerPrepApi";
+import { HAMMER_TRANSCRIPT_CLEANUP_ASSIST_ROUTE } from "../../hammer/src/editor/hammerTranscriptCleanupAssistApi";
+import { HAMMER_VISUAL_ASSIST_PREFLIGHT_ROUTE } from "../../hammer/src/lib/hammerVisualAssistApi";
 import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 import {
   AI_REASON_CODES,
@@ -36,6 +38,7 @@ const ALLOWED_MEDIA_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".wav", ".mp3
 const MAX_TRANSCRIBE_SOURCE_BYTES = 96 * 1024 * 1024;
 const CANONICAL_MEDIA_FETCH_TIMEOUT_MS = 60_000;
 const OPENAI_TRANSCRIBE_TIMEOUT_MS = 4 * 60 * 1000;
+const OPENAI_CLEANUP_TIMEOUT_MS = 90_000;
 const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
   ".mp4": "video/mp4",
   ".webm": "video/webm",
@@ -76,6 +79,23 @@ type NormalizedCanonicalWorkpieceRequest = Omit<
 type AiPolicyResolveRow = {
   decision_type?: unknown;
   reason_code?: unknown;
+};
+
+type CleanupAssistSegment = {
+  segment_id: string;
+  start_sec: number;
+  end_sec: number;
+  speaker: string;
+  text: string;
+  is_disabled?: boolean;
+  gain_db?: number;
+};
+
+type CleanupAssistRequest = {
+  workspace_id: string;
+  workpiece_id: string;
+  segments: CleanupAssistSegment[];
+  segment_ids: string[];
 };
 
 const AI_POLICY_REASON_CODE_SET = new Set<string>(AI_REASON_CODES);
@@ -304,6 +324,352 @@ function readErrorMessage(payload: unknown, fallback: string): string {
     ?? fallback;
 }
 
+function readChatMessageContent(value: unknown): string | null {
+  if (typeof value === "string") return readTrimmed(value);
+  if (!Array.isArray(value)) return null;
+  const parts: string[] = [];
+  for (const item of value) {
+    const row = readJsonObject(item);
+    const text = readTrimmed(row?.text);
+    if (text) parts.push(text);
+  }
+  return parts.length > 0 ? parts.join("\n") : null;
+}
+
+function normalizeCleanupAssistRequest(body: unknown): CleanupAssistRequest | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const row = body as Record<string, unknown>;
+  const workspaceId = readTrimmed(row.workspace_id);
+  const workpieceId = readTrimmed(row.workpiece_id);
+  const segmentsRaw = Array.isArray(row.segments) ? row.segments : [];
+  const segmentIdsRaw = Array.isArray(row.segment_ids) ? row.segment_ids : [];
+  if (!workspaceId || !workpieceId || segmentsRaw.length === 0 || segmentIdsRaw.length === 0) {
+    return null;
+  }
+
+  const segments = segmentsRaw
+    .map((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+      const segment = value as Record<string, unknown>;
+      const segmentId = readTrimmed(segment.segment_id);
+      const startSec = readNumber(segment.start_sec);
+      const endSec = readNumber(segment.end_sec);
+      const speaker = readTrimmed(segment.speaker);
+      const text = readTrimmed(segment.text);
+      if (!segmentId || startSec == null || endSec == null || endSec <= startSec || !speaker || !text) {
+        return null;
+      }
+      return {
+        segment_id: segmentId,
+        start_sec: startSec,
+        end_sec: endSec,
+        speaker,
+        text,
+        ...(typeof segment.is_disabled === "boolean" ? { is_disabled: segment.is_disabled } : {}),
+        ...(typeof segment.gain_db === "number" && Number.isFinite(segment.gain_db)
+          ? { gain_db: segment.gain_db }
+          : {}),
+      } satisfies CleanupAssistSegment;
+    })
+    .filter((value): value is CleanupAssistSegment => Boolean(value));
+
+  if (segments.length === 0) return null;
+  const knownIds = new Set(segments.map((segment) => segment.segment_id));
+  const segmentIds = segmentIdsRaw
+    .map((value) => readTrimmed(value))
+    .filter((value): value is string => Boolean(value) && knownIds.has(value));
+  if (segmentIds.length === 0) return null;
+
+  return {
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    segments,
+    segment_ids: Array.from(new Set(segmentIds)),
+  };
+}
+
+function toHammerPreflightErrorMessage(
+  reasonCode: AiReasonCode | null,
+  decisionType: AiDecisionType,
+): string {
+  const base = reasonCode ? getAiReasonMessage(reasonCode) : "AI action blocked by policy.";
+  if (decisionType === "SOFT_DENY") {
+    return `${base} Configure a personal AI connection and retry.`;
+  }
+  return base;
+}
+
+async function resolveUserIdFromAccessToken(args: {
+  supabaseUrl: string;
+  rpcKey: string;
+  userAccessToken: string;
+}): Promise<string | null> {
+  let response: Response;
+  try {
+    response = await fetch(`${args.supabaseUrl}/auth/v1/user`, {
+      method: "GET",
+      headers: {
+        apikey: args.rpcKey,
+        authorization: `Bearer ${args.userAccessToken}`,
+      },
+    });
+  } catch {
+    return null;
+  }
+
+  if (!response.ok) return null;
+
+  const payload = await response.json().catch(() => null);
+  return readTrimmed(readJsonObject(payload)?.id);
+}
+
+async function resolveOrgIdForWorkspace(args: {
+  supabaseUrl: string;
+  rpcKey: string;
+  userAccessToken: string;
+  workspaceId: string;
+}): Promise<string | null> {
+  const headers = buildSupabaseRpcHeaders({
+    rpcKey: args.rpcKey,
+    userAccessToken: args.userAccessToken,
+  });
+  let response: Response;
+  try {
+    response = await fetch(
+      `${args.supabaseUrl}/rest/v1/workspaces?id=eq.${encodeURIComponent(args.workspaceId)}&select=org_id`,
+      {
+        method: "GET",
+        headers,
+      },
+    );
+  } catch {
+    return null;
+  }
+
+  if (!response.ok) return null;
+  const payload = await response.json().catch(() => null);
+  if (!Array.isArray(payload) || payload.length === 0) return null;
+  const row = readJsonObject(payload[0]);
+  return readTrimmed(row?.org_id);
+}
+
+async function runHammerTranscriptPolicyPreflight(args: {
+  supabaseUrl: string;
+  rpcKey: string;
+  userAccessToken: string;
+  workspaceId: string;
+  action: "chat" | "stt";
+  feature: "research_flows" | "heavy_tasks";
+}): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const userId = await resolveUserIdFromAccessToken(args);
+  if (!userId) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Sign in required before Hammer AI policy preflight can run.",
+    };
+  }
+
+  const orgId = await resolveOrgIdForWorkspace(args);
+  const headers = buildSupabaseRpcHeaders({
+    rpcKey: args.rpcKey,
+    userAccessToken: args.userAccessToken,
+  });
+
+  let response: Response;
+  try {
+    response = await fetch(`${args.supabaseUrl}/rest/v1/rpc/resolve_ai_policy`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        p_org_id: orgId,
+        p_workspace_id: args.workspaceId,
+        p_user_id: userId,
+        p_tool: "hammer",
+        p_feature: args.feature,
+        p_action: args.action,
+        p_requested_mode: "ORG_FIRST_PERSONAL_FALLBACK",
+        p_personal_ai_configured: false,
+        p_org_ai_available: true,
+        p_requested_funding_source: "org_shared_credits",
+        p_write_ledger: true,
+      }),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      error: `AI policy preflight failed: ${error instanceof Error ? error.message : "Network error"}`,
+    };
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: readErrorMessage(payload, `AI policy preflight failed (${response.status}).`),
+    };
+  }
+
+  const row = Array.isArray(payload) ? (payload[0] as AiPolicyResolveRow | undefined) : undefined;
+  const decisionType = readAiPolicyDecisionType(row?.decision_type);
+  const reasonCode = readAiPolicyReasonCode(row?.reason_code);
+  if (!decisionType) {
+    return {
+      ok: false,
+      status: 500,
+      error: "AI policy preflight returned an invalid decision payload.",
+    };
+  }
+
+  if (decisionType !== "ALLOW") {
+    return {
+      ok: false,
+      status: 403,
+      error: toHammerPreflightErrorMessage(reasonCode, decisionType),
+    };
+  }
+
+  return { ok: true };
+}
+
+function estimateCleanupTimeSavedSec(before: string, after: string): number {
+  const beforeWords = before.trim().split(/\s+/).filter(Boolean).length;
+  const afterWords = after.trim().split(/\s+/).filter(Boolean).length;
+  const delta = Math.max(0, beforeWords - afterWords);
+  return Number((Math.max(0.1, delta * 0.11)).toFixed(1));
+}
+
+function normalizeOpenAiCleanupChanges(payload: unknown): Array<{ segment_id: string; cleaned_text: string }> {
+  const root = readJsonObject(payload);
+  const changesRaw = Array.isArray(root?.changes) ? root.changes : [];
+  const changes: Array<{ segment_id: string; cleaned_text: string }> = [];
+  for (const value of changesRaw) {
+    const row = readJsonObject(value);
+    const segmentId = readTrimmed(row?.segment_id);
+    const cleanedText = readTrimmed(row?.cleaned_text);
+    if (!segmentId || !cleanedText) continue;
+    changes.push({ segment_id: segmentId, cleaned_text: cleanedText });
+  }
+  return changes;
+}
+
+async function runOpenAiTranscriptCleanupAssist(args: {
+  apiKey: string;
+  model: string;
+  request: CleanupAssistRequest;
+}): Promise<{
+  resultSegments: CleanupAssistSegment[];
+  suggestions: Array<{
+    id: string;
+    type: "filler_remove" | "repetition_collapse" | "fragment_merge";
+    segmentId: string;
+    description: string;
+    confidence: number;
+    timeSavedSec: number;
+  }>;
+}> {
+  const selectedSegments = args.request.segments.filter((segment) => args.request.segment_ids.includes(segment.segment_id));
+  if (selectedSegments.length === 0) {
+    return {
+      resultSegments: args.request.segments,
+      suggestions: [],
+    };
+  }
+
+  const systemPrompt =
+    "You are a transcript cleanup assistant. Improve readability while preserving meaning, speaker intent, and factual content. " +
+    "Do not add new claims. Return JSON only in shape {\"changes\":[{\"segment_id\":\"...\",\"cleaned_text\":\"...\"}]} for selected segments.";
+  const userPrompt = JSON.stringify({
+    instruction: "Tighten selected transcript lines: remove filler/repetition/restart clutter conservatively.",
+    selected_segments: selectedSegments.map((segment) => ({
+      segment_id: segment.segment_id,
+      speaker: segment.speaker,
+      text: segment.text,
+    })),
+  });
+
+  const upstreamTimeout = createTimeoutAbortController(OPENAI_CLEANUP_TIMEOUT_MS);
+  let upstream: Response;
+  try {
+    upstream = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${args.apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: args.model,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+      signal: upstreamTimeout.controller.signal,
+    });
+  } finally {
+    upstreamTimeout.dispose();
+  }
+
+  if (!upstream.ok) {
+    const detail = await upstream.text().catch(() => "");
+    throw new Error(readUpstreamErrorMessage(detail) ?? "OpenAI transcript cleanup assist failed.");
+  }
+
+  const payload = await upstream.json().catch(() => null);
+  const payloadRow = readJsonObject(payload);
+  const choices = Array.isArray(payloadRow?.choices) ? payloadRow.choices : [];
+  const firstChoice = readJsonObject(choices[0]);
+  const message = readJsonObject(firstChoice?.message);
+  const rawContent = readChatMessageContent(message?.content);
+  if (!rawContent) {
+    throw new Error("OpenAI transcript cleanup assist returned an empty response.");
+  }
+
+  let parsedContent: unknown = null;
+  try {
+    parsedContent = JSON.parse(rawContent);
+  } catch {
+    throw new Error("OpenAI transcript cleanup assist returned invalid JSON.");
+  }
+
+  const changes = normalizeOpenAiCleanupChanges(parsedContent);
+  const changesById = new Map(changes.map((change) => [change.segment_id, change.cleaned_text]));
+  const suggestions: Array<{
+    id: string;
+    type: "filler_remove" | "repetition_collapse" | "fragment_merge";
+    segmentId: string;
+    description: string;
+    confidence: number;
+    timeSavedSec: number;
+  }> = [];
+  const resultSegments = args.request.segments.map((segment) => {
+    const cleaned = changesById.get(segment.segment_id);
+    if (!cleaned || cleaned === segment.text) return segment;
+    const timeSavedSec = estimateCleanupTimeSavedSec(segment.text, cleaned);
+    suggestions.push({
+      id: `ai_cleanup:${segment.segment_id}`,
+      type: "filler_remove",
+      segmentId: segment.segment_id,
+      description: "AI tightened transcript wording while preserving meaning.",
+      confidence: 0.82,
+      timeSavedSec,
+    });
+    return {
+      ...segment,
+      text: cleaned,
+    };
+  });
+
+  return {
+    resultSegments,
+    suggestions,
+  };
+}
+
 async function loadCanonicalWorkpieceMediaFile(
   req: IncomingMessage,
   request: NormalizedCanonicalWorkpieceRequest,
@@ -422,6 +788,7 @@ export function createHammerPrepMiddleware() {
   const runtimeConfig = resolveHearthRuntimeConfig();
   const textApiKey = runtimeConfig.textApiKey ?? runtimeConfig.apiKey ?? null;
   const model = readTrimmed(process.env.HAMMER_TRANSCRIBE_MODEL) ?? DEFAULT_TRANSCRIBE_MODEL;
+  const cleanupModel = readTrimmed(process.env.HAMMER_EDITORIAL_AI_MODEL) ?? "gpt-5.4-mini";
 
   return async function hammerPrepMiddleware(req: IncomingMessage, res: ServerResponse, next: Next) {
     try {
@@ -430,6 +797,8 @@ export function createHammerPrepMiddleware() {
       const url = new URL(rawUrl, origin);
       if (
         url.pathname !== HAMMER_TRANSCRIPT_PREP_ROUTE
+        && url.pathname !== HAMMER_TRANSCRIPT_CLEANUP_ASSIST_ROUTE
+        && url.pathname !== HAMMER_VISUAL_ASSIST_PREFLIGHT_ROUTE
         && url.pathname !== HAMMER_AUDIO_POLISH_ROUTE
         && url.pathname !== HAMMER_AUDIO_POLISH_STATUS_ROUTE
         && url.pathname !== HAMMER_STUDIO_RACK_RENDER_ROUTE
@@ -553,6 +922,125 @@ export function createHammerPrepMiddleware() {
         return;
       }
 
+      if (url.pathname === HAMMER_TRANSCRIPT_CLEANUP_ASSIST_ROUTE) {
+        if (!textApiKey) {
+          sendJson(res, 500, {
+            ok: false,
+            error: { message: "Missing OPENAI_TEXT_API_KEY (or OPENAI_API_KEY) in server env." },
+          });
+          return;
+        }
+
+        const cleanupRequest = normalizeCleanupAssistRequest(body);
+        if (!cleanupRequest) {
+          sendJson(res, 400, { ok: false, error: { message: "Invalid Hammer transcript cleanup assist payload." } });
+          return;
+        }
+
+        const userAccessToken = readForgeUserAccessToken(req);
+        if (!userAccessToken) {
+          sendJson(res, 401, {
+            ok: false,
+            error: { message: "Sign in required before Hammer transcript cleanup assist can run AI policy preflight." },
+          });
+          return;
+        }
+        if (!runtimeConfig.supabaseUrl || !runtimeConfig.supabaseRpcKey) {
+          sendJson(res, 500, {
+            ok: false,
+            error: { message: "Hammer AI policy preflight is not configured on this server." },
+          });
+          return;
+        }
+
+        const preflight = await runHammerTranscriptPolicyPreflight({
+          supabaseUrl: runtimeConfig.supabaseUrl,
+          rpcKey: runtimeConfig.supabaseRpcKey,
+          userAccessToken,
+          workspaceId: cleanupRequest.workspace_id,
+          action: "chat",
+          feature: "heavy_tasks",
+        });
+        if (!preflight.ok) {
+          sendJson(res, preflight.status || 500, { ok: false, error: { message: preflight.error } });
+          return;
+        }
+
+        const assisted = await runOpenAiTranscriptCleanupAssist({
+          apiKey: textApiKey,
+          model: cleanupModel,
+          request: cleanupRequest,
+        });
+        const changedIds = new Set(assisted.suggestions.map((suggestion) => suggestion.segmentId));
+        sendJson(res, 200, {
+          ok: true,
+          data: {
+            preview: {
+              label: "AI Tighten Selection",
+              resultSegments: assisted.resultSegments,
+              suggestions: assisted.suggestions,
+              summary: {
+                changedSegments: changedIds.size,
+                removedSegments: 0,
+                timeSavedSec: Number(
+                  assisted.suggestions.reduce((sum, suggestion) => sum + suggestion.timeSavedSec, 0).toFixed(1),
+                ),
+              },
+            },
+          },
+        });
+        return;
+      }
+
+      if (url.pathname === HAMMER_VISUAL_ASSIST_PREFLIGHT_ROUTE) {
+        const bodyRow = readJsonObject(body);
+        const workspaceId = readTrimmed(bodyRow?.workspace_id);
+        const workpieceId = readTrimmed(bodyRow?.workpiece_id);
+        if (!workspaceId || !workpieceId) {
+          sendJson(res, 400, { ok: false, error: { message: "workspace_id and workpiece_id are required." } });
+          return;
+        }
+
+        const userAccessToken = readForgeUserAccessToken(req);
+        if (!userAccessToken) {
+          sendJson(res, 401, {
+            ok: false,
+            error: { message: "Sign in required before Hammer visual assist can run AI policy preflight." },
+          });
+          return;
+        }
+        if (!runtimeConfig.supabaseUrl || !runtimeConfig.supabaseRpcKey) {
+          sendJson(res, 500, {
+            ok: false,
+            error: { message: "Hammer AI policy preflight is not configured on this server." },
+          });
+          return;
+        }
+
+        const preflight = await runHammerTranscriptPolicyPreflight({
+          supabaseUrl: runtimeConfig.supabaseUrl,
+          rpcKey: runtimeConfig.supabaseRpcKey,
+          userAccessToken,
+          workspaceId,
+          action: "chat",
+          feature: "research_flows",
+        });
+        if (!preflight.ok) {
+          sendJson(res, preflight.status || 500, { ok: false, error: { message: preflight.error } });
+          return;
+        }
+
+        sendJson(res, 200, {
+          ok: true,
+          data: {
+            workspace_id: workspaceId,
+            workpiece_id: workpieceId,
+            decision: "ALLOW",
+          },
+        });
+        return;
+      }
+
       if (!textApiKey) {
         sendJson(res, 500, {
           ok: false,
@@ -564,6 +1052,36 @@ export function createHammerPrepMiddleware() {
       const request = normalizeRequest(body);
       if (!request) {
         sendJson(res, 400, { ok: false, error: { message: "Invalid Hammer transcript prep payload." } });
+        return;
+      }
+
+      const userAccessToken = readForgeUserAccessToken(req);
+      if (!userAccessToken) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { message: "Sign in required before Hammer transcript prep can run AI policy preflight." },
+        });
+        return;
+      }
+
+      if (!runtimeConfig.supabaseUrl || !runtimeConfig.supabaseRpcKey) {
+        sendJson(res, 500, {
+          ok: false,
+          error: { message: "Hammer AI policy preflight is not configured on this server." },
+        });
+        return;
+      }
+
+      const preflight = await runHammerTranscriptPolicyPreflight({
+        supabaseUrl: runtimeConfig.supabaseUrl,
+        rpcKey: runtimeConfig.supabaseRpcKey,
+        userAccessToken,
+        workspaceId: request.workspace_id,
+        action: "stt",
+        feature: "heavy_tasks",
+      });
+      if (!preflight.ok) {
+        sendJson(res, preflight.status || 500, { ok: false, error: { message: preflight.error } });
         return;
       }
 

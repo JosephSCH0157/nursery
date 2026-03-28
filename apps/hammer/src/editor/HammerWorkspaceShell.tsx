@@ -74,6 +74,7 @@ import {
   type SpeakerInterviewOptions,
   type SpeakerSoloOptions,
 } from "./hammerCleanupTools";
+import { requestHammerTranscriptCleanupAssist } from "./hammerTranscriptCleanupAssistApi";
 import PolishResultSummary, {
   buildPolishResultSummaryFromCleanupPreview,
   type HammerPolishResultSummary,
@@ -4359,11 +4360,24 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setFocusOverride("tool-focus");
     setActiveTool("polish");
     setCleanupReceipt(null);
-    setCleanupPreview(previewTightenSelection({
-      segments: editableTranscriptSegments,
-      segmentIds: transcriptSelectionRange.segmentIds,
-    }));
-    setTranscriptTimingHint(null);
+    void (async () => {
+      try {
+        const assisted = await requestHammerTranscriptCleanupAssist({
+          workspace_id: launchContext.workspace_id,
+          workpiece_id: launchContext.workpiece_id,
+          segments: editableTranscriptSegments,
+          segment_ids: transcriptSelectionRange.segmentIds,
+        });
+        setCleanupPreview(assisted.preview);
+        setTranscriptTimingHint(null);
+      } catch (error) {
+        setTranscriptTimingHint(
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : "Hammer could not run transcript cleanup assist.",
+        );
+      }
+    })();
   }
 
   function buildCandidateCardsFromPreview(
