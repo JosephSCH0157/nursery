@@ -1157,7 +1157,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
     const tableClient = supabaseService.schema("tongs") as unknown as {
       from: (table: string) => {
-        insert: (row: Record<string, unknown>) => Promise<{ error: { message: string } | null>;
+        insert: (row: Record<string, unknown>) => Promise<{ error: { message: string } | null }>;
       };
     };
 
