@@ -7938,258 +7938,207 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               ) : null}
 
               {selectedSourceTab === "broll" ? (
-                sourceBrollItems.length > 0 ? (
-                  <>
-                    <div className="hammer-source-summary">
-                      <span>{sourceBrollItems.length} B-roll / Reference Clip assets</span>
-                      <span>{unresolvedBrollSuggestionItems.length} unresolved Hearth suggestions</span>
-                      <span>{resolvedBrollBindingItems.length} resolved bindings</span>
+                <section className="hammer-visual-flow">
+                  <div className="hammer-visual-flow__steps">
+                    {([
+                      { id: "media_map", label: "Media Map", done: mediaMapBeats.length > 0 },
+                      { id: "images", label: "Images", done: sourceImageLibraryItems.length > 0 },
+                      { id: "broll", label: "B-roll", done: sourceBrollOnlyItems.length > 0 },
+                      { id: "reference_clips", label: "Reference Clips", done: sourceReferenceClipItems.length > 0 },
+                    ] as Array<{ id: HammerVisualFlowStepId; label: string; done: boolean }>).map((step) => (
                       <button
+                        key={step.id}
                         type="button"
-                        className="hammer-source-upload-button is-secondary"
-                        onClick={() => brollUploadInputRef.current?.click()}
-                        disabled={uploadingCategory != null}
+                        className={selectedVisualFlowStep === step.id ? "hammer-visual-flow__step is-active" : "hammer-visual-flow__step"}
+                        onClick={() => setSelectedVisualFlowStep(step.id)}
                       >
-                        {uploadingCategory === "broll" ? "Uploading..." : "Upload B-roll"}
+                        <span>{step.label}</span>
+                        <small>{step.done ? "complete" : "pending"}</small>
                       </button>
-                      <button
-                        type="button"
-                        className="hammer-source-upload-button is-secondary"
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          ingestHearthBrollSuggestion();
+                    ))}
+                  </div>
+
+                  {selectedVisualFlowStep === "media_map" ? (
+                    <>
+                      <div className="hammer-source-summary">
+                        <span>{mediaMapBeats.length} beats</span>
+                        <button type="button" className="hammer-source-upload-button is-secondary" onClick={redoMediaMapFromScript}>
+                          Redo Media Map
+                        </button>
+                      </div>
+                      {mediaMapBeats.map((beat) => {
+                        const brollPrompt = buildMediaMapPrompt({ type: "broll", text: beat.sourceText, tweak: beat.tweak });
+                        const referencePrompt = buildMediaMapPrompt({ type: "reference_clip", text: beat.sourceText, tweak: beat.tweak });
+                        return (
+                          <article key={beat.id} className="hammer-source-card">
+                            <header className="hammer-source-card__head">
+                              <strong>{beat.sourceText.slice(0, 92)}</strong>
+                              <span>{beat.reason}</span>
+                            </header>
+                            <div className="hammer-source-card__meta">
+                              <span>Suggested: {beat.suggestedType === "reference_clip" ? "Reference Clip" : "B-roll"}</span>
+                              <span>Selected: {beat.selectedType === "reference_clip" ? "Reference Clip" : "B-roll"}</span>
+                              <span>{beat.linkedPlacementId ? "linked placement" : "not linked"}</span>
+                            </div>
+                            <label className="hammer-tool-field">
+                              <span>Type</span>
+                              <select
+                                value={beat.selectedType}
+                                onChange={(event) => {
+                                  const nextType = event.target.value === "reference_clip" ? "reference_clip" : "broll";
+                                  setMediaMapBeats((current) => current.map((item) => (
+                                    item.id === beat.id ? { ...item, selectedType: nextType } : item
+                                  )));
+                                  if (beat.linkedPlacementId) {
+                                    updatePlacementKindFromMediaMap(beat.linkedPlacementId, nextType);
+                                  }
+                                }}
+                              >
+                                <option value="broll">B-roll</option>
+                                <option value="reference_clip">Reference Clip</option>
+                              </select>
+                            </label>
+                            <label className="hammer-tool-field">
+                              <span>Tweak</span>
+                              <input
+                                type="text"
+                                value={beat.tweak}
+                                onChange={(event) => {
+                                  const next = event.target.value;
+                                  setMediaMapBeats((current) => current.map((item) => (
+                                    item.id === beat.id ? { ...item, tweak: next } : item
+                                  )));
+                                }}
+                                placeholder="Add a light prompt tweak"
+                              />
+                            </label>
+                            <div className="hammer-source-card__path">B-roll prompt: {brollPrompt}</div>
+                            <div className="hammer-source-card__path">Reference prompt: {referencePrompt}</div>
+                            <div className="hammer-source-card__actions">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMediaMapBeats((current) => current.filter((item) => item.id !== beat.id));
+                                  if (beat.linkedPlacementId) {
+                                    removeVisualPlacement(beat.linkedPlacementId);
+                                  }
+                                }}
+                              >
+                                Remove visual
+                              </button>
+                              <button type="button" onClick={() => queueMediaMapBeatSuggestion(beat)}>
+                                Queue Suggestion
+                              </button>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </>
+                  ) : null}
+
+                  {selectedVisualFlowStep === "images" ? (
+                    <>
+                      <div className="hammer-source-summary">
+                        <span>{sourceImageLibraryItems.length} stored images</span>
+                        <button
+                          type="button"
+                          className="hammer-source-upload-button is-secondary"
+                          onClick={() => imageUploadInputRef.current?.click()}
+                          disabled={uploadingCategory != null}
+                        >
+                          {uploadingCategory === "images" ? "Uploading..." : "Upload Image"}
+                        </button>
+                      </div>
+                      <input
+                        ref={imageUploadInputRef}
+                        type="file"
+                        aria-label="Upload source desk image file"
+                        accept="image/*"
+                        className="hammer-source-upload-input"
+                        onChange={(event) => {
+                          void handleSourceDeskUpload("images", event.currentTarget.files);
+                          event.currentTarget.value = "";
                         }}
-                      >
-                        Ingest Hearth Suggestion
-                      </button>
-                    </div>
-                    {unresolvedBrollSuggestionItems.map((suggestion) => (
-                      <article key={suggestion.operationId} className="hammer-source-card">
-                        <header className="hammer-source-card__head">
-                          <strong>{suggestion.intentDescription ?? "Hearth B-roll suggestion"}</strong>
-                          <span>unresolved</span>
-                        </header>
-                        <div className="hammer-source-card__meta">
-                          <span>Intent source: hearth_suggestion</span>
-                          <span>{suggestion.startSec.toFixed(1)}s - {suggestion.endSec.toFixed(1)}s</span>
-                          <span>Duck: {suggestion.duckPreference}</span>
-                        </div>
-                        <div className="hammer-source-card__path">{suggestion.intentRef ?? "intent ref unavailable"}</div>
-                        <div className="hammer-source-card__actions">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const candidate = sourceBrollItems.find((item) => item.assetPath)?.assetPath ?? null;
-                              if (!candidate) {
-                                setTranscriptTimingHint("Upload B-roll before resolving Hearth suggestions.");
-                                return;
-                              }
-                              resolveHearthBrollSuggestion({
-                                operationId: suggestion.operationId,
-                                assetPath: candidate,
-                                label: "Resolved from Hearth suggestion",
-                              });
-                            }}
-                          >
-                            Resolve with first B-roll asset
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              discardHearthBrollSuggestion(suggestion.operationId);
-                            }}
-                          >
-                            Discard suggestion
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                    {resolvedBrollBindingItems.map((binding) => (
-                      <article
-                        key={binding.operationId}
-                        className={selectedBoundBrollOperationId === binding.operationId ? "hammer-source-card is-selected" : "hammer-source-card"}
-                      >
-                        <header className="hammer-source-card__head">
-                          <strong>{binding.intentDescription ?? "Resolved B-roll binding"}</strong>
-                          <span>resolved</span>
-                        </header>
-                        <div className="hammer-source-card__meta">
-                          <span>{binding.startSec.toFixed(1)}s - {binding.endSec.toFixed(1)}s</span>
-                          <span>Duck: {binding.duckPreference}</span>
-                          <span>Segment: {binding.segmentId}</span>
-                        </div>
-                        <div className="hammer-source-card__path">{binding.assetRef}</div>
-                        <div className="hammer-source-card__actions">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveTool("video");
-                              setFocusOverride("tool-focus");
-                              setSelectedBoundBrollOperationId(binding.operationId);
-                            }}
-                          >
-                            Inspect
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moveResolvedBrollBinding(binding.operationId, -0.5)}
-                          >
-                            Move -0.5s
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moveResolvedBrollBinding(binding.operationId, 0.5)}
-                          >
-                            Move +0.5s
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => trimResolvedBrollBinding(binding.operationId, "start", 0.25)}
-                          >
-                            Trim In +0.25s
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => trimResolvedBrollBinding(binding.operationId, "end", -0.25)}
-                          >
-                            Trim Out -0.25s
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const replacement = sourceBrollItems.find(
-                                (item) => item.assetPath && item.assetPath !== binding.assetRef,
-                              )?.assetPath ?? null;
-                              if (!replacement) {
-                                setTranscriptTimingHint("Upload another b-roll asset before replacing this binding.");
-                                return;
-                              }
-                              replaceResolvedBrollBinding(binding.operationId, replacement);
-                            }}
-                          >
-                            Replace Asset
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              revertResolvedBrollBinding(binding.operationId);
-                            }}
-                          >
-                            Revert Binding
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                    <input
-                      ref={brollUploadInputRef}
-                      type="file"
-                      aria-label="Upload source desk b-roll file"
-                      accept="video/*"
-                      className="hammer-source-upload-input"
-                      onChange={(event) => {
-                        void handleSourceDeskUpload("broll", event.currentTarget.files);
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                    {sourceBrollItems.map((item) => (
-                      <article key={item.id} className="hammer-source-card">
-                        {item.assetPath && sourceDeskPreviewUrls[item.assetPath] ? (
-                          <video
-                            className="hammer-source-card__thumb"
-                            src={sourceDeskPreviewUrls[item.assetPath]}
-                            muted
-                            preload="metadata"
-                          />
-                        ) : (
-                          <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">
-                            {item.assetPath && sourceDeskPreviewFailures[item.assetPath] ? "Preview unavailable" : "No thumbnail"}
+                      />
+                      {sourceImageLibraryItems.map((file) => (
+                        <article key={`img-step-${file.path}`} className="hammer-source-card">
+                          <header className="hammer-source-card__head">
+                            <strong>{file.name}</strong>
+                            <span>image</span>
+                          </header>
+                          <div className="hammer-source-card__path">{file.path}</div>
+                        </article>
+                      ))}
+                    </>
+                  ) : null}
+
+                  {selectedVisualFlowStep === "broll" ? (
+                    <>
+                      <div className="hammer-source-summary">
+                        <span>{sourceBrollOnlyItems.length} B-roll assets</span>
+                        <span>{unresolvedBrollSuggestionItems.length} unresolved suggestions</span>
+                        <button
+                          type="button"
+                          className="hammer-source-upload-button is-secondary"
+                          onClick={() => brollUploadInputRef.current?.click()}
+                          disabled={uploadingCategory != null}
+                        >
+                          {uploadingCategory === "broll" ? "Uploading..." : "Upload B-roll"}
+                        </button>
+                      </div>
+                      <input
+                        ref={brollUploadInputRef}
+                        type="file"
+                        aria-label="Upload source desk b-roll file"
+                        accept="video/*"
+                        className="hammer-source-upload-input"
+                        onChange={(event) => {
+                          void handleSourceDeskUpload("broll", event.currentTarget.files);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      {sourceBrollOnlyItems.map((item) => (
+                        <article key={`broll-step-${item.id}`} className="hammer-source-card">
+                          <header className="hammer-source-card__head">
+                            <strong>{item.label}</strong>
+                            <span>B-roll</span>
+                          </header>
+                          <div className="hammer-source-card__meta">
+                            <span>{item.firstStartSec.toFixed(1)}s - {item.lastEndSec.toFixed(1)}s</span>
+                            <span>Uses: {item.usageCount}</span>
                           </div>
-                        )}
-                        <header className="hammer-source-card__head">
-                          <strong>{item.label}</strong>
-                          <span>{formatAssetKindLabel(item.kind)}</span>
-                        </header>
-                        <div className="hammer-source-card__meta">
-                          <span>Type: {formatAssetKindLabel(item.kind)}</span>
-                          <span>{item.firstStartSec.toFixed(1)}s - {item.lastEndSec.toFixed(1)}s</span>
-                          <span>Uses: {item.usageCount}</span>
-                          <span>{item.visualMode ?? "mode n/a"}</span>
-                        </div>
-                        <div className="hammer-source-card__path">{item.assetPath ?? "asset path unavailable"}</div>
-                        <div className="hammer-source-card__actions">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFocusOverride("time-focus");
-                              seekPlayheadToTime(item.firstStartSec, "playhead");
-                            }}
-                          >
-                            Cue visual window
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                  </>
-                ) : (
-                  <>
-                    <div className="hammer-source-summary">
-                      <span>No b-roll assets are currently linked.</span>
-                      <span>{unresolvedBrollSuggestionItems.length} unresolved Hearth suggestions</span>
-                      <span>{resolvedBrollBindingItems.length} resolved bindings</span>
-                      <button
-                        type="button"
-                        className="hammer-source-upload-button is-secondary"
-                        onClick={() => brollUploadInputRef.current?.click()}
-                        disabled={uploadingCategory != null}
-                      >
-                        {uploadingCategory === "broll" ? "Uploading..." : "Upload B-roll"}
-                      </button>
-                      <button
-                        type="button"
-                        className="hammer-source-upload-button is-secondary"
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          ingestHearthBrollSuggestion();
-                        }}
-                      >
-                        Ingest Hearth Suggestion
-                      </button>
-                    </div>
-                    {unresolvedBrollSuggestionItems.map((suggestion) => (
-                      <article key={suggestion.operationId} className="hammer-source-card">
-                        <header className="hammer-source-card__head">
-                          <strong>{suggestion.intentDescription ?? "Hearth B-roll suggestion"}</strong>
-                          <span>unresolved</span>
-                        </header>
-                        <div className="hammer-source-card__meta">
-                          <span>Intent source: hearth_suggestion</span>
-                          <span>{suggestion.startSec.toFixed(1)}s - {suggestion.endSec.toFixed(1)}s</span>
-                          <span>Duck: {suggestion.duckPreference}</span>
-                        </div>
-                        <div className="hammer-source-card__path">{suggestion.intentRef ?? "intent ref unavailable"}</div>
-                        <div className="hammer-source-card__actions">
-                          <button
-                            type="button"
-                            onClick={() => discardHearthBrollSuggestion(suggestion.operationId)}
-                          >
-                            Discard suggestion
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                    <input
-                      ref={brollUploadInputRef}
-                      type="file"
-                      aria-label="Upload source desk b-roll file"
-                      accept="video/*"
-                      className="hammer-source-upload-input"
-                      onChange={(event) => {
-                        void handleSourceDeskUpload("broll", event.currentTarget.files);
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                  </>
-                )
+                          <div className="hammer-source-card__actions">
+                            <button type="button" onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}>Cue</button>
+                          </div>
+                        </article>
+                      ))}
+                    </>
+                  ) : null}
+
+                  {selectedVisualFlowStep === "reference_clips" ? (
+                    <>
+                      <div className="hammer-source-summary">
+                        <span>{sourceReferenceClipItems.length} Reference Clip assets</span>
+                      </div>
+                      {sourceReferenceClipItems.length === 0 ? (
+                        <div className="hammer-empty-state">No reference clip assets linked yet.</div>
+                      ) : null}
+                      {sourceReferenceClipItems.map((item) => (
+                        <article key={`ref-step-${item.id}`} className="hammer-source-card">
+                          <header className="hammer-source-card__head">
+                            <strong>{item.label}</strong>
+                            <span>Reference Clip</span>
+                          </header>
+                          <div className="hammer-source-card__meta">
+                            <span>{item.firstStartSec.toFixed(1)}s - {item.lastEndSec.toFixed(1)}s</span>
+                            <span>Uses: {item.usageCount}</span>
+                          </div>
+                          <div className="hammer-source-card__path">{item.assetPath ?? "asset path unavailable"}</div>
+                        </article>
+                      ))}
+                    </>
+                  ) : null}
+                </section>
               ) : null}
 
               {selectedSourceTab === "introoutro" ? (

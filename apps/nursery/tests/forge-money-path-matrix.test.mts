@@ -514,6 +514,16 @@ async function runTest6DuplicateActionRetryNoDoubleCharge(): Promise<void> {
           behavior: "careful",
         }),
       }));
+      if (response.status !== 200) {
+        const failPayload = await response.json() as Record<string, unknown>;
+        console.error("duplicate retry non-200", {
+          index: i,
+          status: response.status,
+          failPayload,
+          tokenBalance: backend.tokenBalance,
+          deltaCalls: backend.deltaCalls,
+        });
+      }
       assert.equal(response.status, 200);
     }
 
