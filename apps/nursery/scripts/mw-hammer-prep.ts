@@ -30,7 +30,6 @@ import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-conf
 import {
   buildTranscriptionAccounting,
   recordAiUsageEvent,
-  resolveUserIdFromAccessToken,
   type BillingMode,
 } from "../server/ai-usage-accounting";
 import {
@@ -1380,8 +1379,9 @@ export function createHammerPrepMiddleware() {
       }
 
       const userId = await resolveUserIdFromAccessToken({
-        supabaseService,
-        accessToken: userAccessToken,
+        supabaseUrl: runtimeConfig.supabaseUrl,
+        rpcKey: runtimeConfig.supabaseRpcKey,
+        userAccessToken,
       });
       if (!userId) {
         sendJson(res, 401, {
