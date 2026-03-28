@@ -2234,6 +2234,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => sourceBrollItems.filter((item) => item.kind === "broll"),
     [sourceBrollItems],
   );
+  const referenceClipPlannedBeats = useMemo(
+    () => mediaMapBeats.filter((beat) => beat.selectedType === "reference_clip"),
+    [mediaMapBeats],
+  );
   const brollSuggestionItems = useMemo<HammerBrollSuggestionItem[]>(() => {
     const operations = editableEditorialAuthorityGraph?.operations ?? [];
     return operations.flatMap((operation) => {
@@ -5532,6 +5536,71 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setTranscriptTimingHint(`Opened provider bridge for ${args.label}. Prompt copied for paste.`);
   }
 
+  function generateReferenceClipFromBeat(beat: HammerMediaMapBeat): void {
+    const referencePlacementId = beat.linkedPlacementId ?? createVisualPlacementId();
+    const prompt = buildMediaMapPrompt({
+      type: "reference_clip",
+      text: beat.sourceText,
+      tweak: beat.tweak,
+    });
+    applyHistoryMutation({
+      label: beat.linkedPlacementId ? "Regenerate reference clip brief" : "Generate reference clip brief",
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedSegments: [beat.segmentId],
+      affectedPlacementIds: [referencePlacementId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const current = before.visualPlacements;
+        if (!current) return before;
+        const segment = before.transcriptSegments.find((item) => item.segment_id === beat.segmentId) ?? null;
+        if (!segment) return before;
+        const startSec = Math.max(0, roundToTenth(segment.start_sec));
+        const endSec = Math.max(startSec + 0.5, roundToTenth(Math.min(transcriptDurationSec, segment.end_sec + 1.2)));
+        const nextRecord: HammerVisualPlacementRecord = {
+          placement_id: referencePlacementId,
+          entry_id: `reference:${referencePlacementId}`,
+          anchor_segment_id: segment.segment_id,
+          matched_segment_ids: [segment.segment_id],
+          anchor_text: segment.text,
+          asset_ref: prompt,
+          asset_id: null,
+          asset_path: null,
+          storage_key: null,
+          label: "Reference Clip",
+          visual_mode: "reference_clip",
+          start_sec: startSec,
+          end_sec: endSec,
+          confidence: null,
+          timing_source: "ordered_fallback",
+          status: "placed",
+          ingest_state: "approved",
+          uncertainty_flags: ["reference_clip_generated_in_house"],
+          overlay_geometry: DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
+          animation_preset: "none",
+          overlay_opacity: 1,
+          overlay_z_index: current.placements.length + 1,
+        };
+        const existingIndex = current.placements.findIndex((item) => item.placement_id === referencePlacementId);
+        const nextPlacements = existingIndex >= 0
+          ? current.placements.map((item, index) => (index === existingIndex ? nextRecord : item))
+          : [...current.placements, nextRecord];
+        return {
+          ...before,
+          selectedSegmentId: segment.segment_id,
+          visualPlacements: {
+            ...current,
+            placements: nextPlacements,
+          },
+        };
+      },
+    });
+    setMediaMapBeats((current) => current.map((item) => (
+      item.id === beat.id ? { ...item, linkedPlacementId: referencePlacementId, selectedType: "reference_clip" } : item
+    )));
+    setTranscriptTimingHint("Reference clip brief generated in-house.");
+  }
+
   function queueMediaMapBeatSuggestion(beat: HammerMediaMapBeat): void {
     applyHistoryMutation({
       label: "Queue Media Map suggestion",
@@ -7827,88 +7896,110 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       }}
                     />
                     {sourceImageItems.map((item) => (
-                      <article
-                        key={item.id}
-                        className={selectedImagePlacementId === item.id ? "hammer-source-card is-selected" : "hammer-source-card"}
-                      >
-                        {item.assetPath && sourceDeskPreviewUrls[item.assetPath] ? (
-                          <img
-                            className="hammer-source-card__thumb"
-                            src={sourceDeskPreviewUrls[item.assetPath]}
-                            alt={item.label}
-                          />
-                        ) : (
-                          <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">
-                            {item.assetPath && sourceDeskPreviewFailures[item.assetPath] ? "Preview unavailable" : "No thumbnail"}
-                          </div>
-                        )}
-                        <header className="hammer-source-card__head">
-                          <strong>{item.label}</strong>
-                          <span className={item.status === "uncertain" ? "is-warning" : "is-ready"}>{item.status}</span>
-                        </header>
-                        <div className="hammer-source-card__meta">
-                          <span>Type: image</span>
-                          <span>{item.startSec.toFixed(1)}s - {item.endSec.toFixed(1)}s</span>
-                          <span>Uses: 1</span>
-                          <span>{item.visualMode ?? "visual"}</span>
-                          <span>{item.confidence != null ? `${Math.round(item.confidence * 100)}% match` : "match n/a"}</span>
-                        </div>
-                        <div className="hammer-source-card__actions">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFocusOverride("tool-focus");
-                              insertBrollFromLibrary({
-                                assetPath: item.assetPath ?? item.id,
-                                label: item.label,
-                              });
-                            }}
+                      (() => {
+                        const anchorSegment = transcriptSegmentsById.get(item.anchorSegmentId) ?? null;
+                        const timelinePrompt = buildTimelineImagePrompt({
+                          text: anchorSegment?.text ?? item.label,
+                          tweak: "",
+                        });
+                        const imageCopyKey = `timeline-image:${item.id}`;
+                        return (
+                          <article
+                            key={item.id}
+                            className={selectedImagePlacementId === item.id ? "hammer-source-card is-selected" : "hammer-source-card"}
                           >
-                            Insert at playhead
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              selectionOriginRef.current = "timeline";
-                              setFocusOverride("time-focus");
-                              setSelectedImagePlacementId(item.id);
-                              setSelectedSegmentId(item.anchorSegmentId);
-                              setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
-                              setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
-                              seekPlayheadToTime(item.startSec, "playhead");
-                            }}
-                          >
-                            Jump to timeline
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFocusOverride("time-focus");
-                              updateVisualPlacementTiming(item.id, -0.5);
-                            }}
-                          >
-                            -0.5s
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFocusOverride("time-focus");
-                              updateVisualPlacementTiming(item.id, 0.5);
-                            }}
-                          >
-                            +0.5s
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFocusOverride("tool-focus");
-                              removeVisualPlacement(item.id);
-                            }}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </article>
+                            {item.assetPath && sourceDeskPreviewUrls[item.assetPath] ? (
+                              <img
+                                className="hammer-source-card__thumb"
+                                src={sourceDeskPreviewUrls[item.assetPath]}
+                                alt={item.label}
+                              />
+                            ) : (
+                              <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">
+                                {item.assetPath && sourceDeskPreviewFailures[item.assetPath] ? "Preview unavailable" : "No thumbnail"}
+                              </div>
+                            )}
+                            <header className="hammer-source-card__head">
+                              <strong>{item.label}</strong>
+                              <span className={item.status === "uncertain" ? "is-warning" : "is-ready"}>{item.status}</span>
+                            </header>
+                            <div className="hammer-source-card__meta">
+                              <span>Type: image</span>
+                              <span>{item.startSec.toFixed(1)}s - {item.endSec.toFixed(1)}s</span>
+                              <span>Uses: 1</span>
+                              <span>{item.visualMode ?? "visual"}</span>
+                              <span>{item.confidence != null ? `${Math.round(item.confidence * 100)}% match` : "match n/a"}</span>
+                            </div>
+                            <div className="hammer-source-card__path">Prompt: {timelinePrompt}</div>
+                            <div className="hammer-source-card__actions">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void copyPromptToClipboard({
+                                    key: imageCopyKey,
+                                    prompt: timelinePrompt,
+                                  });
+                                }}
+                              >
+                                {copiedPromptKey === imageCopyKey ? "Copied" : "Copy Prompt"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void sendPromptToProvider({
+                                    key: imageCopyKey,
+                                    prompt: timelinePrompt,
+                                    label: "timeline image",
+                                  });
+                                }}
+                              >
+                                Send to Provider
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  selectionOriginRef.current = "timeline";
+                                  setFocusOverride("time-focus");
+                                  setSelectedImagePlacementId(item.id);
+                                  setSelectedSegmentId(item.anchorSegmentId);
+                                  setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
+                                  setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
+                                  seekPlayheadToTime(item.startSec, "playhead");
+                                }}
+                              >
+                                Jump to timeline
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFocusOverride("time-focus");
+                                  updateVisualPlacementTiming(item.id, -0.5);
+                                }}
+                              >
+                                -0.5s
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFocusOverride("time-focus");
+                                  updateVisualPlacementTiming(item.id, 0.5);
+                                }}
+                              >
+                                +0.5s
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFocusOverride("tool-focus");
+                                  removeVisualPlacement(item.id);
+                                }}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </article>
+                        );
+                      })()
                     ))}
                     {sourceImageLibraryItems.map((file) => (
                       <article key={file.path} className="hammer-source-card">
@@ -8248,11 +8339,51 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   {selectedVisualFlowStep === "reference_clips" ? (
                     <>
                       <div className="hammer-source-summary">
-                        <span>{sourceReferenceClipItems.length} Reference Clip assets</span>
+                        <span>{referenceClipPlannedBeats.length} planned reference beats</span>
+                        <span>{sourceReferenceClipItems.length} generated assets</span>
                       </div>
-                      {sourceReferenceClipItems.length === 0 ? (
-                        <div className="hammer-empty-state">No reference clip assets linked yet.</div>
+                      {referenceClipPlannedBeats.length === 0 ? (
+                        <div className="hammer-empty-state">No reference clip beats selected in Media Map yet.</div>
                       ) : null}
+                      {referenceClipPlannedBeats.map((beat) => {
+                        const referencePrompt = buildMediaMapPrompt({
+                          type: "reference_clip",
+                          text: beat.sourceText,
+                          tweak: beat.tweak,
+                        });
+                        return (
+                          <article key={`ref-plan-${beat.id}`} className="hammer-source-card">
+                            <header className="hammer-source-card__head">
+                              <strong>{beat.sourceText.slice(0, 92)}</strong>
+                              <span>{beat.reason}</span>
+                            </header>
+                            <div className="hammer-source-card__meta">
+                              <span>{beat.linkedPlacementId ? "generated" : "not generated"}</span>
+                              <span>{beat.linkedPlacementId ? "ready to regenerate" : "ready to generate"}</span>
+                            </div>
+                            <div className="hammer-source-card__path">Prompt: {referencePrompt}</div>
+                            <div className="hammer-source-card__actions">
+                              <button
+                                type="button"
+                                onClick={() => generateReferenceClipFromBeat(beat)}
+                              >
+                                {beat.linkedPlacementId ? "Regenerate" : "Generate"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void copyPromptToClipboard({
+                                    key: `ref-clip:${beat.id}`,
+                                    prompt: referencePrompt,
+                                  });
+                                }}
+                              >
+                                {copiedPromptKey === `ref-clip:${beat.id}` ? "Copied" : "Copy Prompt"}
+                              </button>
+                            </div>
+                          </article>
+                        );
+                      })}
                       {sourceReferenceClipItems.map((item) => (
                         <article key={`ref-step-${item.id}`} className="hammer-source-card">
                           <header className="hammer-source-card__head">
