@@ -22,7 +22,7 @@ type SessionUser = {
 type ResolverCase = {
   key: string;
   user: SessionUser;
-  tool?: "hearth" | "hammer";
+  tool?: "hearth" | "hammer" | "quench";
   action: "chat" | "stt";
   feature: "research_flows" | "heavy_tasks";
   orgId: string | null;
@@ -119,6 +119,17 @@ function toHearthPolicyMessage(
 }
 
 function toHammerPolicyMessage(
+  reasonCode: AiReasonCode | null,
+  decisionType: AiDecisionType,
+): string {
+  const base = reasonCode ? getAiReasonMessage(reasonCode) : "AI action blocked by policy.";
+  if (decisionType === "SOFT_DENY") {
+    return `${base} Configure a personal AI connection and retry.`;
+  }
+  return base;
+}
+
+function toQuenchPolicyMessage(
   reasonCode: AiReasonCode | null,
   decisionType: AiDecisionType,
 ): string {
@@ -970,9 +981,110 @@ async function main(): Promise<void> {
       }
     }
 
+    const quenchMetadataCases: Array<{
+      key: string;
+      user: SessionUser;
+      action: "chat";
+      feature: "research_flows";
+      workspaceId: string | null;
+      expectedDecision: AiDecisionType;
+      expectedReason: AiReasonCode | null;
+    }> = [
+      {
+        key: "quench-metadata-allow-founder",
+        user: founder,
+        action: "chat",
+        feature: "research_flows",
+        workspaceId,
+        expectedDecision: "ALLOW",
+        expectedReason: null,
+      },
+      {
+        key: "quench-metadata-allow-studio",
+        user: studio,
+        action: "chat",
+        feature: "research_flows",
+        workspaceId,
+        expectedDecision: "ALLOW",
+        expectedReason: null,
+      },
+      {
+        key: "quench-metadata-hard-deny-free",
+        user: free,
+        action: "chat",
+        feature: "research_flows",
+        workspaceId,
+        expectedDecision: "HARD_DENY",
+        expectedReason: "MEMBERSHIP_REQUIRED_STUDIO_OR_FOUNDER",
+      },
+    ];
+
+    for (const c of quenchMetadataCases) {
+      const requestId = `slice-c-quench-metadata-${c.key}-${crypto.randomUUID()}`;
+      const resolved = await resolveCase({
+        actingClient: c.user.client,
+        c: {
+          key: c.key,
+          user: c.user,
+          tool: "quench",
+          action: c.action,
+          feature: c.feature,
+          orgId,
+          workspaceId: c.workspaceId,
+          requestedMode: "ORG_FIRST_PERSONAL_FALLBACK",
+          personalAiConfigured: false,
+          orgAiAvailable: true,
+          requestedFundingSource: "org_shared_credits",
+          expectedDecision: c.expectedDecision,
+          expectedReasonCode: c.expectedReason,
+          expectedFallbackUsed: false,
+        },
+        requestId,
+      });
+
+      const reasonCode = (readString(resolved.reason_code) ?? null) as AiReasonCode | null;
+      if (resolved.decision_type !== c.expectedDecision) {
+        fail(`${c.key} quench-metadata-preflight decision mismatch`);
+      }
+      if (reasonCode !== c.expectedReason) {
+        fail(`${c.key} quench-metadata-preflight reason mismatch`);
+      }
+
+      const ledgerLookup = await admin
+        .from("ai_usage_ledger")
+        .select("request_id,tool,decision_type,reason_code,effective_policy_snapshot")
+        .eq("request_id", requestId)
+        .single<Pick<LedgerRow, "request_id" | "tool" | "decision_type" | "reason_code" | "effective_policy_snapshot">>();
+      if (ledgerLookup.error || !ledgerLookup.data) {
+        fail(`${c.key} missing ai_usage_ledger row for request_id=${requestId}`);
+      }
+      if (ledgerLookup.data.tool !== "quench") {
+        fail(`${c.key} quench-metadata ledger tool mismatch`);
+      }
+      if (ledgerLookup.data.decision_type !== c.expectedDecision) {
+        fail(`${c.key} quench-metadata ledger decision mismatch`);
+      }
+      if ((readString(ledgerLookup.data.reason_code) ?? null) !== c.expectedReason) {
+        fail(`${c.key} quench-metadata ledger reason mismatch`);
+      }
+      if (!ledgerLookup.data.effective_policy_snapshot || typeof ledgerLookup.data.effective_policy_snapshot !== "object") {
+        fail(`${c.key} quench-metadata ledger effective_policy_snapshot missing/object mismatch`);
+      }
+
+      if (resolved.decision_type === "ALLOW") {
+        pass(`${c.key} quench metadata behavior`, "allowed -> request can proceed");
+      } else {
+        const message = toQuenchPolicyMessage(reasonCode, resolved.decision_type);
+        if (!message || message.length < 8) {
+          fail(`${c.key} quench metadata deny message mapping invalid`);
+        }
+        pass(`${c.key} quench metadata behavior`, `blocked -> ${resolved.decision_type} (${reasonCode ?? "no_code"})`);
+      }
+    }
+
     console.log("");
     console.log(
-      "SLICE_C_GATE: Hearth chat, Hearth STT, Hammer transcript prep, Hammer transcript cleanup assist, and Hammer visual assist obey the real resolver in live conditions, " +
+      "SLICE_C_GATE: Hearth chat, Hearth STT, Hammer transcript prep, Hammer transcript cleanup assist, Hammer visual assist, and Quench metadata assist obey the real resolver in live conditions, " +
       "across allow/soft/hard deny paths, with ledger attribution validated.",
     );
   } finally {
