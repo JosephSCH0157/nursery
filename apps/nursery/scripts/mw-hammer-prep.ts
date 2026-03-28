@@ -32,8 +32,7 @@ import {
   recordAiUsageEvent,
   resolveUserIdFromAccessToken,
   type BillingMode,
-}
-from "../server/ai-usage-accounting";
+} from "../server/ai-usage-accounting";
 import {
   AI_REASON_CODES,
   getAiReasonMessage,
