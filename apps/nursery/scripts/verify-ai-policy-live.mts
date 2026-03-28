@@ -324,14 +324,35 @@ async function main(): Promise<void> {
 
     let founderEntitlementSeeded = false;
     {
+      const founderPlanLookup = await admin
+        .schema("public")
+        .from("plans")
+        .select("id")
+        .order("is_active", { ascending: false })
+        .order("is_public", { ascending: false })
+        .order("sort_order", { ascending: true })
+        .limit(1)
+        .maybeSingle<{ id: string }>();
+      const founderPlanId = readString(founderPlanLookup.data?.id);
+      if (founderPlanLookup.error) {
+        fail(`Failed to resolve public.plans seed row: ${founderPlanLookup.error.message}`);
+      }
+      if (!founderPlanId) {
+        fail("Failed to resolve public.plans seed row: no plan id available for founder seeding.");
+      }
+
       const founderFromUserPlans = await admin
         .schema("public")
         .from("user_plans")
-        .insert({
-          user_id: founder.userId,
-          is_founder: true,
-          status: "active",
-        } as AnyRecord);
+        .upsert(
+          {
+            user_id: founder.userId,
+            plan_id: founderPlanId,
+            is_founder: true,
+            status: "active",
+          } as AnyRecord,
+          { onConflict: "user_id" },
+        );
       if (!founderFromUserPlans.error) {
         founderEntitlementSeeded = true;
         info("Seed founder", "public.user_plans path applied");
