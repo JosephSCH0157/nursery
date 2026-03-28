@@ -165,26 +165,49 @@ as $$
         order by b.created_at desc, b.id desc
       ) as rn
     from base b
+  ),
+  ranked as (
+    select
+      d.action_rollup_key as action_key,
+      d.feature,
+      d.subfeature,
+      d.lane,
+      c.call_count,
+      case
+        when (select lane_mode from params) = 'byo' then coalesce(d.actual_cost_usd, 0)::numeric
+        else null
+      end as total_actual_cost_usd,
+      coalesce(d.billable_tokens, 0)::bigint as total_billable_tokens,
+      c.last_seen_at,
+      row_number() over (
+        order by
+          case
+            when (select lane_mode from params) = 'byo' then coalesce(d.actual_cost_usd, 0)
+            else 0
+          end desc,
+          c.call_count desc,
+          c.last_seen_at desc,
+          d.action_rollup_key desc
+      ) as global_rank
+    from dedup d
+    join action_calls c
+      on c.action_rollup_key = d.action_rollup_key
+    where d.rn = 1
   )
   select
-    d.action_rollup_key as action_key,
-    d.feature,
-    d.subfeature,
-    d.lane,
-    c.call_count,
-    case
-      when (select lane_mode from params) = 'byo' then coalesce(d.actual_cost_usd, 0)::numeric
-      else null
-    end as total_actual_cost_usd,
-    coalesce(d.billable_tokens, 0)::bigint as total_billable_tokens,
-    c.last_seen_at
-  from dedup d
-  join action_calls c
-    on c.action_rollup_key = d.action_rollup_key
+    r.action_key,
+    r.feature,
+    r.subfeature,
+    r.lane,
+    r.call_count,
+    r.total_actual_cost_usd,
+    r.total_billable_tokens,
+    r.last_seen_at
+  from ranked r
   cross join params p
-  where d.rn = 1
-  order by total_actual_cost_usd desc, c.call_count desc, c.last_seen_at desc
-  limit p.row_limit;
+  where r.global_rank <= p.row_limit
+  order by r.total_actual_cost_usd desc, r.call_count desc, r.last_seen_at desc
+  ;
 $$;
 
 revoke all on function tongs.get_my_ai_spend_rollup(integer, text) from public;
