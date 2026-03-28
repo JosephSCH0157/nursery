@@ -49,7 +49,7 @@ class MockMatrixBackend {
   private readonly originalFetch: typeof fetch;
   private chatTemperature400Used = false;
 
-  constructor(initialBalance = 10_000) {
+  constructor(initialBalance = 1_000_000_000) {
     this.tokenBalance = initialBalance;
     this.originalFetch = globalThis.fetch;
   }
@@ -514,16 +514,6 @@ async function runTest6DuplicateActionRetryNoDoubleCharge(): Promise<void> {
           behavior: "careful",
         }),
       }));
-      if (response.status !== 200) {
-        const failPayload = await response.json() as Record<string, unknown>;
-        console.error("duplicate retry non-200", {
-          index: i,
-          status: response.status,
-          failPayload,
-          tokenBalance: backend.tokenBalance,
-          deltaCalls: backend.deltaCalls,
-        });
-      }
       assert.equal(response.status, 200);
     }
 
