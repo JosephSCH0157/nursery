@@ -205,6 +205,11 @@ import {
   buildHammerCaptionPreviewModel,
   type HammerCaptionPreviewChunk,
 } from "../lib/hammerCaptionPreview";
+import {
+  analyzeReferenceClipInput,
+  generateReferenceClipPng,
+  type ReferenceClipInput,
+} from "./hammerReferenceClipGeneratorV1";
 import "./HammerWorkspaceShell.css";
 
 const SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY = 4;
@@ -1696,6 +1701,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [mediaMapBeats, setMediaMapBeats] = useState<HammerMediaMapBeat[]>([]);
   const [removedMediaMapSegmentIds, setRemovedMediaMapSegmentIds] = useState<string[]>([]);
   const [copiedPromptKey, setCopiedPromptKey] = useState<string | null>(null);
+  const [generatingReferenceBeatId, setGeneratingReferenceBeatId] = useState<string | null>(null);
   const [sourceDeskLoading, setSourceDeskLoading] = useState(false);
   const [sourceDeskError, setSourceDeskError] = useState<string | null>(null);
   const [uploadingCategory, setUploadingCategory] = useState<"images" | "broll" | "introoutro" | null>(null);
@@ -5536,69 +5542,101 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setTranscriptTimingHint(`Opened provider bridge for ${args.label}. Prompt copied for paste.`);
   }
 
-  function generateReferenceClipFromBeat(beat: HammerMediaMapBeat): void {
+  async function generateReferenceClipFromBeat(beat: HammerMediaMapBeat): Promise<void> {
+    if (generatingReferenceBeatId) return;
     const referencePlacementId = beat.linkedPlacementId ?? createVisualPlacementId();
-    const prompt = buildMediaMapPrompt({
-      type: "reference_clip",
-      text: beat.sourceText,
-      tweak: beat.tweak,
-    });
-    applyHistoryMutation({
-      label: beat.linkedPlacementId ? "Regenerate reference clip brief" : "Generate reference clip brief",
-      kind: "visual_adjustment",
-      toolId: "video",
-      affectedSegments: [beat.segmentId],
-      affectedPlacementIds: [referencePlacementId],
-      immediatePersist: true,
-      computeAfter: (before) => {
-        const current = before.visualPlacements;
-        if (!current) return before;
-        const segment = before.transcriptSegments.find((item) => item.segment_id === beat.segmentId) ?? null;
-        if (!segment) return before;
-        const startSec = Math.max(0, roundToTenth(segment.start_sec));
-        const endSec = Math.max(startSec + 0.5, roundToTenth(Math.min(transcriptDurationSec, segment.end_sec + 1.2)));
-        const nextRecord: HammerVisualPlacementRecord = {
-          placement_id: referencePlacementId,
-          entry_id: `reference:${referencePlacementId}`,
-          anchor_segment_id: segment.segment_id,
-          matched_segment_ids: [segment.segment_id],
-          anchor_text: segment.text,
-          asset_ref: prompt,
-          asset_id: null,
-          asset_path: null,
-          storage_key: null,
-          label: "Reference Clip",
-          visual_mode: "reference_clip",
-          start_sec: startSec,
-          end_sec: endSec,
-          confidence: null,
-          timing_source: "ordered_fallback",
-          status: "placed",
-          ingest_state: "approved",
-          uncertainty_flags: ["reference_clip_generated_in_house"],
-          overlay_geometry: DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
-          animation_preset: "none",
-          overlay_opacity: 1,
-          overlay_z_index: current.placements.length + 1,
-        };
-        const existingIndex = current.placements.findIndex((item) => item.placement_id === referencePlacementId);
-        const nextPlacements = existingIndex >= 0
-          ? current.placements.map((item, index) => (index === existingIndex ? nextRecord : item))
-          : [...current.placements, nextRecord];
-        return {
-          ...before,
-          selectedSegmentId: segment.segment_id,
-          visualPlacements: {
-            ...current,
-            placements: nextPlacements,
-          },
-        };
-      },
-    });
-    setMediaMapBeats((current) => current.map((item) => (
-      item.id === beat.id ? { ...item, linkedPlacementId: referencePlacementId, selectedType: "reference_clip" } : item
-    )));
-    setTranscriptTimingHint("Reference clip brief generated in-house.");
+    const input: ReferenceClipInput = {
+      beatId: beat.id,
+      anchorText: beat.sourceText,
+      promptBasis: buildMediaMapPrompt({
+        type: "reference_clip",
+        text: beat.sourceText,
+        tweak: beat.tweak,
+      }),
+      chartType: "auto",
+    };
+    const analysis = analyzeReferenceClipInput(input);
+    setGeneratingReferenceBeatId(beat.id);
+    setSourceDeskError(null);
+    try {
+      const generated = await generateReferenceClipPng(input);
+      const file = new File(
+        [generated.blob],
+        `reference_clip-${beat.segmentId}-${generated.outputType}-${Date.now()}.png`,
+        { type: generated.mimeType },
+      );
+      const uploaded = await uploadWorkpieceMediaFile({
+        workpieceId: launchContext.workpiece_id,
+        file,
+        category: "images",
+      });
+      await refreshSourceDeskMedia();
+
+      applyHistoryMutation({
+        label: beat.linkedPlacementId ? "Regenerate reference clip" : "Generate reference clip",
+        kind: "visual_adjustment",
+        toolId: "video",
+        affectedSegments: [beat.segmentId],
+        affectedPlacementIds: [referencePlacementId],
+        immediatePersist: true,
+        computeAfter: (before) => {
+          const current = before.visualPlacements;
+          if (!current) return before;
+          const segment = before.transcriptSegments.find((item) => item.segment_id === beat.segmentId) ?? null;
+          if (!segment) return before;
+          const startSec = Math.max(0, roundToTenth(segment.start_sec));
+          const endSec = Math.max(startSec + 0.5, roundToTenth(Math.min(transcriptDurationSec, segment.end_sec + 1.2)));
+          const nextRecord: HammerVisualPlacementRecord = {
+            placement_id: referencePlacementId,
+            entry_id: `reference:${referencePlacementId}`,
+            anchor_segment_id: segment.segment_id,
+            matched_segment_ids: [segment.segment_id],
+            anchor_text: segment.text,
+            asset_ref: uploaded.path,
+            asset_id: null,
+            asset_path: uploaded.path,
+            storage_key: uploaded.path,
+            label: analysis.title,
+            visual_mode: "reference_clip",
+            start_sec: startSec,
+            end_sec: endSec,
+            confidence: null,
+            timing_source: "ordered_fallback",
+            status: "placed",
+            ingest_state: "approved",
+            uncertainty_flags: [
+              "reference_clip_generated_in_house",
+              `cdc_v1_type:${generated.outputType}`,
+              `cdc_v1_summary:${analysis.summary.slice(0, 120)}`,
+            ],
+            overlay_geometry: DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
+            animation_preset: "none",
+            overlay_opacity: 1,
+            overlay_z_index: current.placements.length + 1,
+          };
+          const existingIndex = current.placements.findIndex((item) => item.placement_id === referencePlacementId);
+          const nextPlacements = existingIndex >= 0
+            ? current.placements.map((item, index) => (index === existingIndex ? nextRecord : item))
+            : [...current.placements, nextRecord];
+          return {
+            ...before,
+            selectedSegmentId: segment.segment_id,
+            visualPlacements: {
+              ...current,
+              placements: nextPlacements,
+            },
+          };
+        },
+      });
+      setMediaMapBeats((current) => current.map((item) => (
+        item.id === beat.id ? { ...item, linkedPlacementId: referencePlacementId, selectedType: "reference_clip" } : item
+      )));
+      setTranscriptTimingHint(`Reference clip generated (${generated.outputType}).`);
+    } catch (error) {
+      setSourceDeskError(error instanceof Error ? error.message : "Reference clip generation failed.");
+    } finally {
+      setGeneratingReferenceBeatId(null);
+    }
   }
 
   function queueMediaMapBeatSuggestion(beat: HammerMediaMapBeat): void {
@@ -8346,6 +8384,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         <div className="hammer-empty-state">No reference clip beats selected in Media Map yet.</div>
                       ) : null}
                       {referenceClipPlannedBeats.map((beat) => {
+                        const referenceInput: ReferenceClipInput = {
+                          beatId: beat.id,
+                          anchorText: beat.sourceText,
+                          promptBasis: buildMediaMapPrompt({
+                            type: "reference_clip",
+                            text: beat.sourceText,
+                            tweak: beat.tweak,
+                          }),
+                          chartType: "auto",
+                        };
+                        const analysis = analyzeReferenceClipInput(referenceInput);
+                        const linkedPlacement = beat.linkedPlacementId
+                          ? (visualPlacementsById.get(beat.linkedPlacementId) ?? null)
+                          : null;
+                        const previewPath = linkedPlacement?.asset_path ?? null;
+                        const previewUrl = previewPath ? (sourceDeskPreviewUrls[previewPath] ?? null) : null;
                         const referencePrompt = buildMediaMapPrompt({
                           type: "reference_clip",
                           text: beat.sourceText,
@@ -8357,17 +8411,34 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                               <strong>{beat.sourceText.slice(0, 92)}</strong>
                               <span>{beat.reason}</span>
                             </header>
+                            {previewUrl ? (
+                              <img
+                                className="hammer-source-card__thumb"
+                                src={previewUrl}
+                                alt={analysis.title}
+                              />
+                            ) : null}
                             <div className="hammer-source-card__meta">
+                              <span>Type: {analysis.outputType}</span>
+                              <span>Selected: {beat.selectedType === "reference_clip" ? "Reference Clip" : "B-roll"}</span>
                               <span>{beat.linkedPlacementId ? "generated" : "not generated"}</span>
-                              <span>{beat.linkedPlacementId ? "ready to regenerate" : "ready to generate"}</span>
                             </div>
+                            <div className="hammer-source-card__path">Title: {analysis.title}</div>
+                            <div className="hammer-source-card__path">Summary: {analysis.summary}</div>
                             <div className="hammer-source-card__path">Prompt: {referencePrompt}</div>
                             <div className="hammer-source-card__actions">
                               <button
                                 type="button"
-                                onClick={() => generateReferenceClipFromBeat(beat)}
+                                onClick={() => {
+                                  void generateReferenceClipFromBeat(beat);
+                                }}
+                                disabled={generatingReferenceBeatId != null}
                               >
-                                {beat.linkedPlacementId ? "Regenerate" : "Generate"}
+                                {generatingReferenceBeatId === beat.id
+                                  ? "Generating..."
+                                  : beat.linkedPlacementId
+                                  ? "Regenerate"
+                                  : "Generate"}
                               </button>
                               <button
                                 type="button"
@@ -8379,6 +8450,29 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                 }}
                               >
                                 {copiedPromptKey === `ref-clip:${beat.id}` ? "Copied" : "Copy Prompt"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!beat.linkedPlacementId) return;
+                                  setTranscriptTimingHint("Reference clip already saved to Source Desk.");
+                                }}
+                                disabled={!beat.linkedPlacementId}
+                              >
+                                Save Reference Clip
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!beat.linkedPlacementId) return;
+                                  removeVisualPlacement(beat.linkedPlacementId);
+                                  setMediaMapBeats((current) => current.map((item) => (
+                                    item.id === beat.id ? { ...item, linkedPlacementId: null } : item
+                                  )));
+                                }}
+                                disabled={!beat.linkedPlacementId}
+                              >
+                                Delete Reference Clip
                               </button>
                             </div>
                           </article>

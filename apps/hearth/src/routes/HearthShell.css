@@ -350,16 +350,26 @@
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  min-height: 34px;
+  align-content: start;
 }
 
 .hs-active-workpiece {
   display: grid;
   gap: 8px;
+  min-height: 248px;
+  align-content: start;
+}
+
+.hs-active-workpiece.is-empty {
+  opacity: 0.9;
 }
 
 .hs-active-workpiece-status {
   display: grid;
   gap: 6px;
+  min-height: 64px;
+  align-content: start;
 }
 
 .hs-episode-ready-pill {
@@ -2721,6 +2731,7 @@
 .hs-imap-list {
   border: 1px solid var(--forge-border, #ddd);
   border-radius: 8px;
+  min-height: 320px;
   max-height: 320px;
   overflow: auto;
   display: grid;
@@ -2764,6 +2775,8 @@
   padding: 10px;
   display: grid;
   gap: 8px;
+  min-height: 460px;
+  align-content: start;
 }
 
 /* ── Cue Card ─────────────────────────────────────────────────────── */
@@ -3665,6 +3678,14 @@ details[open] > .hs-imap-collapsible-title::before {
 
   .hs-imap-layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hs-imap-list,
+  .hs-imap-editor,
+  .hs-active-workpiece,
+  .hs-active-workpiece-status,
+  .hs-workpiece-actions {
+    min-height: 0;
   }
 
   .hs-meta-title-row {

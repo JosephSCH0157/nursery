@@ -3990,21 +3990,39 @@ export default function HearthShell({
       return;
     }
 
-    let nextEpisodePackage = loaded.episodePackage;
-    const imageMapLoaded = await getWorkpieceImageMap(episodeId);
+    // Paint baseline episode package immediately so the primary list content can render
+    // before slower image/media map hydration calls complete.
+    setEpisodePackage(loaded.episodePackage);
+    artifactStateWorkpieceIdRef.current = episodeId;
+    setThumbnailGenerateError(null);
+    setImageMapSaveError(null);
+    {
+      const versions = loaded.episodePackage.thumbnail.versions;
+      const preferredVersionId = loaded.episodePackage.thumbnail.primary_version_id
+        ?? versions[versions.length - 1]?.id
+        ?? null;
+      setSelectedThumbnailVersionId(preferredVersionId);
+      const initialImageEntries = loaded.episodePackage.image_map.entries;
+      setSelectedImageMapEntryId((prev) => {
+        if (prev && initialImageEntries.some((entry) => entry.id === prev)) return prev;
+        return initialImageEntries[0]?.id ?? null;
+      });
+    }
+
+    const [imageMapLoaded, mediaMapLoaded] = await Promise.all([
+      getWorkpieceImageMap(episodeId),
+      readWorkpieceEpisodeMediaMap(episodeId),
+    ]);
     if (episodePackageRequestSeqRef.current !== requestSeq || (workpieceId?.trim() ?? "") !== episodeId) {
       return;
     }
+
+    let nextEpisodePackage = loaded.episodePackage;
     if (imageMapLoaded.ok) {
       nextEpisodePackage = replaceEpisodePackageImageMap(loaded.episodePackage, imageMapLoaded.imageMap.entries);
       setImageMapMetadataUpdatedAt(imageMapLoaded.imageMap.metadataUpdatedAt);
     } else {
       setImageMapMetadataUpdatedAt(null);
-    }
-
-    const mediaMapLoaded = await readWorkpieceEpisodeMediaMap(episodeId);
-    if (episodePackageRequestSeqRef.current !== requestSeq || (workpieceId?.trim() ?? "") !== episodeId) {
-      return;
     }
     if (mediaMapLoaded.ok && mediaMapLoaded.mediaMap) {
       nextEpisodePackage = {
@@ -4017,14 +4035,6 @@ export default function HearthShell({
     }
 
     setEpisodePackage(nextEpisodePackage);
-    artifactStateWorkpieceIdRef.current = episodeId;
-    setThumbnailGenerateError(null);
-    setImageMapSaveError(null);
-    const versions = nextEpisodePackage.thumbnail.versions;
-    const preferredVersionId = nextEpisodePackage.thumbnail.primary_version_id
-      ?? versions[versions.length - 1]?.id
-      ?? null;
-    setSelectedThumbnailVersionId(preferredVersionId);
     const imageEntries = nextEpisodePackage.image_map.entries;
     setSelectedImageMapEntryId((prev) => {
       if (prev && imageEntries.some((entry) => entry.id === prev)) return prev;
@@ -13027,90 +13037,94 @@ export default function HearthShell({
             </>
           )}
 
-          {hasActiveEpisode ? (
-            <div className="hs-active-workpiece">
-              <div className="hs-rail-heading">Active workpiece</div>
-              <div className="hs-active-workpiece-status">
-                <span className={`hs-episode-ready-pill is-${activeEpisodeReadyStatus.tone}`}>
-                  {activeEpisodeReadyStatus.label}
-                </span>
-                <div className="hs-rail-meta">{activeEpisodeReadyStatus.detail}</div>
-              </div>
-              {activeWorkpieceIsArchived && activeWorkpiece ? (
-                <>
-                  <div className="hs-rail-meta">Archived workpieces are hidden records. Restore to review, then re-ready before recording.</div>
-                  {activeWorkpiece.archiveReason ? (
-                    <div className="hs-rail-meta">Archive reason: {activeWorkpiece.archiveReason}</div>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void onRestoreWorkpiece(activeWorkpiece.workpieceId, { openAfterRestore: true })}
-                    disabled={restoringWorkpieceIds.includes(activeWorkpiece.workpieceId)}
-                    className="hs-mode-button"
-                  >
-                    {restoringWorkpieceIds.includes(activeWorkpiece.workpieceId) ? "Restoring..." : "Restore Workpiece"}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => void onOpenInAnvil()}
-                    disabled={!openInAnvilHref || handoffBlocked}
-                    className="hs-mode-button"
-                  >
-                    Start Recording
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFocusTab("draft");
-                      setMode("focus");
-                    }}
-                    className={`hs-mode-button${mode === "focus" && focusTab === "draft" ? " is-active" : ""}`}
-                  >
-                    Draft
-                    <span className="hs-mode-meta">{wordCount} words</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFocusTab("planning");
-                      setMode("focus");
-                    }}
-                    className={`hs-mode-button${mode === "focus" && focusTab === "planning" ? " is-active" : ""}`}
-                  >
-                    Planning Board
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFocusTab("sources");
-                      setMode("focus");
-                    }}
-                    className={`hs-mode-button${mode === "focus" && focusTab === "sources" ? " is-active" : ""}`}
-                    title={sourcesBadgeTitle}
-                  >
-                    Sources
-                    {sourcesBadge ? (
-                      <span className={`hs-sources-badge${devMode ? " is-dev" : ""}`}>{sourcesBadge}</span>
+          <div className={`hs-active-workpiece${hasActiveEpisode ? "" : " is-empty"}`}>
+            <div className="hs-rail-heading">Active workpiece</div>
+            {hasActiveEpisode ? (
+              <>
+                <div className="hs-active-workpiece-status">
+                  <span className={`hs-episode-ready-pill is-${activeEpisodeReadyStatus.tone}`}>
+                    {activeEpisodeReadyStatus.label}
+                  </span>
+                  <div className="hs-rail-meta">{activeEpisodeReadyStatus.detail}</div>
+                </div>
+                {activeWorkpieceIsArchived && activeWorkpiece ? (
+                  <>
+                    <div className="hs-rail-meta">Archived workpieces are hidden records. Restore to review, then re-ready before recording.</div>
+                    {activeWorkpiece.archiveReason ? (
+                      <div className="hs-rail-meta">Archive reason: {activeWorkpiece.archiveReason}</div>
                     ) : null}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFocusTab("revisions");
-                      setMode("focus");
-                    }}
-                    className={`hs-mode-button${mode === "focus" && focusTab === "revisions" ? " is-active" : ""}`}
-                  >
-                    Revisions
-                    <span className="hs-mode-meta">{revisions.length}</span>
-                  </button>
-                </>
-              )}
-            </div>
-          ) : null}
+                    <button
+                      type="button"
+                      onClick={() => void onRestoreWorkpiece(activeWorkpiece.workpieceId, { openAfterRestore: true })}
+                      disabled={restoringWorkpieceIds.includes(activeWorkpiece.workpieceId)}
+                      className="hs-mode-button"
+                    >
+                      {restoringWorkpieceIds.includes(activeWorkpiece.workpieceId) ? "Restoring..." : "Restore Workpiece"}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void onOpenInAnvil()}
+                      disabled={!openInAnvilHref || handoffBlocked}
+                      className="hs-mode-button"
+                    >
+                      Start Recording
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusTab("draft");
+                        setMode("focus");
+                      }}
+                      className={`hs-mode-button${mode === "focus" && focusTab === "draft" ? " is-active" : ""}`}
+                    >
+                      Draft
+                      <span className="hs-mode-meta">{wordCount} words</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusTab("planning");
+                        setMode("focus");
+                      }}
+                      className={`hs-mode-button${mode === "focus" && focusTab === "planning" ? " is-active" : ""}`}
+                    >
+                      Planning Board
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusTab("sources");
+                        setMode("focus");
+                      }}
+                      className={`hs-mode-button${mode === "focus" && focusTab === "sources" ? " is-active" : ""}`}
+                      title={sourcesBadgeTitle}
+                    >
+                      Sources
+                      {sourcesBadge ? (
+                        <span className={`hs-sources-badge${devMode ? " is-dev" : ""}`}>{sourcesBadge}</span>
+                      ) : null}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusTab("revisions");
+                        setMode("focus");
+                      }}
+                      className={`hs-mode-button${mode === "focus" && focusTab === "revisions" ? " is-active" : ""}`}
+                    >
+                      Revisions
+                      <span className="hs-mode-meta">{revisions.length}</span>
+                    </button>
+                  </>
+                )}
+              </>
+            ) : (
+              <div className="hs-rail-meta">Select an episode to unlock recording and focus tools.</div>
+            )}
+          </div>
 
           <div className="hs-rail-section">
             <div className="hs-rail-heading">Tools</div>
