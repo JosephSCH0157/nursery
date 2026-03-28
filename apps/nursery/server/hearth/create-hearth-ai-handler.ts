@@ -15,11 +15,17 @@ import {
   type HearthOp,
 } from "../../../hearth/src/lib/hearth-ai-runtime-contract";
 import {
-  calculateForgeBillingTokens,
-  estimateOpenAiCostFromPayload,
-  extractOpenAiUsageMetrics,
   FORGE_ALLOWED_CHAT_MODELS,
 } from "./ai-pricing";
+import {
+  applyAiTokenDelta as applyAiTokenDeltaShared,
+  buildTranscriptionAccounting,
+  buildUsageAccounting,
+  extractTotalTokens,
+  recordAiUsageEvent as recordAiUsageEventShared,
+  type AiUsageStatus,
+  type AiUsageTrigger,
+} from "../ai-usage-accounting";
 import type { HearthRuntimeConfig } from "./hearth-runtime-config";
 
 type StructuredReply = {
@@ -618,15 +624,6 @@ function canonicalizeToken(raw: string): string {
   return `[${inner}]`;
 }
 
-function extractRpcTokenBalance(payload: unknown): number | null {
-  const row = Array.isArray(payload) ? payload[0] : payload;
-  if (!row || typeof row !== "object") return null;
-  const tokenBalance = (row as Record<string, unknown>).token_balance;
-  return typeof tokenBalance === "number" && Number.isFinite(tokenBalance) && tokenBalance >= 0
-    ? tokenBalance
-    : null;
-}
-
 function buildSystemPrompt(
   context: EpisodeContext,
   creatorStyleSnippet?: string,
@@ -902,12 +899,6 @@ function extractAssistantReply(payload: unknown): string {
   return parts.join("\n").trim();
 }
 
-function extractTotalTokens(payload: unknown): number | null {
-  const usage = extractOpenAiUsageMetrics(payload);
-  if (!usage) return null;
-  return usage.totalTokens > 0 ? usage.totalTokens : null;
-}
-
 function classifyChatFeature(requestText: string): { feature: string; subfeature: string | null } {
   const normalized = compactSpaces(requestText);
   if (READINESS_CHECK_RE.test(normalized)) {
@@ -931,10 +922,6 @@ function extractTranscriptionText(payload: unknown): string | null {
   if (typeof text !== "string") return null;
   const trimmed = text.trim();
   return trimmed || null;
-}
-
-function estimateTranscriptionTokenFallback(text: string): number {
-  return Math.max(1, Math.ceil(text.length / 4));
 }
 
 function inferAudioExtension(mimeType: string | null, storageKey: string): string {
@@ -1126,9 +1113,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     };
   }
 
-  type AiUsageStatus = "success" | "error";
-  type AiUsageTrigger = "user" | "system";
-
   async function recordAiUsageEvent(args: {
     userId: string | null;
     lane: BillingMode;
@@ -1152,50 +1136,30 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     providerRequestId?: string | null;
     correlationId?: string | null;
   }): Promise<void> {
-    if (!supabaseService) return;
-    if (!isUuid(args.userId)) return;
-
-    const tableClient = supabaseService.schema("tongs") as unknown as {
-      from: (table: string) => {
-        insert: (row: Record<string, unknown>) => Promise<{ error: { message: string } | null }>;
-      };
-    };
-
-    const row: Record<string, unknown> = {
-      user_id: args.userId,
+    await recordAiUsageEventShared({
+      supabaseService,
+      userId: args.userId,
       lane: args.lane,
       provider: args.provider,
-      workspace_id: isUuid(args.workspaceId) ? args.workspaceId : null,
-      workpiece_id: isUuid(args.workpieceId) ? args.workpieceId : null,
-      session_id: isUuid(args.sessionId) ? args.sessionId : null,
+      workspaceId: isUuid(args.workspaceId) ? args.workspaceId : null,
+      workpieceId: isUuid(args.workpieceId) ? args.workpieceId : null,
+      sessionId: isUuid(args.sessionId) ? args.sessionId : null,
       feature: args.feature,
       subfeature: args.subfeature ?? null,
       model: args.model,
-      reasoning_effort: args.reasoningEffort ?? null,
-      input_tokens: Math.max(0, Math.floor(args.inputTokens)),
-      output_tokens: Math.max(0, Math.floor(args.outputTokens)),
-      total_tokens: Math.max(0, Math.floor(args.totalTokens)),
-      estimated_cost_usd: Number(args.estimatedCostUsd.toFixed(6)),
-      actual_cost_usd: Number(args.actualCostUsd.toFixed(6)),
-      billable_tokens: Math.max(0, Math.floor(args.billableTokens)),
+      reasoningEffort: args.reasoningEffort ?? null,
+      inputTokens: args.inputTokens,
+      outputTokens: args.outputTokens,
+      totalTokens: args.totalTokens,
+      estimatedCostUsd: args.estimatedCostUsd,
+      actualCostUsd: args.actualCostUsd,
+      billableTokens: args.billableTokens,
       trigger: args.trigger,
       status: args.status,
-      action_id: args.actionId ?? null,
-      provider_request_id: args.providerRequestId ?? null,
-      correlation_id: args.correlationId ?? null,
-      occurred_at_ms: Date.now(),
-    };
-
-    const { error } = await tableClient
-      .from("ai_usage_events")
-      .insert(row);
-
-    if (error) {
-      console.warn("[hearth-chat-api] ai_usage_events insert failed", {
-        message: error.message,
-        feature: args.feature,
-      });
-    }
+      actionId: args.actionId ?? null,
+      providerRequestId: args.providerRequestId ?? null,
+      correlationId: args.correlationId ?? null,
+    });
   }
 
   async function runAIRequest(args: {
@@ -1511,45 +1475,21 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     openAiRequestId: string | null;
     reason: string;
   }): Promise<{ ok: true; tokenBalance: number | null } | { ok: false; warning: string }> {
-    if (!supabaseService) {
-      console.warn("[hearth-chat-api] apply_ai_token_delta skipped: supabase service env missing");
-      return { ok: false, warning: "Unable to update credits." };
-    }
-
-    const rpcClient = supabaseService.schema("tongs") as unknown as {
-      rpc: (
-        fn: string,
-        params: {
-          p_user_id: string;
-          p_delta: number;
-          p_reason: string;
-          p_request_id: string;
-          p_provider_request_id?: string;
-        },
-      ) => Promise<{ data: unknown; error: { message: string } | null }>;
-    };
-
-    const { data, error } = await rpcClient.rpc("apply_ai_token_delta", {
-      p_user_id: args.userId,
-      p_delta: -args.spent,
-      p_reason: args.reason,
-      p_request_id: args.requestId,
-      p_provider_request_id: args.openAiRequestId ?? undefined,
+    const result = await applyAiTokenDeltaShared({
+      supabaseService,
+      userId: args.userId,
+      spent: args.spent,
+      requestId: args.requestId,
+      openAiRequestId: args.openAiRequestId,
+      reason: args.reason,
     });
-
-    if (error) {
+    if (!result.ok) {
       console.warn("[hearth-chat-api] apply_ai_token_delta failed", {
-        message: error.message,
         request_id: args.requestId,
         openai_request_id: args.openAiRequestId,
       });
-      return { ok: false, warning: "Unable to update credits." };
     }
-
-    return {
-      ok: true,
-      tokenBalance: extractRpcTokenBalance(data),
-    };
+    return result;
   }
 
   return async function hearthAiHandler(request: Request): Promise<Response> {
@@ -1846,12 +1786,17 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             });
           }
 
-          const totalTokens = extractTotalTokens(payload) ?? estimateTranscriptionTokenFallback(text);
-          const costEstimate = estimateOpenAiCostFromPayload(sttModel, payload, totalTokens);
-          const inputTokens = costEstimate.usage.inputTokens;
-          const outputTokens = costEstimate.usage.outputTokens;
-          const estimatedCostUsd = costEstimate.estimatedCostUsd;
-          const billableTokens = calculateForgeBillingTokens(estimatedCostUsd);
+          const accounting = buildTranscriptionAccounting({
+            model: sttModel,
+            payload,
+            text,
+            billableMode: lane === "forge" ? "forge" : "non-billable",
+          });
+          const totalTokens = accounting.totalTokens;
+          const inputTokens = accounting.inputTokens;
+          const outputTokens = accounting.outputTokens;
+          const estimatedCostUsd = accounting.estimatedCostUsd;
+          const billableTokens = accounting.billableTokens;
           const openAiRequestId = upstream.headers.get("x-request-id");
           let creditsWarning: string | null = null;
 
@@ -2269,11 +2214,16 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
         const totalTokens = extractTotalTokens(payload);
         const spent = totalTokens ?? estimateTokenFallback(messages, rawReply);
-        const costEstimate = estimateOpenAiCostFromPayload(model, payload, spent);
-        const inputTokens = costEstimate.usage.inputTokens;
-        const outputTokens = costEstimate.usage.outputTokens;
-        const estimatedCostUsd = costEstimate.estimatedCostUsd;
-        const billableTokens = calculateForgeBillingTokens(estimatedCostUsd);
+        const accounting = buildUsageAccounting({
+          model,
+          payload,
+          fallbackTotalTokens: spent,
+          billableMode: lane === "forge" ? "forge" : "non-billable",
+        });
+        const inputTokens = accounting.inputTokens;
+        const outputTokens = accounting.outputTokens;
+        const estimatedCostUsd = accounting.estimatedCostUsd;
+        const billableTokens = accounting.billableTokens;
         const openAiRequestId = upstream.headers.get("x-request-id");
         let creditsWarning: string | null = null;
 

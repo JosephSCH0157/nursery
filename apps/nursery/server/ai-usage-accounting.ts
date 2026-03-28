@@ -21,6 +21,15 @@ export type TranscriptionAccounting = {
   billableTokens: number;
 };
 
+export type UsageAccounting = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number;
+  actualCostUsd: number;
+  billableTokens: number;
+};
+
 export type AiUsageRecordInput = {
   supabaseService: SupabaseClient<Database> | null;
   userId: string | null;
@@ -96,6 +105,32 @@ export function buildTranscriptionAccounting(args: {
   const costEstimate = estimateOpenAiCostFromPayload(args.model, args.payload, totalTokens);
   const inputTokens = costEstimate.usage.inputTokens;
   const outputTokens = costEstimate.usage.outputTokens;
+  const estimatedCostUsd = costEstimate.estimatedCostUsd;
+  const actualCostUsd = estimatedCostUsd;
+  const billableTokens = args.billableMode === "forge"
+    ? calculateForgeBillingTokens(actualCostUsd)
+    : 0;
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    estimatedCostUsd,
+    actualCostUsd,
+    billableTokens,
+  };
+}
+
+export function buildUsageAccounting(args: {
+  model: string;
+  payload: unknown;
+  fallbackTotalTokens: number;
+  billableMode: "forge" | "non-billable";
+}): UsageAccounting {
+  const fallbackTotalTokens = Math.max(0, Math.floor(args.fallbackTotalTokens));
+  const costEstimate = estimateOpenAiCostFromPayload(args.model, args.payload, fallbackTotalTokens);
+  const inputTokens = costEstimate.usage.inputTokens;
+  const outputTokens = costEstimate.usage.outputTokens;
+  const totalTokens = Math.max(0, costEstimate.usage.totalTokens);
   const estimatedCostUsd = costEstimate.estimatedCostUsd;
   const actualCostUsd = estimatedCostUsd;
   const billableTokens = args.billableMode === "forge"
