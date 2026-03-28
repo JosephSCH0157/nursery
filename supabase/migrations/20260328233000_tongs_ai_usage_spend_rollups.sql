@@ -1,7 +1,8 @@
 begin;
 
 create or replace function tongs.get_my_ai_spend_rollup(
-  p_days integer default 1
+  p_days integer default 1,
+  p_lane text default 'forge'
 )
 returns table (
   day date,
@@ -20,6 +21,7 @@ as $$
   with params as (
     select
       greatest(coalesce(p_days, 1), 1) as days_window,
+      case when coalesce(p_lane, 'forge') = 'byo' then 'byo' else 'forge' end as lane_mode,
       auth.uid() as user_id
   ),
   base as (
@@ -35,6 +37,7 @@ as $$
     from tongs.ai_usage_events e
     cross join params p
     where e.user_id = p.user_id
+      and e.lane = p.lane_mode
       and e.created_at >= (
         date_trunc('day', now())
         - make_interval(days => (p.days_window - 1))
@@ -87,7 +90,10 @@ as $$
     c.lane,
     c.call_count,
     coalesce(d.deduped_action_count, 0)::bigint as deduped_action_count,
-    coalesce(d.total_actual_cost_usd, 0)::numeric as total_actual_cost_usd,
+    case
+      when (select lane_mode from params) = 'byo' then coalesce(d.total_actual_cost_usd, 0)::numeric
+      else null
+    end as total_actual_cost_usd,
     coalesce(d.total_billable_tokens, 0)::bigint as total_billable_tokens
   from call_agg c
   left join dedup_agg d
@@ -100,7 +106,8 @@ $$;
 
 create or replace function tongs.get_my_ai_top_actions(
   p_days integer default 7,
-  p_limit integer default 10
+  p_limit integer default 10,
+  p_lane text default 'forge'
 )
 returns table (
   action_key text,
@@ -120,6 +127,7 @@ as $$
     select
       greatest(coalesce(p_days, 1), 1) as days_window,
       greatest(coalesce(p_limit, 10), 1) as row_limit,
+      case when coalesce(p_lane, 'forge') = 'byo' then 'byo' else 'forge' end as lane_mode,
       auth.uid() as user_id
   ),
   base as (
@@ -135,6 +143,7 @@ as $$
     from tongs.ai_usage_events e
     cross join params p
     where e.user_id = p.user_id
+      and e.lane = p.lane_mode
       and e.created_at >= (
         date_trunc('day', now())
         - make_interval(days => (p.days_window - 1))
@@ -163,7 +172,10 @@ as $$
     d.subfeature,
     d.lane,
     c.call_count,
-    coalesce(d.actual_cost_usd, 0)::numeric as total_actual_cost_usd,
+    case
+      when (select lane_mode from params) = 'byo' then coalesce(d.actual_cost_usd, 0)::numeric
+      else null
+    end as total_actual_cost_usd,
     coalesce(d.billable_tokens, 0)::bigint as total_billable_tokens,
     c.last_seen_at
   from dedup d
@@ -175,12 +187,12 @@ as $$
   limit p.row_limit;
 $$;
 
-revoke all on function tongs.get_my_ai_spend_rollup(integer) from public;
-revoke all on function tongs.get_my_ai_top_actions(integer, integer) from public;
+revoke all on function tongs.get_my_ai_spend_rollup(integer, text) from public;
+revoke all on function tongs.get_my_ai_top_actions(integer, integer, text) from public;
 
-grant execute on function tongs.get_my_ai_spend_rollup(integer) to authenticated;
-grant execute on function tongs.get_my_ai_spend_rollup(integer) to service_role;
-grant execute on function tongs.get_my_ai_top_actions(integer, integer) to authenticated;
-grant execute on function tongs.get_my_ai_top_actions(integer, integer) to service_role;
+grant execute on function tongs.get_my_ai_spend_rollup(integer, text) to authenticated;
+grant execute on function tongs.get_my_ai_spend_rollup(integer, text) to service_role;
+grant execute on function tongs.get_my_ai_top_actions(integer, integer, text) to authenticated;
+grant execute on function tongs.get_my_ai_top_actions(integer, integer, text) to service_role;
 
 commit;

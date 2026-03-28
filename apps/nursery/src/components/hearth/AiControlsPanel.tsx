@@ -57,7 +57,7 @@ type AiCostAuditRow = {
   subfeature: string | null;
   model: string;
   total_tokens: number;
-  actual_cost_usd: number;
+  actual_cost_usd: number | null;
   billable_tokens: number;
   workspace_id: string | null;
 };
@@ -455,23 +455,31 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
   const loadCostAudit = React.useCallback(async () => {
     setCostAuditLoading(true);
     setCostAuditError(null);
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const { data, error } = await supabase
-      .schema("tongs")
-      .from("ai_usage_events")
-      .select("created_at,lane,feature,subfeature,model,total_tokens,actual_cost_usd,billable_tokens,workspace_id")
-      .gte("created_at", startOfDay.toISOString())
-      .order("created_at", { ascending: false })
-      .limit(120);
-
-    if (error) {
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token ?? null;
+    if (sessionError || !accessToken) {
       setCostAuditRows([]);
-      setCostAuditError(error.message);
+      setCostAuditError(sessionError?.message ?? "Authentication required.");
       setCostAuditLoading(false);
       return;
     }
+
+    const response = await fetch(`/api/hearth/cost-audit?lane=${encodeURIComponent(settings.lane)}`, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    const payload = await response.json() as Record<string, unknown>;
+    if (!response.ok) {
+      setCostAuditRows([]);
+      setCostAuditError(String(payload.error ?? `Cost audit failed (${response.status})`));
+      setCostAuditLoading(false);
+      return;
+    }
+
+    const data = Array.isArray(payload.rows) ? payload.rows : [];
 
     const rows = Array.isArray(data)
       ? data
@@ -485,7 +493,9 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
             : String((row as { subfeature?: unknown }).subfeature),
           model: String((row as { model?: unknown }).model ?? "unknown"),
           total_tokens: Number((row as { total_tokens?: unknown }).total_tokens ?? 0) || 0,
-          actual_cost_usd: Number((row as { actual_cost_usd?: unknown }).actual_cost_usd ?? 0) || 0,
+          actual_cost_usd: (row as { actual_cost_usd?: unknown }).actual_cost_usd == null
+            ? null
+            : (Number((row as { actual_cost_usd?: unknown }).actual_cost_usd ?? 0) || 0),
           billable_tokens: Number((row as { billable_tokens?: unknown }).billable_tokens ?? 0) || 0,
           workspace_id: (row as { workspace_id?: unknown }).workspace_id == null
             ? null
@@ -495,9 +505,19 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
 
     setCostAuditRows(rows);
     setCostAuditLoading(false);
-  }, []);
+  }, [settings.lane]);
 
   const loadTopCostDrivers = React.useCallback(async () => {
+    if (settings.lane !== "byo") {
+      setTodaySpendRollupRows([]);
+      setWeekSpendRollupRows([]);
+      setTodayTopActions([]);
+      setWeekTopActions([]);
+      setTopCostDriversError(null);
+      setTopCostDriversLoading(false);
+      return;
+    }
+
     setTopCostDriversLoading(true);
     setTopCostDriversError(null);
 
@@ -509,10 +529,10 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
     };
 
     const [todayRollup, weekRollup, todayActions, weekActions] = await Promise.all([
-      tongsRpcClient.rpc("get_my_ai_spend_rollup", { p_days: 1 }),
-      tongsRpcClient.rpc("get_my_ai_spend_rollup", { p_days: 7 }),
-      tongsRpcClient.rpc("get_my_ai_top_actions", { p_days: 1, p_limit: 8 }),
-      tongsRpcClient.rpc("get_my_ai_top_actions", { p_days: 7, p_limit: 8 }),
+      tongsRpcClient.rpc("get_my_ai_spend_rollup", { p_days: 1, p_lane: settings.lane }),
+      tongsRpcClient.rpc("get_my_ai_spend_rollup", { p_days: 7, p_lane: settings.lane }),
+      tongsRpcClient.rpc("get_my_ai_top_actions", { p_days: 1, p_limit: 8, p_lane: settings.lane }),
+      tongsRpcClient.rpc("get_my_ai_top_actions", { p_days: 7, p_limit: 8, p_lane: settings.lane }),
     ]);
 
     const firstError = todayRollup.error ?? weekRollup.error ?? todayActions.error ?? weekActions.error;
@@ -571,7 +591,7 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
     setTodayTopActions(toTopActions(todayActions.data));
     setWeekTopActions(toTopActions(weekActions.data));
     setTopCostDriversLoading(false);
-  }, []);
+  }, [settings.lane]);
 
   const refreshInternalCostViews = React.useCallback(async () => {
     await Promise.all([loadCostAudit(), loadTopCostDrivers()]);
@@ -585,8 +605,22 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
     return costAuditRows.reduce((acc, row) => ({
       totalTokens: acc.totalTokens + Math.max(0, row.total_tokens),
       billableTokens: acc.billableTokens + Math.max(0, row.billable_tokens),
-      actualCostUsd: Number((acc.actualCostUsd + Math.max(0, row.actual_cost_usd)).toFixed(6)),
+      actualCostUsd: Number((acc.actualCostUsd + Math.max(0, row.actual_cost_usd ?? 0)).toFixed(6)),
     }), { totalTokens: 0, billableTokens: 0, actualCostUsd: 0 });
+  }, [costAuditRows]);
+
+  const forgeTopFeatures = React.useMemo(() => {
+    const byFeature = new Map<string, { feature: string; billableTokens: number; callCount: number }>();
+    for (const row of costAuditRows) {
+      const feature = row.feature || "unknown";
+      const current = byFeature.get(feature) ?? { feature, billableTokens: 0, callCount: 0 };
+      current.billableTokens += Math.max(0, row.billable_tokens);
+      current.callCount += 1;
+      byFeature.set(feature, current);
+    }
+    return Array.from(byFeature.values())
+      .sort((a, b) => b.billableTokens - a.billableTokens || b.callCount - a.callCount)
+      .slice(0, 6);
   }, [costAuditRows]);
 
   const todayCostDriverSummary = React.useMemo(() => buildCostDriverSummary(todaySpendRollupRows), [todaySpendRollupRows]);
@@ -1044,8 +1078,9 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
         </div>
       ) : null}
 
+      {settings.lane === "byo" ? (
       <div className="forge-ai-panel__section">
-        <div className="forge-ai-panel__label">AI Cost Today (Internal)</div>
+        <div className="forge-ai-panel__label">Your API Usage (BYO)</div>
         <div className="forge-ai-panel__row">
           <button type="button" onClick={() => void refreshInternalCostViews()} disabled={costAuditLoading || topCostDriversLoading}>
             {(costAuditLoading || topCostDriversLoading) ? "Refreshing..." : "Refresh"}
@@ -1063,14 +1098,45 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
             <ul className="forge-ai-panel__style-list">
               {costAuditRows.slice(0, 12).map((row, idx) => (
                 <li key={`${row.created_at}:${row.feature}:${idx}`}>
-                  {new Date(row.created_at).toLocaleTimeString()} | {row.lane} | {row.feature}{row.subfeature ? `/${row.subfeature}` : ""} | {row.model} | ${row.actual_cost_usd.toFixed(4)} | {row.billable_tokens} billable
+                  {new Date(row.created_at).toLocaleTimeString()} | {row.lane} | {row.feature}{row.subfeature ? `/${row.subfeature}` : ""} | {row.model} | ${Number(row.actual_cost_usd ?? 0).toFixed(4)} | {row.billable_tokens} billable
                 </li>
               ))}
             </ul>
           </div>
         ) : null}
       </div>
+      ) : null}
 
+      {settings.lane === "forge" ? (
+      <div className="forge-ai-panel__section">
+        <div className="forge-ai-panel__label">Credits Usage (Forge)</div>
+        <div className="forge-ai-panel__row">
+          <button type="button" onClick={() => void loadCostAudit()} disabled={costAuditLoading}>
+            {costAuditLoading ? "Refreshing..." : "Refresh"}
+          </button>
+          <span>
+            {costAuditTotals.billableTokens} billable | {costAuditTotals.totalTokens} raw tokens | {costAuditRows.length} calls
+          </span>
+        </div>
+        {costAuditError ? <div className="forge-ai-panel__hint">{costAuditError}</div> : null}
+        {!costAuditError && !costAuditRows.length ? (
+          <div className="forge-ai-panel__hint">No Forge-lane usage events recorded today.</div>
+        ) : null}
+        {!costAuditError && forgeTopFeatures.length ? (
+          <div className="forge-ai-panel__style-insights forge-ai-panel__style-insights--audit">
+            <ul className="forge-ai-panel__style-list">
+              {forgeTopFeatures.map((row) => (
+                <li key={`forge-feature:${row.feature}`}>
+                  {row.feature} | {row.billableTokens} billable | {row.callCount} calls
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+      ) : null}
+
+      {settings.lane === "byo" ? (
       <div className="forge-ai-panel__section">
         <div className="forge-ai-panel__label">Top Cost Drivers (Internal)</div>
         {topCostDriversError ? <div className="forge-ai-panel__hint">{topCostDriversError}</div> : null}
@@ -1141,6 +1207,7 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
           </div>
         ) : null}
       </div>
+      ) : null}
 
       {!featuresLoading && !featuresError && workspaceId && alignmentEnabled ? (
         <div className="forge-ai-panel__section">

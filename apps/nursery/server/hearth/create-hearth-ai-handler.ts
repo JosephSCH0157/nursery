@@ -1569,6 +1569,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         if (!userId) {
           return jsonResponse(401, { ok: false, error: "Authentication required." });
         }
+        const laneParam = url.searchParams.get("lane");
+        const lane: BillingMode = isBillingMode(laneParam) ? laneParam : configuredBillingMode;
+        const includeUsd = lane === AI_USAGE_LANE.BYO;
 
         const tableClient = supabaseService.schema("tongs") as unknown as {
           from: (table: string) => {
@@ -1586,9 +1589,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
         const startOfDay = new Date();
         startOfDay.setHours(0, 0, 0, 0);
+        const selectFields = includeUsd
+          ? "created_at, lane, feature, subfeature, model, total_tokens, actual_cost_usd, billable_tokens, workspace_id"
+          : "created_at, lane, feature, subfeature, model, total_tokens, billable_tokens, workspace_id";
         const { data, error } = await tableClient
           .from("ai_usage_events")
-          .select("created_at, lane, feature, subfeature, model, total_tokens, actual_cost_usd, billable_tokens, workspace_id")
+          .select(selectFields)
+          .eq("lane", lane)
           .eq("user_id", userId)
           .gte("created_at", startOfDay.toISOString())
           .order("created_at", { ascending: false })
@@ -1604,7 +1611,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           const record = row as Record<string, unknown>;
           const totalTokens = typeof record.total_tokens === "number" ? record.total_tokens : 0;
           const billableTokens = typeof record.billable_tokens === "number" ? record.billable_tokens : 0;
-          const actualCostUsd = typeof record.actual_cost_usd === "number" ? record.actual_cost_usd : 0;
+          const actualCostUsd = includeUsd && typeof record.actual_cost_usd === "number"
+            ? record.actual_cost_usd
+            : 0;
           return {
             totalTokens: acc.totalTokens + Math.max(0, totalTokens),
             billableTokens: acc.billableTokens + Math.max(0, billableTokens),
@@ -1612,11 +1621,23 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           };
         }, { totalTokens: 0, billableTokens: 0, actualCostUsd: 0 });
 
+        const normalizedRows = includeUsd
+          ? rows
+          : rows.map((row) => {
+              if (!row || typeof row !== "object") return row;
+              const record = row as Record<string, unknown>;
+              return {
+                ...record,
+                actual_cost_usd: null,
+              };
+            });
+
         return jsonResponse(200, {
           ok: true,
           generated_at: new Date().toISOString(),
           window: "today",
-          rows,
+          lane,
+          rows: normalizedRows,
           totals,
         });
       }
