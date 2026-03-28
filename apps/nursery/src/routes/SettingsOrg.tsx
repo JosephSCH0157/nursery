@@ -19,6 +19,37 @@ type OrgRow = {
   created_at: string | null;
 };
 
+type AiMode = "AI_DISABLED" | "ORG_ONLY" | "PERSONAL_ONLY" | "ORG_FIRST_PERSONAL_FALLBACK";
+type OverrideMode = AiMode | "INHERIT";
+
+type OrgPolicyRow = {
+  org_id: string;
+  default_mode: string;
+  shared_org_ai_enabled: boolean;
+  member_byo_allowed: boolean;
+};
+
+type MemberPolicyRow = {
+  org_id: string;
+  user_id: string;
+  mode_override: string | null;
+  allow_heavy_tasks: boolean;
+};
+
+const AI_MODE_OPTIONS: Array<{ value: AiMode; label: string }> = [
+  { value: "AI_DISABLED", label: "AI Disabled" },
+  { value: "ORG_ONLY", label: "Org Only" },
+  { value: "PERSONAL_ONLY", label: "Personal Only" },
+  { value: "ORG_FIRST_PERSONAL_FALLBACK", label: "Org First + Personal Fallback" },
+];
+
+function normalizeAiMode(value: unknown): AiMode | null {
+  if (value === "AI_DISABLED" || value === "ORG_ONLY" || value === "PERSONAL_ONLY" || value === "ORG_FIRST_PERSONAL_FALLBACK") {
+    return value;
+  }
+  return null;
+}
+
 function toErrorMessage(error: unknown, fallback: string): string {
   if (error && typeof error === "object" && "message" in error) {
     const message = (error as { message?: unknown }).message;
@@ -94,6 +125,10 @@ export default function SettingsOrg() {
     },
     [],
   );
+  const tongsTableClient = useMemo(
+    () => supabase.schema("tongs") as unknown as { from: (table: string) => any },
+    [],
+  );
 
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
   const [loadingOrgs, setLoadingOrgs] = useState(false);
@@ -109,6 +144,30 @@ export default function SettingsOrg() {
   const [mismatchError, setMismatchError] = useState<string | null>(null);
   const [repairingMismatch, setRepairingMismatch] = useState(false);
   const [repairNotice, setRepairNotice] = useState<string | null>(null);
+  const [orgPolicyLoading, setOrgPolicyLoading] = useState(false);
+  const [orgPolicySaving, setOrgPolicySaving] = useState(false);
+  const [orgPolicyError, setOrgPolicyError] = useState<string | null>(null);
+  const [orgPolicyNotice, setOrgPolicyNotice] = useState<string | null>(null);
+  const [orgPolicyDraft, setOrgPolicyDraft] = useState<{
+    defaultMode: AiMode;
+    sharedOrgAiEnabled: boolean;
+    memberByoAllowed: boolean;
+  }>({
+    defaultMode: "ORG_FIRST_PERSONAL_FALLBACK",
+    sharedOrgAiEnabled: true,
+    memberByoAllowed: true,
+  });
+  const [memberPolicyLoading, setMemberPolicyLoading] = useState(false);
+  const [memberPolicySaving, setMemberPolicySaving] = useState(false);
+  const [memberPolicyError, setMemberPolicyError] = useState<string | null>(null);
+  const [memberPolicyNotice, setMemberPolicyNotice] = useState<string | null>(null);
+  const [memberPolicyDraft, setMemberPolicyDraft] = useState<{
+    modeOverride: OverrideMode;
+    allowHeavyTasks: boolean;
+  }>({
+    modeOverride: "INHERIT",
+    allowHeavyTasks: true,
+  });
 
   const activeOrg = useMemo(
     () => orgs.find((org) => org.org_id === selectedOrgId) ?? null,
@@ -120,6 +179,149 @@ export default function SettingsOrg() {
     () => members.find((member) => member.userId === selectedMemberId) ?? members[0] ?? null,
     [members, selectedMemberId],
   );
+
+  useEffect(() => {
+    if (!session || !selectedOrgId) {
+      setOrgPolicyDraft({
+        defaultMode: "ORG_FIRST_PERSONAL_FALLBACK",
+        sharedOrgAiEnabled: true,
+        memberByoAllowed: true,
+      });
+      setOrgPolicyError(null);
+      setOrgPolicyNotice(null);
+      setOrgPolicyLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setOrgPolicyLoading(true);
+    setOrgPolicyError(null);
+    setOrgPolicyNotice(null);
+
+    void (async () => {
+      try {
+        const { data, error } = await tongsTableClient
+          .from("organization_ai_policy")
+          .select("org_id,default_mode,shared_org_ai_enabled,member_byo_allowed")
+          .eq("org_id", selectedOrgId)
+          .maybeSingle<OrgPolicyRow>();
+        if (cancelled) return;
+        if (error) throw error;
+
+        setOrgPolicyDraft({
+          defaultMode: normalizeAiMode(data?.default_mode) ?? "ORG_FIRST_PERSONAL_FALLBACK",
+          sharedOrgAiEnabled: data?.shared_org_ai_enabled ?? true,
+          memberByoAllowed: data?.member_byo_allowed ?? true,
+        });
+      } catch (error: unknown) {
+        if (cancelled) return;
+        setOrgPolicyError(toErrorMessage(error, "Failed loading organization AI policy."));
+      } finally {
+        if (!cancelled) setOrgPolicyLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrgId, session, tongsTableClient]);
+
+  useEffect(() => {
+    if (!session || !selectedOrgId || !selectedMember) {
+      setMemberPolicyDraft({
+        modeOverride: "INHERIT",
+        allowHeavyTasks: true,
+      });
+      setMemberPolicyError(null);
+      setMemberPolicyNotice(null);
+      setMemberPolicyLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setMemberPolicyLoading(true);
+    setMemberPolicyError(null);
+    setMemberPolicyNotice(null);
+
+    void (async () => {
+      try {
+        const { data, error } = await tongsTableClient
+          .from("member_ai_policy")
+          .select("org_id,user_id,mode_override,allow_heavy_tasks")
+          .eq("org_id", selectedOrgId)
+          .eq("user_id", selectedMember.userId)
+          .maybeSingle<MemberPolicyRow>();
+        if (cancelled) return;
+        if (error) throw error;
+
+        setMemberPolicyDraft({
+          modeOverride: normalizeAiMode(data?.mode_override) ?? "INHERIT",
+          allowHeavyTasks: data?.allow_heavy_tasks ?? true,
+        });
+      } catch (error: unknown) {
+        if (cancelled) return;
+        setMemberPolicyError(toErrorMessage(error, "Failed loading member AI override."));
+      } finally {
+        if (!cancelled) setMemberPolicyLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMember, selectedOrgId, session, tongsTableClient]);
+
+  async function onSaveOrgPolicy() {
+    if (!session || !selectedOrgId || !canManageWorkspaceAccess || orgPolicySaving) return;
+    setOrgPolicySaving(true);
+    setOrgPolicyError(null);
+    setOrgPolicyNotice(null);
+    try {
+      const { error } = await tongsTableClient
+        .from("organization_ai_policy")
+        .upsert(
+          {
+            org_id: selectedOrgId,
+            default_mode: orgPolicyDraft.defaultMode,
+            shared_org_ai_enabled: orgPolicyDraft.sharedOrgAiEnabled,
+            member_byo_allowed: orgPolicyDraft.memberByoAllowed,
+          },
+          { onConflict: "org_id" },
+        );
+      if (error) throw error;
+      setOrgPolicyNotice("Organization AI policy saved.");
+    } catch (error: unknown) {
+      setOrgPolicyError(toErrorMessage(error, "Failed saving organization AI policy."));
+    } finally {
+      setOrgPolicySaving(false);
+    }
+  }
+
+  async function onSaveMemberPolicy() {
+    if (!session || !selectedOrgId || !selectedMember || !canManageWorkspaceAccess || memberPolicySaving) return;
+    setMemberPolicySaving(true);
+    setMemberPolicyError(null);
+    setMemberPolicyNotice(null);
+    try {
+      const { error } = await tongsTableClient
+        .from("member_ai_policy")
+        .upsert(
+          {
+            org_id: selectedOrgId,
+            user_id: selectedMember.userId,
+            mode_override: memberPolicyDraft.modeOverride === "INHERIT" ? null : memberPolicyDraft.modeOverride,
+            allow_heavy_tasks: memberPolicyDraft.allowHeavyTasks,
+          },
+          { onConflict: "org_id,user_id" },
+        );
+      if (error) throw error;
+      setMemberPolicyNotice("Member AI override saved.");
+    } catch (error: unknown) {
+      setMemberPolicyError(toErrorMessage(error, "Failed saving member AI override."));
+    } finally {
+      setMemberPolicySaving(false);
+    }
+  }
 
   useEffect(() => {
     if (!session) {
