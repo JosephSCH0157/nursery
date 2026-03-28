@@ -15,6 +15,11 @@
       "types": "./dist/ai-policy.d.ts",
       "import": "./dist/ai-policy.js",
       "default": "./dist/ai-policy.js"
+    },
+    "./ai-usage-taxonomy": {
+      "types": "./dist/ai-usage-taxonomy.d.ts",
+      "import": "./dist/ai-usage-taxonomy.js",
+      "default": "./dist/ai-usage-taxonomy.js"
     }
   },
   "scripts": {

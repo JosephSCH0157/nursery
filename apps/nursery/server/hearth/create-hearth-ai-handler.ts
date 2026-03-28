@@ -3,6 +3,15 @@ import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
 import {
+  AI_USAGE_FEATURE,
+  AI_USAGE_LANE,
+  AI_USAGE_STATUS,
+  AI_USAGE_SUBFEATURE,
+  AI_USAGE_TRIGGER,
+  type AiUsageFeature,
+  type AiUsageSubfeature,
+} from "../../../../packages/tongs/src/ai-usage-taxonomy";
+import {
   HEARTH_AI_ROUTES,
   isHearthAiLane as isBillingMode,
   normalizeEpisodeContext,
@@ -901,21 +910,36 @@ function extractAssistantReply(payload: unknown): string {
   return parts.join("\n").trim();
 }
 
-function classifyChatFeature(requestText: string): { feature: string; subfeature: string | null } {
+function classifyChatFeature(requestText: string): { feature: AiUsageFeature; subfeature: AiUsageSubfeature | null } {
   const normalized = compactSpaces(requestText);
   if (READINESS_CHECK_RE.test(normalized)) {
-    return { feature: "script_assist", subfeature: "readiness_check" };
+    return {
+      feature: AI_USAGE_FEATURE.SCRIPT_ASSIST,
+      subfeature: AI_USAGE_SUBFEATURE.READINESS_CHECK,
+    };
   }
   if (CDC_REQUEST_RE.test(normalized)) {
-    return { feature: "cdc_extract", subfeature: "media_map" };
+    return {
+      feature: AI_USAGE_FEATURE.CDC_EXTRACT,
+      subfeature: AI_USAGE_SUBFEATURE.MEDIA_MAP,
+    };
   }
   if (requestedOutline(normalized)) {
-    return { feature: "script_assist", subfeature: "outline" };
+    return {
+      feature: AI_USAGE_FEATURE.SCRIPT_ASSIST,
+      subfeature: AI_USAGE_SUBFEATURE.OUTLINE,
+    };
   }
   if (requestedScript(normalized)) {
-    return { feature: "script_assist", subfeature: "rewrite" };
+    return {
+      feature: AI_USAGE_FEATURE.SCRIPT_ASSIST,
+      subfeature: AI_USAGE_SUBFEATURE.REWRITE,
+    };
   }
-  return { feature: "script_assist", subfeature: "chat" };
+  return {
+    feature: AI_USAGE_FEATURE.SCRIPT_ASSIST,
+    subfeature: AI_USAGE_SUBFEATURE.CHAT,
+  };
 }
 
 function extractTranscriptionText(payload: unknown): string | null {
@@ -1170,8 +1194,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     workspaceId: string | null;
     workpieceId: string | null;
     sessionId: string | null;
-    feature: string;
-    subfeature?: string | null;
+    feature: AiUsageFeature;
+    subfeature?: AiUsageSubfeature | null;
     model: string;
     reasoningEffort?: string | null;
     trigger: AiUsageTrigger;
@@ -1217,7 +1241,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             actualCostUsd: 0,
             billableTokens: 0,
             trigger: args.trigger,
-            status: "error",
+            status: AI_USAGE_STATUS.ERROR,
             actionId: args.actionId,
             providerRequestId: response.headers.get("x-request-id"),
           });
@@ -1244,7 +1268,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         actualCostUsd: 0,
         billableTokens: 0,
         trigger: args.trigger,
-        status: "error",
+        status: AI_USAGE_STATUS.ERROR,
         actionId: args.actionId,
         providerRequestId: null,
       });
@@ -1605,7 +1629,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const bodyRaw = (await readJsonBody(request)) as SttReqBody;
         const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
         const bearerToken = readBearerToken(request.headers.get("authorization"));
-        if (lane === "forge" && disableForgeLaneAi) {
+        if (lane === AI_USAGE_LANE.FORGE && disableForgeLaneAi) {
           return jsonResponse(503, {
             ok: false,
             error: "Forge-lane AI is temporarily disabled by emergency control.",
@@ -1630,7 +1654,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         }
 
-        if (lane === "forge" && tokenBalance != null && tokenBalance <= 0) {
+        if (lane === AI_USAGE_LANE.FORGE && tokenBalance != null && tokenBalance <= 0) {
           return jsonResponse(402, {
             ok: false,
             error: "No AI credits remaining.",
@@ -1728,10 +1752,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               workspaceId: null,
               workpieceId,
               sessionId: null,
-              feature: "speech_transcription",
-              subfeature: "workpiece_audio",
+              feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
+              subfeature: AI_USAGE_SUBFEATURE.WORKPIECE_AUDIO,
               model: sttModel,
-              trigger: "user",
+              trigger: AI_USAGE_TRIGGER.USER,
               actionId: sttActionId,
               request: {
                 url: "https://api.openai.com/v1/audio/transcriptions",
@@ -1778,8 +1802,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               workspaceId: null,
               workpieceId,
               sessionId: null,
-              feature: "speech_transcription",
-              subfeature: "workpiece_audio",
+              feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
+              subfeature: AI_USAGE_SUBFEATURE.WORKPIECE_AUDIO,
               model: sttModel,
               inputTokens: 0,
               outputTokens: 0,
@@ -1787,8 +1811,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               estimatedCostUsd: 0,
               actualCostUsd: 0,
               billableTokens: 0,
-              trigger: "user",
-              status: "error",
+              trigger: AI_USAGE_TRIGGER.USER,
+              status: AI_USAGE_STATUS.ERROR,
               actionId: sttActionId,
               providerRequestId: upstream.headers.get("x-request-id"),
               correlationId: sttActionId,
@@ -1804,7 +1828,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             model: sttModel,
             payload,
             text,
-            billableMode: lane === "forge" ? "forge" : "non-billable",
+            billableMode: lane === AI_USAGE_LANE.FORGE ? AI_USAGE_LANE.FORGE : "non-billable",
           });
           const totalTokens = accounting.totalTokens;
           const inputTokens = accounting.inputTokens;
@@ -1821,8 +1845,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             workspaceId: null,
             workpieceId,
             sessionId: null,
-            feature: "speech_transcription",
-            subfeature: "workpiece_audio",
+            feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
+            subfeature: AI_USAGE_SUBFEATURE.WORKPIECE_AUDIO,
             model: sttModel,
             inputTokens,
             outputTokens,
@@ -1830,14 +1854,14 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             estimatedCostUsd,
             actualCostUsd: estimatedCostUsd,
             billableTokens,
-            trigger: "user",
-            status: "success",
+            trigger: AI_USAGE_TRIGGER.USER,
+            status: AI_USAGE_STATUS.SUCCESS,
             actionId: sttActionId,
             providerRequestId: openAiRequestId,
             correlationId: sttActionId,
           });
 
-          if (lane === "forge" && billableTokens > 0) {
+          if (lane === AI_USAGE_LANE.FORGE && billableTokens > 0) {
             const deltaResult = await applyTokenDelta({
               userId,
               spent: billableTokens,
@@ -1885,7 +1909,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const bearerToken = readBearerToken(request.headers.get("authorization"));
       const providedChatActionId = readOptionalString(bodyRaw.action_id);
       const chatActionId = isUuid(providedChatActionId) ? providedChatActionId : crypto.randomUUID();
-      if (lane === "forge" && disableForgeLaneAi) {
+      if (lane === AI_USAGE_LANE.FORGE && disableForgeLaneAi) {
         return jsonResponse(503, {
           ok: false,
           error: "Forge-lane AI is temporarily disabled by emergency control.",
@@ -1918,7 +1942,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         });
       }
 
-      if (lane === "forge" && tokenBalance != null && tokenBalance <= 0) {
+      if (lane === AI_USAGE_LANE.FORGE && tokenBalance != null && tokenBalance <= 0) {
         return jsonResponse(402, {
           ok: false,
           error: "No AI credits remaining.",
@@ -1959,7 +1983,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         : null;
       const requestText = latestUserMessage?.content ?? "";
       const userId = await resolveUserId(bearerToken);
-      if (lane === "forge" && !userId) {
+      if (lane === AI_USAGE_LANE.FORGE && !userId) {
         return jsonResponse(401, {
           ok: false,
           error: "Authentication required.",
@@ -2089,7 +2113,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             subfeature: chatFeature.subfeature,
             model,
             reasoningEffort,
-            trigger: "user",
+            trigger: AI_USAGE_TRIGGER.USER,
             actionId: chatActionId,
             isRecoverableHttpError: async (response) => {
               if (!allowTemperatureOverride || response.status !== 400) return false;
@@ -2180,8 +2204,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             estimatedCostUsd: 0,
             actualCostUsd: 0,
             billableTokens: 0,
-            trigger: "user",
-            status: "error",
+            trigger: AI_USAGE_TRIGGER.USER,
+            status: AI_USAGE_STATUS.ERROR,
             actionId: chatActionId,
             providerRequestId: upstream.headers.get("x-request-id"),
             correlationId: chatActionId,
@@ -2250,7 +2274,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           model,
           payload,
           fallbackTotalTokens: spent,
-          billableMode: lane === "forge" ? "forge" : "non-billable",
+          billableMode: lane === AI_USAGE_LANE.FORGE ? AI_USAGE_LANE.FORGE : "non-billable",
         });
         const inputTokens = accounting.inputTokens;
         const outputTokens = accounting.outputTokens;
@@ -2276,14 +2300,14 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           estimatedCostUsd,
           actualCostUsd: estimatedCostUsd,
           billableTokens,
-          trigger: "user",
-          status: "success",
+          trigger: AI_USAGE_TRIGGER.USER,
+          status: AI_USAGE_STATUS.SUCCESS,
           actionId: chatActionId,
           providerRequestId: openAiRequestId,
           correlationId: chatActionId,
         });
 
-        if (lane === "forge" && billableTokens > 0) {
+        if (lane === AI_USAGE_LANE.FORGE && billableTokens > 0) {
           if (!userId) {
             return jsonResponse(401, {
               ok: false,

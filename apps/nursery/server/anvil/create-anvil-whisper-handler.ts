@@ -1,6 +1,13 @@
 import crypto from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
+import {
+  AI_USAGE_FEATURE,
+  AI_USAGE_LANE,
+  AI_USAGE_STATUS,
+  AI_USAGE_SUBFEATURE,
+  AI_USAGE_TRIGGER,
+} from "../../../../packages/tongs/src/ai-usage-taxonomy";
 import { resolveHearthRuntimeConfig } from "../hearth/hearth-runtime-config";
 import {
   applyAiTokenDelta,
@@ -186,7 +193,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       const laneFromBody = readOptionalString(formData.get("lane"));
       const laneFromQuery = readOptionalString(url.searchParams.get("lane"));
       const lane = normalizeBillingMode(laneFromBody ?? laneFromQuery, configuredBillingMode);
-      if (lane === "forge" && !supabaseService) {
+      if (lane === AI_USAGE_LANE.FORGE && !supabaseService) {
         return jsonResponse(500, {
           ok: false,
           text: "",
@@ -195,7 +202,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         });
       }
       const userAccessToken = readUserAccessToken(request.headers);
-      if (lane === "forge" && !userAccessToken) {
+      if (lane === AI_USAGE_LANE.FORGE && !userAccessToken) {
         return jsonResponse(401, {
           ok: false,
           text: "",
@@ -208,7 +215,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         supabaseService,
         accessToken: userAccessToken,
       });
-      if (lane === "forge" && !userId) {
+      if (lane === AI_USAGE_LANE.FORGE && !userId) {
         return jsonResponse(401, {
           ok: false,
           text: "",
@@ -276,8 +283,8 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             workspaceId: null,
             workpieceId: null,
             sessionId: null,
-            feature: "speech_transcription",
-            subfeature: "anvil_whisper",
+            feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
+            subfeature: AI_USAGE_SUBFEATURE.ANVIL_WHISPER,
             model: sttModel,
             inputTokens: 0,
             outputTokens: 0,
@@ -285,8 +292,8 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             estimatedCostUsd: 0,
             actualCostUsd: 0,
             billableTokens: 0,
-            trigger: "user",
-            status: "error",
+            trigger: AI_USAGE_TRIGGER.USER,
+            status: AI_USAGE_STATUS.ERROR,
             actionId,
             providerRequestId: upstream.headers.get("x-request-id"),
             correlationId: actionId,
@@ -309,7 +316,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           model: sttModel,
           payload,
           text,
-          billableMode: lane === "forge" ? "forge" : "non-billable",
+          billableMode: lane === AI_USAGE_LANE.FORGE ? AI_USAGE_LANE.FORGE : "non-billable",
         });
         await recordAiUsageEvent({
           supabaseService,
@@ -319,8 +326,8 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           workspaceId: null,
           workpieceId: null,
           sessionId: null,
-          feature: "speech_transcription",
-          subfeature: "anvil_whisper",
+          feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
+          subfeature: AI_USAGE_SUBFEATURE.ANVIL_WHISPER,
           model: sttModel,
           inputTokens: accounting.inputTokens,
           outputTokens: accounting.outputTokens,
@@ -328,14 +335,14 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           estimatedCostUsd: accounting.estimatedCostUsd,
           actualCostUsd: accounting.actualCostUsd,
           billableTokens: accounting.billableTokens,
-          trigger: "user",
-          status: "success",
+          trigger: AI_USAGE_TRIGGER.USER,
+          status: AI_USAGE_STATUS.SUCCESS,
           actionId,
           providerRequestId,
           correlationId: actionId,
         });
 
-        if (lane === "forge" && accounting.billableTokens > 0 && userId) {
+        if (lane === AI_USAGE_LANE.FORGE && accounting.billableTokens > 0 && userId) {
           const deltaResult = await applyAiTokenDelta({
             supabaseService,
             userId,

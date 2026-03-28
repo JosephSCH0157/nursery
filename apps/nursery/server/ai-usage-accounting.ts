@@ -1,6 +1,18 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
 import {
+  AI_USAGE_LANE,
+  assertValidAiUsageFeatureSubfeature,
+  isAiUsageLane,
+  isAiUsageStatus,
+  isAiUsageTrigger,
+  type AiUsageFeature,
+  type AiUsageLane,
+  type AiUsageStatus as TongsAiUsageStatus,
+  type AiUsageSubfeature,
+  type AiUsageTrigger as TongsAiUsageTrigger,
+} from "../../../packages/tongs/src/ai-usage-taxonomy";
+import {
   calculateForgeBillingTokens,
   estimateOpenAiCostFromPayload,
   extractOpenAiUsageMetrics,
@@ -8,9 +20,9 @@ import {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export type BillingMode = "forge" | "byo";
-export type AiUsageStatus = "success" | "error";
-export type AiUsageTrigger = "user" | "system";
+export type BillingMode = AiUsageLane;
+export type AiUsageStatus = TongsAiUsageStatus;
+export type AiUsageTrigger = TongsAiUsageTrigger;
 
 export type TranscriptionAccounting = {
   inputTokens: number;
@@ -38,8 +50,8 @@ export type AiUsageRecordInput = {
   workspaceId: string | null;
   workpieceId: string | null;
   sessionId: string | null;
-  feature: string;
-  subfeature?: string | null;
+  feature: AiUsageFeature;
+  subfeature?: AiUsageSubfeature | null;
   model: string;
   reasoningEffort?: string | null;
   inputTokens: number;
@@ -56,7 +68,7 @@ export type AiUsageRecordInput = {
 };
 
 export function normalizeBillingMode(value: unknown, fallback: BillingMode): BillingMode {
-  return value === "byo" ? "byo" : value === "forge" ? "forge" : fallback;
+  return isAiUsageLane(value) ? value : fallback;
 }
 
 export function readOptionalString(value: unknown): string | null {
@@ -99,7 +111,7 @@ export function buildTranscriptionAccounting(args: {
   model: string;
   payload: unknown;
   text: string;
-  billableMode: "forge" | "non-billable";
+  billableMode: AiUsageLane | "non-billable";
 }): TranscriptionAccounting {
   const totalTokens = extractTotalTokens(args.payload) ?? estimateTranscriptionTokenFallback(args.text);
   const costEstimate = estimateOpenAiCostFromPayload(args.model, args.payload, totalTokens);
@@ -107,7 +119,7 @@ export function buildTranscriptionAccounting(args: {
   const outputTokens = costEstimate.usage.outputTokens;
   const estimatedCostUsd = costEstimate.estimatedCostUsd;
   const actualCostUsd = estimatedCostUsd;
-  const billableTokens = args.billableMode === "forge"
+  const billableTokens = args.billableMode === AI_USAGE_LANE.FORGE
     ? calculateForgeBillingTokens(actualCostUsd)
     : 0;
   return {
@@ -124,7 +136,7 @@ export function buildUsageAccounting(args: {
   model: string;
   payload: unknown;
   fallbackTotalTokens: number;
-  billableMode: "forge" | "non-billable";
+  billableMode: AiUsageLane | "non-billable";
 }): UsageAccounting {
   const fallbackTotalTokens = Math.max(0, Math.floor(args.fallbackTotalTokens));
   const costEstimate = estimateOpenAiCostFromPayload(args.model, args.payload, fallbackTotalTokens);
@@ -133,7 +145,7 @@ export function buildUsageAccounting(args: {
   const totalTokens = Math.max(0, costEstimate.usage.totalTokens);
   const estimatedCostUsd = costEstimate.estimatedCostUsd;
   const actualCostUsd = estimatedCostUsd;
-  const billableTokens = args.billableMode === "forge"
+  const billableTokens = args.billableMode === AI_USAGE_LANE.FORGE
     ? calculateForgeBillingTokens(actualCostUsd)
     : 0;
   return {
@@ -149,6 +161,16 @@ export function buildUsageAccounting(args: {
 export async function recordAiUsageEvent(args: AiUsageRecordInput): Promise<void> {
   if (!args.supabaseService) return;
   if (!args.userId || !UUID_RE.test(args.userId)) return;
+  if (!isAiUsageLane(args.lane)) {
+    throw new Error(`Invalid ai_usage_events lane '${String(args.lane)}'`);
+  }
+  if (!isAiUsageTrigger(args.trigger)) {
+    throw new Error(`Invalid ai_usage_events trigger '${String(args.trigger)}'`);
+  }
+  if (!isAiUsageStatus(args.status)) {
+    throw new Error(`Invalid ai_usage_events status '${String(args.status)}'`);
+  }
+  assertValidAiUsageFeatureSubfeature(args.feature, args.subfeature ?? null);
 
   const tableClient = args.supabaseService.schema("tongs") as unknown as {
     from: (table: string) => {

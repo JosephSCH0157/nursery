@@ -6,6 +6,13 @@ import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
 import {
+  AI_USAGE_FEATURE,
+  AI_USAGE_LANE,
+  AI_USAGE_STATUS,
+  AI_USAGE_SUBFEATURE,
+  AI_USAGE_TRIGGER,
+} from "../../../packages/tongs/src/ai-usage-taxonomy";
+import {
   createHammerAudioPolishRequestContext,
   handleHammerAudioPolishRequest,
 } from "./hammer-audio-polish";
@@ -1026,7 +1033,7 @@ export function createHammerPrepMiddleware() {
         },
       })
     : null;
-  const hammerTelemetryLane: BillingMode = "forge";
+  const hammerTelemetryLane: BillingMode = AI_USAGE_LANE.FORGE;
 
   return async function hammerPrepMiddleware(req: IncomingMessage, res: ServerResponse, next: Next) {
     try {
@@ -1483,8 +1490,8 @@ export function createHammerPrepMiddleware() {
           workspaceId: request.workspace_id,
           workpieceId: request.workpiece_id,
           sessionId: null,
-          feature: "speech_transcription",
-          subfeature: "hammer_prep_nonbillable",
+          feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
+          subfeature: AI_USAGE_SUBFEATURE.HAMMER_PREP_NONBILLABLE,
           model,
           inputTokens: 0,
           outputTokens: 0,
@@ -1492,8 +1499,8 @@ export function createHammerPrepMiddleware() {
           estimatedCostUsd: 0,
           actualCostUsd: 0,
           billableTokens: 0,
-          trigger: "user",
-          status: "error",
+          trigger: AI_USAGE_TRIGGER.USER,
+          status: AI_USAGE_STATUS.ERROR,
           actionId: telemetryActionId,
           providerRequestId: upstream.headers.get("x-request-id"),
           correlationId: telemetryActionId,
@@ -1519,8 +1526,8 @@ export function createHammerPrepMiddleware() {
           workspaceId: request.workspace_id,
           workpieceId: request.workpiece_id,
           sessionId: null,
-          feature: "speech_transcription",
-          subfeature: "hammer_prep_nonbillable",
+          feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
+          subfeature: AI_USAGE_SUBFEATURE.HAMMER_PREP_NONBILLABLE,
           model,
           inputTokens: 0,
           outputTokens: 0,
@@ -1528,8 +1535,8 @@ export function createHammerPrepMiddleware() {
           estimatedCostUsd: 0,
           actualCostUsd: 0,
           billableTokens: 0,
-          trigger: "user",
-          status: "error",
+          trigger: AI_USAGE_TRIGGER.USER,
+          status: AI_USAGE_STATUS.ERROR,
           actionId: telemetryActionId,
           providerRequestId: upstream.headers.get("x-request-id"),
           correlationId: telemetryActionId,
@@ -1562,8 +1569,8 @@ export function createHammerPrepMiddleware() {
         workspaceId: request.workspace_id,
         workpieceId: request.workpiece_id,
         sessionId: null,
-        feature: "speech_transcription",
-        subfeature: "hammer_prep_nonbillable",
+        feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
+        subfeature: AI_USAGE_SUBFEATURE.HAMMER_PREP_NONBILLABLE,
         model,
         inputTokens: accounting.inputTokens,
         outputTokens: accounting.outputTokens,
@@ -1571,8 +1578,8 @@ export function createHammerPrepMiddleware() {
         estimatedCostUsd: accounting.estimatedCostUsd,
         actualCostUsd: accounting.actualCostUsd,
         billableTokens: accounting.billableTokens,
-        trigger: "user",
-        status: "success",
+        trigger: AI_USAGE_TRIGGER.USER,
+        status: AI_USAGE_STATUS.SUCCESS,
         actionId: telemetryActionId,
         providerRequestId: upstream.headers.get("x-request-id"),
         correlationId: telemetryActionId,

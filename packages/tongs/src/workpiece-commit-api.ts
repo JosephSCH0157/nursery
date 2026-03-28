@@ -22,6 +22,22 @@ import {
   calculateForgeBillingTokens,
   estimateOpenAiCost,
 } from "./ai-pricing.js";
+import {
+  AI_USAGE_FEATURE,
+  AI_USAGE_LANE,
+  AI_USAGE_STATUS,
+  AI_USAGE_SUBFEATURE,
+  AI_USAGE_TRIGGER,
+  assertValidAiUsageFeatureSubfeature,
+  isAiUsageLane,
+  isAiUsageStatus,
+  isAiUsageTrigger,
+  type AiUsageFeature,
+  type AiUsageLane,
+  type AiUsageStatus,
+  type AiUsageSubfeature,
+  type AiUsageTrigger,
+} from "./ai-usage-taxonomy.js";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
@@ -4979,8 +4995,8 @@ export class TongsCommitService {
     workspaceId: string;
     workpieceId: string;
     sessionId?: string | null;
-    feature: string;
-    subfeature?: string | null;
+    feature: AiUsageFeature;
+    subfeature?: AiUsageSubfeature | null;
     model: string;
     reasoningEffort?: string | null;
     inputTokens: number;
@@ -4989,11 +5005,19 @@ export class TongsCommitService {
     estimatedCostUsd: number;
     actualCostUsd: number;
     billableTokens: number;
-    trigger: "user" | "system";
-    status: "success" | "error";
+    trigger: AiUsageTrigger;
+    status: AiUsageStatus;
     actionId?: string | null;
     providerRequestId?: string | null;
   }): Promise<void> {
+    if (!isAiUsageTrigger(args.trigger)) {
+      throw new Error(`Invalid ai_usage_events trigger '${String(args.trigger)}'`);
+    }
+    if (!isAiUsageStatus(args.status)) {
+      throw new Error(`Invalid ai_usage_events status '${String(args.status)}'`);
+    }
+    assertValidAiUsageFeatureSubfeature(args.feature, args.subfeature ?? null);
+
     const tableClient = this.supabase.schema("tongs") as unknown as {
       from: (table: string) => {
         insert: (row: Record<string, unknown>) => Promise<{ error: { message: string } | null }>;
@@ -5033,16 +5057,16 @@ export class TongsCommitService {
   }
 
   private async runAIRequest<T>(args: {
-    lane: "forge" | "byo";
+    lane: AiUsageLane;
     userId: string;
     workspaceId: string;
     workpieceId: string;
     sessionId?: string | null;
-    feature: string;
-    subfeature?: string | null;
+    feature: AiUsageFeature;
+    subfeature?: AiUsageSubfeature | null;
     model: string;
     reasoningEffort?: string | null;
-    trigger: "user" | "system";
+    trigger: AiUsageTrigger;
     actionId?: string | null;
     execute: () => Promise<{
       result: T;
@@ -5079,7 +5103,11 @@ export class TongsCommitService {
         ? executed.billableTokens
         : calculateForgeBillingTokens(actualCostUsd);
 
-      if (args.lane === "forge") {
+      if (!isAiUsageLane(args.lane)) {
+        throw new Error(`Invalid ai_usage_events lane '${String(args.lane)}'`);
+      }
+
+      if (args.lane === AI_USAGE_LANE.FORGE) {
         await this.recordAiUsageEvent({
           userId: args.userId,
           workspaceId: args.workspaceId,
@@ -5096,7 +5124,7 @@ export class TongsCommitService {
           actualCostUsd,
           billableTokens,
           trigger: args.trigger,
-          status: "success",
+          status: AI_USAGE_STATUS.SUCCESS,
           actionId: args.actionId,
           providerRequestId: executed.providerRequestId ?? null,
         });
@@ -5113,7 +5141,7 @@ export class TongsCommitService {
         providerRequestId: executed.providerRequestId ?? null,
       };
     } catch (error) {
-      if (args.lane === "forge") {
+      if (args.lane === AI_USAGE_LANE.FORGE) {
         await this.recordAiUsageEvent({
           userId: args.userId,
           workspaceId: args.workspaceId,
@@ -5130,7 +5158,7 @@ export class TongsCommitService {
           actualCostUsd: 0,
           billableTokens: 0,
           trigger: args.trigger,
-          status: "error",
+          status: AI_USAGE_STATUS.ERROR,
           actionId: args.actionId,
           providerRequestId: null,
         });
@@ -5845,10 +5873,10 @@ export class TongsCommitService {
       userId,
       workspaceId: workspace.id,
       workpieceId,
-      feature: "thumbnail_generate",
-      subfeature: "concept_render",
+      feature: AI_USAGE_FEATURE.THUMBNAIL_GENERATE,
+      subfeature: AI_USAGE_SUBFEATURE.CONCEPT_RENDER,
       model: "gpt-image-1",
-      trigger: "user",
+      trigger: AI_USAGE_TRIGGER.USER,
       actionId: thumbnailActionId,
       execute: async () => {
         const image = await this.imageProvider!.generateImage({
@@ -7030,9 +7058,9 @@ export class TongsCommitService {
     const aspect = input.aspect?.trim() || "16:9";
     const size = input.size?.trim() || null;
     const variants = [
-      { label: "explainer", divergenceHint: null as string | null },
+      { label: AI_USAGE_SUBFEATURE.EXPLAINER, divergenceHint: null as string | null },
       {
-        label: "illustrative",
+        label: AI_USAGE_SUBFEATURE.ILLUSTRATIVE,
         divergenceHint: "Use a noticeably different composition than the explainer variant: change framing, distance, and visual emphasis so the editor has a real choice.",
       },
     ];
@@ -7058,10 +7086,10 @@ export class TongsCommitService {
         userId: auth.userId,
         workspaceId: input.workspace_id,
         workpieceId,
-        feature: "image_map_candidate_generate",
+        feature: AI_USAGE_FEATURE.IMAGE_MAP_CANDIDATE_GENERATE,
         subfeature: variant.label,
         model: "gpt-image-1",
-        trigger: "user",
+        trigger: AI_USAGE_TRIGGER.USER,
         actionId: imageMapActionId,
         execute: async () => {
           const image = await this.imageProvider!.generateImage({
@@ -7104,10 +7132,10 @@ export class TongsCommitService {
         userId: auth.userId,
         workspaceId: input.workspace_id,
         workpieceId,
-        feature: "image_map_candidate_generate",
-        subfeature: "illustrative_retry",
+        feature: AI_USAGE_FEATURE.IMAGE_MAP_CANDIDATE_GENERATE,
+        subfeature: AI_USAGE_SUBFEATURE.ILLUSTRATIVE_RETRY,
         model: "gpt-image-1",
-        trigger: "system",
+        trigger: AI_USAGE_TRIGGER.SYSTEM,
         actionId: imageMapActionId,
         execute: async () => {
           const image = await this.imageProvider!.generateImage({
