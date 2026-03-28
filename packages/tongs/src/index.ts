@@ -5,6 +5,7 @@ export * from "./defaults.js";
 export * from "./roles.js";
 export * from "./calendar-events.js";
 export * from "./ai-policy.js";
+export * from "./ai-pricing.js";
 export * from "./db.types.js";
 export * from "./workpiece-commit-api.js";
 export * from "./storage/storage-contract.js";

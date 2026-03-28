@@ -30,6 +30,7 @@ import {
   type AiDecisionType,
   type AiReasonCode,
 } from "@forge/tongs/ai-policy";
+import { QUENCH_METADATA_ASSIST_ROUTE } from "../../quench/src/core/quenchMetadataAssist.contract";
 
 type Next = (err?: unknown) => void;
 
@@ -96,6 +97,14 @@ type CleanupAssistRequest = {
   workpiece_id: string;
   segments: CleanupAssistSegment[];
   segment_ids: string[];
+};
+
+type QuenchMetadataAssistRequest = {
+  workspace_id: string;
+  workpiece_id: string;
+  title: string;
+  description: string;
+  tags: string[];
 };
 
 const AI_POLICY_REASON_CODE_SET = new Set<string>(AI_REASON_CODES);

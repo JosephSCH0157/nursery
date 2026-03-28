@@ -18,6 +18,10 @@ import {
   resolveWorkspaceCloudWriteTarget,
 } from "./storage/cloud-prefix.js";
 import { validateScriptTags } from "@forge/shared/script-tags";
+import {
+  calculateForgeBillingTokens,
+  estimateOpenAiCost,
+} from "./ai-pricing.js";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
@@ -3134,28 +3138,6 @@ function estimateImageTokenSpend(prompt: string, tokensFromProvider: number | nu
   return Math.max(1, Math.ceil(prompt.length / 4));
 }
 
-function estimateAiCostUsd(args: {
-  model: string;
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-}): number {
-  const normalized = args.model.trim().toLowerCase();
-  const input = Math.max(0, Math.floor(args.inputTokens));
-  const output = Math.max(0, Math.floor(args.outputTokens));
-  const total = Math.max(0, Math.floor(args.totalTokens));
-  const perK = (() => {
-    if (normalized === "gpt-image-1") return { input: 0.005, output: 0.005 };
-    if (normalized.startsWith("gpt-4o-mini")) return { input: 0.00015, output: 0.0006 };
-    if (normalized.startsWith("gpt-4o")) return { input: 0.0025, output: 0.01 };
-    return { input: 0.001, output: 0.003 };
-  })();
-  if (input > 0 || output > 0) {
-    return ((input / 1000) * perK.input) + ((output / 1000) * perK.output);
-  }
-  return (total / 1000) * perK.input;
-}
-
 function normalizeThumbnailConcept(value: unknown): EpisodeThumbnailConceptRecord | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
@@ -5086,14 +5068,16 @@ export class TongsCommitService {
       const executed = await args.execute();
       const estimatedCostUsd = typeof executed.estimatedCostUsd === "number"
         ? executed.estimatedCostUsd
-        : estimateAiCostUsd({
-            model: args.model,
+        : estimateOpenAiCost(args.model, {
             inputTokens: executed.inputTokens,
             outputTokens: executed.outputTokens,
             totalTokens: executed.totalTokens,
-          });
+            cachedInputTokens: 0,
+          }).estimatedCostUsd;
       const actualCostUsd = typeof executed.actualCostUsd === "number" ? executed.actualCostUsd : estimatedCostUsd;
-      const billableTokens = typeof executed.billableTokens === "number" ? executed.billableTokens : executed.totalTokens;
+      const billableTokens = typeof executed.billableTokens === "number"
+        ? executed.billableTokens
+        : calculateForgeBillingTokens(actualCostUsd);
 
       if (args.lane === "forge") {
         await this.recordAiUsageEvent({
@@ -5880,7 +5864,6 @@ export class TongsCommitService {
           inputTokens,
           outputTokens,
           totalTokens,
-          billableTokens: totalTokens,
           providerRequestId: image.providerRequestId,
         };
       },
@@ -7094,7 +7077,6 @@ export class TongsCommitService {
             inputTokens,
             outputTokens,
             totalTokens,
-            billableTokens: totalTokens,
             providerRequestId: image.providerRequestId,
           };
         },
@@ -7141,7 +7123,6 @@ export class TongsCommitService {
             inputTokens,
             outputTokens,
             totalTokens,
-            billableTokens: totalTokens,
             providerRequestId: image.providerRequestId,
           };
         },

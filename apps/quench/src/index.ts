@@ -4,6 +4,7 @@ export * from "./core/hammer-release-packet.types";
 export * from "./core/hammer-release-packet.ingest";
 export * from "./core/asset-resolver";
 export * from "./core/readiness";
+export * from "./core/quenchMetadataAssist.contract";
 export * from "./adapters/adapter.contract";
 export * from "./adapters/rss/rss.adapter";
 export * from "./adapters/youtube/youtube.adapter";
