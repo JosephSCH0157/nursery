@@ -714,6 +714,8 @@ function formatAssetKindLabel(kind: HammerSourceAssetKind): string {
 
 const NUMERIC_SIGNAL_RE = /\b(\d+([.,]\d+)?%?|\d{4}|increase|decrease|up|down|trend|timeline|year|month|week|compared|versus|vs\.?)\b/i;
 const MOTION_SIGNAL_RE = /\b(move|moving|walk|walking|run|running|drive|driving|enter|entering|exit|transition|story|journey|reveal|show|follow)\b/i;
+const PACING_TOKEN_RE = /\[(pause|beat|reflective pause)\]/gi;
+const EXTERNAL_PROVIDER_LAUNCH_URL = "https://chat.openai.com/";
 
 function resolveMediaMapSuggestionType(text: string): {
   type: HammerMediaMapSuggestionType;
@@ -738,6 +740,19 @@ function buildMediaMapPrompt(args: {
     : `B-roll: support story motion for "${args.text}".`;
   const tweak = args.tweak.trim();
   return tweak ? `${base} Tweak: ${tweak}` : base;
+}
+
+function buildTimelineImagePrompt(args: { text: string; tweak: string }): string {
+  const tweak = args.tweak.trim();
+  const base = `Timeline image: still frame that supports "${args.text}".`;
+  return tweak ? `${base} Tweak: ${tweak}` : base;
+}
+
+function sanitizePromptForCopy(prompt: string): string {
+  return prompt
+    .replace(PACING_TOKEN_RE, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 function formatBytes(bytes: number | null): string {
@@ -1679,6 +1694,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   });
   const [storedMediaFiles, setStoredMediaFiles] = useState<HammerStoredMediaFile[]>([]);
   const [mediaMapBeats, setMediaMapBeats] = useState<HammerMediaMapBeat[]>([]);
+  const [removedMediaMapSegmentIds, setRemovedMediaMapSegmentIds] = useState<string[]>([]);
+  const [copiedPromptKey, setCopiedPromptKey] = useState<string | null>(null);
   const [sourceDeskLoading, setSourceDeskLoading] = useState(false);
   const [sourceDeskError, setSourceDeskError] = useState<string | null>(null);
   const [uploadingCategory, setUploadingCategory] = useState<"images" | "broll" | "introoutro" | null>(null);
@@ -1704,6 +1721,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [loadedPreparedPackage, setLoadedPreparedPackage] = useState<HammerPreparedReleasePackage | null>(null);
   const [studioRackRenderStatus, setStudioRackRenderStatus] = useState<HammerDialogueRenderExecutionResult | null>(null);
   const [transcriptTimingHint, setTranscriptTimingHint] = useState<string | null>(null);
+  const [thumbnailPromptDraft, setThumbnailPromptDraft] = useState("");
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const [playbackMediaSrc, setPlaybackMediaSrc] = useState<string | null>(null);
   const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -1732,6 +1750,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const scrubRectRef = useRef<{ left: number; width: number } | null>(null);
   const scrubAutoPlayRef = useRef(false);
   const scrubReturnToPausedRef = useRef(false);
+  const copiedPromptTimerRef = useRef<number | null>(null);
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
   const lastGapAutoApplySignatureRef = useRef<string | null>(null);
   const imagePlacementDraftWindowsRef = useRef<Record<string, HammerImagePlacementDraftWindow>>({});
@@ -2257,9 +2276,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [brollSuggestionItems, editableVisualPlacements?.placements]);
 
   useEffect(() => {
+    const removedSet = new Set(removedMediaMapSegmentIds);
     setMediaMapBeats((current) => {
       const nextBase = editableTranscriptSegments
         .slice(0, 12)
+        .filter((segment) => !removedSet.has(segment.segment_id))
         .map((segment) => {
           const suggested = resolveMediaMapSuggestionType(segment.text);
           const existing = current.find((item) => item.segmentId === segment.segment_id) ?? null;
@@ -2281,7 +2302,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       const changed = JSON.stringify(current) !== JSON.stringify(nextBase);
       return changed ? nextBase : current;
     });
-  }, [editableTranscriptSegments, sourceVisualPlacementBySegmentId]);
+  }, [editableTranscriptSegments, removedMediaMapSegmentIds, sourceVisualPlacementBySegmentId]);
   const sourceImageLibraryItems = useMemo(
     () => storedMediaFiles.filter((file) => file.kind === "image"),
     [storedMediaFiles],
@@ -4605,6 +4626,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useEffect(() => {
     setAudioFinalizationCompareMode(editableStudioRack.is_bypassed ? "before" : "after");
   }, [editableStudioRack.is_bypassed]);
+  useEffect(() => () => {
+    if (copiedPromptTimerRef.current != null) {
+      window.clearTimeout(copiedPromptTimerRef.current);
+      copiedPromptTimerRef.current = null;
+    }
+  }, []);
   useEffect(() => {
     if (packagingLogoAssetPath) return;
     const preferred = packagingLogoPlacement?.asset_path
@@ -4629,6 +4656,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       setPackagingLogoAssetPath(packagingLogoPlacement.asset_path);
     }
   }, [packagingLogoPlacement]);
+  useEffect(() => {
+    if (thumbnailPromptDraft.trim().length > 0) return;
+    const sourceText = selectedSegment?.text
+      ?? editableTranscriptSegments[0]?.text
+      ?? "podcast episode cover concept";
+    setThumbnailPromptDraft(`Thumbnail: bold podcast cover frame for "${sourceText}".`);
+  }, [editableTranscriptSegments, selectedSegment?.text, thumbnailPromptDraft]);
   useEffect(() => {
     if (!imageAnimationContextMenu) return;
     const closeMenu = (): void => setImageAnimationContextMenu(null);
@@ -5455,6 +5489,49 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
+  function markPromptCopied(key: string): void {
+    setCopiedPromptKey(key);
+    if (copiedPromptTimerRef.current != null) {
+      window.clearTimeout(copiedPromptTimerRef.current);
+    }
+    copiedPromptTimerRef.current = window.setTimeout(() => {
+      setCopiedPromptKey((current) => (current === key ? null : current));
+      copiedPromptTimerRef.current = null;
+    }, 1400);
+  }
+
+  async function copyPromptToClipboard(args: { key: string; prompt: string }): Promise<boolean> {
+    const cleanedPrompt = sanitizePromptForCopy(args.prompt);
+    if (!cleanedPrompt) {
+      setTranscriptTimingHint("Prompt is empty. Add text before copying.");
+      return false;
+    }
+    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+      setTranscriptTimingHint("Clipboard is unavailable in this browser context.");
+      return false;
+    }
+    try {
+      await navigator.clipboard.writeText(cleanedPrompt);
+      markPromptCopied(args.key);
+      setTranscriptTimingHint("Prompt copied.");
+      return true;
+    } catch {
+      setTranscriptTimingHint("Prompt copy failed. Check clipboard permissions.");
+      return false;
+    }
+  }
+
+  async function sendPromptToProvider(args: {
+    key: string;
+    prompt: string;
+    label: string;
+  }): Promise<void> {
+    const copied = await copyPromptToClipboard({ key: args.key, prompt: args.prompt });
+    if (!copied) return;
+    window.open(EXTERNAL_PROVIDER_LAUNCH_URL, "_blank", "noopener,noreferrer");
+    setTranscriptTimingHint(`Opened provider bridge for ${args.label}. Prompt copied for paste.`);
+  }
+
   function queueMediaMapBeatSuggestion(beat: HammerMediaMapBeat): void {
     applyHistoryMutation({
       label: "Queue Media Map suggestion",
@@ -5491,6 +5568,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   function redoMediaMapFromScript(): void {
+    setRemovedMediaMapSegmentIds([]);
     const nextBeats = editableTranscriptSegments.slice(0, 12).map((segment) => {
       const suggested = resolveMediaMapSuggestionType(segment.text);
       const linkedPlacement = sourceVisualPlacementBySegmentId.get(segment.segment_id) ?? null;
@@ -5509,7 +5587,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       } satisfies HammerMediaMapBeat;
     });
     setMediaMapBeats(nextBeats);
-    setTranscriptTimingHint("Media Map regenerated from current transcript. Removed beats may reappear.");
+    setTranscriptTimingHint("Media Map regenerated from current transcript.");
   }
 
   function resolveHearthBrollSuggestion(args: {
@@ -7969,6 +8047,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       {mediaMapBeats.map((beat) => {
                         const brollPrompt = buildMediaMapPrompt({ type: "broll", text: beat.sourceText, tweak: beat.tweak });
                         const referencePrompt = buildMediaMapPrompt({ type: "reference_clip", text: beat.sourceText, tweak: beat.tweak });
+                        const timelineImagePrompt = buildTimelineImagePrompt({ text: beat.sourceText, tweak: beat.tweak });
+                        const timelineCopyKey = `timeline:${beat.id}`;
                         return (
                           <article key={beat.id} className="hammer-source-card">
                             <header className="hammer-source-card__head">
@@ -8014,17 +8094,44 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             </label>
                             <div className="hammer-source-card__path">B-roll prompt: {brollPrompt}</div>
                             <div className="hammer-source-card__path">Reference prompt: {referencePrompt}</div>
+                            <div className="hammer-source-card__path">Timeline image prompt: {timelineImagePrompt}</div>
                             <div className="hammer-source-card__actions">
                               <button
                                 type="button"
                                 onClick={() => {
                                   setMediaMapBeats((current) => current.filter((item) => item.id !== beat.id));
+                                  setRemovedMediaMapSegmentIds((current) => (
+                                    current.includes(beat.segmentId) ? current : [...current, beat.segmentId]
+                                  ));
                                   if (beat.linkedPlacementId) {
                                     removeVisualPlacement(beat.linkedPlacementId);
                                   }
                                 }}
                               >
                                 Remove visual
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void copyPromptToClipboard({
+                                    key: timelineCopyKey,
+                                    prompt: timelineImagePrompt,
+                                  });
+                                }}
+                              >
+                                {copiedPromptKey === timelineCopyKey ? "Copied" : "Copy Prompt"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void sendPromptToProvider({
+                                    key: timelineCopyKey,
+                                    prompt: timelineImagePrompt,
+                                    label: "timeline image beat",
+                                  });
+                                }}
+                              >
+                                Send to Provider
                               </button>
                               <button type="button" onClick={() => queueMediaMapBeatSuggestion(beat)}>
                                 Queue Suggestion
@@ -8108,6 +8215,29 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             <span>Uses: {item.usageCount}</span>
                           </div>
                           <div className="hammer-source-card__actions">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void copyPromptToClipboard({
+                                  key: `broll:${item.id}`,
+                                  prompt: `B-roll: ${item.label}.`,
+                                });
+                              }}
+                            >
+                              {copiedPromptKey === `broll:${item.id}` ? "Copied" : "Copy Prompt"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void sendPromptToProvider({
+                                  key: `broll:${item.id}`,
+                                  prompt: `B-roll: ${item.label}.`,
+                                  label: "B-roll",
+                                });
+                              }}
+                            >
+                              Send to Provider
+                            </button>
                             <button type="button" onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}>Cue</button>
                           </div>
                         </article>
@@ -8134,6 +8264,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             <span>Uses: {item.usageCount}</span>
                           </div>
                           <div className="hammer-source-card__path">{item.assetPath ?? "asset path unavailable"}</div>
+                          <div className="hammer-source-card__actions">
+                            <button
+                              type="button"
+                              onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}
+                            >
+                              {item.assetPath ? "Regenerate" : "Generate"}
+                            </button>
+                            <button type="button" onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}>Cue</button>
+                          </div>
                         </article>
                       ))}
                     </>
@@ -10554,6 +10693,43 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </label>
                     <div className="hammer-tool-hint">
                       Logo overlay: {packagingLogoPlacement ? "enabled (episode-wide)" : "disabled"}
+                    </div>
+                    <label className="hammer-tool-field">
+                      <span>Thumbnail Prompt</span>
+                      <textarea
+                        value={thumbnailPromptDraft}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setThumbnailPromptDraft(event.target.value);
+                        }}
+                        rows={3}
+                        placeholder="Describe a strong thumbnail concept."
+                      />
+                    </label>
+                    <div className="hammer-source-card__actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void copyPromptToClipboard({
+                            key: "thumbnail:packaging",
+                            prompt: thumbnailPromptDraft,
+                          });
+                        }}
+                      >
+                        {copiedPromptKey === "thumbnail:packaging" ? "Copied" : "Copy Prompt"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void sendPromptToProvider({
+                            key: "thumbnail:packaging",
+                            prompt: thumbnailPromptDraft,
+                            label: "thumbnail",
+                          });
+                        }}
+                      >
+                        Send to Provider
+                      </button>
                     </div>
                   </section>
                 ) : (

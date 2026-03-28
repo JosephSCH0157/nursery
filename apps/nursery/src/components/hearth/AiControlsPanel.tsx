@@ -62,6 +62,101 @@ type AiCostAuditRow = {
   workspace_id: string | null;
 };
 
+type AiSpendRollupRow = {
+  day: string;
+  feature: string;
+  subfeature: string | null;
+  lane: string;
+  call_count: number;
+  deduped_action_count: number;
+  total_actual_cost_usd: number;
+  total_billable_tokens: number;
+};
+
+type AiTopActionRow = {
+  action_key: string;
+  feature: string;
+  subfeature: string | null;
+  lane: string;
+  call_count: number;
+  total_actual_cost_usd: number;
+  total_billable_tokens: number;
+  last_seen_at: string;
+};
+
+type CostDriverSummary = {
+  totalActualCostUsd: number;
+  totalBillableTokens: number;
+  callCount: number;
+  dedupedActionCount: number;
+  topFeaturesBySpend: Array<{
+    feature: string;
+    actualCostUsd: number;
+    billableTokens: number;
+    callCount: number;
+    dedupedActionCount: number;
+  }>;
+  topFeaturesByCallCount: Array<{
+    feature: string;
+    actualCostUsd: number;
+    billableTokens: number;
+    callCount: number;
+    dedupedActionCount: number;
+  }>;
+};
+
+function buildCostDriverSummary(rows: AiSpendRollupRow[]): CostDriverSummary {
+  const totals = rows.reduce((acc, row) => ({
+    totalActualCostUsd: Number((acc.totalActualCostUsd + Math.max(0, row.total_actual_cost_usd)).toFixed(6)),
+    totalBillableTokens: acc.totalBillableTokens + Math.max(0, row.total_billable_tokens),
+    callCount: acc.callCount + Math.max(0, row.call_count),
+    dedupedActionCount: acc.dedupedActionCount + Math.max(0, row.deduped_action_count),
+  }), {
+    totalActualCostUsd: 0,
+    totalBillableTokens: 0,
+    callCount: 0,
+    dedupedActionCount: 0,
+  });
+
+  const byFeature = new Map<string, {
+    feature: string;
+    actualCostUsd: number;
+    billableTokens: number;
+    callCount: number;
+    dedupedActionCount: number;
+  }>();
+
+  for (const row of rows) {
+    const feature = row.feature || "unknown";
+    const current = byFeature.get(feature) ?? {
+      feature,
+      actualCostUsd: 0,
+      billableTokens: 0,
+      callCount: 0,
+      dedupedActionCount: 0,
+    };
+    current.actualCostUsd = Number((current.actualCostUsd + Math.max(0, row.total_actual_cost_usd)).toFixed(6));
+    current.billableTokens += Math.max(0, row.total_billable_tokens);
+    current.callCount += Math.max(0, row.call_count);
+    current.dedupedActionCount += Math.max(0, row.deduped_action_count);
+    byFeature.set(feature, current);
+  }
+
+  const featureRows = Array.from(byFeature.values());
+  const topFeaturesBySpend = [...featureRows]
+    .sort((a, b) => b.actualCostUsd - a.actualCostUsd || b.callCount - a.callCount)
+    .slice(0, 5);
+  const topFeaturesByCallCount = [...featureRows]
+    .sort((a, b) => b.callCount - a.callCount || b.actualCostUsd - a.actualCostUsd)
+    .slice(0, 5);
+
+  return {
+    ...totals,
+    topFeaturesBySpend,
+    topFeaturesByCallCount,
+  };
+}
+
 type MammothApi = {
   extractRawText: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value?: string }>;
 };
@@ -237,6 +332,12 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
   const [costAuditRows, setCostAuditRows] = React.useState<AiCostAuditRow[]>([]);
   const [costAuditLoading, setCostAuditLoading] = React.useState(false);
   const [costAuditError, setCostAuditError] = React.useState<string | null>(null);
+  const [topCostDriversLoading, setTopCostDriversLoading] = React.useState(false);
+  const [topCostDriversError, setTopCostDriversError] = React.useState<string | null>(null);
+  const [todaySpendRollupRows, setTodaySpendRollupRows] = React.useState<AiSpendRollupRow[]>([]);
+  const [weekSpendRollupRows, setWeekSpendRollupRows] = React.useState<AiSpendRollupRow[]>([]);
+  const [todayTopActions, setTodayTopActions] = React.useState<AiTopActionRow[]>([]);
+  const [weekTopActions, setWeekTopActions] = React.useState<AiTopActionRow[]>([]);
   const insightsContainerRef = React.useRef<HTMLDivElement | null>(null);
   const canManageFeatures = roleCanManageFeatures(workspaceRole);
   const devMode = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV === true;
@@ -396,9 +497,89 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
     setCostAuditLoading(false);
   }, []);
 
+  const loadTopCostDrivers = React.useCallback(async () => {
+    setTopCostDriversLoading(true);
+    setTopCostDriversError(null);
+
+    const tongsRpcClient = supabase.schema("tongs") as unknown as {
+      rpc: (fn: string, args?: Record<string, unknown>) => Promise<{
+        data: unknown;
+        error: { message: string } | null;
+      }>;
+    };
+
+    const [todayRollup, weekRollup, todayActions, weekActions] = await Promise.all([
+      tongsRpcClient.rpc("get_my_ai_spend_rollup", { p_days: 1 }),
+      tongsRpcClient.rpc("get_my_ai_spend_rollup", { p_days: 7 }),
+      tongsRpcClient.rpc("get_my_ai_top_actions", { p_days: 1, p_limit: 8 }),
+      tongsRpcClient.rpc("get_my_ai_top_actions", { p_days: 7, p_limit: 8 }),
+    ]);
+
+    const firstError = todayRollup.error ?? weekRollup.error ?? todayActions.error ?? weekActions.error;
+    if (firstError) {
+      setTodaySpendRollupRows([]);
+      setWeekSpendRollupRows([]);
+      setTodayTopActions([]);
+      setWeekTopActions([]);
+      setTopCostDriversError(firstError.message);
+      setTopCostDriversLoading(false);
+      return;
+    }
+
+    const toRollupRows = (value: unknown): AiSpendRollupRow[] => {
+      if (!Array.isArray(value)) return [];
+      return value
+        .filter((row) => !!row && typeof row === "object")
+        .map((row) => {
+          const typed = row as Record<string, unknown>;
+          return {
+            day: String(typed.day ?? ""),
+            feature: String(typed.feature ?? "unknown"),
+            subfeature: typed.subfeature == null ? null : String(typed.subfeature),
+            lane: String(typed.lane ?? "unknown"),
+            call_count: Number(typed.call_count ?? 0) || 0,
+            deduped_action_count: Number(typed.deduped_action_count ?? 0) || 0,
+            total_actual_cost_usd: Number(typed.total_actual_cost_usd ?? 0) || 0,
+            total_billable_tokens: Number(typed.total_billable_tokens ?? 0) || 0,
+          };
+        })
+        .sort((a, b) => b.total_actual_cost_usd - a.total_actual_cost_usd || b.call_count - a.call_count);
+    };
+
+    const toTopActions = (value: unknown): AiTopActionRow[] => {
+      if (!Array.isArray(value)) return [];
+      return value
+        .filter((row) => !!row && typeof row === "object")
+        .map((row) => {
+          const typed = row as Record<string, unknown>;
+          return {
+            action_key: String(typed.action_key ?? ""),
+            feature: String(typed.feature ?? "unknown"),
+            subfeature: typed.subfeature == null ? null : String(typed.subfeature),
+            lane: String(typed.lane ?? "unknown"),
+            call_count: Number(typed.call_count ?? 0) || 0,
+            total_actual_cost_usd: Number(typed.total_actual_cost_usd ?? 0) || 0,
+            total_billable_tokens: Number(typed.total_billable_tokens ?? 0) || 0,
+            last_seen_at: String(typed.last_seen_at ?? ""),
+          };
+        })
+        .sort((a, b) => b.total_actual_cost_usd - a.total_actual_cost_usd || b.call_count - a.call_count);
+    };
+
+    setTodaySpendRollupRows(toRollupRows(todayRollup.data));
+    setWeekSpendRollupRows(toRollupRows(weekRollup.data));
+    setTodayTopActions(toTopActions(todayActions.data));
+    setWeekTopActions(toTopActions(weekActions.data));
+    setTopCostDriversLoading(false);
+  }, []);
+
+  const refreshInternalCostViews = React.useCallback(async () => {
+    await Promise.all([loadCostAudit(), loadTopCostDrivers()]);
+  }, [loadCostAudit, loadTopCostDrivers]);
+
   React.useEffect(() => {
-    void loadCostAudit();
-  }, [loadCostAudit]);
+    void refreshInternalCostViews();
+  }, [refreshInternalCostViews]);
 
   const costAuditTotals = React.useMemo(() => {
     return costAuditRows.reduce((acc, row) => ({
@@ -407,6 +588,9 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
       actualCostUsd: Number((acc.actualCostUsd + Math.max(0, row.actual_cost_usd)).toFixed(6)),
     }), { totalTokens: 0, billableTokens: 0, actualCostUsd: 0 });
   }, [costAuditRows]);
+
+  const todayCostDriverSummary = React.useMemo(() => buildCostDriverSummary(todaySpendRollupRows), [todaySpendRollupRows]);
+  const weekCostDriverSummary = React.useMemo(() => buildCostDriverSummary(weekSpendRollupRows), [weekSpendRollupRows]);
 
   function updateLane(lane: AiLane) {
     const next = { ...settings, lane };
@@ -863,8 +1047,8 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
       <div className="forge-ai-panel__section">
         <div className="forge-ai-panel__label">AI Cost Today (Internal)</div>
         <div className="forge-ai-panel__row">
-          <button type="button" onClick={() => void loadCostAudit()} disabled={costAuditLoading}>
-            {costAuditLoading ? "Refreshing..." : "Refresh"}
+          <button type="button" onClick={() => void refreshInternalCostViews()} disabled={costAuditLoading || topCostDriversLoading}>
+            {(costAuditLoading || topCostDriversLoading) ? "Refreshing..." : "Refresh"}
           </button>
           <span>
             ${costAuditTotals.actualCostUsd.toFixed(4)} | {costAuditTotals.billableTokens} billable | {costAuditTotals.totalTokens} raw tokens
@@ -883,6 +1067,77 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
                 </li>
               ))}
             </ul>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="forge-ai-panel__section">
+        <div className="forge-ai-panel__label">Top Cost Drivers (Internal)</div>
+        {topCostDriversError ? <div className="forge-ai-panel__hint">{topCostDriversError}</div> : null}
+
+        {!topCostDriversError ? (
+          <div className="forge-ai-panel__style-insights forge-ai-panel__style-insights--audit">
+            <div className="forge-ai-panel__style-meta">
+              Today: ${todayCostDriverSummary.totalActualCostUsd.toFixed(4)} | {todayCostDriverSummary.totalBillableTokens} billable | {todayCostDriverSummary.callCount} calls | {todayCostDriverSummary.dedupedActionCount} deduped actions
+            </div>
+            {todayCostDriverSummary.topFeaturesBySpend.length ? (
+              <ul className="forge-ai-panel__style-list">
+                {todayCostDriverSummary.topFeaturesBySpend.map((row) => (
+                  <li key={`today:spend:${row.feature}`}>
+                    [today spend] {row.feature} | ${row.actualCostUsd.toFixed(4)} | {row.callCount} calls | {row.dedupedActionCount} deduped
+                  </li>
+                ))}
+              </ul>
+            ) : <div className="forge-ai-panel__hint">No spend rows for today.</div>}
+            {todayCostDriverSummary.topFeaturesByCallCount.length ? (
+              <ul className="forge-ai-panel__style-list">
+                {todayCostDriverSummary.topFeaturesByCallCount.map((row) => (
+                  <li key={`today:calls:${row.feature}`}>
+                    [today calls] {row.feature} | {row.callCount} calls | ${row.actualCostUsd.toFixed(4)}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {todayTopActions.length ? (
+              <ul className="forge-ai-panel__style-list">
+                {todayTopActions.map((row) => (
+                  <li key={`today:action:${row.action_key}`}>
+                    [today action] {row.feature}{row.subfeature ? `/${row.subfeature}` : ""} | {row.lane} | ${row.total_actual_cost_usd.toFixed(4)} | {row.call_count} calls
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
+            <div className="forge-ai-panel__style-meta">
+              7 days: ${weekCostDriverSummary.totalActualCostUsd.toFixed(4)} | {weekCostDriverSummary.totalBillableTokens} billable | {weekCostDriverSummary.callCount} calls | {weekCostDriverSummary.dedupedActionCount} deduped actions
+            </div>
+            {weekCostDriverSummary.topFeaturesBySpend.length ? (
+              <ul className="forge-ai-panel__style-list">
+                {weekCostDriverSummary.topFeaturesBySpend.map((row) => (
+                  <li key={`week:spend:${row.feature}`}>
+                    [7d spend] {row.feature} | ${row.actualCostUsd.toFixed(4)} | {row.callCount} calls | {row.dedupedActionCount} deduped
+                  </li>
+                ))}
+              </ul>
+            ) : <div className="forge-ai-panel__hint">No spend rows for the last 7 days.</div>}
+            {weekCostDriverSummary.topFeaturesByCallCount.length ? (
+              <ul className="forge-ai-panel__style-list">
+                {weekCostDriverSummary.topFeaturesByCallCount.map((row) => (
+                  <li key={`week:calls:${row.feature}`}>
+                    [7d calls] {row.feature} | {row.callCount} calls | ${row.actualCostUsd.toFixed(4)}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {weekTopActions.length ? (
+              <ul className="forge-ai-panel__style-list">
+                {weekTopActions.map((row) => (
+                  <li key={`week:action:${row.action_key}`}>
+                    [7d action] {row.feature}{row.subfeature ? `/${row.subfeature}` : ""} | {row.lane} | ${row.total_actual_cost_usd.toFixed(4)} | {row.call_count} calls
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         ) : null}
       </div>
