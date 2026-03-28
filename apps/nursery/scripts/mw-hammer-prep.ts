@@ -22,6 +22,12 @@ import {
   type HammerTranscriptPrepSegment,
 } from "../../hammer/src/prep/hammerPrepApi";
 import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
+import {
+  AI_REASON_CODES,
+  getAiReasonMessage,
+  type AiDecisionType,
+  type AiReasonCode,
+} from "@forge/tongs/ai-policy";
 
 type Next = (err?: unknown) => void;
 
@@ -66,6 +72,13 @@ type NormalizedCanonicalWorkpieceRequest = Omit<
 > & {
   canonical_workpiece_path: string;
 };
+
+type AiPolicyResolveRow = {
+  decision_type?: unknown;
+  reason_code?: unknown;
+};
+
+const AI_POLICY_REASON_CODE_SET = new Set<string>(AI_REASON_CODES);
 
 function readTrimmed(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -123,6 +136,58 @@ function readHeaderNumber(headers: Headers, name: string): number | null {
   if (!value) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readHeaderString(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) return readTrimmed(value[0]);
+  return readTrimmed(value);
+}
+
+function readBearerToken(value: string | null): string | null {
+  const normalized = readTrimmed(value);
+  if (!normalized) return null;
+  if (/^bearer\s+/i.test(normalized)) {
+    const token = normalized.replace(/^bearer\s+/i, "").trim();
+    return token || null;
+  }
+  return normalized;
+}
+
+function readForgeUserAccessToken(req: IncomingMessage): string | null {
+  const explicitToken = readHeaderString(req.headers["x-forge-user-token"]);
+  if (explicitToken) {
+    return readBearerToken(explicitToken);
+  }
+  const forgeAuth = readHeaderString(req.headers["x-forge-user-authorization"]);
+  if (forgeAuth) {
+    return readBearerToken(forgeAuth);
+  }
+  return null;
+}
+
+function buildSupabaseRpcHeaders(args: {
+  rpcKey: string;
+  userAccessToken: string;
+}): Headers {
+  const headers = new Headers();
+  headers.set("apikey", args.rpcKey);
+  headers.set("authorization", `Bearer ${args.userAccessToken}`);
+  headers.set("accept-profile", "tongs");
+  headers.set("content-profile", "tongs");
+  headers.set("content-type", "application/json");
+  return headers;
+}
+
+function readAiPolicyDecisionType(value: unknown): AiDecisionType | null {
+  return value === "ALLOW" || value === "SOFT_DENY" || value === "HARD_DENY"
+    ? value
+    : null;
+}
+
+function readAiPolicyReasonCode(value: unknown): AiReasonCode | null {
+  return typeof value === "string" && AI_POLICY_REASON_CODE_SET.has(value)
+    ? (value as AiReasonCode)
+    : null;
 }
 
 function createTimeoutAbortController(timeoutMs: number): {

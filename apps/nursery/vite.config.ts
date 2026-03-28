@@ -1,5 +1,6 @@
 import { defineConfig, type Connect } from "vite";
 import type { ServerResponse } from "node:http";
+import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { resolve, join, dirname, isAbsolute, extname, sep } from "path";
 import fs from "node:fs";
@@ -9,6 +10,9 @@ import { createHammerPrepMiddleware } from "./scripts/mw-hammer-prep";
 import { mwAnvilWhisperApi } from "./scripts/mw-anvil-whisper-api";
 import { mwHearthChatApi } from "./scripts/mw-hearth-chat-api";
 import { createNurseryTongsMiddleware } from "./scripts/mw-tongs-commit-api";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const RETRYABLE_PUBLIC_COPY_CODES = new Set(["EPERM", "EBUSY", "ENOTEMPTY"]);
 const PUBLIC_COPY_RETRIES = 6;
