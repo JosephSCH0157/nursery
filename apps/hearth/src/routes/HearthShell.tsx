@@ -294,6 +294,7 @@ const SESSION_SAVE_DELAY_MS = 500;
 const STORE_KIND_KEY = "hearth_store_kind";
 const DEV_MODE_KEY = "tp_dev_mode";
 const MODE_STORAGE_PREFIX = "hearth:ui:mode:v1:";
+const UI_DENSITY_STORAGE_PREFIX = "hearth:ui:density:v1:";
 const WORKPIECE_TAB_STORAGE_PREFIX = "hearth:workpiece-tab:v1:";
 const WORKSPACE_TAB_STORAGE_PREFIX = "hearth:workspace-tab:v1:";
 const LAST_WORKPIECE_TAB_STORAGE_KEY = "hearth:workpiece-tab:last:v1";
@@ -317,6 +318,7 @@ const ANVIL_SCRIPT_PATH = getHearthPrimaryScriptPath();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
+type UiDensity = "comfortable" | "compact";
 type FocusTab = "draft" | "planning" | "sources" | "revisions";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
 type SttLane = "browser" | "ai";
@@ -1425,6 +1427,26 @@ async function writeTextToClipboard(text: string): Promise<boolean> {
   }
 }
 
+function readWorkspaceUiDensity(workspaceId: string | null): UiDensity {
+  if (!workspaceId || typeof window === "undefined") return "comfortable";
+  try {
+    const raw = window.localStorage.getItem(`${UI_DENSITY_STORAGE_PREFIX}${workspaceId}`)?.trim().toLowerCase();
+    if (raw === "compact") return "compact";
+  } catch {
+    // ignore storage failures
+  }
+  return "comfortable";
+}
+
+function writeWorkspaceUiDensity(workspaceId: string | null, density: UiDensity): void {
+  if (!workspaceId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(`${UI_DENSITY_STORAGE_PREFIX}${workspaceId}`, density);
+  } catch {
+    // ignore storage failures
+  }
+}
+
 function downloadTextFile(args: { text: string; filename: string; mimeType?: string }): void {
   if (typeof document === "undefined" || typeof URL === "undefined") return;
   const blob = new Blob([args.text], { type: args.mimeType ?? "text/plain;charset=utf-8" });
@@ -2246,6 +2268,7 @@ export default function HearthShell({
   const [mode, setMode] = useState<HearthMode>("sparks");
   const [focusTab, setFocusTab] = useState<FocusTab>("draft");
   const [workspaceId, setWorkspaceId] = useState<string | null>(() => resolveWorkspaceId());
+  const [uiDensity, setUiDensity] = useState<UiDensity>(() => readWorkspaceUiDensity(resolveWorkspaceId()));
   const [workpieceId, setWorkpieceId] = useState<string | null>(() => (
     incomingBarStockIntakeRoute ? null : resolveWorkpieceId()
   ));
@@ -6737,6 +6760,14 @@ export default function HearthShell({
     if (mode === "sparks") return;
     writeMode(workpieceId, mode);
   }, [mode, workpieceId]);
+
+  useEffect(() => {
+    setUiDensity(readWorkspaceUiDensity(workspaceId));
+  }, [workspaceId]);
+
+  useEffect(() => {
+    writeWorkspaceUiDensity(workspaceId, uiDensity);
+  }, [uiDensity, workspaceId]);
 
   useEffect(() => {
     if (!activeDraft) return;
@@ -12725,7 +12756,7 @@ export default function HearthShell({
       : "Sources";
 
   return (
-    <section className={`hs-shell${isMobile ? " hs-shell--mobile" : ""}`}>
+    <section className={`hs-shell hs-density-${uiDensity}${isMobile ? " hs-shell--mobile" : ""}`}>
       {isMobile ? (
         <main className="hs-main hs-main--mobile">
           {mobileMainContent}
@@ -12787,6 +12818,19 @@ export default function HearthShell({
             >
               Series
             </button>
+          </div>
+
+          <div className="hs-rail-section">
+            <label className="hs-rail-label" htmlFor="hs-density-select">Density</label>
+            <select
+              id="hs-density-select"
+              aria-label="UI density"
+              value={uiDensity}
+              onChange={(event) => setUiDensity(event.target.value === "compact" ? "compact" : "comfortable")}
+            >
+              <option value="comfortable">Comfortable</option>
+              <option value="compact">Compact</option>
+            </select>
           </div>
 
           {deferDesktopRailCollections ? (

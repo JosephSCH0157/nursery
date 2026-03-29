@@ -2125,6 +2125,83 @@
   min-height: 56px;
 }
 
+.hs-shell.hs-density-compact {
+  gap: 12px;
+}
+
+.hs-shell.hs-density-compact .hs-shell-grid {
+  gap: 12px;
+}
+
+.hs-shell.hs-density-compact .hs-focus-stack {
+  gap: 8px;
+}
+
+.hs-shell.hs-density-compact .hs-focus-panel {
+  gap: 8px;
+}
+
+.hs-shell.hs-density-compact .hs-focus-panel-header {
+  padding: 6px 8px;
+}
+
+.hs-shell.hs-density-compact .hs-media-plan-banner {
+  padding: 8px 10px;
+  font-size: 11px;
+}
+
+.hs-shell.hs-density-compact .hs-imap-panel {
+  padding: 10px;
+  gap: 8px;
+}
+
+.hs-shell.hs-density-compact .hs-imap-grid,
+.hs-shell.hs-density-compact .hs-imap-layout {
+  grid-template-columns: minmax(200px, 300px) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.hs-shell.hs-density-compact .hs-imap-list {
+  max-height: clamp(180px, 34vh, 340px);
+}
+
+.hs-shell.hs-density-compact .hs-imap-editor {
+  max-height: clamp(220px, 42vh, 460px);
+}
+
+.hs-shell.hs-density-compact .hs-thumb-grid {
+  grid-template-columns: minmax(170px, 220px) minmax(460px, 680px) minmax(220px, 300px);
+  gap: 10px;
+}
+
+.hs-shell.hs-density-compact .hs-thumb-concepts-list {
+  max-height: 120px;
+}
+
+.hs-shell.hs-density-compact .hs-thumb-preview {
+  max-width: clamp(380px, 48vw, 660px);
+}
+
+.hs-shell.hs-density-compact .hs-thumb-preview.is-widescreen {
+  max-width: clamp(380px, 48vw, 660px);
+}
+
+.hs-shell.hs-density-compact .hs-thumb-preview.is-square {
+  max-width: clamp(280px, 34vw, 500px);
+}
+
+.hs-shell.hs-density-compact .hs-thumb-preview.is-vertical {
+  max-width: clamp(220px, 24vw, 380px);
+}
+
+.hs-shell.hs-density-compact .hs-thumb-prompt-input {
+  min-height: 72px;
+}
+
+.hs-shell.hs-density-compact .hs-thumb-prompt-override {
+  min-height: 44px;
+}
+
 .hs-thumb-field-helper {
   font-size: 12px;
   opacity: 0.72;
