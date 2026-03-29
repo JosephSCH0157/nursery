@@ -203,30 +203,32 @@ export function HammerWaveformLane(props: HammerWaveformLaneProps): JSX.Element 
         onClick={handleLaneClick}
         aria-label="Waveform seek lane"
       >
-        <div
-          className="hammer-waveform-lane__surface"
-          style={{
-            width: `${canvasDims.canvasWidth}px`,
-            height: `${canvasDims.canvasHeight}px`,
-          }}
-        >
+        <div className="hammer-waveform-lane__surface">
           <canvas
             ref={canvasRef}
             width={canvasDims.canvasWidth}
             height={canvasDims.canvasHeight}
             className="hammer-waveform-lane__canvas"
           />
-          {cutOverlaySpans.map((span) => (
-            <span
-              key={`waveform-cut-${span.startSec}-${span.endSec}`}
-              className="hammer-waveform-lane__cut-overlay"
-              style={{
-                left: `${span.startPct}%`,
-                width: `${span.widthPct}%`,
-              }}
-              aria-hidden="true"
-            />
-          ))}
+          <svg
+            className="hammer-waveform-lane__cut-overlay-svg"
+            width={canvasDims.canvasWidth}
+            height={canvasDims.canvasHeight}
+            viewBox={`0 0 ${canvasDims.canvasWidth} ${canvasDims.canvasHeight}`}
+            aria-hidden="true"
+            focusable="false"
+          >
+            {cutOverlaySpans.map((span) => (
+              <rect
+                key={`waveform-cut-${span.startSec}-${span.endSec}`}
+                className="hammer-waveform-lane__cut-overlay-rect"
+                x={(span.startPct / 100) * canvasDims.canvasWidth}
+                y={0}
+                width={Math.max(1, (span.widthPct / 100) * canvasDims.canvasWidth)}
+                height={canvasDims.canvasHeight}
+              />
+            ))}
+          </svg>
         </div>
       </button>
     );
@@ -234,30 +236,32 @@ export function HammerWaveformLane(props: HammerWaveformLaneProps): JSX.Element 
 
   return (
     <div className={`hammer-waveform-lane ${props.className ?? ""}`}>
-      <div
-        className="hammer-waveform-lane__surface"
-        style={{
-          width: `${canvasDims.canvasWidth}px`,
-          height: `${canvasDims.canvasHeight}px`,
-        }}
-      >
+      <div className="hammer-waveform-lane__surface">
         <canvas
           ref={canvasRef}
           width={canvasDims.canvasWidth}
           height={canvasDims.canvasHeight}
           className="hammer-waveform-lane__canvas"
         />
-        {cutOverlaySpans.map((span) => (
-          <span
-            key={`waveform-cut-${span.startSec}-${span.endSec}`}
-            className="hammer-waveform-lane__cut-overlay"
-            style={{
-              left: `${span.startPct}%`,
-              width: `${span.widthPct}%`,
-            }}
-            aria-hidden="true"
-          />
-        ))}
+        <svg
+          className="hammer-waveform-lane__cut-overlay-svg"
+          width={canvasDims.canvasWidth}
+          height={canvasDims.canvasHeight}
+          viewBox={`0 0 ${canvasDims.canvasWidth} ${canvasDims.canvasHeight}`}
+          aria-hidden="true"
+          focusable="false"
+        >
+          {cutOverlaySpans.map((span) => (
+            <rect
+              key={`waveform-cut-${span.startSec}-${span.endSec}`}
+              className="hammer-waveform-lane__cut-overlay-rect"
+              x={(span.startPct / 100) * canvasDims.canvasWidth}
+              y={0}
+              width={Math.max(1, (span.widthPct / 100) * canvasDims.canvasWidth)}
+              height={canvasDims.canvasHeight}
+            />
+          ))}
+        </svg>
       </div>
     </div>
   );
