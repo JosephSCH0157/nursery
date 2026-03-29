@@ -2301,21 +2301,25 @@
   min-height: 44px;
 }
 
-/* Timeline Images needs more vertical working room than Media Map. */
+/* Timeline Images is usually the only active tool in this stack, so let it breathe. */
 #hearth-image-map-panel-body .hs-imap-list {
-  max-height: clamp(260px, 46vh, 520px);
+  min-height: clamp(280px, 48vh, 560px);
+  max-height: clamp(320px, 58vh, 680px);
 }
 
 #hearth-image-map-panel-body .hs-imap-editor {
-  max-height: clamp(320px, 56vh, 700px);
+  min-height: clamp(420px, 66vh, 860px);
+  max-height: clamp(460px, 76vh, 980px);
 }
 
 .hs-shell.hs-density-compact #hearth-image-map-panel-body .hs-imap-list {
-  max-height: clamp(240px, 44vh, 480px);
+  min-height: clamp(260px, 44vh, 500px);
+  max-height: clamp(300px, 54vh, 620px);
 }
 
 .hs-shell.hs-density-compact #hearth-image-map-panel-body .hs-imap-editor {
-  max-height: clamp(300px, 54vh, 640px);
+  min-height: clamp(380px, 60vh, 760px);
+  max-height: clamp(420px, 70vh, 860px);
 }
 
 .hs-thumb-field-helper {
