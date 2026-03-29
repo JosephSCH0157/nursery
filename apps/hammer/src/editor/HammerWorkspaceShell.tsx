@@ -57,6 +57,7 @@ import {
   commitAudioCutSelection,
   normalizeAudioCutSelection,
 } from "./hammerAudioEditOperations";
+import { buildSilenceCutSuggestions } from "./hammerSilenceCutSuggestions";
 import {
   resolveTranscriptDurationSec,
   syncEditableTranscriptSegments,
@@ -1679,6 +1680,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   );
   const [audioCutSelectionStartSec, setAudioCutSelectionStartSec] = useState<number | null>(null);
   const [audioCutSelectionEndSec, setAudioCutSelectionEndSec] = useState<number | null>(null);
+  const [dismissedSilenceSuggestionIds, setDismissedSilenceSuggestionIds] = useState<Set<string>>(() => new Set());
   const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
   const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
   const [audioFinalizationCompareMode, setAudioFinalizationCompareMode] = useState<HammerAudioFinalizationCompareMode>("after");
@@ -1784,6 +1786,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setEditableAudioPolish(null);
     setAudioCutSelectionStartSec(null);
     setAudioCutSelectionEndSec(null);
+    setDismissedSilenceSuggestionIds(new Set());
   }, [launchContext.workpiece_id]);
 
   useEffect(() => {
@@ -2097,6 +2100,36 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   ]);
   const canMarkAudioCutSelection = playbackTransportDurationSec > 0;
   const canApplyAudioCutSelection = audioCutSelection != null;
+  const silenceCutSuggestions = useMemo(() => buildSilenceCutSuggestions({
+    segmentation: editableAudioPolish?.analysis?.segmentation ?? null,
+    durationSec: playbackTransportDurationSec,
+    effectiveCutRegions: effectivePlaybackCutRegions,
+  }), [
+    editableAudioPolish?.analysis?.segmentation,
+    effectivePlaybackCutRegions,
+    playbackTransportDurationSec,
+  ]);
+  const visibleSilenceCutSuggestions = useMemo(
+    () => silenceCutSuggestions.filter((suggestion) => !dismissedSilenceSuggestionIds.has(suggestion.id)),
+    [dismissedSilenceSuggestionIds, silenceCutSuggestions],
+  );
+  const hasSilenceSuggestionAnalysis = editableAudioPolish?.analysis?.segmentation != null;
+  const silenceSuggestionCount = visibleSilenceCutSuggestions.length;
+  useEffect(() => {
+    if (dismissedSilenceSuggestionIds.size === 0) return;
+    const activeSuggestionIds = new Set(silenceCutSuggestions.map((suggestion) => suggestion.id));
+    let changed = false;
+    const nextDismissedIds = new Set<string>();
+    for (const suggestionId of dismissedSilenceSuggestionIds) {
+      if (activeSuggestionIds.has(suggestionId)) {
+        nextDismissedIds.add(suggestionId);
+      } else {
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    setDismissedSilenceSuggestionIds(nextDismissedIds);
+  }, [dismissedSilenceSuggestionIds, silenceCutSuggestions]);
   const playheadBoundaryTimesSec = useMemo(
     () => resolveTimelineBoundaryTimes(editableTranscriptSegments),
     [editableTranscriptSegments],
@@ -4020,24 +4053,65 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setAudioCutSelectionEndSec(null);
   }
 
-  function applyAudioCutSelection(): void {
+  function commitEditableAudioCut(args: {
+    startSec: number | null;
+    endSec: number | null;
+  }): boolean {
     const committed = commitAudioCutSelection({
       audioPolish: editableAudioPolish,
       selection: {
-        startSec: audioCutSelectionStartSec,
-        endSec: audioCutSelectionEndSec,
+        startSec: args.startSec,
+        endSec: args.endSec,
       },
       durationSec: playbackTransportDurationSec,
     });
     if (!committed) {
-      return;
+      return false;
     }
 
     audioPolishHasLocalEditsRef.current = true;
     setEditableAudioPolish(committed.audioPolish);
-    setAudioCutSelectionStartSec(committed.clearedSelection.startSec);
-    setAudioCutSelectionEndSec(committed.clearedSelection.endSec);
     setFocusOverride("time-focus");
+    return true;
+  }
+
+  function applyAudioCutSelection(): void {
+    const applied = commitEditableAudioCut({
+      startSec: audioCutSelectionStartSec,
+      endSec: audioCutSelectionEndSec,
+    });
+    if (!applied) {
+      return;
+    }
+    setAudioCutSelectionStartSec(null);
+    setAudioCutSelectionEndSec(null);
+  }
+
+  function acceptSilenceCutSuggestion(suggestionId: string): void {
+    const suggestion = visibleSilenceCutSuggestions.find((item) => item.id === suggestionId) ?? null;
+    if (!suggestion) {
+      return;
+    }
+    const applied = commitEditableAudioCut({
+      startSec: suggestion.startSec,
+      endSec: suggestion.endSec,
+    });
+    if (!applied) {
+      return;
+    }
+    setDismissedSilenceSuggestionIds((current) => {
+      const next = new Set(current);
+      next.delete(suggestionId);
+      return next;
+    });
+  }
+
+  function dismissSilenceCutSuggestion(suggestionId: string): void {
+    setDismissedSilenceSuggestionIds((current) => {
+      const next = new Set(current);
+      next.add(suggestionId);
+      return next;
+    });
   }
 
   function resolvePlaybackWindowProgress(nextTimeSec: number): {
@@ -9982,6 +10056,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     Persisted cut ops: {persistedAudioCutCount} raw · {effectivePlaybackCutRegions.length} effective playback region{effectivePlaybackCutRegions.length === 1 ? "" : "s"}
                   </div>
                   <div className="hammer-tool-hint">
+                    Silence suggestions: {silenceSuggestionCount} visible · derived from segmentation only
+                  </div>
+                  <div className="hammer-tool-hint">
                     Preferred backend: {editableStudioRack.backend_preference}
                   </div>
                   <div className="hammer-tool-hint">
@@ -11599,6 +11676,45 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 </button>
               </div>
             </section>
+            {hasSilenceSuggestionAnalysis ? (
+              <section className="hammer-timeline-suggestion-list" aria-label="Silence cut suggestions">
+                <div className="hammer-timeline-suggestion-list__meta">
+                  <span>
+                    Silence suggestions: {silenceSuggestionCount} visible
+                    {` · ${silenceCutSuggestions.length} total from segmentation`}
+                  </span>
+                  <span>Conservative only. Accept creates a real cut. Dismiss hides it for this session.</span>
+                </div>
+                {visibleSilenceCutSuggestions.length > 0 ? (
+                  <div className="hammer-timeline-suggestion-list__items">
+                    {visibleSilenceCutSuggestions.map((suggestion) => (
+                      <article key={suggestion.id} className="hammer-timeline-suggestion-card">
+                        <div className="hammer-timeline-suggestion-card__copy">
+                          <strong>
+                            Cut silence {suggestion.startSec.toFixed(1)}s-{suggestion.endSec.toFixed(1)}s
+                          </strong>
+                          <span>
+                            {suggestion.durationSec.toFixed(1)}s pause · {suggestion.reason === "long_silence" ? "long silence" : suggestion.reason}
+                          </span>
+                        </div>
+                        <div className="hammer-timeline-suggestion-card__actions">
+                          <button type="button" onClick={() => acceptSilenceCutSuggestion(suggestion.id)}>
+                            Accept
+                          </button>
+                          <button type="button" onClick={() => dismissSilenceCutSuggestion(suggestion.id)}>
+                            Dismiss
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="hammer-timeline-suggestion-list__empty">
+                    No long silence suggestions remain above the threshold.
+                  </div>
+                )}
+              </section>
+            ) : null}
             <input
               type="range"
               min={0}

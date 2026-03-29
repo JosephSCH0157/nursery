@@ -40,6 +40,10 @@ import {
   commitAudioCutSelection,
   normalizeAudioCutSelection,
 } from "../src/editor/hammerAudioEditOperations";
+import {
+  buildSilenceCutSuggestions,
+  DEFAULT_SILENCE_CUT_SUGGESTION_MIN_DURATION_SEC,
+} from "../src/editor/hammerSilenceCutSuggestions";
 import { resolveWaveformCutOverlaySpans } from "../src/editor/hammerWaveformCutOverlay";
 
 function buildSegment(overrides?: Partial<HammerTranscriptSegment>): HammerTranscriptSegment {
@@ -496,6 +500,177 @@ async function testWaveformCutOverlaySpanMapping() {
   ]);
 }
 
+async function testBuildSilenceCutSuggestions() {
+  assert.deepEqual(buildSilenceCutSuggestions({
+    segmentation: null,
+    durationSec: 12,
+  }), []);
+
+  const suggestions = buildSilenceCutSuggestions({
+    segmentation: {
+      strategy: "ffmpeg_silencedetect_v1",
+      noise_floor_db: -40,
+      min_silence_sec: 0.3,
+      speech_region_count: 2,
+      silence_region_count: 5,
+      regions: [
+        { id: "speech_a", start_sec: 0, end_sec: 2, kind: "speech", confidence: 0.9 },
+        { id: "silence_short", start_sec: 2, end_sec: 2.8, kind: "silence", confidence: 0.95 },
+        { id: "silence_middle", start_sec: 6.2, end_sec: 8.1, kind: "silence", confidence: 0.99 },
+        { id: "silence_start", start_sec: 0, end_sec: 1.6, kind: "silence", confidence: 0.8 },
+        { id: "silence_end", start_sec: 10.5, end_sec: 13, kind: "silence", confidence: 0.75 },
+        { id: "silence_covered", start_sec: 4, end_sec: 5.8, kind: "silence", confidence: 0.88 },
+      ],
+    },
+    durationSec: 12,
+    effectiveCutRegions: [
+      { startSec: 4, endSec: 5.8 },
+    ],
+  });
+
+  assert.deepEqual(suggestions, [
+    {
+      id: "silence-cut:silence_start",
+      startSec: 0,
+      endSec: 1.6,
+      durationSec: 1.6,
+      reason: "long_silence",
+      sourceRegionId: "silence_start",
+    },
+    {
+      id: "silence-cut:silence_middle",
+      startSec: 6.2,
+      endSec: 8.1,
+      durationSec: 1.9,
+      reason: "long_silence",
+      sourceRegionId: "silence_middle",
+    },
+    {
+      id: "silence-cut:silence_end",
+      startSec: 10.5,
+      endSec: 12,
+      durationSec: 1.5,
+      reason: "long_silence",
+      sourceRegionId: "silence_end",
+    },
+  ]);
+
+  assert.deepEqual(buildSilenceCutSuggestions({
+    segmentation: {
+      strategy: "ffmpeg_silencedetect_v1",
+      noise_floor_db: -40,
+      min_silence_sec: 0.3,
+      speech_region_count: 1,
+      silence_region_count: 2,
+      regions: [
+        { id: "silence_a", start_sec: 4, end_sec: 5.6, kind: "silence", confidence: 0.9 },
+        { id: "silence_b", start_sec: 1, end_sec: 2.6, kind: "silence", confidence: 0.85 },
+      ],
+    },
+    durationSec: 8,
+    minDurationSec: DEFAULT_SILENCE_CUT_SUGGESTION_MIN_DURATION_SEC,
+  }).map((suggestion) => suggestion.id), [
+    "silence-cut:silence_b",
+    "silence-cut:silence_a",
+  ]);
+}
+
+async function testAcceptedSilenceSuggestionCommitsRealCut() {
+  const suggestions = buildSilenceCutSuggestions({
+    segmentation: {
+      strategy: "ffmpeg_silencedetect_v1",
+      noise_floor_db: -42,
+      min_silence_sec: 0.3,
+      speech_region_count: 2,
+      silence_region_count: 1,
+      regions: [
+        { id: "speech_a", start_sec: 0, end_sec: 3, kind: "speech", confidence: 0.9 },
+        { id: "silence_candidate", start_sec: 3, end_sec: 4.8, kind: "silence", confidence: 0.98 },
+        { id: "speech_b", start_sec: 4.8, end_sec: 8, kind: "speech", confidence: 0.9 },
+      ],
+    },
+    durationSec: 8,
+  });
+  assert.equal(suggestions.length, 1);
+
+  const accepted = commitAudioCutSelection({
+    audioPolish: {
+      schema_version: 1,
+      status: "prepared",
+      prepared_passes: ["studio_sound"],
+      source_artifact_paths: ["workpiece/audio.wav"],
+      settings_summary: {},
+      analysis: null,
+      audio_edit: {
+        version: "v1",
+        operations: [],
+      },
+      source_media_id: "media_001",
+      source_media_signature: "sig_001",
+      processor_version: "test",
+      prepared_at: "2026-03-29T00:00:00.000Z",
+      output_local_relpath: null,
+      output_workpiece_path: null,
+      output_mime_type: null,
+      output_duration_ms: null,
+      failure_code: null,
+      failure_reason: null,
+    },
+    selection: {
+      startSec: suggestions[0]?.startSec ?? null,
+      endSec: suggestions[0]?.endSec ?? null,
+    },
+    durationSec: 8,
+    operationId: "accepted_silence_cut",
+  });
+  assert.ok(accepted);
+  assert.deepEqual(accepted?.audioPolish.audio_edit, {
+    version: "v1",
+    operations: [
+      { id: "accepted_silence_cut", type: "cut", start_sec: 3, end_sec: 4.8 },
+    ],
+  });
+
+  const effectiveCuts = getEffectiveCutRegions(accepted?.audioPolish.audio_edit ?? null, 8);
+  assert.equal(resolveNextAudiblePlaybackTime({
+    requestedTimeSec: 3.2,
+    durationSec: 8,
+    effectiveCutRegions: effectiveCuts,
+    transcriptSegments: [
+      buildSegment({ segment_id: "seg_a", start_sec: 0, end_sec: 8 }),
+    ],
+  }), 4.8);
+  assert.deepEqual(buildSilenceCutSuggestions({
+    segmentation: {
+      strategy: "ffmpeg_silencedetect_v1",
+      noise_floor_db: -42,
+      min_silence_sec: 0.3,
+      speech_region_count: 2,
+      silence_region_count: 1,
+      regions: [
+        { id: "speech_a", start_sec: 0, end_sec: 3, kind: "speech", confidence: 0.9 },
+        { id: "silence_candidate", start_sec: 3, end_sec: 4.8, kind: "silence", confidence: 0.98 },
+        { id: "speech_b", start_sec: 4.8, end_sec: 8, kind: "speech", confidence: 0.9 },
+      ],
+    },
+    durationSec: 8,
+    effectiveCutRegions: effectiveCuts,
+  }), []);
+  assert.deepEqual(resolveWaveformCutOverlaySpans({
+    cutRegions: effectiveCuts,
+    durationSec: 8,
+  }), [
+    {
+      startSec: 3,
+      endSec: 4.8,
+      startRatio: 0.375,
+      endRatio: 0.6,
+      startPct: 37.5,
+      widthPct: 22.5,
+    },
+  ]);
+}
+
 async function testResolveTranscriptRange() {
   const segments = [
     buildSegment({ segment_id: "a", start_sec: 0, end_sec: 1 }),
@@ -626,6 +801,8 @@ async function run() {
   await testAudioEditNextPlayableTimeResolution();
   await testResolveNextAudiblePlaybackTimeWithCuts();
   await testWaveformCutOverlaySpanMapping();
+  await testBuildSilenceCutSuggestions();
+  await testAcceptedSilenceSuggestionCommitsRealCut();
   await testResolveTranscriptRange();
   await testCutRangeAndRipple();
   await testRippleDeletePlacementRemapMatrix();
