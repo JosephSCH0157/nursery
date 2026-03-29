@@ -2776,17 +2776,19 @@
   gap: 6px;
 }
 
-.hs-imap-layout {
+.hs-imap-layout,
+.hs-imap-grid {
   display: grid;
   grid-template-columns: minmax(240px, 340px) minmax(0, 1fr);
   gap: 10px;
+  align-items: start;
 }
 
 .hs-imap-list {
   border: 1px solid var(--forge-border, #ddd);
   border-radius: 8px;
-  min-height: 320px;
-  max-height: 320px;
+  min-height: 220px;
+  max-height: clamp(220px, 40vh, 420px);
   overflow: auto;
   display: grid;
   gap: 6px;
@@ -2865,7 +2867,9 @@
   padding: 10px;
   display: grid;
   gap: 8px;
-  min-height: 460px;
+  min-height: 220px;
+  max-height: clamp(260px, 48vh, 560px);
+  overflow: auto;
   align-content: start;
 }
 

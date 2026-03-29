@@ -12055,7 +12055,7 @@ export default function HearthShell({
           onChangeTab={requestWorkpieceTabChange}
         />
 
-        <div className="hs-draft-stage has-script-panel">
+        <div className={`hs-draft-stage${(isHistoryWorkspaceTab || (isScriptWorkspaceTab && showScriptEditor)) ? " has-script-panel" : ""}`}>
           <div className="hs-focus-stack">
             <ChatSurface {...chatWorkspace.chatSurfaceProps} />
 
