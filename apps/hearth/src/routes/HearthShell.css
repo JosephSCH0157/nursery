@@ -1825,6 +1825,13 @@
   opacity: 0.75;
 }
 
+.hs-thumb-state-cue {
+  font-size: 13px;
+  line-height: 1.45;
+  max-width: 760px;
+  opacity: 0.82;
+}
+
 .hs-thumb-grid {
   display: grid;
   grid-template-columns: minmax(180px, 240px) minmax(520px, 760px) minmax(240px, 320px);
@@ -2096,6 +2103,18 @@
   gap: 6px;
 }
 
+.hs-thumb-controls > button.is-primary {
+  border-color: rgba(29, 78, 216, 0.75);
+  background: rgba(29, 78, 216, 0.12);
+  color: rgb(30, 64, 175);
+  font-weight: 700;
+  box-shadow: 0 0 0 1px rgba(29, 78, 216, 0.08);
+}
+
+.hs-thumb-controls > button.is-primary:hover:not(:disabled) {
+  background: rgba(29, 78, 216, 0.18);
+}
+
 .hs-thumb-file-input {
   display: none;
 }
@@ -2150,6 +2169,44 @@
   font-size: 12px;
   opacity: 0.72;
   max-width: 760px;
+}
+
+.hs-thumb-workflow-card {
+  display: grid;
+  gap: 8px;
+  max-width: 760px;
+  border: 1px solid rgba(29, 78, 216, 0.22);
+  border-radius: 10px;
+  background: rgba(29, 78, 216, 0.05);
+  padding: 12px 14px;
+}
+
+.hs-thumb-workflow-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.68;
+}
+
+.hs-thumb-workflow-copy {
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+.hs-thumb-workflow-steps {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.hs-thumb-workflow-note {
+  font-size: 12px;
+  opacity: 0.76;
 }
 
 .hs-thumb-prompt-section {

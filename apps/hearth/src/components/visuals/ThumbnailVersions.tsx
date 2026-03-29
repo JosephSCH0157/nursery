@@ -1,4 +1,5 @@
 import type { EpisodeThumbnailVersion } from "../../lib/episode-package-v2";
+import { resolveThumbnailVersionSourceLabel } from "../../lib/hearth-thumbnail-workflow";
 
 function formatVersionTimestamp(value: string): string {
   const timestamp = Date.parse(value);
@@ -30,7 +31,7 @@ export default function ThumbnailVersions({
   onRetryVersion,
 }: ThumbnailVersionsProps) {
   if (versions.length === 0) {
-    return <div className="hs-thumb-empty">No versions yet.</div>;
+    return <div className="hs-thumb-empty">No image versions yet. When the render is ready, bring it back here and we'll line it up.</div>;
   }
 
   return (
@@ -59,7 +60,7 @@ export default function ThumbnailVersions({
                 </div>
               </div>
               <div className="hs-thumb-version-meta">
-                {formatVersionTimestamp(version.created_at)} · {version.provider}
+                {formatVersionTimestamp(version.created_at)} · Source: {resolveThumbnailVersionSourceLabel(version.provider)}
               </div>
               {failed && version.error ? (
                 <div className="hs-error-text-small">{version.error}</div>

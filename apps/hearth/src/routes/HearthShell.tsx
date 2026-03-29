@@ -288,6 +288,7 @@ import {
   deriveHearthThumbnailOverlayText,
   resolveHearthThumbnailOverlayText,
 } from "../lib/hearth-thumbnail-title-contract";
+import { formatThumbnailPanelMeta } from "../lib/hearth-thumbnail-workflow";
 import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
 import {
   getMyWritingProfile,
@@ -421,7 +422,7 @@ type ReleasePrepSection = {
 const PRODUCTION_ACTION_LABEL: Record<ProductionAction, string> = {
   seo: "Generate SEO",
   tags: "Generate Tags",
-  thumbnails: "Thumbnail Concepts",
+  thumbnails: "Thumbnail Briefs",
   image_beat_sheet: "Image Beat Sheet",
   release_prep_pack: "Release Prep Pack",
 };
@@ -3089,7 +3090,7 @@ export default function HearthShell({
   const chatPanelMeta = chatMessages.length > 0
     ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
     : "Ready";
-  const thumbnailPanelMeta = `${thumbnailConcepts.length} concepts · ${thumbnailVersions.length} versions`;
+  const thumbnailPanelMeta = formatThumbnailPanelMeta(thumbnailConcepts.length, thumbnailVersions.length);
   const mediaMapPanelMeta = `${mediaMapEntries.length} visual${mediaMapEntries.length === 1 ? "" : "s"}`;
   const imageMapPanelMeta = `${imageMapEntries.length} anchor${imageMapEntries.length === 1 ? "" : "s"}`;
   const brollPanelMeta = `${brollBeats.length} beat${brollBeats.length === 1 ? "" : "s"} · coverage ${brollPlan?.coverage_strength ?? "low"}`;
