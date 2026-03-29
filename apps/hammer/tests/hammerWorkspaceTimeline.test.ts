@@ -36,6 +36,11 @@ import {
   normalizeCutOperations,
   resolveNextAudiblePlaybackTime,
 } from "../src/editor/hammerAudioEditPlayback";
+import {
+  commitAudioCutSelection,
+  normalizeAudioCutSelection,
+} from "../src/editor/hammerAudioEditOperations";
+import { resolveWaveformCutOverlaySpans } from "../src/editor/hammerWaveformCutOverlay";
 
 function buildSegment(overrides?: Partial<HammerTranscriptSegment>): HammerTranscriptSegment {
   return {
@@ -244,6 +249,82 @@ async function testAudioEditCutNormalization() {
   ]);
 }
 
+async function testAudioCutSelectionCommitFlow() {
+  assert.equal(normalizeAudioCutSelection({
+    selection: {
+      startSec: null,
+      endSec: 2,
+    },
+    durationSec: 10,
+  }), null);
+  assert.equal(normalizeAudioCutSelection({
+    selection: {
+      startSec: 3,
+      endSec: 3,
+    },
+    durationSec: 10,
+  }), null);
+  assert.deepEqual(normalizeAudioCutSelection({
+    selection: {
+      startSec: 6.4,
+      endSec: 2.2,
+    },
+    durationSec: 5,
+  }), {
+    startSec: 2.2,
+    endSec: 5,
+  });
+
+  const committed = commitAudioCutSelection({
+    audioPolish: {
+      schema_version: 1,
+      status: "prepared",
+      prepared_passes: ["studio_sound"],
+      source_artifact_paths: ["workpiece/audio.wav"],
+      settings_summary: {},
+      analysis: null,
+      audio_edit: {
+        version: "v1",
+        operations: [
+          { id: "cut_existing", type: "cut", start_sec: 1, end_sec: 1.5 },
+        ],
+      },
+      source_media_id: "media_001",
+      source_media_signature: "sig_001",
+      processor_version: "test",
+      prepared_at: "2026-03-29T00:00:00.000Z",
+      output_local_relpath: null,
+      output_workpiece_path: null,
+      output_mime_type: null,
+      output_duration_ms: null,
+      failure_code: null,
+      failure_reason: null,
+    },
+    selection: {
+      startSec: 4.2,
+      endSec: 2.8,
+    },
+    durationSec: 6,
+    operationId: "cut_new",
+  });
+
+  assert.ok(committed);
+  assert.equal(committed?.operation.id, "cut_new");
+  assert.equal(committed?.operation.start_sec, 2.8);
+  assert.equal(committed?.operation.end_sec, 4.2);
+  assert.deepEqual(committed?.clearedSelection, {
+    startSec: null,
+    endSec: null,
+  });
+  assert.deepEqual(committed?.audioPolish.audio_edit, {
+    version: "v1",
+    operations: [
+      { id: "cut_existing", type: "cut", start_sec: 1, end_sec: 1.5 },
+      { id: "cut_new", type: "cut", start_sec: 2.8, end_sec: 4.2 },
+    ],
+  });
+}
+
 async function testAudioEditNextPlayableTimeResolution() {
   const effectiveCutRegions = getEffectiveCutRegions({
     version: "v1",
@@ -308,6 +389,111 @@ async function testResolveNextAudiblePlaybackTimeWithCuts() {
     effectiveCutRegions,
     transcriptSegments: segments,
   }), null);
+
+  const committed = commitAudioCutSelection({
+    audioPolish: {
+      schema_version: 1,
+      status: "prepared",
+      prepared_passes: ["studio_sound"],
+      source_artifact_paths: ["workpiece/audio.wav"],
+      settings_summary: {},
+      analysis: null,
+      audio_edit: {
+        version: "v1",
+        operations: [],
+      },
+      source_media_id: "media_001",
+      source_media_signature: "sig_001",
+      processor_version: "test",
+      prepared_at: "2026-03-29T00:00:00.000Z",
+      output_local_relpath: null,
+      output_workpiece_path: null,
+      output_mime_type: null,
+      output_duration_ms: null,
+      failure_code: null,
+      failure_reason: null,
+    },
+    selection: {
+      startSec: 0,
+      endSec: 1.2,
+    },
+    durationSec: 6,
+    operationId: "cut_from_selection",
+  });
+  assert.ok(committed);
+  assert.equal(resolveNextAudiblePlaybackTime({
+    requestedTimeSec: 0.2,
+    durationSec: 6,
+    audioEdit: committed?.audioPolish.audio_edit ?? null,
+    transcriptSegments: segments,
+  }), 1.2);
+}
+
+async function testWaveformCutOverlaySpanMapping() {
+  assert.deepEqual(resolveWaveformCutOverlaySpans({
+    cutRegions: null,
+    durationSec: 10,
+  }), []);
+  assert.deepEqual(resolveWaveformCutOverlaySpans({
+    cutRegions: [
+      { startSec: 5, endSec: 6 },
+      { startSec: 0.5, endSec: 1.5 },
+      { startSec: 8, endSec: 12 },
+    ],
+    durationSec: 10,
+  }), [
+    {
+      startSec: 0.5,
+      endSec: 1.5,
+      startRatio: 0.05,
+      endRatio: 0.15,
+      startPct: 5,
+      widthPct: 10,
+    },
+    {
+      startSec: 5,
+      endSec: 6,
+      startRatio: 0.5,
+      endRatio: 0.6,
+      startPct: 50,
+      widthPct: 10,
+    },
+    {
+      startSec: 8,
+      endSec: 10,
+      startRatio: 0.8,
+      endRatio: 1,
+      startPct: 80,
+      widthPct: 20,
+    },
+  ]);
+
+  const normalizedOverlaySpans = resolveWaveformCutOverlaySpans({
+    cutRegions: normalizeCutOperations([
+      { id: "cut_a", type: "cut", start_sec: 2, end_sec: 3 },
+      { id: "cut_b", type: "cut", start_sec: 3, end_sec: 4.5 },
+      { id: "cut_c", type: "cut", start_sec: 6.2, end_sec: 6.7 },
+    ], 8),
+    durationSec: 8,
+  });
+  assert.deepEqual(normalizedOverlaySpans, [
+    {
+      startSec: 2,
+      endSec: 4.5,
+      startRatio: 0.25,
+      endRatio: 0.5625,
+      startPct: 25,
+      widthPct: 31.25,
+    },
+    {
+      startSec: 6.2,
+      endSec: 6.7,
+      startRatio: 0.775,
+      endRatio: 0.8375,
+      startPct: 77.5,
+      widthPct: 6.25,
+    },
+  ]);
 }
 
 async function testResolveTranscriptRange() {
@@ -436,8 +622,10 @@ async function run() {
   await testDisableAndGainEdits();
   await testDisabledSegmentsExcludedFromEffectivePlaybackTime();
   await testAudioEditCutNormalization();
+  await testAudioCutSelectionCommitFlow();
   await testAudioEditNextPlayableTimeResolution();
   await testResolveNextAudiblePlaybackTimeWithCuts();
+  await testWaveformCutOverlaySpanMapping();
   await testResolveTranscriptRange();
   await testCutRangeAndRipple();
   await testRippleDeletePlacementRemapMatrix();

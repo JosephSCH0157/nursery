@@ -772,16 +772,16 @@ export default function TongsStorage() {
   const workpieceRootPath = workpieceId
     ? (workpieceTreeState.source?.rootPath ?? `workpieces/${workpieceId}`)
     : "Not selected";
-  const mountSettingsHref = useMemo(() => {
+  const mountSettingsHref = (() => {
     const params = new URLSearchParams(location.search);
     const nextSearch = params.toString();
     return nextSearch ? `/app/settings/storage?${nextSearch}` : "/app/settings/storage";
-  }, [location.search]);
-  const hearthHref = useMemo(() => {
+  })();
+  const hearthHref = (() => {
     const params = new URLSearchParams(location.search);
     const nextSearch = params.toString();
     return nextSearch ? `/app/hearth?${nextSearch}` : "/app/hearth";
-  }, [location.search]);
+  })();
   const workpieceStatusLabel = workpieceTreeState.status === "loading"
     ? "Loading contents"
     : workpieceTreeState.status === "ready"
@@ -790,7 +790,7 @@ export default function TongsStorage() {
     ? "Unable to load contents"
     : "Workpiece context required";
 
-  const copyDiagnosticsToClipboard = useCallback(async () => {
+  async function copyDiagnosticsToClipboard() {
     const payload = [
       `Workspace: ${activeWorkspace?.name ?? workspaceId ?? "unknown"}`,
       `Role: ${workspaceRoleLabel(workspaceRole)}`,
@@ -804,7 +804,7 @@ export default function TongsStorage() {
     } catch {
       setCopyNotice("Copy failed. Browser clipboard permissions may be blocked.");
     }
-  }, [activeWorkspace?.name, diagnostics, selectedRoot.role, workpieceId, workspaceId, workspaceRole]);
+  }
 
   return (
     <section className={`tongs-storage${isMobile ? " tongs-storage--mobile" : ""}`}>

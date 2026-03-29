@@ -1414,6 +1414,38 @@ Guardrails:
   flex-wrap: wrap;
 }
 
+.hammer-timeline-cut-actions {
+  border: 1px solid rgba(96, 165, 250, 0.28);
+  border-radius: 8px;
+  background: rgba(30, 58, 138, 0.16);
+  padding: 7px 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.hammer-timeline-cut-actions__meta {
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+  color: #bfdbfe;
+}
+
+.hammer-timeline-cut-actions__buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hammer-timeline-cut-actions__buttons button {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.72);
+  color: #cbd5e1;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
 .hammer-timeline-tools__field {
   display: inline-flex;
   align-items: center;
@@ -1440,7 +1472,7 @@ Guardrails:
 .hammer-timeline-dock__body {
   overflow: hidden;
   display: grid;
-  grid-template-rows: auto auto 24px auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto 24px auto minmax(0, 1fr);
   gap: 6px;
 }
 
@@ -2093,6 +2125,7 @@ Guardrails:
   display: flex;
   align-items: center;
   text-align: left;
+  appearance: none;
 }
 
 .hammer-waveform-lane.is-seekable {
@@ -2114,4 +2147,26 @@ Guardrails:
   display: block;
   height: 100%;
   image-rendering: pixelated;
+  position: relative;
+  z-index: 1;
+}
+
+.hammer-waveform-lane__surface {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 80px;
+}
+
+.hammer-waveform-lane__cut-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 1px;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.6), rgba(15, 23, 42, 0.42));
+  box-shadow:
+    inset 1px 0 0 rgba(125, 211, 252, 0.18),
+    inset -1px 0 0 rgba(125, 211, 252, 0.14);
+  pointer-events: none;
+  z-index: 2;
 }

@@ -54,6 +54,10 @@ import {
   resolveNextAudiblePlaybackTime,
 } from "./hammerAudioEditPlayback";
 import {
+  commitAudioCutSelection,
+  normalizeAudioCutSelection,
+} from "./hammerAudioEditOperations";
+import {
   resolveTranscriptDurationSec,
   syncEditableTranscriptSegments,
   updateTranscriptSegmentSpeaker,
@@ -152,6 +156,10 @@ import {
 import { buildHammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBackbone";
 import { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
 import { preserveTranscriptMetadata } from "../prep/hammerPrep";
+import {
+  cloneHammerAudioEdit,
+  cloneHammerAudioPolish,
+} from "../prep/hammerAudioPolish";
 import { buildHammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
 import {
   HAMMER_PREPARED_RELEASE_PACKAGE_PATH,
@@ -1666,6 +1674,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [activeCandidateIndex, setActiveCandidateIndex] = useState(0);
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
+  const [editableAudioPolish, setEditableAudioPolish] = useState<HammerPersistedAudioPolish | null>(
+    () => cloneHammerAudioPolish(props.audioPolish),
+  );
+  const [audioCutSelectionStartSec, setAudioCutSelectionStartSec] = useState<number | null>(null);
+  const [audioCutSelectionEndSec, setAudioCutSelectionEndSec] = useState<number | null>(null);
   const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
   const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
   const [audioFinalizationCompareMode, setAudioFinalizationCompareMode] = useState<HammerAudioFinalizationCompareMode>("after");
@@ -1763,7 +1776,36 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
   const lastGapAutoApplySignatureRef = useRef<string | null>(null);
   const imagePlacementDraftWindowsRef = useRef<Record<string, HammerImagePlacementDraftWindow>>({});
+  const audioPolishHasLocalEditsRef = useRef(false);
   const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
+
+  useEffect(() => {
+    audioPolishHasLocalEditsRef.current = false;
+    setEditableAudioPolish(null);
+    setAudioCutSelectionStartSec(null);
+    setAudioCutSelectionEndSec(null);
+  }, [launchContext.workpiece_id]);
+
+  useEffect(() => {
+    setEditableAudioPolish((current) => {
+      if (!props.audioPolish) {
+        return audioPolishHasLocalEditsRef.current ? current : null;
+      }
+
+      const incoming = cloneHammerAudioPolish(props.audioPolish);
+      if (!incoming) {
+        return audioPolishHasLocalEditsRef.current ? current : null;
+      }
+      if (!audioPolishHasLocalEditsRef.current) {
+        return incoming;
+      }
+
+      return {
+        ...incoming,
+        audio_edit: cloneHammerAudioEdit(current?.audio_edit ?? null) ?? cloneHammerAudioEdit(incoming.audio_edit),
+      };
+    });
+  }, [props.audioPolish]);
 
   useEffect(() => {
     const nextInitialPass = resolveInitialPassId(props.initialCurrentPass);
@@ -2018,9 +2060,43 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
   const playbackTransportDurationSec = transcriptDurationSec;
   const effectivePlaybackCutRegions = useMemo(
-    () => getEffectiveCutRegions(props.audioPolish?.audio_edit ?? null, playbackTransportDurationSec),
-    [playbackTransportDurationSec, props.audioPolish?.audio_edit],
+    () => getEffectiveCutRegions(editableAudioPolish?.audio_edit ?? null, playbackTransportDurationSec),
+    [editableAudioPolish?.audio_edit, playbackTransportDurationSec],
   );
+  const audioCutSelection = useMemo(() => normalizeAudioCutSelection({
+    selection: {
+      startSec: audioCutSelectionStartSec,
+      endSec: audioCutSelectionEndSec,
+    },
+    durationSec: playbackTransportDurationSec,
+  }), [audioCutSelectionEndSec, audioCutSelectionStartSec, playbackTransportDurationSec]);
+  const hasPendingAudioCutSelection = audioCutSelectionStartSec != null || audioCutSelectionEndSec != null;
+  const persistedAudioCutCount = editableAudioPolish?.audio_edit?.operations.length ?? 0;
+  const audioCutSelectionStatus = useMemo(() => {
+    if (playbackTransportDurationSec <= 0) {
+      return "Timeline duration unavailable. Cut selection is disabled.";
+    }
+    if (audioCutSelection) {
+      return `Cut selection ready: ${audioCutSelection.startSec.toFixed(1)}s-${audioCutSelection.endSec.toFixed(1)}s.`;
+    }
+    if (audioCutSelectionStartSec != null && audioCutSelectionEndSec != null) {
+      return "Selection must be longer than 0.0s to create a cut.";
+    }
+    if (audioCutSelectionStartSec != null) {
+      return `In point marked at ${audioCutSelectionStartSec.toFixed(1)}s. Move the playhead and mark out.`;
+    }
+    if (audioCutSelectionEndSec != null) {
+      return `Out point marked at ${audioCutSelectionEndSec.toFixed(1)}s. Move the playhead and mark in.`;
+    }
+    return "Use the current playhead to mark in, mark out, and create one persisted cut.";
+  }, [
+    audioCutSelection,
+    audioCutSelectionEndSec,
+    audioCutSelectionStartSec,
+    playbackTransportDurationSec,
+  ]);
+  const canMarkAudioCutSelection = playbackTransportDurationSec > 0;
+  const canApplyAudioCutSelection = audioCutSelection != null;
   const playheadBoundaryTimesSec = useMemo(
     () => resolveTimelineBoundaryTimes(editableTranscriptSegments),
     [editableTranscriptSegments],
@@ -2033,6 +2109,50 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       transcriptSegments: editableTranscriptSegments,
     })
   ), [editableTranscriptSegments, effectivePlaybackCutRegions, playbackTransportDurationSec]);
+  useEffect(() => {
+    if (playbackTransportDurationSec <= 0) return;
+
+    const audibleTarget = resolveAudibleSeekTarget(playheadSec);
+    if (audibleTarget == null) {
+      const terminalPlayheadSec = roundToTenth(playbackTransportDurationSec);
+      if (Math.abs(playheadSec - terminalPlayheadSec) >= SCRUB_SEEK_THRESHOLD_SEC) {
+        setPlayheadSec(terminalPlayheadSec);
+      }
+      if (
+        previewAudioRef.current
+        && Math.abs(previewAudioRef.current.currentTime - playbackTransportDurationSec) > PLAYHEAD_WINDOW_EPSILON_SEC
+      ) {
+        previewAudioRef.current.currentTime = playbackTransportDurationSec;
+      }
+      if (isPlaybackActive) {
+        setIsPlaybackActive(false);
+      }
+      if (playbackWindow?.mode === "roll") {
+        setPlaybackWindow(null);
+      }
+      return;
+    }
+
+    if (Math.abs(playheadSec - audibleTarget) < SCRUB_SEEK_THRESHOLD_SEC) {
+      return;
+    }
+
+    const nextPlayheadSec = roundToTenth(audibleTarget);
+    setPlayheadSec(nextPlayheadSec);
+    if (
+      previewAudioRef.current
+      && Math.abs(previewAudioRef.current.currentTime - audibleTarget) > PLAYHEAD_WINDOW_EPSILON_SEC
+    ) {
+      previewAudioRef.current.currentTime = audibleTarget;
+    }
+  }, [
+    effectivePlaybackCutRegions,
+    isPlaybackActive,
+    playbackTransportDurationSec,
+    playbackWindow?.mode,
+    playheadSec,
+    resolveAudibleSeekTarget,
+  ]);
   const resolvePlaybackTransportProgress = useCallback((requestedTimeSec: number): {
     nextPlayheadSec: number;
     shouldLoop: boolean;
@@ -2591,14 +2711,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => buildHammerMediaPrepOutputsPackage({
       structuredTranscript: workspaceStructuredTranscript ?? null,
       visualPlacements: null,
-      audioPolish: props.audioPolish ?? null,
+      audioPolish: editableAudioPolish,
       mediaRef,
       mediaSourceLabel,
     }),
     [
+      editableAudioPolish,
       mediaRef,
       mediaSourceLabel,
-      props.audioPolish,
       workspaceStructuredTranscript,
     ],
   );
@@ -3883,6 +4003,41 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     selectionOriginRef.current = origin;
     setPlayheadSec(roundToTenth(audibleTarget ?? playbackTransportDurationSec));
     setFocusOverride(resolveFocusAfterPlayheadChange(focusOverride));
+  }
+
+  function markAudioCutBoundary(boundary: "start" | "end"): void {
+    if (playbackTransportDurationSec <= 0) return;
+    const markerTimeSec = Math.max(0, Math.min(playbackTransportDurationSec, roundToTenth(playheadSec)));
+    if (boundary === "start") {
+      setAudioCutSelectionStartSec(markerTimeSec);
+      return;
+    }
+    setAudioCutSelectionEndSec(markerTimeSec);
+  }
+
+  function clearAudioCutSelection(): void {
+    setAudioCutSelectionStartSec(null);
+    setAudioCutSelectionEndSec(null);
+  }
+
+  function applyAudioCutSelection(): void {
+    const committed = commitAudioCutSelection({
+      audioPolish: editableAudioPolish,
+      selection: {
+        startSec: audioCutSelectionStartSec,
+        endSec: audioCutSelectionEndSec,
+      },
+      durationSec: playbackTransportDurationSec,
+    });
+    if (!committed) {
+      return;
+    }
+
+    audioPolishHasLocalEditsRef.current = true;
+    setEditableAudioPolish(committed.audioPolish);
+    setAudioCutSelectionStartSec(committed.clearedSelection.startSec);
+    setAudioCutSelectionEndSec(committed.clearedSelection.endSec);
+    setFocusOverride("time-focus");
   }
 
   function resolvePlaybackWindowProgress(nextTimeSec: number): {
@@ -6712,7 +6867,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       alignmentStatus: transcriptForRelease.segments.length > 0 ? "aligned" : "not_started",
       structuredTranscript: transcriptForRelease,
       visualPlacements: editableVisualPlacements,
-      audioPolish: props.audioPolish ?? null,
+      audioPolish: editableAudioPolish,
       editorSession: {
         schema_version: 1,
         session_id: launchContext.session_id ?? editPlan.session_id ?? `${launchContext.workpiece_id}:session`,
@@ -6750,9 +6905,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     mediaRef,
     mediaSourceLabel,
     previewMode,
-    props.audioPolish,
     workspaceStructuredTranscript,
     editableVisualPlacements,
+    editableAudioPolish,
     selectedCaptionArtifactFormat,
     selectedSegmentId,
     transcriptSourceId,
@@ -7605,7 +7760,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       editPlan,
       editorialAuthorityGraph: exportBasis.canonicalGraph,
       visualPlacements: editableVisualPlacements,
-      audioPolish: props.audioPolish ?? null,
+      audioPolish: editableAudioPolish,
     };
 
     props.onWorkspaceSnapshotChange(snapshot);
@@ -7614,12 +7769,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     mediaRef,
     mediaSourceLabel,
     previewMode,
-    props.audioPolish,
     props.lastMacroRunRef,
     props.onWorkspaceSnapshotChange,
     props.selectedMacroRecipeRef,
     exportBasis.transcriptForRelease,
     editableVisualPlacements,
+    editableAudioPolish,
     currentPass,
     passStatus,
     selectedSegmentId,
@@ -9822,7 +9977,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 ) : (
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Audio Adjustments</header>
-                  <div className="hammer-tool-hint">Current prep status: {props.audioPolish?.status ?? "not_started"}</div>
+                  <div className="hammer-tool-hint">Current prep status: {editableAudioPolish?.status ?? "not_started"}</div>
+                  <div className="hammer-tool-hint">
+                    Persisted cut ops: {persistedAudioCutCount} raw · {effectivePlaybackCutRegions.length} effective playback region{effectivePlaybackCutRegions.length === 1 ? "" : "s"}
+                  </div>
                   <div className="hammer-tool-hint">
                     Preferred backend: {editableStudioRack.backend_preference}
                   </div>
@@ -11340,7 +11498,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             </header>
           <div className={`hammer-bay-body hammer-timeline-dock__body${isScrubbing ? " is-scrubbing" : ""}`}>
             <HammerWaveformLane
-              waveformProxy={props.audioPolish?.analysis?.waveform_proxy ?? null}
+              waveformProxy={editableAudioPolish?.analysis?.waveform_proxy ?? null}
+              durationSec={playbackTransportDurationSec}
+              cutRegions={effectivePlaybackCutRegions}
               playheadSec={playheadSec}
               onSeekRequest={(targetSec) => {
                 seekPlayheadToTime(targetSec, "timeline", { snapToBoundary: false });
@@ -11416,6 +11576,29 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 {selectedSegment?.is_disabled ? "Enable (M)" : "Disable (M)"}
               </button>
             </div>
+            <section className="hammer-timeline-cut-actions" aria-label="Audio cut selection">
+              <div className="hammer-timeline-cut-actions__meta">
+                <span>{audioCutSelectionStatus}</span>
+                <span>
+                  Persisted cuts: {persistedAudioCutCount} raw
+                  {` · ${effectivePlaybackCutRegions.length} effective playback region${effectivePlaybackCutRegions.length === 1 ? "" : "s"}`}
+                </span>
+              </div>
+              <div className="hammer-timeline-cut-actions__buttons">
+                <button type="button" onClick={() => markAudioCutBoundary("start")} disabled={!canMarkAudioCutSelection}>
+                  Mark In
+                </button>
+                <button type="button" onClick={() => markAudioCutBoundary("end")} disabled={!canMarkAudioCutSelection}>
+                  Mark Out
+                </button>
+                <button type="button" onClick={applyAudioCutSelection} disabled={!canApplyAudioCutSelection}>
+                  Cut Selection
+                </button>
+                <button type="button" onClick={clearAudioCutSelection} disabled={!hasPendingAudioCutSelection}>
+                  Clear Selection
+                </button>
+              </div>
+            </section>
             <input
               type="range"
               min={0}

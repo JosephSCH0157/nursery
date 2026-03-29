@@ -1857,7 +1857,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           const estimatedCostUsd = accounting.estimatedCostUsd;
           const billableTokens = accounting.billableTokens;
           const openAiRequestId = upstream.headers.get("x-request-id");
-          let creditsWarning: string | null = null;
+          const creditsWarning: string | null = null;
 
           await recordAiUsageEvent({
             userId,
@@ -2302,7 +2302,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const estimatedCostUsd = accounting.estimatedCostUsd;
         const billableTokens = accounting.billableTokens;
         const openAiRequestId = upstream.headers.get("x-request-id");
-        let creditsWarning: string | null = null;
+        const creditsWarning: string | null = null;
 
         await recordAiUsageEvent({
           userId,

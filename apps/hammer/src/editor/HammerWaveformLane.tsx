@@ -1,5 +1,7 @@
 import { useEffect, useRef, useMemo } from "react";
 import type { JSX, MouseEvent as ReactMouseEvent } from "react";
+import type { HammerEffectiveCutRegion } from "./hammerAudioEditPlayback";
+import { resolveWaveformCutOverlaySpans } from "./hammerWaveformCutOverlay";
 
 // cspell:words mixdown playhead
 
@@ -40,6 +42,18 @@ export interface HammerWaveformLaneProps {
   playheadSec?: number;
 
   /**
+   * Optional transport-aligned duration basis.
+   * When provided, seek/playhead/cut overlays use this timeline duration.
+   */
+  durationSec?: number;
+
+  /**
+   * Effective committed cut regions to render as calm shaded overlays.
+   * Expected to come from persisted + normalized audio edit truth.
+   */
+  cutRegions?: HammerEffectiveCutRegion[] | null;
+
+  /**
    * Optional seek seam.
    * If provided, clicking the lane requests a seek on the canonical transport path.
    */
@@ -69,6 +83,7 @@ export interface HammerWaveformLaneProps {
  */
 export function HammerWaveformLane(props: HammerWaveformLaneProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const resolvedDurationSec = props.durationSec ?? props.waveformProxy?.duration_sec ?? 0;
 
   const handleLaneClick = (event: ReactMouseEvent<HTMLElement>): void => {
     if (!props.waveformProxy || !canvasDims || !props.onSeekRequest) return;
@@ -79,7 +94,7 @@ export function HammerWaveformLane(props: HammerWaveformLaneProps): JSX.Element 
       laneLeftPx: rect.left,
       laneScrollLeftPx: event.currentTarget.scrollLeft,
       canvasWidthPx: canvasDims.canvasWidth,
-      durationSec: props.waveformProxy.duration_sec,
+      durationSec: resolvedDurationSec,
     });
     if (targetSec == null) return;
     props.onSeekRequest(targetSec);
@@ -92,7 +107,10 @@ export function HammerWaveformLane(props: HammerWaveformLaneProps): JSX.Element 
     if (!props.waveformProxy) return null;
 
     const bucketCount = props.waveformProxy.bucket_count;
-    const durationSec = props.waveformProxy.duration_sec;
+    const durationSec = resolvedDurationSec;
+    if (!Number.isFinite(durationSec) || durationSec <= 0) {
+      return null;
+    }
 
     // Canvas height: 80px for waveform visualization (restrained)
     const canvasHeight = 80;
@@ -109,7 +127,11 @@ export function HammerWaveformLane(props: HammerWaveformLaneProps): JSX.Element 
       pxPerBucket,
       pxPerSec: computedWidth / durationSec,
     };
-  }, [props.waveformProxy]);
+  }, [props.waveformProxy, resolvedDurationSec]);
+  const cutOverlaySpans = useMemo(() => resolveWaveformCutOverlaySpans({
+    cutRegions: props.cutRegions,
+    durationSec: resolvedDurationSec,
+  }), [props.cutRegions, resolvedDurationSec]);
 
   /**
    * Render the waveform on canvas.
@@ -181,24 +203,62 @@ export function HammerWaveformLane(props: HammerWaveformLaneProps): JSX.Element 
         onClick={handleLaneClick}
         aria-label="Waveform seek lane"
       >
-        <canvas
-          ref={canvasRef}
-          width={canvasDims.canvasWidth}
-          height={canvasDims.canvasHeight}
-          className="hammer-waveform-lane__canvas"
-        />
+        <div
+          className="hammer-waveform-lane__surface"
+          style={{
+            width: `${canvasDims.canvasWidth}px`,
+            height: `${canvasDims.canvasHeight}px`,
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            width={canvasDims.canvasWidth}
+            height={canvasDims.canvasHeight}
+            className="hammer-waveform-lane__canvas"
+          />
+          {cutOverlaySpans.map((span) => (
+            <span
+              key={`waveform-cut-${span.startSec}-${span.endSec}`}
+              className="hammer-waveform-lane__cut-overlay"
+              style={{
+                left: `${span.startPct}%`,
+                width: `${span.widthPct}%`,
+              }}
+              aria-hidden="true"
+            />
+          ))}
+        </div>
       </button>
     );
   }
 
   return (
     <div className={`hammer-waveform-lane ${props.className ?? ""}`}>
-      <canvas
-        ref={canvasRef}
-        width={canvasDims.canvasWidth}
-        height={canvasDims.canvasHeight}
-        className="hammer-waveform-lane__canvas"
-      />
+      <div
+        className="hammer-waveform-lane__surface"
+        style={{
+          width: `${canvasDims.canvasWidth}px`,
+          height: `${canvasDims.canvasHeight}px`,
+        }}
+      >
+        <canvas
+          ref={canvasRef}
+          width={canvasDims.canvasWidth}
+          height={canvasDims.canvasHeight}
+          className="hammer-waveform-lane__canvas"
+        />
+        {cutOverlaySpans.map((span) => (
+          <span
+            key={`waveform-cut-${span.startSec}-${span.endSec}`}
+            className="hammer-waveform-lane__cut-overlay"
+            style={{
+              left: `${span.startPct}%`,
+              width: `${span.widthPct}%`,
+            }}
+            aria-hidden="true"
+          />
+        ))}
+      </div>
     </div>
   );
 }
