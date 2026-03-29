@@ -12,7 +12,6 @@ These rules define the canonical Hammer interface.
 Companion interaction architecture:
 
 - [`docs/HAMMER_EDITOR_ARCHITECTURE.md`](./HAMMER_EDITOR_ARCHITECTURE.md)
-- [`docs/HAMMER_WEEK4_SIGNOFF.md`](./HAMMER_WEEK4_SIGNOFF.md)
 
 ---
 

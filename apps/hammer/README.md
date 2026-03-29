@@ -15,10 +15,6 @@ Hammer prioritizes:
 - fast cleanup of spoken content
 - integration with other Forge tools
 
-Current implementation evidence:
-
-- [`docs/HAMMER_WEEK4_SIGNOFF.md`](../../docs/HAMMER_WEEK4_SIGNOFF.md)
-
 ## Forge Pipeline Context
 
 Bar Stock -> Hearth -> Tongs -> Anvil -> Hammer -> Quench -> Ledger
