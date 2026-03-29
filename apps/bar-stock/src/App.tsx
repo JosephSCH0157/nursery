@@ -726,6 +726,14 @@ export default function App(props: BarstockAppProps = {}) {
     enqueue({ op: "delete_spark", at: now(), sparkId: id });
   }
 
+  function confirmDeleteSpark(spark: Spark) {
+    const label = spark.title?.trim() || spark.body.trim().split(/\r?\n/)[0] || "this spark";
+    const confirmed = window.confirm(`Delete ${label}? This cannot be undone.`);
+    if (!confirmed) return;
+    deleteSpark(spark.id);
+    popToast("Spark deleted.");
+  }
+
   function onTagClick(tag: string) {
     setQ(prev => ({ ...prev, tag: normalizeTag(tag) }));
   }
@@ -1118,7 +1126,7 @@ export default function App(props: BarstockAppProps = {}) {
                       type="button"
                       className="barstock-mobile-button barstock-mobile-button--danger"
                       onClick={() => {
-                        deleteSpark(mobileDetailSpark.id);
+                        confirmDeleteSpark(mobileDetailSpark);
                         mobileRoute.onBackToList();
                       }}
                     >
@@ -1708,7 +1716,7 @@ export default function App(props: BarstockAppProps = {}) {
                             <button
                               className="barstock-spark-card__danger"
                               onClick={() => {
-                                deleteSpark(s.id);
+                                confirmDeleteSpark(s);
                                 setOpenMenuSparkId(null);
                               }}
                             >

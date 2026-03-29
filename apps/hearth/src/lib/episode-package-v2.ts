@@ -1262,6 +1262,13 @@ export function parseImageMapEntriesFromText(rawText: string): EpisodeImageMapEn
       anchor,
       script_anchor: null,
       anchor_scope: "orphaned",
+      purpose: deriveImageMapPurpose({
+        visualType: "still_image",
+        intent: "graphic",
+        description,
+        visualIntent: description,
+        promptBasis: prompt,
+      }),
       description,
       visual_intent: description,
       prompt_basis: prompt,
