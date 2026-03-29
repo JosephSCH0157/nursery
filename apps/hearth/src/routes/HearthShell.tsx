@@ -197,6 +197,9 @@ import {
   inferReferenceClipSuitabilitySignals,
 } from "../lib/hearth-reference-clip-plan";
 import {
+  deriveMediaMapPurpose,
+} from "../lib/hearth-visual-purpose";
+import {
   advanceExternalRequestTracker,
   buildBrollBeatBrief,
   buildReferenceClipBrief,
@@ -5099,9 +5102,7 @@ export default function HearthShell({
     let workpieceId: string | undefined;
     try {
       const sparkTitle = deriveSparkTitle(spark);
-      const scriptSeed = spark.body?.trim()
-        ? spark.body
-        : `## ${sparkTitle}\n\n`;
+      const scriptSeed = "## Draft Script\n\n";
       const created = await createHearthWorkpiece({
         created_from: "bar-stock",
         spark_id: spark.id,
@@ -5117,7 +5118,7 @@ export default function HearthShell({
       setWorkpieceId(workpieceId);
       setWorkspaceId(resolveWorkspaceId());
       applySessionOrigin({ created_from: "bar-stock", spark_id: spark.id });
-      pendingDraftEditorPanelRef.current = scriptSeed.trim() ? "script" : "manual";
+      pendingDraftEditorPanelRef.current = "script";
 
       const draft = await createDraftAndOpen(workpieceId, {
         title: sparkTitle,
@@ -7839,7 +7840,8 @@ export default function HearthShell({
   ): EpisodeMediaMapEntry[] {
     return entries.map((entry) => ({
       id: `${idPrefix}${entry.id}`,
-      final_media_kind: "image",
+      final_media_kind: entry.purpose === "explanation" ? "contextual_data_composite" : "image",
+      purpose: entry.purpose,
       anchor: {
         mode: entry.anchor_scope === "global"
           ? "section_marker"
@@ -7860,7 +7862,9 @@ export default function HearthShell({
       },
       confidence: entry.status === "selected" ? "high" : "medium",
       fulfillment_status: entry.selected_asset_id ? "resolved" : "planned",
-      fulfillment_path: entry.selected_asset_id ? "image" : null,
+      fulfillment_path: entry.selected_asset_id
+        ? (entry.purpose === "explanation" ? "reference_clip" : "image")
+        : null,
       optional: entry.visual_priority === "supporting",
       critical: entry.visual_priority === "primary",
       stale: false,
@@ -7873,29 +7877,8 @@ export default function HearthShell({
     current: EpisodePackageV2,
     scriptVersionId: string | null,
     scope: MediaMapGenerationScope,
-    imageEntriesOverride?: EpisodeImageMapEntry[] | null,
-    scriptTextOverride?: string | null,
   ): EpisodeMediaMap {
     const nowIso = new Date().toISOString();
-    const fallbackScriptText = scriptTextOverride?.trim() ?? "";
-    const hasFallbackScript = fallbackScriptText.length > 0;
-    const fallbackWorkpieceId = current.media_map.workpiece_id?.trim() || workpieceId?.trim() || "";
-    const splitFallbackScriptMoments = (): string[] => fallbackScriptText
-      .replace(/\r\n?/g, "\n")
-      .split(/\n+/g)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .flatMap((line) => line.split(/(?<=[.!?])\s+/g).map((segment) => segment.trim()))
-      .filter((segment) => segment.length >= 22);
-    const isLikelyReferenceClipMoment = (text: string): boolean => {
-      const signals = inferReferenceClipSuitabilitySignals(text);
-      const lower = text.toLowerCase();
-      const hasNumeric = /\d/.test(lower);
-      const hasComparison = /\b(vs\.?|versus|compared to|comparison|higher|lower|increase|decrease|percent|percentage)\b/.test(lower);
-      const hasTimeOrGeo = /\b(year|years|month|months|timeline|since|before|after|state|county|city|region|country|map)\b/.test(lower);
-      const strength = signals.length + (hasNumeric ? 1 : 0) + (hasComparison ? 1 : 0) + (hasTimeOrGeo ? 1 : 0);
-      return strength >= 3;
-    };
     const thumbnailVersionByConceptId = new Map<string, EpisodeThumbnailVersion>();
     for (const version of current.thumbnail.versions) {
       if (!thumbnailVersionByConceptId.has(version.concept_id)) {
@@ -7909,6 +7892,7 @@ export default function HearthShell({
       return {
         id: `mm_thumbnail_${concept.id}`,
         final_media_kind: "image",
+        purpose: "emphasis",
         anchor: {
           mode: "section_marker",
           target: conceptLabel ? `thumbnail:${conceptLabel}` : "thumbnail:concept",
@@ -7933,24 +7917,11 @@ export default function HearthShell({
         updated_at: nowIso,
       };
     });
-    const imageSourceEntries = imageEntriesOverride ?? current.image_map.entries;
-    const fromImageMap = mapImageEntriesToMediaMapEntries(imageSourceEntries, nowIso, "mm_imap_");
-    const fallbackBrollBeats = (
-      current.broll_plan.beats.length === 0
-      && hasFallbackScript
-      && fallbackWorkpieceId
-    )
-      ? buildBrollPlanFromScript({
-        workpieceId: fallbackWorkpieceId,
-        scriptText: fallbackScriptText,
-      }).beats.filter((beat) => !isLikelyReferenceClipMoment(beat.description || beat.anchor_text))
-      : [];
-    const brollSourceBeats = current.broll_plan.beats.length > 0
-      ? current.broll_plan.beats
-      : fallbackBrollBeats;
-    const fromBroll: EpisodeMediaMapEntry[] = brollSourceBeats.map((beat) => ({
+    const fromImageMap = mapImageEntriesToMediaMapEntries(current.image_map.entries, nowIso, "mm_imap_");
+    const fromBroll: EpisodeMediaMapEntry[] = current.broll_plan.beats.map((beat) => ({
       id: `mm_broll_${beat.id}`,
-      final_media_kind: "b_roll",
+      final_media_kind: beat.purpose === "explanation" ? "contextual_data_composite" : "b_roll",
+      purpose: beat.purpose,
       anchor: {
         mode: beat.placement_hint === "exact_timestamp" ? "absolute_time" : "phrase_match",
         target: beat.placement_hint === "exact_timestamp"
@@ -7969,35 +7940,19 @@ export default function HearthShell({
       },
       confidence: "medium",
       fulfillment_status: beat.selected_asset_id ? "resolved" : "planned",
-      fulfillment_path: beat.selected_asset_id ? "motion_broll" : null,
+      fulfillment_path: beat.selected_asset_id
+        ? (beat.purpose === "explanation" ? "reference_clip" : "motion_broll")
+        : null,
       optional: beat.priority === "background",
       critical: beat.priority === "primary",
       stale: false,
       created_at: beat.created_at,
       updated_at: beat.updated_at,
     }));
-    const fallbackReferenceClipEntries = (
-      current.cdc_plan.entries.length === 0
-      && hasFallbackScript
-      && fallbackWorkpieceId
-    )
-      ? (() => {
-        const selected = splitFallbackScriptMoments()
-          .filter((segment) => isLikelyReferenceClipMoment(segment))
-          .slice(0, 8);
-        return selected.map((segment) => createReferenceClipPlan({
-          workpieceId: fallbackWorkpieceId,
-          anchorText: segment,
-          description: segment,
-        }));
-      })()
-      : [];
-    const referenceClipSourceEntries = current.cdc_plan.entries.length > 0
-      ? current.cdc_plan.entries
-      : fallbackReferenceClipEntries;
-    const fromReferenceClips: EpisodeMediaMapEntry[] = referenceClipSourceEntries.map((entry) => ({
+    const fromReferenceClips: EpisodeMediaMapEntry[] = current.cdc_plan.entries.map((entry) => ({
       id: `mm_reference_clip_${entry.id}`,
       final_media_kind: "contextual_data_composite",
+      purpose: entry.purpose,
       anchor: {
         mode: entry.placement_hint === "exact_timestamp" ? "absolute_time" : "phrase_match",
         target: entry.placement_hint === "exact_timestamp"
@@ -9376,36 +9331,10 @@ export default function HearthShell({
     if (!episodePackage) return;
     if (isMediaMapBusy) return;
     const scriptVersionId = approvedScriptVersion ? String(approvedScriptVersion) : null;
-    let fallbackImageEntries: EpisodeImageMapEntry[] | null = null;
-    let fallbackCanonicalScriptText: string | null = null;
-    let fallbackImageMode = false;
-    const needsTypeFallback = (
-      mediaMapGenerationScope === "full_media_plan"
-      || mediaMapGenerationScope === "images_broll"
-      || mediaMapGenerationScope === "images_reference_clips"
-    ) && (
-      (mediaMapGenerationScope !== "images_reference_clips" && episodePackage.broll_plan.beats.length === 0)
-      || (mediaMapGenerationScope !== "images_broll" && episodePackage.cdc_plan.entries.length === 0)
-    );
-    if (episodePackage.image_map.entries.length === 0 || needsTypeFallback) {
-      const canonicalScript = await readCanonicalScriptForImageMapGeneration();
-      if (canonicalScript.ok) {
-        fallbackCanonicalScriptText = canonicalScript.text;
-        if (episodePackage.image_map.entries.length === 0) {
-          const generated = generateImageMapEntriesFromScript(canonicalScript.text);
-          if (generated.length > 0) {
-            fallbackImageEntries = generated;
-            fallbackImageMode = true;
-          }
-        }
-      }
-    }
     const nextMap = buildMediaMapFromExistingPlans(
       episodePackage,
       scriptVersionId,
       mediaMapGenerationScope,
-      fallbackImageEntries,
-      fallbackCanonicalScriptText,
     );
     setIsMediaMapBusy(true);
     setMediaMapSaveState("saving");
@@ -9430,7 +9359,7 @@ export default function HearthShell({
       const brollCount = nextMap.entries.filter((entry) => entry.final_media_kind === "b_roll").length;
       const referenceClipCount = nextMap.entries.filter((entry) => entry.final_media_kind === "contextual_data_composite").length;
       setMediaMapMessage(
-        `${fallbackImageMode ? "Bootstrapped from canonical script. " : ""}Generated ${nextMap.entries.length} media map entries using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}).`,
+        `Generated ${nextMap.entries.length} media map entries from the current visual plans using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}).`,
       );
     } catch {
       setMediaMapSaveError("Unable to generate Episode Media Map.");
@@ -9447,6 +9376,7 @@ export default function HearthShell({
     const entry: EpisodeMediaMapEntry = {
       id: createMediaMapEntryId(),
       final_media_kind: "image",
+      purpose: "coverage",
       anchor: {
         mode: "phrase_match",
         target: "",
@@ -9507,13 +9437,20 @@ export default function HearthShell({
     if (!episodePackage || !selectedMediaMapEntry) return;
     if (isMediaMapBusy) return;
     const nowIso = new Date().toISOString();
+    const nextFinalMediaKind = (
+      mediaMapTypeDraft === "b_roll" || mediaMapTypeDraft === "contextual_data_composite"
+        ? mediaMapTypeDraft
+        : "image"
+    );
     const nextEntry: EpisodeMediaMapEntry = {
       ...selectedMediaMapEntry,
-      final_media_kind: (
-        mediaMapTypeDraft === "b_roll" || mediaMapTypeDraft === "contextual_data_composite"
-          ? mediaMapTypeDraft
-          : "image"
-      ),
+      final_media_kind: nextFinalMediaKind,
+      purpose: deriveMediaMapPurpose({
+        finalMediaKind: nextFinalMediaKind,
+        intent: mediaMapIntentDraft.trim(),
+        description: mediaMapDescriptionDraft.trim(),
+        anchorTarget: mediaMapAnchorTargetDraft.trim(),
+      }),
       anchor: {
         mode: (
           mediaMapAnchorModeDraft === "line_anchor"
@@ -9553,9 +9490,9 @@ export default function HearthShell({
           : selectedMediaMapEntry.fulfillment_status
       ),
       fulfillment_path: (
-        mediaMapTypeDraft === "b_roll"
+        nextFinalMediaKind === "b_roll"
           ? "motion_broll"
-          : mediaMapTypeDraft === "contextual_data_composite"
+          : nextFinalMediaKind === "contextual_data_composite"
             ? "reference_clip"
             : "image"
       ),
@@ -10808,6 +10745,7 @@ export default function HearthShell({
     const nextAnchor = `manual:p${episodePackage.image_map.entries.length + 1}`;
     const nextEpisodePackage = addImageMapEntry(episodePackage, {
       anchor: nextAnchor,
+      purpose: "coverage",
       description: "",
       visual_intent: "",
       prompt_basis: "",
@@ -10852,6 +10790,7 @@ export default function HearthShell({
       anchor: selectedImageMapEntry.anchor,
       script_anchor: selectedImageMapEntry.script_anchor,
       anchor_scope: selectedImageMapEntry.anchor_scope ?? (selectedImageMapEntry.script_anchor ? "attached" : "orphaned"),
+      purpose: selectedImageMapEntry.purpose,
       description: selectedImageMapEntry.description,
       visual_intent: selectedImageMapEntry.visual_intent,
       prompt_basis: selectedImageMapEntry.prompt_basis,

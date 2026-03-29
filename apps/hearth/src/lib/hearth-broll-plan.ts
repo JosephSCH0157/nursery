@@ -8,6 +8,7 @@ import type {
   EpisodeBrollPlanBeat,
   EpisodeBrollShotType,
 } from "./episode-package-v2";
+import { deriveBrollPurpose } from "./hearth-visual-purpose";
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -167,12 +168,19 @@ export function buildBrollPlanFromScript(args: {
   const beats: EpisodeBrollPlanBeat[] = selected.map((sentence, index) => {
     const motionIntent = inferMotionIntent(sentence);
     const previous = args.previousPlan?.beats.find((beat) => beat.anchor_text === sentence) ?? null;
+    const purpose = deriveBrollPurpose({
+      rawPurpose: previous?.purpose ?? null,
+      motionIntent,
+      description: previous?.description ?? sentence,
+      anchorText: sentence,
+    });
     return {
       id: previous?.id ?? createClientId("broll-beat"),
       workpiece_id: args.workpieceId,
       anchor_text: sentence,
       placement_hint: "first_occurrence",
       timestamp_ms: previous?.timestamp_ms ?? null,
+      purpose,
       description: previous?.description ?? sentence,
       motion_intent: motionIntent,
       visual_style: previous?.visual_style ?? null,
@@ -221,6 +229,12 @@ export function regenerateBrollBeatFromDescription(beat: EpisodeBrollPlanBeat): 
   const motionIntent = inferMotionIntent(description);
   const next = {
     ...beat,
+    purpose: deriveBrollPurpose({
+      rawPurpose: beat.purpose,
+      motionIntent,
+      description,
+      anchorText: beat.anchor_text,
+    }),
     motion_intent: motionIntent,
     asset_category: inferAssetCategory(motionIntent),
     keywords: inferKeywords(description),

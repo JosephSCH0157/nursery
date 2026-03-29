@@ -6,6 +6,7 @@ import type {
   EpisodeReferenceClipMotionLevel,
   EpisodeReferenceClipTone,
 } from "./episode-package-v2";
+import { deriveReferenceClipPurpose } from "./hearth-visual-purpose";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -76,6 +77,7 @@ export function createReferenceClipPlan(args: {
     anchor_text: args.anchorText.trim(),
     placement_hint: "first_occurrence",
     timestamp_ms: null,
+    purpose: deriveReferenceClipPurpose(),
     format,
     data_type: dataType,
     context_type: signals.includes("geographic") ? "location" : "historical",

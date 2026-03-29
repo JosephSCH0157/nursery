@@ -12,6 +12,13 @@ import {
   deriveHearthThumbnailOverlayText,
   resolveHearthThumbnailOverlayText,
 } from "./hearth-thumbnail-title-contract";
+import {
+  deriveBrollPurpose,
+  deriveImageMapPurpose,
+  deriveMediaMapPurpose,
+  deriveReferenceClipPurpose,
+  type HearthVisualPurpose,
+} from "./hearth-visual-purpose";
 
 export const EPISODE_PACKAGE_V2_SCHEMA = "forge.episode.package.v2";
 
@@ -144,6 +151,7 @@ export type EpisodeImageMapEntry = {
   anchor: string;
   script_anchor: EpisodeImageMapScriptAnchor | null;
   anchor_scope?: EpisodeImageMapAnchorScope;
+  purpose: HearthVisualPurpose;
   description: string;
   visual_intent: string;
   prompt_basis: string;
@@ -203,6 +211,7 @@ export type EpisodeMediaMapSource = {
 export type EpisodeMediaMapEntry = {
   id: string;
   final_media_kind: EpisodeMediaMapMediaType;
+  purpose: HearthVisualPurpose;
   anchor: EpisodeMediaMapAnchor;
   timing: EpisodeMediaMapTiming;
   description: string;
@@ -345,6 +354,7 @@ export type EpisodeBrollPlanBeat = {
   anchor_text: string;
   placement_hint: EpisodeBrollPlacementHint;
   timestamp_ms?: number | null;
+  purpose: HearthVisualPurpose;
   description: string;
   motion_intent: EpisodeBrollMotionIntent;
   visual_style?: HearthVisualStyleValue | null;
@@ -408,6 +418,7 @@ export type EpisodeContextualDataCompositePlan = {
   anchor_text: string;
   placement_hint: EpisodeBrollPlacementHint;
   timestamp_ms?: number | null;
+  purpose: HearthVisualPurpose;
   format: EpisodeCdcFormat;
   data_type: EpisodeCdcDataType;
   context_type: EpisodeCdcContextType;
@@ -795,20 +806,34 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
     if (!anchor) continue;
     const candidateAssets = normalizeImageMapAssetRefs(entry.candidate_assets);
     const selectedAssetId = normalizeSelectedImageMapAssetId(readString(entry.selected_asset_id), candidateAssets);
+    const visualIntent = readString(entry.visual_intent) ?? description;
+    const promptBasis = readString(entry.prompt_basis) ?? readString(entry.prompt) ?? description;
+    const intent = normalizeImageMapIntent(readString(entry.intent));
+    const visualPriority = normalizeImageMapVisualPriority(readString(entry.visual_priority));
+    const visualType = normalizeImageMapVisualType(readString(entry.visual_type));
     out.push({
       id: readString(entry.id) ?? `image-map-${String(i + 1).padStart(2, "0")}`,
       anchor,
       script_anchor: scriptAnchor,
       anchor_scope: normalizeImageMapAnchorScope(readString(entry.anchor_scope), scriptAnchor),
+      purpose: deriveImageMapPurpose({
+        rawPurpose: readString(entry.purpose),
+        visualPriority,
+        visualType,
+        intent,
+        description,
+        visualIntent,
+        promptBasis,
+      }),
       description,
-      visual_intent: readString(entry.visual_intent) ?? description,
-      prompt_basis: readString(entry.prompt_basis) ?? readString(entry.prompt) ?? description,
+      visual_intent: visualIntent,
+      prompt_basis: promptBasis,
       style_preset: normalizeHearthVisualStyle(readString(entry.style_preset) ?? readString(entry.visual_style) ?? null),
-      intent: normalizeImageMapIntent(readString(entry.intent)),
+      intent,
       source_type: normalizeImageMapSourceType(sourceType),
       origin: normalizeImageMapOrigin(readString(entry.origin)),
-      visual_priority: normalizeImageMapVisualPriority(readString(entry.visual_priority)),
-      visual_type: normalizeImageMapVisualType(readString(entry.visual_type)),
+      visual_priority: visualPriority,
+      visual_type: visualType,
       section_intent_note: readString(entry.section_intent_note),
       beat_order: readInteger(entry.beat_order) ?? (i + 1),
       paragraph_beat_order: readInteger(entry.paragraph_beat_order) ?? 1,
@@ -1042,20 +1067,34 @@ function normalizeImageMapEntryPatch(args: {
   if (!anchor || !id) return null;
   const candidateAssets = normalizeImageMapAssetRefs(args.entry.candidate_assets);
   const selectedAssetId = normalizeSelectedImageMapAssetId(readString(args.entry.selected_asset_id), candidateAssets);
+  const visualIntent = readString(args.entry.visual_intent) ?? description;
+  const promptBasis = readString(args.entry.prompt_basis) ?? description;
+  const intent = normalizeImageMapIntent(readString(args.entry.intent));
+  const visualPriority = normalizeImageMapVisualPriority(readString(args.entry.visual_priority));
+  const visualType = normalizeImageMapVisualType(readString(args.entry.visual_type));
   return {
     id,
     anchor,
     script_anchor: scriptAnchor,
     anchor_scope: normalizeImageMapAnchorScope(readString(args.entry.anchor_scope), scriptAnchor),
+    purpose: deriveImageMapPurpose({
+      rawPurpose: readString(args.entry.purpose),
+      visualPriority,
+      visualType,
+      intent,
+      description,
+      visualIntent,
+      promptBasis,
+    }),
     description,
-    visual_intent: readString(args.entry.visual_intent) ?? description,
-    prompt_basis: readString(args.entry.prompt_basis) ?? description,
+    visual_intent: visualIntent,
+    prompt_basis: promptBasis,
     style_preset: normalizeHearthVisualStyle(args.entry.style_preset ?? null),
-    intent: normalizeImageMapIntent(readString(args.entry.intent)),
+    intent,
     source_type: normalizeImageMapSourceType(readString(args.entry.source_type)),
     origin: normalizeImageMapOrigin(readString(args.entry.origin)),
-    visual_priority: normalizeImageMapVisualPriority(readString(args.entry.visual_priority)),
-    visual_type: normalizeImageMapVisualType(readString(args.entry.visual_type)),
+    visual_priority: visualPriority,
+    visual_type: visualType,
     section_intent_note: readString(args.entry.section_intent_note),
     beat_order: readInteger(args.entry.beat_order) ?? args.fallbackBeatOrder ?? 1,
     paragraph_beat_order: readInteger(args.entry.paragraph_beat_order) ?? args.fallbackParagraphBeatOrder ?? 1,
@@ -1578,6 +1617,12 @@ function normalizeBrollPlanBeat(value: unknown, fallbackId: string, fallbackWork
     anchor_text: anchorText,
     placement_hint: normalizeBrollPlacementHint(value.placement_hint),
     timestamp_ms: readInteger(value.timestamp_ms),
+    purpose: deriveBrollPurpose({
+      rawPurpose: readString(value.purpose),
+      motionIntent,
+      description,
+      anchorText,
+    }),
     description,
     motion_intent: motionIntent,
     visual_style: normalizeHearthVisualStyle(value.visual_style),
@@ -1708,6 +1753,7 @@ function normalizeCdcEntry(value: unknown, fallbackId: string, fallbackWorkpiece
     anchor_text: readString(value.anchor_text) ?? "",
     placement_hint: normalizeBrollPlacementHint(value.placement_hint),
     timestamp_ms: readInteger(value.timestamp_ms),
+    purpose: deriveReferenceClipPurpose(readString(value.purpose)),
     format: normalizeCdcFormat(value.format),
     data_type: normalizeCdcDataType(value.data_type),
     context_type: normalizeCdcContextType(value.context_type),
@@ -1846,6 +1892,13 @@ function normalizeMediaMapEntry(value: unknown, fallbackId: string): EpisodeMedi
   return {
     id,
     final_media_kind: normalizeMediaMapType(value.final_media_kind ?? value.type),
+    purpose: deriveMediaMapPurpose({
+      rawPurpose: readString(value.purpose),
+      finalMediaKind: readString(value.final_media_kind ?? value.type),
+      intent: readString(value.intent),
+      description: readString(value.description),
+      anchorTarget: readString(anchorRoot?.target),
+    }),
     anchor: {
       mode: normalizeMediaMapAnchorMode(anchorRoot?.mode),
       target: readString(anchorRoot?.target) ?? "",
@@ -2223,6 +2276,15 @@ export function ensureImageMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
       ...entry,
       beat_order: entry.beat_order || (index + 1),
       paragraph_beat_order: entry.paragraph_beat_order || nextParagraphBeatOrder,
+      purpose: deriveImageMapPurpose({
+        rawPurpose: entry.purpose,
+        visualPriority: entry.visual_priority,
+        visualType: entry.visual_type,
+        intent: entry.intent,
+        description: entry.description,
+        visualIntent: entry.visual_intent,
+        promptBasis: entry.prompt_basis,
+      }),
       status: normalizeImageMapStatus(entry.status),
     };
   });
@@ -2264,6 +2326,12 @@ export function ensureBrollPlanV2(pkg: EpisodePackageV2): EpisodePackageV2 {
       attached_asset_id: beat.selected_asset_id ?? null,
       updated_at: normalizeIso(beat.updated_at, beat.created_at),
     },
+    purpose: deriveBrollPurpose({
+      rawPurpose: beat.purpose,
+      motionIntent: normalizeBrollMotionIntent(beat.motion_intent),
+      description: beat.description,
+      anchorText: beat.anchor_text,
+    }),
     motion_intent: normalizeBrollMotionIntent(beat.motion_intent),
     asset_category: normalizeBrollMotionAssetCategory(beat.asset_category)
       ?? deriveBrollAssetCategoryFromSource({
@@ -2310,6 +2378,7 @@ export function ensureCdcPlanV2(pkg: EpisodePackageV2): EpisodePackageV2 {
       asset_class: candidate.asset_class ?? "reference_clip",
       source_beat_id: candidate.source_beat_id ?? entry.id,
     })),
+    purpose: deriveReferenceClipPurpose(entry.purpose),
     external_request: normalizeExternalRequestTracker(entry.external_request) ?? {
       state: entry.selected_asset_id ? "resolved" : "planned",
       attached_asset_id: entry.selected_asset_id ?? null,
@@ -2336,6 +2405,13 @@ export function ensureMediaMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
   const normalizedEntries = normalizedMap.entries.map((entry) => ({
     ...entry,
     final_media_kind: normalizeMediaMapType(entry.final_media_kind),
+    purpose: deriveMediaMapPurpose({
+      rawPurpose: entry.purpose,
+      finalMediaKind: entry.final_media_kind,
+      intent: entry.intent,
+      description: entry.description,
+      anchorTarget: entry.anchor?.target,
+    }),
     anchor: {
       mode: normalizeMediaMapAnchorMode(entry.anchor?.mode),
       target: readString(entry.anchor?.target) ?? "",
