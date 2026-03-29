@@ -614,8 +614,8 @@ export default function ThumbnailPanel({
             </div>
           ) : null}
 
-          <section className="hs-thumb-ctr-breakdown" aria-label="Predicted CTR breakdown">
-            <div className="hs-thumb-section-title">Predicted CTR Breakdown</div>
+          <details className="hs-thumb-ctr-breakdown" aria-label="Predicted CTR breakdown">
+            <summary>Predicted CTR Breakdown</summary>
             {rankedConceptEvaluations.length === 0 ? (
               <div className="hs-thumb-empty">No concepts to score yet.</div>
             ) : (
@@ -650,7 +650,7 @@ export default function ThumbnailPanel({
                 </table>
               </div>
             )}
-          </section>
+          </details>
 
           <div className="hs-thumb-concept-actions">
             <button
@@ -845,6 +845,7 @@ export default function ThumbnailPanel({
                 placeholder="Optional prompt override"
                 rows={3}
                 disabled={isGenerating || isUploading}
+                className="hs-thumb-prompt-override"
               />
             </label>
           </section>

@@ -1785,9 +1785,10 @@
 
 .hs-thumb-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) 1fr minmax(280px, 340px);
+  grid-template-columns: minmax(180px, 240px) minmax(520px, 760px) minmax(240px, 320px);
   gap: 12px;
   align-items: start;
+  justify-content: start;
 }
 
 .hs-thumb-concepts {
@@ -1811,7 +1812,7 @@
 .hs-thumb-concepts-list {
   display: grid;
   gap: 6px;
-  max-height: 180px;
+  max-height: 140px;
   overflow: auto;
 }
 
@@ -1902,8 +1903,26 @@
 }
 
 .hs-thumb-ctr-breakdown {
-  display: grid;
-  gap: 6px;
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.03);
+  padding: 6px 8px;
+}
+
+.hs-thumb-ctr-breakdown > summary {
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  opacity: 0.78;
+}
+
+.hs-thumb-ctr-breakdown > summary::-webkit-details-marker {
+  display: none;
+}
+
+.hs-thumb-ctr-breakdown[open] > summary {
+  margin-bottom: 6px;
 }
 
 .hs-thumb-ctr-table-wrap {
@@ -2004,6 +2023,7 @@
   display: grid;
   gap: 12px;
   align-content: start;
+  max-width: 920px;
 }
 
 .hs-thumb-sidebar-right {
@@ -2063,40 +2083,46 @@
   overflow: hidden;
   background: #000;
   width: 100%;
-  max-width: 1280px;
-  justify-self: stretch;
+  max-width: clamp(420px, 52vw, 760px);
+  justify-self: center;
 }
 
 .hs-thumb-preview.is-widescreen {
   aspect-ratio: 16 / 9;
-  max-width: 1280px;
+  max-width: clamp(420px, 52vw, 760px);
 }
 
 .hs-thumb-preview.is-square {
   aspect-ratio: 1 / 1;
   width: 100%;
-  max-width: 100%;
+  max-width: clamp(320px, 40vw, 560px);
 }
 
 .hs-thumb-preview.is-vertical {
   aspect-ratio: 9 / 16;
   width: 100%;
-  max-width: 100%;
+  max-width: clamp(240px, 28vw, 420px);
 }
 
 .hs-thumb-preview-note {
   font-size: 12px;
   opacity: 0.72;
+  max-width: 760px;
 }
 
 .hs-thumb-prompt-section {
   display: grid;
   gap: 8px;
+  max-width: 920px;
 }
 
 .hs-thumb-prompt-input {
-  min-height: 132px;
+  min-height: 88px;
   padding: 10px 12px;
+}
+
+.hs-thumb-prompt-override {
+  min-height: 56px;
 }
 
 .hs-thumb-field-helper {
