@@ -29,6 +29,13 @@ import {
   updateSegmentGain,
   updateSegmentInTimeline,
 } from "../src/editor/hammerWorkspaceTimeline";
+import {
+  getEffectiveCutRegions,
+  getNextPlayableTime,
+  isTimeInsideCut,
+  normalizeCutOperations,
+  resolveNextAudiblePlaybackTime,
+} from "../src/editor/hammerAudioEditPlayback";
 
 function buildSegment(overrides?: Partial<HammerTranscriptSegment>): HammerTranscriptSegment {
   return {
@@ -220,6 +227,89 @@ async function testDisabledSegmentsExcludedFromEffectivePlaybackTime() {
   assert.equal(resolveEffectivePlaybackTime(segments, 1.4), 2);
 }
 
+async function testAudioEditCutNormalization() {
+  const normalized = normalizeCutOperations([
+    { id: "cut_mid", type: "cut", start_sec: 2, end_sec: 3.5 },
+    { id: "cut_overlap", type: "cut", start_sec: 3.4, end_sec: 4.5 },
+    { id: "cut_adjacent", type: "cut", start_sec: 4.5004, end_sec: 5 },
+    { id: "cut_start", type: "cut", start_sec: -2, end_sec: 0.8 },
+    { id: "cut_tail", type: "cut", start_sec: 8.2, end_sec: 15 },
+    { id: "cut_zero", type: "cut", start_sec: 6, end_sec: 6 },
+  ], 10);
+
+  assert.deepEqual(normalized, [
+    { startSec: 0, endSec: 0.8 },
+    { startSec: 2, endSec: 5 },
+    { startSec: 8.2, endSec: 10 },
+  ]);
+}
+
+async function testAudioEditNextPlayableTimeResolution() {
+  const effectiveCutRegions = getEffectiveCutRegions({
+    version: "v1",
+    operations: [
+      { id: "cut_start", type: "cut", start_sec: 0, end_sec: 1 },
+      { id: "cut_mid_a", type: "cut", start_sec: 2, end_sec: 3 },
+      { id: "cut_mid_b", type: "cut", start_sec: 3, end_sec: 4 },
+      { id: "cut_tail", type: "cut", start_sec: 7.5, end_sec: 9 },
+    ],
+  }, 9);
+
+  assert.equal(getNextPlayableTime({ effectiveCutRegions, timeSec: 1.4, durationSec: 9 }), 1.4);
+  assert.equal(getNextPlayableTime({ effectiveCutRegions, timeSec: 0.2, durationSec: 9 }), 1);
+  assert.equal(getNextPlayableTime({ effectiveCutRegions, timeSec: 2.2, durationSec: 9 }), 4);
+  assert.equal(getNextPlayableTime({ effectiveCutRegions, timeSec: 8.1, durationSec: 9 }), null);
+
+  const startResolved = getNextPlayableTime({ effectiveCutRegions, timeSec: 0, durationSec: 9 });
+  assert.equal(startResolved, 1);
+  assert.equal(startResolved != null && isTimeInsideCut(effectiveCutRegions, startResolved), false);
+  assert.equal(isTimeInsideCut(effectiveCutRegions, 2.5), true);
+  assert.equal(isTimeInsideCut(effectiveCutRegions, 4), false);
+
+  const fullyCut = getEffectiveCutRegions({
+    version: "v1",
+    operations: [
+      { id: "cut_all", type: "cut", start_sec: 0, end_sec: 20 },
+    ],
+  }, 9);
+  assert.deepEqual(fullyCut, [{ startSec: 0, endSec: 9 }]);
+  assert.equal(getNextPlayableTime({ effectiveCutRegions: fullyCut, timeSec: 0, durationSec: 9 }), null);
+}
+
+async function testResolveNextAudiblePlaybackTimeWithCuts() {
+  const segments = [
+    buildSegment({ segment_id: "a", start_sec: 0, end_sec: 2 }),
+    buildSegment({ segment_id: "b", start_sec: 2, end_sec: 4, is_disabled: true }),
+    buildSegment({ segment_id: "c", start_sec: 4, end_sec: 6 }),
+  ];
+  const effectiveCutRegions = getEffectiveCutRegions({
+    version: "v1",
+    operations: [
+      { id: "cut_mid", type: "cut", start_sec: 4, end_sec: 5 },
+      { id: "cut_tail", type: "cut", start_sec: 5.8, end_sec: 6 },
+    ],
+  }, 6);
+
+  assert.equal(resolveNextAudiblePlaybackTime({
+    requestedTimeSec: 0.5,
+    durationSec: 6,
+    effectiveCutRegions,
+    transcriptSegments: segments,
+  }), 0.5);
+  assert.equal(resolveNextAudiblePlaybackTime({
+    requestedTimeSec: 2.2,
+    durationSec: 6,
+    effectiveCutRegions,
+    transcriptSegments: segments,
+  }), 5);
+  assert.equal(resolveNextAudiblePlaybackTime({
+    requestedTimeSec: 5.9,
+    durationSec: 6,
+    effectiveCutRegions,
+    transcriptSegments: segments,
+  }), null);
+}
+
 async function testResolveTranscriptRange() {
   const segments = [
     buildSegment({ segment_id: "a", start_sec: 0, end_sec: 1 }),
@@ -345,6 +435,9 @@ async function run() {
   await testDeleteSelectionHandoff();
   await testDisableAndGainEdits();
   await testDisabledSegmentsExcludedFromEffectivePlaybackTime();
+  await testAudioEditCutNormalization();
+  await testAudioEditNextPlayableTimeResolution();
+  await testResolveNextAudiblePlaybackTimeWithCuts();
   await testResolveTranscriptRange();
   await testCutRangeAndRipple();
   await testRippleDeletePlacementRemapMatrix();

@@ -28,7 +28,6 @@ import {
   moveSegmentTiming,
   resolveAdjacentJumpPointTime,
   resolveAdjacentSegmentSelection,
-  resolveEffectivePlaybackTime,
   resolveFocusAfterPlayheadChange,
   resolvePlayheadAfterDelete,
   resolvePlayheadAfterRangeCut,
@@ -50,6 +49,10 @@ import {
   type HammerWorkspaceFocusOverride,
   type HammerWorkspaceToolId,
 } from "./hammerWorkspaceTimeline";
+import {
+  getEffectiveCutRegions,
+  resolveNextAudiblePlaybackTime,
+} from "./hammerAudioEditPlayback";
 import {
   resolveTranscriptDurationSec,
   syncEditableTranscriptSegments,
@@ -2013,10 +2016,105 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [imagePlacementDraftWindows]);
   const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
   const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
+  const playbackTransportDurationSec = transcriptDurationSec;
+  const effectivePlaybackCutRegions = useMemo(
+    () => getEffectiveCutRegions(props.audioPolish?.audio_edit ?? null, playbackTransportDurationSec),
+    [playbackTransportDurationSec, props.audioPolish?.audio_edit],
+  );
   const playheadBoundaryTimesSec = useMemo(
     () => resolveTimelineBoundaryTimes(editableTranscriptSegments),
     [editableTranscriptSegments],
   );
+  const resolveAudibleSeekTarget = useCallback((requestedTimeSec: number): number | null => (
+    resolveNextAudiblePlaybackTime({
+      requestedTimeSec,
+      durationSec: playbackTransportDurationSec,
+      effectiveCutRegions: effectivePlaybackCutRegions,
+      transcriptSegments: editableTranscriptSegments,
+    })
+  ), [editableTranscriptSegments, effectivePlaybackCutRegions, playbackTransportDurationSec]);
+  const resolvePlaybackTransportProgress = useCallback((requestedTimeSec: number): {
+    nextPlayheadSec: number;
+    shouldLoop: boolean;
+    shouldStop: boolean;
+    shouldSyncMediaTime: boolean;
+  } => {
+    if (playbackTransportDurationSec <= 0) {
+      return {
+        nextPlayheadSec: 0,
+        shouldLoop: false,
+        shouldStop: true,
+        shouldSyncMediaTime: false,
+      };
+    }
+
+    let candidate = Math.max(0, Math.min(playbackTransportDurationSec, requestedTimeSec));
+    let shouldLoop = false;
+    let shouldSyncMediaTime = false;
+    const maxIterations = Math.max(2, effectivePlaybackCutRegions.length + 4);
+
+    for (let index = 0; index < maxIterations; index += 1) {
+      const audibleTarget = resolveNextAudiblePlaybackTime({
+        requestedTimeSec: candidate,
+        durationSec: playbackTransportDurationSec,
+        effectiveCutRegions: effectivePlaybackCutRegions,
+        transcriptSegments: editableTranscriptSegments,
+      });
+
+      if (audibleTarget == null) {
+        return {
+          nextPlayheadSec: playbackTransportDurationSec,
+          shouldLoop: false,
+          shouldStop: true,
+          shouldSyncMediaTime: true,
+        };
+      }
+
+      if (Math.abs(audibleTarget - candidate) > PLAYHEAD_WINDOW_EPSILON_SEC) {
+        shouldSyncMediaTime = true;
+      }
+
+      const windowProgress = resolvePlaybackWindowProgress(audibleTarget);
+      if (windowProgress.shouldStop) {
+        return {
+          nextPlayheadSec: windowProgress.nextPlayheadSec,
+          shouldLoop: false,
+          shouldStop: true,
+          shouldSyncMediaTime: shouldSyncMediaTime
+            || Math.abs(windowProgress.nextPlayheadSec - audibleTarget) > PLAYHEAD_WINDOW_EPSILON_SEC,
+        };
+      }
+
+      if (
+        windowProgress.shouldLoop
+        || Math.abs(windowProgress.nextPlayheadSec - audibleTarget) > PLAYHEAD_WINDOW_EPSILON_SEC
+      ) {
+        candidate = windowProgress.nextPlayheadSec;
+        shouldLoop = shouldLoop || windowProgress.shouldLoop;
+        shouldSyncMediaTime = true;
+        continue;
+      }
+
+      return {
+        nextPlayheadSec: audibleTarget,
+        shouldLoop,
+        shouldStop: false,
+        shouldSyncMediaTime,
+      };
+    }
+
+    return {
+      nextPlayheadSec: candidate,
+      shouldLoop,
+      shouldStop: false,
+      shouldSyncMediaTime,
+    };
+  }, [
+    editableTranscriptSegments,
+    effectivePlaybackCutRegions,
+    playbackTransportDurationSec,
+    playbackWindow,
+  ]);
   const sortedTimelineMarkers = useMemo(
     () => [...timelineMarkers].sort((left, right) => left.timeSec - right.timeSec),
     [timelineMarkers],
@@ -3253,11 +3351,36 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
 
-    const playbackTarget = resolvePlaybackWindowProgress(playheadSec).nextPlayheadSec;
-    const targetTime = Math.max(0, Math.min(playbackTarget, transcriptDurationSec > 0 ? transcriptDurationSec : playbackTarget));
-    const shouldSynchronizeCurrentTime = srcChanged || !isPlaybackActive || isScrubbing;
+    const transportProgress = isPlaybackActive
+      ? resolvePlaybackTransportProgress(playheadSec)
+      : {
+        nextPlayheadSec: resolveAudibleSeekTarget(playheadSec) ?? playbackTransportDurationSec,
+        shouldLoop: false,
+        shouldStop: false,
+        shouldSyncMediaTime: false,
+      };
+    const targetTime = Math.max(
+      0,
+      Math.min(
+        transportProgress.nextPlayheadSec,
+        playbackTransportDurationSec > 0 ? playbackTransportDurationSec : transportProgress.nextPlayheadSec,
+      ),
+    );
+    if (Math.abs(playheadSec - targetTime) >= SCRUB_SEEK_THRESHOLD_SEC) {
+      setPlayheadSec(roundToTenth(targetTime));
+    }
+    const shouldSynchronizeCurrentTime = srcChanged || !isPlaybackActive || isScrubbing || transportProgress.shouldSyncMediaTime;
     if (shouldSynchronizeCurrentTime && Math.abs(previewAudio.currentTime - targetTime) > SCRUB_SEEK_THRESHOLD_SEC) {
       previewAudio.currentTime = targetTime;
+    }
+
+    if (transportProgress.shouldStop) {
+      previewAudio.pause();
+      if (isPlaybackActive) setIsPlaybackActive(false);
+      if (playbackWindow?.mode === "roll") {
+        setPlaybackWindow(null);
+      }
+      return;
     }
 
     if (!isPlaybackActive) {
@@ -3269,7 +3392,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     void previewAudio.play().catch(() => {
       setIsPlaybackActive(false);
     });
-  }, [claimGlobalPlaybackAuthority, isPlaybackActive, isScrubbing, playbackMediaSrc, playheadSec, transcriptDurationSec, playbackWindow]);
+  }, [
+    claimGlobalPlaybackAuthority,
+    isPlaybackActive,
+    isScrubbing,
+    playbackMediaSrc,
+    playbackTransportDurationSec,
+    playheadSec,
+    playbackWindow,
+    resolveAudibleSeekTarget,
+    resolvePlaybackTransportProgress,
+  ]);
 
   useEffect(() => () => {
     const previewAudio = previewAudioRef.current;
@@ -3300,20 +3433,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const intervalId = window.setInterval(() => {
       setPlayheadSec((current) => {
         const next = Math.min(roundToTenth(current + SMALL_PLAYHEAD_NUDGE_SEC), transcriptDurationSec);
-        const effectiveNext = resolveEffectivePlaybackTime(editableTranscriptSegments, next);
-        const windowProgress = resolvePlaybackWindowProgress(effectiveNext);
-        if (windowProgress.shouldStop) {
+        const transportProgress = resolvePlaybackTransportProgress(next);
+        if (transportProgress.shouldStop) {
           window.clearInterval(intervalId);
           setIsPlaybackActive(false);
           if (playbackWindow?.mode === "roll") {
             setPlaybackWindow(null);
           }
         }
-        if (!playbackWindow && effectiveNext >= transcriptDurationSec) {
+        if (!playbackWindow && transportProgress.nextPlayheadSec >= transcriptDurationSec) {
           window.clearInterval(intervalId);
           setIsPlaybackActive(false);
         }
-        return roundToTenth(windowProgress.nextPlayheadSec);
+        return roundToTenth(transportProgress.nextPlayheadSec);
       });
     }, 100);
 
@@ -3321,10 +3453,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       window.clearInterval(intervalId);
     };
   }, [
-    editableTranscriptSegments,
     isPlaybackActive,
     playbackMediaSrc,
     playbackWindow,
+    resolvePlaybackTransportProgress,
     transcriptDurationSec,
   ]);
 
@@ -3747,8 +3879,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         boundaryTimesSec: playheadBoundaryTimesSec,
         toleranceSec: PLAYHEAD_SNAP_TOLERANCE_SEC,
       });
+    const audibleTarget = resolveAudibleSeekTarget(snapped);
     selectionOriginRef.current = origin;
-    setPlayheadSec(snapped);
+    setPlayheadSec(roundToTenth(audibleTarget ?? playbackTransportDurationSec));
     setFocusOverride(resolveFocusAfterPlayheadChange(focusOverride));
   }
 
@@ -4714,20 +4847,26 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [activeCandidateIndex, candidateCards.length]);
 
   function handlePlaybackProgress(nextTimeSec: number): void {
-    const effectiveNext = resolveEffectivePlaybackTime(editableTranscriptSegments, nextTimeSec);
-    const windowProgress = resolvePlaybackWindowProgress(effectiveNext);
-    const nextPlayhead = roundToTenth(windowProgress.nextPlayheadSec);
+    const transportProgress = resolvePlaybackTransportProgress(nextTimeSec);
+    const nextPlayhead = roundToTenth(transportProgress.nextPlayheadSec);
 
     setPlayheadSec((current) => (
       Math.abs(current - nextPlayhead) >= SCRUB_SEEK_THRESHOLD_SEC ? nextPlayhead : current
     ));
 
-    if (windowProgress.shouldLoop && previewAudioRef.current) {
-      previewAudioRef.current.currentTime = nextPlayhead;
+    if (
+      previewAudioRef.current
+      && (transportProgress.shouldLoop || transportProgress.shouldSyncMediaTime)
+      && Math.abs(previewAudioRef.current.currentTime - transportProgress.nextPlayheadSec) > PLAYHEAD_WINDOW_EPSILON_SEC
+    ) {
+      previewAudioRef.current.currentTime = transportProgress.nextPlayheadSec;
+    }
+
+    if (transportProgress.shouldLoop) {
       return;
     }
 
-    if (windowProgress.shouldStop) {
+    if (transportProgress.shouldStop) {
       setIsPlaybackActive(false);
       if (playbackWindow?.mode === "roll") {
         setPlaybackWindow(null);
