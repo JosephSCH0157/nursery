@@ -12,6 +12,7 @@ import type {
   ImageMapAnchorPickerParagraph,
   ImageMapScriptSelection,
 } from "../../lib/hearth-image-map-beats";
+import { resolveImageMapWorkflowGuidance } from "../../lib/hearth-image-map-workflow";
 
 type ImageMapSaveState = "saved" | "editing" | "saving" | "error" | "offline";
 
@@ -175,6 +176,13 @@ export default function ImageMapPanel({
   const entryLabel = manualOnly ? "Anchor" : "Entry";
   const hasSelection = Boolean(selectedEntryId);
   const selectedCandidateId = candidateCards.find((candidate) => candidate.isSelected)?.id ?? null;
+  const workflowGuidance = resolveImageMapWorkflowGuidance({
+    manualOnly,
+    entryCount: entries.length,
+    hasSelection,
+    candidateCount: candidateCards.length,
+    hasSelectedCandidate: Boolean(selectedCandidateId),
+  });
   const [previewCandidateId, setPreviewCandidateId] = useState<string | null>(
     () => resolveInitialPreviewCandidateId(candidateCards),
   );
@@ -198,21 +206,27 @@ export default function ImageMapPanel({
 
   const previewCandidate = candidateCards.find((candidate) => candidate.id === previewCandidateId) ?? null;
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const newEntryLabel = manualOnly ? "New Beat" : "New Entry";
+  const seedFromScriptLabel = "Pull Beats from Script";
 
   return (
     <section className="hs-imap-panel" aria-label={`${resolvedPanelTitle} panel`}>
       <header className="hs-imap-header">
-        <div className="hs-imap-title">{resolvedPanelTitle}</div>
+        <div>
+          <div className="hs-imap-title">{resolvedPanelTitle}</div>
+          <div className="hs-imap-subtitle">{workflowGuidance.stateCue}</div>
+        </div>
         <div className={`hs-imap-save-state is-${saveState}`}>{formatSaveState(saveState)}</div>
       </header>
 
       <div className="hs-imap-toolbar">
         <button
           type="button"
+          className={workflowGuidance.primaryAction === "new_entry" ? "is-primary" : undefined}
           onClick={onCreateEntry}
           disabled={disabled}
         >
-          New {entryLabel}
+          {newEntryLabel}
         </button>
         <button
           type="button"
@@ -231,10 +245,11 @@ export default function ImageMapPanel({
         {!manualOnly ? (
           <button
             type="button"
+            className={workflowGuidance.primaryAction === "seed_from_script" ? "is-primary" : undefined}
             onClick={onSeedFromScript}
             disabled={disabled}
           >
-            Generate from Script
+            {seedFromScriptLabel}
           </button>
         ) : null}
         <button
@@ -253,10 +268,21 @@ export default function ImageMapPanel({
         </button>
       </div>
 
+      <section className="hs-imap-next-card" aria-label="Next step guidance">
+        <div className="hs-imap-next-eyebrow">{workflowGuidance.cardTitle}</div>
+        <div className="hs-imap-next-copy">{workflowGuidance.cardLead}</div>
+        <ol className="hs-imap-next-steps">
+          {workflowGuidance.steps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+        <div className="hs-imap-next-note">{workflowGuidance.note}</div>
+      </section>
+
       <div className="hs-imap-layout">
         <section className="hs-imap-list" aria-label={`${resolvedPanelTitle} entries list`}>
           {entries.length === 0 ? (
-            <div className="hs-imap-empty">No entries yet.</div>
+            <div className="hs-imap-empty">{manualOnly ? "No beats yet." : "No image beats yet."}</div>
           ) : (
             entries.map((entry) => (
               <button
@@ -280,7 +306,11 @@ export default function ImageMapPanel({
 
         <section className="hs-imap-editor" aria-label={`${resolvedPanelTitle} entry editor`}>
           {!hasSelection ? (
-            <div className="hs-imap-empty">Select or create an {entryLabel.toLowerCase()} to edit.</div>
+            <div className="hs-imap-empty">
+              {entries.length > 0
+                ? `Pick an ${entryLabel.toLowerCase()} on the left to shape it here.`
+                : `Create an ${entryLabel.toLowerCase()} to start.`}
+            </div>
           ) : (
             <>
               {/* ── CUE CARD SUMMARY ─────────────────────────────────── */}
@@ -312,7 +342,7 @@ export default function ImageMapPanel({
                 <div className="hs-imap-beat-section-title">Visual Beat</div>
                 <label className="hs-field hs-imap-description-field">
                   <span className="hs-field-label">What viewers see</span>
-                  <div className="hs-thumb-field-helper">Describe the image, framing, emotional tone, and subject.</div>
+                  <div className="hs-thumb-field-helper">Describe the image clearly enough that the next sourcing step is obvious.</div>
                   <textarea
                     value={draftDescription}
                     onChange={(event) => onDraftDescriptionChange(event.target.value)}
@@ -326,6 +356,7 @@ export default function ImageMapPanel({
                   <div className="hs-imap-candidate-action-group">
                     <button
                       type="button"
+                      className={workflowGuidance.primaryAction === "find_stock" ? "is-primary" : undefined}
                       onClick={() => onGenerateCandidates("stock")}
                       disabled={disabled || candidateGenerateBusy}
                     >
@@ -333,10 +364,11 @@ export default function ImageMapPanel({
                     </button>
                     <button
                       type="button"
+                      className={workflowGuidance.primaryAction === "upload_asset" ? "is-primary" : undefined}
                       onClick={() => uploadInputRef.current?.click()}
                       disabled={disabled || candidateSelectBusy}
                     >
-                      {candidateSelectBusy ? "Saving..." : "Upload Asset"}
+                      {candidateSelectBusy ? "Saving..." : "Upload Final Asset"}
                     </button>
                     <input
                       ref={uploadInputRef}
@@ -355,7 +387,7 @@ export default function ImageMapPanel({
                     />
                   </div>
                   <span className="hs-field-label-muted">
-                    Hearth authors the visual asset plan. Hammer consumes selected assets for deterministic placement.
+                    Next move from here: either pull stock for this beat or upload the exact asset you want to land on it.
                   </span>
                 </div>
                 <div className="hs-imap-beat-selects">
@@ -621,10 +653,11 @@ export default function ImageMapPanel({
                     {previewCandidate ? (
                       <div className="hs-imap-preview-actions">
                         <span className="hs-field-label-muted">
-                          Preview a candidate below, then use the button to assign it to this visual beat.
+                          Preview a candidate below, then attach the one that should land on this beat.
                         </span>
                         <button
                           type="button"
+                          className={workflowGuidance.primaryAction === "select_candidate" ? "is-primary" : undefined}
                           onClick={() => onSelectCandidate(previewCandidate.id)}
                           disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
                         >
@@ -684,7 +717,7 @@ export default function ImageMapPanel({
                           <div className="hs-imap-candidate-actions">
                             <button
                               type="button"
-                              className="hs-imap-candidate-apply"
+                              className={`hs-imap-candidate-apply${workflowGuidance.primaryAction === "select_candidate" && candidate.id === previewCandidateId ? " is-primary" : ""}`}
                               onClick={() => onSelectCandidate(candidate.id)}
                               disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
                             >

@@ -2999,6 +2999,62 @@
   gap: 6px;
 }
 
+.hs-imap-toolbar > button.is-primary,
+.hs-imap-candidate-action-group > button.is-primary,
+.hs-imap-preview-actions > button.is-primary,
+.hs-imap-candidate-apply.is-primary {
+  border-color: rgba(29, 78, 216, 0.75);
+  background: rgba(29, 78, 216, 0.12);
+  color: rgb(30, 64, 175);
+  font-weight: 700;
+  box-shadow: 0 0 0 1px rgba(29, 78, 216, 0.08);
+}
+
+.hs-imap-toolbar > button.is-primary:hover:not(:disabled),
+.hs-imap-candidate-action-group > button.is-primary:hover:not(:disabled),
+.hs-imap-preview-actions > button.is-primary:hover:not(:disabled),
+.hs-imap-candidate-apply.is-primary:hover:not(:disabled) {
+  background: rgba(29, 78, 216, 0.18);
+}
+
+.hs-imap-next-card {
+  display: grid;
+  gap: 8px;
+  max-width: 920px;
+  border: 1px solid rgba(29, 78, 216, 0.22);
+  border-radius: 10px;
+  background: rgba(29, 78, 216, 0.05);
+  padding: 12px 14px;
+}
+
+.hs-imap-next-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.68;
+}
+
+.hs-imap-next-copy {
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+.hs-imap-next-steps {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.hs-imap-next-note {
+  font-size: 12px;
+  opacity: 0.76;
+}
+
 .hs-imap-layout,
 .hs-imap-grid {
   display: grid;
