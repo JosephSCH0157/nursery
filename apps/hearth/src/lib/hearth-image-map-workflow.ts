@@ -22,23 +22,24 @@ export function resolveImageMapWorkflowGuidance(args: {
   hasSelection: boolean;
   candidateCount: number;
   hasSelectedCandidate: boolean;
+  sourceType?: string | null;
 }): HearthImageMapWorkflowGuidance {
-  const stateCue = args.manualOnly
-    ? "You're shaping the visual beat: where it belongs, what viewers should see, and which asset should land there."
-    : "You're shaping the timeline image beat: pick the moment, describe the image, then attach the asset that should land there.";
+  const normalizedSourceType = args.sourceType?.trim().toLowerCase() ?? "";
+  const prefersOwnedAsset = normalizedSourceType === "upload" || normalizedSourceType === "external" || normalizedSourceType === "hammer_upload";
+  const stateCue = "You're lining up visuals to match the script. Once these are set, Hammer handles placement.";
 
   if (args.entryCount === 0) {
     if (args.manualOnly) {
       return {
         stateCue,
         cardTitle: "Next step",
-        cardLead: "Start by adding the first visual beat, then describe what viewers should see.",
+        cardLead: "Start by adding the first beat. Then give it a clear visual read.",
         steps: [
           "Create a new beat.",
           "Write what viewers should see.",
-          "Attach the asset you want to use.",
+          "Bring in the asset you want to use.",
         ],
-        note: "Once a beat exists, this panel will guide the rest of the handoff.",
+        note: "Once the first beat is in, the rest of the panel gets a lot easier to work with.",
         primaryAction: "new_entry",
         primaryActionLabel: "New Beat",
       };
@@ -47,7 +48,7 @@ export function resolveImageMapWorkflowGuidance(args: {
     return {
       stateCue,
       cardTitle: "Next step",
-      cardLead: "Start by pulling image beats from the script. That gives you the moments to work from.",
+      cardLead: "Start by pulling beats from the script. That gives us the moments to work from.",
       steps: [
         "Pull beats from the script.",
         "Pick the one you want to shape.",
@@ -63,7 +64,7 @@ export function resolveImageMapWorkflowGuidance(args: {
     return {
       stateCue,
       cardTitle: "Next step",
-      cardLead: "Pick an image beat on the left so we can shape it here.",
+      cardLead: "Pick a beat on the left and we'll shape it here.",
       steps: [
         "Choose the beat that matches the moment you want to work on.",
         "Tighten what viewers should see.",
@@ -79,15 +80,17 @@ export function resolveImageMapWorkflowGuidance(args: {
     return {
       stateCue,
       cardTitle: "Next step",
-      cardLead: "You've got the beat. Now bring in the image you want to use.",
+      cardLead: "You've got the beat. Next move is bringing in the image.",
       steps: [
         "Tighten the visual description if needed.",
-        "Find stock or upload the final asset.",
+        prefersOwnedAsset ? "Bring in your own image." : "Find stock or bring in your own image.",
         "Once the asset is here, attach it to this beat.",
       ],
-      note: "If you already know the exact image, uploading it is the quickest route.",
-      primaryAction: "find_stock",
-      primaryActionLabel: "Find Stock",
+      note: prefersOwnedAsset
+        ? "If you already have the image, that's the fastest path."
+        : "If you already have the image, you can always bring that in instead.",
+      primaryAction: prefersOwnedAsset ? "upload_asset" : "find_stock",
+      primaryActionLabel: prefersOwnedAsset ? "Use Your Own Image" : "Find Stock",
     };
   }
 
@@ -95,10 +98,10 @@ export function resolveImageMapWorkflowGuidance(args: {
     return {
       stateCue,
       cardTitle: "Next step",
-      cardLead: "You have options now. Preview a candidate, then choose the one that should land on this beat.",
+      cardLead: "You've got options now. Pick the one that feels right for this beat.",
       steps: [
         "Preview the candidate that feels closest.",
-        "Use the preview button to attach it to this beat.",
+        "Use the one that lands best on this beat.",
         "Then check the timing and anchor if anything feels off.",
       ],
       note: "You can keep comparing candidates before you lock one in.",
@@ -110,7 +113,7 @@ export function resolveImageMapWorkflowGuidance(args: {
   return {
     stateCue,
     cardTitle: "Next step",
-    cardLead: "The beat is attached. From here, you're mostly checking that the timing and anchor still feel right.",
+    cardLead: "This one's set. Now you're just checking that the timing and anchor still feel right.",
     steps: [
       "Review the selected image in context.",
       "If the script changed, re-anchor it in Timeline Link.",

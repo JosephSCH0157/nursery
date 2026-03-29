@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   EPISODE_IMAGE_MAP_VISUAL_PRIORITY_VALUES,
   EPISODE_IMAGE_MAP_VISUAL_TYPE_VALUES,
@@ -182,6 +182,7 @@ export default function ImageMapPanel({
     hasSelection,
     candidateCount: candidateCards.length,
     hasSelectedCandidate: Boolean(selectedCandidateId),
+    sourceType: draftSourceType,
   });
   const [previewCandidateId, setPreviewCandidateId] = useState<string | null>(
     () => resolveInitialPreviewCandidateId(candidateCards),
@@ -208,6 +209,64 @@ export default function ImageMapPanel({
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const newEntryLabel = manualOnly ? "New Beat" : "New Entry";
   const seedFromScriptLabel = "Pull Beats from Script";
+  let primaryActionButton: ReactNode = null;
+
+  if (workflowGuidance.primaryAction === "seed_from_script" && !manualOnly) {
+    primaryActionButton = (
+      <button
+        type="button"
+        className="hs-imap-primary-action"
+        onClick={onSeedFromScript}
+        disabled={disabled}
+      >
+        {workflowGuidance.primaryActionLabel}
+      </button>
+    );
+  } else if (workflowGuidance.primaryAction === "new_entry") {
+    primaryActionButton = (
+      <button
+        type="button"
+        className="hs-imap-primary-action"
+        onClick={onCreateEntry}
+        disabled={disabled}
+      >
+        {workflowGuidance.primaryActionLabel}
+      </button>
+    );
+  } else if (workflowGuidance.primaryAction === "find_stock") {
+    primaryActionButton = (
+      <button
+        type="button"
+        className="hs-imap-primary-action"
+        onClick={() => onGenerateCandidates("stock")}
+        disabled={disabled || candidateGenerateBusy}
+      >
+        {candidateGenerateBusy ? "Searching..." : workflowGuidance.primaryActionLabel}
+      </button>
+    );
+  } else if (workflowGuidance.primaryAction === "upload_asset") {
+    primaryActionButton = (
+      <button
+        type="button"
+        className="hs-imap-primary-action"
+        onClick={() => uploadInputRef.current?.click()}
+        disabled={disabled || candidateSelectBusy}
+      >
+        {candidateSelectBusy ? "Saving..." : workflowGuidance.primaryActionLabel}
+      </button>
+    );
+  } else if (workflowGuidance.primaryAction === "select_candidate" && previewCandidate) {
+    primaryActionButton = (
+      <button
+        type="button"
+        className="hs-imap-primary-action"
+        onClick={() => onSelectCandidate(previewCandidate.id)}
+        disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
+      >
+        {candidateSelectBusy ? "Saving..." : workflowGuidance.primaryActionLabel}
+      </button>
+    );
+  }
 
   return (
     <section className="hs-imap-panel" aria-label={`${resolvedPanelTitle} panel`}>
@@ -219,64 +278,76 @@ export default function ImageMapPanel({
         <div className={`hs-imap-save-state is-${saveState}`}>{formatSaveState(saveState)}</div>
       </header>
 
-      <div className="hs-imap-toolbar">
-        <button
-          type="button"
-          className={workflowGuidance.primaryAction === "new_entry" ? "is-primary" : undefined}
-          onClick={onCreateEntry}
-          disabled={disabled}
-        >
-          {newEntryLabel}
-        </button>
-        <button
-          type="button"
-          onClick={onDuplicateEntry}
-          disabled={disabled || !hasSelection}
-        >
-          Duplicate
-        </button>
-        <button
-          type="button"
-          onClick={onDeleteEntry}
-          disabled={disabled || !hasSelection}
-        >
-          Delete
-        </button>
-        {!manualOnly ? (
+      <section className="hs-imap-workspace-band" aria-label="Timeline image workspace guidance">
+        <section className="hs-imap-next-card" aria-label="Next step guidance">
+          <div className="hs-imap-next-eyebrow">{workflowGuidance.cardTitle}</div>
+          <div className="hs-imap-next-copy">{workflowGuidance.cardLead}</div>
+          <ol className="hs-imap-next-steps">
+            {workflowGuidance.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          <div className="hs-imap-next-note">{workflowGuidance.note}</div>
+        </section>
+
+        {primaryActionButton ? (
+          <div className="hs-imap-primary-row">
+            <div className="hs-imap-primary-row-label">Do this next</div>
+            {primaryActionButton}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="hs-imap-tools-band" aria-label="Timeline image tools">
+        <div className="hs-imap-tools-label">Tools</div>
+        <div className="hs-imap-toolbar hs-imap-toolbar-secondary">
+          {workflowGuidance.primaryAction !== "new_entry" ? (
+            <button
+              type="button"
+              onClick={onCreateEntry}
+              disabled={disabled}
+            >
+              {newEntryLabel}
+            </button>
+          ) : null}
           <button
             type="button"
-            className={workflowGuidance.primaryAction === "seed_from_script" ? "is-primary" : undefined}
-            onClick={onSeedFromScript}
+            onClick={onDuplicateEntry}
+            disabled={disabled || !hasSelection}
+          >
+            Duplicate
+          </button>
+          <button
+            type="button"
+            onClick={onDeleteEntry}
+            disabled={disabled || !hasSelection}
+          >
+            Delete
+          </button>
+          {!manualOnly && workflowGuidance.primaryAction !== "seed_from_script" ? (
+            <button
+              type="button"
+              onClick={onSeedFromScript}
+              disabled={disabled}
+            >
+              {seedFromScriptLabel}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onCopyExport}
             disabled={disabled}
           >
-            {seedFromScriptLabel}
+            Copy JSON
           </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={onCopyExport}
-          disabled={disabled}
-        >
-          Copy JSON
-        </button>
-        <button
-          type="button"
-          onClick={onDownloadExport}
-          disabled={disabled}
-        >
-          Download JSON
-        </button>
-      </div>
-
-      <section className="hs-imap-next-card" aria-label="Next step guidance">
-        <div className="hs-imap-next-eyebrow">{workflowGuidance.cardTitle}</div>
-        <div className="hs-imap-next-copy">{workflowGuidance.cardLead}</div>
-        <ol className="hs-imap-next-steps">
-          {workflowGuidance.steps.map((step) => (
-            <li key={step}>{step}</li>
-          ))}
-        </ol>
-        <div className="hs-imap-next-note">{workflowGuidance.note}</div>
+          <button
+            type="button"
+            onClick={onDownloadExport}
+            disabled={disabled}
+          >
+            Download JSON
+          </button>
+        </div>
       </section>
 
       <div className="hs-imap-layout">
@@ -356,7 +427,6 @@ export default function ImageMapPanel({
                   <div className="hs-imap-candidate-action-group">
                     <button
                       type="button"
-                      className={workflowGuidance.primaryAction === "find_stock" ? "is-primary" : undefined}
                       onClick={() => onGenerateCandidates("stock")}
                       disabled={disabled || candidateGenerateBusy}
                     >
@@ -364,11 +434,10 @@ export default function ImageMapPanel({
                     </button>
                     <button
                       type="button"
-                      className={workflowGuidance.primaryAction === "upload_asset" ? "is-primary" : undefined}
                       onClick={() => uploadInputRef.current?.click()}
                       disabled={disabled || candidateSelectBusy}
                     >
-                      {candidateSelectBusy ? "Saving..." : "Upload Final Asset"}
+                      {candidateSelectBusy ? "Saving..." : "Use Your Own Image"}
                     </button>
                     <input
                       ref={uploadInputRef}
@@ -387,7 +456,7 @@ export default function ImageMapPanel({
                     />
                   </div>
                   <span className="hs-field-label-muted">
-                    Next move from here: either pull stock for this beat or upload the exact asset you want to land on it.
+                    If you already know the exact image, bring it in here. Otherwise, pull stock and see what's close.
                   </span>
                 </div>
                 <div className="hs-imap-beat-selects">
@@ -653,11 +722,10 @@ export default function ImageMapPanel({
                     {previewCandidate ? (
                       <div className="hs-imap-preview-actions">
                         <span className="hs-field-label-muted">
-                          Preview a candidate below, then attach the one that should land on this beat.
+                          Preview a candidate below, then use the one that feels right on this beat.
                         </span>
                         <button
                           type="button"
-                          className={workflowGuidance.primaryAction === "select_candidate" ? "is-primary" : undefined}
                           onClick={() => onSelectCandidate(previewCandidate.id)}
                           disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
                         >
@@ -717,7 +785,7 @@ export default function ImageMapPanel({
                           <div className="hs-imap-candidate-actions">
                             <button
                               type="button"
-                              className={`hs-imap-candidate-apply${workflowGuidance.primaryAction === "select_candidate" && candidate.id === previewCandidateId ? " is-primary" : ""}`}
+                              className="hs-imap-candidate-apply"
                               onClick={() => onSelectCandidate(candidate.id)}
                               disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
                             >

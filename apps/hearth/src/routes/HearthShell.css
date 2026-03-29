@@ -2999,10 +2999,30 @@
   gap: 6px;
 }
 
-.hs-imap-toolbar > button.is-primary,
-.hs-imap-candidate-action-group > button.is-primary,
-.hs-imap-preview-actions > button.is-primary,
-.hs-imap-candidate-apply.is-primary {
+.hs-imap-workspace-band {
+  display: grid;
+  gap: 10px;
+}
+
+.hs-imap-primary-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.03);
+  padding: 10px 12px;
+}
+
+.hs-imap-primary-row-label {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.72;
+}
+
+.hs-imap-primary-action {
   border-color: rgba(29, 78, 216, 0.75);
   background: rgba(29, 78, 216, 0.12);
   color: rgb(30, 64, 175);
@@ -3010,11 +3030,25 @@
   box-shadow: 0 0 0 1px rgba(29, 78, 216, 0.08);
 }
 
-.hs-imap-toolbar > button.is-primary:hover:not(:disabled),
-.hs-imap-candidate-action-group > button.is-primary:hover:not(:disabled),
-.hs-imap-preview-actions > button.is-primary:hover:not(:disabled),
-.hs-imap-candidate-apply.is-primary:hover:not(:disabled) {
+.hs-imap-primary-action:hover:not(:disabled) {
   background: rgba(29, 78, 216, 0.18);
+}
+
+.hs-imap-tools-band {
+  display: grid;
+  gap: 6px;
+}
+
+.hs-imap-tools-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.56;
+}
+
+.hs-imap-toolbar-secondary {
+  opacity: 0.84;
 }
 
 .hs-imap-next-card {
@@ -3156,10 +3190,10 @@
 .hs-imap-cue-card {
   display: grid;
   gap: 2px;
-  background: rgba(15, 23, 42, 0.06);
-  border: 1px solid var(--forge-border, #ddd);
+  background: rgba(15, 23, 42, 0.03);
+  border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   font-size: 12px;
 }
 
@@ -3170,17 +3204,17 @@
 }
 
 .hs-imap-cue-key {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  opacity: 0.5;
+  opacity: 0.42;
   min-width: 56px;
   flex-shrink: 0;
 }
 
 .hs-imap-cue-val {
   font-size: 12px;
-  opacity: 0.9;
+  opacity: 0.82;
 }
 
 /* ── Visual Beat Section ──────────────────────────────────────────── */
