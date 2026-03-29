@@ -2179,6 +2179,12 @@ function buildOpenInAnvilHref(
 }
 
 const SCRIPT_TAG_VALIDATOR_VERSION = "shared-script-tags-v1";
+const LEGACY_DRAFT_SCRIPT_PLACEHOLDER = "## Draft Script";
+const SAFE_SCRIPT_STARTER = "[s1]\nDraft intro goes here.\n[/s1]\n";
+
+function isLegacyDraftScriptPlaceholder(value: string | null | undefined): boolean {
+  return readTrimmedString(value) === LEGACY_DRAFT_SCRIPT_PLACEHOLDER;
+}
 
 function buildValidationReport(result: ScriptValidationResult): string {
   if (result.issues.length === 0) return "No issues.";
@@ -4870,7 +4876,9 @@ export default function HearthShell({
       setAiRuntimeWarning("Opened Episode, but Hearth could not load the canonical script snapshot.");
     }
     const canonicalScriptData = scriptRead.ok ? scriptRead.data : null;
-    const canonicalScriptText = readTrimmedString(canonicalScriptData?.text);
+    const canonicalScriptText = isLegacyDraftScriptPlaceholder(canonicalScriptData?.text)
+      ? ""
+      : readTrimmedString(canonicalScriptData?.text);
 
     if (selectedDraft && canonicalScriptText) {
       const repairedDraft = hydrateDraftBodyFromCanonicalScript({
@@ -4902,11 +4910,11 @@ export default function HearthShell({
     }
 
     const seedBody = options?.seed?.body ?? "";
-    const body = seedBody.trim()
+    const body = seedBody.trim() && !isLegacyDraftScriptPlaceholder(seedBody)
       ? seedBody
       : canonicalScriptText
         ? (canonicalScriptData?.text ?? canonicalScriptText)
-        : "## Draft Script\n\n";
+        : SAFE_SCRIPT_STARTER;
     const title = workpieceSummary?.title
       ?? readTrimmedString(options?.seed?.title)
       ?? `Episode ${normalizedWorkpieceId.slice(0, 8)}`;
@@ -5059,7 +5067,7 @@ export default function HearthShell({
     try {
       const created = await createHearthWorkpiece(
         { created_from: "scratch" },
-        "## Draft Script\n\n",
+        SAFE_SCRIPT_STARTER,
       );
       if (!created.ok) {
         setForgeError("Workpiece creation failed.");
@@ -5102,7 +5110,7 @@ export default function HearthShell({
     let workpieceId: string | undefined;
     try {
       const sparkTitle = deriveSparkTitle(spark);
-      const scriptSeed = "## Draft Script\n\n";
+      const scriptSeed = "[s1]\nDraft intro goes here.\n[/s1]\n";
       const created = await createHearthWorkpiece({
         created_from: "bar-stock",
         spark_id: spark.id,
@@ -5118,7 +5126,7 @@ export default function HearthShell({
       setWorkpieceId(workpieceId);
       setWorkspaceId(resolveWorkspaceId());
       applySessionOrigin({ created_from: "bar-stock", spark_id: spark.id });
-      pendingDraftEditorPanelRef.current = "script";
+      pendingDraftEditorPanelRef.current = "manual";
 
       const draft = await createDraftAndOpen(workpieceId, {
         title: sparkTitle,
@@ -5456,7 +5464,7 @@ export default function HearthShell({
       if (!resolvedWorkpieceId) {
         const created = await createHearthWorkpiece(
           { created_from: "bar-stock" },
-          "## Draft Script\n\n",
+          SAFE_SCRIPT_STARTER,
           { title: projectTitle ?? `Project ${routeProjectId.slice(0, 8)}` },
         );
         if (!created.ok) {
