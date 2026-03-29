@@ -2202,6 +2202,23 @@
   min-height: 44px;
 }
 
+/* Timeline Images needs more vertical working room than Media Map. */
+#hearth-image-map-panel-body .hs-imap-list {
+  max-height: clamp(260px, 46vh, 520px);
+}
+
+#hearth-image-map-panel-body .hs-imap-editor {
+  max-height: clamp(320px, 56vh, 700px);
+}
+
+.hs-shell.hs-density-compact #hearth-image-map-panel-body .hs-imap-list {
+  max-height: clamp(240px, 44vh, 480px);
+}
+
+.hs-shell.hs-density-compact #hearth-image-map-panel-body .hs-imap-editor {
+  max-height: clamp(300px, 54vh, 640px);
+}
+
 .hs-thumb-field-helper {
   font-size: 12px;
   opacity: 0.72;
