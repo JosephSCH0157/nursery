@@ -318,6 +318,17 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>
   gateAwaitingAnswersRef: MutableRefObject<boolean>;
   pendingShortcutIntentRef: MutableRefObject<"outline" | "script" | null>;
   chatHistoryMaxMessages: number;
+  getSelectedWritingFormat: () => string;
+  resolveChatRequestWritingFormat: (args: {
+    requestContent: string;
+    pendingShortcutIntent: "outline" | "script" | null;
+    selectedFormat: string;
+  }) => {
+    requestContent: string;
+    appliedFormat: string;
+    source: "message" | "shortcut" | "default";
+  };
+  rememberWritingFormat: (format: string) => void;
   buildActiveEpisodeContext: () => TEpisodeContext | null;
   detectChatIntentSignals: (text: string) => {
     hasDeliverable: boolean;
@@ -392,20 +403,20 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
 
   const sendChatMessage = useCallback(async (params: SendChatMessageArgs) => {
     if (args.isAiProcessing) return;
-    const requestContent = params.requestContent.trim();
-    if (!requestContent) return;
+    const rawRequestContent = params.requestContent.trim();
+    if (!rawRequestContent) return;
 
-    const displayContent = (params.displayContent ?? requestContent).trim();
+    const displayContent = (params.displayContent ?? rawRequestContent).trim();
     const episodeContext = args.buildActiveEpisodeContext();
     if (!episodeContext) {
-      args.setChatError("Select an Episode or Spark to start.");
+      args.setChatError("Pick an Episode or Spark and I’ll work from there.");
       return;
     }
 
     const lane = args.resolveAiLaneFromStorage();
     args.setAiBillingMode(lane);
     if (lane === "forge" && args.aiTokenBalance != null && args.aiTokenBalance <= 0) {
-      args.setChatError("No AI credits remaining.");
+      args.setChatError("You are out of AI credits for now.");
       return;
     }
     if (lane === "byo") {
@@ -414,17 +425,27 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
 
     const source = params.source ?? "typed";
     const isProductionRequest = Boolean(params.productionAction);
-    const intentSignals = args.detectChatIntentSignals(requestContent);
-    const autosaveReasonCode = args.detectAiAutosaveReasonCode(requestContent);
+    const intentSignals = args.detectChatIntentSignals(rawRequestContent);
+    const autosaveReasonCode = args.detectAiAutosaveReasonCode(rawRequestContent);
     const pendingShortcutIntent = args.pendingShortcutIntentRef.current;
     args.pendingShortcutIntentRef.current = null;
+    const selectedWritingFormat = args.getSelectedWritingFormat();
+    const resolvedWritingFormat = args.resolveChatRequestWritingFormat({
+      requestContent: rawRequestContent,
+      pendingShortcutIntent,
+      selectedFormat: selectedWritingFormat,
+    });
+    const requestContent = resolvedWritingFormat.requestContent;
+    args.rememberWritingFormat(resolvedWritingFormat.appliedFormat);
 
     args.recordInteractionEvent("chat_sent", {
       source,
-      chars: requestContent.length,
+      chars: rawRequestContent.length,
       lane,
       has_deliverable: intentSignals.hasDeliverable,
       production_action: params.productionAction ?? null,
+      writing_format: resolvedWritingFormat.appliedFormat,
+      writing_format_source: resolvedWritingFormat.source,
     });
 
     if (!isProductionRequest) {
@@ -541,15 +562,15 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
             : "";
           args.publishForgeNotice({
             job: "script-completed",
-            title: "Script draft ready",
-            message: `Hearth finished a script draft${sourceSuffix}.`,
+            title: "Draft ready",
+            message: `Hearth put together a draft pass${sourceSuffix}.`,
             severity: "success",
           });
         } else if (sourceAdditions > 0) {
           args.publishForgeNotice({
             job: "sources-found",
-            title: "Sources ready",
-            message: `Hearth added ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"} to this episode.`,
+            title: "Sources lined up",
+            message: `Hearth lined up ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"} for this episode.`,
             severity: "success",
           });
         }

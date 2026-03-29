@@ -1065,6 +1065,48 @@
   padding: 4px 8px;
 }
 
+.hs-ai-format-row {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 10px;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.hs-ai-format-copy {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.hs-ai-format-copy strong {
+  font-weight: 600;
+}
+
+.hs-ai-format-copy span {
+  opacity: 0.72;
+}
+
+.hs-ai-format-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hs-ai-format-buttons button {
+  font-size: 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 999px;
+  background: var(--forge-bg-elevated, #fff);
+}
+
+.hs-ai-format-buttons button.is-active {
+  border-color: rgba(37, 99, 235, 0.65);
+  background: rgba(37, 99, 235, 0.12);
+}
+
 .hs-production-mode-status {
   font-size: 12px;
   opacity: 0.75;

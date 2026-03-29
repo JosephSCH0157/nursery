@@ -137,6 +137,15 @@ import {
   resolveProductionDefaultsUpdate,
   writeProductionDefaults,
 } from "../lib/compose-defaults";
+import {
+  buildWritingFormatShortcutPrompt,
+  getHearthWritingFormatProfile,
+  HEARTH_WRITING_FORMATS,
+  readLastHearthWritingFormat,
+  resolveHearthWritingFormatRequest,
+  writeLastHearthWritingFormat,
+  type HearthWritingFormat,
+} from "../lib/hearth-writing-format";
 import { inferSpeakersFromScript } from "../lib/compose-content-validation";
 import { buildComposePrompt } from "../lib/compose-prompt";
 import ComposeSetupModal from "../ui/ComposeSetupModal";
@@ -1819,7 +1828,7 @@ function buildAssistantMessageContent(args: {
   if (args.autosaveReasonCode === "ai_outline") {
     if (outlineFromOps) {
       if (!assistantText) {
-        return `Outline draft:\n${outlineFromOps}`;
+        return `I took a first pass at a bullet outline:\n${outlineFromOps}`;
       }
       if (assistantText.includes(outlineFromOps)) {
         return assistantText;
@@ -1829,8 +1838,8 @@ function buildAssistantMessageContent(args: {
   }
 
   if (assistantText) return assistantText;
-  if (args.ops.length > 0) return "Proposed updates are ready to review.";
-  return "Response received.";
+  if (args.ops.length > 0) return "I took a first pass. Have a look and we can tighten it from there.";
+  return "I’m ready when you are.";
 }
 
 function toAiAutosaveReason(reasonCode: AiAutosaveReasonCode): AiAutosaveReason {
@@ -2383,6 +2392,7 @@ export default function HearthShell({
   const [composeModalOpen, setComposeModalOpen] = useState(false);
   const [productionDefaults, setProductionDefaults] = useState<ProductionDefaults>(() => readProductionDefaults());
   const [composeSetupDraft, setComposeSetupDraft] = useState<ComposeSetup>(() => buildSetupFromDefaults(readProductionDefaults()));
+  const [selectedWritingFormat, setSelectedWritingFormat] = useState<HearthWritingFormat>(() => readLastHearthWritingFormat());
   const [scriptCompletionBadge, setScriptCompletionBadge] = useState<ScriptCompletionBadge | null>(null);
   const [scriptCompletionReasons, setScriptCompletionReasons] = useState<string[]>([]);
   const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(() =>
@@ -3051,6 +3061,21 @@ export default function HearthShell({
     ), 0) ?? 0,
     [pendingAiProposal],
   );
+  const rememberWritingFormat = useCallback((format: HearthWritingFormat) => {
+    setSelectedWritingFormat(format);
+    writeLastHearthWritingFormat(format);
+  }, []);
+  const writingFormatOptions = useMemo(() => (
+    HEARTH_WRITING_FORMATS.map((format) => {
+      const profile = getHearthWritingFormatProfile(format);
+      return {
+        id: profile.id,
+        label: profile.label,
+        helperText: profile.helperText,
+      };
+    })
+  ), []);
+  const draftShortcutLabel = useMemo(() => `Start with ${getHearthWritingFormatProfile(selectedWritingFormat).shortLabel}`, [selectedWritingFormat]);
   const selectedImageMapCandidates = selectedImageMapEntry?.candidate_assets ?? [];
   const imageMapCandidateCards = selectedImageMapCandidates.map((candidate) => ({
     id: candidate.asset_id,
@@ -3188,6 +3213,15 @@ export default function HearthShell({
     gateAwaitingAnswersRef,
     pendingShortcutIntentRef,
     chatHistoryMaxMessages: CHAT_HISTORY_MAX_MESSAGES,
+    getSelectedWritingFormat: () => selectedWritingFormat,
+    resolveChatRequestWritingFormat: ({ requestContent, pendingShortcutIntent, selectedFormat }) => (
+      resolveHearthWritingFormatRequest({
+        requestContent,
+        pendingShortcutIntent,
+        selectedFormat: selectedFormat as HearthWritingFormat,
+      })
+    ),
+    rememberWritingFormat: (format) => rememberWritingFormat(format as HearthWritingFormat),
     buildActiveEpisodeContext,
     detectChatIntentSignals,
     detectAiAutosaveReasonCode,
@@ -3503,7 +3537,11 @@ export default function HearthShell({
       onApplyAiProposalAll: () => void onApplyAiProposal("all"),
       onApplyAiProposalSelected: () => void onApplyAiProposal("selected"),
       onDiscardAiProposal,
-      onUseChatShortcutOutline: () => onUseChatShortcut("Create a clear outline for this Episode."),
+      writingFormat: selectedWritingFormat,
+      writingFormatOptions,
+      onSelectWritingFormat: rememberWritingFormat,
+      onUseChatShortcutDraft: () => onUseChatShortcut(buildWritingFormatShortcutPrompt(selectedWritingFormat)),
+      draftShortcutLabel,
       onUseChatShortcutSources: () => onUseChatShortcut("Find strong sources I should cite for this Episode."),
       onOpenComposeScript,
       onSetSttLane: (lane) => setSttLane(lane),
@@ -7454,7 +7492,7 @@ export default function HearthShell({
 
       const assistantMessage: HearthChatMessage = {
         role: "assistant",
-        content: result.assistantText || "Applied repaired script tags.",
+        content: result.assistantText || "I cleaned up the script tags and left the wording alone.",
       };
       setChatMessages((prev) => [...prev, assistantMessage].slice(-CHAT_HISTORY_MAX_MESSAGES));
 
