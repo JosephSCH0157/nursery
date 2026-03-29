@@ -1,4 +1,8 @@
-import type { EpisodeMediaMap } from "./episode-package-v2";
+import {
+  createEmptyEpisodePackageV2,
+  ensureMediaMapV2,
+  type EpisodeMediaMap,
+} from "./episode-package-v2";
 import { tongsFetch } from "./tongs-fetch";
 
 export const HEARTH_MEDIA_MAP_PATH = "hearth/media_map.v1.json";
@@ -62,7 +66,10 @@ export async function readWorkpieceEpisodeMediaMap(workpieceId: string): Promise
   }
   return {
     ok: true,
-    mediaMap: payload.data as unknown as EpisodeMediaMap,
+    mediaMap: ensureMediaMapV2({
+      ...createEmptyEpisodePackageV2(),
+      media_map: payload.data as unknown as EpisodeMediaMap,
+    }).media_map,
   };
 }
 

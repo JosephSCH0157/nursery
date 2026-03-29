@@ -18,6 +18,7 @@ function createFixtureMap(): EpisodeMediaMap {
       {
         id: "mm-1",
         final_media_kind: "image",
+        purpose: "coverage",
         anchor: { mode: "phrase_match", target: "City skyline at sunset" },
         timing: { in_offset_sec: 0, duration_sec: 6 },
         description: "Skyline still",
@@ -35,6 +36,7 @@ function createFixtureMap(): EpisodeMediaMap {
       {
         id: "mm-2",
         final_media_kind: "b_roll",
+        purpose: "coverage",
         anchor: { mode: "phrase_match", target: "Factory conveyor belt" },
         timing: { in_offset_sec: 0, duration_sec: 5 },
         description: "Factory motion",
