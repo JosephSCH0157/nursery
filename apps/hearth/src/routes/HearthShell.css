@@ -3530,7 +3530,7 @@ details[open] > .hs-imap-collapsible-title::before {
 }
 
 /* Canvas Priority Mode: Expand preview, collapse sidebars */
-@media (max-width: 1400px) {
+@media (max-width: 1220px) {
   /* Canvas Priority: Thumbnail panel grid collapse */
   .hs-thumb-grid {
     grid-template-columns: 56px 1fr;
