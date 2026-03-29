@@ -1,7 +1,7 @@
 import type { HammerAudioPolishAnalysisSegmentation } from "../persistence/hammerPersistenceContract";
 import type { HammerEffectiveCutRegion } from "./hammerAudioEditPlayback";
+import { doesTimeRangeOverlapCuts } from "./hammerAudioEditPlayback";
 
-const SUGGESTION_COVERAGE_EPSILON_SEC = 0.001;
 export const DEFAULT_SILENCE_CUT_SUGGESTION_MIN_DURATION_SEC = 1.5;
 
 export interface HammerSilenceCutSuggestion {
@@ -22,15 +22,17 @@ function roundSuggestionMetric(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000;
 }
 
-function isFullyCoveredByCut(
-  startSec: number,
-  endSec: number,
-  effectiveCutRegions: HammerEffectiveCutRegion[],
-): boolean {
-  return effectiveCutRegions.some((cut) => (
-    cut.startSec <= startSec + SUGGESTION_COVERAGE_EPSILON_SEC
-    && cut.endSec >= endSec - SUGGESTION_COVERAGE_EPSILON_SEC
-  ));
+export function filterDismissedSilenceCutSuggestions(args: {
+  suggestions: HammerSilenceCutSuggestion[] | null | undefined;
+  dismissedSuggestionIds: ReadonlySet<string> | null | undefined;
+}): HammerSilenceCutSuggestion[] {
+  if (!args.suggestions?.length) {
+    return [];
+  }
+  if (!args.dismissedSuggestionIds || args.dismissedSuggestionIds.size === 0) {
+    return args.suggestions;
+  }
+  return args.suggestions.filter((suggestion) => !args.dismissedSuggestionIds?.has(suggestion.id));
 }
 
 export function buildSilenceCutSuggestions(args: {
@@ -57,7 +59,11 @@ export function buildSilenceCutSuggestions(args: {
       if (durationSec < minDurationSec) {
         return null;
       }
-      if (isFullyCoveredByCut(startSec, endSec, effectiveCutRegions)) {
+      if (doesTimeRangeOverlapCuts({
+        effectiveCutRegions,
+        startSec,
+        endSec,
+      })) {
         return null;
       }
       return {

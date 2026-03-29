@@ -31,6 +31,48 @@ function findContainingCut(
   return null;
 }
 
+export function doesTimeRangeOverlapCuts(args: {
+  effectiveCutRegions: HammerEffectiveCutRegion[];
+  startSec: number;
+  endSec: number;
+}): boolean {
+  if (!Number.isFinite(args.startSec) || !Number.isFinite(args.endSec)) {
+    return false;
+  }
+
+  const startSec = Math.min(args.startSec, args.endSec);
+  const endSec = Math.max(args.startSec, args.endSec);
+  if (endSec - startSec <= PLAYABLE_TIME_EPSILON_SEC) {
+    return false;
+  }
+
+  return args.effectiveCutRegions.some((region) => (
+    region.startSec < endSec - CUT_REGION_MERGE_EPSILON_SEC
+    && region.endSec > startSec + CUT_REGION_MERGE_EPSILON_SEC
+  ));
+}
+
+export function isTimeRangeFullyCoveredByCuts(args: {
+  effectiveCutRegions: HammerEffectiveCutRegion[];
+  startSec: number;
+  endSec: number;
+}): boolean {
+  if (!Number.isFinite(args.startSec) || !Number.isFinite(args.endSec)) {
+    return false;
+  }
+
+  const startSec = Math.min(args.startSec, args.endSec);
+  const endSec = Math.max(args.startSec, args.endSec);
+  if (endSec - startSec <= PLAYABLE_TIME_EPSILON_SEC) {
+    return false;
+  }
+
+  return args.effectiveCutRegions.some((region) => (
+    region.startSec <= startSec + CUT_REGION_MERGE_EPSILON_SEC
+    && region.endSec >= endSec - CUT_REGION_MERGE_EPSILON_SEC
+  ));
+}
+
 export function normalizeCutOperations(
   operations: HammerPersistedAudioEdit["operations"] | null | undefined,
   durationSec: number,

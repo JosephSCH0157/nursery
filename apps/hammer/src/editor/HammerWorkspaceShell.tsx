@@ -50,6 +50,7 @@ import {
   type HammerWorkspaceToolId,
 } from "./hammerWorkspaceTimeline";
 import {
+  isTimeRangeFullyCoveredByCuts,
   getEffectiveCutRegions,
   resolveNextAudiblePlaybackTime,
 } from "./hammerAudioEditPlayback";
@@ -57,7 +58,10 @@ import {
   commitAudioCutSelection,
   normalizeAudioCutSelection,
 } from "./hammerAudioEditOperations";
-import { buildSilenceCutSuggestions } from "./hammerSilenceCutSuggestions";
+import {
+  buildSilenceCutSuggestions,
+  filterDismissedSilenceCutSuggestions,
+} from "./hammerSilenceCutSuggestions";
 import {
   resolveTranscriptDurationSec,
   syncEditableTranscriptSegments,
@@ -1779,10 +1783,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const lastGapAutoApplySignatureRef = useRef<string | null>(null);
   const imagePlacementDraftWindowsRef = useRef<Record<string, HammerImagePlacementDraftWindow>>({});
   const audioPolishHasLocalEditsRef = useRef(false);
+  const editableAudioPolishRef = useRef<HammerPersistedAudioPolish | null>(
+    cloneHammerAudioPolish(props.audioPolish),
+  );
   const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
 
   useEffect(() => {
     audioPolishHasLocalEditsRef.current = false;
+    editableAudioPolishRef.current = null;
     setEditableAudioPolish(null);
     setAudioCutSelectionStartSec(null);
     setAudioCutSelectionEndSec(null);
@@ -1792,23 +1800,33 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useEffect(() => {
     setEditableAudioPolish((current) => {
       if (!props.audioPolish) {
-        return audioPolishHasLocalEditsRef.current ? current : null;
+        const next = audioPolishHasLocalEditsRef.current ? current : null;
+        editableAudioPolishRef.current = next;
+        return next;
       }
 
       const incoming = cloneHammerAudioPolish(props.audioPolish);
       if (!incoming) {
-        return audioPolishHasLocalEditsRef.current ? current : null;
+        const next = audioPolishHasLocalEditsRef.current ? current : null;
+        editableAudioPolishRef.current = next;
+        return next;
       }
       if (!audioPolishHasLocalEditsRef.current) {
+        editableAudioPolishRef.current = incoming;
         return incoming;
       }
 
-      return {
+      const next = {
         ...incoming,
         audio_edit: cloneHammerAudioEdit(current?.audio_edit ?? null) ?? cloneHammerAudioEdit(incoming.audio_edit),
       };
+      editableAudioPolishRef.current = next;
+      return next;
     });
   }, [props.audioPolish]);
+  useEffect(() => {
+    editableAudioPolishRef.current = editableAudioPolish;
+  }, [editableAudioPolish]);
 
   useEffect(() => {
     const nextInitialPass = resolveInitialPassId(props.initialCurrentPass);
@@ -2075,9 +2093,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }), [audioCutSelectionEndSec, audioCutSelectionStartSec, playbackTransportDurationSec]);
   const hasPendingAudioCutSelection = audioCutSelectionStartSec != null || audioCutSelectionEndSec != null;
   const persistedAudioCutCount = editableAudioPolish?.audio_edit?.operations.length ?? 0;
+  const isAudioCutSelectionCovered = useMemo(() => {
+    if (!audioCutSelection) {
+      return false;
+    }
+    return isTimeRangeFullyCoveredByCuts({
+      effectiveCutRegions: effectivePlaybackCutRegions,
+      startSec: audioCutSelection.startSec,
+      endSec: audioCutSelection.endSec,
+    });
+  }, [audioCutSelection, effectivePlaybackCutRegions]);
   const audioCutSelectionStatus = useMemo(() => {
     if (playbackTransportDurationSec <= 0) {
       return "Timeline duration unavailable. Cut selection is disabled.";
+    }
+    if (audioCutSelection && isAudioCutSelectionCovered) {
+      return `Selection ${audioCutSelection.startSec.toFixed(1)}s-${audioCutSelection.endSec.toFixed(1)}s is already covered by an existing cut.`;
     }
     if (audioCutSelection) {
       return `Cut selection ready: ${audioCutSelection.startSec.toFixed(1)}s-${audioCutSelection.endSec.toFixed(1)}s.`;
@@ -2096,10 +2127,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     audioCutSelection,
     audioCutSelectionEndSec,
     audioCutSelectionStartSec,
+    isAudioCutSelectionCovered,
     playbackTransportDurationSec,
   ]);
   const canMarkAudioCutSelection = playbackTransportDurationSec > 0;
-  const canApplyAudioCutSelection = audioCutSelection != null;
+  const canApplyAudioCutSelection = audioCutSelection != null && !isAudioCutSelectionCovered;
   const silenceCutSuggestions = useMemo(() => buildSilenceCutSuggestions({
     segmentation: editableAudioPolish?.analysis?.segmentation ?? null,
     durationSec: playbackTransportDurationSec,
@@ -2109,10 +2141,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     effectivePlaybackCutRegions,
     playbackTransportDurationSec,
   ]);
-  const visibleSilenceCutSuggestions = useMemo(
-    () => silenceCutSuggestions.filter((suggestion) => !dismissedSilenceSuggestionIds.has(suggestion.id)),
-    [dismissedSilenceSuggestionIds, silenceCutSuggestions],
-  );
+  const visibleSilenceCutSuggestions = useMemo(() => filterDismissedSilenceCutSuggestions({
+    suggestions: silenceCutSuggestions,
+    dismissedSuggestionIds: dismissedSilenceSuggestionIds,
+  }), [dismissedSilenceSuggestionIds, silenceCutSuggestions]);
   const hasSilenceSuggestionAnalysis = editableAudioPolish?.analysis?.segmentation != null;
   const silenceSuggestionCount = visibleSilenceCutSuggestions.length;
   useEffect(() => {
@@ -4058,7 +4090,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     endSec: number | null;
   }): boolean {
     const committed = commitAudioCutSelection({
-      audioPolish: editableAudioPolish,
+      audioPolish: editableAudioPolishRef.current,
       selection: {
         startSec: args.startSec,
         endSec: args.endSec,
@@ -4070,6 +4102,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
 
     audioPolishHasLocalEditsRef.current = true;
+    editableAudioPolishRef.current = committed.audioPolish;
     setEditableAudioPolish(committed.audioPolish);
     setFocusOverride("time-focus");
     return true;

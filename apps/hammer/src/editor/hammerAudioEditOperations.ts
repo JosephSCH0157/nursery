@@ -8,6 +8,10 @@ import {
   cloneHammerAudioEdit,
   cloneHammerAudioPolish,
 } from "../prep/hammerAudioPolish";
+import {
+  getEffectiveCutRegions,
+  isTimeRangeFullyCoveredByCuts,
+} from "./hammerAudioEditPlayback";
 
 const MIN_AUDIO_CUT_DURATION_SEC = 0.0001;
 
@@ -103,6 +107,18 @@ export function commitAudioCutSelection(args: {
   }
 
   const nextAudioPolish = cloneHammerAudioPolish(args.audioPolish) ?? buildNotStartedHammerAudioPolish();
+  const existingEffectiveCutRegions = getEffectiveCutRegions(
+    nextAudioPolish.audio_edit,
+    args.durationSec,
+  );
+  if (isTimeRangeFullyCoveredByCuts({
+    effectiveCutRegions: existingEffectiveCutRegions,
+    startSec: normalizedSelection.startSec,
+    endSec: normalizedSelection.endSec,
+  })) {
+    return null;
+  }
+
   const { audioEdit, operation } = appendAudioCutOperation({
     audioEdit: nextAudioPolish.audio_edit,
     selection: normalizedSelection,
