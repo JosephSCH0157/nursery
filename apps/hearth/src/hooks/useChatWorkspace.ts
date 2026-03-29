@@ -1004,45 +1004,93 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
 
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.lang = "en-US";
     let finalTranscript = "";
+    let interimTranscript = "";
+    const session = {
+      fatalErrorMessage: null as string | null,
+      heardSpeech: false,
+      manualStopRequested: false,
+      restartAttempts: 0,
+    };
+    (recognition as any).__hearthBrowserSttSession = session;
 
     recognition.onresult = (event: any) => {
+      interimTranscript = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
-        if (result.isFinal) {
-          const chunk = result[0]?.transcript;
-          if (typeof chunk === "string" && chunk.trim()) {
+        const chunk = result[0]?.transcript;
+        if (typeof chunk === "string" && chunk.trim()) {
+          session.heardSpeech = true;
+          if (result.isFinal) {
             finalTranscript += `${chunk.trim()} `;
+            interimTranscript = "";
+            session.restartAttempts = 0;
+          } else {
+            interimTranscript = chunk.trim();
           }
         }
       }
+      const previewTranscript = `${finalTranscript} ${interimTranscript}`.trim();
+      if (previewTranscript) {
+        showSttPreviewLine(previewTranscript);
+      }
     };
 
-    recognition.onerror = () => {
-      args.speechRecognitionRef.current = null;
-      stopAiSttStream();
-      args.setSttState("idle");
-      args.setSttError("Speech recognition error.");
+    recognition.onerror = (event: any) => {
+      const errorCode = typeof event?.error === "string" ? event.error : "";
+      if (errorCode === "aborted" && session.manualStopRequested) {
+        return;
+      }
+      if (errorCode === "no-speech") {
+        return;
+      }
+      if (errorCode === "aborted") {
+        session.fatalErrorMessage = "Browser speech stopped unexpectedly.";
+      } else if (errorCode === "audio-capture") {
+        session.fatalErrorMessage = "No microphone is available for browser speech.";
+      } else if (errorCode === "not-allowed" || errorCode === "service-not-allowed") {
+        session.fatalErrorMessage = "Microphone permission was blocked.";
+      } else if (errorCode === "network") {
+        session.fatalErrorMessage = "Browser speech lost its connection.";
+      } else {
+        session.fatalErrorMessage = "Speech recognition error.";
+      }
     };
 
     recognition.onend = async () => {
+      const transcript = `${finalTranscript} ${interimTranscript}`.trim();
+      if (
+        args.speechRecognitionRef.current === recognition
+        && !session.manualStopRequested
+        && !session.fatalErrorMessage
+        && !transcript
+        && session.restartAttempts < 2
+      ) {
+        session.restartAttempts += 1;
+        try {
+          recognition.start();
+          args.setSttState("listening");
+          showSttNotice("Still listening...");
+          return;
+        } catch {
+          // Fall through and settle to idle below.
+        }
+      }
+
       args.speechRecognitionRef.current = null;
       stopAiSttStream();
       args.setSttState("idle");
-      await commitVoiceTranscript(finalTranscript);
+      if (session.fatalErrorMessage) {
+        args.setSttError(session.fatalErrorMessage);
+        return;
+      }
+      await commitVoiceTranscript(transcript);
     };
 
     stopAiSttStream();
-    if (navigator.mediaDevices?.getUserMedia) {
-      try {
-        const previewStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        args.mediaStreamRef.current = previewStream;
-      } catch {
-        args.mediaStreamRef.current = null;
-      }
-    }
+    args.mediaStreamRef.current = null;
 
     args.speechRecognitionRef.current = recognition;
     clearSttNoticeTimer();
@@ -1059,11 +1107,15 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.setSttState("idle");
       args.setSttError("Unable to start speech recognition.");
     }
-  }, [args, clearSttNoticeTimer, clearSttPreviewTimer, commitVoiceTranscript, stopAiSttStream]);
+  }, [args, clearSttNoticeTimer, clearSttPreviewTimer, commitVoiceTranscript, showSttNotice, showSttPreviewLine, stopAiSttStream]);
 
   const stopBrowserStt = useCallback(() => {
     stopAiSttStream();
     try {
+      const recognition = args.speechRecognitionRef.current as any;
+      if (recognition?.__hearthBrowserSttSession) {
+        recognition.__hearthBrowserSttSession.manualStopRequested = true;
+      }
       args.speechRecognitionRef.current?.stop();
     } catch {
       // onend will settle state
