@@ -3531,46 +3531,6 @@ details[open] > .hs-imap-collapsible-title::before {
 
 /* Canvas Priority Mode: Expand preview, collapse sidebars */
 @media (max-width: 1400px) {
-  /* Canvas Priority: Collapse left Forge nav to icons */
-  .hs-shell-grid {
-    grid-template-columns: 56px minmax(0, 1fr);
-  }
-
-  .hs-rail {
-    width: 56px;
-    padding: 8px;
-    gap: 6px;
-  }
-
-  .hs-rail-header,
-  .hs-rail-title,
-  .hs-rail-meta,
-  .hs-rail-heading,
-  .hs-rail-label,
-  .hs-rail-section > .hs-field-label {
-    display: none;
-  }
-
-  .hs-rail-section {
-    gap: 4px;
-  }
-
-  button {
-    aspect-ratio: 1;
-    width: 44px;
-    height: 44px;
-    padding: 0;
-    display: grid;
-    place-items: center;
-    font-size: 0;
-    margin: 0 auto;
-  }
-
-  button span,
-  button span:first-child {
-    font-size: 14px;
-  }
-
   /* Canvas Priority: Thumbnail panel grid collapse */
   .hs-thumb-grid {
     grid-template-columns: 56px 1fr;
