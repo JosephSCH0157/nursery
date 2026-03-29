@@ -25,9 +25,10 @@
   border: 1px solid var(--forge-border, #ddd);
   border-radius: 10px;
   padding: 12px;
-  background: var(--forge-bg-elevated, #fff);
+  background: color-mix(in srgb, var(--forge-bg-elevated, #fff) 86%, rgba(15, 23, 42, 0.05) 14%);
   display: grid;
   gap: 14px;
+  opacity: 0.9;
 }
 
 .hs-rail-header {
@@ -226,7 +227,7 @@
   border: 1px solid var(--forge-border, #ddd);
   border-radius: 8px;
   padding: 8px;
-  background: transparent;
+  background: rgba(15, 23, 42, 0.02);
   display: grid;
   gap: 6px;
 }
@@ -876,6 +877,16 @@
   background: rgba(15, 23, 42, 0.03);
 }
 
+.hs-focus-panel--primary .hs-focus-panel-header {
+  border-color: color-mix(in srgb, var(--forge-border, #ddd) 62%, rgba(37, 99, 235, 0.5) 38%);
+  background: color-mix(in srgb, rgba(37, 99, 235, 0.18) 26%, rgba(15, 23, 42, 0.03) 74%);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.16);
+}
+
+.hs-focus-panel--secondary .hs-focus-panel-header {
+  opacity: 0.84;
+}
+
 .hs-focus-panel.is-collapsed .hs-focus-panel-header {
   border-style: dashed;
   background: rgba(15, 23, 42, 0.02);
@@ -905,7 +916,7 @@
 .hs-focus-panel-body {
   display: grid;
   grid-template-rows: 1fr;
-  transition: grid-template-rows 160ms ease, opacity 160ms ease;
+  transition: grid-template-rows 120ms ease, opacity 120ms ease;
 }
 
 .hs-focus-panel-body-inner {
@@ -916,6 +927,35 @@
 .hs-focus-panel.is-collapsed .hs-focus-panel-body {
   grid-template-rows: 0fr;
   opacity: 0;
+}
+
+.hs-visuals-skeleton {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 10px;
+  padding: 12px;
+  display: grid;
+  gap: 4px;
+  min-height: 280px;
+  align-content: start;
+  background: rgba(15, 23, 42, 0.03);
+  font-size: 12px;
+}
+
+.hs-primary-btn {
+  border: 1px solid rgba(37, 99, 235, 0.65);
+  background: rgba(37, 99, 235, 0.2);
+  color: inherit;
+  font-weight: 700;
+}
+
+.hs-primary-btn:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.28);
+}
+
+.hs-secondary-btn {
+  border: 1px solid var(--forge-border, #ddd);
+  background: rgba(15, 23, 42, 0.03);
+  color: inherit;
 }
 
 .hs-ai-chat {
@@ -2688,6 +2728,20 @@
   font-weight: 700;
 }
 
+.hs-imap-subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0.86;
+}
+
+.hs-imap-help-text {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0.78;
+}
+
 .hs-imap-save-state {
   font-size: 12px;
   border: 1px solid var(--forge-border, #ddd);
@@ -2737,6 +2791,42 @@
   display: grid;
   gap: 6px;
   padding: 8px;
+}
+
+.hs-imap-list > .hs-imap-entry:nth-of-type(odd),
+.hs-imap-list > .hs-imap-row:nth-of-type(odd) {
+  background: rgba(15, 23, 42, 0.02);
+}
+
+.hs-imap-list > .hs-imap-entry:nth-of-type(even),
+.hs-imap-list > .hs-imap-row:nth-of-type(even) {
+  background: rgba(15, 23, 42, 0.045);
+}
+
+.hs-imap-entry {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  text-align: left;
+  padding: 8px 10px;
+  display: grid;
+  gap: 4px;
+  line-height: 1.35;
+}
+
+.hs-imap-entry.is-selected {
+  border-color: #557;
+  background: rgba(85, 119, 255, 0.12) !important;
+}
+
+.hs-imap-entry-title {
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.hs-imap-entry-meta {
+  font-size: 11px;
+  opacity: 0.78;
 }
 
 .hs-imap-row {

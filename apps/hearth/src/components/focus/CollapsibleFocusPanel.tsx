@@ -7,6 +7,7 @@ type CollapsibleFocusPanelProps = {
   collapsed: boolean;
   onToggle: () => void;
   collapsible?: boolean;
+  priority?: "primary" | "secondary";
   children: ReactNode;
 };
 
@@ -17,13 +18,15 @@ export default function CollapsibleFocusPanel({
   collapsed,
   onToggle,
   collapsible = true,
+  priority = "secondary",
   children,
 }: CollapsibleFocusPanelProps) {
   const labelId = `${panelId}-label`;
   const bodyId = `${panelId}-body`;
+  const panelClassName = `hs-focus-panel hs-focus-panel--${priority}${collapsed ? " is-collapsed" : ""}`;
 
   return (
-    <section className={`hs-focus-panel${collapsed ? " is-collapsed" : ""}`} aria-labelledby={labelId}>
+    <section className={panelClassName} aria-labelledby={labelId}>
       <header className="hs-focus-panel-header">
         <div className="hs-focus-panel-heading">
           <div id={labelId} className="hs-focus-panel-title">{title}</div>

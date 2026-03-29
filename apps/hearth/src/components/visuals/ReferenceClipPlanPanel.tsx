@@ -126,7 +126,7 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
           <p className="hs-imap-subtitle">Plan explanatory reference visuals that combine real-world context with structured data.</p>
         </div>
         <div className="hs-imap-candidate-action-group">
-          <button type="button" className="hs-secondary-btn" onClick={props.onCreateReferenceClip} disabled={props.disabled || props.saveState === "saving"}>
+          <button type="button" className="hs-primary-btn" onClick={props.onCreateReferenceClip} disabled={props.disabled || props.saveState === "saving"}>
             Create Reference Clip
           </button>
         </div>

@@ -153,7 +153,7 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
           <p className="hs-imap-subtitle">Generate motion coverage beats for the episode, then resolve each beat with stock or uploaded assets.</p>
         </div>
         <div className="hs-imap-candidate-action-group">
-          <button type="button" className="hs-secondary-btn" onClick={props.onGeneratePlan} disabled={props.disabled || props.saveState === "saving"}>
+          <button type="button" className="hs-primary-btn" onClick={props.onGeneratePlan} disabled={props.disabled || props.saveState === "saving"}>
             Generate B-roll Plan
           </button>
         </div>

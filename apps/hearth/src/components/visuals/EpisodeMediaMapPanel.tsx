@@ -131,7 +131,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
               ))}
             </select>
           </label>
-          <button type="button" className="hs-secondary-btn" onClick={props.onGenerateFromPlans} disabled={props.disabled}>
+          <button type="button" className="hs-primary-btn" onClick={props.onGenerateFromPlans} disabled={props.disabled}>
             Generate Episode Media Map
           </button>
           <button type="button" className="hs-secondary-btn" onClick={props.onActivateMap} disabled={props.disabled}>
