@@ -1,8 +1,10 @@
 import type { HammerPersistedAudioPolish } from "../persistence/hammerPersistenceContract";
 import type {
+  HammerAudioEditOperation,
   HammerAudioPolishAnalysis,
   HammerAudioPolishFailureCode,
   HammerAudioPolishPass,
+  HammerPersistedAudioEdit,
 } from "../persistence/hammerPersistenceContract";
 import type { HammerPrepSource } from "./hammerPrep";
 
@@ -16,6 +18,84 @@ const TERMINAL_FAILURE_CODES = new Set<HammerAudioPolishFailureCode>([
   "unsupported_source",
   "source_unavailable",
 ]);
+
+function readString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function readNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function readObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function sortHammerAudioEditOperations(
+  operations: HammerAudioEditOperation[],
+): HammerAudioEditOperation[] {
+  return [...operations].sort((left, right) => (
+    left.start_sec - right.start_sec
+    || left.end_sec - right.end_sec
+    || left.id.localeCompare(right.id)
+  ));
+}
+
+export function cloneHammerAudioEdit(
+  value: HammerPersistedAudioEdit | null | undefined,
+): HammerPersistedAudioEdit | null {
+  if (!value) return null;
+  return {
+    version: "v1",
+    operations: sortHammerAudioEditOperations(
+      value.operations.map((operation) => ({ ...operation })),
+    ),
+  };
+}
+
+export function normalizeHammerAudioEdit(
+  value: unknown,
+): HammerPersistedAudioEdit | null {
+  if (value == null) return null;
+  const row = readObject(value);
+  if (!row || readString(row.version) !== "v1" || !Array.isArray(row.operations)) {
+    return null;
+  }
+
+  const operations: HammerAudioEditOperation[] = [];
+  for (const entry of row.operations) {
+    const operation = readObject(entry);
+    const id = readString(operation?.id);
+    const type = readString(operation?.type);
+    const startSec = readNumber(operation?.start_sec);
+    const endSec = readNumber(operation?.end_sec);
+    if (!id || type !== "cut" || startSec == null || endSec == null) {
+      return null;
+    }
+    if (startSec < 0 || endSec <= startSec) {
+      return null;
+    }
+    operations.push({
+      id,
+      type: "cut",
+      start_sec: startSec,
+      end_sec: endSec,
+    });
+  }
+
+  return {
+    version: "v1",
+    operations: sortHammerAudioEditOperations(operations),
+  };
+}
 
 function cloneSettingsSummary(
   value: Record<string, string | number | boolean | null> | null | undefined,
@@ -60,6 +140,7 @@ export function cloneHammerAudioPolish(
     source_artifact_paths: [...value.source_artifact_paths],
     settings_summary: cloneSettingsSummary(value.settings_summary),
     analysis: cloneHammerAudioPolishAnalysis(value.analysis),
+    audio_edit: cloneHammerAudioEdit(value.audio_edit),
   };
 }
 
@@ -71,6 +152,7 @@ export function buildNotStartedHammerAudioPolish(): HammerPersistedAudioPolish {
     source_artifact_paths: [],
     settings_summary: {},
     analysis: null,
+    audio_edit: null,
     source_media_id: null,
     source_media_signature: null,
     processor_version: HAMMER_AUDIO_POLISH_PROCESSOR_VERSION,
@@ -99,6 +181,7 @@ function buildBaseAudioPolish(
       : [prepSource.canonical_workpiece_path],
     settings_summary: cloneSettingsSummary(overrides.settings_summary),
     analysis: cloneHammerAudioPolishAnalysis(overrides.analysis),
+    audio_edit: cloneHammerAudioEdit(overrides.audio_edit),
   };
 }
 
@@ -127,6 +210,7 @@ export function buildPreparedHammerAudioPolish(args: {
   outputDurationMs: number | null;
   settingsSummary?: Record<string, string | number | boolean | null>;
   analysis?: HammerAudioPolishAnalysis | null;
+  audioEdit?: HammerPersistedAudioEdit | null;
   preparedPasses?: HammerAudioPolishPass[];
   sourceArtifactPaths?: string[];
 }): HammerPersistedAudioPolish {
@@ -141,6 +225,7 @@ export function buildPreparedHammerAudioPolish(args: {
     output_mime_type: args.outputMimeType,
     output_duration_ms: args.outputDurationMs,
     analysis: cloneHammerAudioPolishAnalysis(args.analysis),
+    audio_edit: cloneHammerAudioEdit(args.audioEdit),
     failure_code: null,
     failure_reason: null,
     settings_summary: {

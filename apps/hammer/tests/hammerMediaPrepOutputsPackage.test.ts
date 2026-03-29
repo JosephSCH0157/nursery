@@ -129,6 +129,7 @@ const snapshot: HammerPersistenceSnapshot = {
       output_duration_ms: 8000,
       failure_code: null,
       failure_reason: null,
+      audio_edit: null,
     },
   },
   edit_plan: { path: null, updated_at: null, data: null },

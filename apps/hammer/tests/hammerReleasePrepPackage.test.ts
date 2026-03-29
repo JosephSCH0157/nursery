@@ -111,6 +111,7 @@ function buildAudioPolish(status: HammerPersistedAudioPolish["status"], mediaRef
     output_duration_ms: status === "prepared" ? 12000 : null,
     failure_code: null,
     failure_reason: null,
+    audio_edit: null,
   };
 }
 

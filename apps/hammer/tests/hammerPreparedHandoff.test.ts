@@ -50,6 +50,7 @@ import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOu
       output_duration_ms: 8_000,
       failure_code: null,
       failure_reason: null,
+      audio_edit: null,
     },
   });
 
@@ -109,6 +110,7 @@ import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOu
       output_duration_ms: null,
       failure_code: "unsupported_source",
       failure_reason: "Unsupported sources will open normally without polish.",
+      audio_edit: null,
     },
   });
 
@@ -173,6 +175,7 @@ import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOu
       output_duration_ms: 8_000,
       failure_code: null,
       failure_reason: null,
+      audio_edit: null,
     },
     mediaRef: {
       media_id: "media_03",
@@ -204,6 +207,7 @@ import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOu
       output_duration_ms: 8_000,
       failure_code: null,
       failure_reason: null,
+      audio_edit: null,
     },
     mediaPrepOutputs,
   });

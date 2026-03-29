@@ -263,6 +263,7 @@ function createFailedResponse(args: {
     failure_code: args.code,
     failure_reason: args.reason,
     analysis: null,
+    audio_edit: null,
     settings_summary: {
       supported_source: false,
       ...args.settingsSummary,
@@ -1799,6 +1800,7 @@ export async function handleHammerAudioPolishRequest(
             channel_characterization: channelCharacterization,
             waveform_proxy: waveformProxy,
           },
+          audio_edit: null,
           settings_summary: {
             supported_source: true,
             source_media_kind: request.media_kind,

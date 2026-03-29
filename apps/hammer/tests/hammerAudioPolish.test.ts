@@ -31,6 +31,7 @@ const prepSource: HammerPrepSource = {
   assert.equal(preparing.status, "preparing");
   assert.equal(preparing.source_media_signature, prepSource.media_signature);
   assert.equal(preparing.analysis, null);
+  assert.equal(preparing.audio_edit, null);
 }
 
 {
@@ -96,6 +97,17 @@ const prepSource: HammerPrepSource = {
         peaks: [0.2, 0.5, 0.35, 0.8],
       },
     },
+    audioEdit: {
+      version: "v1",
+      operations: [
+        {
+          id: "cut_01",
+          type: "cut",
+          start_sec: 1.25,
+          end_sec: 2.5,
+        },
+      ],
+    },
   });
   assert.equal(isReusableHammerAudioPolish(prepared, prepSource), true);
   const cloned = cloneHammerAudioPolish(prepared);
@@ -104,7 +116,10 @@ const prepSource: HammerPrepSource = {
   assert.notEqual(cloned?.analysis?.segmentation, prepared.analysis?.segmentation);
   assert.notEqual(cloned?.analysis?.segmentation.regions, prepared.analysis?.segmentation.regions);
   assert.notEqual(cloned?.analysis?.waveform_proxy?.peaks, prepared.analysis?.waveform_proxy?.peaks);
+  assert.notEqual(cloned?.audio_edit, prepared.audio_edit);
+  assert.notEqual(cloned?.audio_edit?.operations, prepared.audio_edit?.operations);
   assert.equal(cloned?.analysis?.loudness.integrated_lufs, -18.2);
+  assert.deepEqual(cloned?.audio_edit?.operations, prepared.audio_edit?.operations);
 }
 
 {
@@ -143,8 +158,10 @@ const prepSource: HammerPrepSource = {
     failure_code: null,
     failure_reason: null,
     analysis: undefined as never,
+    audio_edit: undefined as never,
   });
   assert.equal(legacy?.analysis ?? null, null);
+  assert.equal(legacy?.audio_edit ?? null, null);
 }
 
 {
@@ -234,6 +251,7 @@ const prepSource: HammerPrepSource = {
   assert.equal(prepared.analysis.waveform_proxy?.bucket_count, 4, "bucket_count preserved");
   assert.equal(prepared.analysis.waveform_proxy?.bucket_duration_sec, 2, "bucket_duration_sec preserved");
   assert.deepEqual(prepared.analysis.waveform_proxy?.peaks, [0.3, 0.4, 0.5, 0.6], "peaks preserved exactly");
+  assert.equal(prepared.audio_edit, null, "audio_edit defaults to null when omitted");
   
   // Day 4: Backward compatibility - null waveform_proxy stays null through buildPreparedHammerAudioPolish
   const preparedNoWaveform = buildPreparedHammerAudioPolish({
@@ -272,7 +290,7 @@ const prepSource: HammerPrepSource = {
     },
   });
   assert.equal(preparedNoWaveform.analysis.waveform_proxy, null, "null waveform_proxy preserved through buildPreparedHammerAudioPolish");
+  assert.equal(preparedNoWaveform.audio_edit, null, "missing audio_edit defaults to null");
 }
 
 console.log("Hammer audio polish tests passed.");
-

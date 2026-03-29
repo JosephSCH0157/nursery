@@ -236,6 +236,7 @@ function buildSnapshot(overrides?: {
         output_duration_ms: overrides?.audioStatus === "failed" ? null : 9000,
         failure_code: overrides?.audioFailureCode ?? null,
         failure_reason: overrides?.audioFailureReason ?? null,
+        audio_edit: null,
       },
     },
     edit_plan: {

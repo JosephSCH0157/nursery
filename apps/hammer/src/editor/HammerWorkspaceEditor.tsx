@@ -349,6 +349,7 @@ export default function HammerWorkspaceEditor(
           outputDurationMs: response.output_duration_ms,
           settingsSummary: response.settings_summary,
           analysis: response.analysis,
+          audioEdit: response.audio_edit,
           preparedPasses: response.prepared_passes,
         })
         : buildFailedHammerAudioPolish({

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   buildHammerLaunchContextFromPersistence,
   buildHammerPersistenceSaveRequest,
+  loadHammerPersistenceSnapshot,
   readHammerPersistenceTarget,
 } from "../src/persistence/hammerPersistence";
 import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammerRenderAssembly";
@@ -270,6 +271,23 @@ const snapshot: HammerWorkspaceSnapshot = {
         peaks: [0.1, 0.45, 0.35, 0.7],
       },
     },
+    audio_edit: {
+      version: "v1",
+      operations: [
+        {
+          id: "cut_01",
+          type: "cut",
+          start_sec: 1.25,
+          end_sec: 2.5,
+        },
+        {
+          id: "cut_02",
+          type: "cut",
+          start_sec: 6,
+          end_sec: 7,
+        },
+      ],
+    },
     source_media_id: "media_01",
     source_media_signature: "media_sig_01",
     processor_version: "forge-v1.2.0/audio-polish.v4",
@@ -325,6 +343,15 @@ assert.equal(
 assert.equal(
   saveRequest.audio_polish?.data.analysis?.waveform_proxy?.peaks.length,
   saveRequest.audio_polish?.data.analysis?.waveform_proxy?.bucket_count,
+);
+assert.notEqual(saveRequest.audio_polish?.data.audio_edit, snapshot.audioPolish?.audio_edit);
+assert.notEqual(
+  saveRequest.audio_polish?.data.audio_edit?.operations,
+  snapshot.audioPolish?.audio_edit?.operations,
+);
+assert.deepEqual(
+  saveRequest.audio_polish?.data.audio_edit,
+  snapshot.audioPolish?.audio_edit,
 );
 assert.equal(saveRequest.visual_placements?.data.placements[0]?.asset_ref, "asset_01");
 assert.deepEqual(
@@ -418,6 +445,23 @@ assert.deepEqual(
   persistedSnapshot.audio_polish.data?.analysis?.waveform_proxy?.peaks,
   [0.1, 0.45, 0.35, 0.7],
 );
+assert.deepEqual(
+  persistedSnapshot.audio_polish.data?.audio_edit?.operations,
+  [
+    {
+      id: "cut_01",
+      type: "cut",
+      start_sec: 1.25,
+      end_sec: 2.5,
+    },
+    {
+      id: "cut_02",
+      type: "cut",
+      start_sec: 6,
+      end_sec: 7,
+    },
+  ],
+);
 
 const legacyOnlySnapshot: HammerPersistenceSnapshot = {
   ...persistedSnapshot,
@@ -443,6 +487,106 @@ assert.deepEqual(
   readHammerPersistenceTarget("?workspace_id=aaa&workpiece_id=bbb"),
   { workspaceId: "aaa", workpieceId: "bbb" },
 );
+
+const originalFetch = globalThis.fetch;
+const originalWindow = (globalThis as typeof globalThis & { window?: unknown }).window;
+const toApiArtifact = <T,>(artifact: { path: string | null; updated_at: string | null; data: T | null }) => ({
+  path: artifact.path,
+  file_updated_at: artifact.updated_at,
+  data: artifact.data,
+});
+
+try {
+  (globalThis as typeof globalThis & { window?: unknown }).window = {
+    location: { search: "" },
+    localStorage: {
+      getItem: () => "hammer_user_token",
+      key: () => null,
+      length: 0,
+    },
+  };
+
+  globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
+    ok: true,
+    data: {
+      snapshot: {
+        schema_version: 1,
+        state: persistedSnapshot.state,
+        editor_session: toApiArtifact(persistedSnapshot.editor_session),
+        structured_transcript: toApiArtifact(persistedSnapshot.structured_transcript),
+        speaker_map: toApiArtifact(persistedSnapshot.speaker_map),
+        visual_placements: toApiArtifact(persistedSnapshot.visual_placements),
+        audio_polish: {
+          path: persistedSnapshot.audio_polish.path,
+          file_updated_at: persistedSnapshot.audio_polish.updated_at,
+          data: {
+            ...persistedSnapshot.audio_polish.data,
+            audio_edit: {
+              version: "v1",
+              operations: [
+                {
+                  id: "cut_invalid",
+                  type: "cut",
+                  start_sec: 5,
+                  end_sec: 5,
+                },
+              ],
+            },
+          },
+        },
+        edit_plan: toApiArtifact(persistedSnapshot.edit_plan),
+        editorial_authority: toApiArtifact(persistedSnapshot.editorial_authority),
+        macro_hooks: persistedSnapshot.macro_hooks,
+      },
+    },
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+
+  const invalidEditResult = await loadHammerPersistenceSnapshot(target);
+  assert.equal(invalidEditResult.ok, true);
+  assert.equal(invalidEditResult.ok && invalidEditResult.data.audio_polish.data?.audio_edit, null);
+
+  globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
+    ok: true,
+    data: {
+      snapshot: {
+        schema_version: 1,
+        state: persistedSnapshot.state,
+        editor_session: toApiArtifact(persistedSnapshot.editor_session),
+        structured_transcript: toApiArtifact(persistedSnapshot.structured_transcript),
+        speaker_map: toApiArtifact(persistedSnapshot.speaker_map),
+        visual_placements: toApiArtifact(persistedSnapshot.visual_placements),
+        audio_polish: {
+          path: persistedSnapshot.audio_polish.path,
+          file_updated_at: persistedSnapshot.audio_polish.updated_at,
+          data: {
+            ...persistedSnapshot.audio_polish.data,
+            audio_edit: undefined,
+          },
+        },
+        edit_plan: toApiArtifact(persistedSnapshot.edit_plan),
+        editorial_authority: toApiArtifact(persistedSnapshot.editorial_authority),
+        macro_hooks: persistedSnapshot.macro_hooks,
+      },
+    },
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+
+  const legacyEditResult = await loadHammerPersistenceSnapshot(target);
+  assert.equal(legacyEditResult.ok, true);
+  assert.equal(legacyEditResult.ok && legacyEditResult.data.audio_polish.data?.audio_edit, null);
+} finally {
+  globalThis.fetch = originalFetch;
+  if (originalWindow === undefined) {
+    delete (globalThis as typeof globalThis & { window?: unknown }).window;
+  } else {
+    (globalThis as typeof globalThis & { window?: unknown }).window = originalWindow;
+  }
+}
 
 
 

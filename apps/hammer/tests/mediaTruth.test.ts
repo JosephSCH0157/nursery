@@ -79,6 +79,7 @@ import { V1HammerMediaResolver } from "../src/media/resolveMedia";
       output_duration_ms: 8_000,
       failure_code: null,
       failure_reason: null,
+      audio_edit: null,
     },
   );
 

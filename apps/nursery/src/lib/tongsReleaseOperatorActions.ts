@@ -214,6 +214,8 @@ async function regenerateAudioPolish(args: {
         outputMimeType: response.output_mime_type ?? "audio/wav",
         outputDurationMs: response.output_duration_ms,
         settingsSummary: response.settings_summary,
+        analysis: response.analysis,
+        audioEdit: response.audio_edit,
         preparedPasses: response.prepared_passes,
       })
       : buildFailedHammerAudioPolish({

@@ -774,7 +774,20 @@ function mockService() {
         audio_polish: {
           path: "hammer/prep/audio-polish.v1.json",
           file_updated_at: "2026-03-13T12:00:04.000Z",
-          data: { prepared_passes: [] },
+          data: {
+            prepared_passes: [],
+            audio_edit: {
+              version: "v1",
+              operations: [
+                {
+                  id: "cut_01",
+                  type: "cut",
+                  start_sec: 1.25,
+                  end_sec: 2.5,
+                },
+              ],
+            },
+          },
         },
         edit_plan: {
           path: "hammer/edit-plan/current.v1.json",
@@ -894,6 +907,14 @@ test("GET /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/state re
   assert.equal(body.ok, true);
   assert.equal(body.data?.snapshot?.state?.active_session_id, "session_hammer_01");
   assert.equal(body.data?.snapshot?.structured_transcript?.path, "hammer/transcript/structured.v1.json");
+  assert.deepEqual(body.data?.snapshot?.audio_polish?.data?.audio_edit?.operations, [
+    {
+      id: "cut_01",
+      type: "cut",
+      start_sec: 1.25,
+      end_sec: 2.5,
+    },
+  ]);
   assert.equal(calls.readHammerWorkpieceState.length, 1);
   assert.equal(calls.readHammerWorkpieceState[0]?.options?.userAccessToken, "hammer_user_token");
 });
@@ -924,6 +945,21 @@ test("PUT /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/state fo
             session_id: "session_hammer_02",
           },
         },
+        audio_polish: {
+          data: {
+            audio_edit: {
+              version: "v1",
+              operations: [
+                {
+                  id: "cut_02",
+                  type: "cut",
+                  start_sec: 4,
+                  end_sec: 5.5,
+                },
+              ],
+            },
+          },
+        },
         edit_plan: {
           path: "hammer/edit-plan/current.v1.json",
           data: {
@@ -944,6 +980,14 @@ test("PUT /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/state fo
   assert.equal(calls.saveHammerWorkpieceState[0]?.options?.userAccessToken, "hammer_user_token");
   assert.equal(calls.saveHammerWorkpieceState[0]?.input?.active_session_id, "session_hammer_02");
   assert.equal(calls.saveHammerWorkpieceState[0]?.input?.editor_session?.data?.session_id, "session_hammer_02");
+  assert.deepEqual(calls.saveHammerWorkpieceState[0]?.input?.audio_polish?.data?.audio_edit?.operations, [
+    {
+      id: "cut_02",
+      type: "cut",
+      start_sec: 4,
+      end_sec: 5.5,
+    },
+  ]);
   assert.equal(calls.saveHammerWorkpieceState[0]?.input?.edit_plan?.path, "hammer/edit-plan/current.v1.json");
 });
 

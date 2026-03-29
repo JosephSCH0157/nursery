@@ -109,6 +109,7 @@ function buildCurrentReleasePrep(args?: {
     output_duration_ms: 4000,
     failure_code: null,
     failure_reason: null,
+    audio_edit: null,
   };
 
   const editorSession: HammerPersistedEditorSession = {

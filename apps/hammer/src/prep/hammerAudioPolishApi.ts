@@ -3,7 +3,9 @@ import type {
   HammerAudioPolishAnalysis,
   HammerAudioPolishFailureCode,
   HammerAudioPolishPass,
+  HammerPersistedAudioEdit,
 } from "../persistence/hammerPersistenceContract";
+import { normalizeHammerAudioEdit } from "./hammerAudioPolish";
 
 export const HAMMER_AUDIO_POLISH_ROUTE = "/api/hammer/prep/audio-polish";
 export const HAMMER_AUDIO_POLISH_STATUS_ROUTE = "/api/hammer/prep/audio-polish/status";
@@ -48,6 +50,7 @@ export interface HammerAudioPolishResponse {
   failure_reason: string | null;
   settings_summary: Record<string, string | number | boolean | null>;
   analysis: HammerAudioPolishAnalysis | null;
+  audio_edit: HammerPersistedAudioEdit | null;
 }
 
 function readString(value: unknown): string | null {
@@ -317,6 +320,7 @@ function normalizeResponse(payload: unknown): HammerAudioPolishResponse | null {
     failure_reason: readString(data?.failure_reason),
     settings_summary: settingsSummary,
     analysis: normalizeAudioPolishAnalysis(data?.analysis),
+    audio_edit: normalizeHammerAudioEdit(data?.audio_edit),
   };
 }
 

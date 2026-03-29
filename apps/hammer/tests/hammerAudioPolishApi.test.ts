@@ -36,6 +36,17 @@ async function main(): Promise<void> {
           output_duration_ms: 8000,
           failure_code: null,
           failure_reason: null,
+          audio_edit: {
+            version: "v1",
+            operations: [
+              {
+                id: "cut_01",
+                type: "cut",
+                start_sec: 1.25,
+                end_sec: 2.5,
+              },
+            ],
+          },
           settings_summary: {
             supported_source: true,
             analysis_integrated_lufs: -18.2,
@@ -144,6 +155,17 @@ async function main(): Promise<void> {
   assert.equal(withAnalysis.analysis?.waveform_proxy?.channel_mode, "mono_mixdown");
   assert.equal(withAnalysis.analysis?.waveform_proxy?.bucket_count, 4);
   assert.deepEqual(withAnalysis.analysis?.waveform_proxy?.peaks, [0.2, 0.6, 0.4, 0.7]);
+  assert.deepEqual(withAnalysis.audio_edit, {
+    version: "v1",
+    operations: [
+      {
+        id: "cut_01",
+        type: "cut",
+        start_sec: 1.25,
+        end_sec: 2.5,
+      },
+    ],
+  });
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     assert.equal(String(input), HAMMER_AUDIO_POLISH_ROUTE);
@@ -162,6 +184,17 @@ async function main(): Promise<void> {
           output_duration_ms: 8000,
           failure_code: null,
           failure_reason: null,
+          audio_edit: {
+            version: "v1",
+            operations: [
+              {
+                id: "cut_invalid",
+                type: "cut",
+                start_sec: -1,
+                end_sec: 1,
+              },
+            ],
+          },
           settings_summary: {},
           analysis: {
             schema_version: 1,
@@ -236,6 +269,7 @@ async function main(): Promise<void> {
   assert.equal(legacyReason.analysis?.transcript_prep.chunk_count, 1);
   // Day 4: Invalid waveform_proxy (bucket_count=3 but peaks.length=2) normalizes to null
   assert.equal(legacyReason.analysis?.waveform_proxy, null, "invalid waveform_proxy should normalize to null");
+  assert.equal(legacyReason.audio_edit, null, "invalid audio_edit should normalize to null");
 
   // Day 4: Test backward compatibility - payload without waveform_proxy field (old artifacts)
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -327,6 +361,7 @@ async function main(): Promise<void> {
   assert.equal(legacyNoWaveform.analysis?.waveform_proxy, null, "legacy payload without waveform_proxy should have null");
   assert.equal(legacyNoWaveform.analysis?.loudness.integrated_lufs, -16);
   assert.equal(legacyNoWaveform.analysis?.transcript_prep.chunk_count, 1);
+  assert.equal(legacyNoWaveform.audio_edit, null, "legacy payload without audio_edit should have null");
 
   const legacy = await requestHammerAudioPolish({
     workspace_id: "ws_01",
@@ -336,6 +371,7 @@ async function main(): Promise<void> {
     mime_type: "audio/wav",
   });
   assert.equal(legacy.analysis, null);
+  assert.equal(legacy.audio_edit, null);
 }
 
 main()
@@ -354,6 +390,5 @@ main()
       (globalThis as typeof globalThis & { window?: unknown }).window = originalWindow;
     }
   });
-
 
 

@@ -397,6 +397,7 @@ function testPrepPersistenceSeedWritesAudioPolishArtifact() {
       output_duration_ms: 67_000,
       failure_code: null,
       failure_reason: null,
+      audio_edit: null,
     },
   });
 

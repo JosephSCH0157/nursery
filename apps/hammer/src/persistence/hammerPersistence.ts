@@ -21,6 +21,7 @@ import {
 import {
   buildNotStartedHammerAudioPolish,
   cloneHammerAudioPolish,
+  normalizeHammerAudioEdit,
 } from "../prep/hammerAudioPolish";
 import type {
   HammerHydratedLaunchContext,
@@ -412,11 +413,35 @@ function normalizeArtifact<T>(value: unknown): { path: string | null; file_updat
   };
 }
 
+function normalizeAudioPolishArtifact(
+  value: unknown,
+): { path: string | null; file_updated_at: string | null; data: HammerPersistedAudioPolish | null } {
+  const artifact = normalizeArtifact<Record<string, unknown>>(value);
+  const dataRow = readJsonObject(artifact.data);
+  if (!dataRow) {
+    return {
+      path: artifact.path,
+      file_updated_at: artifact.file_updated_at,
+      data: null,
+    };
+  }
+
+  return {
+    path: artifact.path,
+    file_updated_at: artifact.file_updated_at,
+    data: {
+      ...(dataRow as unknown as HammerPersistedAudioPolish),
+      audio_edit: normalizeHammerAudioEdit(dataRow.audio_edit),
+    },
+  };
+}
+
 function normalizeSnapshot(payload: unknown): HammerPersistenceSnapshot | null {
   const root = readJsonObject(payload);
   const data = readJsonObject(root?.data);
   const snapshot = readJsonObject(data?.snapshot);
   if (!snapshot) return null;
+  const audioPolish = normalizeAudioPolishArtifact(snapshot.audio_polish);
 
   return {
     schema_version: 1,
@@ -442,9 +467,9 @@ function normalizeSnapshot(payload: unknown): HammerPersistenceSnapshot | null {
       data: normalizeArtifact<HammerPersistedVisualPlacements>(snapshot.visual_placements).data,
     },
     audio_polish: {
-      path: normalizeArtifact<HammerPersistedAudioPolish>(snapshot.audio_polish).path,
-      updated_at: normalizeArtifact<HammerPersistedAudioPolish>(snapshot.audio_polish).file_updated_at,
-      data: normalizeArtifact<HammerPersistedAudioPolish>(snapshot.audio_polish).data,
+      path: audioPolish.path,
+      updated_at: audioPolish.file_updated_at,
+      data: audioPolish.data,
     },
     edit_plan: {
       path: normalizeArtifact<HammerEditPlan>(snapshot.edit_plan).path,

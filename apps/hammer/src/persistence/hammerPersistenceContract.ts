@@ -288,6 +288,21 @@ export interface HammerAudioPolishAnalysis {
   waveform_proxy: HammerAudioPolishAnalysisWaveformProxy | null;
 }
 
+export interface HammerAudioEditCutOperation {
+  id: string;
+  type: "cut";
+  // Hammer edit ranges are persisted as half-open intervals: [start_sec, end_sec)
+  start_sec: number;
+  end_sec: number;
+}
+
+export type HammerAudioEditOperation = HammerAudioEditCutOperation;
+
+export interface HammerPersistedAudioEdit {
+  version: "v1";
+  operations: HammerAudioEditOperation[];
+}
+
 export interface HammerPersistedAudioPolish {
   schema_version: 1;
   status: HammerAudioPolishStatus;
@@ -295,6 +310,7 @@ export interface HammerPersistedAudioPolish {
   source_artifact_paths: string[];
   settings_summary: Record<string, string | number | boolean | null>;
   analysis: HammerAudioPolishAnalysis | null;
+  audio_edit: HammerPersistedAudioEdit | null;
   source_media_id: string | null;
   source_media_signature: string | null;
   processor_version: string | null;

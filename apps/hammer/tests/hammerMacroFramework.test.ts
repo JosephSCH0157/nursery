@@ -34,6 +34,7 @@ import {
       output_duration_ms: 30_000,
       failure_code: null,
       failure_reason: null,
+      audio_edit: null,
     },
     visualPlacements: {
       schema_version: 1,
@@ -95,6 +96,7 @@ import {
       output_duration_ms: null,
       failure_code: "unsupported_source",
       failure_reason: "Unsupported sources will open normally without polish.",
+      audio_edit: null,
     },
     visualPlacements: null,
   });
