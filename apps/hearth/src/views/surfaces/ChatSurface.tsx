@@ -242,10 +242,10 @@ export default function ChatSurface(props: ChatSurfaceProps) {
           </div>
         ) : null}
 
-        <div className="hs-ai-format-row" role="group" aria-label="Writing format">
+        <div className="hs-ai-format-row" role="group" aria-label="Chat mode">
           <div className="hs-ai-format-copy">
-            <strong>Want to shape this as a full script, or keep it loose with bullet points?</strong>
-            <span>Hearth remembers the last format you use here.</span>
+            <strong>Start by exploring and expanding the content, or jump straight to a draft.</strong>
+            <span>Hearth starts in exploration mode and waits to write until you ask.</span>
           </div>
           <div className="hs-ai-format-buttons">
             {props.writingFormatOptions.map((option) => (
@@ -325,9 +325,11 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                 value={props.chatDraft}
                 onChange={(event) => props.onChatDraftChange(event.target.value)}
                 placeholder={props.aiEpisodeReady
-                  ? props.writingFormat === "full_script"
-                    ? "Talk it through... paste links... ask for a full script..."
-                    : "Talk it through... paste links... keep it to bullet points..."
+                  ? props.writingFormat === "explore_expand"
+                    ? "Talk it through... paste links... explore and expand the content..."
+                    : props.writingFormat === "full_script"
+                      ? "Talk it through... paste links... ask for a full script..."
+                      : "Talk it through... paste links... keep it to bullet points..."
                   : "Select an Episode or Spark to start."}
                 className="hs-ai-chat-input"
                 rows={2}

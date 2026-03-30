@@ -141,6 +141,8 @@ import {
   buildWritingFormatShortcutPrompt,
   getHearthWritingFormatProfile,
   HEARTH_WRITING_FORMATS,
+  isExplicitHearthFullScriptRequest,
+  isExplicitHearthOutlineRequest,
   readLastHearthWritingFormat,
   resolveHearthWritingFormatRequest,
   writeLastHearthWritingFormat,
@@ -1779,11 +1781,8 @@ type ChatIntentSignals = {
 
 function detectChatIntentSignals(text: string): ChatIntentSignals {
   const normalized = text.replace(/\s+/g, " ").trim().toLowerCase();
-  const requestedOutline = /\boutline\b/.test(normalized);
-  const requestedScript = /\bscript\b/.test(normalized)
-    || /\bdraft\b/.test(normalized)
-    || /\bcold open\b/.test(normalized)
-    || /\bsegments?\b/.test(normalized);
+  const requestedOutline = isExplicitHearthOutlineRequest(normalized);
+  const requestedScript = isExplicitHearthFullScriptRequest(normalized);
   const explicitDraftNow = /\bdraft now\b/.test(normalized)
     || /\bskip questions\b/.test(normalized)
     || /\bno questions\b/.test(normalized);
@@ -1806,8 +1805,8 @@ function detectAiAutosaveReasonCode(text: string): AiAutosaveReasonCode {
   if (!normalized) return "ai_rewrite";
   if (/\b(correct|repair|fix|tag audit|cleanup)\b/.test(normalized)) return "ai_repair";
   if (/\b(rewrite|improve|shorten|punch up|edit|revise|polish|tighten)\b/.test(normalized)) return "ai_rewrite";
-  if (/\boutline|bullet points?|beats?\b/.test(normalized)) return "ai_outline";
-  if (/\b(write|script|draft|cold open|segments?)\b/.test(normalized)) return "ai_script";
+  if (isExplicitHearthOutlineRequest(normalized)) return "ai_outline";
+  if (isExplicitHearthFullScriptRequest(normalized)) return "ai_script";
   return "ai_rewrite";
 }
 
@@ -3085,7 +3084,11 @@ export default function HearthShell({
       };
     })
   ), []);
-  const draftShortcutLabel = useMemo(() => `Start with ${getHearthWritingFormatProfile(selectedWritingFormat).shortLabel}`, [selectedWritingFormat]);
+  const draftShortcutLabel = useMemo(() => (
+    selectedWritingFormat === "explore_expand"
+      ? "Explore & Expand"
+      : `Start with ${getHearthWritingFormatProfile(selectedWritingFormat).shortLabel}`
+  ), [selectedWritingFormat]);
   const selectedImageMapCandidates = selectedImageMapEntry?.candidate_assets ?? [];
   const imageMapCandidateCards = selectedImageMapCandidates.map((candidate) => ({
     id: candidate.asset_id,

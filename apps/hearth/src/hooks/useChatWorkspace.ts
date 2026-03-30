@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
+import {
+  getBrowserSttFatalErrorMessage,
+  shouldRestartBrowserSttSession,
+} from "../lib/browser-stt";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
 import type { ChatSurfaceProps } from "../views/surfaces/ChatSurface";
 
@@ -1015,8 +1019,10 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       restartAttempts: 0,
     };
     (recognition as any).__hearthBrowserSttSession = session;
+    const isCurrentRecognition = () => args.speechRecognitionRef.current === recognition;
 
     recognition.onresult = (event: any) => {
+      if (!isCurrentRecognition()) return;
       interimTranscript = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
@@ -1039,6 +1045,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
     };
 
     recognition.onerror = (event: any) => {
+      if (!isCurrentRecognition()) return;
       const errorCode = typeof event?.error === "string" ? event.error : "";
       if (errorCode === "aborted" && session.manualStopRequested) {
         return;
@@ -1046,28 +1053,16 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       if (errorCode === "no-speech") {
         return;
       }
-      if (errorCode === "aborted") {
-        session.fatalErrorMessage = "Browser speech stopped unexpectedly.";
-      } else if (errorCode === "audio-capture") {
-        session.fatalErrorMessage = "No microphone is available for browser speech.";
-      } else if (errorCode === "not-allowed" || errorCode === "service-not-allowed") {
-        session.fatalErrorMessage = "Microphone permission was blocked.";
-      } else if (errorCode === "network") {
-        session.fatalErrorMessage = "Browser speech lost its connection.";
-      } else {
-        session.fatalErrorMessage = "Speech recognition error.";
+      const fatalErrorMessage = getBrowserSttFatalErrorMessage(errorCode);
+      if (fatalErrorMessage) {
+        session.fatalErrorMessage = fatalErrorMessage;
       }
     };
 
     recognition.onend = async () => {
+      if (!isCurrentRecognition()) return;
       const transcript = `${finalTranscript} ${interimTranscript}`.trim();
-      if (
-        args.speechRecognitionRef.current === recognition
-        && !session.manualStopRequested
-        && !session.fatalErrorMessage
-        && !transcript
-        && session.restartAttempts < 2
-      ) {
+      if (shouldRestartBrowserSttSession(session)) {
         session.restartAttempts += 1;
         try {
           recognition.start();
@@ -1079,6 +1074,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
         }
       }
 
+      if (!isCurrentRecognition()) return;
       args.speechRecognitionRef.current = null;
       stopAiSttStream();
       args.setSttState("idle");

@@ -1,4 +1,4 @@
-export type HearthWritingFormat = "full_script" | "bullet_outline";
+export type HearthWritingFormat = "explore_expand" | "full_script" | "bullet_outline";
 export type HearthPreferredReadMode = "flow" | "step";
 export type HearthShortcutIntent = "outline" | "script" | null;
 
@@ -8,7 +8,7 @@ type HearthWritingFormatProfile = {
   shortLabel: string;
   helperText: string;
   shortcutPrompt: string;
-  requestInstruction: string;
+  defaultRequestInstruction: string;
   preferredReadMode: HearthPreferredReadMode;
 };
 
@@ -19,7 +19,7 @@ type ResolvedHearthWritingFormatRequest = {
 };
 
 const HEARTH_WRITING_FORMAT_STORAGE_KEY = "hearth:writing-format:v1";
-const FALLBACK_HEARTH_WRITING_FORMAT: HearthWritingFormat = "full_script";
+const FALLBACK_HEARTH_WRITING_FORMAT: HearthWritingFormat = "explore_expand";
 const HEARTH_CHAT_TONE_INSTRUCTION = [
   "Response tone:",
   "Sound like a capable creative operations partner: professional, calm, observant, conversational, and lightly human.",
@@ -27,13 +27,32 @@ const HEARTH_CHAT_TONE_INSTRUCTION = [
 ].join(" ");
 
 const HEARTH_WRITING_FORMAT_PROFILES: Record<HearthWritingFormat, HearthWritingFormatProfile> = {
+  explore_expand: {
+    id: "explore_expand",
+    label: "Explore & Expand",
+    shortLabel: "Explore & expand",
+    helperText: "Grow the idea, clarify the angle, and expand the content before drafting.",
+    shortcutPrompt: "Let's explore and expand this content first.",
+    defaultRequestInstruction: [
+      "Help the user explore and expand the content before drafting.",
+      "Stay conversational, curious, and practical.",
+      "Offer clarifying questions, angle options, stronger framing, and content expansion where helpful.",
+      "Do not write a full script or bullet outline unless the user explicitly asks for one.",
+    ].join(" "),
+    preferredReadMode: "flow",
+  },
   full_script: {
     id: "full_script",
     label: "Full Script",
     shortLabel: "Full script",
     helperText: "Smooth spoken prose you can read straight through.",
     shortcutPrompt: "Let's shape this into a full script.",
-    requestInstruction: "Shape the response as a full script with smooth spoken prose.",
+    defaultRequestInstruction: [
+      "The user prefers a full script when they explicitly ask for one.",
+      "Until then, stay conversational and planning-first.",
+      "Do not draft the script preemptively.",
+      "If helpful, ask whether they want you to turn the current thinking into a full script.",
+    ].join(" "),
     preferredReadMode: "flow",
   },
   bullet_outline: {
@@ -42,12 +61,15 @@ const HEARTH_WRITING_FORMAT_PROFILES: Record<HearthWritingFormat, HearthWritingF
     shortLabel: "Bullet outline",
     helperText: "Loose beats and bullets you can tighten later.",
     shortcutPrompt: "Let's keep this loose with a bullet outline.",
-    requestInstruction: "Keep the response as a concise bullet outline, not a full script.",
+    defaultRequestInstruction: [
+      "Keep the response as a concise bullet outline or planning notes, not a full script.",
+      "Do not write the full script unless the user explicitly asks for it.",
+    ].join(" "),
     preferredReadMode: "step",
   },
 };
 
-export const HEARTH_WRITING_FORMATS: HearthWritingFormat[] = ["full_script", "bullet_outline"];
+export const HEARTH_WRITING_FORMATS: HearthWritingFormat[] = ["explore_expand", "full_script", "bullet_outline"];
 
 export function getHearthWritingFormatProfile(format: HearthWritingFormat): HearthWritingFormatProfile {
   return HEARTH_WRITING_FORMAT_PROFILES[format] ?? HEARTH_WRITING_FORMAT_PROFILES[FALLBACK_HEARTH_WRITING_FORMAT];
@@ -57,7 +79,7 @@ export function readLastHearthWritingFormat(): HearthWritingFormat {
   if (typeof window === "undefined") return FALLBACK_HEARTH_WRITING_FORMAT;
   try {
     const raw = window.localStorage.getItem(HEARTH_WRITING_FORMAT_STORAGE_KEY)?.trim();
-    if (raw === "full_script" || raw === "bullet_outline") {
+    if (raw === "explore_expand" || raw === "full_script" || raw === "bullet_outline") {
       return raw;
     }
   } catch {
@@ -75,15 +97,36 @@ export function writeLastHearthWritingFormat(format: HearthWritingFormat): void 
   }
 }
 
+function normalizeHearthWritingFormatText(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+export function isExplicitHearthOutlineRequest(text: string): boolean {
+  const normalized = normalizeHearthWritingFormatText(text);
+  if (!normalized) return false;
+  return /\boutline\b/.test(normalized)
+    || /\bbullet points?\b/.test(normalized)
+    || /\bbeats?\b/.test(normalized);
+}
+
+export function isExplicitHearthFullScriptRequest(text: string): boolean {
+  const normalized = normalizeHearthWritingFormatText(text);
+  if (!normalized) return false;
+  if (/\bfull script\b/.test(normalized)) return true;
+  const explicitDraftPatterns = [
+    /\b(?:write|create|make|build|give me)\b[^.!?\n]{0,60}\b(?:script|cold open|segments?)\b/,
+    /\bdraft\b[^.!?\n]{0,15}\b(?:me|this|that|it|a|an|the)\b[^.!?\n]{0,40}\b(?:script|cold open|segments?)\b/,
+    /\b(?:turn|shape|make)\b[^.!?\n]{0,20}\b(?:this|that|it)\b[^.!?\n]{0,20}\b(?:into|as)\b[^.!?\n]{0,20}\b(?:a )?(?:full )?script\b/,
+    /\bscript (?:this|it)\b/,
+  ];
+  return explicitDraftPatterns.some((pattern) => pattern.test(normalized));
+}
+
 export function detectExplicitHearthWritingFormat(text: string): HearthWritingFormat | null {
   const normalized = text.replace(/\s+/g, " ").trim().toLowerCase();
   if (!normalized) return null;
-  if (/\boutline\b/.test(normalized) || /\bbullet points?\b/.test(normalized) || /\bbeats?\b/.test(normalized)) {
-    return "bullet_outline";
-  }
-  if (/\bfull script\b/.test(normalized) || /\bscript\b/.test(normalized) || /\bdraft\b/.test(normalized)) {
-    return "full_script";
-  }
+  if (isExplicitHearthOutlineRequest(normalized)) return "bullet_outline";
+  if (isExplicitHearthFullScriptRequest(normalized)) return "full_script";
   return null;
 }
 
@@ -129,7 +172,7 @@ export function resolveHearthWritingFormatRequest(args: {
     appliedFormat: args.selectedFormat,
     requestContent: appendInstruction(
       appendInstruction(args.requestContent, HEARTH_CHAT_TONE_INSTRUCTION),
-      profile.requestInstruction,
+      profile.defaultRequestInstruction,
     ),
     source: "default",
   };
