@@ -2511,6 +2511,16 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   service.applyAiTokenDelta = async () => ({
     tokenBalance: 777,
   });
+  service.runAIRequest = async (args) => {
+    const executed = await args.execute();
+    return {
+      ...executed,
+      estimatedCostUsd: 0,
+      actualCostUsd: 0,
+      billableTokens: 0,
+      providerRequestId: executed.providerRequestId ?? null,
+    };
+  };
 
   const result = await service.generateEpisodeThumbnail(workpieceId, {
     workspace_id: workspaceId,
@@ -2774,6 +2784,16 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   service.applyAiTokenDelta = async () => ({
     tokenBalance: 777,
   });
+  service.runAIRequest = async (args) => {
+    const executed = await args.execute();
+    return {
+      ...executed,
+      estimatedCostUsd: 0,
+      actualCostUsd: 0,
+      billableTokens: 0,
+      providerRequestId: executed.providerRequestId ?? null,
+    };
+  };
 
   const result = await service.generateImageMapCandidates(workpieceId, {
     workspace_id: workspaceId,
@@ -2846,6 +2866,208 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   const imageMapRefreshCall = state.updateCalls.find((row) => row.id === "asset-old-image-map");
   assert.equal(imageMapRefreshCall?.patch?.status, "ready");
   assert.equal(imageMapRefreshCall?.patch?.storage_key, `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`);
+});
+
+test("TongsCommitService.generateImageMapCandidates accepts beat anchors for bullet scripts", async () => {
+  const workspaceId = "12111111-1111-4111-8111-111111111111";
+  const workpieceId = "23222222-2222-4222-8222-222222222222";
+  const userId = "34333333-3333-4333-8333-333333333333";
+  const providerCalls = [];
+  const commitCalls = [];
+  const { ...supabase } = createImageMapAssetSupabase();
+
+  const imageProvider = {
+    async generateImage(input) {
+      providerCalls.push(input);
+      const index = providerCalls.length;
+      return {
+        bytesBase64: index === 1 ? "AQID" : "BAUG",
+        mimeType: "image/png",
+        provider: "openai",
+        providerRequestId: `req_provider_bullet_${index}`,
+        revisedPrompt: null,
+        tokensUsed: 80 + index,
+      };
+    },
+  };
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", imageProvider);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: userId,
+    created_at: "2026-03-11T17:00:00.000Z",
+    updated_at: "2026-03-11T17:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkpieceInWorkspace = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-11T17:00:00.000Z",
+    updated_at: "2026-03-11T17:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId, role: "editor" });
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      schema: "forge.metadata.v1",
+      workpiece_id: workpieceId,
+      workspace_id: workspaceId,
+      episode: {
+        schema: "forge.episode.package.v2",
+        spoken_beats: [
+          {
+            id: "beat-s1-01",
+            speaker: "s1",
+            format: "bullet_outline",
+            order: 1,
+            speaker_order: 1,
+            speaker_turn: 1,
+            text: "Open with crowd estimates varying widely from outlet to outlet.",
+            normalized_label: "open with crowd estimates varying widely from outlet to outlet",
+            cue_phrase: "crowd estimates varying widely",
+          },
+          {
+            id: "beat-s1-02",
+            speaker: "s1",
+            format: "bullet_outline",
+            order: 2,
+            speaker_order: 2,
+            speaker_turn: 1,
+            text: "Police response changed after dark and that shift matters visually.",
+            normalized_label: "police response changed after dark and that shift matters visually",
+            cue_phrase: "police response changed after dark",
+          },
+        ],
+        image_map: {
+          entries: [
+            {
+              id: "image-map-01",
+              anchor: "s1 beat 2: police response changed after dark",
+              script_anchor: null,
+              beat_anchor: {
+                mode: "bullet_beat",
+                beat_id: "beat-s1-02",
+                speaker: "s1",
+                beat_index: 2,
+                speaker_order: 2,
+                speaker_turn: 1,
+                beat_label: "police response changed after dark",
+                cue_phrase: "police response changed after dark",
+                purpose: "coverage",
+              },
+              description: "Street-level police response after dark",
+              visual_intent: "Street-level police response after dark",
+              prompt_basis: "Police response changed after dark",
+              style_preset: "photographic",
+              intent: "cutaway",
+              source_type: "stock",
+              beat_order: 2,
+              paragraph_beat_order: 2,
+              candidate_assets: [],
+              selected_asset_id: null,
+              status: "mapped",
+              placement_hint: null,
+            },
+          ],
+        },
+      },
+    },
+    file_row: { updated_at: "2026-03-11T18:30:00.000Z" },
+  });
+  service.commitFile = async (inputWorkpieceId, input) => {
+    commitCalls.push({ inputWorkpieceId, input });
+    return {
+      workpiece_id: inputWorkpieceId,
+      path: input.path,
+      storage_key: `workpieces/${inputWorkpieceId}/${input.path}`,
+      hash: "hash_bullet",
+      bytes: input.path.endsWith(".png") ? 3 : 200,
+      content_type: input.content_type ?? "application/octet-stream",
+      manifest_hash: "manifest_hash",
+      manifest_bytes: 123,
+      file_row: {
+        workpiece_id: inputWorkpieceId,
+        path: input.path,
+        file_type: input.file_type ?? "json",
+        content_type: input.content_type ?? "application/octet-stream",
+        bytes: input.path.endsWith(".png") ? 3 : 200,
+        hash_algo: "sha256",
+        hash_value: "hash_bullet",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${inputWorkpieceId}/${input.path}`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-11T19:00:00.000Z",
+        updated_at: input.path === "metadata.json"
+          ? "2026-03-11T19:00:00.000Z"
+          : "2026-03-11T19:00:01.000Z",
+      },
+      manifest_row: {
+        workpiece_id: inputWorkpieceId,
+        path: "manifest.json",
+        file_type: "manifest",
+        content_type: "application/json",
+        bytes: 120,
+        hash_algo: "sha256",
+        hash_value: "manifest_hash",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${inputWorkpieceId}/manifest.json`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-11T19:00:00.000Z",
+        updated_at: "2026-03-11T19:00:00.000Z",
+      },
+      event: {
+        id: 109,
+        workpiece_id: inputWorkpieceId,
+        event_name: input.event_name ?? "workpiece.file.committed",
+        payload: {},
+        correlation_id: null,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-11T19:00:00.000Z",
+      },
+    };
+  };
+  service.applyAiTokenDelta = async () => ({
+    tokenBalance: 555,
+  });
+  service.runAIRequest = async (args) => {
+    const executed = await args.execute();
+    return {
+      ...executed,
+      estimatedCostUsd: 0,
+      actualCostUsd: 0,
+      billableTokens: 0,
+      providerRequestId: executed.providerRequestId ?? null,
+    };
+  };
+
+  const result = await service.generateImageMapCandidates(workpieceId, {
+    workspace_id: workspaceId,
+    image_map_entry_id: "image-map-01",
+    confirm_spend: true,
+    lane: "forge",
+    user_access_token: "token_bullet",
+  });
+
+  assert.equal(providerCalls.length, 2);
+  assert.match(providerCalls[0]?.prompt ?? "", /Editorial beat focus:/);
+  assert.match(providerCalls[0]?.prompt ?? "", /Police response changed after dark/);
+  assert.match(providerCalls[0]?.prompt ?? "", /Beat anchor: s1 beat 2:/);
+  assert.equal(result.generated_assets.length, 2);
+  assert.equal(result.image_map.entries[0]?.beat_anchor?.beat_id, "beat-s1-02");
+  assert.equal(result.image_map.spoken_beats[1]?.id, "beat-s1-02");
+  assert.equal(commitCalls[2]?.input.json?.episode?.spoken_beats?.[1]?.cue_phrase, "police response changed after dark");
+  assert.equal(commitCalls[3]?.input.json?.spoken_beats?.[0]?.id, "beat-s1-01");
 });
 
 test("POST /tongs/workspaces/:id/recording-sessions dispatches createRecordingSession", async () => {
@@ -4551,6 +4773,19 @@ test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and 
           placement_hint: "after-hook",
         },
       ],
+      spoken_beats: [
+        {
+          id: "beat-s1-01",
+          speaker: "s1",
+          format: "bullet_outline",
+          order: 1,
+          speaker_order: 1,
+          speaker_turn: 1,
+          text: "Open with the skyline establishing shot.",
+          normalized_label: "open with the skyline establishing shot",
+          cue_phrase: "Open with the skyline",
+        },
+      ],
       expected_metadata_updated_at: "2026-03-10T15:30:00.000Z",
     },
     { userAccessToken: "editor_token" },
@@ -4561,6 +4796,8 @@ test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and 
   assert.equal(commitCalls[1]?.input.path, "assets/image-map/image-map.v1.json");
   assert.equal(commitCalls[0]?.input.json?.episode?.image_map?.entries?.length, 1);
   assert.equal(commitCalls[0]?.input.json?.episode?.image_map?.entries?.[0]?.script_anchor?.paragraph_id, "s1:p1");
+  assert.equal(commitCalls[0]?.input.json?.episode?.spoken_beats?.[0]?.id, "beat-s1-01");
+  assert.equal(commitCalls[1]?.input.json?.spoken_beats?.[0]?.cue_phrase, "Open with the skyline");
   assert.equal(commitCalls[1]?.input.json?.schema, "forge.image-map.v1");
   assert.equal(commitCalls[1]?.input.json?.workpiece_id, workpieceId);
   assert.equal(state.updateCalls.length, 1);

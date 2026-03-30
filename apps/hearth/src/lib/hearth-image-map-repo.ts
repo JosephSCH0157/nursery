@@ -7,7 +7,7 @@ import {
   type EpisodeSpokenBeat,
 } from "./episode-package-v2";
 import { tongsFetch } from "./tongs-fetch";
-import { normalizeWorkpieceRelativePathOrNull } from "../../../../packages/contracts/workpiece-paths";
+import { normalizeWorkpieceRelativePathOrNull } from "../../../../packages/contracts/workpiece-paths.ts";
 
 export type WorkpieceImageMapView = {
   workpieceId: string;
