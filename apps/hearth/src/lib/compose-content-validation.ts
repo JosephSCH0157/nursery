@@ -84,7 +84,7 @@ export function validateComposeContent(args: {
   if (args.setup.mode === "outline_by_speaker") {
     return {
       ok: reasons.length === 0,
-      badge: "outline_draft",
+      badge: reasons.length === 0 ? "approval_ready" : "outline_draft",
       reasons,
     };
   }
