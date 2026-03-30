@@ -6,6 +6,7 @@ import type { EpisodeImageMapEntry } from "../src/lib/episode-package-v2";
 test("hearthMediaMapBootstrap: bullet scripts seed timeline image beats when image map is empty", () => {
   const result = resolveImageMapEntriesForMediaMapBootstrap({
     currentEntries: [],
+    currentSpokenBeats: [],
     scriptText: [
       "[s1]",
       "- Open with the basic fact: the No Kings protests hit multiple cities, but the story changes depending on which outlet is showing it.",
@@ -20,8 +21,11 @@ test("hearthMediaMapBootstrap: bullet scripts seed timeline image beats when ima
   });
 
   assert.equal(result.seededFromScript, true);
+  assert.equal(result.anchorMode, "bullet_beat");
   assert.ok(result.entries.length > 0);
-  assert.ok(result.entries.every((entry) => entry.script_anchor?.speaker_block_id === "s1" || entry.script_anchor?.speaker_block_id === "s2"));
+  assert.ok(result.spokenBeats.length > 0);
+  assert.ok(result.entries.every((entry) => entry.beat_anchor?.speaker === "s1" || entry.beat_anchor?.speaker === "s2"));
+  assert.ok(result.entries.every((entry) => entry.script_anchor == null));
 });
 
 test("hearthMediaMapBootstrap: existing image-map entries are reused as-is", () => {
@@ -60,9 +64,11 @@ test("hearthMediaMapBootstrap: existing image-map entries are reused as-is", () 
 
   const result = resolveImageMapEntriesForMediaMapBootstrap({
     currentEntries: existingEntries,
+    currentSpokenBeats: [],
     scriptText: "[s1]\n- Replacement bullet\n[/s1]",
   });
 
   assert.equal(result.seededFromScript, false);
+  assert.equal(result.anchorMode, "script_text");
   assert.deepEqual(result.entries, existingEntries);
 });

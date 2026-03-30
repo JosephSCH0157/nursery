@@ -188,12 +188,16 @@ import {
   assessImageMapScriptAnchor,
   buildExactScriptAnchorFromSelection,
   buildImageMapAnchorPickerParagraphs,
-  generateImageMapEntriesFromScript,
   reanchorImageMapEntry,
   resolveNearestParagraphSelection,
   resolveImageMapAnchorContext,
   type ImageMapScriptSelection,
 } from "../lib/hearth-image-map-beats";
+import {
+  generateImageMapEntriesFromBulletScript,
+  isBulletOutlineScript,
+  resolveBulletBeatContext,
+} from "../lib/hearth-spoken-beats";
 import {
   buildBrollPlanFromScript,
   buildStockCandidatesForBrollBeat,
@@ -241,6 +245,7 @@ import type {
   EpisodeMediaMapEntry,
   EpisodePackageV2,
   EpisodeImageMapAnchorScope,
+  EpisodeSpokenBeat,
   EpisodeLaunchVariant,
   EpisodeLaunchVariantStatus,
   EpisodeThumbnailConcept,
@@ -252,6 +257,7 @@ import type {
 } from "../lib/episode-package-v2";
 import {
   addImageMapEntry,
+  buildBulletBeatAnchorLabel,
   buildImageMapAnchorLabel,
   ensureBrollPlanV2,
   ensureReferenceClipPlanV2,
@@ -508,7 +514,7 @@ function normalizeTonePreset(value: unknown): string | null {
 }
 
 function resolveImageMapAnchorStatusView(args: {
-  status: "attached" | "weak_match" | "orphaned" | "global";
+  status: "attached" | "beat" | "weak_match" | "orphaned" | "global";
   scriptState: CanonicalImageMapScriptState;
 }): { label: string; tone: "neutral" | "ok" | "warning" | "danger"; detail: string } {
   if (args.status === "global") {
@@ -523,6 +529,13 @@ function resolveImageMapAnchorStatusView(args: {
       label: "orphaned",
       tone: "danger",
       detail: "This visual anchor is orphaned. Repair it deterministically or convert it to a global visual intent.",
+    };
+  }
+  if (args.status === "beat") {
+    return {
+      label: "beat anchored",
+      tone: "ok",
+      detail: "This visual beat is attached to an editorial bullet beat and can be refined against the real transcript after recording.",
     };
   }
   if (args.scriptState.status === "loading") {
@@ -1637,13 +1650,27 @@ function buildVisualScriptIntentExportDocument(
 function replaceEpisodePackageImageMap(
   pkg: EpisodePackageV2,
   entries: EpisodeImageMapEntry[],
+  spokenBeats?: EpisodeSpokenBeat[] | null,
 ): EpisodePackageV2 {
   return {
     ...pkg,
+    ...(spokenBeats ? { spoken_beats: spokenBeats } : {}),
     image_map: {
       entries,
     },
   };
+}
+
+function resolveImageMapEntryAnchorScope(entry: EpisodeImageMapEntry | null | undefined): EpisodeImageMapAnchorScope {
+  if (!entry) return "orphaned";
+  if (entry.anchor_scope) return entry.anchor_scope;
+  if (entry.beat_anchor) return "beat";
+  return entry.script_anchor ? "attached" : "orphaned";
+}
+
+function hasStructuredImageMapAnchor(entry: EpisodeImageMapEntry | null | undefined): boolean {
+  if (!entry) return false;
+  return Boolean(entry.script_anchor || entry.beat_anchor);
 }
 
 const METADATA_TAG_SUGGESTIONS_BY_CATEGORY: Record<string, string[]> = {
@@ -2963,19 +2990,30 @@ export default function HearthShell({
   const referenceClipProviders: ExternalGenerationProvider[] = listExternalGenerationProviders("reference_clip");
   const referenceClipRequestStateLabel = resolveVisualRequestStateLabel(selectedReferenceClipEntry?.external_request?.state);
   const selectedImageMapExactAnchor = useMemo(() => {
-    if (!selectedImageMapEntry || canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
+    if (
+      !selectedImageMapEntry
+      || selectedImageMapEntry.beat_anchor
+      || canonicalImageMapScriptState.status !== "ready"
+      || !canonicalImageMapScriptState.text
+    ) {
       return null;
     }
     return assessImageMapScriptAnchor(
       canonicalImageMapScriptState.text,
       selectedImageMapEntry.script_anchor,
-      selectedImageMapEntry.anchor_scope ?? (selectedImageMapEntry.script_anchor ? "attached" : "orphaned"),
+      resolveImageMapEntryAnchorScope(selectedImageMapEntry) === "global" ? "global" : "attached",
     );
   }, [canonicalImageMapScriptState.status, canonicalImageMapScriptState.text, selectedImageMapEntry]);
   const imageMapAnchorStatusView = useMemo(() => {
     if (!selectedImageMapEntry) return null;
+    if (selectedImageMapEntry.beat_anchor) {
+      return resolveImageMapAnchorStatusView({
+        status: "beat",
+        scriptState: canonicalImageMapScriptState,
+      });
+    }
     const status = selectedImageMapExactAnchor?.status
-      ?? ((selectedImageMapEntry.anchor_scope === "global")
+      ?? ((resolveImageMapEntryAnchorScope(selectedImageMapEntry) === "global")
         ? "global"
         : (selectedImageMapEntry.script_anchor ? "attached" : "orphaned"));
     return resolveImageMapAnchorStatusView({
@@ -2990,13 +3028,18 @@ export default function HearthShell({
   ), [canonicalImageMapScriptState.status, canonicalImageMapScriptState.text]);
   const visualScriptParagraphRail = useMemo(() => {
     const countByParagraphId = new Map<string, number>();
+    let beatCount = 0;
     let globalCount = 0;
     let orphanedCount = 0;
 
     for (const entry of imageMapEntries) {
-      const scope = entry.anchor_scope ?? (entry.script_anchor ? "attached" : "orphaned");
+      const scope = resolveImageMapEntryAnchorScope(entry);
       if (scope === "global") {
         globalCount += 1;
+        continue;
+      }
+      if (scope === "beat") {
+        beatCount += 1;
         continue;
       }
       if (scope === "orphaned" || !entry.script_anchor?.paragraph_id) {
@@ -3021,17 +3064,21 @@ export default function HearthShell({
 
     return {
       paragraphs,
+      beatCount,
       globalCount,
       orphanedCount,
     };
   }, [imageMapAnchorPickerParagraphs, imageMapEntries]);
   const imageMapActiveAnchorLabel = useMemo(() => {
+    if (selectedImageMapEntry?.beat_anchor) {
+      return buildBulletBeatAnchorLabel(selectedImageMapEntry.beat_anchor);
+    }
     const anchor = selectedImageMapExactAnchor?.exactAnchor
       ?? selectedImageMapExactAnchor?.weakAnchor
       ?? selectedImageMapEntry?.script_anchor
       ?? null;
     return buildImageMapAnchorLabel(anchor);
-  }, [selectedImageMapEntry?.script_anchor, selectedImageMapExactAnchor]);
+  }, [selectedImageMapEntry?.beat_anchor, selectedImageMapEntry?.script_anchor, selectedImageMapExactAnchor]);
   const isCanonicalImageMapScriptPanel = (isImageMapReanchorMode || isVisualScriptMode) && showScriptPanel;
   const scriptPanelBodyText = useMemo(
     () => (isCanonicalImageMapScriptPanel ? (canonicalImageMapScriptState.text ?? "") : (activeDraft?.body ?? "")),
@@ -3065,6 +3112,7 @@ export default function HearthShell({
       selectedImageMapEntry
       && canonicalImageMapScriptState.status === "ready"
       && canonicalImageMapScriptState.text
+      && !selectedImageMapEntry.beat_anchor
       && imageMapAnchorScopeDraft !== "global"
       && resolveNearestParagraphSelection(canonicalImageMapScriptState.text, selectedImageMapEntry.script_anchor),
     )
@@ -3072,6 +3120,7 @@ export default function HearthShell({
     canonicalImageMapScriptState.status,
     canonicalImageMapScriptState.text,
     imageMapAnchorScopeDraft,
+    selectedImageMapEntry?.beat_anchor,
     selectedImageMapEntry,
   ]);
   const dirtyProposalBodyCount = useMemo(
@@ -4120,7 +4169,11 @@ export default function HearthShell({
 
     let nextEpisodePackage = loaded.episodePackage;
     if (imageMapLoaded.ok) {
-      nextEpisodePackage = replaceEpisodePackageImageMap(loaded.episodePackage, imageMapLoaded.imageMap.entries);
+      nextEpisodePackage = replaceEpisodePackageImageMap(
+        loaded.episodePackage,
+        imageMapLoaded.imageMap.entries,
+        imageMapLoaded.imageMap.spokenBeats,
+      );
       setImageMapMetadataUpdatedAt(imageMapLoaded.imageMap.metadataUpdatedAt);
     } else {
       setImageMapMetadataUpdatedAt(null);
@@ -6185,7 +6238,7 @@ export default function HearthShell({
     setImageMapStyleDraft(normalizeHearthVisualStyle(selectedImageMapEntry.style_preset));
     setImageMapIntentDraft(selectedImageMapEntry.intent || "cutaway");
     setImageMapSourceTypeDraft(selectedImageMapEntry.source_type || "stock");
-    setImageMapAnchorScopeDraft(selectedImageMapEntry.anchor_scope ?? (selectedImageMapEntry.script_anchor ? "attached" : "orphaned"));
+    setImageMapAnchorScopeDraft(resolveImageMapEntryAnchorScope(selectedImageMapEntry));
     setImageMapVisualPriorityDraft(selectedImageMapEntry.visual_priority ?? "supporting");
     setImageMapVisualTypeDraft(selectedImageMapEntry.visual_type ?? "still_image");
     setImageMapSectionIntentNoteDraft(selectedImageMapEntry.section_intent_note ?? "");
@@ -6497,7 +6550,7 @@ export default function HearthShell({
       || normalizeHearthVisualStyle(current.style_preset) !== nextStylePreset
       || current.intent !== nextIntent
       || current.source_type !== nextSourceType
-      || (current.anchor_scope ?? (current.script_anchor ? "attached" : "orphaned")) !== nextAnchorScope
+      || resolveImageMapEntryAnchorScope(current) !== nextAnchorScope
       || (current.visual_priority ?? "supporting") !== nextVisualPriority
       || (current.visual_type ?? "still_image") !== nextVisualType
       || (current.section_intent_note ?? null) !== nextSectionIntentNote
@@ -6540,8 +6593,9 @@ export default function HearthShell({
             selected_asset_id: null,
             status: nextAnchorScope === "global"
               ? "draft"
-              : (current.script_anchor ? "mapped" : "draft"),
+              : (hasStructuredImageMapAnchor(current) ? "mapped" : "draft"),
             script_anchor: nextAnchorScope === "global" ? null : current.script_anchor,
+            beat_anchor: nextAnchorScope === "global" ? null : current.beat_anchor,
             placement_hint: nextPlacementHint,
           },
         );
@@ -7704,6 +7758,7 @@ export default function HearthShell({
 
   async function persistImageMapEntries(args: {
     entries: EpisodeImageMapEntry[];
+    spokenBeats?: EpisodeSpokenBeat[] | null;
   }): Promise<
     | { ok: true; episodePackage: EpisodePackageV2; metadataUpdatedAt: string | null }
     | { ok: false; error: string }
@@ -7728,6 +7783,7 @@ export default function HearthShell({
       workpieceId: workpiece,
       workspaceId: workspace,
       entries: args.entries,
+      spokenBeats: args.spokenBeats ?? episodePackage.spoken_beats,
       expectedMetadataUpdatedAt: imageMapMetadataUpdatedAt,
     });
 
@@ -7735,7 +7791,7 @@ export default function HearthShell({
       if (saved.reason === "conflict" && saved.latest) {
         const latest = saved.latest;
         setEpisodePackage((prev) => (
-          prev ? replaceEpisodePackageImageMap(prev, latest.entries) : prev
+          prev ? replaceEpisodePackageImageMap(prev, latest.entries, latest.spokenBeats) : prev
         ));
         setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
         return {
@@ -7752,7 +7808,11 @@ export default function HearthShell({
       };
     }
 
-    const nextEpisodePackage = replaceEpisodePackageImageMap(episodePackage, saved.imageMap.entries);
+    const nextEpisodePackage = replaceEpisodePackageImageMap(
+      episodePackage,
+      saved.imageMap.entries,
+      args.spokenBeats ?? episodePackage.spoken_beats,
+    );
     setEpisodePackage(nextEpisodePackage);
     setImageMapMetadataUpdatedAt(saved.imageMap.metadataUpdatedAt);
     return {
@@ -7883,11 +7943,16 @@ export default function HearthShell({
       anchor: {
         mode: entry.anchor_scope === "global"
           ? "section_marker"
-          : (entry.placement_hint === "exact_timestamp" ? "absolute_time" : "phrase_match"),
+          : entry.beat_anchor
+            ? "speaker_turn"
+            : (entry.placement_hint === "exact_timestamp" ? "absolute_time" : "phrase_match"),
         target: entry.anchor_scope === "global"
           ? (entry.section_intent_note?.trim() || "global:image")
-          : (entry.anchor || entry.prompt_basis || entry.description || "image:beat"),
+          : entry.beat_anchor
+            ? buildBulletBeatAnchorLabel(entry.beat_anchor)
+            : (entry.anchor || entry.prompt_basis || entry.description || "image:beat"),
       },
+      beat_anchor: entry.beat_anchor ?? null,
       timing: {
         in_offset_sec: 0,
         duration_sec: 6,
@@ -9381,11 +9446,14 @@ export default function HearthShell({
         if (canonicalScript.ok) {
           const bootstrap = resolveImageMapEntriesForMediaMapBootstrap({
             currentEntries: sourceEpisodePackage.image_map.entries,
+            currentSpokenBeats: sourceEpisodePackage.spoken_beats,
             scriptText: canonicalScript.text,
+            preferBeatAnchors: effectiveComposeSetup?.mode === "outline_by_speaker" || isBulletOutlineScript(canonicalScript.text),
           });
           if (bootstrap.seededFromScript && bootstrap.entries.length > 0) {
             const seeded = await persistImageMapEntries({
               entries: bootstrap.entries,
+              spokenBeats: bootstrap.spokenBeats,
             });
             if (!seeded.ok) {
               setMediaMapSaveError(seeded.error);
@@ -10056,6 +10124,7 @@ export default function HearthShell({
         nextEpisodePackage = replaceEpisodePackageImageMap(
           generated.updatedEpisodePackage,
           refreshedImageMap.imageMap.entries,
+          refreshedImageMap.imageMap.spokenBeats,
         );
         setImageMapMetadataUpdatedAt(refreshedImageMap.imageMap.metadataUpdatedAt);
       }
@@ -10356,6 +10425,10 @@ export default function HearthShell({
       setImageMapReanchorError(imageMapReanchorDisabledReason);
       return;
     }
+    if (selectedImageMapEntry?.beat_anchor) {
+      setImageMapReanchorError("Beat-anchored bullet visuals do not need exact-text repair in Hearth. Refine placement later from the transcript.");
+      return;
+    }
     setMode("focus");
     setShowManualDraft(false);
     setShowScriptPanel(true);
@@ -10412,6 +10485,7 @@ export default function HearthShell({
               ...entry,
               anchor_scope: "global",
               script_anchor: null,
+              beat_anchor: null,
               status: "draft",
             }
           : entry
@@ -10438,6 +10512,7 @@ export default function HearthShell({
               ...entry,
               anchor_scope: "orphaned",
               script_anchor: null,
+              beat_anchor: null,
               status: "draft",
             }
           : entry
@@ -10491,6 +10566,7 @@ export default function HearthShell({
                 ...nextEntry,
                 anchor_scope: "attached",
                 script_anchor: nextAnchor,
+                beat_anchor: null,
               }
             : entry
         )),
@@ -10538,25 +10614,37 @@ export default function HearthShell({
     }
 
     let expectedMetadataUpdatedAt = imageMapMetadataUpdatedAt;
+    let context: { before: string | null; after: string | null };
 
-    const canonicalScript = await readCanonicalScriptForImageMapGeneration();
-    if (!canonicalScript.ok) {
-      setImageMapCandidateError(canonicalScript.message);
-      return;
+    if (selectedImageMapEntry.beat_anchor) {
+      const beatContext = resolveBulletBeatContext({
+        spokenBeats: episodePackage.spoken_beats,
+        beatAnchor: selectedImageMapEntry.beat_anchor,
+      });
+      context = {
+        before: beatContext.before,
+        after: beatContext.after,
+      };
+    } else {
+      const canonicalScript = await readCanonicalScriptForImageMapGeneration();
+      if (!canonicalScript.ok) {
+        setImageMapCandidateError(canonicalScript.message);
+        return;
+      }
+
+      const exactAnchorAssessment = assessImageMapScriptAnchor(canonicalScript.text, selectedImageMapEntry.script_anchor);
+      const effectiveScriptAnchor = exactAnchorAssessment.exactAnchor;
+      if (!effectiveScriptAnchor) {
+        setMode("focus");
+        setShowManualDraft(false);
+        setShowScriptPanel(true);
+        setIsImageMapReanchorMode(true);
+        setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation. Use Re-anchor to bind it to the current canonical script.");
+        return;
+      }
+
+      context = resolveImageMapAnchorContext(canonicalScript.text, effectiveScriptAnchor);
     }
-
-    const exactAnchorAssessment = assessImageMapScriptAnchor(canonicalScript.text, selectedImageMapEntry.script_anchor);
-    const effectiveScriptAnchor = exactAnchorAssessment.exactAnchor;
-    if (!effectiveScriptAnchor) {
-      setMode("focus");
-      setShowManualDraft(false);
-      setShowScriptPanel(true);
-      setIsImageMapReanchorMode(true);
-      setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation. Use Re-anchor to bind it to the current canonical script.");
-      return;
-    }
-
-    const context = resolveImageMapAnchorContext(canonicalScript.text, effectiveScriptAnchor);
 
     const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
     const confirmed = alwaysApproveSpend
@@ -10613,7 +10701,11 @@ export default function HearthShell({
       // metadata stamp after we refresh the canonical image map snapshot.
       if (!generated.ok && generated.reason === "conflict" && generated.latest) {
         if (episodePackage) {
-          setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.latest.entries));
+          setEpisodePackage(replaceEpisodePackageImageMap(
+            episodePackage,
+            generated.latest.entries,
+            generated.latest.spokenBeats,
+          ));
         }
         setImageMapMetadataUpdatedAt(generated.latest.metadataUpdatedAt);
         generated = await requestCandidateGeneration(generated.latest.metadataUpdatedAt);
@@ -10625,7 +10717,11 @@ export default function HearthShell({
             ? "Image map changed since last load. Reloaded the latest canonical state."
             : "Still-candidate generation failed.");
         if (generated.reason === "conflict" && generated.latest && episodePackage) {
-          setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.latest.entries));
+          setEpisodePackage(replaceEpisodePackageImageMap(
+            episodePackage,
+            generated.latest.entries,
+            generated.latest.spokenBeats,
+          ));
           setImageMapMetadataUpdatedAt(generated.latest.metadataUpdatedAt);
         }
         setImageMapCandidateError(failureMessage);
@@ -10639,7 +10735,11 @@ export default function HearthShell({
       }
 
       if (episodePackage) {
-        setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.imageMap.entries));
+        setEpisodePackage(replaceEpisodePackageImageMap(
+          episodePackage,
+          generated.imageMap.entries,
+          generated.imageMap.spokenBeats,
+        ));
       }
       setImageMapMetadataUpdatedAt(generated.imageMap.metadataUpdatedAt);
       setImageMapCandidateSelectionError(null);
@@ -10706,6 +10806,7 @@ export default function HearthShell({
           workpieceId: episodeId,
           workspaceId: workspace,
           entries: episodePackage.image_map.entries,
+          spokenBeats: episodePackage.spoken_beats,
           metadataUpdatedAt: imageMapMetadataUpdatedAt,
           asset: null,
         },
@@ -10715,7 +10816,7 @@ export default function HearthShell({
         const latest = selected.reason === "conflict" ? selected.latest ?? null : null;
         if (latest) {
           setEpisodePackage((prev) => (
-            prev ? replaceEpisodePackageImageMap(prev, latest.entries) : prev
+            prev ? replaceEpisodePackageImageMap(prev, latest.entries, latest.spokenBeats) : prev
           ));
           setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
         }
@@ -10733,7 +10834,7 @@ export default function HearthShell({
       }
 
       setEpisodePackage((prev) => (
-        prev ? replaceEpisodePackageImageMap(prev, selected.imageMap.entries) : prev
+        prev ? replaceEpisodePackageImageMap(prev, selected.imageMap.entries, selected.imageMap.spokenBeats) : prev
       ));
       setImageMapMetadataUpdatedAt(selected.imageMap.metadataUpdatedAt);
       setImageMapCandidateSelectionError(null);
@@ -10858,7 +10959,8 @@ export default function HearthShell({
     const nextEpisodePackage = addImageMapEntry(episodePackage, {
       anchor: selectedImageMapEntry.anchor,
       script_anchor: selectedImageMapEntry.script_anchor,
-      anchor_scope: selectedImageMapEntry.anchor_scope ?? (selectedImageMapEntry.script_anchor ? "attached" : "orphaned"),
+      beat_anchor: selectedImageMapEntry.beat_anchor,
+      anchor_scope: resolveImageMapEntryAnchorScope(selectedImageMapEntry),
       purpose: selectedImageMapEntry.purpose,
       description: selectedImageMapEntry.description,
       visual_intent: selectedImageMapEntry.visual_intent,
@@ -10873,7 +10975,7 @@ export default function HearthShell({
       paragraph_beat_order: selectedImageMapEntry.paragraph_beat_order,
       candidate_assets: [],
       selected_asset_id: null,
-      status: selectedImageMapEntry.script_anchor ? "mapped" : "draft",
+      status: hasStructuredImageMapAnchor(selectedImageMapEntry) ? "mapped" : "draft",
       placement_hint: selectedImageMapEntry.placement_hint ?? null,
     });
     const duplicated = nextEpisodePackage.image_map.entries[nextEpisodePackage.image_map.entries.length - 1] ?? null;
@@ -10931,8 +11033,13 @@ export default function HearthShell({
       return;
     }
 
-    const generatedEntries = generateImageMapEntriesFromScript(canonicalScript.text);
-    if (generatedEntries.length === 0) {
+    const generatedPlan = resolveImageMapEntriesForMediaMapBootstrap({
+      currentEntries: [],
+      currentSpokenBeats: episodePackage.spoken_beats,
+      scriptText: canonicalScript.text,
+      preferBeatAnchors: effectiveComposeSetup?.mode === "outline_by_speaker" || isBulletOutlineScript(canonicalScript.text),
+    });
+    if (generatedPlan.entries.length === 0) {
       setImageMapExportMessage("No visually meaningful beats found in the canonical script.");
       return;
     }
@@ -10940,7 +11047,8 @@ export default function HearthShell({
     setImageMapSaveState("saving");
     setImageMapSaveError(null);
     const saved = await persistImageMapEntries({
-      entries: generatedEntries,
+      entries: generatedPlan.entries,
+      spokenBeats: generatedPlan.spokenBeats,
     });
     if (!saved.ok) {
       setImageMapSaveState("error");
@@ -10951,7 +11059,7 @@ export default function HearthShell({
     setImageMapSaveState("saved");
     const sourceLabel = canonicalScript.source === "primary_script" ? "published script" : "saved draft";
     const note = canonicalScript.includesUnsavedLocalEdits ? " Save the draft first to include unsaved local edits." : "";
-    setImageMapExportMessage(`Generated ${generatedEntries.length} visual beats from the canonical ${sourceLabel}.${note}`);
+    setImageMapExportMessage(`${generatedPlan.anchorMode === "bullet_beat" ? `Generated ${generatedPlan.entries.length} beat-anchored visual plans` : `Generated ${generatedPlan.entries.length} visual beats`} from the canonical ${sourceLabel}.${note}`);
   }
 
   async function onCopyImageMapExportJson() {

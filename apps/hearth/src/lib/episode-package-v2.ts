@@ -107,6 +107,36 @@ export type EpisodeImageMapScriptAnchor = {
   speaker_block_id?: string | null;
 };
 
+export const EPISODE_SPOKEN_BEAT_SPEAKER_VALUES = ["s1", "s2", "g1", "g2"] as const;
+export type EpisodeSpokenBeatSpeaker = (typeof EPISODE_SPOKEN_BEAT_SPEAKER_VALUES)[number];
+
+export const EPISODE_SPOKEN_BEAT_FORMAT_VALUES = ["bullet_outline"] as const;
+export type EpisodeSpokenBeatFormat = (typeof EPISODE_SPOKEN_BEAT_FORMAT_VALUES)[number];
+
+export type EpisodeSpokenBeat = {
+  id: string;
+  speaker: EpisodeSpokenBeatSpeaker;
+  format: EpisodeSpokenBeatFormat;
+  order: number;
+  speaker_order: number;
+  speaker_turn: number;
+  text: string;
+  normalized_label: string;
+  cue_phrase: string | null;
+};
+
+export type EpisodeBulletBeatAnchor = {
+  mode: "bullet_beat";
+  beat_id: string;
+  speaker: EpisodeSpokenBeatSpeaker;
+  beat_index: number;
+  speaker_order: number;
+  speaker_turn: number;
+  beat_label: string | null;
+  cue_phrase: string | null;
+  purpose: HearthVisualPurpose;
+};
+
 export const EPISODE_IMAGE_MAP_VISUAL_MODE_VALUES = [
   "comparison",
   "map",
@@ -150,6 +180,7 @@ export type EpisodeImageMapEntry = {
   id: string;
   anchor: string;
   script_anchor: EpisodeImageMapScriptAnchor | null;
+  beat_anchor?: EpisodeBulletBeatAnchor | null;
   anchor_scope?: EpisodeImageMapAnchorScope;
   purpose: HearthVisualPurpose;
   description: string;
@@ -213,6 +244,7 @@ export type EpisodeMediaMapEntry = {
   final_media_kind: EpisodeMediaMapMediaType;
   purpose: HearthVisualPurpose;
   anchor: EpisodeMediaMapAnchor;
+  beat_anchor?: EpisodeBulletBeatAnchor | null;
   timing: EpisodeMediaMapTiming;
   description: string;
   intent: string;
@@ -478,6 +510,7 @@ export const EPISODE_IMAGE_MAP_STATUS_VALUES = [
 
 export const EPISODE_IMAGE_MAP_ANCHOR_SCOPE_VALUES = [
   "attached",
+  "beat",
   "orphaned",
   "global",
 ] as const;
@@ -509,6 +542,7 @@ export type EpisodePackageV2 = {
   seo: EpisodeSeo;
   thumbnail: EpisodeThumbnail;
   launch_variants: EpisodeLaunchVariant[];
+  spoken_beats: EpisodeSpokenBeat[];
   media_map: EpisodeMediaMap;
   image_map: EpisodeImageMap;
   broll_plan: EpisodeBrollPlan;
@@ -797,9 +831,12 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
     const entry = value[i];
     if (!isRecord(entry)) continue;
     const scriptAnchor = normalizeImageMapScriptAnchor(entry.script_anchor);
+    const rawPurpose = readString(entry.purpose) as HearthVisualPurpose | null;
+    const beatAnchor = normalizeBulletBeatAnchor(entry.beat_anchor, rawPurpose ?? undefined);
     const anchor = resolveImageMapDisplayAnchor(
       readString(entry.anchor) ?? readString(entry.attach_after),
       scriptAnchor,
+      beatAnchor,
     );
     const description = typeof entry.description === "string" ? entry.description : "";
     const sourceType = readString(entry.source_type) ?? "stock";
@@ -815,7 +852,8 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
       id: readString(entry.id) ?? `image-map-${String(i + 1).padStart(2, "0")}`,
       anchor,
       script_anchor: scriptAnchor,
-      anchor_scope: normalizeImageMapAnchorScope(readString(entry.anchor_scope), scriptAnchor),
+      beat_anchor: beatAnchor,
+      anchor_scope: normalizeImageMapAnchorScope(readString(entry.anchor_scope), scriptAnchor, beatAnchor),
       purpose: deriveImageMapPurpose({
         rawPurpose: readString(entry.purpose),
         visualPriority,
@@ -840,8 +878,9 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
       candidate_assets: candidateAssets,
       selected_asset_id: selectedAssetId,
       status: normalizeDerivedImageMapStatus(
-        normalizeImageMapStatus(readString(entry.status) ?? (scriptAnchor ? "mapped" : "draft")),
+        normalizeImageMapStatus(readString(entry.status) ?? (scriptAnchor || beatAnchor ? "mapped" : "draft")),
         scriptAnchor,
+        beatAnchor,
         candidateAssets,
         selectedAssetId,
       ),
@@ -888,11 +927,13 @@ function normalizeImageMapStatus(value: string | null | undefined): EpisodeImage
 function normalizeImageMapAnchorScope(
   value: string | null | undefined,
   scriptAnchor: EpisodeImageMapScriptAnchor | null,
+  beatAnchor: EpisodeBulletBeatAnchor | null,
 ): EpisodeImageMapAnchorScope {
   const normalized = value?.trim().toLowerCase();
   if (normalized && EPISODE_IMAGE_MAP_ANCHOR_SCOPE_VALUES.includes(normalized as EpisodeImageMapAnchorScope)) {
     return normalized as EpisodeImageMapAnchorScope;
   }
+  if (beatAnchor) return "beat";
   return scriptAnchor ? "attached" : "orphaned";
 }
 
@@ -984,13 +1025,14 @@ function normalizeSelectedImageMapAssetId(
 function normalizeDerivedImageMapStatus(
   value: EpisodeImageMapStatus,
   scriptAnchor: EpisodeImageMapScriptAnchor | null,
+  beatAnchor: EpisodeBulletBeatAnchor | null,
   candidateAssets: readonly EpisodeImageMapAssetRef[],
   selectedAssetId: string | null,
 ): EpisodeImageMapStatus {
   if (selectedAssetId) return "selected";
   if (candidateAssets.length > 0) return "candidates_generated";
   if (value === "selected") {
-    return scriptAnchor ? "mapped" : "draft";
+    return scriptAnchor || beatAnchor ? "mapped" : "draft";
   }
   return value;
 }
@@ -1033,6 +1075,92 @@ function normalizeImageMapScriptAnchor(value: unknown): EpisodeImageMapScriptAnc
   };
 }
 
+function normalizeSpokenBeatSpeaker(value: string | null | undefined): EpisodeSpokenBeatSpeaker | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (EPISODE_SPOKEN_BEAT_SPEAKER_VALUES.includes(normalized as EpisodeSpokenBeatSpeaker)) {
+    return normalized as EpisodeSpokenBeatSpeaker;
+  }
+  return null;
+}
+
+function normalizeSpokenBeatFormat(value: string | null | undefined): EpisodeSpokenBeatFormat {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized && EPISODE_SPOKEN_BEAT_FORMAT_VALUES.includes(normalized as EpisodeSpokenBeatFormat)) {
+    return normalized as EpisodeSpokenBeatFormat;
+  }
+  return "bullet_outline";
+}
+
+function normalizeSpokenBeat(value: unknown, fallbackOrder: number): EpisodeSpokenBeat | null {
+  if (!isRecord(value)) return null;
+  const id = readString(value.id);
+  const speaker = normalizeSpokenBeatSpeaker(readString(value.speaker));
+  const text = readString(value.text);
+  const normalizedLabel = readString(value.normalized_label);
+  if (!id || !speaker || !text || !normalizedLabel) return null;
+
+  const order = Math.max(1, readInteger(value.order) ?? fallbackOrder);
+  const speakerOrder = Math.max(1, readInteger(value.speaker_order) ?? 1);
+  const speakerTurn = Math.max(1, readInteger(value.speaker_turn) ?? 1);
+  return {
+    id,
+    speaker,
+    format: normalizeSpokenBeatFormat(readString(value.format)),
+    order,
+    speaker_order: speakerOrder,
+    speaker_turn: speakerTurn,
+    text,
+    normalized_label: normalizedLabel,
+    cue_phrase: readString(value.cue_phrase),
+  };
+}
+
+function normalizeSpokenBeats(value: unknown): EpisodeSpokenBeat[] {
+  if (!Array.isArray(value)) return [];
+  const out: EpisodeSpokenBeat[] = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < value.length; index += 1) {
+    const beat = normalizeSpokenBeat(value[index], index + 1);
+    if (!beat || seen.has(beat.id)) continue;
+    seen.add(beat.id);
+    out.push(beat);
+  }
+  return out;
+}
+
+function normalizeBulletBeatAnchor(
+  value: unknown,
+  fallbackPurpose?: HearthVisualPurpose,
+): EpisodeBulletBeatAnchor | null {
+  if (!isRecord(value)) return null;
+  const beatId = readString(value.beat_id);
+  const speaker = normalizeSpokenBeatSpeaker(readString(value.speaker));
+  if (readString(value.mode)?.toLowerCase() !== "bullet_beat" || !beatId || !speaker) {
+    return null;
+  }
+
+  return {
+    mode: "bullet_beat",
+    beat_id: beatId,
+    speaker,
+    beat_index: Math.max(1, readInteger(value.beat_index) ?? 1),
+    speaker_order: Math.max(1, readInteger(value.speaker_order) ?? 1),
+    speaker_turn: Math.max(1, readInteger(value.speaker_turn) ?? 1),
+    beat_label: readString(value.beat_label),
+    cue_phrase: readString(value.cue_phrase),
+    purpose: deriveImageMapPurpose({
+      rawPurpose: readString(value.purpose) ?? fallbackPurpose,
+      visualPriority: null,
+      visualType: null,
+      intent: null,
+      description: readString(value.beat_label),
+      visualIntent: readString(value.beat_label),
+      promptBasis: readString(value.cue_phrase),
+    }),
+  };
+}
+
 export function buildImageMapAnchorLabel(anchor: EpisodeImageMapScriptAnchor | null): string {
   if (!anchor) return "";
   const sentenceRange = anchor.sentence_start === anchor.sentence_end
@@ -1041,17 +1169,28 @@ export function buildImageMapAnchorLabel(anchor: EpisodeImageMapScriptAnchor | n
   return `${anchor.paragraph_id}#${sentenceRange}`;
 }
 
+export function buildBulletBeatAnchorLabel(anchor: EpisodeBulletBeatAnchor | null): string {
+  if (!anchor) return "";
+  const beatLabel = readString(anchor.beat_label) ?? readString(anchor.cue_phrase);
+  if (beatLabel) {
+    return `${anchor.speaker} beat ${anchor.beat_index}: ${beatLabel}`;
+  }
+  return `${anchor.speaker} beat ${anchor.beat_index}`;
+}
+
 export function resolveImageMapDisplayAnchor(
   anchor: string | null | undefined,
   scriptAnchor: EpisodeImageMapScriptAnchor | null | undefined,
+  beatAnchor?: EpisodeBulletBeatAnchor | null | undefined,
 ): string {
   const displayAnchor = readString(anchor);
   const spanText = readString(scriptAnchor?.span_text);
+  const beatLabel = beatAnchor ? buildBulletBeatAnchorLabel(beatAnchor) : null;
   const structuralAnchorLabel = buildImageMapAnchorLabel(scriptAnchor ?? null);
   if (spanText && (!displayAnchor || displayAnchor === structuralAnchorLabel)) {
     return spanText;
   }
-  return displayAnchor ?? spanText ?? structuralAnchorLabel;
+  return displayAnchor ?? spanText ?? beatLabel ?? structuralAnchorLabel;
 }
 
 function normalizeImageMapEntryPatch(args: {
@@ -1061,7 +1200,8 @@ function normalizeImageMapEntryPatch(args: {
   fallbackParagraphBeatOrder?: number;
 }): EpisodeImageMapEntry | null {
   const scriptAnchor = normalizeImageMapScriptAnchor(args.entry.script_anchor);
-  const anchor = resolveImageMapDisplayAnchor(readString(args.entry.anchor), scriptAnchor);
+  const beatAnchor = normalizeBulletBeatAnchor(args.entry.beat_anchor, args.entry.purpose);
+  const anchor = resolveImageMapDisplayAnchor(readString(args.entry.anchor), scriptAnchor, beatAnchor);
   const description = typeof args.entry.description === "string" ? args.entry.description : "";
   const id = readString(args.entry.id) ?? args.fallbackId ?? createImageMapEntryId();
   if (!anchor || !id) return null;
@@ -1076,7 +1216,8 @@ function normalizeImageMapEntryPatch(args: {
     id,
     anchor,
     script_anchor: scriptAnchor,
-    anchor_scope: normalizeImageMapAnchorScope(readString(args.entry.anchor_scope), scriptAnchor),
+    beat_anchor: beatAnchor,
+    anchor_scope: normalizeImageMapAnchorScope(readString(args.entry.anchor_scope), scriptAnchor, beatAnchor),
     purpose: deriveImageMapPurpose({
       rawPurpose: readString(args.entry.purpose),
       visualPriority,
@@ -1101,8 +1242,9 @@ function normalizeImageMapEntryPatch(args: {
     candidate_assets: candidateAssets,
     selected_asset_id: selectedAssetId,
     status: normalizeDerivedImageMapStatus(
-      normalizeImageMapStatus(readString(args.entry.status) ?? (scriptAnchor ? "mapped" : "draft")),
+      normalizeImageMapStatus(readString(args.entry.status) ?? (scriptAnchor || beatAnchor ? "mapped" : "draft")),
       scriptAnchor,
+      beatAnchor,
       candidateAssets,
       selectedAssetId,
     ),
@@ -1361,6 +1503,7 @@ function rehydrateImportedImageBeatSheetEntries(args: {
         status: normalizeDerivedImageMapStatus(
           "draft",
           null,
+          entry.beat_anchor ?? null,
           entry.candidate_assets,
           entry.selected_asset_id,
         ),
@@ -1374,6 +1517,7 @@ function rehydrateImportedImageBeatSheetEntries(args: {
       status: normalizeDerivedImageMapStatus(
         "mapped",
         resolvedAnchor,
+        entry.beat_anchor ?? null,
         entry.candidate_assets,
         entry.selected_asset_id,
       ),
@@ -1896,6 +2040,8 @@ function normalizeMediaMapEntry(value: unknown, fallbackId: string): EpisodeMedi
   const sourceRoot = isRecord(value.source) ? value.source : null;
   const inOffset = readNumber(timingRoot?.in_offset_sec) ?? 0;
   const duration = readNumber(timingRoot?.duration_sec) ?? 6;
+  const rawPurpose = readString(value.purpose) as HearthVisualPurpose | null;
+  const beatAnchor = normalizeBulletBeatAnchor(value.beat_anchor, rawPurpose ?? undefined);
   return {
     id,
     final_media_kind: normalizeMediaMapType(value.final_media_kind ?? value.type),
@@ -1910,6 +2056,7 @@ function normalizeMediaMapEntry(value: unknown, fallbackId: string): EpisodeMedi
       mode: normalizeMediaMapAnchorMode(anchorRoot?.mode),
       target: readString(anchorRoot?.target) ?? "",
     },
+    beat_anchor: beatAnchor,
     timing: {
       in_offset_sec: Math.max(0, inOffset),
       duration_sec: Math.max(0, duration),
@@ -1965,6 +2112,7 @@ export function createEmptyEpisodePackageV2(): EpisodePackageV2 {
       primary_version_id: null,
     },
     launch_variants: [],
+    spoken_beats: [],
     media_map: {
       id: "media-map-v1",
       workpiece_id: "",
@@ -2079,6 +2227,7 @@ export function hydrateEpisodePackageV2(metadata: Record<string, unknown>): Epis
   const imageMapEntriesFromBeatSheet = normalizeImageMapEntries(
     isRecord(metadata.image_beat_sheet) ? metadata.image_beat_sheet.entries : undefined,
   );
+  const spokenBeats = normalizeSpokenBeats(episodeRoot?.spoken_beats ?? metadata.spoken_beats);
 
   return {
     schema: EPISODE_PACKAGE_V2_SCHEMA,
@@ -2094,6 +2243,7 @@ export function hydrateEpisodePackageV2(metadata: Record<string, unknown>): Epis
       primary_version_id: primaryVersionId,
     },
     launch_variants: launchVariants,
+    spoken_beats: spokenBeats,
     media_map: normalizeMediaMap(mediaMapRoot),
     image_map: {
       entries: imageMapEntriesFromRoot.length
@@ -2128,6 +2278,7 @@ export function mirrorEpisodePackageV2ToLegacy(metadata: Record<string, unknown>
     thumbnail_versions: episode.thumbnail.versions,
     primary_thumbnail_version_id: episode.thumbnail.primary_version_id,
     launch_variants: episode.launch_variants,
+    spoken_beats: episode.spoken_beats,
     media_map: episode.media_map,
     image_map_entries: episode.image_map.entries,
     image_beat_sheet: {
@@ -2259,6 +2410,13 @@ export function ensureSeoV2(pkg: EpisodePackageV2): EpisodePackageV2 {
   };
 }
 
+export function ensureSpokenBeatsV2(pkg: EpisodePackageV2): EpisodePackageV2 {
+  return {
+    ...pkg,
+    spoken_beats: normalizeSpokenBeats(pkg.spoken_beats),
+  };
+}
+
 export function resolvePrimarySeoTitle(titles: readonly EpisodeSeoTitle[]): EpisodeSeoTitle | null {
   const populated = titles.filter((title) => typeof title.text === "string" && title.text.trim().length > 0);
   return populated.find((title) => title.is_primary) ?? populated[0] ?? null;
@@ -2276,7 +2434,8 @@ export function ensureImageMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
     .filter((entry): entry is EpisodeImageMapEntry => Boolean(entry));
 
   const hydratedEntries = normalizedEntries.map((entry, index) => {
-    const paragraphKey = entry.script_anchor?.paragraph_id ?? entry.anchor.toLowerCase();
+    const paragraphKey = entry.script_anchor?.paragraph_id
+      ?? (entry.beat_anchor ? `beat:${entry.beat_anchor.beat_id}` : entry.anchor.toLowerCase());
     const nextParagraphBeatOrder = (paragraphBeatCounts.get(paragraphKey) ?? 0) + 1;
     paragraphBeatCounts.set(paragraphKey, nextParagraphBeatOrder);
     return {
@@ -2408,7 +2567,7 @@ export function ensureCdcPlanV2(pkg: EpisodePackageV2): EpisodePackageV2 {
 export const ensureReferenceClipPlanV2 = ensureCdcPlanV2;
 
 export function ensureMediaMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
-  const normalizedMap = normalizeMediaMap(pkg.media_map);
+    const normalizedMap = normalizeMediaMap(pkg.media_map);
   const normalizedEntries = normalizedMap.entries.map((entry) => ({
     ...entry,
     final_media_kind: normalizeMediaMapType(entry.final_media_kind),
@@ -2423,6 +2582,7 @@ export function ensureMediaMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
       mode: normalizeMediaMapAnchorMode(entry.anchor?.mode),
       target: readString(entry.anchor?.target) ?? "",
     },
+    beat_anchor: normalizeBulletBeatAnchor(entry.beat_anchor, entry.purpose),
     timing: {
       in_offset_sec: Math.max(0, readNumber(entry.timing?.in_offset_sec) ?? 0),
       duration_sec: Math.max(0, readNumber(entry.timing?.duration_sec) ?? 6),
@@ -2448,7 +2608,15 @@ export function ensureMediaMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
 }
 
 export function ensureLaunchVariantsV2(pkg: EpisodePackageV2): EpisodePackageV2 {
-  const normalized = ensureMediaMapV2(ensureCdcPlanV2(ensureBrollPlanV2(ensureSeoV2(pkg))));
+  const normalized = ensureMediaMapV2(
+    ensureCdcPlanV2(
+      ensureBrollPlanV2(
+        ensureImageMapV2(
+          ensureSeoV2(ensureSpokenBeatsV2(pkg)),
+        ),
+      ),
+    ),
+  );
   const concepts = Array.isArray(normalized.thumbnail?.concepts)
     ? normalized.thumbnail.concepts.map((concept, index) => ({
         ...concept,

@@ -1,6 +1,7 @@
 import type { ReactNode, RefObject } from "react";
 
 type VisualParagraphRail = {
+  beatCount: number;
   globalCount: number;
   orphanedCount: number;
   paragraphs: Array<{
@@ -74,7 +75,7 @@ export default function ScriptSurface(props: ScriptSurfaceProps) {
           <div className="hs-vsm-rail-head">
             <span>Paragraph anchors</span>
             <span>
-              global {props.visualScriptParagraphRail.globalCount} · orphaned {props.visualScriptParagraphRail.orphanedCount}
+              beat {props.visualScriptParagraphRail.beatCount} · global {props.visualScriptParagraphRail.globalCount} · orphaned {props.visualScriptParagraphRail.orphanedCount}
             </span>
           </div>
           <div className="hs-vsm-chip-grid">
