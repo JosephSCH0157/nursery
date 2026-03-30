@@ -7,7 +7,6 @@ import {
   type EpisodeSpokenBeat,
 } from "./episode-package-v2";
 import { tongsFetch } from "./tongs-fetch";
-import { normalizeWorkpieceRelativePathOrNull } from "../../../../packages/contracts/workpiece-paths.ts";
 
 export type WorkpieceImageMapView = {
   workpieceId: string;
@@ -128,6 +127,17 @@ function readApiErrorMessage(body: unknown): string | null {
     return `${message} (${reason})`;
   }
   return message ?? reason ?? null;
+}
+
+function normalizeWorkpieceRelativePathOrNull(workpieceId: string, rawPath: string | null | undefined): string | null {
+  const path = readString(rawPath);
+  if (!path) return null;
+  const workpiecePrefix = `workpieces/${workpieceId}/`;
+  let normalized = path.replace(/^\/+/, "");
+  while (normalized.startsWith(workpiecePrefix)) {
+    normalized = normalized.slice(workpiecePrefix.length);
+  }
+  return normalized;
 }
 
 function buildWrittenBy(): { tool: string; tool_version: string; lane: string } {
