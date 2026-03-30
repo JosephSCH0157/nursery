@@ -128,6 +128,7 @@ import {
   type ScriptValidationIssue,
 } from "@forge/shared/script-tags";
 import { evaluateHearthScriptValidation } from "../lib/hearth-script-tag-policy";
+import { resolveImageMapEntriesForMediaMapBootstrap } from "../lib/hearth-media-map-bootstrap";
 import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import type {
   ComposeSetup,
@@ -9368,15 +9369,46 @@ export default function HearthShell({
     if (!episodePackage) return;
     if (isMediaMapBusy) return;
     const scriptVersionId = approvedScriptVersion ? String(approvedScriptVersion) : null;
-    const nextMap = buildMediaMapFromExistingPlans(
-      episodePackage,
-      scriptVersionId,
-      mediaMapGenerationScope,
-    );
     setIsMediaMapBusy(true);
     setMediaMapSaveState("saving");
     setMediaMapSaveError(null);
     try {
+      let sourceEpisodePackage = episodePackage;
+      let bootstrappedImageCount = 0;
+
+      if (sourceEpisodePackage.image_map.entries.length === 0) {
+        const canonicalScript = await readCanonicalScriptForImageMapGeneration();
+        if (canonicalScript.ok) {
+          const bootstrap = resolveImageMapEntriesForMediaMapBootstrap({
+            currentEntries: sourceEpisodePackage.image_map.entries,
+            scriptText: canonicalScript.text,
+          });
+          if (bootstrap.seededFromScript && bootstrap.entries.length > 0) {
+            const seeded = await persistImageMapEntries({
+              entries: bootstrap.entries,
+            });
+            if (!seeded.ok) {
+              setMediaMapSaveError(seeded.error);
+              setMediaMapSaveState("error");
+              return;
+            }
+            sourceEpisodePackage = seeded.episodePackage;
+            bootstrappedImageCount = bootstrap.entries.length;
+          }
+        }
+      }
+
+      const nextMap = buildMediaMapFromExistingPlans(
+        sourceEpisodePackage,
+        scriptVersionId,
+        mediaMapGenerationScope,
+      );
+      if (nextMap.entries.length === 0) {
+        setMediaMapSaveState("saved");
+        setMediaMapMessage("No visual plans are ready yet. Pull beats from the script or add thumbnails, B-roll, or reference clips first.");
+        return;
+      }
+
       const saved = await persistMediaMap({
         map: nextMap,
         eventName: "hearth.media_map.generated_from_plans.v1",
@@ -9396,7 +9428,7 @@ export default function HearthShell({
       const brollCount = nextMap.entries.filter((entry) => entry.final_media_kind === "b_roll").length;
       const referenceClipCount = nextMap.entries.filter((entry) => entry.final_media_kind === "contextual_data_composite").length;
       setMediaMapMessage(
-        `Generated ${nextMap.entries.length} media map entries from the current visual plans using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}).`,
+        `${bootstrappedImageCount > 0 ? `Seeded ${bootstrappedImageCount} timeline image beat${bootstrappedImageCount === 1 ? "" : "s"} from the canonical script, then ` : ""}generated ${nextMap.entries.length} media map entries from the current visual plans using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}).`,
       );
     } catch {
       setMediaMapSaveError("Unable to generate Episode Media Map.");
