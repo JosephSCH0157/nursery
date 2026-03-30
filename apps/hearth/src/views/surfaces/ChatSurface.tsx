@@ -254,7 +254,6 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                 type="button"
                 onClick={() => props.onSelectWritingFormat(option.id)}
                 className={option.id === props.writingFormat ? "is-active" : undefined}
-                aria-pressed={option.id === props.writingFormat}
                 title={option.helperText}
               >
                 {option.label}
