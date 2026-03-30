@@ -50,6 +50,17 @@ export async function readWorkpieceEpisodeMediaMap(workpieceId: string): Promise
   if (response.status === 404) {
     return { ok: true, mediaMap: null };
   }
+  if (
+    response.ok
+    && isRecord(payload)
+    && payload.ok === true
+    && (
+      payload.exists === false
+      || payload.data == null
+    )
+  ) {
+    return { ok: true, mediaMap: null };
+  }
   if (!response.ok) {
     return {
       ok: false,

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { Draft } from "../domain/draft";
 import type { ComposeSetup, ScriptCompletionBadge } from "../domain/compose";
-import { getScriptReadiness } from "../lib/hearth-script-readiness";
+import { getScriptHandoffReadiness, getScriptReadiness } from "../lib/hearth-script-readiness";
 import { validateComposeContent } from "../lib/compose-content-validation";
 import type { ScriptValidationResult } from "@forge/shared/script-tags";
 
@@ -91,8 +91,22 @@ export function useScriptWorkspaceReadModel(args: UseScriptWorkspaceReadModelArg
     hearthScriptState?.validation.ok,
   ]);
 
+  const scriptHandoffReadiness = useMemo(() => getScriptHandoffReadiness({
+    hasScriptText: Boolean((args.activeDraft?.body ?? "").trim()),
+    tagValidationOk: hearthScriptState?.validation.ok ?? false,
+    composeSetup: effectiveComposeSetup,
+    contentValidationOk: composeContentValidation.ok,
+    completionBadge: composeContentValidation.badge,
+  }), [
+    args.activeDraft?.body,
+    composeContentValidation.badge,
+    composeContentValidation.ok,
+    effectiveComposeSetup,
+    hearthScriptState?.validation.ok,
+  ]);
+
   const approvalBlocked = !scriptReadiness.ready;
-  const handoffBlocked = !scriptReadiness.ready;
+  const handoffBlocked = !scriptHandoffReadiness.ready;
 
   return {
     hearthScriptState,
@@ -103,4 +117,3 @@ export function useScriptWorkspaceReadModel(args: UseScriptWorkspaceReadModelArg
     handoffBlocked,
   };
 }
-

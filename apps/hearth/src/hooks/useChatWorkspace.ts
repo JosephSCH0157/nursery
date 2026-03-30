@@ -5,6 +5,7 @@ import {
   shouldRestartBrowserSttSession,
 } from "../lib/browser-stt";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
+import { shouldKeepHearthOutlineInChatOnly } from "../lib/hearth-chat-proposal-routing";
 import type { ChatSurfaceProps } from "../views/surfaces/ChatSurface";
 
 type UseChatWorkspaceArgs = {
@@ -516,7 +517,11 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
         });
       }
 
-      const keepOutlineInChatOnly = !params.productionAction && autosaveReasonCode === "ai_outline";
+      const keepOutlineInChatOnly = shouldKeepHearthOutlineInChatOnly({
+        productionAction: Boolean(params.productionAction),
+        autosaveReasonCode,
+        ops: ops as Array<{ op: string }>,
+      });
       const assistantContent = args.buildAssistantMessageContent({
         assistantText,
         ops,

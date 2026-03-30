@@ -117,6 +117,10 @@ import {
   updateHearthProposalBodyOp,
 } from "../lib/hearth-ai-proposal";
 import {
+  deriveFullScriptAuthoringMeta,
+  deriveOutlineScriptAuthoringMeta,
+} from "../lib/hearth-script-authoring-meta";
+import {
   normalizeScriptTags,
   repairScriptTags,
   validateScriptTags,
@@ -3355,7 +3359,22 @@ export default function HearthShell({
       },
       setBody: (value) => {
         if (nextDraft.body === value) return;
-        nextDraft = { ...nextDraft, body: value };
+        const nextScriptAuthoringMeta = args.proposal.autosaveReasonCode === "ai_outline"
+          ? deriveOutlineScriptAuthoringMeta({
+            scriptText: value,
+            currentMeta: nextDraft.scriptAuthoringMeta,
+          })
+          : args.proposal.autosaveReasonCode === "ai_script"
+            ? deriveFullScriptAuthoringMeta({
+              scriptText: value,
+              currentMeta: nextDraft.scriptAuthoringMeta,
+            })
+            : nextDraft.scriptAuthoringMeta;
+        nextDraft = {
+          ...nextDraft,
+          body: value,
+          scriptAuthoringMeta: nextScriptAuthoringMeta,
+        };
         draftChanged = true;
       },
       addSource: async (source) => {
