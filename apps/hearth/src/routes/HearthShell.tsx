@@ -268,6 +268,7 @@ import {
   resolvePrimarySeoTitle,
   updateImageMapEntry,
 } from "../lib/episode-package-v2";
+import { resolveHearthProductionArtifactFeedback } from "../lib/hearth-production-feedback";
 import {
   DEFAULT_HEARTH_VISUAL_STYLE,
   normalizeHearthVisualStyle,
@@ -7682,11 +7683,30 @@ export default function HearthShell({
         setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
         return;
       }
+      const artifactFeedback = resolveHearthProductionArtifactFeedback({
+        action: args.action,
+        assistantText: args.assistantText,
+      });
+      if (artifactFeedback.titles.length > 0) {
+        setMetadataTitlesDraft(artifactFeedback.titles);
+      }
+      if (artifactFeedback.descriptionShort) {
+        setMetadataDescriptionShortDraft(artifactFeedback.descriptionShort);
+      }
+      if (artifactFeedback.descriptionLong) {
+        setMetadataDescriptionLongDraft(artifactFeedback.descriptionLong);
+      }
+      if (artifactFeedback.tags.length > 0) {
+        setMetadataTagsDraft(artifactFeedback.tags);
+      }
+      if (artifactFeedback.warning) {
+        setAiRuntimeWarning(artifactFeedback.warning);
+      }
+      if (artifactFeedback.shouldRefreshEpisodePackage) {
+        await refreshEpisodePackage();
+      }
       if (args.action === "release_prep_pack") {
         await loadLatestReleasePrepPack(args.scriptVersion);
-      }
-      if (args.action === "thumbnails") {
-        void refreshEpisodePackage();
       }
     } catch {
       setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
