@@ -116,6 +116,7 @@ import {
   resetHearthProposalBodyOp,
   updateHearthProposalBodyOp,
 } from "../lib/hearth-ai-proposal";
+import { getHearthAnvilStepModeHint } from "../lib/hearth-anvil-handoff";
 import {
   deriveFullScriptAuthoringMeta,
   deriveOutlineScriptAuthoringMeta,
@@ -2906,6 +2907,10 @@ export default function HearthShell({
     () => (activeWorkpieceIsArchived ? null : buildOpenInAnvilHref(workspaceId, workpieceId)),
     [activeWorkpieceIsArchived, workspaceId, workpieceId],
   );
+  const anvilStepModeHint = useMemo(() => getHearthAnvilStepModeHint({
+    composeSetup: effectiveComposeSetup,
+    hasScriptText: Boolean((activeDraft?.body ?? "").trim()),
+  }), [activeDraft?.body, effectiveComposeSetup]);
   const aiRuntimeBusy = isAiProcessing || isThumbnailGenerating || isImageMapCandidateGenerating;
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
   const aiEpisodeReady = Boolean(workpieceId?.trim());
@@ -13124,6 +13129,9 @@ export default function HearthShell({
                     >
                       Start Recording
                     </button>
+                    {anvilStepModeHint ? (
+                      <div className="hs-rail-meta">{anvilStepModeHint}</div>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => {
