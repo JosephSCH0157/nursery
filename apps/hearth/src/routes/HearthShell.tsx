@@ -437,11 +437,11 @@ type ReleasePrepSection = {
 };
 
 const PRODUCTION_ACTION_LABEL: Record<ProductionAction, string> = {
-  seo: "Generate SEO",
+  seo: "Generate Titles",
   tags: "Generate Tags",
   thumbnails: "Thumbnail Briefs",
   image_beat_sheet: "Image Beat Sheet",
-  release_prep_pack: "Release Prep Pack",
+  release_prep_pack: "Framing Pack",
 };
 
 const PRODUCTION_ACTION_ARTIFACT_KIND: Record<ProductionAction, ProductionArtifactKind> = {
@@ -1205,7 +1205,7 @@ function buildProductionPrompt(args: {
   if (args.action === "release_prep_pack") {
     return [
       ...header,
-      "Generate a Release Prep Pack from this approved script.",
+      "Generate a Framing Pack from this approved script.",
       "Return plain text with exact sections in this order:",
       "YOUTUBE_OPTIMIZED_CUT:",
       "- tighter opening hook and clear promise",
@@ -1322,7 +1322,7 @@ function parseReleasePrepPackSections(rawText: string): ReleasePrepSection[] {
   if (matches.length === 0) {
     return [{
       key: "youtube_optimized_cut",
-      label: "Release Prep Pack",
+      label: "Framing Pack",
       content: text,
     }];
   }
@@ -3184,8 +3184,9 @@ export default function HearthShell({
     : "Unknown";
   const mediaMapCoverageLevel = useMemo(() => resolveMediaPlanCoverageLevel(mediaMapEntries), [mediaMapEntries]);
   const mediaMapScopeLabel = useMemo(() => resolveMediaPlanScopeLabel(mediaMapEntries), [mediaMapEntries]);
+  const framingTitleCount = thumbnailTitleOptions.length;
   const metadataComplete = Boolean(
-    metadataTitlesDraft.length > 0
+    framingTitleCount > 0
     && metadataTagsDraft.length > 0
     && metadataDescriptionShortDraft.trim()
     && metadataDescriptionLongDraft.trim(),
@@ -3221,8 +3222,8 @@ export default function HearthShell({
   const tabSummaryById: Record<WorkpieceWorkspaceTab, string> = {
     script: `${hasApprovedScript ? "Approved" : "Draft"} · ${wordCount} words · ${formatUpdatedAt(activeDraft?.updatedAt)}`,
     visuals: `${mediaMapEntries.length} visuals · ${String(mediaMap?.status ?? "draft").toUpperCase()} · ${mediaMapCoverageLevel}`,
-    metadata: `${metadataTitlesDraft.length} titles · ${metadataTagsDraft.length} tags · ${metadataComplete ? "Complete" : "Needs work"}`,
-    release: `${releasePrepLoadState === "ready" ? "Prep ready" : "Prep pending"} · ${releaseReadiness.completeCount}/${releaseReadiness.totalCount} ready`,
+    metadata: `${framingTitleCount} title${framingTitleCount === 1 ? "" : "s"} · ${metadataTagsDraft.length} tags · ${metadataComplete ? "Complete" : "Needs work"}`,
+    release: `${releaseReadiness.completeCount}/${releaseReadiness.totalCount} ready · ${releaseReadiness.completeCount >= releaseReadiness.totalCount ? "Shippable" : "Pending"}`,
     history: `${revisions.length} revisions · ${latestMilestoneRevision ? `Milestone ${formatUpdatedAt(latestMilestoneRevision.createdAt)}` : resolveHistoryMilestoneMarker(revisions)}`,
   };
   const chatHistoryKey = useMemo(
@@ -9496,7 +9497,7 @@ export default function HearthShell({
       const brollCount = nextMap.entries.filter((entry) => entry.final_media_kind === "b_roll").length;
       const referenceClipCount = nextMap.entries.filter((entry) => entry.final_media_kind === "contextual_data_composite").length;
       setMediaMapMessage(
-        `${bootstrappedImageCount > 0 ? `Seeded ${bootstrappedImageCount} timeline image beat${bootstrappedImageCount === 1 ? "" : "s"} from the canonical script, then ` : ""}generated ${nextMap.entries.length} media map entries from the current visual plans using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}).`,
+        `${bootstrappedImageCount > 0 ? `Seeded ${bootstrappedImageCount} timeline image beat${bootstrappedImageCount === 1 ? "" : "s"} from the canonical script, then ` : ""}generated ${nextMap.entries.length} media map entries from the current visual plans using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}). Next: Frame the episode (titles, SEO, tags).`,
       );
     } catch {
       setMediaMapSaveError("Unable to generate Episode Media Map.");
@@ -11698,11 +11699,14 @@ export default function HearthShell({
       generateError: thumbnailGenerateError,
       uploadError: thumbnailUploadError,
       pairingError: thumbnailPairingError,
-      canGenerateConcepts: !aiCreditsDepleted,
+      canGenerateConcepts: !aiCreditsDepleted && thumbnailTitleOptions.length > 0,
       isGeneratingConcepts: activeProductionAction === "thumbnails" && isAiProcessing,
+      canGenerateTitles: !aiCreditsDepleted,
+      isGeneratingTitles: activeProductionAction === "seo" && isAiProcessing,
       isGenerating: isThumbnailGenerating,
       isSavingConcept: isThumbnailConceptSaving,
       isUploading: isThumbnailUploading,
+      onGenerateTitles: () => void onRunProductionAction("seo"),
       onSelectTitle: onSelectThumbnailTitle,
       onSelectConcept: setSelectedThumbnailConceptId,
       onSelectedConceptLabelChange: setThumbnailConceptLabelDraft,
@@ -12249,19 +12253,7 @@ export default function HearthShell({
               <ReleaseSurface
                 hasApprovedScript={hasApprovedScript}
                 approvedScriptVersion={approvedScriptVersion}
-                aiCreditsDepleted={aiCreditsDepleted}
-                isAiProcessing={isAiProcessing}
-                activeProductionAction={activeProductionAction}
-                releasePrepScriptVersion={releasePrepScriptVersion}
-                latestReleasePrepRawText={latestReleasePrepRawText}
-                releasePrepLoadState={releasePrepLoadState}
-                latestReleasePrepSections={latestReleasePrepSections}
-                onGenerateSeo={() => void onRunProductionAction("seo")}
-                onGenerateTags={() => void onRunProductionAction("tags")}
-                onGenerateReleasePrepPack={() => void onRunProductionAction("release_prep_pack")}
-                onOpenVisualsTab={() => requestWorkpieceTabChange("visuals")}
-                onRefreshReleasePrepPack={() => void loadLatestReleasePrepPack(approvedScriptVersion)}
-                hasMetadataComplete={metadataComplete}
+                hasFramingComplete={metadataComplete}
                 hasThumbnailsSelected={thumbnailsSelected}
                 mediaMapStatus={mediaMap?.status ?? null}
                 releaseReadinessCompleteCount={releaseReadiness.completeCount}
@@ -12269,6 +12261,27 @@ export default function HearthShell({
               />
             ) : null}
 
+            <MetadataSurface
+              visible={isMetadataWorkspaceTab}
+              hasApprovedScript={hasApprovedScript}
+              approvedScriptVersion={approvedScriptVersion}
+              metadataPanelMeta={metadataPanelMeta}
+              metadataPanelProps={metadataPanelProps}
+              aiCreditsDepleted={aiCreditsDepleted}
+              isAiProcessing={isAiProcessing}
+              activeProductionAction={activeProductionAction}
+              releasePrepScriptVersion={releasePrepScriptVersion}
+              latestReleasePrepRawText={latestReleasePrepRawText}
+              releasePrepLoadState={releasePrepLoadState}
+              latestReleasePrepSections={latestReleasePrepSections}
+              onGenerateTitles={() => void onRunProductionAction("seo")}
+              onGenerateTags={() => void onRunProductionAction("tags")}
+              onGenerateFramingPack={() => void onRunProductionAction("release_prep_pack")}
+              onRefreshFramingPack={() => {
+                if (!approvedScriptVersion) return;
+                void loadLatestReleasePrepPack(approvedScriptVersion);
+              }}
+            />
             <VisualsSurface
               visible={isVisualsWorkspaceTab}
               hasApprovedScript={hasApprovedScript}
@@ -12286,13 +12299,6 @@ export default function HearthShell({
               imageMapPanelProps={imageMapPanelProps}
               brollPlanPanelProps={brollPlanPanelProps}
               referenceClipPlanPanelProps={referenceClipPlanPanelProps}
-            />
-            <MetadataSurface
-              visible={isMetadataWorkspaceTab}
-              hasApprovedScript={hasApprovedScript}
-              approvedScriptVersion={approvedScriptVersion}
-              metadataPanelMeta={metadataPanelMeta}
-              metadataPanelProps={metadataPanelProps}
             />
           </div>
 

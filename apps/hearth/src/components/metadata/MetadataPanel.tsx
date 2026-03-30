@@ -115,9 +115,9 @@ export default function MetadataPanel({
   });
 
   return (
-    <section className="hs-meta-panel" aria-label="Metadata panel">
+    <section className="hs-meta-panel" aria-label="Framing panel">
       <header className="hs-meta-header">
-        <div className="hs-meta-title">Metadata</div>
+        <div className="hs-meta-title">Framing</div>
         <div className={`hs-meta-save-state is-${saveState}`}>{formatSaveState(saveState)}</div>
       </header>
 

@@ -35,19 +35,25 @@ test("hearthThumbnailWorkflow: preview status keeps selected source visible", ()
 });
 
 test("hearthThumbnailWorkflow: guidance makes the next step explicit", () => {
-  const noBriefYet = resolveThumbnailWorkspaceGuidance({ conceptCount: 0, versionCount: 0 });
+  const noFramingYet = resolveThumbnailWorkspaceGuidance({ conceptCount: 0, versionCount: 0, titleCount: 0 });
+  assert.match(noFramingYet.stateCue, /framing comes first/i);
+  assert.equal(noFramingYet.primaryAction, "generate_titles");
+  assert.equal(noFramingYet.primaryActionLabel, "Generate Titles");
+  assert.match(noFramingYet.cardLead, /start with a title/i);
+
+  const noBriefYet = resolveThumbnailWorkspaceGuidance({ conceptCount: 0, versionCount: 0, titleCount: 2 });
   assert.match(noBriefYet.stateCue, /outside forge/i);
   assert.equal(noBriefYet.primaryAction, "draft_brief");
   assert.equal(noBriefYet.primaryActionLabel, "Draft Concept Brief");
   assert.match(noBriefYet.cardLead, /start with the concept brief/i);
 
-  const readyForUpload = resolveThumbnailWorkspaceGuidance({ conceptCount: 2, versionCount: 0 });
+  const readyForUpload = resolveThumbnailWorkspaceGuidance({ conceptCount: 2, versionCount: 0, titleCount: 2 });
   assert.equal(readyForUpload.primaryAction, "upload_image");
   assert.equal(readyForUpload.primaryActionLabel, "Upload Final Image");
   assert.match(readyForUpload.cardLead, /you've got the concept/i);
   assert.match(readyForUpload.note, /planning space/i);
 
-  const withImage = resolveThumbnailWorkspaceGuidance({ conceptCount: 2, versionCount: 1 });
+  const withImage = resolveThumbnailWorkspaceGuidance({ conceptCount: 2, versionCount: 1, titleCount: 2 });
   assert.equal(withImage.primaryAction, "upload_image");
   assert.match(withImage.cardLead, /image is back in/i);
 });

@@ -1,4 +1,4 @@
-export type ThumbnailWorkspacePrimaryAction = "draft_brief" | "upload_image";
+export type ThumbnailWorkspacePrimaryAction = "generate_titles" | "draft_brief" | "upload_image";
 
 export type ThumbnailWorkspaceGuidance = {
   stateCue: string;
@@ -41,10 +41,28 @@ export function resolveThumbnailPreviewStatus(args: {
 export function resolveThumbnailWorkspaceGuidance(args: {
   conceptCount: number;
   versionCount: number;
+  titleCount: number;
 }): ThumbnailWorkspaceGuidance {
+  const hasFraming = args.titleCount > 0;
   const stateCue = "You're shaping the thumbnail concept. The final image gets rendered outside Forge.";
   const hasBrief = args.conceptCount > 0;
   const hasImage = args.versionCount > 0;
+
+  if (!hasFraming) {
+    return {
+      stateCue: "Framing comes first. Once the episode has a title, thumbnail ideas get sharper.",
+      cardTitle: "Start with Framing",
+      cardLead: "Start with a title. Framing helps shape thumbnail ideas.",
+      steps: [
+        "Generate titles in Framing.",
+        "Choose the line that carries the best hook.",
+        "Come back here to draft the thumbnail brief.",
+      ],
+      note: "This lane works best once the episode angle is named clearly.",
+      primaryAction: "generate_titles",
+      primaryActionLabel: "Generate Titles",
+    };
+  }
 
   if (!hasBrief) {
     return {

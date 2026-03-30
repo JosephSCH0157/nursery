@@ -76,9 +76,12 @@ type ThumbnailPanelProps = {
   pairingError: string | null;
   canGenerateConcepts?: boolean;
   isGeneratingConcepts?: boolean;
+  canGenerateTitles?: boolean;
+  isGeneratingTitles?: boolean;
   isGenerating: boolean;
   isSavingConcept: boolean;
   isUploading: boolean;
+  onGenerateTitles?: () => void;
   onSelectTitle: (titleId: string) => void;
   onSelectConcept: (conceptId: string) => void;
   onSelectedConceptLabelChange: (value: string) => void;
@@ -305,9 +308,12 @@ export default function ThumbnailPanel({
   pairingError,
   canGenerateConcepts = false,
   isGeneratingConcepts = false,
+  canGenerateTitles = false,
+  isGeneratingTitles = false,
   isGenerating,
   isSavingConcept,
   isUploading,
+  onGenerateTitles,
   onSelectTitle,
   onSelectConcept,
   onSelectedConceptLabelChange,
@@ -363,12 +369,17 @@ export default function ThumbnailPanel({
   const workspaceGuidance = resolveThumbnailWorkspaceGuidance({
     conceptCount: concepts.length,
     versionCount: versions.length,
+    titleCount: titleOptions.length,
   });
+  const hasFramingTitles = titleOptions.length > 0;
+  const framingFirst = workspaceGuidance.primaryAction === "generate_titles";
   const draftBriefIsPrimary = workspaceGuidance.primaryAction === "draft_brief";
   const uploadImageIsPrimary = workspaceGuidance.primaryAction === "upload_image";
   const hasOverlayTitle = selectedTitleText.trim().length > 0;
   const launchVariantActionLabel = selectedLaunchVariantId ? "Update Pairing" : "Save Pairing";
   const interactionDisabled = isGenerating || isSavingConcept || isUploading;
+  const conceptEditingDisabled = interactionDisabled || !hasFramingTitles;
+  const uploadImageDisabled = isGenerating || isUploading || !hasFramingTitles;
   const canSaveLaunchVariant = Boolean(selectedTitleId && selectedVersionId);
   const lastTestedLabel = formatVariantTimestamp(selectedLaunchVariantLastTestedAt);
   const winnerSelectedLabel = formatVariantTimestamp(selectedLaunchVariantWinnerSelectedAt);
@@ -552,9 +563,19 @@ export default function ThumbnailPanel({
       type="button"
       className={draftBriefIsPrimary ? "is-primary" : undefined}
       onClick={onGenerateConcepts}
-      disabled={!canGenerateConcepts || isGeneratingConcepts || isGenerating || isUploading}
+      disabled={!canGenerateConcepts || isGeneratingConcepts || isGenerating || isUploading || !hasFramingTitles}
     >
       {isGeneratingConcepts ? "Drafting Brief..." : workspaceGuidance.primaryAction === "draft_brief" ? workspaceGuidance.primaryActionLabel : "Draft Concept Brief"}
+    </button>
+  ) : null;
+  const generateTitlesButton = onGenerateTitles ? (
+    <button
+      type="button"
+      className={framingFirst ? "is-primary" : undefined}
+      onClick={onGenerateTitles}
+      disabled={!canGenerateTitles || isGeneratingTitles || interactionDisabled}
+    >
+      {isGeneratingTitles ? "Generating Titles..." : "Generate Titles"}
     </button>
   ) : null;
   const uploadImageButton = (
@@ -562,7 +583,7 @@ export default function ThumbnailPanel({
       type="button"
       className={uploadImageIsPrimary ? "is-primary" : undefined}
       onClick={() => fileInputRef.current?.click()}
-      disabled={isGenerating || isUploading}
+      disabled={uploadImageDisabled}
     >
       {isUploading ? "Uploading Image..." : uploadImageIsPrimary ? workspaceGuidance.primaryActionLabel : "Upload Final Image"}
     </button>
@@ -591,7 +612,7 @@ export default function ThumbnailPanel({
               conceptsSection.scrollIntoView({ behavior: "smooth", block: "start" });
             }
           }}
-          disabled={interactionDisabled}
+          disabled={conceptEditingDisabled}
         >
           Change
         </button>
@@ -610,7 +631,7 @@ export default function ThumbnailPanel({
                   type="button"
                   className={`hs-thumb-concept-item${concept.id === selectedConceptId ? " is-selected" : ""}`}
                   onClick={() => onSelectConcept(concept.id)}
-                  disabled={interactionDisabled}
+                  disabled={conceptEditingDisabled}
                 >
                   <span className="hs-thumb-concept-item-label">{concept.label}</span>
                   {conceptEvaluationsById.get(concept.id) ? (
@@ -690,21 +711,21 @@ export default function ThumbnailPanel({
             <button
               type="button"
               onClick={onCreateConcept}
-              disabled={interactionDisabled}
+              disabled={conceptEditingDisabled}
             >
               New Concept
             </button>
             <button
               type="button"
               onClick={onSaveConcept}
-              disabled={interactionDisabled || !selectedConceptId}
+              disabled={conceptEditingDisabled || !selectedConceptId}
             >
               {isSavingConcept ? "Saving..." : "Save Concept"}
             </button>
             <button
               type="button"
               onClick={onDeleteConcept}
-              disabled={interactionDisabled || !selectedConceptId}
+              disabled={conceptEditingDisabled || !selectedConceptId}
             >
               Delete
             </button>
@@ -784,6 +805,7 @@ export default function ThumbnailPanel({
           </div>
 
           <div className="hs-thumb-controls">
+            {framingFirst ? generateTitlesButton : null}
             {uploadImageIsPrimary ? uploadImageButton : draftBriefButton}
             {uploadImageIsPrimary ? draftBriefButton : uploadImageButton}
             <select
@@ -791,7 +813,7 @@ export default function ThumbnailPanel({
               title="Thumbnail aspect ratio"
               value={aspect}
               onChange={(event) => onAspectChange(event.target.value as "16:9" | "1:1" | "9:16")}
-              disabled={isGenerating || isUploading}
+              disabled={uploadImageDisabled}
             >
               <option value="16:9">16:9</option>
               <option value="1:1">1:1</option>
@@ -800,7 +822,7 @@ export default function ThumbnailPanel({
             <button
               type="button"
               onClick={onToggleSafeZone}
-              disabled={isGenerating || isUploading}
+              disabled={uploadImageDisabled}
             >
               {safeZoneEnabled ? "Hide Safe Zone" : "Show Safe Zone"}
             </button>
@@ -839,7 +861,7 @@ export default function ThumbnailPanel({
                 onChange={(event) => onSelectedConceptPromptChange(event.target.value)}
                 placeholder="Write the thumbnail brief you want to hand off"
                 rows={7}
-                disabled={interactionDisabled}
+                disabled={conceptEditingDisabled}
                 className="hs-thumb-prompt-input"
               />
             </label>
@@ -853,7 +875,7 @@ export default function ThumbnailPanel({
                     value={selectedConceptLabel}
                     onChange={(event) => onSelectedConceptLabelChange(event.target.value)}
                     placeholder="Concept label"
-                    disabled={interactionDisabled}
+                    disabled={conceptEditingDisabled}
                   />
                 </label>
                 <label className="hs-field">
@@ -861,7 +883,7 @@ export default function ThumbnailPanel({
                   <select
                     value={selectedConceptStylePreset}
                     onChange={(event) => onSelectedConceptStylePresetChange(event.target.value)}
-                    disabled={interactionDisabled}
+                    disabled={conceptEditingDisabled}
                   >
                     {HEARTH_VISUAL_STYLE_DEFINITIONS.map((style) => (
                       <option key={style.value} value={style.value}>
@@ -878,7 +900,7 @@ export default function ThumbnailPanel({
                     onChange={(event) => onPromptOverrideChange(event.target.value)}
                     placeholder="Optional tool-specific wording"
                     rows={3}
-                    disabled={isGenerating || isUploading}
+                    disabled={uploadImageDisabled}
                     className="hs-thumb-prompt-override"
                   />
                 </label>
@@ -906,7 +928,9 @@ export default function ThumbnailPanel({
             <summary>Text & Branding</summary>
             <div>
               {titleOptions.length === 0 ? (
-                <div className="hs-thumb-empty">Generate SEO titles so Hearth can pull a clean overlay hook for the image.</div>
+                <div className="hs-thumb-empty">
+                  Start with a title. Framing helps shape thumbnail ideas.
+                </div>
               ) : (
                 <div className="hs-thumb-title-list">
                   {titleOptions.map((title) => (
