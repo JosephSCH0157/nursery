@@ -20,6 +20,7 @@ import {
   getAiReasonMessage,
   type AiReasonCode,
 } from "@forge/tongs/ai-policy";
+import { evaluateHearthScriptValidation } from "./hearth-script-tag-policy";
 
 export type {
   HearthAiBehavior,
@@ -662,6 +663,45 @@ function coalesceScriptTextIntoOps(
   return [...ops, { op: "set_body", value: scriptText }];
 }
 
+function resolveValidatedAssistantScriptCandidate(candidate: string): string | undefined {
+  const trimmed = candidate.trim();
+  if (!trimmed) return undefined;
+
+  const { normalizedText, tagMode, validation } = evaluateHearthScriptValidation(trimmed);
+  if (tagMode !== "present" || !validation.ok) return undefined;
+  return normalizedText.trim();
+}
+
+function inferScriptTextFromAssistantText(assistantText: string): string | undefined {
+  const trimmed = assistantText.trim();
+  if (!trimmed) return undefined;
+
+  const directCandidate = resolveValidatedAssistantScriptCandidate(trimmed);
+  if (directCandidate) return directCandidate;
+
+  const firstSpeakerOpen = trimmed.match(/\[(?:s\d+|g\d+)\]/i);
+  const speakerCloseMatches = [...trimmed.matchAll(/\[\/(?:s\d+|g\d+)\]/ig)];
+  const firstSpeakerIndex = firstSpeakerOpen?.index ?? -1;
+  const lastSpeakerClose = speakerCloseMatches[speakerCloseMatches.length - 1];
+  const lastSpeakerCloseIndex = lastSpeakerClose?.index ?? -1;
+  if (firstSpeakerIndex < 0 || lastSpeakerCloseIndex < firstSpeakerIndex || !lastSpeakerClose) {
+    return undefined;
+  }
+
+  const lastSpeakerCloseEnd = lastSpeakerCloseIndex + lastSpeakerClose[0].length;
+  return resolveValidatedAssistantScriptCandidate(trimmed.slice(firstSpeakerIndex, lastSpeakerCloseEnd));
+}
+
+export function resolveScriptTextFromChatPayload(args: {
+  assistantText: string;
+  ops: HearthOp[];
+  scriptText: string | undefined;
+}): string | undefined {
+  if (args.scriptText?.trim()) return args.scriptText;
+  if (args.ops.some((op) => op.op === "set_body")) return undefined;
+  return inferScriptTextFromAssistantText(args.assistantText);
+}
+
 function createStorageObjectPath(parts: string[]): string {
   return parts
     .map((part) => part.trim())
@@ -1187,7 +1227,11 @@ export async function requestHearthChatReply(
 
   const assistantText = parsed?.assistant_text ?? "";
   const gate = parsed?.gate;
-  const scriptText = parsed?.script_text ?? undefined;
+  const scriptText = resolveScriptTextFromChatPayload({
+    assistantText,
+    ops: parsed?.ops ?? [],
+    scriptText: parsed?.script_text ?? undefined,
+  });
   const ops = coalesceScriptTextIntoOps(parsed?.ops ?? [], scriptText);
   if (!assistantText && ops.length === 0) {
     return {

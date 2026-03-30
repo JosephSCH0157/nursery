@@ -3194,6 +3194,58 @@ async function testAiRequestTreatsScriptTextOnlyAsDeliverable() {
   }
 }
 
+async function testAiRequestPromotesCanonicalAssistantTextToScriptPayload() {
+  resetLocalStorage();
+  const originalFetch = globalThis.fetch;
+  const assistantScript = [
+    "Here is the panel-ready bullet script:",
+    "",
+    "[s1]",
+    "- Open with the basic fact.",
+    "- Frame the episode as a media-framing comparison.",
+    "[/s1]",
+    "",
+    "[s2]",
+    "- Close with the practical takeaway.",
+    "[/s2]",
+  ].join("\n");
+
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    assistant_text: assistantScript,
+    ops: [],
+    billing_mode: "forge",
+    token_balance: 63,
+    total_tokens: 17,
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  })) as typeof fetch;
+
+  try {
+    const result = await requestHearthChatReply(
+      [{ role: "user", content: "Put this into the script panel." }],
+      createEpisodeContextFixture(),
+    );
+    assert.ok(result.ok, "canonical assistant text should still populate the script panel");
+    if (result.ok) {
+      const expectedScript = [
+        "[s1]",
+        "- Open with the basic fact.",
+        "- Frame the episode as a media-framing comparison.",
+        "[/s1]",
+        "",
+        "[s2]",
+        "- Close with the practical takeaway.",
+        "[/s2]",
+      ].join("\n");
+      assert.equal(result.scriptText, expectedScript);
+      assert.deepEqual(result.ops, [{ op: "set_body", value: expectedScript }]);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 async function testAnvilTagValidatorAndFormatter() {
   const invalidScript = [
     "**Brad:** intro line",
@@ -3359,6 +3411,7 @@ async function run() {
   await testApplyHearthOpsRequestsSave();
   await testAiRequestPayloadIncludesEpisodeId();
   await testAiRequestTreatsScriptTextOnlyAsDeliverable();
+  await testAiRequestPromotesCanonicalAssistantTextToScriptPayload();
   await testAnvilTagValidatorAndFormatter();
   // eslint-disable-next-line no-console
   console.log("Hearth confidence tests passed.");
