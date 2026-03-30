@@ -124,10 +124,10 @@ import {
 import {
   normalizeScriptTags,
   repairScriptTags,
-  validateScriptTags,
   type ScriptValidationResult,
   type ScriptValidationIssue,
 } from "@forge/shared/script-tags";
+import { evaluateHearthScriptValidation } from "../lib/hearth-script-tag-policy";
 import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import type {
   ComposeSetup,
@@ -2207,10 +2207,12 @@ function buildPersistedValidationMeta(result: ScriptValidationResult) {
   };
 }
 
-function evaluateScriptValidation(rawText: string): { normalizedText: string; validation: ScriptValidationResult } {
-  const normalizedText = normalizeScriptTags(rawText);
-  const validation = validateScriptTags(normalizedText);
-  return { normalizedText, validation };
+function evaluateScriptValidation(rawText: string): {
+  normalizedText: string;
+  validation: ScriptValidationResult;
+  tagMode: "absent" | "present";
+} {
+  return evaluateHearthScriptValidation(rawText);
 }
 
 function resolveReadyOpenHref(entry: HearthReadyScript): string | null {
@@ -3507,7 +3509,7 @@ export default function HearthShell({
         return true;
       }
       const projectedBody = findNextBodyFromOps(activeDraft.body, opsToApply);
-      const projectedValidation = validateScriptTags(normalizeScriptTags(projectedBody));
+      const { validation: projectedValidation } = evaluateHearthScriptValidation(projectedBody);
       if (!projectedValidation.ok) {
         setScriptValidation({
           source: "ai_apply",
@@ -3588,7 +3590,7 @@ export default function HearthShell({
       onCancelAiRequest,
       describeProposalOp: describeHearthOp,
       getProposalDiff: buildProposalDiff,
-      validateProposalBody: (value) => validateScriptTags(normalizeScriptTags(value)),
+      validateProposalBody: (value) => evaluateHearthScriptValidation(value).validation,
       isProposalBodyDirty: isProposalBodyDirtyAt,
       buildValidationReport,
     },
@@ -7400,7 +7402,7 @@ export default function HearthShell({
     if (!activeDraft) return;
     const normalized = normalizeScriptTags(activeDraft.body);
     const repaired = repairScriptTags(normalized);
-    const validation = validateScriptTags(repaired.text);
+    const { validation } = evaluateHearthScriptValidation(repaired.text);
     if (!validation.ok) {
       setScriptValidation({
         source: "save_gate",
@@ -7494,7 +7496,7 @@ export default function HearthShell({
       const normalized = normalizeScriptTags(aiText);
       const repaired = repairScriptTags(normalized);
       const repairedBody = repaired.text;
-      const validation = validateScriptTags(repairedBody);
+      const { validation } = evaluateHearthScriptValidation(repairedBody);
       if (!validation.ok) {
         setScriptValidation({
           source: "ai_repair",

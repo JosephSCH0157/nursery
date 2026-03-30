@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeScriptTags, validateScriptTags } from "@forge/shared/script-tags";
 import { getScriptHandoffReadiness } from "../src/lib/hearth-script-readiness";
+import { evaluateHearthScriptValidation } from "../src/lib/hearth-script-tag-policy";
 
 test("hearthOpenInAnvilGate: invalid script blocks handoff", () => {
   const validation = validateScriptTags(normalizeScriptTags("[s1]\nMissing close"));
@@ -49,6 +50,18 @@ test("hearthOpenInAnvilGate: outline drafts can still open in Anvil", () => {
     },
     contentValidationOk: true,
     completionBadge: "outline_draft",
+  });
+  assert.equal(readiness.ready, true);
+});
+
+test("hearthOpenInAnvilGate: plain text without tags can still open in Anvil", () => {
+  const validation = evaluateHearthScriptValidation("Plain text script with no tags.");
+  const readiness = getScriptHandoffReadiness({
+    hasScriptText: true,
+    tagValidationOk: validation.validation.ok,
+    composeSetup: null,
+    contentValidationOk: true,
+    completionBadge: "approval_ready",
   });
   assert.equal(readiness.ready, true);
 });

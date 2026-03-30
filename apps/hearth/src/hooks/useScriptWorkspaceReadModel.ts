@@ -2,13 +2,17 @@ import { useMemo } from "react";
 import type { Draft } from "../domain/draft";
 import type { ComposeSetup, ScriptCompletionBadge } from "../domain/compose";
 import { getScriptHandoffReadiness, getScriptReadiness } from "../lib/hearth-script-readiness";
-import { validateComposeContent } from "../lib/compose-content-validation";
 import type { ScriptValidationResult } from "@forge/shared/script-tags";
+import {
+  resolveHearthComposeContentValidation,
+  type HearthScriptTagMode,
+} from "../lib/hearth-script-tag-policy";
 
 type HearthScriptState = {
   rawText: string;
   normalizedText: string;
   validation: ScriptValidationResult;
+  tagMode: HearthScriptTagMode;
   lastValidatedAt: string | null;
   isDirty: boolean;
 };
@@ -19,6 +23,7 @@ type UseScriptWorkspaceReadModelArgs = {
   evaluateScriptValidation: (rawText: string) => {
     normalizedText: string;
     validation: ScriptValidationResult;
+    tagMode: HearthScriptTagMode;
   };
 };
 
@@ -37,17 +42,19 @@ export function useScriptWorkspaceReadModel(args: UseScriptWorkspaceReadModelArg
   const hearthScriptState = useMemo<HearthScriptState | null>(() => {
     if (!args.activeDraft) return null;
     const rawText = args.activeDraft.body ?? "";
-    const { normalizedText, validation } = args.evaluateScriptValidation(rawText);
+    const { normalizedText, validation, tagMode } = args.evaluateScriptValidation(rawText);
     return {
       rawText,
       normalizedText,
       validation,
+      tagMode,
       lastValidatedAt: new Date().toISOString(),
       isDirty: args.draftSnapshotBody !== rawText,
     };
   }, [args.activeDraft, args.draftSnapshotBody, args.evaluateScriptValidation]);
 
   const effectiveComposeSetup = useMemo<ComposeSetup | null>(() => {
+    if (hearthScriptState?.tagMode !== "present") return null;
     const meta = args.activeDraft?.scriptAuthoringMeta;
     if (meta) {
       return {
@@ -60,7 +67,7 @@ export function useScriptWorkspaceReadModel(args: UseScriptWorkspaceReadModelArg
       };
     }
     return null;
-  }, [args.activeDraft?.scriptAuthoringMeta]);
+  }, [args.activeDraft?.scriptAuthoringMeta, hearthScriptState?.tagMode]);
 
   const composeContentValidation = useMemo(() => {
     if (!args.activeDraft || !hearthScriptState) {
@@ -70,10 +77,11 @@ export function useScriptWorkspaceReadModel(args: UseScriptWorkspaceReadModelArg
         reasons: ["No draft selected."],
       };
     }
-    return validateComposeContent({
+    return resolveHearthComposeContentValidation({
       setup: effectiveComposeSetup,
       scriptText: hearthScriptState.normalizedText,
       tagValidation: hearthScriptState.validation,
+      tagMode: hearthScriptState.tagMode,
     });
   }, [args.activeDraft, effectiveComposeSetup, hearthScriptState]);
 
