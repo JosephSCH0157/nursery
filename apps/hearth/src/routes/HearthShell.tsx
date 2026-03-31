@@ -43,9 +43,7 @@ import {
   readHearthPrimaryScript,
 } from "../lib/hearth-script-repo";
 import {
-  archiveHearthWorkpiece,
   listHearthWorkpieces,
-  restoreHearthWorkpiece,
   type HearthWorkpieceSummary,
 } from "../lib/hearth-workpieces";
 import {
@@ -96,6 +94,7 @@ import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceS
 import { useHearthDraftController } from "../hooks/useHearthDraftController";
 import { useHearthScriptRepairActions } from "../hooks/useHearthScriptRepairActions";
 import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
+import { useHearthWorkpieceArchiveActions } from "../hooks/useHearthWorkpieceArchiveActions";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
@@ -2084,8 +2083,6 @@ export default function HearthShell({
   const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
   const [removingReadyIds, setRemovingReadyIds] = useState<string[]>([]);
   const [sendingBackReadyIds, setSendingBackReadyIds] = useState<string[]>([]);
-  const [archivingWorkpieceIds, setArchivingWorkpieceIds] = useState<string[]>([]);
-  const [restoringWorkpieceIds, setRestoringWorkpieceIds] = useState<string[]>([]);
   const [isRestoringReady, setIsRestoringReady] = useState(false);
   const [draggingReadyId, setDraggingReadyId] = useState<string | null>(null);
   const [session, setSession] = useState<HearthSession | null>(null);
@@ -6590,100 +6587,30 @@ export default function HearthShell({
     }));
   }
 
-  const onArchiveWorkpiece = useCallback(async (targetWorkpieceId: string) => {
-    const normalizedWorkspaceId = normalizeUuid(workspaceId);
-    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
-    if (!normalizedWorkspaceId || !normalizedWorkpieceId || archivingWorkpieceIds.includes(normalizedWorkpieceId)) {
-      return;
-    }
-
-    setError(null);
-    setArchivingWorkpieceIds((prev) => (
-      prev.includes(normalizedWorkpieceId) ? prev : [...prev, normalizedWorkpieceId]
-    ));
-
-    try {
-      await archiveHearthWorkpiece({
-        workspaceId: normalizedWorkspaceId,
-        workpieceId: normalizedWorkpieceId,
-      });
-
-      const archivingActiveWorkpiece = workpieceId === normalizedWorkpieceId;
-      if (archivingActiveWorkpiece) {
-        await selectDraft(null);
-        await persistSession(null, "draft");
-        if (!showArchived) {
-          setWorkpieceId(null);
-          setMode("episodes");
-          setFocusTab("draft");
-          if (isMobile && mobileOverlayView === "editor") {
-            setMobileOverlayView(null);
-          }
-        }
-      }
-
-      await refreshWorkpieces(normalizedWorkspaceId, { includeArchived: showArchived });
-    } catch {
-      setError("Failed to archive workpiece.");
-    } finally {
-      setArchivingWorkpieceIds((prev) => prev.filter((id) => id !== normalizedWorkpieceId));
-    }
-  }, [
+  const {
     archivingWorkpieceIds,
+    restoringWorkpieceIds,
+    onArchiveWorkpiece,
+    onRestoreWorkpiece,
+  } = useHearthWorkpieceArchiveActions({
+    workspaceId,
+    workpieceId,
+    showArchived,
     isMobile,
     mobileOverlayView,
+    activeDraftId: activeDraft?.id ?? null,
+    normalizeUuid,
+    setError,
+    setAiRuntimeWarning,
+    setWorkpieceId,
+    setMode,
+    setFocusTab,
+    setMobileOverlayView,
+    selectDraft: async () => selectDraft(null),
     persistSession,
     refreshWorkpieces,
-    selectDraft,
-    showArchived,
-    workpieceId,
-    workspaceId,
-  ]);
-
-  const onRestoreWorkpiece = useCallback(async (
-    targetWorkpieceId: string,
-    options?: { openAfterRestore?: boolean },
-  ) => {
-    const normalizedWorkspaceId = normalizeUuid(workspaceId);
-    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
-    if (!normalizedWorkspaceId || !normalizedWorkpieceId || restoringWorkpieceIds.includes(normalizedWorkpieceId)) {
-      return;
-    }
-
-    setError(null);
-    setRestoringWorkpieceIds((prev) => (
-      prev.includes(normalizedWorkpieceId) ? prev : [...prev, normalizedWorkpieceId]
-    ));
-
-    try {
-      await restoreHearthWorkpiece({
-        workspaceId: normalizedWorkspaceId,
-        workpieceId: normalizedWorkpieceId,
-      });
-      setAiRuntimeWarning("Restored. Review and re-ready before recording.");
-      await refreshWorkpieces(normalizedWorkspaceId, {
-        includeArchived: showArchived || Boolean(options?.openAfterRestore),
-      });
-
-      if (options?.openAfterRestore) {
-        await openWorkpieceInFocus(normalizedWorkpieceId, {
-          workspaceId: normalizedWorkspaceId,
-          preferredDraftId: activeDraft?.id ?? normalizedWorkpieceId,
-        });
-      }
-    } catch {
-      setError("Failed to restore workpiece.");
-    } finally {
-      setRestoringWorkpieceIds((prev) => prev.filter((id) => id !== normalizedWorkpieceId));
-    }
-  }, [
-    activeDraft?.id,
     openWorkpieceInFocus,
-    refreshWorkpieces,
-    restoringWorkpieceIds,
-    showArchived,
-    workspaceId,
-  ]);
+  });
 
   function findNextBodyFromOps(baseBody: string, ops: HearthOp[]): string {
     let next = baseBody;
