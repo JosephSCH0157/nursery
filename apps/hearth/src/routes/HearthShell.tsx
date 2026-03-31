@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createDraft, type Draft } from "../domain/draft";
+import { type Draft } from "../domain/draft";
 import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin } from "../domain/hearth-session";
 import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
 import type { Revision, RevisionKind } from "../domain/revision";
@@ -40,17 +40,11 @@ import { commitHearthSession } from "../lib/hearth-session-repo";
 import {
   commitHearthPrimaryScript,
   getHearthPrimaryScriptPath,
-  readHearthPrimaryScript,
 } from "../lib/hearth-script-repo";
 import {
   listHearthWorkpieces,
   type HearthWorkpieceSummary,
 } from "../lib/hearth-workpieces";
-import {
-  choosePreferredHydratedDraft,
-  draftHasUsableScriptBody,
-  hydrateDraftBodyFromCanonicalScript,
-} from "../lib/hearth-draft-hydration";
 import {
   selectActiveWorkpieceContext,
   selectDraftForWorkpiece,
@@ -59,7 +53,6 @@ import {
 import { mirrorApprovedScriptToLocal } from "../lib/hearth-script-mirror";
 import {
   listHearthReadyScripts,
-  removeHearthReadyScripts,
   type HearthContentCategory,
   type HearthReadyScript,
 } from "../lib/hearth-ready-scripts";
@@ -96,6 +89,8 @@ import { useHearthAnvilOpenAction } from "../hooks/useHearthAnvilOpenAction";
 import { useHearthApprovalPersistenceActions } from "../hooks/useHearthApprovalPersistenceActions";
 import { useHearthReadyScriptsLifecycle } from "../hooks/useHearthReadyScriptsLifecycle";
 import { useHearthReadyQueueActions } from "../hooks/useHearthReadyQueueActions";
+import { useHearthReadyNavigationActions } from "../hooks/useHearthReadyNavigationActions";
+import { useHearthDraftHydrationActions } from "../hooks/useHearthDraftHydrationActions";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
 import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
@@ -208,6 +203,9 @@ import ReleaseSurface from "../views/surfaces/ReleaseSurface";
 import ScriptSurface from "../views/surfaces/ScriptSurface";
 import VisualsSurface from "../views/surfaces/VisualsSurface";
 import WorkpieceTabBar from "../views/surfaces/WorkpieceTabBar";
+import HearthReadyMode from "../views/modes/HearthReadyMode";
+import HearthSeriesMode from "../views/modes/HearthSeriesMode";
+import HearthEpisodesMode from "../views/modes/HearthEpisodesMode";
 import {
   PRODUCTION_ACTION_LABEL,
   persistProductionArtifact as persistHearthProductionArtifact,
@@ -5025,136 +5023,25 @@ export default function HearthShell({
     }), { touched: false });
   }, [updatePlanningSession]);
 
-  const hydrateOrCreateDraftBufferForWorkpiece = useCallback(async (
-    targetWorkpieceId: string,
-    options?: {
-      drafts?: readonly Draft[];
-      workpieces?: readonly HearthWorkpieceSummary[];
-      preferredDraftId?: string | null;
-      seed?: { title?: string; body?: string };
-    },
-  ): Promise<Draft | null> => {
-    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
-    if (!normalizedWorkpieceId) return null;
-
-    const availableDrafts = options?.drafts ?? draftsRef.current;
-    const existingDraft = selectDraftForWorkpiece({
-      workpieceId: normalizedWorkpieceId,
-      drafts: availableDrafts,
-      sparks,
-      preferredDraftId: options?.preferredDraftId ?? null,
-    });
-    let selectedDraft = existingDraft;
-
-    if (!draftHasUsableScriptBody(selectedDraft)) {
-      const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(normalizedWorkpieceId));
-      if (canonicalDrafts.length > 0) {
-        const mergedDrafts = dedupeDraftListById([...availableDrafts, ...canonicalDrafts]);
-        draftsRef.current = mergedDrafts;
-        setDrafts(mergedDrafts);
-        const canonicalDraft = selectDraftForWorkpiece({
-          workpieceId: normalizedWorkpieceId,
-          drafts: mergedDrafts,
-          sparks,
-          preferredDraftId: options?.preferredDraftId ?? null,
-        }) ?? (
-          options?.preferredDraftId
-            ? mergedDrafts.find((draft) => draft.id === options.preferredDraftId) ?? null
-            : null
-        ) ?? canonicalDrafts
-          .slice()
-          .sort((a, b) => b.updatedAt - a.updatedAt)[0]
-          ?? null;
-        selectedDraft = choosePreferredHydratedDraft([selectedDraft, canonicalDraft]);
-      }
-    }
-
-    if (draftHasUsableScriptBody(selectedDraft)) {
-      return selectedDraft;
-    }
-
-    const availableWorkpieces = options?.workpieces ?? workpieceSummariesRef.current;
-    const workpieceSummary = availableWorkpieces.find((entry) => entry.workpieceId === normalizedWorkpieceId) ?? null;
-    const scriptRead = await readHearthPrimaryScript(normalizedWorkpieceId);
-    if (!scriptRead.ok) {
-      setAiRuntimeWarning("Opened Episode, but Hearth could not load the canonical script snapshot.");
-    }
-    const canonicalScriptData = scriptRead.ok ? scriptRead.data : null;
-    const canonicalScriptText = isLegacyDraftScriptPlaceholder(canonicalScriptData?.text)
-      ? ""
-      : readTrimmedString(canonicalScriptData?.text);
-
-    if (selectedDraft && canonicalScriptText) {
-      const repairedDraft = hydrateDraftBodyFromCanonicalScript({
-        draft: selectedDraft,
-        scriptText: canonicalScriptData?.text ?? canonicalScriptText,
-        updatedAt: parseIsoTimestamp(canonicalScriptData?.updatedAt) ?? Date.now(),
-        updatedBy: buildDraftAttribution(hearthUser),
-      });
-
-      try {
-        await store.saveDraft(repairedDraft, { reason: "hydrate_workpiece" });
-        const nextDrafts = dedupeDraftListById([repairedDraft, ...draftsRef.current]);
-        draftsRef.current = nextDrafts;
-        setDrafts(nextDrafts);
-        return repairedDraft;
-      } catch (err) {
-        if (!parseDraftConflictError(err)) {
-          throw err;
-        }
-        const latestDrafts = await refreshDrafts();
-        const latestDraft = selectDraftForWorkpiece({
-          workpieceId: normalizedWorkpieceId,
-          drafts: latestDrafts,
-          sparks,
-          preferredDraftId: options?.preferredDraftId ?? null,
-        });
-        return choosePreferredHydratedDraft([latestDraft, repairedDraft]);
-      }
-    }
-
-    const seedBody = options?.seed?.body ?? "";
-    const body = seedBody.trim() && !isLegacyDraftScriptPlaceholder(seedBody)
-      ? seedBody
-      : canonicalScriptText
-        ? (canonicalScriptData?.text ?? canonicalScriptText)
-        : SAFE_SCRIPT_STARTER;
-    const title = workpieceSummary?.title
-      ?? readTrimmedString(options?.seed?.title)
-      ?? `Episode ${normalizedWorkpieceId.slice(0, 8)}`;
-    const updatedAt = scriptRead.ok
-      ? parseIsoTimestamp(scriptRead.data.updatedAt) ?? Date.now()
-      : Date.now();
-    const attribution = buildDraftAttribution(hearthUser);
-    const draft: Draft = {
-      ...createDraft({ title, body }),
-      id: normalizedWorkpieceId,
-      title,
-      body,
-      createdAt: updatedAt,
-      updatedAt,
-      archived: false,
-      pinned: false,
-      createdBy: attribution,
-      updatedBy: attribution,
-    };
-
-    try {
-      await store.saveDraft(draft, { reason: "hydrate_workpiece" });
-    } catch (err) {
-      if (!parseDraftConflictError(err)) {
-        throw err;
-      }
-    }
-
-    const latestDrafts = await refreshDrafts();
-    return selectDraftForWorkpiece({
-      workpieceId: normalizedWorkpieceId,
-      drafts: latestDrafts,
-      sparks,
-      preferredDraftId: options?.preferredDraftId ?? normalizedWorkpieceId,
-    });
-  }, [hearthUser, refreshDrafts, sparks, store]);
+  const { hydrateOrCreateDraftBufferForWorkpiece } = useHearthDraftHydrationActions({
+    hearthUser,
+    sparks,
+    store,
+    draftsRef,
+    workpieceSummariesRef,
+    setDrafts,
+    setAiRuntimeWarning,
+    refreshDrafts,
+    normalizeUuid,
+    dedupeDraftListById,
+    selectDraftForWorkpiece,
+    parseDraftConflictError,
+    buildDraftAttribution,
+    parseIsoTimestamp,
+    readTrimmedString,
+    isLegacyDraftScriptPlaceholder,
+    safeScriptStarter: SAFE_SCRIPT_STARTER,
+  });
 
   const {
     openWorkpieceInFocus,
@@ -6554,54 +6441,19 @@ export default function HearthShell({
     );
   }
 
-  const onOpenReadyScriptInHearth = useCallback(async (entry: HearthReadyScript) => {
-    setError(null);
-    try {
-      await openWorkpieceInFocus(entry.workpieceId, {
-        workspaceId: entry.workspaceId,
-        preferredDraftId: activeDraft?.id ?? null,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to open approved script in Hearth.";
-      setError(message);
-    }
-  }, [activeDraft?.id, openWorkpieceInFocus]);
-
-  const onSendBackToEdit = useCallback(async (entry: HearthReadyScript) => {
-    if (!entry.id || sendingBackReadyIds.includes(entry.id)) return;
-
-    setError(null);
-    setReadyScriptsError(null);
-    setSendingBackReadyIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
-
-    try {
-      await openWorkpieceInFocus(entry.workpieceId, {
-        workspaceId: entry.workspaceId,
-        preferredDraftId: entry.workpieceId,
-      });
-
-      const result = await removeHearthReadyScripts({
-        workpieceId: entry.workpieceId,
-        paths: entry.scriptPaths.length ? entry.scriptPaths : [entry.primaryScriptPath || entry.path],
-      });
-      if (!result.ok) {
-        setError("Failed to remove the workpiece from Ready. It is still marked ready.");
-        setReadyScriptsError("Failed to remove the workpiece from Ready.");
-        await refreshReadyScripts();
-        return;
-      }
-
-      setReadyScripts((prev) => prev.filter((row) => row.workpieceId !== entry.workpieceId));
-      await refreshReadyScripts();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to send the workpiece back to editing.";
-      setError(message);
-      setReadyScriptsError("Failed to send the workpiece back to editing.");
-      await refreshReadyScripts();
-    } finally {
-      setSendingBackReadyIds((prev) => prev.filter((id) => id !== entry.id));
-    }
-  }, [openWorkpieceInFocus, refreshReadyScripts, sendingBackReadyIds]);
+  const {
+    onOpenReadyScriptInHearth,
+    onSendBackToEdit,
+  } = useHearthReadyNavigationActions({
+    activeDraftId: activeDraft?.id ?? null,
+    sendingBackReadyIds,
+    openWorkpieceInFocus,
+    refreshReadyScripts,
+    setError,
+    setReadyScriptsError,
+    setReadyScripts,
+    setSendingBackReadyIds,
+  });
 
   const openReadyInMobileOverlay = useCallback(() => {
     setMode("ready");
@@ -7818,226 +7670,75 @@ export default function HearthShell({
   );
 
   const renderEpisodesView = () => (
-    <section className="hs-home">
-      <header className="hs-home-header">
-        <h2 className="hs-home-title">{isMobile ? "Workspace Projects" : "Episodes (In Progress)"}</h2>
-        <p className="hs-home-subtext">
-          {isMobile ? "Tap a project to open the mobile editor." : "Open an Episode to enter Focus Mode."}
-        </p>
-      </header>
-      <div className="hs-home-actions">
-        <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
-          New Workpiece
-        </button>
-        <button type="button" onClick={onCreateDraft}>
-          New Draft
-        </button>
-        {isMobile ? (
-          <button type="button" onClick={openReadyInMobileOverlay}>
-            Ready to Record
-          </button>
-        ) : null}
-      </div>
-      <div className="hs-rail-section">
-        <label className="hs-rail-label">Search Episodes</label>
-        <input
-          aria-label="Search episodes"
-          ref={searchRef}
-          type="search"
-          value={searchText}
-          onChange={(event) => setSearchText(event.target.value)}
-          placeholder="Search Episode titles"
-        />
-        <div className="hs-rail-sort">
-          <label className="hs-rail-label">Sort</label>
-          <select aria-label="Sort episodes" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
-            <option value="updated">Recently updated</option>
-            <option value="title">Title A-Z</option>
-          </select>
-        </div>
-      </div>
-      <ul className="hs-workpieces-list">
-        {filteredWorkpieceNavItems.map((item) => {
-          const draft = item.draftId ? draftsById.get(item.draftId) ?? null : null;
-          const isActive = workpieceId === item.workpieceId;
-          const updatedAt = item.updatedAtMs || draft?.updatedAt || Date.now();
-          const isArchiving = archivingWorkpieceIds.includes(item.workpieceId);
-          const isRestoring = restoringWorkpieceIds.includes(item.workpieceId);
-          return (
-          <li key={item.workpieceId}>
-            <div className={`hs-workpiece-card${isActive ? " is-active" : ""}`}>
-              <button
-                type="button"
-                className="hs-workpiece-button"
-                onClick={() => void openWorkpieceInFocus(item.workpieceId, {
-                  preferredDraftId: item.draftId,
-                })}
-              >
-                <div className="hs-workpiece-title-row">
-                  <div className="hs-workpiece-title">{item.title}</div>
-                  <span className={`hs-workpiece-presence ${resolveWorkpiecePresenceClass(item.workpieceId)}`}>
-                    {resolveWorkpiecePresenceBadge(item.workpieceId)}
-                  </span>
-                </div>
-                <div className="hs-workpiece-updated">Updated {formatUpdatedAt(updatedAt)}</div>
-                <div className="hs-workpiece-updated">
-                  {draft ? `Last edited by ${resolveDraftEditorName(draft)}` : "No attached draft buffer yet"}
-                </div>
-              </button>
-              <div className="hs-workpiece-actions">
-                {draft && !item.isArchived ? (
-                  <button type="button" onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}>
-                    {draft.pinned ? "Unpin" : "Pin"}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => void (
-                    item.isArchived
-                      ? onRestoreWorkpiece(item.workpieceId)
-                      : onArchiveWorkpiece(item.workpieceId)
-                  )}
-                  disabled={isArchiving || isRestoring}
-                >
-                  {item.isArchived
-                    ? isRestoring ? "Restoring..." : "Restore Workpiece"
-                    : isArchiving ? "Archiving..." : "Archive Workpiece"}
-                </button>
-                {draft ? (
-                  <button type="button" onClick={() => void onDeleteDraft(draft)}>
-                    Delete Draft Buffer
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          </li>
-        );
-        })}
-      </ul>
-    </section>
+    <HearthEpisodesMode
+      isMobile={isMobile}
+      startFromScratch={startFromScratch}
+      isForging={isForging}
+      onCreateDraft={onCreateDraft}
+      openReadyInMobileOverlay={openReadyInMobileOverlay}
+      searchRef={searchRef}
+      searchText={searchText}
+      setSearchText={setSearchText}
+      sortKey={sortKey}
+      setSortKey={setSortKey}
+      filteredWorkpieceNavItems={filteredWorkpieceNavItems}
+      draftsById={draftsById}
+      workpieceId={workpieceId}
+      archivingWorkpieceIds={archivingWorkpieceIds}
+      restoringWorkpieceIds={restoringWorkpieceIds}
+      openWorkpieceInFocus={openWorkpieceInFocus}
+      resolveWorkpiecePresenceClass={resolveWorkpiecePresenceClass}
+      resolveWorkpiecePresenceBadge={resolveWorkpiecePresenceBadge}
+      formatUpdatedAt={formatUpdatedAt}
+      resolveDraftEditorName={resolveDraftEditorName}
+      saveDraftMeta={saveDraftMeta}
+      onRestoreWorkpiece={onRestoreWorkpiece}
+      onArchiveWorkpiece={onArchiveWorkpiece}
+      onDeleteDraft={onDeleteDraft}
+    />
   );
 
   const renderReadyView = () => (
-    <section className="hs-home">
-      <header className="hs-home-header">
-        <h2 className="hs-home-title">Ready</h2>
-        <p className="hs-home-subtext">Session List curated by Hearth.</p>
-      </header>
-      <div className="hs-ready-record-header">
-        <div className="hs-rail-heading">
-          Ready Items
-          <span className="hs-ready-record-count">{readyTotalCount}</span>
-        </div>
-        <button type="button" onClick={() => void refreshReadyScripts()} disabled={isReadyScriptsLoading}>
-          {isReadyScriptsLoading ? "Refreshing..." : "Refresh"}
-        </button>
-      </div>
-      {removedReadyCount > 0 ? (
-        <button type="button" onClick={() => void onRestoreRemovedReady()} disabled={isRestoringReady}>
-          {isRestoringReady ? "Restoring..." : `Restore hidden (${removedReadyCount})`}
-        </button>
-      ) : null}
-      {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
-      <ul className="hs-ready-record-list">
-        {orderedReadyScripts.map((entry) => {
-          const anvilHref = resolveReadyOpenHref(entry);
-          const label = resolveReadyLabel(entry);
-          return (
-            <li
-              key={entry.id}
-              className="hs-ready-record-item"
-              draggable
-              onDragStart={() => setDraggingReadyId(entry.id)}
-              onDragEnd={() => setDraggingReadyId(null)}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={() => {
-                if (draggingReadyId) onReorderReady(draggingReadyId, entry.id);
-                setDraggingReadyId(null);
-              }}
-            >
-              <div className="hs-ready-record-title">{entry.title}</div>
-              <div className="hs-ready-record-meta">{resolveReadyAttribution(entry)}</div>
-              <label className="hs-ready-record-label">
-                <span>Label</span>
-                <select
-                  value={label}
-                  disabled={updatingReadyCategoryId === entry.id}
-                  onChange={(event) => onReadyLabelChange(entry, event.target.value as ReadyLabel)}
-                >
-                  <option value="hot">Hot</option>
-                  <option value="evergreen">Evergreen</option>
-                  <option value="series">Series</option>
-                </select>
-              </label>
-              <div className="hs-workpiece-actions">
-                <button
-                  type="button"
-                  onClick={() => void onOpenReadyScriptInHearth(entry)}
-                >
-                  Open in Hearth
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void onSendBackToEdit(entry)}
-                  disabled={sendingBackReadyIds.includes(entry.id)}
-                >
-                  {sendingBackReadyIds.includes(entry.id) ? "Sending back..." : "Send Back to Edit"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!anvilHref) return;
-                    window.location.assign(anvilHref);
-                  }}
-                  disabled={!anvilHref}
-                >
-                  Send to Anvil
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void onRemoveFromReady(entry)}
-                  disabled={removingReadyIds.includes(entry.id) || sendingBackReadyIds.includes(entry.id)}
-                >
-                  {removingReadyIds.includes(entry.id) ? "Hiding..." : "Hide from Ready"}
-                </button>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
+    <HearthReadyMode
+      readyTotalCount={readyTotalCount}
+      isReadyScriptsLoading={isReadyScriptsLoading}
+      refreshReadyScripts={refreshReadyScripts}
+      removedReadyCount={removedReadyCount}
+      onRestoreRemovedReady={onRestoreRemovedReady}
+      isRestoringReady={isRestoringReady}
+      readyScriptsError={readyScriptsError}
+      orderedReadyScripts={orderedReadyScripts}
+      draggingReadyId={draggingReadyId}
+      onStartDraggingReady={setDraggingReadyId}
+      onStopDraggingReady={() => setDraggingReadyId(null)}
+      onDropReadyOnEntry={(targetId) => {
+        if (draggingReadyId) onReorderReady(draggingReadyId, targetId);
+        setDraggingReadyId(null);
+      }}
+      updatingReadyCategoryId={updatingReadyCategoryId}
+      onReadyLabelChange={onReadyLabelChange}
+      onOpenReadyScriptInHearth={onOpenReadyScriptInHearth}
+      onSendBackToEdit={onSendBackToEdit}
+      sendingBackReadyIds={sendingBackReadyIds}
+      resolveReadyOpenHref={resolveReadyOpenHref}
+      onRemoveFromReady={onRemoveFromReady}
+      removingReadyIds={removingReadyIds}
+      resolveReadyAttribution={resolveReadyAttribution}
+      resolveReadyLabel={resolveReadyLabel}
+    />
   );
 
   const renderSeriesView = () => {
     const seriesEntries = orderedReadyScripts.filter((entry) => resolveReadyLabel(entry) === "series");
     return (
-      <section className="hs-home">
-        <header className="hs-home-header">
-          <h2 className="hs-home-title">Series</h2>
-          <p className="hs-home-subtext">Series-focused queue.</p>
-        </header>
-        {seriesEntries.length === 0 ? (
-          <p className="hs-home-empty">No series-labeled Episodes yet.</p>
-        ) : (
-          <ul className="hs-ready-record-list">
-            {seriesEntries.map((entry) => (
-              <li key={entry.id} className="hs-ready-record-item">
-                <button
-                  type="button"
-                  className="hs-ready-record-link"
-                  onClick={() => void openWorkpieceInFocus(entry.workpieceId, {
-                    workspaceId: entry.workspaceId,
-                    preferredDraftId: entry.workpieceId,
-                  })}
-                >
-                  <div className="hs-ready-record-title">{entry.title}</div>
-                </button>
-                <div className="hs-ready-record-meta">{resolveReadyAttribution(entry)}</div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <HearthSeriesMode
+        seriesEntries={seriesEntries}
+        resolveReadyAttribution={resolveReadyAttribution}
+        onOpenSeriesEntry={(entry) => void openWorkpieceInFocus(entry.workpieceId, {
+          workspaceId: entry.workspaceId,
+          preferredDraftId: entry.workpieceId,
+        })}
+      />
     );
   };
 
