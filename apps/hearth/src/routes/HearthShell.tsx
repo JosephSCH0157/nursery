@@ -5111,29 +5111,6 @@ export default function HearthShell({
     workspaceId,
   ]);
 
-  const {
-    onSaveDraft,
-    onReloadLatestDraftAfterConflict,
-    onCopyConflictLocalText,
-    onCopyScriptPanelText,
-  } = useHearthDraftController({
-    activeDraft,
-    draftConflictLocalBody: draftConflictState?.localBody ?? null,
-    scriptPanelBodyText,
-    persistDraftManual: (manualSaveArgs) => persistDraft(manualSaveArgs),
-    noteManualSaveSuccess,
-    flushChatHistoryNow,
-    refreshDrafts,
-    getDraftById: (draftId) => store.getDraft(draftId),
-    selectDraft: async (draft) => {
-      await selectDraft(draft);
-    },
-    setDraftConflictState,
-    setError,
-    setScriptPanelCopyMessage,
-    writeTextToClipboard,
-  });
-
   const onJumpToValidationIssue = useCallback((issue: ScriptValidationIssue) => {
     const textarea = bodyRef.current;
     if (!textarea) return;
@@ -5397,6 +5374,43 @@ export default function HearthShell({
     selectDraft,
     persistSession,
     hydrateOrCreateDraftBufferForWorkpiece,
+  });
+  const {
+    onSaveDraft,
+    onReloadLatestDraftAfterConflict,
+    onCopyConflictLocalText,
+    onCopyScriptPanelText,
+    onDeleteDraft,
+  } = useHearthDraftController({
+    activeDraft,
+    workpieceId,
+    sparks,
+    mode,
+    isMobile,
+    mobileOverlayView,
+    draftConflictLocalBody: draftConflictState?.localBody ?? null,
+    scriptPanelBodyText,
+    normalizeUuid,
+    dedupeDraftListById,
+    persistDraftManual: (manualSaveArgs) => persistDraft(manualSaveArgs),
+    noteManualSaveSuccess,
+    flushChatHistoryNow,
+    refreshDrafts,
+    listDrafts: () => store.listDrafts(),
+    deleteDraftById: (draftId) => store.deleteDraft(draftId),
+    getDraftById: (draftId) => store.getDraft(draftId),
+    selectDraft,
+    selectDraftForWorkpiece,
+    openWorkpieceInFocus,
+    persistSession,
+    setDraftConflictState,
+    setError,
+    setScriptPanelCopyMessage,
+    setDrafts,
+    setFocusTab,
+    setMode,
+    setMobileOverlayView,
+    writeTextToClipboard,
   });
 
   const startFromScratch = useCallback(async () => {
@@ -6559,65 +6573,6 @@ export default function HearthShell({
       ...prev,
       decisions: (prev.decisions ?? []).filter((_, index) => index !== idx),
     }));
-  }
-
-  async function onDeleteDraft(draft: Draft) {
-    const draftTitle = draft.title.trim() || "Untitled Draft";
-    const confirmDelete = window.confirm(`Delete draft buffer "${draftTitle}"? This cannot be undone.`);
-    if (!confirmDelete) return;
-    setError(null);
-    try {
-      const deletingActiveDraft = activeDraft?.id === draft.id;
-      await store.deleteDraft(draft.id);
-      const nextDrafts = dedupeDraftListById(await store.listDrafts());
-      setDrafts(nextDrafts);
-
-      if (deletingActiveDraft) {
-        const activeWorkpieceId = normalizeUuid(workpieceId);
-        if (activeWorkpieceId) {
-          const replacementDraft = selectDraftForWorkpiece({
-            workpieceId: activeWorkpieceId,
-            drafts: nextDrafts,
-            sparks,
-            preferredDraftId: activeWorkpieceId,
-          });
-          if (replacementDraft) {
-            await selectDraft(replacementDraft, { revisionWorkpieceId: activeWorkpieceId });
-          } else {
-            await openWorkpieceInFocus(activeWorkpieceId, {
-              drafts: nextDrafts,
-              preferredDraftId: activeWorkpieceId,
-            });
-          }
-          if (mode === "focus") {
-            setFocusTab("draft");
-          }
-          return;
-        }
-
-        const replacementDraft = nextDrafts.find((candidate) => !candidate.archived) ?? nextDrafts[0] ?? null;
-        if (replacementDraft) {
-          await selectDraft(replacementDraft);
-          if (mode === "focus") {
-            setFocusTab("draft");
-          }
-          return;
-        }
-
-        await selectDraft(null);
-        await persistSession(null, "draft");
-        setFocusTab("draft");
-        setMode("episodes");
-        if (isMobile && mobileOverlayView === "editor") {
-          setMobileOverlayView(null);
-        }
-      }
-
-      await persistSession(activeDraft?.id ?? null, "draft");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to delete draft buffer.";
-      setError(message);
-    }
   }
 
   const onArchiveWorkpiece = useCallback(async (targetWorkpieceId: string) => {
