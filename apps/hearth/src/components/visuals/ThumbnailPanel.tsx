@@ -1009,7 +1009,7 @@ export default function ThumbnailPanel({
                     disabled={interactionDisabled}
                   >
                     <option value="">Use Global Default</option>
-                    {visualProviderOptions.map((option) => (
+                    {(visualProviderOptions ?? []).map((option) => (
                       <option key={option.id} value={option.id}>{option.label}</option>
                     ))}
                   </select>
