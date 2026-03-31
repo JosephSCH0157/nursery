@@ -96,6 +96,7 @@ import {
 import { useHearthAutosave } from "../hooks/useHearthAutosave";
 import { useApprovalFlow } from "../hooks/useApprovalFlow";
 import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
+import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
 import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
@@ -127,6 +128,7 @@ import { useImageMapCandidatePreviewLoader } from "../hooks/visuals/useImageMapC
 import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
 import { useMediaMapConversationBootstrap } from "../hooks/visuals/useMediaMapConversationBootstrap";
 import { useCanonicalImageMapScriptStateLoader } from "../hooks/visuals/useCanonicalImageMapScriptStateLoader";
+import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
 import {
   buildThumbnailPanelProps,
   buildBrollPlanPanelProps,
@@ -2871,6 +2873,7 @@ export default function HearthShell({
   const referenceClipPlan: EpisodeReferenceClipPlan | null = episodePackage?.cdc_plan ?? null;
   const referenceClipEntries: EpisodeContextualDataCompositePlan[] = referenceClipPlan?.entries ?? [];
   const selectedReferenceClipEntry = referenceClipEntries.find((entry) => entry.id === selectedReferenceClipEntryId) ?? null;
+  const preferredThumbnailTitleId = resolvePrimarySeoTitle(thumbnailTitleOptions)?.id ?? null;
   useThumbnailPreviewLoader({
     workpieceId,
     selectedThumbnailVersion,
@@ -3192,6 +3195,36 @@ export default function HearthShell({
     selectedImageMapEntry,
     setCanonicalImageMapScriptState,
     readCanonicalScriptForImageMapGeneration,
+  });
+  useVisualSelectionHydration({
+    launchVariants,
+    selectedLaunchVariant,
+    thumbnailTitleOptions,
+    preferredThumbnailTitleId,
+    thumbnailVersions,
+    selectedThumbnailConceptId,
+    primaryThumbnailVersionId,
+    mediaMapEntries,
+    selectedMediaMapEntry,
+    imageMapEntries,
+    selectedImageMapEntry,
+    brollBeats,
+    selectedBrollBeat,
+    referenceClipEntries,
+    selectedReferenceClipEntry,
+    syncSelectedLaunchVariantId,
+    syncLaunchVariantDraftFromVariant,
+    syncSelectedThumbnailTitleId,
+    syncSelectedThumbnailVersionId,
+    syncSelectedMediaMapEntryId,
+    syncMediaMapDraftFromEntry,
+    syncSelectedImageMapEntryId,
+    syncImageMapDraftFromEntry,
+    resolveImageMapEntryAnchorScope,
+    syncSelectedBrollBeatId,
+    syncBrollDraftFromBeat,
+    syncSelectedReferenceClipEntryId,
+    syncReferenceClipDraftFromEntry,
   });
   const {
     onAddMediaMapEntry,
@@ -5367,128 +5400,34 @@ export default function HearthShell({
     });
   }, [hearthUser, refreshDrafts, sparks, store]);
 
-  const openWorkpieceInFocus = useCallback(async (
-    targetWorkpieceId: string,
-    options?: {
-      workspaceId?: string | null;
-      drafts?: readonly Draft[];
-      workpieces?: readonly HearthWorkpieceSummary[];
-      preferredDraftId?: string | null;
-      seed?: { title?: string; body?: string };
-      preferredWorkspaceTab?: WorkpieceWorkspaceTab;
-      preferredEditorPanel?: "script" | "manual" | null;
-    },
-  ): Promise<Draft | null> => {
-    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
-    if (!normalizedWorkpieceId) return null;
-
-    const targetWorkspaceId = normalizeUuid(options?.workspaceId ?? workspaceId) ?? workspaceId;
-    const preferredWorkspaceTab = options?.preferredWorkspaceTab ?? null;
-    const preferredEditorPanel = options?.preferredEditorPanel ?? null;
-    pendingFocusOpenCountRef.current += 1;
-    if (targetWorkspaceId && targetWorkspaceId !== workspaceId) {
-      setWorkspaceId(targetWorkspaceId);
-    }
-    if (preferredWorkspaceTab) {
-      writeWorkpieceWorkspaceTab(normalizedWorkpieceId, targetWorkspaceId ?? null, preferredWorkspaceTab);
-      setActiveWorkpieceTab(preferredWorkspaceTab);
-    }
-    if (preferredEditorPanel) {
-      pendingDraftEditorPanelRef.current = preferredEditorPanel;
-    }
-    setWorkpieceId(normalizedWorkpieceId);
-    replaceHearthRouteContext(targetWorkspaceId ?? null, normalizedWorkpieceId);
-    setFocusTab("draft");
-    setMode("focus");
-
-    try {
-      let availableWorkpieces = options?.workpieces ?? workpieceSummariesRef.current;
-      if (
-        availableWorkpieces.length === 0
-        || !availableWorkpieces.some((entry) => entry.workpieceId === normalizedWorkpieceId)
-      ) {
-        availableWorkpieces = await refreshWorkpieces(targetWorkspaceId, { includeArchived: true });
-      }
-
-      const targetWorkpiece = availableWorkpieces.find((entry) => entry.workpieceId === normalizedWorkpieceId) ?? null;
-      if (targetWorkpiece?.isArchived) {
-        await selectDraft(null);
-        await persistSession(null, "draft");
-        if (isMobile) {
-          setMobileOverlayView("editor");
-        }
-        return null;
-      }
-
-      const draft = await hydrateOrCreateDraftBufferForWorkpiece(normalizedWorkpieceId, {
-        drafts: options?.drafts ?? draftsRef.current,
-        workpieces: availableWorkpieces,
-        preferredDraftId: options?.preferredDraftId ?? null,
-        seed: options?.seed,
-      });
-
-      if (draft) {
-        await selectDraft(draft, { revisionWorkpieceId: normalizedWorkpieceId });
-      } else {
-        setDraftSnapshot(null);
-        setActiveDraft(null);
-      }
-
-      if (isMobile) {
-        setMobileOverlayView("editor");
-      }
-
-      return draft;
-    } finally {
-      pendingFocusOpenCountRef.current = Math.max(0, pendingFocusOpenCountRef.current - 1);
-    }
-  }, [
-    hydrateOrCreateDraftBufferForWorkpiece,
+  const {
+    openWorkpieceInFocus,
+    createDraftAndOpen,
+  } = useHearthFocusOpenActions({
+    normalizeUuid,
+    workspaceId,
     isMobile,
-    persistSession,
+    draftsRef,
+    workpieceSummariesRef,
+    pendingFocusOpenCountRef,
+    pendingDraftEditorPanelRef,
+    setWorkspaceId,
+    setActiveWorkpieceTab,
+    setWorkpieceId,
+    setFocusTab,
+    setMode,
+    setMobileOverlayView,
+    clearActiveDraftSelection: () => {
+      setDraftSnapshot(null);
+      setActiveDraft(null);
+    },
+    writeWorkpieceWorkspaceTab,
+    replaceHearthRouteContext,
     refreshWorkpieces,
     selectDraft,
-    workspaceId,
-  ]);
-
-  const createDraftAndOpen = useCallback(async (
-    targetWorkpieceId: string,
-    seed?: { title?: string; body?: string },
-    modeToSet: HearthMode = "focus",
-    options?: {
-      revisionWorkpieceId?: string | null;
-      workspaceId?: string | null;
-      drafts?: readonly Draft[];
-      workpieces?: readonly HearthWorkpieceSummary[];
-      preferredWorkspaceTab?: WorkpieceWorkspaceTab;
-      preferredEditorPanel?: "script" | "manual" | null;
-    },
-  ) => {
-    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
-    if (!normalizedWorkpieceId) {
-      throw new Error("A workpiece is required before creating a Hearth draft buffer.");
-    }
-
-    const draft = await openWorkpieceInFocus(normalizedWorkpieceId, {
-      workspaceId: options?.workspaceId ?? null,
-      drafts: options?.drafts,
-      workpieces: options?.workpieces,
-      preferredDraftId: normalizedWorkpieceId,
-      seed,
-      preferredWorkspaceTab: options?.preferredWorkspaceTab,
-      preferredEditorPanel: options?.preferredEditorPanel,
-    });
-
-    if (modeToSet !== "focus") {
-      setMode(modeToSet);
-    }
-
-    if (draft && options?.revisionWorkpieceId && options.revisionWorkpieceId !== normalizedWorkpieceId) {
-      await selectDraft(draft, { revisionWorkpieceId: options.revisionWorkpieceId });
-    }
-
-    return draft;
-  }, [openWorkpieceInFocus, selectDraft]);
+    persistSession,
+    hydrateOrCreateDraftBufferForWorkpiece,
+  });
 
   const startFromScratch = useCallback(async () => {
     if (isForging) return;
@@ -6337,42 +6276,6 @@ export default function HearthShell({
   ]);
 
   useEffect(() => {
-    syncSelectedLaunchVariantId(launchVariants);
-  }, [launchVariants, syncSelectedLaunchVariantId]);
-
-  useEffect(() => {
-    syncLaunchVariantDraftFromVariant(selectedLaunchVariant);
-  }, [selectedLaunchVariant, syncLaunchVariantDraftFromVariant]);
-
-  useEffect(() => {
-    syncSelectedThumbnailTitleId(
-      thumbnailTitleOptions,
-      resolvePrimarySeoTitle(thumbnailTitleOptions)?.id ?? null,
-    );
-  }, [syncSelectedThumbnailTitleId, thumbnailTitleOptions]);
-
-  useEffect(() => {
-    syncSelectedThumbnailVersionId(
-      thumbnailVersions,
-      selectedThumbnailConceptId,
-      primaryThumbnailVersionId,
-    );
-  }, [
-    primaryThumbnailVersionId,
-    selectedThumbnailConceptId,
-    syncSelectedThumbnailVersionId,
-    thumbnailVersions,
-  ]);
-
-  useEffect(() => {
-    syncSelectedMediaMapEntryId(mediaMapEntries);
-  }, [mediaMapEntries, syncSelectedMediaMapEntryId]);
-
-  useEffect(() => {
-    syncMediaMapDraftFromEntry(selectedMediaMapEntry);
-  }, [selectedMediaMapEntry, syncMediaMapDraftFromEntry]);
-
-  useEffect(() => {
     if (!episodePackage) return;
     const currentScriptVersion = approvedScriptVersion ? String(approvedScriptVersion) : null;
     if (episodePackage.media_map.script_version_id === currentScriptVersion) return;
@@ -6389,30 +6292,6 @@ export default function HearthShell({
       };
     });
   }, [approvedScriptVersion, episodePackage]);
-
-  useEffect(() => {
-    syncSelectedImageMapEntryId(imageMapEntries);
-  }, [imageMapEntries, syncSelectedImageMapEntryId]);
-
-  useEffect(() => {
-    syncImageMapDraftFromEntry(selectedImageMapEntry, resolveImageMapEntryAnchorScope);
-  }, [selectedImageMapEntry, syncImageMapDraftFromEntry]);
-
-  useEffect(() => {
-    syncSelectedBrollBeatId(brollBeats);
-  }, [brollBeats, syncSelectedBrollBeatId]);
-
-  useEffect(() => {
-    syncBrollDraftFromBeat(selectedBrollBeat);
-  }, [selectedBrollBeat, syncBrollDraftFromBeat]);
-
-  useEffect(() => {
-    syncSelectedReferenceClipEntryId(referenceClipEntries);
-  }, [referenceClipEntries, syncSelectedReferenceClipEntryId]);
-
-  useEffect(() => {
-    syncReferenceClipDraftFromEntry(selectedReferenceClipEntry);
-  }, [selectedReferenceClipEntry, syncReferenceClipDraftFromEntry]);
 
   useEffect(() => {
     if (imageMapSaveState !== "editing") return;
