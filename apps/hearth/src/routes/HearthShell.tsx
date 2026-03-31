@@ -251,7 +251,6 @@ import {
 import {
   applyProducerDirectionToMediaMap,
   deriveMediaMapConversationFromScript,
-  normalizeMediaMapGenerationScope,
   resolveMediaMapConversationScope,
   type MediaMapConversationDirectionId,
   type MediaMapConversationSeed,
@@ -279,8 +278,6 @@ import type {
   EpisodeLaunchVariant,
   EpisodeLaunchVariantStatus,
   EpisodeThumbnailConcept,
-  EpisodeImageMapVisualPriority,
-  EpisodeImageMapVisualType,
   EpisodeThumbnailVersion,
   EpisodeImageMapEntry,
 } from "../lib/episode-package-v2";
@@ -2635,7 +2632,8 @@ export default function HearthShell({
     setMediaMapConversationState,
     mediaMapConversationError,
     setMediaMapConversationError,
-    setMediaMapDraftEditing,
+    onMediaMapDraftChange,
+    onMediaMapGenerationScopeChange,
   } = useMediaMapWorkspace();
   const {
     selectedImageMapEntryId,
@@ -2690,7 +2688,15 @@ export default function HearthShell({
     setIsImageMapReanchorSaving,
     imageMapReanchorError,
     setImageMapReanchorError,
-    setImageMapDraftEditing,
+    onImageMapDraftAnchorChange,
+    onImageMapDraftDescriptionChange,
+    onImageMapDraftStylePresetChange,
+    onImageMapDraftIntentChange,
+    onImageMapDraftSourceTypeChange,
+    onImageMapDraftVisualPriorityChange,
+    onImageMapDraftVisualTypeChange,
+    onImageMapDraftSectionIntentNoteChange,
+    onImageMapDraftPlacementHintChange,
   } = useImageMapWorkspace();
   const {
     selectedBrollBeatId,
@@ -2749,7 +2755,7 @@ export default function HearthShell({
     setBrollMessage,
     isBrollBusy,
     setIsBrollBusy,
-    setBrollDraftEditing,
+    onBrollDraftChange,
   } = useBrollWorkspace();
   const {
     selectedReferenceClipEntryId,
@@ -2808,7 +2814,7 @@ export default function HearthShell({
     setReferenceClipMessage,
     isReferenceClipBusy,
     setIsReferenceClipBusy,
-    setReferenceClipDraftEditing,
+    onReferenceClipDraftChange,
   } = useReferenceClipWorkspace();
   const {
     metadataTitlesDraft,
@@ -12243,21 +12249,8 @@ export default function HearthShell({
         }) => onBuildAndApplyMediaMapFromConversation(args),
       },
       onSelectEntry: setSelectedMediaMapEntryId,
-      onDraftChange: (field: string, value: unknown) => {
-        if (field === "type") setMediaMapDraftEditing(setMediaMapTypeDraft, String(value));
-        else if (field === "anchorMode") setMediaMapDraftEditing(setMediaMapAnchorModeDraft, String(value));
-        else if (field === "anchorTarget") setMediaMapDraftEditing(setMediaMapAnchorTargetDraft, String(value));
-        else if (field === "inOffsetSec") setMediaMapDraftEditing(setMediaMapInOffsetDraft, String(value));
-        else if (field === "durationSec") setMediaMapDraftEditing(setMediaMapDurationDraft, String(value));
-        else if (field === "description") setMediaMapDraftEditing(setMediaMapDescriptionDraft, String(value));
-        else if (field === "intent") setMediaMapDraftEditing(setMediaMapIntentDraft, String(value));
-        else if (field === "sourceStatus") setMediaMapDraftEditing(setMediaMapSourceStatusDraft, String(value));
-        else if (field === "sourceAssetId") setMediaMapDraftEditing(setMediaMapSourceAssetIdDraft, String(value));
-        else if (field === "confidence") setMediaMapDraftEditing(setMediaMapConfidenceDraft, String(value));
-        else if (field === "optional") setMediaMapDraftEditing(setMediaMapOptionalDraft, Boolean(value));
-        else if (field === "critical") setMediaMapDraftEditing(setMediaMapCriticalDraft, Boolean(value));
-      },
-      onGenerationScopeChange: (value: string) => setMediaMapGenerationScope(normalizeMediaMapGenerationScope(value)),
+      onDraftChange: onMediaMapDraftChange,
+      onGenerationScopeChange: onMediaMapGenerationScopeChange,
       onGenerateFromPlans: () => void onGenerateEpisodeMediaMapFromPlans(),
       onActivateMap: () => void onActivateEpisodeMediaMap(),
       onAddEntry: () => void onAddMediaMapEntry(),
@@ -12304,15 +12297,15 @@ export default function HearthShell({
       activeAnchorLabel: imageMapActiveAnchorLabel,
       disabled: isApprovingScript || !episodePackage,
       onSelectEntry: setSelectedImageMapEntryId,
-      onDraftAnchorChange: (value: string) => setImageMapDraftEditing(setImageMapAnchorDraft, value),
-      onDraftDescriptionChange: (value: string) => setImageMapDraftEditing(setImageMapDescriptionDraft, value),
-      onDraftStylePresetChange: (value: string) => setImageMapDraftEditing(setImageMapStyleDraft, normalizeHearthVisualStyle(value)),
-      onDraftIntentChange: (value: string) => setImageMapDraftEditing(setImageMapIntentDraft, value),
-      onDraftSourceTypeChange: (value: string) => setImageMapDraftEditing(setImageMapSourceTypeDraft, value),
-      onDraftVisualPriorityChange: (value: string) => setImageMapDraftEditing(setImageMapVisualPriorityDraft, value as EpisodeImageMapVisualPriority),
-      onDraftVisualTypeChange: (value: string) => setImageMapDraftEditing(setImageMapVisualTypeDraft, value as EpisodeImageMapVisualType),
-      onDraftSectionIntentNoteChange: (value: string) => setImageMapDraftEditing(setImageMapSectionIntentNoteDraft, value),
-      onDraftPlacementHintChange: (value: string) => setImageMapDraftEditing(setImageMapPlacementHintDraft, value),
+      onDraftAnchorChange: onImageMapDraftAnchorChange,
+      onDraftDescriptionChange: onImageMapDraftDescriptionChange,
+      onDraftStylePresetChange: onImageMapDraftStylePresetChange,
+      onDraftIntentChange: onImageMapDraftIntentChange,
+      onDraftSourceTypeChange: onImageMapDraftSourceTypeChange,
+      onDraftVisualPriorityChange: onImageMapDraftVisualPriorityChange,
+      onDraftVisualTypeChange: onImageMapDraftVisualTypeChange,
+      onDraftSectionIntentNoteChange: onImageMapDraftSectionIntentNoteChange,
+      onDraftPlacementHintChange: onImageMapDraftPlacementHintChange,
       onCreateEntry: () => void onCreateImageMapEntry(),
       onDuplicateEntry: () => void onDuplicateImageMapEntry(),
       onDeleteEntry: () => void onDeleteImageMapEntry(),
@@ -12367,31 +12360,7 @@ export default function HearthShell({
       providers: brollProviders,
       selectedCandidateId: selectedBrollBeat?.selected_asset_id ?? null,
       onSelectBeat: setSelectedBrollBeatId,
-      onDraftChange: (field: string, value: string) => {
-        if (field === "anchorText") setBrollDraftEditing(setBrollAnchorDraft, value);
-        else if (field === "description") setBrollDraftEditing(setBrollDescriptionDraft, value);
-        else if (field === "motionIntent") setBrollDraftEditing(setBrollMotionIntentDraft, value);
-        else if (field === "assetCategory") setBrollDraftEditing((next) => setBrollAssetCategoryDraft(next as EpisodeBrollMotionAssetCategory), value);
-        else if (field === "priority") setBrollDraftEditing(setBrollPriorityDraft, value);
-        else if (field === "keywords") setBrollDraftEditing(setBrollKeywordsDraft, value);
-        else if (field === "mood") setBrollDraftEditing(setBrollMoodDraft, value);
-        else if (field === "shotType") setBrollDraftEditing(setBrollShotTypeDraft, value);
-        else if (field === "motionSuggestion") setBrollDraftEditing(setBrollMotionSuggestionDraft, value);
-        else if (field === "suggestedDurationMs") setBrollDraftEditing(setBrollSuggestedDurationDraft, value);
-        else if (field === "placementHint") setBrollDraftEditing(setBrollPlacementHintDraft, value);
-        else if (field === "dataChartType") setBrollDraftEditing(setBrollDataChartTypeDraft, value);
-        else if (field === "dataTitle") setBrollDraftEditing(setBrollDataTitleDraft, value);
-        else if (field === "dataLabels") setBrollDraftEditing(setBrollDataLabelsDraft, value);
-        else if (field === "dataValues") setBrollDraftEditing(setBrollDataValuesDraft, value);
-        else if (field === "dataEmphasisKey") setBrollDraftEditing(setBrollDataEmphasisKeyDraft, value);
-        else if (field === "dataAnimationStyle") setBrollDraftEditing(setBrollDataAnimationStyleDraft, value);
-        else if (field === "providerId") setBrollDraftEditing(setBrollProviderIdDraft, value);
-        else if (field === "sourceLabel") setBrollDraftEditing(setBrollSourceLabelDraft, value);
-        else if (field === "sourceUrl") setBrollDraftEditing(setBrollSourceUrlDraft, value);
-        else if (field === "providerNote") setBrollDraftEditing(setBrollProviderNoteDraft, value);
-        else if (field === "usageNote") setBrollDraftEditing(setBrollUsageNoteDraft, value);
-        else if (field === "resultMetadata") setBrollDraftEditing(setBrollResultMetadataDraft, value);
-      },
+      onDraftChange: onBrollDraftChange,
       onSaveBeat: () => void onSaveBrollBeat(),
       onDeleteBeat: () => void onDeleteBrollBeat(),
       onRegenerateBeat: () => void onRegenerateBrollBeat(),
@@ -12448,31 +12417,7 @@ export default function HearthShell({
       activePromptPack: activeVisualPromptPackForReferenceClip?.pack ?? null,
       selectedCandidateId: selectedReferenceClipEntry?.selected_asset_id ?? null,
       onSelectEntry: setSelectedReferenceClipEntryId,
-      onDraftChange: (field: string, value: string) => {
-        if (field === "anchorText") setReferenceClipDraftEditing(setReferenceClipAnchorDraft, value);
-        else if (field === "description") setReferenceClipDraftEditing(setReferenceClipDescriptionDraft, value);
-        else if (field === "placementHint") setReferenceClipDraftEditing(setReferenceClipPlacementHintDraft, value);
-        else if (field === "format") setReferenceClipDraftEditing(setReferenceClipFormatDraft, value);
-        else if (field === "dataType") setReferenceClipDraftEditing(setReferenceClipDataTypeDraft, value);
-        else if (field === "contextType") setReferenceClipDraftEditing(setReferenceClipContextTypeDraft, value);
-        else if (field === "tone") setReferenceClipDraftEditing(setReferenceClipToneDraft, value);
-        else if (field === "motionLevel") setReferenceClipDraftEditing(setReferenceClipMotionLevelDraft, value);
-        else if (field === "backgroundContextDescription") setReferenceClipDraftEditing(setReferenceClipBackgroundContextDraft, value);
-        else if (field === "foregroundDataDescription") setReferenceClipDraftEditing(setReferenceClipForegroundDataDraft, value);
-        else if (field === "visualStyle") setReferenceClipDraftEditing((next) => setReferenceClipVisualStyleDraft(normalizeHearthVisualStyle(next)), value);
-        else if (field === "chartType") setReferenceClipDraftEditing(setReferenceClipChartTypeDraft, value);
-        else if (field === "title") setReferenceClipDraftEditing(setReferenceClipTitleDraft, value);
-        else if (field === "labels") setReferenceClipDraftEditing(setReferenceClipLabelsDraft, value);
-        else if (field === "values") setReferenceClipDraftEditing(setReferenceClipValuesDraft, value);
-        else if (field === "emphasisKey") setReferenceClipDraftEditing(setReferenceClipEmphasisKeyDraft, value);
-        else if (field === "sourceType") setReferenceClipDraftEditing(setReferenceClipSourceTypeDraft, value);
-        else if (field === "providerId") setReferenceClipDraftEditing(setReferenceClipProviderIdDraft, value);
-        else if (field === "sourceLabel") setReferenceClipDraftEditing(setReferenceClipSourceLabelDraft, value);
-        else if (field === "sourceUrl") setReferenceClipDraftEditing(setReferenceClipSourceUrlDraft, value);
-        else if (field === "providerNote") setReferenceClipDraftEditing(setReferenceClipProviderNoteDraft, value);
-        else if (field === "usageNote") setReferenceClipDraftEditing(setReferenceClipUsageNoteDraft, value);
-        else if (field === "resultMetadata") setReferenceClipDraftEditing(setReferenceClipResultMetadataDraft, value);
-      },
+      onDraftChange: onReferenceClipDraftChange,
       onCreateReferenceClip: () => void onCreateReferenceClipEntry(),
       onSaveEntry: () => void onSaveReferenceClipEntry(),
       onDeleteEntry: () => void onDeleteReferenceClipEntry(),

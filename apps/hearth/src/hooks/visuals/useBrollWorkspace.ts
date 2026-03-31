@@ -39,6 +39,32 @@ export function useBrollWorkspace() {
     setBrollSaveError(null);
   }
 
+  function onBrollDraftChange(field: string, value: string): void {
+    if (field === "anchorText") setBrollDraftEditing(setBrollAnchorDraft, value);
+    else if (field === "description") setBrollDraftEditing(setBrollDescriptionDraft, value);
+    else if (field === "motionIntent") setBrollDraftEditing(setBrollMotionIntentDraft, value);
+    else if (field === "assetCategory") setBrollDraftEditing((next) => setBrollAssetCategoryDraft(next as EpisodeBrollMotionAssetCategory), value);
+    else if (field === "priority") setBrollDraftEditing(setBrollPriorityDraft, value);
+    else if (field === "keywords") setBrollDraftEditing(setBrollKeywordsDraft, value);
+    else if (field === "mood") setBrollDraftEditing(setBrollMoodDraft, value);
+    else if (field === "shotType") setBrollDraftEditing(setBrollShotTypeDraft, value);
+    else if (field === "motionSuggestion") setBrollDraftEditing(setBrollMotionSuggestionDraft, value);
+    else if (field === "suggestedDurationMs") setBrollDraftEditing(setBrollSuggestedDurationDraft, value);
+    else if (field === "placementHint") setBrollDraftEditing(setBrollPlacementHintDraft, value);
+    else if (field === "dataChartType") setBrollDraftEditing(setBrollDataChartTypeDraft, value);
+    else if (field === "dataTitle") setBrollDraftEditing(setBrollDataTitleDraft, value);
+    else if (field === "dataLabels") setBrollDraftEditing(setBrollDataLabelsDraft, value);
+    else if (field === "dataValues") setBrollDraftEditing(setBrollDataValuesDraft, value);
+    else if (field === "dataEmphasisKey") setBrollDraftEditing(setBrollDataEmphasisKeyDraft, value);
+    else if (field === "dataAnimationStyle") setBrollDraftEditing(setBrollDataAnimationStyleDraft, value);
+    else if (field === "providerId") setBrollDraftEditing(setBrollProviderIdDraft, value);
+    else if (field === "sourceLabel") setBrollDraftEditing(setBrollSourceLabelDraft, value);
+    else if (field === "sourceUrl") setBrollDraftEditing(setBrollSourceUrlDraft, value);
+    else if (field === "providerNote") setBrollDraftEditing(setBrollProviderNoteDraft, value);
+    else if (field === "usageNote") setBrollDraftEditing(setBrollUsageNoteDraft, value);
+    else if (field === "resultMetadata") setBrollDraftEditing(setBrollResultMetadataDraft, value);
+  }
+
   return {
     selectedBrollBeatId,
     setSelectedBrollBeatId,
@@ -97,5 +123,6 @@ export function useBrollWorkspace() {
     isBrollBusy,
     setIsBrollBusy,
     setBrollDraftEditing,
+    onBrollDraftChange,
   };
 }

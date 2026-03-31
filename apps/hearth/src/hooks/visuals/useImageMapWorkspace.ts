@@ -4,7 +4,7 @@ import type {
   EpisodeImageMapVisualPriority,
   EpisodeImageMapVisualType,
 } from "../../lib/episode-package-v2";
-import { DEFAULT_HEARTH_VISUAL_STYLE } from "../../lib/hearth-visual-styles";
+import { DEFAULT_HEARTH_VISUAL_STYLE, normalizeHearthVisualStyle } from "../../lib/hearth-visual-styles";
 
 type CanonicalImageMapScriptState = {
   status: "idle" | "loading" | "ready" | "error";
@@ -55,6 +55,42 @@ export function useImageMapWorkspace() {
     }
     setImageMapSaveError(null);
   };
+
+  function onImageMapDraftAnchorChange(value: string): void {
+    setImageMapDraftEditing(setImageMapAnchorDraft, value);
+  }
+
+  function onImageMapDraftDescriptionChange(value: string): void {
+    setImageMapDraftEditing(setImageMapDescriptionDraft, value);
+  }
+
+  function onImageMapDraftStylePresetChange(value: string): void {
+    setImageMapDraftEditing(setImageMapStyleDraft, normalizeHearthVisualStyle(value));
+  }
+
+  function onImageMapDraftIntentChange(value: string): void {
+    setImageMapDraftEditing(setImageMapIntentDraft, value);
+  }
+
+  function onImageMapDraftSourceTypeChange(value: string): void {
+    setImageMapDraftEditing(setImageMapSourceTypeDraft, value);
+  }
+
+  function onImageMapDraftVisualPriorityChange(value: string): void {
+    setImageMapDraftEditing(setImageMapVisualPriorityDraft, value as EpisodeImageMapVisualPriority);
+  }
+
+  function onImageMapDraftVisualTypeChange(value: string): void {
+    setImageMapDraftEditing(setImageMapVisualTypeDraft, value as EpisodeImageMapVisualType);
+  }
+
+  function onImageMapDraftSectionIntentNoteChange(value: string): void {
+    setImageMapDraftEditing(setImageMapSectionIntentNoteDraft, value);
+  }
+
+  function onImageMapDraftPlacementHintChange(value: string): void {
+    setImageMapDraftEditing(setImageMapPlacementHintDraft, value);
+  }
 
   return {
     selectedImageMapEntryId,
@@ -110,5 +146,14 @@ export function useImageMapWorkspace() {
     imageMapReanchorError,
     setImageMapReanchorError,
     setImageMapDraftEditing,
+    onImageMapDraftAnchorChange,
+    onImageMapDraftDescriptionChange,
+    onImageMapDraftStylePresetChange,
+    onImageMapDraftIntentChange,
+    onImageMapDraftSourceTypeChange,
+    onImageMapDraftVisualPriorityChange,
+    onImageMapDraftVisualTypeChange,
+    onImageMapDraftSectionIntentNoteChange,
+    onImageMapDraftPlacementHintChange,
   };
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { DEFAULT_HEARTH_VISUAL_STYLE } from "../../lib/hearth-visual-styles";
+import { DEFAULT_HEARTH_VISUAL_STYLE, normalizeHearthVisualStyle } from "../../lib/hearth-visual-styles";
 
 export function useReferenceClipWorkspace() {
   const [selectedReferenceClipEntryId, setSelectedReferenceClipEntryId] = useState<string | null>(null);
@@ -37,6 +37,32 @@ export function useReferenceClipWorkspace() {
       setReferenceClipSaveState("editing");
     }
     setReferenceClipSaveError(null);
+  }
+
+  function onReferenceClipDraftChange(field: string, value: string): void {
+    if (field === "anchorText") setReferenceClipDraftEditing(setReferenceClipAnchorDraft, value);
+    else if (field === "description") setReferenceClipDraftEditing(setReferenceClipDescriptionDraft, value);
+    else if (field === "placementHint") setReferenceClipDraftEditing(setReferenceClipPlacementHintDraft, value);
+    else if (field === "format") setReferenceClipDraftEditing(setReferenceClipFormatDraft, value);
+    else if (field === "dataType") setReferenceClipDraftEditing(setReferenceClipDataTypeDraft, value);
+    else if (field === "contextType") setReferenceClipDraftEditing(setReferenceClipContextTypeDraft, value);
+    else if (field === "tone") setReferenceClipDraftEditing(setReferenceClipToneDraft, value);
+    else if (field === "motionLevel") setReferenceClipDraftEditing(setReferenceClipMotionLevelDraft, value);
+    else if (field === "backgroundContextDescription") setReferenceClipDraftEditing(setReferenceClipBackgroundContextDraft, value);
+    else if (field === "foregroundDataDescription") setReferenceClipDraftEditing(setReferenceClipForegroundDataDraft, value);
+    else if (field === "visualStyle") setReferenceClipDraftEditing((next) => setReferenceClipVisualStyleDraft(normalizeHearthVisualStyle(next)), value);
+    else if (field === "chartType") setReferenceClipDraftEditing(setReferenceClipChartTypeDraft, value);
+    else if (field === "title") setReferenceClipDraftEditing(setReferenceClipTitleDraft, value);
+    else if (field === "labels") setReferenceClipDraftEditing(setReferenceClipLabelsDraft, value);
+    else if (field === "values") setReferenceClipDraftEditing(setReferenceClipValuesDraft, value);
+    else if (field === "emphasisKey") setReferenceClipDraftEditing(setReferenceClipEmphasisKeyDraft, value);
+    else if (field === "sourceType") setReferenceClipDraftEditing(setReferenceClipSourceTypeDraft, value);
+    else if (field === "providerId") setReferenceClipDraftEditing(setReferenceClipProviderIdDraft, value);
+    else if (field === "sourceLabel") setReferenceClipDraftEditing(setReferenceClipSourceLabelDraft, value);
+    else if (field === "sourceUrl") setReferenceClipDraftEditing(setReferenceClipSourceUrlDraft, value);
+    else if (field === "providerNote") setReferenceClipDraftEditing(setReferenceClipProviderNoteDraft, value);
+    else if (field === "usageNote") setReferenceClipDraftEditing(setReferenceClipUsageNoteDraft, value);
+    else if (field === "resultMetadata") setReferenceClipDraftEditing(setReferenceClipResultMetadataDraft, value);
   }
 
   return {
@@ -97,5 +123,6 @@ export function useReferenceClipWorkspace() {
     isReferenceClipBusy,
     setIsReferenceClipBusy,
     setReferenceClipDraftEditing,
+    onReferenceClipDraftChange,
   };
 }
