@@ -72,7 +72,6 @@ import {
   upsertHearthWorkpiecePresence,
   type HearthWorkpiecePresence,
 } from "../lib/hearth-presence";
-import { resolveTongsRequestApiToken } from "../lib/tongs-fetch";
 import { useSourcesState } from "../hooks/useSourcesState";
 import {
   useChatWorkspace,
@@ -97,6 +96,7 @@ import { useHearthScriptRepairActions } from "../hooks/useHearthScriptRepairActi
 import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
 import { useHearthWorkpieceArchiveActions } from "../hooks/useHearthWorkpieceArchiveActions";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
+import { useHearthAnvilOpenAction } from "../hooks/useHearthAnvilOpenAction";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
 import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
@@ -5154,81 +5154,28 @@ export default function HearthShell({
     setCursorPosition(nextPos);
   }, []);
 
-  const onOpenInAnvil = useCallback(async () => {
-    const workspace = workspaceId?.trim() ?? "";
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!workspace || !episodeId) {
-      setError("Start Recording needs a valid workspace and episode.");
-      return;
-    }
-    if (activeWorkpieceIsArchived) {
-      setError("This episode is archived. Restore it in Hearth before recording.");
-      return;
-    }
-    const href = buildOpenInAnvilHref(workspace, episodeId);
-    if (!href) {
-      setError("Start Recording is unavailable until episode context finishes loading.");
-      return;
-    }
-    setError(null);
-    if (!activeDraft) {
-      window.location.assign(href);
-      return;
-    }
-
-    if (!activeDraft.body.trim()) {
-      setError("No script yet. Write a script before opening in Anvil.");
-      return;
-    }
-
-    const { normalizedText, validation } = evaluateScriptValidation(activeDraft.body);
-    if (!validation.ok) {
-      setScriptValidation({
-        source: "save_gate",
-        result: validation,
-      });
-      setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(validation)}`);
-      return;
-    }
-
-    const now = Date.now();
-    const saved = await persistDraft({
-      draft: {
-        ...activeDraft,
-        body: normalizedText,
-        updatedAt: now,
-        scriptValidationMeta: buildPersistedValidationMeta(validation),
-      },
-      updatedAt: now,
-      createRevision: null,
-      syncSources: false,
-      syncSession: false,
-      validateForAnvil: true,
-    });
-    if (!saved) return;
-
-    const published = await commitHearthPrimaryScript(episodeId, normalizedText, {
-      validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
-    });
-    if (!published.ok) {
-      const statusText = published.status ? ` (${published.status})` : "";
-      setError(`Failed to publish script for Anvil${statusText}. Try again.`);
-      return;
-    }
-
-    // Bridge token for Anvil static runtime so /tongs calls stay authorized after redirect.
-    try {
-      const token = resolveTongsRequestApiToken();
-      if (token) {
-        window.localStorage.setItem("forge_tongs_api_token_v1", token);
-      }
-    } catch {
-      // ignore token bridge failures
-    }
-
-    flushChatHistoryNow({ draftId: activeDraft.id });
-    window.location.assign(href);
-  }, [activeDraft, activeWorkpieceIsArchived, flushChatHistoryNow, persistDraft, workpieceId, workspaceId]);
+  const onOpenInAnvil = useHearthAnvilOpenAction({
+    activeDraft,
+    activeWorkpieceIsArchived,
+    workspaceId,
+    workpieceId,
+    validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
+    setError,
+    setScriptValidation,
+    evaluateScriptValidation,
+    buildValidationReport,
+    buildPersistedValidationMeta,
+    buildOpenInAnvilHref: (workspace, episodeId) => buildOpenInAnvilHref(workspace, episodeId),
+    persistDraft,
+    publishPrimaryScript: async ({ episodeId, scriptText, validatorVersion }) => {
+      const published = await commitHearthPrimaryScript(episodeId, scriptText, { validatorVersion });
+      return {
+        ok: published.ok,
+        status: "status" in published ? published.status : undefined,
+      };
+    },
+    flushChatHistoryNow,
+  });
 
   const applySessionOrigin = useCallback((origin: HearthSessionOrigin) => {
     updatePlanningSession((prev) => ({

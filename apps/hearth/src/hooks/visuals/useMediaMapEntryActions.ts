@@ -435,15 +435,17 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
           const suffix = deriveSuffixFromMediaMapEntryId(entry.id);
           const mappedId = entry.id.startsWith("mm_imap_") ? suffix : `mm_from_media_${suffix}`;
           const existing = existingImageById.get(mappedId);
+          const anchorChanged = (existing?.anchor ?? "") !== entry.anchor.target;
+          const shouldPreserveResolvedAnchor = Boolean(existing) && !anchorChanged;
           const selectedAssetId = entry.source.status === "selected" || entry.source.status === "attached"
             ? entry.source.asset_id
             : null;
           return {
             id: mappedId,
             anchor: entry.anchor.target,
-            script_anchor: existing?.script_anchor ?? null,
-            beat_anchor: entry.beat_anchor ?? existing?.beat_anchor ?? null,
-            anchor_scope: existing?.anchor_scope ?? "orphaned",
+            script_anchor: shouldPreserveResolvedAnchor ? (existing?.script_anchor ?? null) : null,
+            beat_anchor: shouldPreserveResolvedAnchor ? (entry.beat_anchor ?? existing?.beat_anchor ?? null) : null,
+            anchor_scope: shouldPreserveResolvedAnchor ? (existing?.anchor_scope ?? "orphaned") : "orphaned",
             purpose: entry.purpose,
             description: entry.description,
             visual_intent: entry.description,
