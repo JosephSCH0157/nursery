@@ -1,6 +1,7 @@
 import type { ComponentProps } from "react";
 import BrollPlanPanel from "../../components/visuals/BrollPlanPanel";
 import EpisodeMediaMapPanel from "../../components/visuals/EpisodeMediaMapPanel";
+import ImageMapPanel from "../../components/visuals/ImageMapPanel";
 import ReferenceClipPlanPanel from "../../components/visuals/ReferenceClipPlanPanel";
 import type {
   EpisodeBrollPlan,
@@ -13,8 +14,10 @@ import type {
   MediaMapConversationSeed,
   MediaMapGenerationScope,
 } from "../../lib/hearth-media-map-conversation";
+import type { ImageMapScriptSelection } from "../../lib/hearth-image-map-beats";
 
 type MediaMapPanelProps = ComponentProps<typeof EpisodeMediaMapPanel>;
+type ImageMapPanelProps = ComponentProps<typeof ImageMapPanel>;
 type BrollPanelProps = ComponentProps<typeof BrollPlanPanel>;
 type ReferenceClipPanelProps = ComponentProps<typeof ReferenceClipPlanPanel>;
 
@@ -36,7 +39,7 @@ type BuildMediaMapPanelArgs = {
     directionId: MediaMapConversationDirectionId;
     constraintsText: string;
     derivedFromScript: boolean;
-  }) => void;
+  }) => Promise<boolean>;
   onSelectEntry: (entryId: string | null) => void;
   onDraftChange: MediaMapPanelProps["onDraftChange"];
   onGenerationScopeChange: MediaMapPanelProps["onGenerationScopeChange"];
@@ -76,6 +79,73 @@ type BuildBrollPanelArgs = {
   onMarkAwaitingResult: () => void;
   onClearRequestState: () => void;
   onAttachResultFromUrl: () => void;
+};
+
+type BuildImageMapPanelArgs = {
+  panelTitle: string;
+  manualOnly: boolean;
+  entries: ImageMapPanelProps["entries"];
+  selectedEntryId: string | null;
+  draftAnchor: string;
+  draftDescription: string;
+  draftStylePreset: string;
+  draftIntent: string;
+  draftSourceType: string;
+  draftVisualPriority: ImageMapPanelProps["draftVisualPriority"];
+  draftVisualType: ImageMapPanelProps["draftVisualType"];
+  draftSectionIntentNote: string;
+  draftPlacementHint: string;
+  saveState: ImageMapPanelProps["saveState"];
+  saveError: string | null;
+  exportMessage: string | null;
+  activeVisualProvider: ImageMapPanelProps["activeVisualProvider"];
+  visualProviderOptions: ImageMapPanelProps["visualProviderOptions"];
+  visualProviderOverride: ImageMapPanelProps["visualProviderOverride"];
+  candidateCards: ImageMapPanelProps["candidateCards"];
+  candidateGenerateBusy: boolean;
+  candidateGenerateError: string | null;
+  candidateSelectBusy: boolean;
+  candidateSelectionError: string | null;
+  anchorStatusLabel: string | null;
+  anchorStatusTone: ImageMapPanelProps["anchorStatusTone"];
+  anchorStatusDetail: string | null;
+  reanchorMode: boolean;
+  reanchorBusy: boolean;
+  reanchorDisabledReason: string | null;
+  nearestRepairAvailable: boolean;
+  reanchorError: string | null;
+  reanchorScriptSourceLabel: ImageMapPanelProps["reanchorScriptSourceLabel"];
+  reanchorScriptHint: ImageMapPanelProps["reanchorScriptHint"];
+  reanchorScriptLoading: boolean;
+  reanchorParagraphs: ImageMapPanelProps["reanchorParagraphs"];
+  activeAnchorLabel: string | null;
+  disabled: boolean;
+  onSelectEntry: (entryId: string | null) => void;
+  onDraftAnchorChange: (value: string) => void;
+  onDraftDescriptionChange: (value: string) => void;
+  onDraftStylePresetChange: (value: string) => void;
+  onDraftIntentChange: (value: string) => void;
+  onDraftSourceTypeChange: (value: string) => void;
+  onDraftVisualPriorityChange: (value: string) => void;
+  onDraftVisualTypeChange: (value: string) => void;
+  onDraftSectionIntentNoteChange: (value: string) => void;
+  onDraftPlacementHintChange: (value: string) => void;
+  onCreateEntry: () => void;
+  onDuplicateEntry: () => void;
+  onDeleteEntry: () => void;
+  onSeedFromScript: () => void;
+  onGenerateCandidates: (mode?: "ai" | "stock") => void;
+  onUploadAsset: (file: File) => void;
+  onSelectCandidate: (candidateId: string) => void;
+  onCopyExport: () => void;
+  onDownloadExport: () => void;
+  onVisualProviderOverrideChange: ImageMapPanelProps["onVisualProviderOverrideChange"];
+  onStartReanchor: () => void;
+  onRepairNearestParagraph: () => void;
+  onConvertToGlobalVisual: () => void;
+  onLeaveOrphaned: () => void;
+  onCancelReanchor: () => void;
+  onPickReanchor: (selection: ImageMapScriptSelection) => void;
 };
 
 type BuildReferenceClipPanelArgs = {
@@ -151,7 +221,7 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
   return {
     beats: args.beats,
     selectedBeatId: args.selectedBeatId,
-    coverageStrength: args.coverageStrength,
+    coverageStrength: args.coverageStrength ?? null,
     saveState: args.saveState,
     saveError: args.saveError,
     message: args.message,
@@ -177,6 +247,75 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     onMarkAwaitingResult: args.onMarkAwaitingResult,
     onClearRequestState: args.onClearRequestState,
     onAttachResultFromUrl: args.onAttachResultFromUrl,
+  };
+}
+
+export function buildImageMapPanelProps(args: BuildImageMapPanelArgs): ImageMapPanelProps {
+  return {
+    panelTitle: args.panelTitle,
+    manualOnly: args.manualOnly,
+    entries: args.entries,
+    selectedEntryId: args.selectedEntryId,
+    draftAnchor: args.draftAnchor,
+    draftDescription: args.draftDescription,
+    draftStylePreset: args.draftStylePreset,
+    draftIntent: args.draftIntent,
+    draftSourceType: args.draftSourceType,
+    draftVisualPriority: args.draftVisualPriority,
+    draftVisualType: args.draftVisualType,
+    draftSectionIntentNote: args.draftSectionIntentNote,
+    draftPlacementHint: args.draftPlacementHint,
+    saveState: args.saveState,
+    saveError: args.saveError,
+    exportMessage: args.exportMessage,
+    activeVisualProvider: args.activeVisualProvider,
+    visualProviderOptions: args.visualProviderOptions,
+    visualProviderOverride: args.visualProviderOverride,
+    candidateCards: args.candidateCards,
+    candidateGenerateBusy: args.candidateGenerateBusy,
+    candidateGenerateError: args.candidateGenerateError,
+    candidateSelectBusy: args.candidateSelectBusy,
+    candidateSelectionError: args.candidateSelectionError,
+    anchorStatusLabel: args.anchorStatusLabel,
+    anchorStatusTone: args.anchorStatusTone,
+    anchorStatusDetail: args.anchorStatusDetail,
+    reanchorMode: args.reanchorMode,
+    reanchorBusy: args.reanchorBusy,
+    reanchorDisabledReason: args.reanchorDisabledReason,
+    nearestRepairAvailable: args.nearestRepairAvailable,
+    reanchorError: args.reanchorError,
+    reanchorScriptSourceLabel: args.reanchorScriptSourceLabel,
+    reanchorScriptHint: args.reanchorScriptHint,
+    reanchorScriptLoading: args.reanchorScriptLoading,
+    reanchorParagraphs: args.reanchorParagraphs,
+    activeAnchorLabel: args.activeAnchorLabel,
+    disabled: args.disabled,
+    onSelectEntry: args.onSelectEntry,
+    onDraftAnchorChange: args.onDraftAnchorChange,
+    onDraftDescriptionChange: args.onDraftDescriptionChange,
+    onDraftStylePresetChange: args.onDraftStylePresetChange,
+    onDraftIntentChange: args.onDraftIntentChange,
+    onDraftSourceTypeChange: args.onDraftSourceTypeChange,
+    onDraftVisualPriorityChange: args.onDraftVisualPriorityChange,
+    onDraftVisualTypeChange: args.onDraftVisualTypeChange,
+    onDraftSectionIntentNoteChange: args.onDraftSectionIntentNoteChange,
+    onDraftPlacementHintChange: args.onDraftPlacementHintChange,
+    onCreateEntry: args.onCreateEntry,
+    onDuplicateEntry: args.onDuplicateEntry,
+    onDeleteEntry: args.onDeleteEntry,
+    onSeedFromScript: args.onSeedFromScript,
+    onGenerateCandidates: args.onGenerateCandidates,
+    onUploadAsset: args.onUploadAsset,
+    onSelectCandidate: args.onSelectCandidate,
+    onCopyExport: args.onCopyExport,
+    onDownloadExport: args.onDownloadExport,
+    onVisualProviderOverrideChange: args.onVisualProviderOverrideChange,
+    onStartReanchor: args.onStartReanchor,
+    onRepairNearestParagraph: args.onRepairNearestParagraph,
+    onConvertToGlobalVisual: args.onConvertToGlobalVisual,
+    onLeaveOrphaned: args.onLeaveOrphaned,
+    onCancelReanchor: args.onCancelReanchor,
+    onPickReanchor: args.onPickReanchor,
   };
 }
 

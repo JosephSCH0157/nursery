@@ -106,8 +106,10 @@ import { useImageMapWorkspace } from "../hooks/visuals/useImageMapWorkspace";
 import { useBrollWorkspace } from "../hooks/visuals/useBrollWorkspace";
 import { useReferenceClipWorkspace } from "../hooks/visuals/useReferenceClipWorkspace";
 import { useThumbnailWorkspace } from "../hooks/visuals/useThumbnailWorkspace";
+import { useMediaMapEntryActions } from "../hooks/visuals/useMediaMapEntryActions";
 import {
   buildBrollPlanPanelProps,
+  buildImageMapPanelProps,
   buildMediaMapPanelProps,
   buildReferenceClipPlanPanelProps,
 } from "../hooks/visuals/buildVisualsPanelProps";
@@ -227,9 +229,6 @@ import {
   inferReferenceClipSuitabilitySignals,
 } from "../lib/hearth-reference-clip-plan";
 import { resolveReferenceClipPlanForMediaMapBootstrap } from "../lib/hearth-reference-clip-bootstrap";
-import {
-  deriveMediaMapPurpose,
-} from "../lib/hearth-visual-purpose";
 import {
   advanceExternalRequestTracker,
   buildBrollBeatBrief,
@@ -3445,6 +3444,35 @@ export default function HearthShell({
     && scriptApprovalState.approvedScriptVersion > 0,
   );
   const approvedScriptVersion = hasApprovedScript ? scriptApprovalState.approvedScriptVersion : null;
+  const {
+    onAddMediaMapEntry,
+    onSaveMediaMapEntry,
+    onDeleteMediaMapEntry,
+    onActivateEpisodeMediaMap,
+  } = useMediaMapEntryActions({
+    episodePackage,
+    selectedMediaMapEntry,
+    approvedScriptVersion,
+    isMediaMapBusy,
+    mediaMapTypeDraft,
+    mediaMapAnchorModeDraft,
+    mediaMapAnchorTargetDraft,
+    mediaMapInOffsetDraft,
+    mediaMapDurationDraft,
+    mediaMapDescriptionDraft,
+    mediaMapIntentDraft,
+    mediaMapSourceStatusDraft,
+    mediaMapSourceAssetIdDraft,
+    mediaMapConfidenceDraft,
+    mediaMapOptionalDraft,
+    mediaMapCriticalDraft,
+    setIsMediaMapBusy,
+    setMediaMapSaveState,
+    setMediaMapSaveError,
+    setMediaMapMessage,
+    setSelectedMediaMapEntryId,
+    persistMediaMap,
+  });
   const approvedAtText = scriptApprovalState.approvedAt
     ? formatUpdatedAt(scriptApprovalState.approvedAt)
     : "Unknown";
@@ -7892,19 +7920,6 @@ export default function HearthShell({
     return { ok: true, episodePackage: savedEpisode.episodePackage };
   }
 
-  function createMediaMapEntryId(): string {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return `mm_${crypto.randomUUID()}`;
-    }
-    return `mm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-  }
-
-  function normalizeMediaMapNumber(text: string, fallback: number): number {
-    const parsed = Number(text);
-    if (!Number.isFinite(parsed)) return fallback;
-    return Math.max(0, parsed);
-  }
-
   function mapImageEntriesToMediaMapEntries(
     entries: EpisodeImageMapEntry[],
     nowIso: string,
@@ -9681,254 +9696,6 @@ export default function HearthShell({
       setMediaMapSaveError("Unable to build and apply the Episode Media Map.");
       setMediaMapSaveState("error");
       return false;
-    } finally {
-      setIsMediaMapBusy(false);
-    }
-  }
-
-  async function onAddMediaMapEntry() {
-    if (!episodePackage) return;
-    if (isMediaMapBusy) return;
-    const nowIso = new Date().toISOString();
-    const entry: EpisodeMediaMapEntry = {
-      id: createMediaMapEntryId(),
-      final_media_kind: "image",
-      purpose: "coverage",
-      anchor: {
-        mode: "phrase_match",
-        target: "",
-      },
-      timing: {
-        in_offset_sec: 0,
-        duration_sec: 6,
-      },
-      description: "",
-      intent: "establish_context",
-      source: {
-        status: "unresolved",
-        asset_id: null,
-      },
-      confidence: "medium",
-      fulfillment_status: "planned",
-      fulfillment_path: null,
-      optional: false,
-      critical: false,
-      stale: false,
-      created_at: nowIso,
-      updated_at: nowIso,
-    };
-    const nextMap: EpisodeMediaMap = {
-      ...episodePackage.media_map,
-      script_version_id: approvedScriptVersion ? String(approvedScriptVersion) : episodePackage.media_map.script_version_id,
-      status: "draft",
-      version: Math.max(1, episodePackage.media_map.version + 1),
-      entries: [...episodePackage.media_map.entries, entry],
-      generated_at: nowIso,
-    };
-    setIsMediaMapBusy(true);
-    setMediaMapSaveState("saving");
-    setMediaMapSaveError(null);
-    try {
-      const saved = await persistMediaMap({
-        map: nextMap,
-        eventName: "hearth.media_map.entry_created.v1",
-        eventPayload: { entry_id: entry.id },
-      });
-      if (!saved.ok) {
-        setMediaMapSaveError(saved.error);
-        setMediaMapSaveState("error");
-        return;
-      }
-      setSelectedMediaMapEntryId(entry.id);
-      setMediaMapSaveState("saved");
-      setMediaMapMessage("Media map entry created.");
-    } catch {
-      setMediaMapSaveError("Unable to create media map entry.");
-      setMediaMapSaveState("error");
-    } finally {
-      setIsMediaMapBusy(false);
-    }
-  }
-
-  async function onSaveMediaMapEntry() {
-    if (!episodePackage || !selectedMediaMapEntry) return;
-    if (isMediaMapBusy) return;
-    const nowIso = new Date().toISOString();
-    const nextFinalMediaKind = (
-      mediaMapTypeDraft === "b_roll" || mediaMapTypeDraft === "contextual_data_composite"
-        ? mediaMapTypeDraft
-        : "image"
-    );
-    const nextEntry: EpisodeMediaMapEntry = {
-      ...selectedMediaMapEntry,
-      final_media_kind: nextFinalMediaKind,
-      purpose: deriveMediaMapPurpose({
-        finalMediaKind: nextFinalMediaKind,
-        intent: mediaMapIntentDraft.trim(),
-        description: mediaMapDescriptionDraft.trim(),
-        anchorTarget: mediaMapAnchorTargetDraft.trim(),
-      }),
-      anchor: {
-        mode: (
-          mediaMapAnchorModeDraft === "line_anchor"
-          || mediaMapAnchorModeDraft === "phrase_match"
-          || mediaMapAnchorModeDraft === "speaker_turn"
-          || mediaMapAnchorModeDraft === "section_marker"
-          || mediaMapAnchorModeDraft === "absolute_time"
-            ? mediaMapAnchorModeDraft
-            : "phrase_match"
-        ),
-        target: mediaMapAnchorTargetDraft.trim(),
-      },
-      timing: {
-        in_offset_sec: normalizeMediaMapNumber(mediaMapInOffsetDraft, selectedMediaMapEntry.timing.in_offset_sec),
-        duration_sec: normalizeMediaMapNumber(mediaMapDurationDraft, selectedMediaMapEntry.timing.duration_sec),
-      },
-      description: mediaMapDescriptionDraft.trim(),
-      intent: mediaMapIntentDraft.trim(),
-      source: {
-        status: (
-          mediaMapSourceStatusDraft === "selected"
-          || mediaMapSourceStatusDraft === "attached"
-            ? mediaMapSourceStatusDraft
-            : "unresolved"
-        ),
-        asset_id: mediaMapSourceAssetIdDraft.trim() || null,
-      },
-      confidence: (
-        mediaMapConfidenceDraft === "high"
-        || mediaMapConfidenceDraft === "low"
-          ? mediaMapConfidenceDraft
-          : "medium"
-      ),
-      fulfillment_status: (
-        mediaMapSourceStatusDraft === "selected" || mediaMapSourceStatusDraft === "attached"
-          ? "resolved"
-          : selectedMediaMapEntry.fulfillment_status
-      ),
-      fulfillment_path: (
-        nextFinalMediaKind === "b_roll"
-          ? "motion_broll"
-          : nextFinalMediaKind === "contextual_data_composite"
-            ? "reference_clip"
-            : "image"
-      ),
-      optional: mediaMapOptionalDraft,
-      critical: mediaMapCriticalDraft,
-      stale: false,
-      updated_at: nowIso,
-    };
-    const nextMap: EpisodeMediaMap = {
-      ...episodePackage.media_map,
-      script_version_id: approvedScriptVersion ? String(approvedScriptVersion) : episodePackage.media_map.script_version_id,
-      status: (
-        episodePackage.media_map.status === "activated"
-        || episodePackage.media_map.status === "fulfilling"
-        || episodePackage.media_map.status === "fulfilled"
-      )
-        ? "needs_attention"
-        : episodePackage.media_map.status,
-      version: Math.max(1, episodePackage.media_map.version + 1),
-      entries: episodePackage.media_map.entries.map((entry) => (entry.id === selectedMediaMapEntry.id ? nextEntry : entry)),
-      generated_at: nowIso,
-    };
-    setIsMediaMapBusy(true);
-    setMediaMapSaveState("saving");
-    setMediaMapSaveError(null);
-    try {
-      const saved = await persistMediaMap({
-        map: nextMap,
-        eventName: "hearth.media_map.entry_updated.v1",
-        eventPayload: { entry_id: selectedMediaMapEntry.id },
-      });
-      if (!saved.ok) {
-        setMediaMapSaveError(saved.error);
-        setMediaMapSaveState("error");
-        return;
-      }
-      setMediaMapSaveState("saved");
-      setMediaMapMessage("Media map entry saved.");
-    } catch {
-      setMediaMapSaveError("Unable to save media map entry.");
-      setMediaMapSaveState("error");
-    } finally {
-      setIsMediaMapBusy(false);
-    }
-  }
-
-  async function onDeleteMediaMapEntry() {
-    if (!episodePackage || !selectedMediaMapEntry) return;
-    if (isMediaMapBusy) return;
-    if (!window.confirm("Delete this media map entry?")) return;
-    const nextEntries = episodePackage.media_map.entries.filter((entry) => entry.id !== selectedMediaMapEntry.id);
-    const nextMap: EpisodeMediaMap = {
-      ...episodePackage.media_map,
-      status: (
-        episodePackage.media_map.status === "activated"
-        || episodePackage.media_map.status === "fulfilling"
-        || episodePackage.media_map.status === "fulfilled"
-      )
-        ? "needs_attention"
-        : episodePackage.media_map.status,
-      version: Math.max(1, episodePackage.media_map.version + 1),
-      entries: nextEntries,
-      generated_at: new Date().toISOString(),
-    };
-    setIsMediaMapBusy(true);
-    setMediaMapSaveState("saving");
-    setMediaMapSaveError(null);
-    try {
-      const saved = await persistMediaMap({
-        map: nextMap,
-        eventName: "hearth.media_map.entry_deleted.v1",
-        eventPayload: { entry_id: selectedMediaMapEntry.id },
-      });
-      if (!saved.ok) {
-        setMediaMapSaveError(saved.error);
-        setMediaMapSaveState("error");
-        return;
-      }
-      setSelectedMediaMapEntryId(nextEntries[0]?.id ?? null);
-      setMediaMapSaveState("saved");
-      setMediaMapMessage("Media map entry removed.");
-    } catch {
-      setMediaMapSaveError("Unable to delete media map entry.");
-      setMediaMapSaveState("error");
-    } finally {
-      setIsMediaMapBusy(false);
-    }
-  }
-
-  async function onActivateEpisodeMediaMap() {
-    if (!episodePackage) return;
-    if (isMediaMapBusy) return;
-    const activated = activateEpisodeMediaMapForFulfillment({
-      ...episodePackage.media_map,
-      script_version_id: approvedScriptVersion ? String(approvedScriptVersion) : episodePackage.media_map.script_version_id,
-    });
-    setIsMediaMapBusy(true);
-    setMediaMapSaveState("saving");
-    setMediaMapSaveError(null);
-    try {
-      const saved = await persistMediaMap({
-        map: activated,
-        eventName: "hearth.media_map.activated.v1",
-        eventPayload: {
-          entry_count: activated.entries.length,
-          script_version_id: activated.script_version_id,
-          queued_count: activated.entries.filter((entry) => entry.fulfillment_status === "queued").length,
-        },
-      });
-      if (!saved.ok) {
-        setMediaMapSaveError(saved.error);
-        setMediaMapSaveState("error");
-        return;
-      }
-      setMediaMapSaveState("saved");
-      setMediaMapMessage("Media plan activated. Beats routed to image, motion B-roll, and Reference Clip fulfillment paths.");
-    } catch {
-      setMediaMapSaveError("Unable to activate Episode Media Map.");
-      setMediaMapSaveState("error");
     } finally {
       setIsMediaMapBusy(false);
     }
@@ -11899,16 +11666,11 @@ export default function HearthShell({
       onSelectedLaunchVariantNotesChange: setLaunchVariantNotesDraft,
       onSaveLaunchVariant: () => void onSaveLaunchVariant(),
     };
-    const mediaMapPanelProps = {
+    const mediaMapPanelProps = buildMediaMapPanelProps({
       entries: mediaMapEntries,
       selectedEntryId: selectedMediaMapEntryId,
-      scriptVersionLabel: approvedScriptVersion ? `v${approvedScriptVersion}` : "none",
-      mapStatus: mediaMap?.status ?? "draft",
-      stale: Boolean(
-        mediaMap?.script_version_id
-        && approvedScriptVersion
-        && mediaMap.script_version_id !== String(approvedScriptVersion)
-      ),
+      approvedScriptVersion,
+      mediaMap,
       saveState: mediaMapSaveState,
       saveError: mediaMapSaveError,
       message: mediaMapMessage,
@@ -11928,16 +11690,10 @@ export default function HearthShell({
         optional: mediaMapOptionalDraft,
         critical: mediaMapCriticalDraft,
       },
-      conversation: {
-        state: mediaMapConversationState,
-        seed: mediaMapConversationSeed,
-        error: mediaMapConversationError,
-        onBuildAndApply: (args: {
-          directionId: MediaMapConversationDirectionId;
-          constraintsText: string;
-          derivedFromScript: boolean;
-        }) => onBuildAndApplyMediaMapFromConversation(args),
-      },
+      conversationState: mediaMapConversationState,
+      conversationSeed: mediaMapConversationSeed,
+      conversationError: mediaMapConversationError,
+      onBuildAndApply: onBuildAndApplyMediaMapFromConversation,
       onSelectEntry: setSelectedMediaMapEntryId,
       onDraftChange: onMediaMapDraftChange,
       onGenerationScopeChange: onMediaMapGenerationScopeChange,
@@ -11946,8 +11702,8 @@ export default function HearthShell({
       onAddEntry: () => void onAddMediaMapEntry(),
       onSaveEntry: () => void onSaveMediaMapEntry(),
       onDeleteEntry: () => void onDeleteMediaMapEntry(),
-    };
-    const imageMapPanelProps = {
+    });
+    const imageMapPanelProps = buildImageMapPanelProps({
       panelTitle: "Timeline Images",
       manualOnly: false,
       entries: imageMapEntries,
@@ -12012,8 +11768,8 @@ export default function HearthShell({
       onLeaveOrphaned: () => void onLeaveImageMapOrphaned(),
       onCancelReanchor: onCancelImageMapReanchor,
       onPickReanchor: (selection: ImageMapScriptSelection) => void onPickImageMapReanchor(selection),
-    };
-    const brollPlanPanelProps = {
+    });
+    const brollPlanPanelProps = buildBrollPlanPanelProps({
       beats: brollBeats,
       selectedBeatId: selectedBrollBeatId,
       coverageStrength: brollPlan?.coverage_strength ?? null,
@@ -12066,8 +11822,8 @@ export default function HearthShell({
       onMarkAwaitingResult: () => void onMarkBrollRequestState("awaiting_result"),
       onClearRequestState: () => void onClearBrollRequestState(),
       onAttachResultFromUrl: () => void onAttachBrollResultFromUrl(),
-    };
-    const referenceClipPlanPanelProps = {
+    });
+    const referenceClipPlanPanelProps = buildReferenceClipPlanPanelProps({
       entries: referenceClipEntries,
       selectedEntryId: selectedReferenceClipEntryId,
       saveState: referenceClipSaveState,
@@ -12124,7 +11880,7 @@ export default function HearthShell({
       onMarkAwaitingResult: () => void onMarkReferenceClipRequestState("awaiting_result"),
       onClearRequestState: () => void onClearReferenceClipRequestState(),
       onAttachResultFromUrl: () => void onAttachReferenceClipResultFromUrl(),
-    };
+    });
     const metadataPanelProps = {
       titles: metadataTitlesDraft,
       tags: metadataTagsDraft,
