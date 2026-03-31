@@ -307,6 +307,7 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
                       value={props.activePromptPack.prompt}
                       readOnly
                       rows={5}
+                      aria-label="Generated prompt"
                       className="hs-thumb-prompt-card-text"
                     />
                     {props.activePromptPack.negative ? (
@@ -314,6 +315,7 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
                         value={props.activePromptPack.negative}
                         readOnly
                         rows={3}
+                        aria-label="Generated negative prompt"
                         className="hs-thumb-prompt-card-text is-secondary"
                       />
                     ) : null}

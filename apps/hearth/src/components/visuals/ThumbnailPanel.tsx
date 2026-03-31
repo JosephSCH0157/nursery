@@ -1055,6 +1055,7 @@ export default function ThumbnailPanel({
                       value={variant.pack.prompt}
                       readOnly
                       rows={6}
+                      aria-label="Generated prompt"
                       className="hs-thumb-prompt-card-text"
                     />
                     {variant.pack.negative ? (
@@ -1062,6 +1063,7 @@ export default function ThumbnailPanel({
                         value={variant.pack.negative}
                         readOnly
                         rows={3}
+                        aria-label="Generated negative prompt"
                         className="hs-thumb-prompt-card-text is-secondary"
                       />
                     ) : null}

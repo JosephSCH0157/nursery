@@ -236,6 +236,7 @@ export default function MetadataPanel({
         <div className="hs-meta-preview-header">
           <div className="hs-meta-section-title">Preview</div>
           <select
+            aria-label="Preview format"
             value={previewMode}
             onChange={(event) => onPreviewModeChange(event.target.value as MetadataPreviewMode)}
             disabled={disabled}

@@ -70,6 +70,7 @@ type PromptPackContext = {
   aspectRatio?: string | null;
   usedFallback?: boolean;
   notes?: string | null;
+  intendedUse?: "thumbnail" | "reference_clip";
 };
 
 type NormalizedVisualBeat = {
@@ -80,6 +81,10 @@ type NormalizedVisualBeat = {
   timeOfDay: string | null;
   location: string | null;
   cuePhrase: string | null;
+  scenePurpose: string;
+  compositionHint: string;
+  realismTarget: string;
+  useGuidance: string;
   styleHints: string[];
   avoid: string[];
 };
@@ -177,6 +182,10 @@ function limitWords(value: string, maxWords: number): string {
   return `${trimmed}.`;
 }
 
+function sentenceToClause(value: string | null | undefined, fallback: string): string {
+  return toSentence(value, fallback).replace(/[.!?]$/, "");
+}
+
 function toSentence(value: string | null | undefined, fallback: string): string {
   const cleaned = cleanText(value)
     ?.replace(/^[,.;:!?-]+/, "")
@@ -201,6 +210,85 @@ function extractLocation(value: string): string | null {
   return explicit?.[1]?.trim() ?? null;
 }
 
+function inferScenePurpose(source: string): string {
+  const normalized = source.toLowerCase();
+  if (/\b(vs|versus|split|comparison|contrast|framing|frame|outlet|coverage)\b/.test(normalized)) {
+    return "Show the same story through two visibly different editorial reads";
+  }
+  if (/\b(after dark|escalation|tear gas|riot|arrest|police|clash|chaos)\b/.test(normalized)) {
+    return "Emphasize the turn from public gathering to visible escalation";
+  }
+  if (/\b(map|county|region|geographic|location)\b/.test(normalized)) {
+    return "Lead with geographic context and make the location instantly legible";
+  }
+  if (/\b(chart|line chart|bar chart|timeline|percent|drop|increase|data|stat)\b/.test(normalized)) {
+    return "Translate the spoken data point into an immediately readable editorial visual";
+  }
+  return "Support the spoken point with one grounded editorial image";
+}
+
+function inferCompositionHint(source: string, intendedUse: PromptPackContext["intendedUse"]): string {
+  const normalized = source.toLowerCase();
+  if (/\b(vs|versus|split|comparison|contrast|framing)\b/.test(normalized)) {
+    return intendedUse === "thumbnail"
+      ? "Use a strong side-to-side comparison with one dominant focal side and a clean text pocket"
+      : "Use a clear split composition so the comparison reads immediately under narration";
+  }
+  if (/\b(map|county|region|geographic)\b/.test(normalized)) {
+    return "Use a simple map-first composition with one highlighted region and uncluttered supporting context";
+  }
+  if (/\b(chart|timeline|percent|data|stat|line chart|bar chart)\b/.test(normalized)) {
+    return "Keep the chart or data layer prominent, with the real-world context supporting it rather than competing with it";
+  }
+  if (/\b(after dark|escalation|tear gas|arrest|police|clash|chaos)\b/.test(normalized)) {
+    return "Use a foreground subject with visible environmental tension and readable depth behind them";
+  }
+  return intendedUse === "thumbnail"
+    ? "Keep one dominant focal subject, strong depth separation, and room for a short overlay"
+    : "Keep one clear focal subject and a readable background context";
+}
+
+function inferRealismTarget(source: string): string {
+  const normalized = source.toLowerCase();
+  if (/\b(illustration|illustrated|marker|pencil|oil|paint|painting|drawing)\b/.test(normalized)) {
+    return "editorial illustration";
+  }
+  if (/\b(3d|render|animation)\b/.test(normalized)) {
+    return "polished editorial render";
+  }
+  if (/\b(studio|photography|photo)\b/.test(normalized)) {
+    return "editorial photography";
+  }
+  if (/\b(cinematic|documentary|realism|realistic|photoreal)\b/.test(normalized)) {
+    return "photoreal documentary still";
+  }
+  return "photoreal editorial still";
+}
+
+function inferUseGuidance(intendedUse: PromptPackContext["intendedUse"]): string {
+  if (intendedUse === "thumbnail") {
+    return "The frame should stay readable at thumbnail size and leave room for a short text overlay";
+  }
+  return "The frame should support spoken narration clearly and hold as an editorial reference visual";
+}
+
+function buildSparseSceneFallback(intendedUse: PromptPackContext["intendedUse"]): string {
+  return intendedUse === "thumbnail"
+    ? "A current-events scene with one clear focal subject, readable contrast, and background context that supports the click"
+    : "A current-events reference visual with one clear focal subject and enough background context to explain the spoken point";
+}
+
+function buildProviderSafeStyleTags(beat: NormalizedVisualBeat): string[] {
+  return dedupeStrings([
+    beat.realismTarget,
+    beat.timeOfDay ? `${beat.timeOfDay} lighting` : "",
+    /\bcomparison\b|\bsplit\b/i.test(beat.compositionHint) ? "split composition" : "",
+    /\bmap\b/i.test(beat.compositionHint) ? "map-first layout" : "",
+    /\bchart\b|\bdata\b/i.test(beat.compositionHint) ? "editorial data composite" : "",
+    ...beat.styleHints,
+  ]).slice(0, 6);
+}
+
 function normalizeVisualBeat(args: {
   primaryText: string;
   secondaryText?: string | null;
@@ -211,6 +299,7 @@ function normalizeVisualBeat(args: {
   labels?: readonly string[] | null;
   cuePhrase?: string | null;
   purpose?: string | null;
+  intendedUse?: PromptPackContext["intendedUse"];
 }): NormalizedVisualBeat {
   const primarySegments = splitSegments(args.primaryText);
   const secondarySegments = splitSegments(args.secondaryText);
@@ -226,20 +315,36 @@ function normalizeVisualBeat(args: {
     : cleanText(args.purpose)
       ? `${cleanText(args.purpose)} with a readable visual hierarchy.`
       : "Keep the visual hierarchy clean and the editorial read immediate.";
+  const intendedUse = args.intendedUse ?? "thumbnail";
   const combined = dedupeStrings([
     subject,
     ...sceneSegments,
     cleanText(args.secondaryText) ?? "",
+    cleanText(args.purpose) ?? "",
+    title ?? "",
   ]).join(" ");
+  const scenePurpose = inferScenePurpose(combined);
+  const compositionHint = inferCompositionHint(combined, intendedUse);
+  const realismTarget = inferRealismTarget([
+    cleanText(args.style),
+    tone,
+    combined,
+  ].filter(Boolean).join(" "));
+  const useGuidance = inferUseGuidance(intendedUse);
+  const sparseSceneFallback = buildSparseSceneFallback(intendedUse);
 
   return {
-    scene: limitWords(combined || subject, 55),
+    scene: limitWords(combined || subject || sparseSceneFallback, 55),
     subject: limitWords(subject, 20),
     framing,
     tone,
     timeOfDay: extractTimeOfDay(combined),
     location: cleanText(args.location) ?? extractLocation(combined),
     cuePhrase: cleanText(args.cuePhrase),
+    scenePurpose,
+    compositionHint,
+    realismTarget,
+    useGuidance,
     styleHints: dedupeStrings([
       cleanText(args.style) ?? "",
       tone,
@@ -280,11 +385,15 @@ function buildOpenArtPrompt(beat: NormalizedVisualBeat, context: PromptPackConte
   const aspectRatio = resolveAspectRatio(context, VISUAL_PROVIDER_PROFILES.openart);
   const prompt = limitWords([
     toSentence(beat.scene, "Editorial documentary scene with one unmistakable focal subject."),
+    `Render it as a ${sentenceToClause(beat.realismTarget, "photoreal documentary still")}.`,
+    toSentence(beat.scenePurpose, "Support the spoken point with one grounded editorial frame."),
     beat.location ? `Set it in ${beat.location}.` : "",
     beat.timeOfDay ? `Play the light as ${beat.timeOfDay}.` : "",
-    toSentence(beat.framing, "Keep the composition legible and editorial."),
-    "Photoreal documentary still, strong focal separation, layered foreground/background depth, clean negative space for a short overlay, no recognizable outlet branding.",
-  ].filter(Boolean).join(" "), 105);
+    toSentence(beat.compositionHint, "Keep the composition legible and editorial."),
+    toSentence(beat.useGuidance, "Leave a clean read for editorial use."),
+    beat.cuePhrase ? `If text appears anywhere in-scene, keep it subordinate to the cue phrase "${beat.cuePhrase}".` : "",
+    "Believable faces and hands, natural documentary textures, layered foreground/background depth, no recognizable outlet branding or chyron graphics.",
+  ].filter(Boolean).join(" "), 118);
 
   return {
     provider: "openart",
@@ -295,19 +404,22 @@ function buildOpenArtPrompt(beat: NormalizedVisualBeat, context: PromptPackConte
       "distorted hands",
       "mangled faces",
       "muddy composition",
+      "text artifacts",
+      "oversaturated color grading",
+      "plastic skin",
+      "collage layout",
+      "fake broadcast logos",
       "unreadable chart text",
     ]).join(", "),
-    styleTags: dedupeStrings([
-      "documentary realism",
-      "cinematic editorial",
-      ...beat.styleHints,
-    ]).slice(0, 5),
+    styleTags: buildProviderSafeStyleTags(beat),
     aspectRatio,
     notes: buildNotes({
       providerLabel: "OpenArt",
       usedFallback: context.usedFallback,
       extraNotes: context.notes,
-      providerHint: "Descriptive pack with negative prompt and optional style tags.",
+      providerHint: context.intendedUse === "thumbnail"
+        ? "Use this as a production-ready cinematic thumbnail prompt."
+        : "Use this as a production-ready editorial reference-image prompt.",
     }),
   };
 }
@@ -315,13 +427,16 @@ function buildOpenArtPrompt(beat: NormalizedVisualBeat, context: PromptPackConte
 function buildGptImagesPrompt(beat: NormalizedVisualBeat, context: PromptPackContext): PromptPack {
   const aspectRatio = resolveAspectRatio(context, VISUAL_PROVIDER_PROFILES.gpt_images);
   const prompt = limitWords([
-    `An editorial image showing ${beat.scene}.`,
+    `Create a ${beat.realismTarget} for a ${context.intendedUse === "reference_clip" ? "podcast reference visual" : "podcast thumbnail concept"}.`,
+    `Show ${sentenceToClause(beat.scene, "a current-events scene with one clear focal subject")}.`,
     beat.location ? `Place it in ${beat.location}.` : "",
     beat.timeOfDay ? `Let the frame read as ${beat.timeOfDay}.` : "",
-    `The main subject is ${beat.subject}.`,
-    toSentence(beat.framing, "Keep the hierarchy simple and readable."),
-    "Keep it realistic, uncluttered, and free of logos or branded lower-thirds.",
-  ].filter(Boolean).join(" "), 110);
+    `Make the main subject ${sentenceToClause(beat.subject, "one clear focal subject")}.`,
+    toSentence(beat.scenePurpose, "Support the spoken point clearly."),
+    toSentence(beat.compositionHint, "Keep the hierarchy simple and readable."),
+    toSentence(beat.useGuidance, "Keep it clean and readable."),
+    "Keep it realistic, uncluttered, and free of logos, branded lower-thirds, or fake broadcast bugs.",
+  ].filter(Boolean).join(" "), 118);
 
   return {
     provider: "gpt_images",
@@ -331,7 +446,7 @@ function buildGptImagesPrompt(beat: NormalizedVisualBeat, context: PromptPackCon
       providerLabel: "GPT Images",
       usedFallback: context.usedFallback,
       extraNotes: context.notes,
-      providerHint: "Natural-language pack tuned for direct paste.",
+      providerHint: "Natural-language instruction pack tuned for direct paste.",
     }),
   };
 }
@@ -340,11 +455,14 @@ function buildGenericPrompt(beat: NormalizedVisualBeat, context: PromptPackConte
   const aspectRatio = resolveAspectRatio(context, VISUAL_PROVIDER_PROFILES.generic);
   const prompt = limitWords([
     toSentence(beat.scene, "Editorial still with a clear focal subject."),
-    toSentence(beat.framing, "Keep the frame readable at a glance."),
+    toSentence(beat.scenePurpose, "Support the spoken point clearly."),
+    toSentence(beat.compositionHint, "Keep the frame readable at a glance."),
     beat.location ? `Location cue: ${beat.location}.` : "",
     beat.timeOfDay ? `Time cue: ${beat.timeOfDay}.` : "",
+    toSentence(beat.useGuidance, "Keep it readable for editorial use."),
+    `Aim for a ${sentenceToClause(beat.realismTarget, "photoreal editorial still")}.`,
     "Avoid logos, watermarks, and branded graphics.",
-  ].filter(Boolean).join(" "), 90);
+  ].filter(Boolean).join(" "), 98);
 
   return {
     provider: "generic",
@@ -473,11 +591,13 @@ export function buildThumbnailPromptPackVariants(
         tone: input.tone,
         style: variant.style.replace(/_/g, " "),
         cuePhrase: variant.tagline ?? null,
+        intendedUse: "thumbnail",
       });
       const pack = provider.profile.buildPrompt(normalizedBeat, {
         aspectRatio: input.aspectRatio,
         usedFallback: provider.usedFallback,
         notes: buildThumbnailVariantNotes(base.notes, variant.tagline),
+        intendedUse: "thumbnail",
       });
       return {
         ...variant,
@@ -529,11 +649,13 @@ export function buildReferenceClipPromptPack(args: {
     labels: brief.keywords,
     cuePhrase: brief.chart.emphasis_key,
     purpose: brief.framing_mode,
+    intendedUse: "reference_clip",
   });
   const pack = provider.profile.buildPrompt(normalizedBeat, {
     aspectRatio: args.aspectRatio ?? "16:9",
     usedFallback: provider.usedFallback,
     notes: buildReferenceClipNotes(brief),
+    intendedUse: "reference_clip",
   });
   return { pack, provider, brief };
 }
