@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, type Dispatch, type MutableRefObject, t
 import type { Draft } from "../domain/draft";
 import type { Revision } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
-import { dedupeDraftListById } from "../lib/hearth-draft-hydration";
 import { listHearthWorkpieces, type HearthWorkpieceSummary } from "../lib/hearth-workpieces";
 import type { LocalSessionStore } from "../storage/local-session-store";
 
@@ -32,6 +31,7 @@ type UseHearthInitialLoaderArgs = {
   ) => Promise<Draft | null>;
   sessionStore: LocalSessionStore;
   store: { listDrafts: () => Promise<Draft[]> };
+  dedupeDraftListById: (input: Draft[]) => Draft[];
   workpieceIdRef: MutableRefObject<string | null>;
   activeDraftRef: MutableRefObject<Draft | null>;
   intakeResetKeyRef: MutableRefObject<string | null>;
@@ -48,7 +48,7 @@ type UseHearthInitialLoaderArgs = {
   setFocusTab: Dispatch<SetStateAction<"draft" | "planning" | "sources" | "revisions">>;
   setWorkpieceId: Dispatch<SetStateAction<string | null>>;
   setActiveDraft: Dispatch<SetStateAction<Draft | null>>;
-  setDraftSnapshot: Dispatch<SetStateAction<{ title: string; body: string } | null>>;
+  clearDraftSnapshot: () => void;
   setRevisions: Dispatch<SetStateAction<Revision[]>>;
   setSelectedRevision: Dispatch<SetStateAction<Revision | null>>;
 };
@@ -68,7 +68,7 @@ export function useHearthInitialLoader(args: UseHearthInitialLoaderArgs) {
           args.setDrafts([]);
           args.setWorkpieceId(null);
           args.setActiveDraft(null);
-          args.setDraftSnapshot(null);
+          args.clearDraftSnapshot();
           args.setRevisions([]);
           args.setSelectedRevision(null);
         }
@@ -87,7 +87,7 @@ export function useHearthInitialLoader(args: UseHearthInitialLoaderArgs) {
       ]);
 
       args.setSession(storedSession);
-      const dedupedDrafts = dedupeDraftListById(list);
+      const dedupedDrafts = args.dedupeDraftListById(list);
       args.draftsRef.current = dedupedDrafts;
       args.setDrafts(dedupedDrafts);
       args.workpieceSummariesRef.current = loadedWorkpieces;
@@ -136,7 +136,7 @@ export function useHearthInitialLoader(args: UseHearthInitialLoaderArgs) {
       args.restoredCursorDraftIdRef.current = null;
       args.setWorkpieceId(null);
       args.setActiveDraft(null);
-      args.setDraftSnapshot(null);
+      args.clearDraftSnapshot();
       args.setRevisions([]);
       args.setSelectedRevision(null);
     } catch (err) {

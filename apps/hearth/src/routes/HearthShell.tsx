@@ -5628,120 +5628,39 @@ export default function HearthShell({
     workpieceId,
   ]);
 
-  const loadInitial = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      if (incomingBarStockIntakeRoute) {
-        const intakeResetKey = `${normalizeUuid(workspaceId) ?? resolveWorkspaceId() ?? "none"}:${routeProjectId ?? routeSparkId ?? "none"}`;
-        if (intakeResetKeyRef.current !== intakeResetKey) {
-          intakeResetKeyRef.current = intakeResetKey;
-          setSession(null);
-          restoredCursorDraftIdRef.current = null;
-          setWorkpieceSummaries([]);
-          setDrafts([]);
-          setWorkpieceId(null);
-          setActiveDraft(null);
-          setDraftSnapshot(null);
-          setRevisions([]);
-          setSelectedRevision(null);
-        }
-        return;
-      }
-
-      const workspace = normalizeUuid(workspaceId) ?? resolveWorkspaceId();
-      const [storedSession, list, loadedWorkpieces] = await Promise.all([
-        sessionStore.getSession(),
-        store.listDrafts(),
-        workspace
-          ? listHearthWorkpieces(workspace, {
-              includeArchived: Boolean(normalizeUuid(workpieceIdRef.current)),
-            }).catch(() => [] as HearthWorkpieceSummary[])
-          : Promise.resolve([] as HearthWorkpieceSummary[]),
-      ]);
-
-      setSession(storedSession);
-      const dedupedDrafts = dedupeDraftListById(list);
-      draftsRef.current = dedupedDrafts;
-      setDrafts(dedupedDrafts);
-      workpieceSummariesRef.current = loadedWorkpieces;
-      setWorkpieceSummaries(loadedWorkpieces);
-      setWorkpiecesError(null);
-
-      const tab = storedSession?.uiState?.selectedTab;
-      if (tab === "preview" || tab === "compare" || tab === "list") {
-        setRevisionView(tab);
-      }
-      if (tab === "draft" || tab === "planning" || tab === "sources" || tab === "revisions") {
-        setFocusTab(tab);
-      }
-
-      const candidateDraftIds: string[] = [];
-      const pushCandidateDraftId = (value: string | null | undefined) => {
-        const next = value?.trim();
-        if (!next || candidateDraftIds.includes(next)) return;
-        candidateDraftIds.push(next);
-      };
-
-      pushCandidateDraftId(storedSession?.activeDraftId ?? null);
-      pushCandidateDraftId(activeDraftRef.current?.id ?? null);
-
-      const explicitWorkpieceId = normalizeUuid(workpieceIdRef.current);
-      const resolvedWorkpieceId = explicitWorkpieceId
-        ?? normalizeUuid(storedSession?.activeWorkpieceId ?? null)
-        ?? candidateDraftIds
-          .map((draftId) => resolveWorkpieceIdForDraftId(draftId, {
-            drafts: dedupedDrafts,
-            workpieces: loadedWorkpieces,
-          }))
-          .find((value): value is string => Boolean(value))
-        ?? null;
-
-      if (resolvedWorkpieceId) {
-        await openWorkpieceInFocus(resolvedWorkpieceId, {
-          workspaceId: workspace,
-          drafts: dedupedDrafts,
-          workpieces: loadedWorkpieces,
-          preferredDraftId: storedSession?.activeDraftId ?? activeDraftRef.current?.id ?? null,
-        });
-        return;
-      }
-
-      restoredCursorDraftIdRef.current = null;
-      setWorkpieceId(null);
-      setActiveDraft(null);
-      setDraftSnapshot(null);
-      setRevisions([]);
-      setSelectedRevision(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load drafts.";
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [
+  useHearthInitialLoader({
+    initialLoadKey,
     incomingBarStockIntakeRoute,
-    openWorkpieceInFocus,
+    workspaceId,
     routeProjectId,
     routeSparkId,
+    normalizeUuid,
+    resolveWorkspaceId,
     resolveWorkpieceIdForDraftId,
+    openWorkpieceInFocus,
     sessionStore,
     store,
-    workspaceId,
-  ]);
-
-  const loadInitialRef = useRef<(() => Promise<void>) | null>(null);
-  const lastInitialLoadKeyRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    loadInitialRef.current = loadInitial;
-  }, [loadInitial]);
-
-  useEffect(() => {
-    if (lastInitialLoadKeyRef.current === initialLoadKey) return;
-    lastInitialLoadKeyRef.current = initialLoadKey;
-    void loadInitialRef.current?.();
-  }, [initialLoadKey]);
+    dedupeDraftListById,
+    workpieceIdRef,
+    activeDraftRef,
+    intakeResetKeyRef,
+    restoredCursorDraftIdRef,
+    draftsRef,
+    workpieceSummariesRef,
+    setIsLoading,
+    setError,
+    setSession,
+    setWorkpieceSummaries,
+    setDrafts,
+    setWorkpiecesError,
+    setRevisionView,
+    setFocusTab,
+    setWorkpieceId,
+    setActiveDraft,
+    clearDraftSnapshot: () => setDraftSnapshot(null),
+    setRevisions,
+    setSelectedRevision,
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
