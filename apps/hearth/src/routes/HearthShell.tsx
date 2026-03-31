@@ -120,6 +120,7 @@ import { useMediaMapSourcePreparation } from "../hooks/visuals/useMediaMapSource
 import { useImageMapViewActions } from "../hooks/visuals/useImageMapViewActions";
 import { useCanonicalImageMapScriptReader } from "../hooks/visuals/useCanonicalImageMapScriptReader";
 import { useVisualsPersistence } from "../hooks/visuals/useVisualsPersistence";
+import { useReleasePrepPackWorkspace } from "../hooks/visuals/useReleasePrepPackWorkspace";
 import {
   buildThumbnailPanelProps,
   buildBrollPlanPanelProps,
@@ -198,18 +199,11 @@ import ScriptSurface from "../views/surfaces/ScriptSurface";
 import VisualsSurface from "../views/surfaces/VisualsSurface";
 import WorkpieceTabBar from "../views/surfaces/WorkpieceTabBar";
 import {
-  readWorkpieceProductionArtifact,
-} from "../lib/hearth-production-repo";
-import {
   PRODUCTION_ACTION_LABEL,
   persistProductionArtifact as persistHearthProductionArtifact,
   runProductionAction,
   type ProductionAction,
 } from "../lib/hearth-production-actions";
-import {
-  parseReleasePrepPackSections,
-  type ReleasePrepSection,
-} from "../lib/hearth-release-prep-pack";
 import {
   loadThumbnailPreviewDataUrl,
   readEpisodePackageForWorkpiece,
@@ -2154,10 +2148,6 @@ export default function HearthShell({
     pendingChatHydrationKeyRef,
     chatHydrationSeqRef,
   } = useChatWorkspaceState<PendingAiProposal>();
-  const [latestReleasePrepRawText, setLatestReleasePrepRawText] = useState<string | null>(null);
-  const [latestReleasePrepSections, setLatestReleasePrepSections] = useState<ReleasePrepSection[]>([]);
-  const [releasePrepLoadState, setReleasePrepLoadState] = useState<"idle" | "loading" | "ready" | "missing" | "error">("idle");
-  const [releasePrepScriptVersion, setReleasePrepScriptVersion] = useState<number | null>(null);
   const [showManualDraft, setShowManualDraft] = useState(false);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [isVisualScriptMode, setIsVisualScriptMode] = useState(false);
@@ -3132,6 +3122,18 @@ export default function HearthShell({
   );
   const approvedScriptVersion = hasApprovedScript ? scriptApprovalState.approvedScriptVersion : null;
   const {
+    latestReleasePrepRawText,
+    latestReleasePrepSections,
+    releasePrepLoadState,
+    releasePrepScriptVersion,
+    loadLatestReleasePrepPack,
+    resetReleasePrepState,
+  } = useReleasePrepPackWorkspace({
+    workpieceId,
+    hasApprovedScript,
+    approvedScriptVersion,
+  });
+  const {
     persistThumbnailEpisodePackage,
     persistImageMapEntries,
     persistBrollPlan,
@@ -3918,7 +3920,7 @@ export default function HearthShell({
 
   useEffect(() => {
     workpieceIdRef.current = workpieceId;
-  }, [workpieceId]);
+  }, [resetReleasePrepState, workpieceId]);
 
   useEffect(() => {
     draftSnapshotRef.current = draftSnapshot;
@@ -4177,10 +4179,7 @@ export default function HearthShell({
       setReferenceClipSaveState("saved");
       setReferenceClipSaveError(null);
       setReferenceClipMessage(null);
-      setLatestReleasePrepRawText(null);
-      setLatestReleasePrepSections([]);
-      setReleasePrepLoadState("idle");
-      setReleasePrepScriptVersion(null);
+      resetReleasePrepState();
       artifactStateWorkpieceIdRef.current = episodeId || null;
     }
 
@@ -4256,58 +4255,6 @@ export default function HearthShell({
       return imageEntries[0]?.id ?? null;
     });
   }, [workpieceId]);
-
-  const loadLatestReleasePrepPack = useCallback(async (scriptVersion: number) => {
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId || !Number.isFinite(scriptVersion) || scriptVersion <= 0) {
-      setLatestReleasePrepRawText(null);
-      setLatestReleasePrepSections([]);
-      setReleasePrepLoadState("idle");
-      setReleasePrepScriptVersion(null);
-      return;
-    }
-
-    setReleasePrepLoadState("loading");
-    const loaded = await readWorkpieceProductionArtifact({
-      workpieceId: episodeId,
-      scriptVersion,
-      kind: "pack",
-    });
-    if (!loaded.ok) {
-      setLatestReleasePrepRawText(null);
-      setLatestReleasePrepSections([]);
-      setReleasePrepLoadState(loaded.reason === "not_found" ? "missing" : "error");
-      setReleasePrepScriptVersion(scriptVersion);
-      return;
-    }
-
-    const payload = loaded.payload;
-    const rawText = (
-      typeof payload === "object" && payload && !Array.isArray(payload)
-        ? readTrimmedString((payload as Record<string, unknown>).raw_text)
-        : null
-    ) ?? "";
-    setLatestReleasePrepRawText(rawText || null);
-    setLatestReleasePrepSections(parseReleasePrepPackSections(rawText));
-    setReleasePrepLoadState("ready");
-    setReleasePrepScriptVersion(scriptVersion);
-  }, [workpieceId]);
-
-  useEffect(() => {
-    if (!hasApprovedScript || !approvedScriptVersion) {
-      setLatestReleasePrepRawText(null);
-      setLatestReleasePrepSections([]);
-      setReleasePrepLoadState("idle");
-      setReleasePrepScriptVersion(null);
-      return;
-    }
-    // Avoid eager fetch spam for pack.json (often legitimately absent).
-    // We load on explicit Refresh or when release_prep_pack generation completes.
-    setLatestReleasePrepRawText(null);
-    setLatestReleasePrepSections([]);
-    setReleasePrepLoadState("idle");
-    setReleasePrepScriptVersion(approvedScriptVersion);
-  }, [approvedScriptVersion, hasApprovedScript]);
 
   const refreshReadyScripts = useCallback(async () => {
     const workspace = normalizeUuid(workspaceId);
