@@ -97,8 +97,10 @@ import {
 } from "../hooks/useChatWorkspace";
 import { useHearthAutosave } from "../hooks/useHearthAutosave";
 import { useApprovalFlow } from "../hooks/useApprovalFlow";
+import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
+import { useMetadataWorkspace } from "../hooks/visuals/useMetadataWorkspace";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
@@ -276,7 +278,6 @@ import type {
   EpisodeImageMapVisualType,
   EpisodeThumbnailVersion,
   EpisodeImageMapEntry,
-  EpisodeSeoTitle,
 } from "../lib/episode-package-v2";
 import {
   addImageMapEntry,
@@ -285,7 +286,6 @@ import {
   ensureBrollPlanV2,
   ensureReferenceClipPlanV2,
   ensureLaunchVariantsV2,
-  ensureSeoV2,
   normalizeSeoTags,
   removeImageMapEntry,
   resolvePrimarySeoTitle,
@@ -2632,14 +2632,6 @@ export default function HearthShell({
   const thumbnailPreviewRequestSeqRef = useRef(0);
   const imageMapCandidatePreviewRequestSeqRef = useRef(0);
   const artifactStateWorkpieceIdRef = useRef<string | null>(null);
-  const [metadataTitlesDraft, setMetadataTitlesDraft] = useState<EpisodeSeoTitle[]>([]);
-  const [metadataTagsDraft, setMetadataTagsDraft] = useState<string[]>([]);
-  const [metadataTagInputDraft, setMetadataTagInputDraft] = useState("");
-  const [metadataDescriptionShortDraft, setMetadataDescriptionShortDraft] = useState("");
-  const [metadataDescriptionLongDraft, setMetadataDescriptionLongDraft] = useState("");
-  const [metadataPreviewMode, setMetadataPreviewMode] = useState<"youtube" | "rss" | "plain">("youtube");
-  const [metadataSaveState, setMetadataSaveState] = useState<"saved" | "editing" | "saving" | "offline" | "error">("saved");
-  const [metadataSaveError, setMetadataSaveError] = useState<string | null>(null);
   const [activeWorkpieceTab, setActiveWorkpieceTab] = useState<WorkpieceWorkspaceTab>(() =>
     readWorkpieceWorkspaceTab(
       incomingBarStockIntakeRoute ? null : resolveWorkpieceId(),
@@ -2673,6 +2665,38 @@ export default function HearthShell({
   const pendingDraftEditorPanelRef = useRef<"script" | "manual" | null>(null);
   const gateAwaitingAnswersRef = useRef(false);
   const pendingShortcutIntentRef = useRef<"outline" | "script" | null>(null);
+  const {
+    metadataTitlesDraft,
+    metadataTagsDraft,
+    metadataTagInputDraft,
+    metadataDescriptionShortDraft,
+    metadataDescriptionLongDraft,
+    metadataPreviewMode,
+    metadataSaveState,
+    metadataSaveError,
+    setMetadataTitlesDraft,
+    setMetadataTagsDraft,
+    setMetadataTagInputDraft,
+    setMetadataDescriptionShortDraft,
+    setMetadataDescriptionLongDraft,
+    onMetadataTitleChange,
+    onMetadataSetPrimaryTitle,
+    onMetadataAddTagFromInput,
+    onMetadataRemoveTag,
+    onMetadataAddTagSuggestion,
+    onMetadataDescriptionShortChange,
+    onMetadataDescriptionLongChange,
+    onMetadataPreviewModeChange,
+  } = useMetadataWorkspace({
+    workpieceId,
+    workspaceId,
+    episodePackage,
+    setEpisodePackage,
+    setImageMapMetadataUpdatedAt,
+    parseTagInput: parseMetadataTagInput,
+    normalizeTag: normalizeMetadataTag,
+    deriveThumbnailOverlayText: deriveHearthThumbnailOverlayText,
+  });
 
   const {
     hearthScriptState,
@@ -6886,131 +6910,6 @@ export default function HearthShell({
   useEffect(() => {
     writeWorkpieceWorkspaceTab(workpieceId, workspaceId, activeWorkpieceTab);
   }, [activeWorkpieceTab, workpieceId, workspaceId]);
-
-  useEffect(() => {
-    setMetadataSaveState("saved");
-    setMetadataSaveError(null);
-    setMetadataTagInputDraft("");
-  }, [workpieceId]);
-
-  useEffect(() => {
-    if (!episodePackage) {
-      setMetadataTitlesDraft([]);
-      setMetadataTagsDraft([]);
-      setMetadataTagInputDraft("");
-      setMetadataDescriptionShortDraft("");
-      setMetadataDescriptionLongDraft("");
-      setMetadataSaveState("saved");
-      setMetadataSaveError(null);
-      return;
-    }
-    if (metadataSaveState === "editing" || metadataSaveState === "saving") {
-      return;
-    }
-
-    const normalized = ensureSeoV2(episodePackage);
-    setMetadataTitlesDraft(normalized.seo.titles);
-    setMetadataTagsDraft(normalized.seo.tags);
-    setMetadataDescriptionShortDraft(normalized.seo.description_short ?? "");
-    setMetadataDescriptionLongDraft(normalized.seo.description_long ?? "");
-    setMetadataSaveState("saved");
-    setMetadataSaveError(null);
-  }, [episodePackage, metadataSaveState]);
-
-  useEffect(() => {
-    if (metadataSaveState !== "editing") return;
-    if (!episodePackage) return;
-
-    const current = ensureSeoV2(episodePackage);
-    const normalizedTitles = metadataTitlesDraft.map((title, index) => ({
-      id: title.id,
-      label: (title.label || ["A", "B", "C"][index] || `V${index + 1}`).toUpperCase(),
-      text: title.text ?? "",
-      thumbnail_text: resolveHearthThumbnailOverlayText(title),
-      is_primary: Boolean(title.is_primary),
-    }));
-    const primaryId = normalizedTitles.find((title) => title.is_primary)?.id ?? normalizedTitles[0]?.id ?? null;
-    const titles = normalizedTitles.map((title) => ({
-      ...title,
-      is_primary: primaryId != null && title.id === primaryId,
-    }));
-    const nextSeo = {
-      ...current.seo,
-      titles,
-      tags: normalizeSeoTags(metadataTagsDraft),
-      description_short: metadataDescriptionShortDraft.trim() || null,
-      description_long: metadataDescriptionLongDraft.trim() || null,
-    };
-
-    const hasChanges = JSON.stringify(nextSeo) !== JSON.stringify(current.seo);
-    if (!hasChanges) {
-      setMetadataSaveState("saved");
-      setMetadataSaveError(null);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        setMetadataSaveState("saving");
-        setMetadataSaveError(null);
-
-        const workspace = workspaceId?.trim() ?? "";
-        const workpiece = workpieceId?.trim() ?? "";
-        if (!workspace || !workpiece) {
-          if (cancelled) return;
-          setMetadataSaveState("error");
-          setMetadataSaveError("Workspace or workpiece is missing.");
-          return;
-        }
-
-        const nextEpisodePackage: EpisodePackageV2 = {
-          ...current,
-          seo: nextSeo,
-        };
-
-        const saved = await saveEpisodePackageForWorkpiece({
-          workpieceId: workpiece,
-          workspaceId: workspace,
-          episodePackage: nextEpisodePackage,
-          eventName: "hearth.metadata.autosave.v1",
-          eventPayload: {
-            section: "seo",
-          },
-        });
-        if (cancelled) return;
-        if (!saved.ok) {
-          const online = typeof navigator === "undefined" ? true : navigator.onLine;
-          if (!online) {
-            setMetadataSaveState("offline");
-            setMetadataSaveError("Offline. Metadata edits are waiting to sync.");
-          } else {
-            setMetadataSaveState("error");
-            setMetadataSaveError(saved.error);
-          }
-          return;
-        }
-        setEpisodePackage(saved.episodePackage);
-        setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
-        setMetadataSaveState("saved");
-        setMetadataSaveError(null);
-      })();
-    }, 450);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [
-    episodePackage,
-    metadataDescriptionLongDraft,
-    metadataDescriptionShortDraft,
-    metadataSaveState,
-    metadataTagsDraft,
-    metadataTitlesDraft,
-    workpieceId,
-    workspaceId,
-  ]);
 
   useEffect(() => {
     const stored = readScriptApprovalState(workpieceId);
@@ -11547,68 +11446,6 @@ export default function HearthShell({
     setImageMapExportMessage("Visual script intent JSON downloaded.");
   }
 
-  function markMetadataEditing(): void {
-    if (metadataSaveState !== "editing") {
-      setMetadataSaveState("editing");
-    }
-    setMetadataSaveError(null);
-  }
-
-  function onMetadataTitleChange(titleId: string, nextText: string): void {
-    setMetadataTitlesDraft((prev) => prev.map((title) => (
-      title.id === titleId
-        ? {
-          ...title,
-          text: nextText,
-          thumbnail_text: deriveHearthThumbnailOverlayText(nextText),
-        }
-        : title
-    )));
-    markMetadataEditing();
-  }
-
-  function onMetadataSetPrimaryTitle(titleId: string): void {
-    setMetadataTitlesDraft((prev) => prev.map((title) => ({
-      ...title,
-      is_primary: title.id === titleId,
-    })));
-    markMetadataEditing();
-  }
-
-  function onMetadataAddTagFromInput(): void {
-    const parsed = parseMetadataTagInput(metadataTagInputDraft);
-    if (parsed.length === 0) return;
-    setMetadataTagsDraft((prev) => normalizeSeoTags([...prev, ...parsed]));
-    setMetadataTagInputDraft("");
-    markMetadataEditing();
-  }
-
-  function onMetadataRemoveTag(tag: string): void {
-    setMetadataTagsDraft((prev) => prev.filter((entry) => entry !== tag));
-    markMetadataEditing();
-  }
-
-  function onMetadataAddTagSuggestion(tag: string): void {
-    const normalized = normalizeMetadataTag(tag);
-    if (!normalized) return;
-    setMetadataTagsDraft((prev) => normalizeSeoTags([...prev, normalized]));
-    markMetadataEditing();
-  }
-
-  function onMetadataDescriptionShortChange(nextValue: string): void {
-    setMetadataDescriptionShortDraft(nextValue);
-    markMetadataEditing();
-  }
-
-  function onMetadataDescriptionLongChange(nextValue: string): void {
-    setMetadataDescriptionLongDraft(nextValue);
-    markMetadataEditing();
-  }
-
-  function onMetadataPreviewModeChange(mode: "youtube" | "rss" | "plain"): void {
-    setMetadataPreviewMode(mode);
-  }
-
   function onSelectImageMapEntry(entryId: string) {
     if (entryId !== selectedImageMapEntryId) {
       setIsImageMapReanchorMode(false);
@@ -12071,6 +11908,34 @@ export default function HearthShell({
     );
   };
 
+  const hearthVisualsWorkspace = useHearthVisualsWorkspace({
+    status: {
+      hasApprovedScript,
+      approvedScriptVersion,
+      mediaMapStatus: mediaMap?.status ?? null,
+      mediaMapCoverageLevel,
+      mediaMapScopeLabel,
+      activeVisualProviderBanner: activeVisualProvider.bannerLabel,
+      activeVisualProviderHelperText: activeVisualProvider.helperText,
+      aiCreditsDepleted,
+      isAiProcessing,
+      activeProductionAction,
+      releasePrepScriptVersion,
+      latestReleasePrepRawText,
+      releasePrepLoadState,
+      latestReleasePrepSections,
+    },
+    commands: {
+      onGenerateTitles: () => void onRunProductionAction("seo"),
+      onGenerateTags: () => void onRunProductionAction("tags"),
+      onGenerateFramingPack: () => void onRunProductionAction("release_prep_pack"),
+      onRefreshFramingPack: () => {
+        if (!approvedScriptVersion) return;
+        void loadLatestReleasePrepPack(approvedScriptVersion);
+      },
+    },
+  });
+
   function onChangeTonePreset(nextTonePresetRaw: string) {
     const nextTonePreset = normalizeTonePreset(nextTonePresetRaw);
     if (!nextTonePreset) return;
@@ -12532,6 +12397,20 @@ export default function HearthShell({
       onDescriptionLongChange: onMetadataDescriptionLongChange,
       onPreviewModeChange: onMetadataPreviewModeChange,
     };
+    const visualsPanelContracts = hearthVisualsWorkspace.composePanels({
+      thumbnailPanelMeta,
+      mediaMapPanelMeta,
+      imageMapPanelMeta,
+      brollPanelMeta,
+      referenceClipPanelMeta,
+      metadataPanelMeta,
+      thumbnailPanelProps,
+      mediaMapPanelProps,
+      imageMapPanelProps,
+      brollPlanPanelProps,
+      referenceClipPlanPanelProps,
+      metadataPanelProps,
+    });
 
     return (
       <section className="hs-draft hs-draft-chat-first">
@@ -12744,44 +12623,41 @@ export default function HearthShell({
 
             <MetadataSurface
               visible={isMetadataWorkspaceTab}
-              hasApprovedScript={hasApprovedScript}
-              approvedScriptVersion={approvedScriptVersion}
-              metadataPanelMeta={metadataPanelMeta}
-              metadataPanelProps={metadataPanelProps}
-              aiCreditsDepleted={aiCreditsDepleted}
-              isAiProcessing={isAiProcessing}
-              activeProductionAction={activeProductionAction}
-              releasePrepScriptVersion={releasePrepScriptVersion}
-              latestReleasePrepRawText={latestReleasePrepRawText}
-              releasePrepLoadState={releasePrepLoadState}
-              latestReleasePrepSections={latestReleasePrepSections}
-              onGenerateTitles={() => void onRunProductionAction("seo")}
-              onGenerateTags={() => void onRunProductionAction("tags")}
-              onGenerateFramingPack={() => void onRunProductionAction("release_prep_pack")}
-              onRefreshFramingPack={() => {
-                if (!approvedScriptVersion) return;
-                void loadLatestReleasePrepPack(approvedScriptVersion);
-              }}
+              hasApprovedScript={hearthVisualsWorkspace.status.hasApprovedScript}
+              approvedScriptVersion={hearthVisualsWorkspace.status.approvedScriptVersion}
+              metadataPanelMeta={visualsPanelContracts.metadata.meta}
+              metadataPanelProps={visualsPanelContracts.metadata.panelProps}
+              aiCreditsDepleted={hearthVisualsWorkspace.status.aiCreditsDepleted}
+              isAiProcessing={hearthVisualsWorkspace.status.isAiProcessing}
+              activeProductionAction={hearthVisualsWorkspace.status.activeProductionAction}
+              releasePrepScriptVersion={hearthVisualsWorkspace.status.releasePrepScriptVersion}
+              latestReleasePrepRawText={hearthVisualsWorkspace.status.latestReleasePrepRawText}
+              releasePrepLoadState={hearthVisualsWorkspace.status.releasePrepLoadState}
+              latestReleasePrepSections={hearthVisualsWorkspace.status.latestReleasePrepSections}
+              onGenerateTitles={hearthVisualsWorkspace.commands.onGenerateTitles}
+              onGenerateTags={hearthVisualsWorkspace.commands.onGenerateTags}
+              onGenerateFramingPack={hearthVisualsWorkspace.commands.onGenerateFramingPack}
+              onRefreshFramingPack={hearthVisualsWorkspace.commands.onRefreshFramingPack}
             />
             <VisualsSurface
               visible={isVisualsWorkspaceTab}
-              hasApprovedScript={hasApprovedScript}
-              approvedScriptVersion={approvedScriptVersion}
-              mediaMapStatus={mediaMap?.status ?? null}
-              mediaMapCoverageLevel={mediaMapCoverageLevel}
-              mediaMapScopeLabel={mediaMapScopeLabel}
-              thumbnailPanelMeta={thumbnailPanelMeta}
-              mediaMapPanelMeta={mediaMapPanelMeta}
-              imageMapPanelMeta={imageMapPanelMeta}
-              brollPanelMeta={brollPanelMeta}
-              referenceClipPanelMeta={referenceClipPanelMeta}
-              activeVisualProviderBanner={activeVisualProvider.bannerLabel}
-              activeVisualProviderHelperText={activeVisualProvider.helperText}
-              thumbnailPanelProps={thumbnailPanelProps}
-              mediaMapPanelProps={mediaMapPanelProps}
-              imageMapPanelProps={imageMapPanelProps}
-              brollPlanPanelProps={brollPlanPanelProps}
-              referenceClipPlanPanelProps={referenceClipPlanPanelProps}
+              hasApprovedScript={hearthVisualsWorkspace.status.hasApprovedScript}
+              approvedScriptVersion={hearthVisualsWorkspace.status.approvedScriptVersion}
+              mediaMapStatus={hearthVisualsWorkspace.status.mediaMapStatus}
+              mediaMapCoverageLevel={hearthVisualsWorkspace.status.mediaMapCoverageLevel}
+              mediaMapScopeLabel={hearthVisualsWorkspace.status.mediaMapScopeLabel}
+              thumbnailPanelMeta={visualsPanelContracts.thumbnail.meta}
+              mediaMapPanelMeta={visualsPanelContracts.mediaMap.meta}
+              imageMapPanelMeta={visualsPanelContracts.imageMap.meta}
+              brollPanelMeta={visualsPanelContracts.broll.meta}
+              referenceClipPanelMeta={visualsPanelContracts.referenceClips.meta}
+              activeVisualProviderBanner={hearthVisualsWorkspace.status.activeVisualProviderBanner}
+              activeVisualProviderHelperText={hearthVisualsWorkspace.status.activeVisualProviderHelperText}
+              thumbnailPanelProps={visualsPanelContracts.thumbnail.panelProps}
+              mediaMapPanelProps={visualsPanelContracts.mediaMap.panelProps}
+              imageMapPanelProps={visualsPanelContracts.imageMap.panelProps}
+              brollPlanPanelProps={visualsPanelContracts.broll.panelProps}
+              referenceClipPlanPanelProps={visualsPanelContracts.referenceClips.panelProps}
             />
           </div>
 
