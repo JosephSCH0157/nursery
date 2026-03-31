@@ -1,4 +1,4 @@
-import { useEffect, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import type { EpisodeImageMapEntry } from "../../lib/episode-package-v2";
 
 type CanonicalImageMapScriptState = {
@@ -28,6 +28,12 @@ type UseCanonicalImageMapScriptStateLoaderArgs = {
 };
 
 export function useCanonicalImageMapScriptStateLoader(args: UseCanonicalImageMapScriptStateLoaderArgs) {
+  const readCanonicalScriptRef = useRef(args.readCanonicalScriptForImageMapGeneration);
+
+  useEffect(() => {
+    readCanonicalScriptRef.current = args.readCanonicalScriptForImageMapGeneration;
+  }, [args.readCanonicalScriptForImageMapGeneration]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -50,7 +56,7 @@ export function useCanonicalImageMapScriptStateLoader(args: UseCanonicalImageMap
       error: null,
     }));
 
-    void args.readCanonicalScriptForImageMapGeneration().then((result) => {
+    void readCanonicalScriptRef.current().then((result) => {
       if (cancelled) return;
       if (!result.ok) {
         args.setCanonicalImageMapScriptState({
@@ -75,8 +81,7 @@ export function useCanonicalImageMapScriptStateLoader(args: UseCanonicalImageMap
       cancelled = true;
     };
   }, [
-    args.readCanonicalScriptForImageMapGeneration,
-    args.selectedImageMapEntry,
+    args.selectedImageMapEntry?.id,
     args.setCanonicalImageMapScriptState,
     args.workpieceId,
   ]);
