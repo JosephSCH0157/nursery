@@ -2,6 +2,7 @@ import {
   parseDescriptionFromSeoText,
   parseSeoTitlesFromText,
   parseTagsFromText,
+  parseThumbnailConceptsFromText,
   type EpisodeSeoTitle,
 } from "./episode-package-v2";
 
@@ -56,9 +57,13 @@ export function resolveHearthProductionArtifactFeedback(args: {
   }
 
   if (args.action === "thumbnails") {
+    const concepts = parseThumbnailConceptsFromText(args.assistantText);
     return {
       ...EMPTY_FEEDBACK,
       shouldRefreshEpisodePackage: true,
+      warning: concepts.length
+        ? null
+        : "Thumbnail briefing finished, but Hearth could not extract structured concept briefs from the reply.",
     };
   }
 

@@ -52,3 +52,25 @@ test("hearthProductionFeedback: tags replies hydrate tags and warn on empty stru
   assert.equal(empty.tags.length, 0);
   assert.match(empty.warning ?? "", /could not extract structured tags/i);
 });
+
+test("hearthProductionFeedback: thumbnail replies warn when no structured concept brief is present", () => {
+  const parsed = resolveHearthProductionArtifactFeedback({
+    action: "thumbnails",
+    assistantText: [
+      "THUMBNAIL_01",
+      "Headline: Smoke and Signals",
+      "Image concept: Split screen of protest crowd and studio anchor",
+      "Mood/style: urgent editorial still",
+    ].join("\n"),
+  });
+
+  assert.equal(parsed.shouldRefreshEpisodePackage, true);
+  assert.equal(parsed.warning, null);
+
+  const empty = resolveHearthProductionArtifactFeedback({
+    action: "thumbnails",
+    assistantText: "A few thumbnail ideas, but not in the expected block format.",
+  });
+
+  assert.match(empty.warning ?? "", /could not extract structured concept briefs/i);
+});

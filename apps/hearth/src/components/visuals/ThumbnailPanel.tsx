@@ -588,6 +588,34 @@ export default function ThumbnailPanel({
       {isUploading ? "Uploading Image..." : uploadImageIsPrimary ? workspaceGuidance.primaryActionLabel : "Upload Final Image"}
     </button>
   );
+  const workflowPrimaryActionButton = framingFirst && onGenerateTitles ? (
+    <button
+      type="button"
+      className="is-primary"
+      onClick={onGenerateTitles}
+      disabled={!canGenerateTitles || isGeneratingTitles || interactionDisabled}
+    >
+      {isGeneratingTitles ? "Generating Titles..." : "Generate Titles"}
+    </button>
+  ) : draftBriefIsPrimary && onGenerateConcepts ? (
+    <button
+      type="button"
+      className="is-primary"
+      onClick={onGenerateConcepts}
+      disabled={!canGenerateConcepts || isGeneratingConcepts || isGenerating || isUploading || !hasFramingTitles}
+    >
+      {isGeneratingConcepts ? "Drafting Brief..." : workspaceGuidance.primaryActionLabel}
+    </button>
+  ) : (
+    <button
+      type="button"
+      className="is-primary"
+      onClick={() => fileInputRef.current?.click()}
+      disabled={uploadImageDisabled}
+    >
+      {isUploading ? "Uploading Image..." : workspaceGuidance.primaryActionLabel}
+    </button>
+  );
 
   return (
     <section className="hs-thumb-panel" aria-label="Visuals panel">
@@ -749,6 +777,9 @@ export default function ThumbnailPanel({
             <div className="hs-thumb-workflow-eyebrow">{workspaceGuidance.cardTitle}</div>
             <div className="hs-thumb-workflow-copy">
               {workspaceGuidance.cardLead}
+            </div>
+            <div className="hs-thumb-workflow-actions">
+              {workflowPrimaryActionButton}
             </div>
             <ol className="hs-thumb-workflow-steps">
               {workspaceGuidance.steps.map((step) => (

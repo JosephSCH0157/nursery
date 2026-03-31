@@ -2195,6 +2195,21 @@
   font-weight: 600;
 }
 
+.hs-thumb-workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hs-thumb-workflow-actions > button.is-primary {
+  border-color: rgba(29, 78, 216, 0.48);
+  background: rgba(29, 78, 216, 0.22);
+}
+
+.hs-thumb-workflow-actions > button.is-primary:hover:not(:disabled) {
+  background: rgba(29, 78, 216, 0.3);
+}
+
 .hs-thumb-workflow-steps {
   margin: 0;
   padding-left: 18px;
