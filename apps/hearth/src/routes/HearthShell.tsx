@@ -4414,6 +4414,7 @@ export default function HearthShell({
   } = useReferenceClipCoreActions({
     episodePackage,
     workpieceId,
+    workspaceId,
     activeDraftTitle: activeDraft?.title ?? null,
     selectedImageMapEntry,
     selectedBrollBeatAnchorText: selectedBrollBeat?.anchor_text ?? null,
@@ -4447,6 +4448,7 @@ export default function HearthShell({
     setReferenceClipMessage,
     setSelectedReferenceClipEntryId,
     persistReferenceClipPlan,
+    persistImageMapEntries,
   });
   const {
     onCopyReferenceClipPrompt,

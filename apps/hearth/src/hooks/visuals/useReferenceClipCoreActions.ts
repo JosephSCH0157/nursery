@@ -2,6 +2,8 @@ import { useCallback } from "react";
 import { createReferenceClipPlan, inferReferenceClipSuitabilitySignals } from "../../lib/hearth-reference-clip-plan";
 import { advanceExternalRequestTracker } from "../../lib/hearth-visual-actionability";
 import { normalizeHearthVisualStyle } from "../../lib/hearth-visual-styles";
+import { generateWorkpieceImageMapCandidates } from "../../lib/hearth-image-map-repo";
+import { resolveAiThumbnailAutoApproveFromStorage } from "../../lib/hearth-chat-api";
 import type {
   EpisodeContextualDataCompositePlan,
   EpisodeImageMapEntry,
@@ -22,6 +24,7 @@ type PersistReferenceClipPlanResult =
 type UseReferenceClipCoreActionsArgs = {
   episodePackage: EpisodePackageV2 | null;
   workpieceId: string | null;
+  workspaceId: string | null;
   activeDraftTitle: string | null;
   selectedImageMapEntry: EpisodeImageMapEntry | null;
   selectedBrollBeatAnchorText: string | null;
@@ -60,6 +63,13 @@ type UseReferenceClipCoreActionsArgs = {
     eventPayload: Record<string, unknown>;
     baseEpisodePackage?: EpisodePackageV2;
   }) => Promise<PersistReferenceClipPlanResult>;
+  persistImageMapEntries: (args: {
+    entries: EpisodeImageMapEntry[];
+    spokenBeats?: EpisodePackageV2["spoken_beats"] | null;
+  }) => Promise<
+    | { ok: true; episodePackage: EpisodePackageV2; metadataUpdatedAt: string | null }
+    | { ok: false; error: string }
+  >;
 };
 
 export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArgs) {
@@ -108,9 +118,131 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
         args.setReferenceClipSaveState("error");
         return;
       }
+      const workspace = args.workspaceId?.trim() ?? "";
+      const alwaysApproveAiSpend = resolveAiThumbnailAutoApproveFromStorage();
+      const confirmSpend = alwaysApproveAiSpend
+        ? true
+        : window.confirm("Generate this Reference Clip inside Forge now? This will spend AI credits.");
       args.setSelectedReferenceClipEntryId(created.id);
+      if (!workspace || !confirmSpend) {
+        args.setReferenceClipSaveState("saved");
+        args.setReferenceClipMessage(confirmSpend ? "Reference Clip created." : "Reference Clip created. Generation skipped.");
+        return;
+      }
+
+      const tempImageEntryId = `rc_temp_${created.id}`;
+      const tempImageEntry: EpisodeImageMapEntry = {
+        id: tempImageEntryId,
+        anchor: created.anchor_text,
+        script_anchor: null,
+        beat_anchor: null,
+        anchor_scope: "orphaned",
+        purpose: created.purpose,
+        description: created.description || created.anchor_text,
+        visual_intent: created.description || created.anchor_text,
+        prompt_basis: created.description || created.anchor_text,
+        style_preset: null,
+        intent: "reference_clip",
+        source_type: "ai",
+        origin: "hearth",
+        visual_priority: "supporting",
+        visual_type: "still_image",
+        section_intent_note: null,
+        beat_order: Math.max(1, (saved.episodePackage.image_map.entries.length + 1)),
+        paragraph_beat_order: 1,
+        candidate_assets: [],
+        selected_asset_id: null,
+        status: "draft",
+        placement_hint: "first_occurrence",
+      };
+
+      const withTempImageMap = await args.persistImageMapEntries({
+        entries: [...saved.episodePackage.image_map.entries.filter((entry) => entry.id !== tempImageEntryId), tempImageEntry],
+        spokenBeats: saved.episodePackage.spoken_beats,
+      });
+      if (!withTempImageMap.ok) {
+        args.setReferenceClipSaveState("saved");
+        args.setReferenceClipMessage("Reference Clip created, but Forge generation could not start.");
+        return;
+      }
+
+      const generated = await generateWorkpieceImageMapCandidates({
+        workpieceId: episodeId,
+        workspaceId: workspace,
+        imageMapEntryId: tempImageEntryId,
+        contextBefore: created.background_context_description || null,
+        contextAfter: created.foreground_data_description || null,
+        aspect: "16:9",
+        confirmSpend,
+        alwaysApproveAiSpend,
+      });
+
+      const cleanedImageMapEntries = withTempImageMap.episodePackage.image_map.entries.filter((entry) => entry.id !== tempImageEntryId);
+      const cleanedImageMap = await args.persistImageMapEntries({
+        entries: cleanedImageMapEntries,
+        spokenBeats: withTempImageMap.episodePackage.spoken_beats,
+      });
+      if (!cleanedImageMap.ok) {
+        args.setReferenceClipSaveState("saved");
+        args.setReferenceClipMessage("Reference Clip generated, but cleanup needs a refresh.");
+        return;
+      }
+
+      if (!generated.ok) {
+        args.setReferenceClipSaveState("saved");
+        args.setReferenceClipMessage("Reference Clip created. Forge generation failed; try again.");
+        return;
+      }
+
+      const generatedCandidates = generated.generatedAssets.map((asset) => ({
+        asset_id: asset.id,
+        source: "hearth_ai" as const,
+        asset_class: "reference_clip" as const,
+        source_beat_id: created.id,
+        source_label: "Forge",
+        label: asset.variantLabel,
+        path: asset.path,
+        mime_type: asset.mimeType,
+        created_at: new Date().toISOString(),
+      }));
+      const selectedGeneratedAssetId = generatedCandidates[0]?.asset_id ?? null;
+      const generatedAt = new Date().toISOString();
+      const nextGeneratedEntry: EpisodeContextualDataCompositePlan = {
+        ...created,
+        source_type: "hearth_ai",
+        candidate_assets: generatedCandidates,
+        selected_asset_id: selectedGeneratedAssetId,
+        external_request: advanceExternalRequestTracker(created.external_request, "resolved", {
+          providerId: "forge",
+          attachedAssetId: selectedGeneratedAssetId,
+        }),
+        updated_at: generatedAt,
+      };
+      const generatedPlan: EpisodeReferenceClipPlan = {
+        ...cleanedImageMap.episodePackage.cdc_plan,
+        version: Math.max(1, cleanedImageMap.episodePackage.cdc_plan.version + 1),
+        entries: cleanedImageMap.episodePackage.cdc_plan.entries.map((entry) => (
+          entry.id === created.id ? nextGeneratedEntry : entry
+        )),
+        generated_at: generatedAt,
+      };
+      const generatedSaved = await args.persistReferenceClipPlan({
+        plan: generatedPlan,
+        eventName: "hearth.cdc_plan.generated_in_forge.v1",
+        eventPayload: {
+          cdc_id: created.id,
+          generated_asset_count: generatedCandidates.length,
+        },
+        baseEpisodePackage: cleanedImageMap.episodePackage,
+      });
+      if (!generatedSaved.ok) {
+        args.setReferenceClipSaveState("saved");
+        args.setReferenceClipMessage("Reference Clip created and generated, but save failed.");
+        return;
+      }
+
       args.setReferenceClipSaveState("saved");
-      args.setReferenceClipMessage("Reference Clip created.");
+      args.setReferenceClipMessage(`Reference Clip generated in Forge (${generatedCandidates.length} candidate${generatedCandidates.length === 1 ? "" : "s"}).`);
     } catch {
       args.setReferenceClipSaveError("Unable to create this reference clip.");
       args.setReferenceClipSaveState("error");
