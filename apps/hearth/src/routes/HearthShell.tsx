@@ -110,6 +110,12 @@ import { useMediaMapEntryActions } from "../hooks/visuals/useMediaMapEntryAction
 import { useMediaMapGenerationActions } from "../hooks/visuals/useMediaMapGenerationActions";
 import { useBrollCoreActions } from "../hooks/visuals/useBrollCoreActions";
 import { useBrollBridgeActions } from "../hooks/visuals/useBrollBridgeActions";
+import { useReferenceClipCoreActions } from "../hooks/visuals/useReferenceClipCoreActions";
+import { useReferenceClipBridgeActions } from "../hooks/visuals/useReferenceClipBridgeActions";
+import { useThumbnailConceptActions } from "../hooks/visuals/useThumbnailConceptActions";
+import { useThumbnailGenerationActions } from "../hooks/visuals/useThumbnailGenerationActions";
+import { useImageMapReanchorActions } from "../hooks/visuals/useImageMapReanchorActions";
+import { useImageMapCandidateActions } from "../hooks/visuals/useImageMapCandidateActions";
 import {
   buildBrollPlanPanelProps,
   buildImageMapPanelProps,
@@ -193,25 +199,18 @@ import {
   type ProductionArtifactKind,
 } from "../lib/hearth-production-repo";
 import {
-  generateEpisodeThumbnail,
   loadThumbnailPreviewDataUrl,
   readEpisodePackageForWorkpiece,
   saveEpisodePackageForWorkpiece,
-  uploadThumbnailImageVersion,
 } from "../lib/hearth-thumbnail-api";
 import {
   getWorkpieceImageMap,
-  generateWorkpieceImageMapCandidates,
   loadImageMapCandidatePreviewDataUrl,
   saveWorkpieceImageMap,
-  selectWorkpieceImageMapCandidate,
-  uploadWorkpieceImageMapCandidateAsset,
 } from "../lib/hearth-image-map-repo";
 import {
   assessImageMapScriptAnchor,
-  buildExactScriptAnchorFromSelection,
   buildImageMapAnchorPickerParagraphs,
-  reanchorImageMapEntry,
   resolveNearestParagraphSelection,
   resolveImageMapAnchorContext,
   type ImageMapScriptSelection,
@@ -223,20 +222,9 @@ import {
 } from "../lib/hearth-spoken-beats";
 import {
   buildBrollPlanFromScript,
-  buildStockCandidatesForBrollBeat,
 } from "../lib/hearth-broll-plan";
-import { uploadBrollBeatAsset } from "../lib/hearth-broll-plan-repo";
-import {
-  createReferenceClipPlan,
-  inferReferenceClipSuitabilitySignals,
-} from "../lib/hearth-reference-clip-plan";
 import { resolveReferenceClipPlanForMediaMapBootstrap } from "../lib/hearth-reference-clip-bootstrap";
 import {
-  advanceExternalRequestTracker,
-  buildBrollBeatBrief,
-  buildReferenceClipBrief,
-  createManualResultCandidate,
-  formatVisualBriefAsText,
   listExternalGenerationProviders,
   type ExternalGenerationProvider,
 } from "../lib/hearth-visual-actionability";
@@ -244,7 +232,6 @@ import {
   buildReferenceClipPromptPack,
   listVisualProviderOptions,
   resolveActiveVisualProvider,
-  serializePromptPack,
   type VisualProviderId,
 } from "../lib/hearth-visual-provider-profiles";
 import {
@@ -259,12 +246,6 @@ import {
 import type {
   EpisodeBrollDataVisualSpec,
   EpisodeExternalRequestState,
-  EpisodeBrollMotionAssetCategory,
-  EpisodeReferenceClipChartType,
-  EpisodeReferenceClipContextType,
-  EpisodeReferenceClipDataType,
-  EpisodeReferenceClipFormat,
-  EpisodeReferenceClipMotionLevel,
   EpisodeReferenceClipPlan,
   EpisodeReferenceClipTone,
   EpisodeBrollPlan,
@@ -312,12 +293,9 @@ import {
   listWorkspaceThumbnailBrandTemplates,
   resolveDefaultThumbnailBrandTemplate,
   seedWorkspaceThumbnailBrandTemplates,
-  updateWorkspaceThumbnailBrandTemplate,
-  uploadWorkspaceThumbnailBrandLogo,
 } from "../lib/hearth-thumbnail-brand-templates";
 import type { ThumbnailBrandTemplate } from "../lib/hearth-thumbnail-brand-templates";
 import {
-  DEFAULT_TITLE_STYLE,
   areEpisodeThumbnailTitleStylesEqual,
   normalizeEpisodeThumbnailTitleStyle,
 } from "../lib/hearth-title-fonts";
@@ -4731,6 +4709,267 @@ export default function HearthShell({
     resolveBrollDataVisualSpecFromDraft,
     persistBrollPlan,
   });
+  const {
+    onCopyBrollPrompt,
+    onDownloadBrollBrief,
+    onOpenBrollProvider,
+    onMarkBrollRequestState,
+    onClearBrollRequestState,
+    onAttachBrollResultFromUrl,
+    onFindStockForBrollBeat,
+    onUploadBrollBeatAsset,
+    onSelectBrollCandidate,
+  } = useBrollBridgeActions({
+    episodePackage,
+    selectedBrollBeat,
+    brollProviders,
+    brollProviderIdDraft,
+    brollSourceUrlDraft,
+    brollSourceLabelDraft,
+    brollProviderNoteDraft,
+    brollUsageNoteDraft,
+    brollResultMetadataDraft,
+    brollAnchorDraft,
+    brollDescriptionDraft,
+    brollKeywordsDraft,
+    brollMotionIntentDraft,
+    brollAssetCategoryDraft,
+    brollMoodDraft,
+    brollDataVisualSpecFromDraft: resolveBrollDataVisualSpecFromDraft,
+    workpieceId,
+    activeDraftTitle: activeDraft?.title ?? null,
+    isBrollBusy,
+    setIsBrollBusy,
+    setBrollSaveState,
+    setBrollSaveError,
+    setBrollMessage,
+    writeTextToClipboard,
+    downloadTextFile,
+    persistBrollPlan,
+  });
+  const {
+    onCreateReferenceClipEntry,
+    onSaveReferenceClipEntry,
+    onDeleteReferenceClipEntry,
+    onRegenerateReferenceClipEntryStub,
+  } = useReferenceClipCoreActions({
+    episodePackage,
+    workpieceId,
+    activeDraftTitle: activeDraft?.title ?? null,
+    selectedImageMapEntry,
+    selectedBrollBeatAnchorText: selectedBrollBeat?.anchor_text ?? null,
+    selectedReferenceClipEntry,
+    isReferenceClipBusy,
+    referenceClipFormatDraft,
+    referenceClipAnchorDraft,
+    referenceClipDescriptionDraft,
+    referenceClipPlacementHintDraft,
+    referenceClipDataTypeDraft,
+    referenceClipContextTypeDraft,
+    referenceClipToneDraft,
+    referenceClipMotionLevelDraft,
+    referenceClipBackgroundContextDraft,
+    referenceClipForegroundDataDraft,
+    referenceClipVisualStyleDraft,
+    referenceClipChartTypeDraft,
+    referenceClipTitleDraft,
+    referenceClipLabelsDraft,
+    referenceClipEmphasisKeyDraft,
+    referenceClipSourceTypeDraft,
+    referenceClipProviderIdDraft,
+    referenceClipSourceUrlDraft,
+    referenceClipProviderNoteDraft,
+    referenceClipUsageNoteDraft,
+    referenceClipResultMetadataDraft,
+    resolveReferenceClipValuesFromDraft,
+    setIsReferenceClipBusy,
+    setReferenceClipSaveState,
+    setReferenceClipSaveError,
+    setReferenceClipMessage,
+    setSelectedReferenceClipEntryId,
+    persistReferenceClipPlan,
+  });
+  const {
+    onCopyReferenceClipPrompt,
+    onCopyReferenceClipNegativePrompt,
+    onDownloadReferenceClipPromptPack,
+    onDownloadReferenceClipBrief,
+    onOpenReferenceClipProvider,
+    onMarkReferenceClipRequestState,
+    onClearReferenceClipRequestState,
+    onAttachReferenceClipResultFromUrl,
+    onUploadReferenceClipAsset,
+    onSelectReferenceClipCandidate,
+  } = useReferenceClipBridgeActions({
+    episodePackage,
+    selectedReferenceClipEntry,
+    activeVisualPromptPackForReferenceClip,
+    referenceClipProviders,
+    referenceClipProviderIdDraft,
+    referenceClipSourceUrlDraft,
+    referenceClipSourceLabelDraft,
+    referenceClipProviderNoteDraft,
+    referenceClipUsageNoteDraft,
+    referenceClipResultMetadataDraft,
+    referenceClipAnchorDraft,
+    referenceClipDescriptionDraft,
+    referenceClipTitleDraft,
+    workpieceId,
+    activeDraftTitle: activeDraft?.title ?? null,
+    isReferenceClipBusy,
+    setIsReferenceClipBusy,
+    setReferenceClipSaveState,
+    setReferenceClipSaveError,
+    setReferenceClipMessage,
+    writeTextToClipboard,
+    downloadTextFile,
+    persistReferenceClipPlan,
+  });
+  const {
+    onCreateThumbnailConcept,
+    onSaveSelectedThumbnailConcept,
+    onDeleteSelectedThumbnailConcept,
+    onSetPrimaryThumbnailVersion,
+    onSelectThumbnailTitle,
+    onSelectThumbnailVersion,
+    onCreateLaunchVariant,
+    onSelectLaunchVariant,
+    onSaveLaunchVariant,
+  } = useThumbnailConceptActions({
+    episodePackage,
+    thumbnailVersions,
+    launchVariants,
+    metadataTitlesDraft,
+    selectedThumbnailTitleId,
+    selectedThumbnailConceptId,
+    selectedThumbnailVersionId,
+    selectedLaunchVariantId,
+    thumbnailConceptLabelDraft,
+    thumbnailConceptPromptDraft,
+    thumbnailConceptStyleDraft,
+    thumbnailTitleStyleDraft,
+    thumbnailConceptBrandTemplateIdDraft,
+    launchVariantStatusDraft,
+    launchVariantNotesDraft,
+    defaultThumbnailBrandTemplateId,
+    isThumbnailConceptSaving,
+    isThumbnailGenerating,
+    isThumbnailUploading,
+    createThumbnailClientId,
+    normalizeVisualStyle: normalizeHearthVisualStyle,
+    normalizeThumbnailTitleStyle: normalizeEpisodeThumbnailTitleStyle,
+    persistThumbnailEpisodePackage,
+    setIsThumbnailConceptSaving,
+    setSelectedThumbnailTitleId,
+    setSelectedThumbnailConceptId,
+    setSelectedThumbnailVersionId,
+    setSelectedLaunchVariantId,
+    setThumbnailGenerateError,
+    setThumbnailPairingError,
+  });
+  const {
+    onGenerateThumbnailVersion,
+    onRetryFailedThumbnailVersion,
+    onUploadThumbnailBrandLogo,
+    onRemoveThumbnailBrandLogo,
+    onUploadThumbnailImage,
+  } = useThumbnailGenerationActions({
+    workpieceId,
+    workspaceId,
+    episodePackage,
+    selectedThumbnailConceptId,
+    selectedThumbnailBrandTemplate,
+    defaultThumbnailBrandTemplateId,
+    thumbnailAspect,
+    isAiProcessing,
+    isApprovingScript,
+    isThumbnailGenerating,
+    isThumbnailUploading,
+    isThumbnailConceptSaving,
+    aiBillingMode,
+    aiTokenBalance,
+    persistThumbnailEpisodePackage,
+    replaceEpisodePackageImageMap,
+    createThumbnailClientId,
+    setEpisodePackage,
+    setSelectedThumbnailConceptId,
+    setSelectedThumbnailVersionId,
+    setThumbnailBrandTemplates,
+    setImageMapMetadataUpdatedAt,
+    setAiTokenBalance,
+    setAiRuntimeWarning,
+    setIsThumbnailGenerating,
+    setIsThumbnailUploading,
+    setIsThumbnailBrandLogoUploading,
+    setThumbnailGenerateError,
+    setThumbnailUploadError,
+    setThumbnailBrandLogoError,
+    setThumbnailBrandLogoStatus,
+    setThumbnailBrandLogoDataUrl,
+    publishForgeNotice,
+  });
+  const {
+    onStartImageMapReanchor,
+    onCancelImageMapReanchor,
+    onPickImageMapReanchor,
+    onRepairImageMapNearestParagraph,
+    onConvertImageMapToGlobalVisual,
+    onLeaveImageMapOrphaned,
+  } = useImageMapReanchorActions({
+    episodePackage,
+    selectedImageMapEntry,
+    imageMapReanchorDisabledReason,
+    isImageMapReanchorSaving,
+    canonicalImageMapScriptState,
+    persistImageMapEntries,
+    setMode,
+    setShowManualDraft,
+    setShowScriptPanel,
+    setImageMapReanchorError,
+    setImageMapCandidateError,
+    setImageMapCandidateSelectionError,
+    setIsImageMapReanchorMode,
+    setIsImageMapReanchorSaving,
+    setImageMapSaveState,
+    setImageMapSaveError,
+    setImageMapExportMessage,
+  });
+  const {
+    onGenerateImageMapCandidates,
+    onSelectImageMapCandidate,
+    onUploadImageMapAsset,
+  } = useImageMapCandidateActions({
+    workpieceId,
+    workspaceId,
+    episodePackage,
+    selectedImageMapEntry,
+    thumbnailAspect,
+    imageMapSaveState,
+    imageMapMetadataUpdatedAt,
+    isAiProcessing,
+    isApprovingScript,
+    isImageMapCandidateGenerating,
+    aiBillingMode,
+    aiTokenBalance,
+    readCanonicalScriptForImageMapGeneration,
+    replaceEpisodePackageImageMap,
+    persistImageMapEntries,
+    setMode,
+    setShowManualDraft,
+    setShowScriptPanel,
+    setIsImageMapReanchorMode,
+    setImageMapSourceTypeDraft,
+    setEpisodePackage,
+    setImageMapMetadataUpdatedAt,
+    setAiTokenBalance,
+    setAiRuntimeWarning,
+    setIsImageMapCandidateGenerating,
+    setIsImageMapCandidateSelecting,
+    setImageMapCandidateError,
+    setImageMapCandidateSelectionError,
+    setImageMapExportMessage,
+    publishForgeNotice,
+  });
 
   useEffect(() => {
     setReadyScripts([]);
@@ -8221,1095 +8460,6 @@ export default function HearthShell({
       });
   }
 
-  async function onCopyBrollPrompt() {
-    if (!episodePackage || !selectedBrollBeat) return;
-    const brief = buildBrollBeatBrief({
-      beat: {
-        ...selectedBrollBeat,
-        anchor_text: brollAnchorDraft.trim() || selectedBrollBeat.anchor_text,
-        description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
-      },
-      workpieceId: workpieceId?.trim() ?? "",
-      workpieceTitle: activeDraft?.title ?? null,
-    });
-    const text = formatVisualBriefAsText(brief);
-    const copied = await writeTextToClipboard(text);
-    if (!copied) {
-      setBrollSaveError("Unable to copy prompt to clipboard.");
-      setBrollSaveState("error");
-      return;
-    }
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "brief_exported", {
-        providerId: brollProviderIdDraft,
-        sourceUrl: brollSourceUrlDraft,
-        providerNote: brollProviderNoteDraft,
-        usageNote: brollUsageNoteDraft,
-        resultMetadata: brollResultMetadataDraft,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.brief_copied.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id },
-    });
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
-      setBrollSaveState("error");
-      return;
-    }
-    setBrollMessage("Prompt copied. Manual bridge state updated.");
-    setBrollSaveState("saved");
-  }
-
-  async function onDownloadBrollBrief(format: "text" | "json") {
-    if (!episodePackage || !selectedBrollBeat) return;
-    const brief = buildBrollBeatBrief({
-      beat: {
-        ...selectedBrollBeat,
-        anchor_text: brollAnchorDraft.trim() || selectedBrollBeat.anchor_text,
-        description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
-      },
-      workpieceId: workpieceId?.trim() ?? "",
-      workpieceTitle: activeDraft?.title ?? null,
-    });
-    const suffix = (workpieceId?.slice(0, 8) ?? "episode").toLowerCase();
-    if (format === "json") {
-      downloadTextFile({
-        text: JSON.stringify(brief, null, 2),
-        filename: `broll-brief-${suffix}-${selectedBrollBeat.id}.json`,
-        mimeType: "application/json;charset=utf-8",
-      });
-    } else {
-      downloadTextFile({
-        text: formatVisualBriefAsText(brief),
-        filename: `broll-brief-${suffix}-${selectedBrollBeat.id}.txt`,
-      });
-    }
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "brief_exported", {
-        providerId: brollProviderIdDraft,
-        sourceUrl: brollSourceUrlDraft,
-        providerNote: brollProviderNoteDraft,
-        usageNote: brollUsageNoteDraft,
-        resultMetadata: brollResultMetadataDraft,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.brief_downloaded.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id, format },
-    });
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
-      setBrollSaveState("error");
-      return;
-    }
-    setBrollMessage(format === "json" ? "JSON brief downloaded." : "Brief downloaded.");
-    setBrollSaveState("saved");
-  }
-
-  async function onOpenBrollProvider() {
-    if (!selectedBrollBeat) return;
-    const provider = brollProviders.find((entry) => entry.id === brollProviderIdDraft) ?? null;
-    if (!provider) {
-      setBrollSaveError("Choose a provider before opening a manual bridge.");
-      setBrollSaveState("error");
-      return;
-    }
-    const brief = buildBrollBeatBrief({
-      beat: {
-        ...selectedBrollBeat,
-        anchor_text: brollAnchorDraft.trim() || selectedBrollBeat.anchor_text,
-        description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
-      },
-      workpieceId: workpieceId?.trim() ?? "",
-      workpieceTitle: activeDraft?.title ?? null,
-    });
-    await writeTextToClipboard(formatVisualBriefAsText(brief));
-    if (typeof window !== "undefined") {
-      window.open(provider.launchUrl, "_blank", "noopener,noreferrer");
-    }
-    await onMarkBrollRequestState("sent_external");
-    setBrollMessage(`Opened ${provider.name}. Prompt copied for manual paste.`);
-  }
-
-  async function onMarkBrollRequestState(nextState: EpisodeExternalRequestState) {
-    if (!episodePackage || !selectedBrollBeat) return;
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, nextState, {
-        providerId: brollProviderIdDraft,
-        sourceUrl: brollSourceUrlDraft,
-        providerNote: brollProviderNoteDraft,
-        usageNote: brollUsageNoteDraft,
-        resultMetadata: brollResultMetadataDraft,
-        attachedAssetId: selectedBrollBeat.selected_asset_id ?? null,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.request_state.updated.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id, request_state: nextState },
-    });
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
-      setBrollSaveState("error");
-      return;
-    }
-    setBrollSaveState("saved");
-  }
-
-  async function onClearBrollRequestState() {
-    if (!episodePackage || !selectedBrollBeat) return;
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      external_request: {
-        state: "planned",
-        updated_at: new Date().toISOString(),
-      },
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.request_state.cleared.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id },
-    });
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
-      setBrollSaveState("error");
-      return;
-    }
-    setBrollSaveState("saved");
-    setBrollMessage("Request state cleared.");
-  }
-
-  async function onAttachBrollResultFromUrl() {
-    if (!episodePackage || !selectedBrollBeat) return;
-    const sourceUrl = brollSourceUrlDraft.trim();
-    if (!sourceUrl) {
-      setBrollSaveError("Add a source URL before attaching a result.");
-      setBrollSaveState("error");
-      return;
-    }
-    const candidate = createManualResultCandidate({
-      assetClass: "broll",
-      beatId: selectedBrollBeat.id,
-      sourceLabel: brollSourceLabelDraft || "External provider",
-      sourceUrl,
-      title: brollDescriptionDraft || selectedBrollBeat.description,
-      providerNote: brollProviderNoteDraft,
-      usageNote: brollUsageNoteDraft,
-    });
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      source_type: "external",
-      candidate_assets: [
-        ...(selectedBrollBeat.candidate_assets ?? []).filter((asset) => asset.asset_id !== candidate.asset_id),
-        candidate,
-      ],
-      selected_asset_id: candidate.asset_id,
-      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "asset_attached", {
-        providerId: brollProviderIdDraft,
-        sourceUrl: brollSourceUrlDraft,
-        providerNote: brollProviderNoteDraft,
-        usageNote: brollUsageNoteDraft,
-        resultMetadata: brollResultMetadataDraft,
-        attachedAssetId: candidate.asset_id,
-      }),
-      fulfillment_state: "resolved",
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.result_url_attached.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id },
-    });
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
-      setBrollSaveState("error");
-      return;
-    }
-    setBrollSaveState("saved");
-    setBrollMessage("Result URL attached as a classed B-roll candidate.");
-  }
-
-  async function onFindStockForBrollBeat() {
-    if (!episodePackage || !selectedBrollBeat) return;
-    if (isBrollBusy) return;
-    const nextMotionIntent = brollMotionIntentDraft as EpisodeBrollPlanBeat["motion_intent"];
-    const baseBeat = {
-      ...selectedBrollBeat,
-      description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
-      keywords: brollKeywordsDraft
-        .split(",")
-        .map((entry) => entry.trim().toLowerCase())
-        .filter(Boolean),
-      motion_intent: nextMotionIntent,
-      asset_category: brollAssetCategoryDraft,
-      mood: brollMoodDraft.trim() || selectedBrollBeat.mood,
-      data_visual_spec: resolveBrollDataVisualSpecFromDraft(nextMotionIntent),
-    };
-    const stockCandidates = buildStockCandidatesForBrollBeat(baseBeat);
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...baseBeat,
-      source_type: "stock",
-      candidate_assets: stockCandidates,
-      selected_asset_id: stockCandidates[0]?.asset_id ?? null,
-      fulfillment_state: stockCandidates.length > 0 ? "resolved" : "unresolved",
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    setIsBrollBusy(true);
-    setBrollSaveState("saving");
-    setBrollSaveError(null);
-    try {
-      const saved = await persistBrollPlan({
-        plan: nextPlan,
-        eventName: "hearth.broll_plan.stock_candidates.generated.v1",
-        eventPayload: { beat_id: selectedBrollBeat.id, candidate_count: stockCandidates.length },
-      });
-      if (!saved.ok) {
-        setBrollSaveError(saved.error);
-        setBrollSaveState("error");
-        return;
-      }
-      setBrollSaveState("saved");
-      setBrollMessage(`Attached ${stockCandidates.length} stock candidate links.`);
-    } catch {
-      setBrollSaveError("Unable to attach stock candidates for this B-roll beat.");
-      setBrollSaveState("error");
-    } finally {
-      setIsBrollBusy(false);
-    }
-  }
-
-  async function onUploadBrollBeatAsset(file: File) {
-    if (!episodePackage || !selectedBrollBeat) return;
-    if (isBrollBusy) return;
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId) {
-      setBrollSaveError("Select an Episode before uploading B-roll assets.");
-      setBrollSaveState("error");
-      return;
-    }
-    setIsBrollBusy(true);
-    setBrollSaveState("saving");
-    setBrollSaveError(null);
-    try {
-    const uploaded = await uploadBrollBeatAsset({
-      workpieceId: episodeId,
-      beatId: selectedBrollBeat.id,
-      file,
-      source: "upload",
-      assetClass: "broll",
-      sourceLabel: brollSourceLabelDraft,
-      sourceUrl: brollSourceUrlDraft,
-      providerNote: brollProviderNoteDraft,
-      usageNote: brollUsageNoteDraft,
-    });
-      if (!uploaded.ok) {
-        setBrollSaveError(uploaded.error);
-        setBrollSaveState("error");
-        return;
-      }
-    const uploadedCategory: EpisodeBrollMotionAssetCategory = file.type.startsWith("video/")
-      ? "uploaded_video"
-      : "animated_graphic";
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      source_type: "upload",
-      asset_category: uploadedCategory,
-      origin: selectedBrollBeat.origin === "hammer" ? "mixed" : "hearth",
-      candidate_assets: [
-        ...(selectedBrollBeat.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
-        uploaded.candidateAsset,
-      ],
-        external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "asset_attached", {
-          providerId: brollProviderIdDraft,
-          sourceUrl: brollSourceUrlDraft,
-          providerNote: brollProviderNoteDraft,
-          usageNote: brollUsageNoteDraft,
-          resultMetadata: brollResultMetadataDraft,
-          attachedAssetId: uploaded.candidateAsset.asset_id,
-        }),
-        selected_asset_id: uploaded.candidateAsset.asset_id,
-        fulfillment_state: "resolved",
-        updated_at: new Date().toISOString(),
-      };
-      const nextPlan: EpisodeBrollPlan = {
-        ...episodePackage.broll_plan,
-        version: Math.max(1, episodePackage.broll_plan.version + 1),
-        beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-        generated_at: new Date().toISOString(),
-      };
-      const saved = await persistBrollPlan({
-        plan: nextPlan,
-        eventName: "hearth.broll_plan.asset_uploaded.v1",
-        eventPayload: { beat_id: selectedBrollBeat.id, source: "upload" },
-      });
-      if (!saved.ok) {
-        setBrollSaveError(saved.error);
-        setBrollSaveState("error");
-        return;
-      }
-      setBrollSaveState("saved");
-      setBrollMessage("Uploaded asset selected for this B-roll beat.");
-    } catch {
-      setBrollSaveError("Unable to upload this B-roll asset.");
-      setBrollSaveState("error");
-    } finally {
-      setIsBrollBusy(false);
-    }
-  }
-
-  async function onSelectBrollCandidate(candidateId: string) {
-    if (!episodePackage || !selectedBrollBeat) return;
-    if (isBrollBusy) return;
-    if (selectedBrollBeat.selected_asset_id === candidateId) return;
-    const candidate = (selectedBrollBeat.candidate_assets ?? []).find((asset) => asset.asset_id === candidateId) ?? null;
-    if (!candidate) {
-      setBrollSaveError("Selected candidate is no longer attached to this beat.");
-      setBrollSaveState("error");
-      return;
-    }
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      source_type: candidate.source,
-      asset_category: candidate.asset_category ?? selectedBrollBeat.asset_category,
-      data_visual_spec: candidate.data_visual_spec ?? selectedBrollBeat.data_visual_spec ?? null,
-      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "resolved", {
-        providerId: brollProviderIdDraft,
-        sourceUrl: candidate.source_url ?? brollSourceUrlDraft,
-        providerNote: candidate.provider_note ?? brollProviderNoteDraft,
-        usageNote: candidate.usage_note ?? brollUsageNoteDraft,
-        resultMetadata: brollResultMetadataDraft,
-        attachedAssetId: candidate.asset_id,
-      }),
-      selected_asset_id: candidate.asset_id,
-      fulfillment_state: "resolved",
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    setIsBrollBusy(true);
-    setBrollSaveState("saving");
-    setBrollSaveError(null);
-    try {
-      const saved = await persistBrollPlan({
-        plan: nextPlan,
-        eventName: "hearth.broll_plan.asset_selected.v1",
-        eventPayload: { beat_id: selectedBrollBeat.id, candidate_id: candidate.asset_id },
-      });
-      if (!saved.ok) {
-        setBrollSaveError(saved.error);
-        setBrollSaveState("error");
-        return;
-      }
-      setBrollSaveState("saved");
-      setBrollMessage("Selected asset attached to B-roll beat.");
-    } catch {
-      setBrollSaveError("Unable to select this B-roll candidate.");
-      setBrollSaveState("error");
-    } finally {
-      setIsBrollBusy(false);
-    }
-  }
-
-  async function onCreateReferenceClipEntry() {
-    if (isReferenceClipBusy) return;
-    if (!episodePackage) return;
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId) {
-      setReferenceClipSaveError("Select an Episode before creating Reference Clips.");
-      setReferenceClipSaveState("error");
-      return;
-    }
-    const baseAnchor = (
-      selectedImageMapEntry?.anchor
-      || selectedBrollBeat?.anchor_text
-      || activeDraft?.title
-      || "New reference clip"
-    ).trim();
-    const created = createReferenceClipPlan({
-      workpieceId: episodeId,
-      anchorText: baseAnchor,
-      description: baseAnchor,
-      format: (referenceClipFormatDraft.trim() || "still") as EpisodeReferenceClipFormat,
-    });
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: [...episodePackage.cdc_plan.entries, created],
-      generated_at: new Date().toISOString(),
-    };
-    setIsReferenceClipBusy(true);
-    setReferenceClipSaveState("saving");
-    setReferenceClipSaveError(null);
-    try {
-      const saved = await persistReferenceClipPlan({
-        plan: nextPlan,
-        eventName: "hearth.cdc_plan.entry_created.v1",
-        eventPayload: {
-          cdc_id: created.id,
-          format: created.format,
-          data_type: created.data_type,
-        },
-      });
-      if (!saved.ok) {
-        setReferenceClipSaveError(saved.error);
-        setReferenceClipSaveState("error");
-        return;
-      }
-      setSelectedReferenceClipEntryId(created.id);
-      setReferenceClipSaveState("saved");
-      setReferenceClipMessage("Reference Clip created.");
-    } catch {
-      setReferenceClipSaveError("Unable to create this reference clip.");
-      setReferenceClipSaveState("error");
-    } finally {
-      setIsReferenceClipBusy(false);
-    }
-  }
-
-  async function onSaveReferenceClipEntry() {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    if (isReferenceClipBusy) return;
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      anchor_text: referenceClipAnchorDraft.trim(),
-      placement_hint: (referenceClipPlacementHintDraft.trim() || "first_occurrence") as EpisodeContextualDataCompositePlan["placement_hint"],
-      format: (referenceClipFormatDraft.trim() || "still") as EpisodeReferenceClipFormat,
-      data_type: (referenceClipDataTypeDraft.trim() || "quantitative") as EpisodeReferenceClipDataType,
-      context_type: (referenceClipContextTypeDraft.trim() || "historical") as EpisodeReferenceClipContextType,
-      tone: (referenceClipToneDraft.trim() || "neutral") as EpisodeReferenceClipTone,
-      motion_level: (referenceClipMotionLevelDraft.trim() || "static") as EpisodeReferenceClipMotionLevel,
-      description: referenceClipDescriptionDraft.trim(),
-      background_context_description: referenceClipBackgroundContextDraft.trim(),
-      foreground_data_description: referenceClipForegroundDataDraft.trim(),
-      visual_style: normalizeHearthVisualStyle(referenceClipVisualStyleDraft),
-      chart_type: (referenceClipChartTypeDraft.trim() || "line") as EpisodeReferenceClipChartType,
-      title: referenceClipTitleDraft.trim() || null,
-      labels: referenceClipLabelsDraft
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean),
-      values: resolveReferenceClipValuesFromDraft(),
-      emphasis_key: referenceClipEmphasisKeyDraft.trim() || null,
-      source_type: referenceClipSourceTypeDraft as EpisodeContextualDataCompositePlan["source_type"],
-      external_request: advanceExternalRequestTracker(
-        selectedReferenceClipEntry.external_request,
-        selectedReferenceClipEntry.external_request?.state ?? "planned",
-        {
-          providerId: referenceClipProviderIdDraft,
-          sourceUrl: referenceClipSourceUrlDraft,
-          providerNote: referenceClipProviderNoteDraft,
-          usageNote: referenceClipUsageNoteDraft,
-          resultMetadata: referenceClipResultMetadataDraft,
-          attachedAssetId: selectedReferenceClipEntry.selected_asset_id ?? null,
-        },
-      ),
-      origin: referenceClipSourceTypeDraft === "hammer_upload" && selectedReferenceClipEntry.origin === "hearth"
-        ? "mixed"
-        : selectedReferenceClipEntry.origin,
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    setIsReferenceClipBusy(true);
-    setReferenceClipSaveState("saving");
-    setReferenceClipSaveError(null);
-    try {
-      const saved = await persistReferenceClipPlan({
-        plan: nextPlan,
-        eventName: "hearth.cdc_plan.entry_updated.v1",
-        eventPayload: { cdc_id: selectedReferenceClipEntry.id },
-      });
-      if (!saved.ok) {
-        setReferenceClipSaveError(saved.error);
-        setReferenceClipSaveState("error");
-        return;
-      }
-      setReferenceClipSaveState("saved");
-      setReferenceClipMessage("Reference Clip saved.");
-    } catch {
-      setReferenceClipSaveError("Unable to save this reference clip.");
-      setReferenceClipSaveState("error");
-    } finally {
-      setIsReferenceClipBusy(false);
-    }
-  }
-
-  async function onDeleteReferenceClipEntry() {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    if (isReferenceClipBusy) return;
-    const confirmed = window.confirm("Delete this Reference Clip?");
-    if (!confirmed) return;
-    const nextEntries = episodePackage.cdc_plan.entries.filter((entry) => entry.id !== selectedReferenceClipEntry.id);
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: nextEntries,
-      generated_at: new Date().toISOString(),
-    };
-    setIsReferenceClipBusy(true);
-    setReferenceClipSaveState("saving");
-    setReferenceClipSaveError(null);
-    try {
-      const saved = await persistReferenceClipPlan({
-        plan: nextPlan,
-        eventName: "hearth.cdc_plan.entry_deleted.v1",
-        eventPayload: { cdc_id: selectedReferenceClipEntry.id },
-      });
-      if (!saved.ok) {
-        setReferenceClipSaveError(saved.error);
-        setReferenceClipSaveState("error");
-        return;
-      }
-      setSelectedReferenceClipEntryId(nextEntries[0]?.id ?? null);
-      setReferenceClipSaveState("saved");
-      setReferenceClipMessage("Reference Clip removed.");
-    } catch {
-      setReferenceClipSaveError("Unable to delete this reference clip.");
-      setReferenceClipSaveState("error");
-    } finally {
-      setIsReferenceClipBusy(false);
-    }
-  }
-
-  async function onRegenerateReferenceClipEntryStub() {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    if (isReferenceClipBusy) return;
-    const nextDescription = referenceClipDescriptionDraft.trim() || selectedReferenceClipEntry.description || selectedReferenceClipEntry.anchor_text;
-    const signals = inferReferenceClipSuitabilitySignals(nextDescription);
-    const inferredDataType: EpisodeReferenceClipDataType = signals.includes("geographic")
-      ? "geographic"
-      : signals.includes("over_time")
-        ? "timeline"
-        : signals.includes("comparison")
-          ? "comparison"
-          : signals.includes("statistics")
-            ? "quantitative"
-            : "categorical";
-    const inferredContextType: EpisodeReferenceClipContextType = signals.includes("geographic") ? "location" : "historical";
-    const inferredChartType: EpisodeReferenceClipChartType = inferredDataType === "timeline"
-      ? "timeline"
-      : inferredDataType === "geographic"
-        ? "map"
-        : inferredDataType === "comparison"
-          ? "comparison"
-          : inferredDataType === "categorical"
-            ? "bar"
-            : "line";
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      description: nextDescription,
-      data_type: inferredDataType,
-      context_type: inferredContextType,
-      chart_type: inferredChartType,
-      tone: signals.includes("policy_impact") ? "investigative" : (signals.includes("trend") ? "analytical" : selectedReferenceClipEntry.tone),
-      motion_level: (referenceClipFormatDraft === "animated" || referenceClipFormatDraft === "hybrid") ? "full_animation" : "static",
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    setIsReferenceClipBusy(true);
-    setReferenceClipSaveState("saving");
-    setReferenceClipSaveError(null);
-    try {
-      const saved = await persistReferenceClipPlan({
-        plan: nextPlan,
-        eventName: "hearth.cdc_plan.entry_regenerated_stub.v1",
-        eventPayload: {
-          cdc_id: selectedReferenceClipEntry.id,
-          signal_count: signals.length,
-        },
-      });
-      if (!saved.ok) {
-        setReferenceClipSaveError(saved.error);
-        setReferenceClipSaveState("error");
-        return;
-      }
-      setReferenceClipSaveState("saved");
-      setReferenceClipMessage("Reference Clip guidance refreshed.");
-    } catch {
-      setReferenceClipSaveError("Unable to regenerate reference clip guidance.");
-      setReferenceClipSaveState("error");
-    } finally {
-      setIsReferenceClipBusy(false);
-    }
-  }
-
-  async function onCopyReferenceClipPrompt() {
-    if (!episodePackage || !selectedReferenceClipEntry || !activeVisualPromptPackForReferenceClip) return;
-    const copied = await writeTextToClipboard(activeVisualPromptPackForReferenceClip.pack.prompt);
-    if (!copied) {
-      setReferenceClipSaveError("Unable to copy prompt to clipboard.");
-      setReferenceClipSaveState("error");
-      return;
-    }
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "brief_exported", {
-        providerId: referenceClipProviderIdDraft,
-        sourceUrl: referenceClipSourceUrlDraft,
-        providerNote: referenceClipProviderNoteDraft,
-        usageNote: referenceClipUsageNoteDraft,
-        resultMetadata: referenceClipResultMetadataDraft,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistReferenceClipPlan({
-      plan: nextPlan,
-      eventName: "hearth.cdc_plan.prompt_copied.v1",
-      eventPayload: {
-        cdc_id: selectedReferenceClipEntry.id,
-        provider: activeVisualPromptPackForReferenceClip.provider.id,
-      },
-    });
-    if (!saved.ok) {
-      setReferenceClipSaveError(saved.error);
-      setReferenceClipSaveState("error");
-      return;
-    }
-    setReferenceClipSaveState("saved");
-    setReferenceClipMessage(`${activeVisualPromptPackForReferenceClip.provider.label} prompt copied. Manual bridge state updated.`);
-  }
-
-  async function onCopyReferenceClipNegativePrompt() {
-    if (!episodePackage || !selectedReferenceClipEntry || !activeVisualPromptPackForReferenceClip?.pack.negative) return;
-    const copied = await writeTextToClipboard(activeVisualPromptPackForReferenceClip.pack.negative);
-    if (!copied) {
-      setReferenceClipSaveError("Unable to copy negative prompt to clipboard.");
-      setReferenceClipSaveState("error");
-      return;
-    }
-    setReferenceClipSaveState("saved");
-    setReferenceClipMessage("Negative prompt copied.");
-  }
-
-  async function onDownloadReferenceClipPromptPack() {
-    if (!episodePackage || !selectedReferenceClipEntry || !activeVisualPromptPackForReferenceClip) return;
-    const suffix = (workpieceId?.slice(0, 8) ?? "episode").toLowerCase();
-    downloadTextFile({
-      text: serializePromptPack(activeVisualPromptPackForReferenceClip.pack),
-      filename: `reference-clip-prompt-pack-${suffix}-${selectedReferenceClipEntry.id}.json`,
-      mimeType: "application/json;charset=utf-8",
-    });
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "brief_exported", {
-        providerId: referenceClipProviderIdDraft,
-        sourceUrl: referenceClipSourceUrlDraft,
-        providerNote: referenceClipProviderNoteDraft,
-        usageNote: referenceClipUsageNoteDraft,
-        resultMetadata: referenceClipResultMetadataDraft,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistReferenceClipPlan({
-      plan: nextPlan,
-      eventName: "hearth.cdc_plan.prompt_pack_downloaded.v1",
-      eventPayload: {
-        cdc_id: selectedReferenceClipEntry.id,
-        provider: activeVisualPromptPackForReferenceClip.provider.id,
-      },
-    });
-    if (!saved.ok) {
-      setReferenceClipSaveError(saved.error);
-      setReferenceClipSaveState("error");
-      return;
-    }
-    setReferenceClipSaveState("saved");
-    setReferenceClipMessage(`${activeVisualPromptPackForReferenceClip.provider.label} prompt pack downloaded.`);
-  }
-
-  async function onDownloadReferenceClipBrief(format: "text" | "json") {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    const brief = buildReferenceClipBrief({
-      entry: {
-        ...selectedReferenceClipEntry,
-        anchor_text: referenceClipAnchorDraft.trim() || selectedReferenceClipEntry.anchor_text,
-        description: referenceClipDescriptionDraft.trim() || selectedReferenceClipEntry.description,
-      },
-      workpieceId: workpieceId?.trim() ?? "",
-      workpieceTitle: activeDraft?.title ?? null,
-    });
-    const suffix = (workpieceId?.slice(0, 8) ?? "episode").toLowerCase();
-    if (format === "json") {
-      downloadTextFile({
-        text: JSON.stringify(brief, null, 2),
-        filename: `reference-clip-brief-${suffix}-${selectedReferenceClipEntry.id}.json`,
-        mimeType: "application/json;charset=utf-8",
-      });
-    } else {
-      downloadTextFile({
-        text: formatVisualBriefAsText(brief),
-        filename: `reference-clip-brief-${suffix}-${selectedReferenceClipEntry.id}.txt`,
-      });
-    }
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "brief_exported", {
-        providerId: referenceClipProviderIdDraft,
-        sourceUrl: referenceClipSourceUrlDraft,
-        providerNote: referenceClipProviderNoteDraft,
-        usageNote: referenceClipUsageNoteDraft,
-        resultMetadata: referenceClipResultMetadataDraft,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistReferenceClipPlan({
-      plan: nextPlan,
-      eventName: "hearth.cdc_plan.brief_downloaded.v1",
-      eventPayload: { cdc_id: selectedReferenceClipEntry.id, format },
-    });
-    if (!saved.ok) {
-      setReferenceClipSaveError(saved.error);
-      setReferenceClipSaveState("error");
-      return;
-    }
-    setReferenceClipSaveState("saved");
-    setReferenceClipMessage(format === "json" ? "JSON brief downloaded." : "Brief downloaded.");
-  }
-
-  async function onOpenReferenceClipProvider() {
-    if (!selectedReferenceClipEntry) return;
-    const provider = referenceClipProviders.find((entry) => entry.id === referenceClipProviderIdDraft) ?? null;
-    if (!provider) {
-      setReferenceClipSaveError("Choose a provider before opening a manual bridge.");
-      setReferenceClipSaveState("error");
-      return;
-    }
-    if (activeVisualPromptPackForReferenceClip) {
-      await writeTextToClipboard(activeVisualPromptPackForReferenceClip.pack.prompt);
-    }
-    if (typeof window !== "undefined") {
-      window.open(provider.launchUrl, "_blank", "noopener,noreferrer");
-    }
-    await onMarkReferenceClipRequestState("sent_external");
-    setReferenceClipMessage(`Opened ${provider.name}. ${activeVisualPromptPackForReferenceClip?.provider.label ?? "Prompt"} copied for manual paste.`);
-  }
-
-  async function onMarkReferenceClipRequestState(nextState: EpisodeExternalRequestState) {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, nextState, {
-        providerId: referenceClipProviderIdDraft,
-        sourceUrl: referenceClipSourceUrlDraft,
-        providerNote: referenceClipProviderNoteDraft,
-        usageNote: referenceClipUsageNoteDraft,
-        resultMetadata: referenceClipResultMetadataDraft,
-        attachedAssetId: selectedReferenceClipEntry.selected_asset_id ?? null,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistReferenceClipPlan({
-      plan: nextPlan,
-      eventName: "hearth.cdc_plan.request_state.updated.v1",
-      eventPayload: { cdc_id: selectedReferenceClipEntry.id, request_state: nextState },
-    });
-    if (!saved.ok) {
-      setReferenceClipSaveError(saved.error);
-      setReferenceClipSaveState("error");
-      return;
-    }
-    setReferenceClipSaveState("saved");
-  }
-
-  async function onClearReferenceClipRequestState() {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      external_request: {
-        state: "planned",
-        updated_at: new Date().toISOString(),
-      },
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistReferenceClipPlan({
-      plan: nextPlan,
-      eventName: "hearth.cdc_plan.request_state.cleared.v1",
-      eventPayload: { cdc_id: selectedReferenceClipEntry.id },
-    });
-    if (!saved.ok) {
-      setReferenceClipSaveError(saved.error);
-      setReferenceClipSaveState("error");
-      return;
-    }
-    setReferenceClipSaveState("saved");
-    setReferenceClipMessage("Request state cleared.");
-  }
-
-  async function onAttachReferenceClipResultFromUrl() {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    const sourceUrl = referenceClipSourceUrlDraft.trim();
-    if (!sourceUrl) {
-      setReferenceClipSaveError("Add a source URL before attaching a result.");
-      setReferenceClipSaveState("error");
-      return;
-    }
-    const candidate = createManualResultCandidate({
-      assetClass: "reference_clip",
-      beatId: selectedReferenceClipEntry.id,
-      sourceLabel: referenceClipSourceLabelDraft || "External provider",
-      sourceUrl,
-      title: referenceClipTitleDraft || selectedReferenceClipEntry.description,
-      providerNote: referenceClipProviderNoteDraft,
-      usageNote: referenceClipUsageNoteDraft,
-    });
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      source_type: "external",
-      candidate_assets: [
-        ...(selectedReferenceClipEntry.candidate_assets ?? []).filter((asset) => asset.asset_id !== candidate.asset_id),
-        candidate,
-      ],
-      selected_asset_id: candidate.asset_id,
-      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "asset_attached", {
-        providerId: referenceClipProviderIdDraft,
-        sourceUrl: referenceClipSourceUrlDraft,
-        providerNote: referenceClipProviderNoteDraft,
-        usageNote: referenceClipUsageNoteDraft,
-        resultMetadata: referenceClipResultMetadataDraft,
-        attachedAssetId: candidate.asset_id,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistReferenceClipPlan({
-      plan: nextPlan,
-      eventName: "hearth.cdc_plan.result_url_attached.v1",
-      eventPayload: { cdc_id: selectedReferenceClipEntry.id },
-    });
-    if (!saved.ok) {
-      setReferenceClipSaveError(saved.error);
-      setReferenceClipSaveState("error");
-      return;
-    }
-    setReferenceClipSaveState("saved");
-    setReferenceClipMessage("Result URL attached as a classed reference clip candidate.");
-  }
-
-  async function onUploadReferenceClipAsset(file: File) {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    if (isReferenceClipBusy) return;
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId) {
-      setReferenceClipSaveError("Select an Episode before uploading Reference Clip assets.");
-      setReferenceClipSaveState("error");
-      return;
-    }
-    setIsReferenceClipBusy(true);
-    setReferenceClipSaveState("saving");
-    setReferenceClipSaveError(null);
-    try {
-      const uploaded = await uploadBrollBeatAsset({
-        workpieceId: episodeId,
-        beatId: selectedReferenceClipEntry.id,
-        file,
-        source: "upload",
-        assetClass: "reference_clip",
-        sourceLabel: referenceClipSourceLabelDraft,
-        sourceUrl: referenceClipSourceUrlDraft,
-        providerNote: referenceClipProviderNoteDraft,
-        usageNote: referenceClipUsageNoteDraft,
-      });
-      if (!uploaded.ok) {
-        setReferenceClipSaveError(uploaded.error);
-        setReferenceClipSaveState("error");
-        return;
-      }
-      const nextEntry: EpisodeContextualDataCompositePlan = {
-        ...selectedReferenceClipEntry,
-        source_type: "upload",
-        origin: selectedReferenceClipEntry.origin === "hammer" ? "mixed" : "hearth",
-        candidate_assets: [
-          ...(selectedReferenceClipEntry.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
-          uploaded.candidateAsset,
-        ],
-        external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "asset_attached", {
-          providerId: referenceClipProviderIdDraft,
-          sourceUrl: referenceClipSourceUrlDraft,
-          providerNote: referenceClipProviderNoteDraft,
-          usageNote: referenceClipUsageNoteDraft,
-          resultMetadata: referenceClipResultMetadataDraft,
-          attachedAssetId: uploaded.candidateAsset.asset_id,
-        }),
-        selected_asset_id: uploaded.candidateAsset.asset_id,
-        updated_at: new Date().toISOString(),
-      };
-      const nextPlan: EpisodeReferenceClipPlan = {
-        ...episodePackage.cdc_plan,
-        version: Math.max(1, episodePackage.cdc_plan.version + 1),
-        entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-        generated_at: new Date().toISOString(),
-      };
-      const saved = await persistReferenceClipPlan({
-        plan: nextPlan,
-        eventName: "hearth.cdc_plan.asset_uploaded.v1",
-        eventPayload: { cdc_id: selectedReferenceClipEntry.id, source: "upload" },
-      });
-      if (!saved.ok) {
-        setReferenceClipSaveError(saved.error);
-        setReferenceClipSaveState("error");
-        return;
-      }
-      setReferenceClipSaveState("saved");
-      setReferenceClipMessage("Uploaded asset selected for this reference clip.");
-    } catch {
-      setReferenceClipSaveError("Unable to upload this reference clip asset.");
-      setReferenceClipSaveState("error");
-    } finally {
-      setIsReferenceClipBusy(false);
-    }
-  }
-
-  async function onSelectReferenceClipCandidate(candidateId: string) {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    if (isReferenceClipBusy) return;
-    if (selectedReferenceClipEntry.selected_asset_id === candidateId) return;
-    const candidate = (selectedReferenceClipEntry.candidate_assets ?? []).find((asset) => asset.asset_id === candidateId) ?? null;
-    if (!candidate) {
-      setReferenceClipSaveError("Selected candidate is no longer attached to this reference clip.");
-      setReferenceClipSaveState("error");
-      return;
-    }
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      source_type: candidate.source,
-      origin: candidate.source === "hammer_upload" && selectedReferenceClipEntry.origin === "hearth"
-        ? "mixed"
-        : selectedReferenceClipEntry.origin,
-      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "resolved", {
-        providerId: referenceClipProviderIdDraft,
-        sourceUrl: candidate.source_url ?? referenceClipSourceUrlDraft,
-        providerNote: candidate.provider_note ?? referenceClipProviderNoteDraft,
-        usageNote: candidate.usage_note ?? referenceClipUsageNoteDraft,
-        resultMetadata: referenceClipResultMetadataDraft,
-        attachedAssetId: candidate.asset_id,
-      }),
-      selected_asset_id: candidate.asset_id,
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    setIsReferenceClipBusy(true);
-    setReferenceClipSaveState("saving");
-    setReferenceClipSaveError(null);
-    try {
-      const saved = await persistReferenceClipPlan({
-        plan: nextPlan,
-        eventName: "hearth.cdc_plan.asset_selected.v1",
-        eventPayload: { cdc_id: selectedReferenceClipEntry.id, candidate_id: candidate.asset_id },
-      });
-      if (!saved.ok) {
-        setReferenceClipSaveError(saved.error);
-        setReferenceClipSaveState("error");
-        return;
-      }
-      setReferenceClipSaveState("saved");
-      setReferenceClipMessage("Selected asset attached to reference clip.");
-    } catch {
-      setReferenceClipSaveError("Unable to select this reference clip candidate.");
-      setReferenceClipSaveState("error");
-    } finally {
-      setIsReferenceClipBusy(false);
-    }
-  }
-
   async function prepareSourceEpisodePackageForMediaMapGeneration(scope: MediaMapGenerationScope): Promise<{
     ok: true;
     episodePackage: EpisodePackageV2;
@@ -9434,582 +8584,6 @@ export default function HearthShell({
     };
   }
 
-  async function onCreateThumbnailConcept() {
-    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
-    if (!episodePackage) return;
-
-    const label = thumbnailConceptLabelDraft.trim();
-    const promptText = thumbnailConceptPromptDraft.trim();
-    if (!label || !promptText) {
-      setThumbnailGenerateError("Concept label and prompt are required.");
-      return;
-    }
-
-    const concept: EpisodeThumbnailConcept = {
-      id: createThumbnailClientId("thumb-concept"),
-      label,
-      prompt_text: promptText,
-      style_preset: normalizeHearthVisualStyle(thumbnailConceptStyleDraft),
-      title_style: normalizeEpisodeThumbnailTitleStyle(thumbnailTitleStyleDraft),
-      brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? defaultThumbnailBrandTemplateId,
-    };
-
-    const nextEpisodePackage: EpisodePackageV2 = {
-      ...episodePackage,
-      thumbnail: {
-        ...episodePackage.thumbnail,
-        concepts: [...episodePackage.thumbnail.concepts, concept],
-      },
-    };
-
-    setIsThumbnailConceptSaving(true);
-    setThumbnailGenerateError(null);
-    try {
-      const saved = await persistThumbnailEpisodePackage(
-        nextEpisodePackage,
-        "hearth.thumbnail.concept.created.v1",
-        { concept_id: concept.id },
-      );
-      if (!saved) return;
-      setSelectedThumbnailConceptId(concept.id);
-    } finally {
-      setIsThumbnailConceptSaving(false);
-    }
-  }
-
-  async function onSaveSelectedThumbnailConcept() {
-    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
-    if (!episodePackage || !selectedThumbnailConceptId) return;
-
-    const label = thumbnailConceptLabelDraft.trim();
-    const promptText = thumbnailConceptPromptDraft.trim();
-    if (!label || !promptText) {
-      setThumbnailGenerateError("Concept label and prompt are required.");
-      return;
-    }
-
-    const nextConcepts = episodePackage.thumbnail.concepts.map((concept) => (
-      concept.id === selectedThumbnailConceptId
-        ? {
-            ...concept,
-            label,
-            prompt_text: promptText,
-            style_preset: normalizeHearthVisualStyle(thumbnailConceptStyleDraft),
-            title_style: normalizeEpisodeThumbnailTitleStyle(thumbnailTitleStyleDraft),
-            brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? null,
-          }
-        : concept
-    ));
-
-    const nextEpisodePackage: EpisodePackageV2 = {
-      ...episodePackage,
-      thumbnail: {
-        ...episodePackage.thumbnail,
-        concepts: nextConcepts,
-      },
-    };
-
-    setIsThumbnailConceptSaving(true);
-    setThumbnailGenerateError(null);
-    try {
-      await persistThumbnailEpisodePackage(
-        nextEpisodePackage,
-        "hearth.thumbnail.concept.updated.v1",
-        { concept_id: selectedThumbnailConceptId },
-      );
-    } finally {
-      setIsThumbnailConceptSaving(false);
-    }
-  }
-
-  async function onDeleteSelectedThumbnailConcept() {
-    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
-    if (!episodePackage || !selectedThumbnailConceptId) return;
-    const confirmed = window.confirm("Delete this concept and its linked versions?");
-    if (!confirmed) return;
-
-    const nextConcepts = episodePackage.thumbnail.concepts.filter((concept) => concept.id !== selectedThumbnailConceptId);
-    const nextVersions = episodePackage.thumbnail.versions.filter((version) => version.concept_id !== selectedThumbnailConceptId);
-    const nextPrimary = nextVersions.some((version) => version.id === episodePackage.thumbnail.primary_version_id)
-      ? episodePackage.thumbnail.primary_version_id
-      : nextVersions[0]?.id ?? null;
-    const nextSelectedConceptId = nextConcepts[0]?.id ?? "";
-    const nextSelectedVersionId = nextPrimary ?? nextVersions[0]?.id ?? null;
-
-    const nextEpisodePackage: EpisodePackageV2 = {
-      ...episodePackage,
-      thumbnail: {
-        ...episodePackage.thumbnail,
-        concepts: nextConcepts,
-        versions: nextVersions,
-        primary_version_id: nextPrimary,
-      },
-    };
-
-    setIsThumbnailConceptSaving(true);
-    setThumbnailGenerateError(null);
-    try {
-      const saved = await persistThumbnailEpisodePackage(
-        nextEpisodePackage,
-        "hearth.thumbnail.concept.deleted.v1",
-        { concept_id: selectedThumbnailConceptId },
-      );
-      if (!saved) return;
-      setSelectedThumbnailConceptId(nextSelectedConceptId);
-      setSelectedThumbnailVersionId(nextSelectedVersionId);
-    } finally {
-      setIsThumbnailConceptSaving(false);
-    }
-  }
-
-  async function onSetPrimaryThumbnailVersion(versionId: string) {
-    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
-    if (!episodePackage) return;
-    const version = episodePackage.thumbnail.versions.find((entry) => entry.id === versionId);
-    if (!version || version.status !== "ready") return;
-
-    const nextEpisodePackage: EpisodePackageV2 = {
-      ...episodePackage,
-      thumbnail: {
-        ...episodePackage.thumbnail,
-        primary_version_id: versionId,
-      },
-    };
-
-    const saved = await persistThumbnailEpisodePackage(
-      nextEpisodePackage,
-      "hearth.thumbnail.primary.set.v1",
-      { version_id: versionId },
-    );
-    if (!saved) return;
-    setSelectedThumbnailConceptId(version.concept_id);
-    setSelectedThumbnailVersionId(versionId);
-  }
-
-  function onSelectThumbnailTitle(titleId: string): void {
-    setSelectedThumbnailTitleId(titleId);
-    setThumbnailPairingError(null);
-  }
-
-  function onSelectThumbnailVersion(versionId: string): void {
-    const version = thumbnailVersions.find((entry) => entry.id === versionId) ?? null;
-    if (version) {
-      setSelectedThumbnailConceptId(version.concept_id);
-    }
-    setSelectedThumbnailVersionId(versionId);
-    setThumbnailPairingError(null);
-  }
-
-  function onCreateLaunchVariant(): void {
-    setSelectedLaunchVariantId(null);
-    setThumbnailPairingError(null);
-  }
-
-  function onSelectLaunchVariant(variantId: string): void {
-    const variant = launchVariants.find((entry) => entry.id === variantId) ?? null;
-    if (!variant) return;
-    const version = thumbnailVersions.find((entry) => entry.id === variant.thumbnail_version_id) ?? null;
-    if (version) {
-      setSelectedThumbnailConceptId(version.concept_id);
-      setSelectedThumbnailVersionId(version.id);
-    }
-    setSelectedThumbnailTitleId(variant.title_id);
-    setSelectedLaunchVariantId(variant.id);
-    setThumbnailPairingError(null);
-  }
-
-  async function onSaveLaunchVariant() {
-    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
-    if (!episodePackage) return;
-
-    const titleId = selectedThumbnailTitleId?.trim() ?? "";
-    const versionId = selectedThumbnailVersionId?.trim() ?? "";
-    if (!titleId || !versionId) {
-      setThumbnailPairingError("Choose both a title and a thumbnail version before saving a launch variant.");
-      return;
-    }
-
-    const title = metadataTitlesDraft.find((entry) => entry.id === titleId) ?? null;
-    if (!title || !title.text.trim()) {
-      setThumbnailPairingError("Choose a populated title before saving a launch variant.");
-      return;
-    }
-
-    const version = thumbnailVersions.find((entry) => entry.id === versionId) ?? null;
-    if (!version) {
-      setThumbnailPairingError("Select a valid thumbnail version before saving a launch variant.");
-      return;
-    }
-
-    const existingVariant = selectedLaunchVariantId
-      ? episodePackage.launch_variants.find((entry) => entry.id === selectedLaunchVariantId) ?? null
-      : null;
-    const nowIso = new Date().toISOString();
-    const status = launchVariantStatusDraft;
-    const notes = launchVariantNotesDraft.trim() || null;
-    const lastTestedAt = status === "tested" || status === "winner"
-      ? existingVariant?.last_tested_at ?? nowIso
-      : existingVariant?.last_tested_at ?? null;
-    const winnerSelectedAt = status === "winner"
-      ? existingVariant?.winner_selected_at ?? nowIso
-      : null;
-    const nextVariant: EpisodeLaunchVariant = existingVariant
-      ? {
-          ...existingVariant,
-          title_id: titleId,
-          thumbnail_version_id: versionId,
-          updated_at: nowIso,
-          status,
-          notes,
-          last_tested_at: lastTestedAt,
-          winner_selected_at: winnerSelectedAt,
-        }
-      : {
-          id: createThumbnailClientId("launch-variant"),
-          title_id: titleId,
-          thumbnail_version_id: versionId,
-          created_at: nowIso,
-          updated_at: nowIso,
-          status,
-          notes,
-          last_tested_at: lastTestedAt,
-          winner_selected_at: winnerSelectedAt,
-        };
-
-    const nextEpisodePackage: EpisodePackageV2 = {
-      ...episodePackage,
-      launch_variants: existingVariant
-        ? episodePackage.launch_variants.map((entry) => (entry.id === nextVariant.id ? nextVariant : entry))
-        : [...episodePackage.launch_variants, nextVariant],
-    };
-
-    setThumbnailPairingError(null);
-    const saved = await persistThumbnailEpisodePackage(
-      nextEpisodePackage,
-      existingVariant ? "hearth.launch.variant.updated.v1" : "hearth.launch.variant.created.v1",
-      {
-        launch_variant_id: nextVariant.id,
-        title_id: titleId,
-        thumbnail_version_id: versionId,
-        status,
-      },
-    );
-    if (!saved) {
-      setThumbnailPairingError("Unable to save launch variant.");
-      return;
-    }
-    setSelectedLaunchVariantId(nextVariant.id);
-  }
-
-  async function onGenerateThumbnailVersion(options?: {
-    forceConceptId?: string | null;
-    forcePrompt?: string | null;
-  }) {
-    if (isAiProcessing || isApprovingScript || isThumbnailGenerating || isThumbnailUploading) return;
-
-    const episodeId = workpieceId?.trim() ?? "";
-    const workspace = workspaceId?.trim() ?? "";
-    if (!episodeId || !workspace || !episodePackage) {
-      setThumbnailGenerateError("Select an Episode before generating thumbnails.");
-      return;
-    }
-    if (aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
-      setThumbnailGenerateError("No AI credits remaining.");
-      return;
-    }
-
-    const conceptId = options?.forceConceptId ?? (selectedThumbnailConceptId.trim() || null);
-    const resolvedConcept = conceptId
-      ? episodePackage.thumbnail.concepts.find((concept) => concept.id === conceptId) ?? null
-      : null;
-    const promptOverride = options?.forcePrompt?.trim() || null;
-    const effectiveStylePreset = conceptId && conceptId === selectedThumbnailConceptId
-      ? normalizeHearthVisualStyle(thumbnailConceptStyleDraft)
-      : normalizeHearthVisualStyle(resolvedConcept?.style_preset ?? null);
-    const usedPrompt = (promptOverride || resolvedConcept?.prompt_text || "").trim();
-    if (!conceptId && !promptOverride) {
-      setThumbnailGenerateError("Select a concept or provide a prompt override.");
-      return;
-    }
-    if (!usedPrompt) {
-      setThumbnailGenerateError("Prompt is empty.");
-      return;
-    }
-
-    const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
-    const confirmed = alwaysApproveSpend
-      ? true
-      : window.confirm("Generate thumbnail? This will spend credits.");
-    if (!confirmed) return;
-
-    setIsThumbnailGenerating(true);
-    setThumbnailGenerateError(null);
-    setThumbnailUploadError(null);
-    setAiRuntimeWarning(null);
-    try {
-      const generated = await generateEpisodeThumbnail({
-        workspaceId: workspace,
-        workpieceId: episodeId,
-        conceptId,
-        prompt: promptOverride,
-        preset: effectiveStylePreset,
-        aspect: thumbnailAspect,
-        confirmSpend: confirmed,
-        alwaysApproveAiSpend: alwaysApproveSpend,
-      });
-      if (!generated.ok) {
-        setThumbnailGenerateError(generated.error);
-        const failedVersionId = createThumbnailClientId("thumb-failed-version");
-        const failedVersion: EpisodeThumbnailVersion = {
-          id: failedVersionId,
-          concept_id: conceptId ?? resolvedConcept?.id ?? "concept-failed",
-          created_at: new Date().toISOString(),
-          provider: "openai",
-          prompt: usedPrompt,
-          asset_id: `failed:${failedVersionId}`,
-          status: "failed",
-          error: generated.error,
-          provider_request_id: null,
-          asset_path: null,
-          mime_type: null,
-        };
-        const failedEpisodePackage: EpisodePackageV2 = {
-          ...episodePackage,
-          thumbnail: {
-            ...episodePackage.thumbnail,
-            versions: [...episodePackage.thumbnail.versions, failedVersion],
-          },
-        };
-        const savedFailed = await persistThumbnailEpisodePackage(
-          failedEpisodePackage,
-          "hearth.thumbnail.version.failed.v1",
-          { version_id: failedVersion.id, concept_id: failedVersion.concept_id },
-        );
-        if (savedFailed) {
-          setSelectedThumbnailVersionId(failedVersion.id);
-        }
-        publishForgeNotice({
-          job: "job-failed",
-          title: "Thumbnail generation failed",
-          message: generated.error,
-          severity: "error",
-        });
-        return;
-      }
-
-      let nextEpisodePackage = generated.updatedEpisodePackage;
-      const refreshedImageMap = await getWorkpieceImageMap(episodeId);
-      if (refreshedImageMap.ok) {
-        nextEpisodePackage = replaceEpisodePackageImageMap(
-          generated.updatedEpisodePackage,
-          refreshedImageMap.imageMap.entries,
-          refreshedImageMap.imageMap.spokenBeats,
-        );
-        setImageMapMetadataUpdatedAt(refreshedImageMap.imageMap.metadataUpdatedAt);
-      }
-      setEpisodePackage(nextEpisodePackage);
-      setSelectedThumbnailConceptId(generated.version.concept_id);
-      setSelectedThumbnailVersionId(generated.version.id);
-      if (typeof generated.tokenBalance === "number") {
-        setAiTokenBalance(generated.tokenBalance);
-      }
-      if (generated.creditsWarning) {
-        setAiRuntimeWarning(generated.creditsWarning);
-      }
-      publishForgeNotice({
-        job: "image-generated",
-        title: "Thumbnail ready",
-        message: "Hearth finished generating a thumbnail for this episode.",
-        severity: "success",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Thumbnail generation failed.";
-      setThumbnailGenerateError(message);
-      publishForgeNotice({
-        job: "job-failed",
-        title: "Thumbnail generation failed",
-        message,
-        severity: "error",
-      });
-    } finally {
-      setIsThumbnailGenerating(false);
-    }
-  }
-
-  async function onRetryFailedThumbnailVersion(version: EpisodeThumbnailVersion) {
-    await onGenerateThumbnailVersion({
-      forceConceptId: version.concept_id,
-      forcePrompt: version.prompt,
-    });
-  }
-
-  async function onUploadThumbnailBrandLogo(file: File) {
-    const template = selectedThumbnailBrandTemplate;
-    const workspace = template?.workspaceId?.trim() ?? "";
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!workspace || !episodeId || !template) {
-      setThumbnailBrandLogoError("Select a brand template before uploading a logo.");
-      return;
-    }
-
-    setIsThumbnailBrandLogoUploading(true);
-    setThumbnailBrandLogoError(null);
-    setThumbnailBrandLogoStatus(null);
-    try {
-      const uploaded = await uploadWorkspaceThumbnailBrandLogo({
-        workpieceId: episodeId,
-        templateId: template.id,
-        file,
-      });
-      if (!uploaded.ok) {
-        setThumbnailBrandLogoError(uploaded.error);
-        return;
-      }
-
-      const updatedTemplateJson = {
-        ...template.templateJson,
-        logo: {
-          ...template.templateJson.logo,
-          workpiece_id: episodeId,
-          asset_path: uploaded.assetPath,
-          mime_type: uploaded.mimeType,
-        },
-      };
-
-      const updated = await updateWorkspaceThumbnailBrandTemplate(workspace, template.id, {
-        templateJson: updatedTemplateJson,
-      });
-      if (!updated.ok) {
-        setThumbnailBrandLogoError(updated.error);
-        return;
-      }
-
-      setThumbnailBrandTemplates((prev) => prev.map((item) => (
-        item.id === updated.data.id ? updated.data : item
-      )));
-      setThumbnailBrandLogoError(null);
-      setThumbnailBrandLogoStatus(`Logo uploaded for "${updated.data.name}".`);
-      publishForgeNotice({
-        job: "image-generated",
-        title: "Brand logo uploaded",
-        message: "Thumbnail branding logo was saved successfully.",
-        severity: "success",
-      });
-    } finally {
-      setIsThumbnailBrandLogoUploading(false);
-    }
-  }
-
-  async function onRemoveThumbnailBrandLogo() {
-    const template = selectedThumbnailBrandTemplate;
-    const workspace = template?.workspaceId?.trim() ?? "";
-    if (!workspace || !template) {
-      setThumbnailBrandLogoError("Select a brand template before removing a logo.");
-      return;
-    }
-
-    setIsThumbnailBrandLogoUploading(true);
-    setThumbnailBrandLogoError(null);
-    setThumbnailBrandLogoStatus(null);
-    try {
-      const updated = await updateWorkspaceThumbnailBrandTemplate(workspace, template.id, {
-        templateJson: {
-          ...template.templateJson,
-          logo: {
-            ...template.templateJson.logo,
-            workpiece_id: null,
-            asset_path: null,
-            mime_type: null,
-          },
-        },
-      });
-      if (!updated.ok) {
-        setThumbnailBrandLogoError(updated.error);
-        return;
-      }
-
-      setThumbnailBrandTemplates((prev) => prev.map((item) => (
-        item.id === updated.data.id ? updated.data : item
-      )));
-      setThumbnailBrandLogoDataUrl(null);
-      setThumbnailBrandLogoError(null);
-      setThumbnailBrandLogoStatus(`Logo removed from "${updated.data.name}".`);
-    } finally {
-      setIsThumbnailBrandLogoUploading(false);
-    }
-  }
-
-  async function onUploadThumbnailImage(file: File) {
-    if (isThumbnailUploading || isThumbnailGenerating || isThumbnailConceptSaving) return;
-    if (!episodePackage) return;
-
-    const episodeId = workpieceId?.trim() ?? "";
-    const workspace = workspaceId?.trim() ?? "";
-    if (!episodeId || !workspace) {
-      setThumbnailUploadError("Select an Episode before uploading.");
-      return;
-    }
-
-    const selectedConcept = selectedThumbnailConceptId
-      ? episodePackage.thumbnail.concepts.find((concept) => concept.id === selectedThumbnailConceptId) ?? null
-      : null;
-
-    let effectiveConcept = selectedConcept;
-    let workingEpisodePackage = episodePackage;
-    if (!effectiveConcept) {
-      effectiveConcept = {
-        id: createThumbnailClientId("thumb-concept-upload"),
-        label: "Uploaded",
-        prompt_text: "Uploaded image",
-        style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
-        title_style: DEFAULT_TITLE_STYLE,
-        brand_template_id: defaultThumbnailBrandTemplateId,
-      };
-      workingEpisodePackage = {
-        ...episodePackage,
-        thumbnail: {
-          ...episodePackage.thumbnail,
-          concepts: [...episodePackage.thumbnail.concepts, effectiveConcept],
-        },
-      };
-    }
-
-    setIsThumbnailUploading(true);
-    setThumbnailUploadError(null);
-    setThumbnailGenerateError(null);
-    try {
-      const uploaded = await uploadThumbnailImageVersion({
-        workpieceId: episodeId,
-        concept: effectiveConcept,
-        file,
-      });
-      if (!uploaded.ok) {
-        setThumbnailUploadError(uploaded.error);
-        return;
-      }
-
-      const nextEpisodePackage: EpisodePackageV2 = {
-        ...workingEpisodePackage,
-        thumbnail: {
-          ...workingEpisodePackage.thumbnail,
-          versions: [...workingEpisodePackage.thumbnail.versions, uploaded.version],
-          primary_version_id: uploaded.version.id,
-        },
-      };
-
-      const saved = await persistThumbnailEpisodePackage(
-        nextEpisodePackage,
-        "hearth.thumbnail.upload.version.saved.v1",
-        { version_id: uploaded.version.id, concept_id: uploaded.version.concept_id },
-      );
-      if (!saved) return;
-      setSelectedThumbnailConceptId(uploaded.version.concept_id);
-      setSelectedThumbnailVersionId(uploaded.version.id);
-    } finally {
-      setIsThumbnailUploading(false);
-    }
-  }
-
   function resolveImageMapEntriesForExport(): EpisodeImageMapEntry[] {
     if (!episodePackage) return [];
     if (!selectedImageMapEntryId) return episodePackage.image_map.entries;
@@ -10098,23 +8672,6 @@ export default function HearthShell({
     };
   }
 
-  function onStartImageMapReanchor() {
-    if (imageMapReanchorDisabledReason) {
-      setImageMapReanchorError(imageMapReanchorDisabledReason);
-      return;
-    }
-    if (selectedImageMapEntry?.beat_anchor) {
-      setImageMapReanchorError("Beat-anchored bullet visuals do not need exact-text repair in Hearth. Refine placement later from the transcript.");
-      return;
-    }
-    setMode("focus");
-    setShowManualDraft(false);
-    setShowScriptPanel(true);
-    setImageMapReanchorError(null);
-    setImageMapCandidateError(null);
-    setIsImageMapReanchorMode(true);
-  }
-
   function onToggleVisualScriptMode() {
     if (!hasApprovedScript || !approvedScriptVersion) return;
     setIsVisualScriptMode((prev) => {
@@ -10126,466 +8683,6 @@ export default function HearthShell({
       }
       return next;
     });
-  }
-
-  function onCancelImageMapReanchor() {
-    if (isImageMapReanchorSaving) return;
-    setIsImageMapReanchorMode(false);
-    setImageMapReanchorError(null);
-  }
-
-  async function onRepairImageMapNearestParagraph() {
-    if (!episodePackage || !selectedImageMapEntry) return;
-    if (canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
-      setImageMapReanchorError("Current canonical script is not ready to repair anchors.");
-      return;
-    }
-    const selection = resolveNearestParagraphSelection(
-      canonicalImageMapScriptState.text,
-      selectedImageMapEntry.script_anchor,
-    );
-    if (!selection) {
-      setImageMapReanchorError("No deterministic nearest paragraph repair target is available.");
-      return;
-    }
-    await onPickImageMapReanchor(selection);
-  }
-
-  async function onConvertImageMapToGlobalVisual() {
-    if (!episodePackage || !selectedImageMapEntry) return;
-    setImageMapSaveState("saving");
-    setImageMapSaveError(null);
-    setImageMapReanchorError(null);
-    const saved = await persistImageMapEntries({
-      entries: episodePackage.image_map.entries.map((entry) => (
-        entry.id === selectedImageMapEntry.id
-          ? {
-              ...entry,
-              anchor_scope: "global",
-              script_anchor: null,
-              beat_anchor: null,
-              status: "draft",
-            }
-          : entry
-      )),
-    });
-    if (!saved.ok) {
-      setImageMapSaveState("error");
-      setImageMapSaveError(saved.error);
-      return;
-    }
-    setImageMapSaveState("saved");
-    setImageMapExportMessage("Visual anchor converted to global intent.");
-  }
-
-  async function onLeaveImageMapOrphaned() {
-    if (!episodePackage || !selectedImageMapEntry) return;
-    setImageMapSaveState("saving");
-    setImageMapSaveError(null);
-    setImageMapReanchorError(null);
-    const saved = await persistImageMapEntries({
-      entries: episodePackage.image_map.entries.map((entry) => (
-        entry.id === selectedImageMapEntry.id
-          ? {
-              ...entry,
-              anchor_scope: "orphaned",
-              script_anchor: null,
-              beat_anchor: null,
-              status: "draft",
-            }
-          : entry
-      )),
-    });
-    if (!saved.ok) {
-      setImageMapSaveState("error");
-      setImageMapSaveError(saved.error);
-      return;
-    }
-    setImageMapSaveState("saved");
-    setImageMapExportMessage("Visual anchor left orphaned for manual review.");
-  }
-
-  async function onPickImageMapReanchor(selection: {
-    paragraphId: string;
-    sentenceStart: number;
-    sentenceEnd: number;
-  }) {
-    if (!episodePackage || !selectedImageMapEntry) return;
-    if (imageMapReanchorDisabledReason) {
-      setImageMapReanchorError(imageMapReanchorDisabledReason);
-      return;
-    }
-    if (canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
-      setImageMapReanchorError("Current canonical script is not ready to re-anchor yet.");
-      return;
-    }
-
-    const nextAnchor = buildExactScriptAnchorFromSelection(canonicalImageMapScriptState.text, selection);
-    if (!nextAnchor) {
-      setImageMapReanchorError("Unable to build an exact anchor from that script selection.");
-      return;
-    }
-
-    const nextEntry = reanchorImageMapEntry(selectedImageMapEntry, canonicalImageMapScriptState.text, selection);
-    if (!nextEntry) {
-      setImageMapReanchorError("Unable to re-anchor this visual beat.");
-      return;
-    }
-
-    setIsImageMapReanchorSaving(true);
-    setImageMapSaveState("saving");
-    setImageMapSaveError(null);
-    setImageMapReanchorError(null);
-    try {
-      const saved = await persistImageMapEntries({
-        entries: episodePackage.image_map.entries.map((entry) => (
-          entry.id === selectedImageMapEntry.id
-            ? {
-                ...nextEntry,
-                anchor_scope: "attached",
-                script_anchor: nextAnchor,
-                beat_anchor: null,
-              }
-            : entry
-        )),
-      });
-
-      if (!saved.ok) {
-        setImageMapSaveState("error");
-        setImageMapSaveError(saved.error);
-        setImageMapReanchorError(saved.error);
-        return;
-      }
-
-      setImageMapSaveState("saved");
-      setImageMapCandidateError(null);
-      setImageMapCandidateSelectionError(null);
-      setImageMapExportMessage("Visual beat re-anchored to the current canonical script.");
-      setIsImageMapReanchorMode(false);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to re-anchor this visual beat.";
-      setImageMapSaveState("error");
-      setImageMapSaveError(message);
-      setImageMapReanchorError(message);
-    } finally {
-      setIsImageMapReanchorSaving(false);
-    }
-  }
-
-  async function onGenerateImageMapCandidates(mode: "ai" | "stock" = "ai") {
-    if (isAiProcessing || isApprovingScript || isImageMapCandidateGenerating) return;
-    if (!episodePackage || !selectedImageMapEntry) return;
-
-    const episodeId = workpieceId?.trim() ?? "";
-    const workspace = workspaceId?.trim() ?? "";
-    if (!episodeId || !workspace) {
-      setImageMapCandidateError("Select an Episode before generating still candidates.");
-      return;
-    }
-    if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
-      setImageMapCandidateError("Save the image-map entry before generating candidates.");
-      return;
-    }
-    if (aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
-      setImageMapCandidateError("No AI credits remaining.");
-      return;
-    }
-
-    let expectedMetadataUpdatedAt = imageMapMetadataUpdatedAt;
-    let context: { before: string | null; after: string | null };
-
-    if (selectedImageMapEntry.beat_anchor) {
-      const beatContext = resolveBulletBeatContext({
-        spokenBeats: episodePackage.spoken_beats,
-        beatAnchor: selectedImageMapEntry.beat_anchor,
-      });
-      context = {
-        before: beatContext.before,
-        after: beatContext.after,
-      };
-    } else {
-      const canonicalScript = await readCanonicalScriptForImageMapGeneration();
-      if (!canonicalScript.ok) {
-        setImageMapCandidateError(canonicalScript.message);
-        return;
-      }
-
-      const exactAnchorAssessment = assessImageMapScriptAnchor(canonicalScript.text, selectedImageMapEntry.script_anchor);
-      const effectiveScriptAnchor = exactAnchorAssessment.exactAnchor;
-      if (!effectiveScriptAnchor) {
-        setMode("focus");
-        setShowManualDraft(false);
-        setShowScriptPanel(true);
-        setIsImageMapReanchorMode(true);
-        setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation. Use Re-anchor to bind it to the current canonical script.");
-        return;
-      }
-
-      context = resolveImageMapAnchorContext(canonicalScript.text, effectiveScriptAnchor);
-    }
-
-    const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
-    const confirmed = alwaysApproveSpend
-      ? true
-      : window.confirm(
-          mode === "stock"
-            ? "Find stock-style still candidates for this visual beat? This will spend AI credits."
-            : "Generate two still candidates for this visual beat? This will spend AI credits.",
-        );
-    if (!confirmed) return;
-
-    const requestedSourceType = mode === "stock" ? "stock" : "ai";
-    if (selectedImageMapEntry.source_type !== requestedSourceType) {
-      const updatedEntries = episodePackage.image_map.entries.map((entry) => (
-        entry.id === selectedImageMapEntry.id
-          ? {
-              ...entry,
-              source_type: requestedSourceType,
-              origin: "hearth" as const,
-            }
-          : entry
-      ));
-      const sourceSaved = await persistImageMapEntries({ entries: updatedEntries });
-      if (!sourceSaved.ok) {
-        setImageMapCandidateError(sourceSaved.error);
-        return;
-      }
-      expectedMetadataUpdatedAt = sourceSaved.metadataUpdatedAt;
-      setImageMapSourceTypeDraft(requestedSourceType);
-    }
-
-    setIsImageMapCandidateGenerating(true);
-    setImageMapCandidateError(null);
-    setImageMapCandidateSelectionError(null);
-    setAiRuntimeWarning(null);
-    try {
-      const requestCandidateGeneration = (metadataUpdatedAt: string | null | undefined) => (
-        generateWorkpieceImageMapCandidates({
-          workpieceId: episodeId,
-          workspaceId: workspace,
-          imageMapEntryId: selectedImageMapEntry.id,
-          expectedMetadataUpdatedAt: metadataUpdatedAt,
-          contextBefore: context.before,
-          contextAfter: context.after,
-          aspect: thumbnailAspect,
-          confirmSpend: confirmed,
-          alwaysApproveAiSpend: alwaysApproveSpend,
-        })
-      );
-
-      let generated = await requestCandidateGeneration(expectedMetadataUpdatedAt);
-
-      // Resolve one stale-write race automatically by retrying against the latest
-      // metadata stamp after we refresh the canonical image map snapshot.
-      if (!generated.ok && generated.reason === "conflict" && generated.latest) {
-        if (episodePackage) {
-          setEpisodePackage(replaceEpisodePackageImageMap(
-            episodePackage,
-            generated.latest.entries,
-            generated.latest.spokenBeats,
-          ));
-        }
-        setImageMapMetadataUpdatedAt(generated.latest.metadataUpdatedAt);
-        generated = await requestCandidateGeneration(generated.latest.metadataUpdatedAt);
-      }
-
-      if (!generated.ok) {
-        const failureMessage = generated.error
-          ?? (generated.reason === "conflict"
-            ? "Image map changed since last load. Reloaded the latest canonical state."
-            : "Still-candidate generation failed.");
-        if (generated.reason === "conflict" && generated.latest && episodePackage) {
-          setEpisodePackage(replaceEpisodePackageImageMap(
-            episodePackage,
-            generated.latest.entries,
-            generated.latest.spokenBeats,
-          ));
-          setImageMapMetadataUpdatedAt(generated.latest.metadataUpdatedAt);
-        }
-        setImageMapCandidateError(failureMessage);
-        publishForgeNotice({
-          job: "job-failed",
-          title: "Timeline image generation failed",
-          message: failureMessage,
-          severity: generated.reason === "conflict" ? "warning" : "error",
-        });
-        return;
-      }
-
-      if (episodePackage) {
-        setEpisodePackage(replaceEpisodePackageImageMap(
-          episodePackage,
-          generated.imageMap.entries,
-          generated.imageMap.spokenBeats,
-        ));
-      }
-      setImageMapMetadataUpdatedAt(generated.imageMap.metadataUpdatedAt);
-      setImageMapCandidateSelectionError(null);
-      setImageMapExportMessage(
-        mode === "stock"
-          ? `Found ${generated.generatedAssets.length} stock-style still candidates for the selected visual beat.`
-          : `Generated ${generated.generatedAssets.length} still candidates for the selected visual beat.`,
-      );
-      if (typeof generated.tokenBalance === "number") {
-        setAiTokenBalance(generated.tokenBalance);
-      }
-      if (generated.creditsWarning) {
-        setAiRuntimeWarning(generated.creditsWarning);
-      }
-      publishForgeNotice({
-        job: "image-generated",
-        title: mode === "stock" ? "Stock candidates ready" : "Timeline images ready",
-        message: `${mode === "stock" ? "Found" : "Generated"} ${generated.generatedAssets.length} still candidate${generated.generatedAssets.length === 1 ? "" : "s"} for the selected visual beat.`,
-        severity: "success",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Still-candidate generation failed.";
-      setImageMapCandidateError(message);
-      publishForgeNotice({
-        job: "job-failed",
-        title: "Timeline image generation failed",
-        message,
-        severity: "error",
-      });
-    } finally {
-      setIsImageMapCandidateGenerating(false);
-    }
-  }
-
-  async function onSelectImageMapCandidate(candidateAssetId: string) {
-    if (!episodePackage || !selectedImageMapEntry) return;
-    if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
-      setImageMapCandidateSelectionError("Save or finish editing this visual beat before selecting a still candidate.");
-      return;
-    }
-
-    const workspace = workspaceId?.trim() ?? "";
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!workspace || !episodeId) {
-      setImageMapCandidateSelectionError("Workspace or workpiece is missing.");
-      return;
-    }
-
-    if (selectedImageMapEntry.selected_asset_id === candidateAssetId) {
-      setImageMapCandidateSelectionError(null);
-      return;
-    }
-
-    setIsImageMapCandidateSelecting(true);
-    setImageMapCandidateSelectionError(null);
-    try {
-      const selected = await selectWorkpieceImageMapCandidate({
-        workpieceId: episodeId,
-        workspaceId: workspace,
-        imageMapEntryId: selectedImageMapEntry.id,
-        candidateAssetId,
-        expectedMetadataUpdatedAt: imageMapMetadataUpdatedAt,
-        currentImageMap: {
-          workpieceId: episodeId,
-          workspaceId: workspace,
-          entries: episodePackage.image_map.entries,
-          spokenBeats: episodePackage.spoken_beats,
-          metadataUpdatedAt: imageMapMetadataUpdatedAt,
-          asset: null,
-        },
-      });
-
-      if (!selected.ok) {
-        const latest = selected.reason === "conflict" ? selected.latest ?? null : null;
-        if (latest) {
-          setEpisodePackage((prev) => (
-            prev ? replaceEpisodePackageImageMap(prev, latest.entries, latest.spokenBeats) : prev
-          ));
-          setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
-        }
-        setImageMapCandidateSelectionError(
-          selected.error
-            ?? (selected.reason === "candidate_not_attached"
-              ? "That still candidate is no longer attached to this visual beat."
-              : selected.reason === "entry_not_found"
-                ? "This visual beat no longer exists in the canonical image map."
-                : selected.reason === "conflict"
-                  ? "Image map changed since last load. Reloaded the latest canonical state."
-                  : "Unable to save the selected still candidate.")
-        );
-        return;
-      }
-
-      setEpisodePackage((prev) => (
-        prev ? replaceEpisodePackageImageMap(prev, selected.imageMap.entries, selected.imageMap.spokenBeats) : prev
-      ));
-      setImageMapMetadataUpdatedAt(selected.imageMap.metadataUpdatedAt);
-      setImageMapCandidateSelectionError(null);
-      setImageMapExportMessage("Selected still candidate saved canonically for this visual beat.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to save the selected still candidate.";
-      setImageMapCandidateSelectionError(message);
-    } finally {
-      setIsImageMapCandidateSelecting(false);
-    }
-  }
-
-  async function onUploadImageMapAsset(file: File) {
-    if (!episodePackage || !selectedImageMapEntry) return;
-    if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
-      setImageMapCandidateSelectionError("Save or finish editing this visual beat before uploading an asset.");
-      return;
-    }
-    const workspace = workspaceId?.trim() ?? "";
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!workspace || !episodeId) {
-      setImageMapCandidateSelectionError("Workspace or workpiece is missing.");
-      return;
-    }
-
-    setIsImageMapCandidateSelecting(true);
-    setImageMapCandidateSelectionError(null);
-    setImageMapCandidateError(null);
-    try {
-      const uploaded = await uploadWorkpieceImageMapCandidateAsset({
-        workpieceId: episodeId,
-        entryId: selectedImageMapEntry.id,
-        file,
-        source: "upload",
-      });
-      if (!uploaded.ok) {
-        setImageMapCandidateSelectionError(uploaded.error);
-        return;
-      }
-
-      const updatedEntries = episodePackage.image_map.entries.map((entry) => {
-        if (entry.id !== selectedImageMapEntry.id) return entry;
-        const existing = entry.candidate_assets.filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id);
-        const nextOrigin: "hearth" | "mixed" = entry.origin === "hammer" ? "mixed" : "hearth";
-        return {
-          ...entry,
-          source_type: "upload",
-          origin: nextOrigin,
-          candidate_assets: [...existing, uploaded.candidateAsset],
-          selected_asset_id: uploaded.candidateAsset.asset_id,
-          status: "selected" as const,
-        };
-      });
-
-      const saved = await persistImageMapEntries({ entries: updatedEntries });
-      if (!saved.ok) {
-        setImageMapCandidateSelectionError(saved.error);
-        return;
-      }
-      setImageMapSourceTypeDraft("upload");
-      setImageMapExportMessage("Uploaded visual asset attached and selected for this beat.");
-      publishForgeNotice({
-        job: "image-generated",
-        title: "Visual asset uploaded",
-        message: "Uploaded asset is now selected for this visual beat.",
-        severity: "success",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to upload this visual asset.";
-      setImageMapCandidateSelectionError(message);
-    } finally {
-      setIsImageMapCandidateSelecting(false);
-    }
   }
 
   async function onCreateImageMapEntry() {
