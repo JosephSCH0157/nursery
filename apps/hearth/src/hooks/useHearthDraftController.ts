@@ -81,23 +81,26 @@ export function useHearthDraftController(args: UseHearthDraftControllerArgs) {
 
   const onCopyConflictLocalText = useCallback(async () => {
     const text = args.draftConflictLocalBody?.trim() ?? "";
-    if (!text) return;
+    if (!text) return false;
     try {
       const copied = await args.writeTextToClipboard(text);
       if (!copied) {
         throw new Error("copy_failed");
       }
       args.setError("Copied your local draft text to clipboard.");
+      return true;
     } catch {
       args.setError("Unable to copy local text. Select and copy manually.");
+      return false;
     }
   }, [args]);
 
   const onCopyScriptPanelText = useCallback(async () => {
     const text = args.scriptPanelBodyText;
-    if (!text.trim()) return;
+    if (!text.trim()) return false;
     const copied = await args.writeTextToClipboard(text);
     args.setScriptPanelCopyMessage(copied ? "Copied to clipboard." : "Clipboard write failed.");
+    return copied;
   }, [args]);
 
   const onDeleteDraft = useCallback(async (draft: Draft) => {

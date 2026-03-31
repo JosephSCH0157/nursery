@@ -119,7 +119,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
   }, [args]);
 
   const onCopyBrollPrompt = useCallback(async () => {
-    if (!args.episodePackage || !args.selectedBrollBeat) return;
+    if (!args.episodePackage || !args.selectedBrollBeat) return false;
     const brief = buildBrollBeatBrief({
       beat: {
         ...args.selectedBrollBeat,
@@ -133,7 +133,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
     if (!copied) {
       args.setBrollSaveError("Unable to copy prompt to clipboard.");
       args.setBrollSaveState("error");
-      return;
+      return false;
     }
     const nextBeat: EpisodeBrollPlanBeat = {
       ...args.selectedBrollBeat,
@@ -160,10 +160,11 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
     if (!saved.ok) {
       args.setBrollSaveError(saved.error);
       args.setBrollSaveState("error");
-      return;
+      return false;
     }
     args.setBrollMessage("Prompt copied. Manual bridge state updated.");
     args.setBrollSaveState("saved");
+    return true;
   }, [args]);
 
   const onDownloadBrollBrief = useCallback(async (format: "text" | "json") => {

@@ -17,6 +17,7 @@ type ScriptSurfaceProps = {
   showScriptEditor: boolean;
   scriptPanelTitle: string;
   scriptPanelCopyMessage: string | null;
+  scriptPanelCopyAcknowledged: boolean;
   scriptPanelHint: string | null;
   scriptPanelMetaText: string;
   scriptPanelBodyText: string;
@@ -126,7 +127,7 @@ export default function ScriptSurface(props: ScriptSurfaceProps) {
           ) : null}
           <button
             type="button"
-            className="hs-script-panel-copy"
+            className={`hs-script-panel-copy${props.scriptPanelCopyAcknowledged ? " hs-copy-ack" : ""}`}
             onClick={props.onCopyScriptPanelText}
             disabled={!props.scriptPanelBodyText.trim()}
             title="Copy panel text to clipboard"

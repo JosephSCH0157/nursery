@@ -42,6 +42,8 @@ type ReferenceClipPlanPanelProps = {
   activeVisualProviderHelperText: string;
   activePromptPack: PromptPack | null;
   selectedCandidateId: string | null;
+  copyPromptAcknowledged?: boolean;
+  copyNegativeAcknowledged?: boolean;
   onSelectEntry: (entryId: string) => void;
   onDraftChange: (field: string, value: string) => void;
   onCreateReferenceClip: () => void;
@@ -343,9 +345,17 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
 
               <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
                 <div className="hs-imap-candidate-action-group">
-                  <button type="button" onClick={props.onCopyPrompt} disabled={props.disabled || !props.activePromptPack}>Copy Prompt</button>
                   <button
                     type="button"
+                    className={props.copyPromptAcknowledged ? "hs-copy-ack" : undefined}
+                    onClick={props.onCopyPrompt}
+                    disabled={props.disabled || !props.activePromptPack}
+                  >
+                    Copy Prompt
+                  </button>
+                  <button
+                    type="button"
+                    className={props.copyNegativeAcknowledged ? "hs-copy-ack" : undefined}
                     onClick={props.onCopyNegativePrompt}
                     disabled={props.disabled || !props.activePromptPack?.negative}
                   >

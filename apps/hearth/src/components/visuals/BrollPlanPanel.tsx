@@ -38,6 +38,7 @@ type BrollPlanPanelProps = {
   requestState: string;
   providers: ExternalGenerationProvider[];
   selectedCandidateId: string | null;
+  copyPromptAcknowledged?: boolean;
   onSelectBeat: (beatId: string) => void;
   onDraftChange: (field: string, value: string) => void;
   onSaveBeat: () => void;
@@ -306,7 +307,14 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
 
               <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
                 <div className="hs-imap-candidate-action-group">
-                  <button type="button" onClick={props.onCopyPrompt} disabled={props.disabled}>Copy Prompt</button>
+                  <button
+                    type="button"
+                    className={props.copyPromptAcknowledged ? "hs-copy-ack" : undefined}
+                    onClick={props.onCopyPrompt}
+                    disabled={props.disabled}
+                  >
+                    Copy Prompt
+                  </button>
                   <button type="button" onClick={props.onDownloadBrief} disabled={props.disabled}>Download Brief</button>
                   <button type="button" onClick={props.onDownloadBriefJson} disabled={props.disabled}>Download JSON Brief</button>
                 </div>

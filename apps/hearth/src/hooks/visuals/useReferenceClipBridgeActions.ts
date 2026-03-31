@@ -122,12 +122,12 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
   }, [args]);
 
   const onCopyReferenceClipPrompt = useCallback(async () => {
-    if (!args.episodePackage || !args.selectedReferenceClipEntry || !args.activeVisualPromptPackForReferenceClip) return;
+    if (!args.episodePackage || !args.selectedReferenceClipEntry || !args.activeVisualPromptPackForReferenceClip) return false;
     const copied = await args.writeTextToClipboard(args.activeVisualPromptPackForReferenceClip.pack.prompt);
     if (!copied) {
       args.setReferenceClipSaveError("Unable to copy prompt to clipboard.");
       args.setReferenceClipSaveState("error");
-      return;
+      return false;
     }
     const nextEntry: EpisodeContextualDataCompositePlan = {
       ...args.selectedReferenceClipEntry,
@@ -157,22 +157,24 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
     if (!saved.ok) {
       args.setReferenceClipSaveError(saved.error);
       args.setReferenceClipSaveState("error");
-      return;
+      return false;
     }
     args.setReferenceClipSaveState("saved");
     args.setReferenceClipMessage(`${args.activeVisualPromptPackForReferenceClip.provider.label} prompt copied. Manual bridge state updated.`);
+    return true;
   }, [args]);
 
   const onCopyReferenceClipNegativePrompt = useCallback(async () => {
-    if (!args.episodePackage || !args.selectedReferenceClipEntry || !args.activeVisualPromptPackForReferenceClip?.pack.negative) return;
+    if (!args.episodePackage || !args.selectedReferenceClipEntry || !args.activeVisualPromptPackForReferenceClip?.pack.negative) return false;
     const copied = await args.writeTextToClipboard(args.activeVisualPromptPackForReferenceClip.pack.negative);
     if (!copied) {
       args.setReferenceClipSaveError("Unable to copy negative prompt to clipboard.");
       args.setReferenceClipSaveState("error");
-      return;
+      return false;
     }
     args.setReferenceClipSaveState("saved");
     args.setReferenceClipMessage("Negative prompt copied.");
+    return true;
   }, [args]);
 
   const onDownloadReferenceClipPromptPack = useCallback(async () => {

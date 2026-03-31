@@ -94,6 +94,7 @@ import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
 import { useHearthSparkDiscovery } from "../hooks/useHearthSparkDiscovery";
 import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceSessionLifecycle";
 import { useHearthDraftController } from "../hooks/useHearthDraftController";
+import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
 import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
@@ -2175,6 +2176,7 @@ export default function HearthShell({
   const [presenceRows, setPresenceRows] = useState<HearthWorkpiecePresence[]>([]);
   const [draftConflictState, setDraftConflictState] = useState<DraftConflictState | null>(null);
   const [mobileOverlayView, setMobileOverlayView] = useState<"editor" | "ready" | null>(null);
+  const { acknowledgeCopy, isCopyAcknowledged } = useClipboardButtonAcks();
 
   const draftEditVersionRef = useRef(0);
   const workpieceIdRef = useRef<string | null>(workpieceId);
@@ -7679,7 +7681,12 @@ export default function HearthShell({
       onGenerateCandidates: (mode?: "ai" | "stock") => void onGenerateImageMapCandidates(mode ?? "ai"),
       onUploadAsset: (file: File) => void onUploadImageMapAsset(file),
       onSelectCandidate: (candidateId: string) => void onSelectImageMapCandidate(candidateId),
-      onCopyExport: () => void onCopyImageMapExportJson(),
+      onCopyExport: () => {
+        void onCopyImageMapExportJson().then((copied) => {
+          if (copied) acknowledgeCopy("image-map.export");
+        });
+      },
+      copyExportAcknowledged: isCopyAcknowledged("image-map.export"),
       onDownloadExport: () => void onDownloadImageMapExportJson(),
       onVisualProviderOverrideChange: handleVisualProviderOverrideChange,
       onStartReanchor: onStartImageMapReanchor,
@@ -7734,7 +7741,12 @@ export default function HearthShell({
       onFindStock: () => void onFindStockForBrollBeat(),
       onUploadAsset: (file: File) => void onUploadBrollBeatAsset(file),
       onSelectCandidate: (candidateId: string) => void onSelectBrollCandidate(candidateId),
-      onCopyPrompt: () => void onCopyBrollPrompt(),
+      onCopyPrompt: () => {
+        void onCopyBrollPrompt().then((copied) => {
+          if (copied) acknowledgeCopy("broll.prompt");
+        });
+      },
+      copyPromptAcknowledged: isCopyAcknowledged("broll.prompt"),
       onDownloadBrief: () => void onDownloadBrollBrief("text"),
       onDownloadBriefJson: () => void onDownloadBrollBrief("json"),
       onOpenProvider: () => void onOpenBrollProvider(),
@@ -7790,8 +7802,18 @@ export default function HearthShell({
       onRegenerateStub: () => void onRegenerateReferenceClipEntryStub(),
       onUploadAsset: (file: File) => void onUploadReferenceClipAsset(file),
       onSelectCandidate: (candidateId: string) => void onSelectReferenceClipCandidate(candidateId),
-      onCopyPrompt: () => void onCopyReferenceClipPrompt(),
-      onCopyNegativePrompt: () => void onCopyReferenceClipNegativePrompt(),
+      onCopyPrompt: () => {
+        void onCopyReferenceClipPrompt().then((copied) => {
+          if (copied) acknowledgeCopy("reference-clip.prompt");
+        });
+      },
+      onCopyNegativePrompt: () => {
+        void onCopyReferenceClipNegativePrompt().then((copied) => {
+          if (copied) acknowledgeCopy("reference-clip.negative");
+        });
+      },
+      copyPromptAcknowledged: isCopyAcknowledged("reference-clip.prompt"),
+      copyNegativeAcknowledged: isCopyAcknowledged("reference-clip.negative"),
       onDownloadPromptPack: () => void onDownloadReferenceClipPromptPack(),
       onDownloadBrief: () => void onDownloadReferenceClipBrief("text"),
       onDownloadBriefJson: () => void onDownloadReferenceClipBrief("json"),
@@ -7933,7 +7955,15 @@ export default function HearthShell({
               <button type="button" onClick={() => void onReloadLatestDraftAfterConflict()}>
                 Reload latest
               </button>
-              <button type="button" onClick={() => void onCopyConflictLocalText()}>
+              <button
+                type="button"
+                className={isCopyAcknowledged("draft-conflict.local") ? "hs-copy-ack" : undefined}
+                onClick={() => {
+                  void onCopyConflictLocalText().then((copied) => {
+                    if (copied) acknowledgeCopy("draft-conflict.local");
+                  });
+                }}
+              >
                 Copy my local text
               </button>
               <button type="button" onClick={() => setDraftConflictState(null)}>
@@ -8095,6 +8125,7 @@ export default function HearthShell({
             showScriptEditor={showScriptEditor}
             scriptPanelTitle={scriptPanelTitle}
             scriptPanelCopyMessage={scriptPanelCopyMessage}
+            scriptPanelCopyAcknowledged={isCopyAcknowledged("script-panel.copy")}
             scriptPanelHint={scriptPanelHint}
             scriptPanelMetaText={scriptPanelMetaText}
             scriptPanelBodyText={scriptPanelBodyText}
@@ -8117,7 +8148,11 @@ export default function HearthShell({
             listeningIndicator={<OscilloscopeFill stream={mediaStreamRef.current} active />}
             onSetSttLane={(lane) => setSttLane(lane)}
             onToggleScriptMic={() => onToggleMic("script")}
-            onCopyScriptPanelText={() => void onCopyScriptPanelText()}
+            onCopyScriptPanelText={() => {
+              void onCopyScriptPanelText().then((copied) => {
+                if (copied) acknowledgeCopy("script-panel.copy");
+              });
+            }}
             onBodyChange={(nextBody) => {
               onDraftBodyChange(nextBody);
             }}

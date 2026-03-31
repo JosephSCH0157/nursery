@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useClipboardButtonAcks } from "../../hooks/useClipboardButtonAcks";
 import {
   EPISODE_IMAGE_MAP_VISUAL_PRIORITY_VALUES,
   EPISODE_IMAGE_MAP_VISUAL_TYPE_VALUES,
@@ -89,6 +90,7 @@ type ImageMapPanelProps = {
   onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
   onCopyExport: () => void;
+  copyExportAcknowledged?: boolean;
   onDownloadExport: () => void;
   onVisualProviderOverrideChange: (providerId: VisualProviderId | null) => void;
   onStartReanchor: () => void;
@@ -222,6 +224,7 @@ export default function ImageMapPanel({
   onUploadAsset,
   onSelectCandidate,
   onCopyExport,
+  copyExportAcknowledged = false,
   onDownloadExport,
   onVisualProviderOverrideChange,
   onStartReanchor,
@@ -248,6 +251,7 @@ export default function ImageMapPanel({
     () => resolveInitialPreviewCandidateId(candidateCards),
   );
   const [activePromptPack, setActivePromptPack] = useState<PromptPack | null>(null);
+  const { acknowledgeCopy, isCopyAcknowledged } = useClipboardButtonAcks();
 
   useEffect(() => {
     if (candidateCards.length === 0) {
@@ -315,12 +319,16 @@ export default function ImageMapPanel({
   ]);
   const onCopyPromptPack = useCallback(() => {
     if (!activePromptPack) return;
-    void copyTextToClipboard(activePromptPack.prompt);
-  }, [activePromptPack]);
+    void copyTextToClipboard(activePromptPack.prompt).then((copied) => {
+      if (copied) acknowledgeCopy("image-map-panel.prompt");
+    });
+  }, [acknowledgeCopy, activePromptPack]);
   const onCopyNegativePrompt = useCallback(() => {
     if (!activePromptPack?.negative) return;
-    void copyTextToClipboard(activePromptPack.negative);
-  }, [activePromptPack]);
+    void copyTextToClipboard(activePromptPack.negative).then((copied) => {
+      if (copied) acknowledgeCopy("image-map-panel.negative");
+    });
+  }, [acknowledgeCopy, activePromptPack]);
   const onDownloadPromptPack = useCallback(() => {
     if (!activePromptPack || !selectedEntry) return;
     downloadPromptPack(
@@ -454,6 +462,7 @@ export default function ImageMapPanel({
           ) : null}
           <button
             type="button"
+            className={copyExportAcknowledged ? "hs-copy-ack" : undefined}
             onClick={onCopyExport}
             disabled={disabled}
           >
@@ -613,9 +622,17 @@ export default function ImageMapPanel({
                       ) : null}
                       <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
                         <div className="hs-imap-candidate-action-group">
-                          <button type="button" onClick={onCopyPromptPack} disabled={disabled}>Copy Prompt</button>
                           <button
                             type="button"
+                            className={isCopyAcknowledged("image-map-panel.prompt") ? "hs-copy-ack" : undefined}
+                            onClick={onCopyPromptPack}
+                            disabled={disabled}
+                          >
+                            Copy Prompt
+                          </button>
+                          <button
+                            type="button"
+                            className={isCopyAcknowledged("image-map-panel.negative") ? "hs-copy-ack" : undefined}
                             onClick={onCopyNegativePrompt}
                             disabled={disabled || !activePromptPack.negative}
                           >

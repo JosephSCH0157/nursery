@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useClipboardButtonAcks } from "../../hooks/useClipboardButtonAcks";
 import type {
   EpisodeLaunchVariant,
   EpisodeLaunchVariantStatus,
@@ -418,6 +419,7 @@ export default function ThumbnailPanel({
     result: null,
     error: null,
   });
+  const { acknowledgeCopy, isCopyAcknowledged } = useClipboardButtonAcks();
   const [promptVariants, setPromptVariants] = useState<ThumbnailPromptPackVariant[] | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const previewAspectClass = aspect === "1:1"
@@ -516,11 +518,15 @@ export default function ThumbnailPanel({
     setPromptVariants(result.variants);
   }, [activeVisualProvider, aspect, canGeneratePrompt, selectedConceptPrompt, selectedConceptStylePreset, selectedTitleText]);
   const onCopyPromptVariant = useCallback((prompt: string) => {
-    void copyTextToClipboard(prompt);
-  }, []);
+    void copyTextToClipboard(prompt).then((copied) => {
+      if (copied) acknowledgeCopy("thumbnail.prompt");
+    });
+  }, [acknowledgeCopy]);
   const onCopyNegativePrompt = useCallback((negative: string) => {
-    void copyTextToClipboard(negative);
-  }, []);
+    void copyTextToClipboard(negative).then((copied) => {
+      if (copied) acknowledgeCopy("thumbnail.negative");
+    });
+  }, [acknowledgeCopy]);
   const onDownloadVariantPack = useCallback((variant: ThumbnailPromptPackVariant) => {
     const conceptSuffix = (selectedConceptId || "concept").slice(0, 8).toLowerCase();
     downloadPromptPack(
@@ -1052,6 +1058,7 @@ export default function ThumbnailPanel({
                       <div className="hs-thumb-prompt-card-actions">
                         <button
                           type="button"
+                          className={isCopyAcknowledged("thumbnail.prompt") ? "hs-copy-ack" : undefined}
                           onClick={() => onCopyPromptVariant(variant.pack.prompt)}
                         >
                           Copy Prompt
@@ -1059,6 +1066,7 @@ export default function ThumbnailPanel({
                         {variant.pack.negative ? (
                           <button
                             type="button"
+                            className={isCopyAcknowledged("thumbnail.negative") ? "hs-copy-ack" : undefined}
                             onClick={() => onCopyNegativePrompt(variant.pack.negative ?? "")}
                           >
                             Copy Negative

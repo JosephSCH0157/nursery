@@ -141,6 +141,7 @@ export function useImageMapSeedExportActions(args: UseImageMapSeedExportActionsA
     const text = JSON.stringify(payload, null, 2);
     const copied = await args.writeTextToClipboard(text);
     args.setImageMapExportMessage(copied ? "Visual script intent JSON copied." : "Clipboard write failed.");
+    return copied;
   }, [args, resolveImageMapEntriesForExport]);
 
   const onDownloadImageMapExportJson = useCallback(() => {

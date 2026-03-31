@@ -66,6 +66,7 @@ type BuildBrollPanelArgs = {
   requestState: string;
   providers: BrollPanelProps["providers"];
   selectedCandidateId: string | null;
+  copyPromptAcknowledged: boolean;
   onSelectBeat: (beatId: string | null) => void;
   onDraftChange: BrollPanelProps["onDraftChange"];
   onSaveBeat: () => void;
@@ -102,6 +103,7 @@ type BuildImageMapPanelArgs = {
   saveState: ImageMapPanelProps["saveState"];
   saveError: string | null;
   exportMessage: string | null;
+  copyExportAcknowledged: boolean;
   activeVisualProvider: ImageMapPanelProps["activeVisualProvider"];
   visualProviderOptions: ImageMapPanelProps["visualProviderOptions"];
   visualProviderOverride: ImageMapPanelProps["visualProviderOverride"];
@@ -167,6 +169,8 @@ type BuildReferenceClipPanelArgs = {
   activeVisualProviderHelperText: string;
   activePromptPack: ReferenceClipPanelProps["activePromptPack"];
   selectedCandidateId: string | null;
+  copyPromptAcknowledged: boolean;
+  copyNegativeAcknowledged: boolean;
   onSelectEntry: (entryId: string | null) => void;
   onDraftChange: ReferenceClipPanelProps["onDraftChange"];
   onCreateReferenceClip: () => void;
@@ -307,6 +311,7 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     requestState: args.requestState,
     providers: args.providers,
     selectedCandidateId: args.selectedCandidateId,
+    copyPromptAcknowledged: args.copyPromptAcknowledged,
     onSelectBeat: args.onSelectBeat,
     onDraftChange: args.onDraftChange,
     onSaveBeat: args.onSaveBeat,
@@ -345,6 +350,7 @@ export function buildImageMapPanelProps(args: BuildImageMapPanelArgs): ImageMapP
     saveState: args.saveState,
     saveError: args.saveError,
     exportMessage: args.exportMessage,
+    copyExportAcknowledged: args.copyExportAcknowledged,
     activeVisualProvider: args.activeVisualProvider,
     visualProviderOptions: args.visualProviderOptions,
     visualProviderOverride: args.visualProviderOverride,
@@ -412,6 +418,8 @@ export function buildReferenceClipPlanPanelProps(args: BuildReferenceClipPanelAr
     activeVisualProviderHelperText: args.activeVisualProviderHelperText,
     activePromptPack: args.activePromptPack,
     selectedCandidateId: args.selectedCandidateId,
+    copyPromptAcknowledged: args.copyPromptAcknowledged,
+    copyNegativeAcknowledged: args.copyNegativeAcknowledged,
     onSelectEntry: args.onSelectEntry,
     onDraftChange: args.onDraftChange,
     onCreateReferenceClip: args.onCreateReferenceClip,
