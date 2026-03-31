@@ -427,6 +427,15 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
         </section>
       ) : null}
 
+      <details className="hs-imap-advanced" aria-label="Advanced media map controls">
+        <summary>Advanced / Fine Tune</summary>
+        <MediaMapAdvancedEditor
+          {...props}
+          selectedEntry={selectedEntry}
+          selectedEntryPurposeSummary={selectedEntryPurposeSummary}
+        />
+      </details>
+
       {props.entries.length === 0 ? (
         <div className="hs-imap-empty">No media map is applied yet.</div>
       ) : (
@@ -451,15 +460,6 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
           ))}
         </section>
       )}
-
-      <details className="hs-imap-advanced" aria-label="Advanced media map controls">
-        <summary>Advanced / Fine Tune</summary>
-        <MediaMapAdvancedEditor
-          {...props}
-          selectedEntry={selectedEntry}
-          selectedEntryPurposeSummary={selectedEntryPurposeSummary}
-        />
-      </details>
 
       {props.saveError ? <div className="hs-error-text-small">{props.saveError}</div> : null}
       {props.message ? <div className="hs-imap-help-text">{props.message}</div> : null}
