@@ -25,6 +25,7 @@ export type ChatSurfaceProps = {
   isAiProcessing: boolean;
   aiEpisodeReady: boolean;
   sttLane: "browser" | "ai";
+  sttTarget: "chat" | "script";
   sttState: "idle" | "listening" | "transcribing";
   hasBrowserSpeech: boolean;
   sttPreview: string | null;
@@ -65,6 +66,7 @@ export type ChatSurfaceProps = {
 
 export default function ChatSurface(props: ChatSurfaceProps) {
   if (!props.visible) return null;
+  const isChatVoiceActive = props.sttTarget === "chat" && props.sttState !== "idle";
 
   return (
     <CollapsibleFocusPanel
@@ -297,9 +299,13 @@ export default function ChatSurface(props: ChatSurfaceProps) {
           <button
             type="button"
             onClick={props.onToggleMic}
-            className={`mic-button ${props.sttState}`}
+            className={`mic-button ${isChatVoiceActive ? props.sttState : "idle"}`}
             title={
-              props.sttState === "idle"
+              !isChatVoiceActive
+                ? props.sttLane === "browser"
+                  ? "Voice (Free)"
+                  : "Voice (AI)"
+                : props.sttState === "idle"
                 ? props.sttLane === "browser"
                   ? "Voice (Free)"
                   : "Voice (AI)"
@@ -308,12 +314,12 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                   : "Transcribing..."
             }
           >
-            {props.sttState === "idle" ? "🎙️" : null}
-            {props.sttState === "listening" ? "🔴🎙️" : null}
-            {props.sttState === "transcribing" ? "⏳🎙️" : null}
+            {!isChatVoiceActive || props.sttState === "idle" ? "🎙️" : null}
+            {isChatVoiceActive && props.sttState === "listening" ? "🔴🎙️" : null}
+            {isChatVoiceActive && props.sttState === "transcribing" ? "⏳🎙️" : null}
           </button>
           <div className="hs-ai-chat-inputWrap">
-            {props.sttState === "listening" ? (
+            {props.sttTarget === "chat" && props.sttState === "listening" ? (
               <div className="hs-stt-inputPanel" role="status" aria-live="polite">
                 {props.listeningIndicator}
                 <div className="hs-stt-hint">Listening... tap 🎙️ to stop</div>
@@ -354,13 +360,13 @@ export default function ChatSurface(props: ChatSurfaceProps) {
             {props.isAiProcessing ? "Sending..." : "Send"}
           </button>
         </div>
-        {props.devMode && props.sttPreview ? (
+        {props.devMode && props.sttTarget === "chat" && props.sttPreview ? (
           <div className="hs-field-label-muted">{props.sttPreview}</div>
         ) : null}
-        {props.sttNotice ? (
+        {props.sttTarget === "chat" && props.sttNotice ? (
           <div className="hs-field-label-muted">{props.sttNotice}</div>
         ) : null}
-        {props.sttError ? (
+        {props.sttTarget === "chat" && props.sttError ? (
           <div className="hs-error-text-small">{props.sttError}</div>
         ) : null}
       </section>

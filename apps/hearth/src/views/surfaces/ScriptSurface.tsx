@@ -28,8 +28,17 @@ type ScriptSurfaceProps = {
   sourcesSummary: string;
   unusedSummary: string;
   canReviewSources: boolean;
+  sttLane: "browser" | "ai";
+  sttTarget: "chat" | "script";
+  sttState: "idle" | "listening" | "transcribing";
+  hasBrowserSpeech: boolean;
+  sttNotice: string | null;
+  sttError: string | null;
   bodyRef: RefObject<HTMLTextAreaElement | null>;
   copyIcon: ReactNode;
+  listeningIndicator: ReactNode;
+  onSetSttLane: (lane: "browser" | "ai") => void;
+  onToggleScriptMic: () => void;
   onCopyScriptPanelText: () => void;
   onBodyChange: (value: string) => void;
   onBodyCompositionStart: () => void;
@@ -41,6 +50,8 @@ type ScriptSurfaceProps = {
 
 export default function ScriptSurface(props: ScriptSurfaceProps) {
   if (!props.visible || !props.showScriptEditor) return null;
+  const showScriptVoiceFeedback = props.sttTarget === "script";
+  const scriptVoiceDisabled = !props.activeDraftExists || props.isCanonicalImageMapScriptPanel || props.sttState === "transcribing";
 
   return (
     <section className="hs-script-panel" aria-label="Manual draft editor">
@@ -56,6 +67,63 @@ export default function ScriptSurface(props: ScriptSurfaceProps) {
             <div className="hs-field-label-muted">{props.scriptPanelHint}</div>
           ) : null}
           <div className="hs-script-panel-meta">{props.scriptPanelMetaText}</div>
+          {!props.isCanonicalImageMapScriptPanel ? (
+            <div className="hs-script-panel-voice">
+              <select
+                aria-label="Script dictation voice lane"
+                value={props.sttLane}
+                onChange={(event) => props.onSetSttLane(event.target.value as "browser" | "ai")}
+                className="stt-lane-select"
+                disabled={props.sttState !== "idle"}
+                title={
+                  props.sttState !== "idle"
+                    ? "Voice lane is locked while listening/transcribing."
+                    : !props.hasBrowserSpeech
+                      ? "Browser speech not supported"
+                      : undefined
+                }
+              >
+                <option value="browser" disabled={!props.hasBrowserSpeech}>
+                  Browser (Free)
+                </option>
+                <option value="ai">AI</option>
+              </select>
+              <button
+                type="button"
+                onClick={props.onToggleScriptMic}
+                className={`mic-button ${showScriptVoiceFeedback ? props.sttState : "idle"}`}
+                disabled={scriptVoiceDisabled}
+                title={
+                  props.sttState === "idle"
+                    ? props.sttLane === "browser"
+                      ? "Dictate into script (Free)"
+                      : "Dictate into script (AI)"
+                    : showScriptVoiceFeedback && props.sttState === "listening"
+                      ? "Listening... tap to stop"
+                      : showScriptVoiceFeedback && props.sttState === "transcribing"
+                        ? "Transcribing..."
+                        : "Dictate into script"
+                }
+                aria-label="Dictate into script"
+              >
+                {showScriptVoiceFeedback && props.sttState === "listening" ? "🔴🎙️" : null}
+                {showScriptVoiceFeedback && props.sttState === "transcribing" ? "⏳🎙️" : null}
+                {(!showScriptVoiceFeedback || props.sttState === "idle") ? "🎙️" : null}
+              </button>
+              <div className="hs-script-panel-voice-copy">
+                {showScriptVoiceFeedback && props.sttState === "listening" ? (
+                  <>
+                    {props.listeningIndicator}
+                    <span>Listening for script dictation...</span>
+                  </>
+                ) : showScriptVoiceFeedback && props.sttState === "transcribing" ? (
+                  <span>Transcribing into the script...</span>
+                ) : (
+                  <span>Dictate directly into the script.</span>
+                )}
+              </div>
+            </div>
+          ) : null}
           <button
             type="button"
             className="hs-script-panel-copy"
@@ -142,6 +210,13 @@ export default function ScriptSurface(props: ScriptSurfaceProps) {
           Review sources
         </button>
       </div>
+
+      {showScriptVoiceFeedback && props.sttNotice ? (
+        <div className="hs-field-label-muted">{props.sttNotice}</div>
+      ) : null}
+      {showScriptVoiceFeedback && props.sttError ? (
+        <div className="hs-error-text-small">{props.sttError}</div>
+      ) : null}
     </section>
   );
 }

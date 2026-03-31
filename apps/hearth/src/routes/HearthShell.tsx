@@ -121,6 +121,7 @@ import {
   deriveFullScriptAuthoringMeta,
   deriveOutlineScriptAuthoringMeta,
 } from "../lib/hearth-script-authoring-meta";
+import { insertVoiceTranscriptIntoScript } from "../lib/hearth-script-dictation";
 import {
   normalizeScriptTags,
   repairScriptTags,
@@ -2390,6 +2391,8 @@ export default function HearthShell({
     setChatError,
     sttLane,
     setSttLane,
+    sttTarget,
+    setSttTarget,
     sttState,
     setSttState,
     sttError,
@@ -2847,6 +2850,54 @@ export default function HearthShell({
       return revisions.find((revision) => revision.id === prev.id) ?? null;
     });
   }, [revisions, setSelectedRevision]);
+
+  const commitScriptTranscript = useCallback(async (text: string): Promise<boolean> => {
+    if (!activeDraft) {
+      setSttError("Open a draft to dictate into the script.");
+      return false;
+    }
+    if ((isImageMapReanchorMode || isVisualScriptMode) && showScriptPanel) {
+      setSttError("Script dictation is unavailable while viewing the canonical script.");
+      return false;
+    }
+
+    const liveCursorPosition = bodyRef.current && typeof bodyRef.current.selectionStart === "number"
+      ? bodyRef.current.selectionStart
+      : cursorPosition;
+    const nextScript = insertVoiceTranscriptIntoScript({
+      body: activeDraft.body,
+      transcript: text,
+      cursorPosition: liveCursorPosition,
+    });
+
+    setMode("focus");
+    setActiveWorkpieceTab("script");
+    setShowManualDraft(false);
+    setShowScriptPanel(true);
+    onDraftBodyChange(nextScript.body);
+    setCursorPosition(nextScript.cursorPosition);
+
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        const textarea = bodyRef.current;
+        if (!textarea) return;
+        textarea.focus();
+        textarea.selectionStart = nextScript.cursorPosition;
+        textarea.selectionEnd = nextScript.cursorPosition;
+      });
+    }
+
+    return true;
+  }, [
+    activeDraft,
+    bodyRef,
+    cursorPosition,
+    isImageMapReanchorMode,
+    isVisualScriptMode,
+    onDraftBodyChange,
+    showScriptPanel,
+    setActiveWorkpieceTab,
+  ]);
 
   const wordCount = useMemo(() => countWords(activeDraft?.body ?? ""), [activeDraft?.body]);
   const charCount = useMemo(() => activeDraft?.body?.length ?? 0, [activeDraft?.body]);
@@ -3337,8 +3388,10 @@ export default function HearthShell({
     isAiProcessing,
     aiTokenBalance,
     sttLane,
+    sttTarget,
     sttState,
     setSttLane,
+    setSttTarget,
     setSttState,
     setSttError,
     setSttNotice,
@@ -3367,6 +3420,15 @@ export default function HearthShell({
     uploadHearthSttAudio,
     requestHearthSttTranscript,
     sendChatMessage,
+    commitScriptTranscript,
+    getSttStartError: (target) => {
+      if (target !== "script") return null;
+      if (!activeDraft) return "Open a draft to dictate into the script.";
+      if (isCanonicalImageMapScriptPanel) {
+        return "Script dictation is unavailable while viewing the canonical script.";
+      }
+      return null;
+    },
   });
   const applyProposalOpsToWorkspace = useCallback(async (args: {
     proposal: PendingAiProposal;
@@ -3612,6 +3674,7 @@ export default function HearthShell({
       isAiProcessing,
       aiEpisodeReady,
       sttLane,
+      sttTarget,
       sttState,
       hasBrowserSpeech,
       sttPreview,
@@ -3639,7 +3702,7 @@ export default function HearthShell({
       onUseChatShortcutSources: () => onUseChatShortcut("Find strong sources I should cite for this Episode."),
       onOpenComposeScript,
       onSetSttLane: (lane) => setSttLane(lane),
-      onToggleMic,
+      onToggleMic: () => onToggleMic("chat"),
       onChatDraftChange: setChatDraft,
       onSendChat: () => void onSendChat(),
       onCancelAiRequest,
@@ -5048,15 +5111,26 @@ export default function HearthShell({
       workpieces?: readonly HearthWorkpieceSummary[];
       preferredDraftId?: string | null;
       seed?: { title?: string; body?: string };
+      preferredWorkspaceTab?: WorkpieceWorkspaceTab;
+      preferredEditorPanel?: "script" | "manual" | null;
     },
   ): Promise<Draft | null> => {
     const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
     if (!normalizedWorkpieceId) return null;
 
     const targetWorkspaceId = normalizeUuid(options?.workspaceId ?? workspaceId) ?? workspaceId;
+    const preferredWorkspaceTab = options?.preferredWorkspaceTab ?? null;
+    const preferredEditorPanel = options?.preferredEditorPanel ?? null;
     pendingFocusOpenCountRef.current += 1;
     if (targetWorkspaceId && targetWorkspaceId !== workspaceId) {
       setWorkspaceId(targetWorkspaceId);
+    }
+    if (preferredWorkspaceTab) {
+      writeWorkpieceWorkspaceTab(normalizedWorkpieceId, targetWorkspaceId ?? null, preferredWorkspaceTab);
+      setActiveWorkpieceTab(preferredWorkspaceTab);
+    }
+    if (preferredEditorPanel) {
+      pendingDraftEditorPanelRef.current = preferredEditorPanel;
     }
     setWorkpieceId(normalizedWorkpieceId);
     replaceHearthRouteContext(targetWorkspaceId ?? null, normalizedWorkpieceId);
@@ -5122,6 +5196,8 @@ export default function HearthShell({
       workspaceId?: string | null;
       drafts?: readonly Draft[];
       workpieces?: readonly HearthWorkpieceSummary[];
+      preferredWorkspaceTab?: WorkpieceWorkspaceTab;
+      preferredEditorPanel?: "script" | "manual" | null;
     },
   ) => {
     const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
@@ -5135,6 +5211,8 @@ export default function HearthShell({
       workpieces: options?.workpieces,
       preferredDraftId: normalizedWorkpieceId,
       seed,
+      preferredWorkspaceTab: options?.preferredWorkspaceTab,
+      preferredEditorPanel: options?.preferredEditorPanel,
     });
 
     if (modeToSet !== "focus") {
@@ -5214,7 +5292,6 @@ export default function HearthShell({
       setWorkpieceId(workpieceId);
       setWorkspaceId(resolveWorkspaceId());
       applySessionOrigin({ created_from: "bar-stock", spark_id: spark.id });
-      pendingDraftEditorPanelRef.current = "manual";
 
       const draft = await createDraftAndOpen(workpieceId, {
         title: sparkTitle,
@@ -5222,6 +5299,8 @@ export default function HearthShell({
       }, "focus", {
         revisionWorkpieceId: workpieceId ?? null,
         workspaceId: resolveWorkspaceId(),
+        preferredWorkspaceTab: "script",
+        preferredEditorPanel: "script",
       });
       if (!draft) {
         setForgeError("Episode opened, but Hearth could not hydrate a draft buffer.");
@@ -5629,6 +5708,8 @@ export default function HearthShell({
       void openWorkpieceInFocus(linkedWorkpieceId, {
         workspaceId,
         preferredDraftId: routeSpark.links?.hearthDraftId ?? null,
+        preferredWorkspaceTab: "script",
+        preferredEditorPanel: "script",
       });
       return;
     }
@@ -7237,6 +7318,8 @@ export default function HearthShell({
       await openWorkpieceInFocus(linkedWorkpieceId, {
         workspaceId,
         preferredDraftId: spark.links?.hearthDraftId ?? null,
+        preferredWorkspaceTab: "script",
+        preferredEditorPanel: "script",
       });
       return;
     }
@@ -12561,8 +12644,17 @@ export default function HearthShell({
             sourcesSummary={sourcesSummary}
             unusedSummary={unusedSummary}
             canReviewSources={Boolean(workpieceId)}
+            sttLane={sttLane}
+            sttTarget={sttTarget}
+            sttState={sttState}
+            hasBrowserSpeech={hasBrowserSpeech}
+            sttNotice={sttNotice}
+            sttError={sttError}
             bodyRef={bodyRef}
             copyIcon={<CopyIcon />}
+            listeningIndicator={<OscilloscopeFill stream={mediaStreamRef.current} active />}
+            onSetSttLane={(lane) => setSttLane(lane)}
+            onToggleScriptMic={() => onToggleMic("script")}
             onCopyScriptPanelText={() => void onCopyScriptPanelText()}
             onBodyChange={(nextBody) => {
               onDraftBodyChange(nextBody);

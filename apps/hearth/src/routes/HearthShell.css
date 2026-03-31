@@ -1283,6 +1283,24 @@
   flex-wrap: wrap;
 }
 
+.hs-script-panel-voice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.hs-script-panel-voice-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.78;
+}
+
 .hs-script-panel-meta {
   font-size: 12px;
   opacity: 0.7;

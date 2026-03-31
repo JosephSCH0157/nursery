@@ -53,6 +53,13 @@ type EpisodeMediaMapPanelProps = {
   onDeleteEntry: () => void;
 };
 
+const FALLBACK_CONVERSATION: EpisodeMediaMapPanelProps["conversation"] = {
+  state: "idle",
+  seed: null,
+  error: null,
+  onBuildAndApply: async () => false,
+};
+
 const TYPES = ["image", "b_roll", "contextual_data_composite"];
 const ANCHOR_MODES = ["line_anchor", "phrase_match", "speaker_turn", "section_marker", "absolute_time"];
 const SOURCE_STATUS = ["unresolved", "selected", "attached"];
@@ -240,6 +247,7 @@ function MediaMapAdvancedEditor(props: EpisodeMediaMapPanelProps & {
 }
 
 export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
+  const conversation = props.conversation ?? FALLBACK_CONVERSATION;
   const selectedEntry = useMemo(
     () => props.entries.find((entry) => entry.id === props.selectedEntryId) ?? null,
     [props.entries, props.selectedEntryId],
@@ -253,15 +261,15 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
   const [constraintsText, setConstraintsText] = useState("");
   const [showPlanningConversation, setShowPlanningConversation] = useState(props.entries.length === 0);
   const [isConversationApplying, setIsConversationApplying] = useState(false);
-  const selectedDirection = props.conversation.seed?.directions.find((direction) => direction.id === selectedDirectionId) ?? null;
+  const selectedDirection = conversation.seed?.directions?.find((direction) => direction.id === selectedDirectionId) ?? null;
   const summary = useMemo(
     () => resolveMediaMapConversationSummary({
       entries: props.entries,
       directionId: selectedDirectionId,
       constraintsText,
-      derivedFromScript: selectedDirectionId ? props.conversation.seed?.derivedFromScript : undefined,
+      derivedFromScript: selectedDirectionId ? conversation.seed?.derivedFromScript : undefined,
     }),
-    [constraintsText, props.conversation.seed?.derivedFromScript, props.entries, selectedDirectionId],
+    [constraintsText, conversation.seed?.derivedFromScript, props.entries, selectedDirectionId],
   );
 
   useEffect(() => {
@@ -325,24 +333,24 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
         <section className="hs-imap-conversation" aria-label="Media map planning conversation">
           <div className="hs-imap-conversation-bubble is-hearth">
             <div className="hs-imap-conversation-speaker">Hearth</div>
-            <p>{props.conversation.seed?.lead ?? "I'm reading through the episode to find the cleanest visual package."}</p>
-            <p>{props.conversation.seed?.ask ?? "Which direction feels closest for this visual plan?"}</p>
+            <p>{conversation.seed?.lead ?? "I'm reading through the episode to find the cleanest visual package."}</p>
+            <p>{conversation.seed?.ask ?? "Which direction feels closest for this visual plan?"}</p>
           </div>
 
-          {props.conversation.error ? (
+          {conversation.error ? (
             <div className="hs-imap-help-text">
-              {props.conversation.error} I can still lay this out if you choose the direction manually.
+              {conversation.error} I can still lay this out if you choose the direction manually.
             </div>
           ) : null}
 
           <div className="hs-imap-direction-list" aria-label="Suggested visual directions">
-            {(props.conversation.seed?.directions ?? []).map((direction) => (
+            {(conversation.seed?.directions ?? []).map((direction) => (
               <button
                 key={direction.id}
                 type="button"
                 className={`hs-imap-direction-chip${direction.id === selectedDirectionId ? " is-selected" : ""}`}
                 onClick={() => setSelectedDirectionId(direction.id)}
-                disabled={props.disabled || props.conversation.state === "loading" || isConversationApplying}
+                disabled={props.disabled || conversation.state === "loading" || isConversationApplying}
               >
                 <span className="hs-imap-direction-chip-title">{direction.label}</span>
                 <span className="hs-imap-direction-chip-copy">{direction.lead}</span>
@@ -391,10 +399,10 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
                   onClick={async () => {
                     if (!selectedDirectionId) return;
                     setIsConversationApplying(true);
-                    const applied = await props.conversation.onBuildAndApply({
+                    const applied = await conversation.onBuildAndApply({
                       directionId: selectedDirectionId,
                       constraintsText,
-                      derivedFromScript: Boolean(props.conversation.seed?.derivedFromScript),
+                      derivedFromScript: Boolean(conversation.seed?.derivedFromScript),
                     });
                     setIsConversationApplying(false);
                     if (applied) {

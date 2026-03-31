@@ -22,6 +22,7 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
   const [chatDraft, setChatDraft] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
   const [sttLane, setSttLane] = useState<"browser" | "ai">("browser");
+  const [sttTarget, setSttTarget] = useState<"chat" | "script">("chat");
   const [sttState, setSttState] = useState<"idle" | "listening" | "transcribing">("idle");
   const [sttError, setSttError] = useState<string | null>(null);
   const [sttNotice, setSttNotice] = useState<string | null>(null);
@@ -62,6 +63,8 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
     setChatError,
     sttLane,
     setSttLane,
+    sttTarget,
+    setSttTarget,
     sttState,
     setSttState,
     sttError,
@@ -636,8 +639,10 @@ type UseChatWorkspaceSttArgs = {
   isAiProcessing: boolean;
   aiTokenBalance: number | null;
   sttLane: "browser" | "ai";
+  sttTarget: "chat" | "script";
   sttState: "idle" | "listening" | "transcribing";
   setSttLane: (lane: "browser" | "ai") => void;
+  setSttTarget: (target: "chat" | "script") => void;
   setSttState: (state: "idle" | "listening" | "transcribing") => void;
   setSttError: (value: string | null) => void;
   setSttNotice: (value: string | null) => void;
@@ -671,10 +676,12 @@ type UseChatWorkspaceSttArgs = {
     signal: AbortSignal;
   }) => Promise<any>;
   sendChatMessage: (args: { requestContent: string; source?: "voice" | "typed" | "shortcut" }) => Promise<void>;
+  commitScriptTranscript: (text: string) => Promise<boolean>;
+  getSttStartError?: (target: "chat" | "script") => string | null;
 };
 
 export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
-  onToggleMic: () => void;
+  onToggleMic: (target?: "chat" | "script") => void;
 } {
   const clearSttNoticeTimer = useCallback(() => {
     if (args.sttNoticeTimerRef.current) {
@@ -724,6 +731,13 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       return;
     }
     showSttPreviewLine(text);
+    if (args.sttTarget === "script") {
+      const committed = await args.commitScriptTranscript(text);
+      if (committed) {
+        showSttNotice("Added to script.");
+      }
+      return;
+    }
     await args.sendChatMessage({ requestContent: text, source: "voice" });
   }, [args, showSttNotice, showSttPreviewLine]);
 
@@ -1123,9 +1137,17 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
     }
   }, [args.speechRecognitionRef, stopAiSttStream]);
 
-  const onToggleMic = useCallback(() => {
+  const onToggleMic = useCallback((target: "chat" | "script" = "chat") => {
     if (args.sttState === "transcribing") return;
     if (args.sttState === "idle") {
+      const startError = args.getSttStartError?.(target) ?? null;
+      if (startError) {
+        args.setSttTarget(target);
+        args.setSttError(startError);
+        args.setSttState("idle");
+        return;
+      }
+      args.setSttTarget(target);
       args.setSttError(null);
       clearSttNoticeTimer();
       args.setSttNotice(null);
