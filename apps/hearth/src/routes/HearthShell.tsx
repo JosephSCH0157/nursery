@@ -125,6 +125,8 @@ import { useEpisodePackageLoader } from "../hooks/visuals/useEpisodePackageLoade
 import { useThumbnailPreviewLoader } from "../hooks/visuals/useThumbnailPreviewLoader";
 import { useImageMapCandidatePreviewLoader } from "../hooks/visuals/useImageMapCandidatePreviewLoader";
 import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
+import { useMediaMapConversationBootstrap } from "../hooks/visuals/useMediaMapConversationBootstrap";
+import { useCanonicalImageMapScriptStateLoader } from "../hooks/visuals/useCanonicalImageMapScriptStateLoader";
 import {
   buildThumbnailPanelProps,
   buildBrollPlanPanelProps,
@@ -233,7 +235,6 @@ import {
   type VisualProviderId,
 } from "../lib/hearth-visual-provider-profiles";
 import {
-  deriveMediaMapConversationFromScript,
   type MediaMapConversationSeed,
 } from "../lib/hearth-media-map-conversation";
 import { buildMediaMapFromExistingPlans } from "../lib/hearth-media-map-builder";
@@ -3175,6 +3176,22 @@ export default function HearthShell({
     workpieceId,
     activeDraft,
     listWorkpieceDrafts: (episodeId: string) => store.listWorkpieceDrafts(episodeId),
+  });
+  useMediaMapConversationBootstrap({
+    activeWorkpieceTab,
+    episodePackage,
+    mediaMapEntriesLength: mediaMapEntries.length,
+    mediaMapConversationState,
+    setMediaMapConversationSeed,
+    setMediaMapConversationState,
+    setMediaMapConversationError,
+    readCanonicalScriptForImageMapGeneration,
+  });
+  useCanonicalImageMapScriptStateLoader({
+    workpieceId,
+    selectedImageMapEntry,
+    setCanonicalImageMapScriptState,
+    readCanonicalScriptForImageMapGeneration,
   });
   const {
     onAddMediaMapEntry,
@@ -6357,30 +6374,6 @@ export default function HearthShell({
 
   useEffect(() => {
     if (!episodePackage) return;
-    if (activeWorkpieceTab !== "visuals") return;
-    if (mediaMapEntries.length > 0) return;
-    if (mediaMapConversationState !== "idle") return;
-    let cancelled = false;
-    setMediaMapConversationState("loading");
-    setMediaMapConversationError(null);
-    void readCanonicalScriptForImageMapGeneration().then((result) => {
-      if (cancelled) return;
-      setMediaMapConversationSeed(deriveMediaMapConversationFromScript(result.ok ? result.text : null));
-      setMediaMapConversationError(result.ok ? null : result.message);
-      setMediaMapConversationState("ready");
-    }).catch((error) => {
-      if (cancelled) return;
-      setMediaMapConversationSeed(deriveMediaMapConversationFromScript(null));
-      setMediaMapConversationError(error instanceof Error ? error.message : "Unable to read the current script for visual planning.");
-      setMediaMapConversationState("ready");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeWorkpieceTab, episodePackage, mediaMapConversationState, mediaMapEntries.length]);
-
-  useEffect(() => {
-    if (!episodePackage) return;
     const currentScriptVersion = approvedScriptVersion ? String(approvedScriptVersion) : null;
     if (episodePackage.media_map.script_version_id === currentScriptVersion) return;
     setEpisodePackage((prev) => {
@@ -6420,54 +6413,6 @@ export default function HearthShell({
   useEffect(() => {
     syncReferenceClipDraftFromEntry(selectedReferenceClipEntry);
   }, [selectedReferenceClipEntry, syncReferenceClipDraftFromEntry]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!selectedImageMapEntry || !workpieceId) {
-      setCanonicalImageMapScriptState({
-        status: "idle",
-        text: null,
-        source: null,
-        includesUnsavedLocalEdits: false,
-        error: null,
-      });
-      return;
-    }
-
-    setCanonicalImageMapScriptState((current) => ({
-      status: "loading",
-      text: current.text,
-      source: current.source,
-      includesUnsavedLocalEdits: current.includesUnsavedLocalEdits,
-      error: null,
-    }));
-
-    void readCanonicalScriptForImageMapGeneration().then((result) => {
-      if (cancelled) return;
-      if (!result.ok) {
-        setCanonicalImageMapScriptState({
-          status: "error",
-          text: null,
-          source: null,
-          includesUnsavedLocalEdits: false,
-          error: result.message,
-        });
-        return;
-      }
-      setCanonicalImageMapScriptState({
-        status: "ready",
-        text: result.text,
-        source: result.source,
-        includesUnsavedLocalEdits: result.includesUnsavedLocalEdits,
-        error: null,
-      });
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedImageMapEntry, workpieceId]);
 
   useEffect(() => {
     if (imageMapSaveState !== "editing") return;
