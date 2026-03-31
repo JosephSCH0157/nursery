@@ -121,6 +121,10 @@ import { useImageMapViewActions } from "../hooks/visuals/useImageMapViewActions"
 import { useCanonicalImageMapScriptReader } from "../hooks/visuals/useCanonicalImageMapScriptReader";
 import { useVisualsPersistence } from "../hooks/visuals/useVisualsPersistence";
 import { useReleasePrepPackWorkspace } from "../hooks/visuals/useReleasePrepPackWorkspace";
+import { useEpisodePackageLoader } from "../hooks/visuals/useEpisodePackageLoader";
+import { useThumbnailPreviewLoader } from "../hooks/visuals/useThumbnailPreviewLoader";
+import { useImageMapCandidatePreviewLoader } from "../hooks/visuals/useImageMapCandidatePreviewLoader";
+import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
 import {
   buildThumbnailPanelProps,
   buildBrollPlanPanelProps,
@@ -205,14 +209,6 @@ import {
   type ProductionAction,
 } from "../lib/hearth-production-actions";
 import {
-  loadThumbnailPreviewDataUrl,
-  readEpisodePackageForWorkpiece,
-} from "../lib/hearth-thumbnail-api";
-import {
-  getWorkpieceImageMap,
-  loadImageMapCandidatePreviewDataUrl,
-} from "../lib/hearth-image-map-repo";
-import {
   assessImageMapScriptAnchor,
   buildImageMapAnchorPickerParagraphs,
   resolveNearestParagraphSelection,
@@ -236,9 +232,6 @@ import {
   resolveActiveVisualProvider,
   type VisualProviderId,
 } from "../lib/hearth-visual-provider-profiles";
-import {
-  readWorkpieceEpisodeMediaMap,
-} from "../lib/hearth-media-map-repo";
 import {
   deriveMediaMapConversationFromScript,
   type MediaMapConversationSeed,
@@ -2173,10 +2166,6 @@ export default function HearthShell({
   const [defaultVisualProvider, setDefaultVisualProvider] = useState<VisualProviderId>(() => resolveDefaultVisualProviderFromStorage());
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
-  const episodePackageRequestSeqRef = useRef(0);
-  const thumbnailPreviewRequestSeqRef = useRef(0);
-  const imageMapCandidatePreviewRequestSeqRef = useRef(0);
-  const artifactStateWorkpieceIdRef = useRef<string | null>(null);
   const [activeWorkpieceTab, setActiveWorkpieceTab] = useState<WorkpieceWorkspaceTab>(() =>
     readWorkpieceWorkspaceTab(
       incomingBarStockIntakeRoute ? null : resolveWorkpieceId(),
@@ -2881,6 +2870,40 @@ export default function HearthShell({
   const referenceClipPlan: EpisodeReferenceClipPlan | null = episodePackage?.cdc_plan ?? null;
   const referenceClipEntries: EpisodeContextualDataCompositePlan[] = referenceClipPlan?.entries ?? [];
   const selectedReferenceClipEntry = referenceClipEntries.find((entry) => entry.id === selectedReferenceClipEntryId) ?? null;
+  useThumbnailPreviewLoader({
+    workpieceId,
+    selectedThumbnailVersion,
+    selectedThumbnailVersionId,
+    setThumbnailPreviewState,
+    setThumbnailPreviewDataUrl,
+    setThumbnailPreviewError,
+  });
+  useImageMapCandidatePreviewLoader({
+    workpieceId,
+    selectedImageMapEntry,
+    selectedImageMapEntryId,
+    setImageMapCandidatePreviewStateById,
+    setImageMapCandidatePreviewUrlById,
+    setImageMapCandidatePreviewErrorById,
+  });
+  useVisualWorkspaceResetLifecycle({
+    workpieceId,
+    resetThumbnailWorkspaceViewState,
+    resetMediaMapWorkspaceForWorkpieceSwitch,
+    resetBrollWorkspaceForWorkpieceSwitch,
+    resetReferenceClipWorkspaceForWorkpieceSwitch,
+    resetImageMapReanchorState,
+    setIsVisualScriptMode,
+    setImageMapMetadataUpdatedAt,
+    setImageMapSaveState,
+    setImageMapSaveError,
+    setImageMapExportMessage,
+    setImageMapCandidateError,
+    setImageMapCandidateSelectionError,
+    setImageMapCandidatePreviewStateById,
+    setImageMapCandidatePreviewUrlById,
+    setImageMapCandidatePreviewErrorById,
+  });
   const referenceClipProviders: ExternalGenerationProvider[] = listExternalGenerationProviders("reference_clip");
   const referenceClipRequestStateLabel = resolveVisualRequestStateLabel(selectedReferenceClipEntry?.external_request?.state);
   const visualProviderOptions = useMemo(() => listVisualProviderOptions(), []);
@@ -4143,118 +4166,39 @@ export default function HearthShell({
     return null;
   }, [activeDraft?.id, sparks, workpieceId]);
 
-  const refreshEpisodePackage = useCallback(async () => {
-    const episodeId = workpieceId?.trim() ?? "";
-    const requestSeq = episodePackageRequestSeqRef.current + 1;
-    episodePackageRequestSeqRef.current = requestSeq;
-
-    if (artifactStateWorkpieceIdRef.current !== episodeId) {
-      // Clear stale artifact state as soon as the active workpiece changes so prior package
-      // residue never renders as current truth for the new target.
-      setEpisodePackage(null);
-      setImageMapMetadataUpdatedAt(null);
-      setSelectedThumbnailTitleId(null);
-      setSelectedThumbnailConceptId("");
-      setSelectedThumbnailVersionId(null);
-      setSelectedLaunchVariantId(null);
-      setSelectedMediaMapEntryId(null);
-      setSelectedImageMapEntryId(null);
-      setSelectedBrollBeatId(null);
-      setSelectedReferenceClipEntryId(null);
-      setThumbnailGenerateError(null);
-      setThumbnailUploadError(null);
-      setThumbnailPairingError(null);
-      setThumbnailPreviewState("idle");
-      setThumbnailPreviewDataUrl(null);
-      setThumbnailPreviewError(null);
-      setImageMapSaveState("saved");
-      setImageMapSaveError(null);
-      setImageMapExportMessage(null);
-      setMediaMapSaveState("saved");
-      setMediaMapSaveError(null);
-      setMediaMapMessage(null);
-      setBrollSaveState("saved");
-      setBrollSaveError(null);
-      setBrollMessage(null);
-      setReferenceClipSaveState("saved");
-      setReferenceClipSaveError(null);
-      setReferenceClipMessage(null);
-      resetReleasePrepState();
-      artifactStateWorkpieceIdRef.current = episodeId || null;
-    }
-
-    if (!episodeId) {
-      artifactStateWorkpieceIdRef.current = null;
-      return;
-    }
-
-    const loaded = await readEpisodePackageForWorkpiece(episodeId);
-    if (episodePackageRequestSeqRef.current !== requestSeq || (workpieceId?.trim() ?? "") !== episodeId) {
-      return;
-    }
-    if (!loaded.ok) {
-      setThumbnailGenerateError("Unable to load thumbnail metadata.");
-      setThumbnailPreviewState("error");
-      setThumbnailPreviewDataUrl(null);
-      setThumbnailPreviewError("Unable to load thumbnail metadata.");
-      return;
-    }
-
-    // Paint baseline episode package immediately so the primary list content can render
-    // before slower image/media map hydration calls complete.
-    setEpisodePackage(loaded.episodePackage);
-    artifactStateWorkpieceIdRef.current = episodeId;
-    setThumbnailGenerateError(null);
-    setImageMapSaveError(null);
-    {
-      const versions = loaded.episodePackage.thumbnail.versions;
-      const preferredVersionId = loaded.episodePackage.thumbnail.primary_version_id
-        ?? versions[versions.length - 1]?.id
-        ?? null;
-      setSelectedThumbnailVersionId(preferredVersionId);
-      const initialImageEntries = loaded.episodePackage.image_map.entries;
-      setSelectedImageMapEntryId((prev) => {
-        if (prev && initialImageEntries.some((entry) => entry.id === prev)) return prev;
-        return initialImageEntries[0]?.id ?? null;
-      });
-    }
-
-    const [imageMapLoaded, mediaMapLoaded] = await Promise.all([
-      getWorkpieceImageMap(episodeId),
-      readWorkpieceEpisodeMediaMap(episodeId),
-    ]);
-    if (episodePackageRequestSeqRef.current !== requestSeq || (workpieceId?.trim() ?? "") !== episodeId) {
-      return;
-    }
-
-    let nextEpisodePackage = loaded.episodePackage;
-    if (imageMapLoaded.ok) {
-      nextEpisodePackage = replaceEpisodePackageImageMap(
-        loaded.episodePackage,
-        imageMapLoaded.imageMap.entries,
-        imageMapLoaded.imageMap.spokenBeats,
-      );
-      setImageMapMetadataUpdatedAt(imageMapLoaded.imageMap.metadataUpdatedAt);
-    } else {
-      setImageMapMetadataUpdatedAt(null);
-    }
-    if (mediaMapLoaded.ok && mediaMapLoaded.mediaMap) {
-      nextEpisodePackage = {
-        ...nextEpisodePackage,
-        media_map: {
-          ...mediaMapLoaded.mediaMap,
-          workpiece_id: episodeId,
-        },
-      };
-    }
-
-    setEpisodePackage(nextEpisodePackage);
-    const imageEntries = nextEpisodePackage.image_map.entries;
-    setSelectedImageMapEntryId((prev) => {
-      if (prev && imageEntries.some((entry) => entry.id === prev)) return prev;
-      return imageEntries[0]?.id ?? null;
-    });
-  }, [workpieceId]);
+  const refreshEpisodePackage = useEpisodePackageLoader({
+    workpieceId,
+    replaceEpisodePackageImageMap,
+    resetReleasePrepState,
+    setEpisodePackage,
+    setImageMapMetadataUpdatedAt,
+    setSelectedThumbnailTitleId,
+    setSelectedThumbnailConceptId,
+    setSelectedThumbnailVersionId,
+    setSelectedLaunchVariantId,
+    setSelectedMediaMapEntryId,
+    setSelectedImageMapEntryId,
+    setSelectedBrollBeatId,
+    setSelectedReferenceClipEntryId,
+    setThumbnailGenerateError,
+    setThumbnailUploadError,
+    setThumbnailPairingError,
+    setThumbnailPreviewState,
+    setThumbnailPreviewDataUrl,
+    setThumbnailPreviewError,
+    setImageMapSaveState,
+    setImageMapSaveError,
+    setImageMapExportMessage,
+    setMediaMapSaveState,
+    setMediaMapSaveError,
+    setMediaMapMessage,
+    setBrollSaveState,
+    setBrollSaveError,
+    setBrollMessage,
+    setReferenceClipSaveState,
+    setReferenceClipSaveError,
+    setReferenceClipMessage,
+  });
 
   const refreshReadyScripts = useCallback(async () => {
     const workspace = normalizeUuid(workspaceId);
@@ -6404,69 +6348,6 @@ export default function HearthShell({
   ]);
 
   useEffect(() => {
-    resetThumbnailWorkspaceViewState();
-  }, [resetThumbnailWorkspaceViewState, workpieceId]);
-
-  useEffect(() => {
-    resetMediaMapWorkspaceForWorkpieceSwitch();
-    resetBrollWorkspaceForWorkpieceSwitch();
-  }, [resetBrollWorkspaceForWorkpieceSwitch, resetMediaMapWorkspaceForWorkpieceSwitch, workpieceId]);
-
-  useEffect(() => {
-    resetReferenceClipWorkspaceForWorkpieceSwitch();
-  }, [resetReferenceClipWorkspaceForWorkpieceSwitch, workpieceId]);
-
-  useEffect(() => {
-    const episodeId = workpieceId?.trim() ?? "";
-    const previewSeq = thumbnailPreviewRequestSeqRef.current + 1;
-    thumbnailPreviewRequestSeqRef.current = previewSeq;
-    if (!episodeId || !selectedThumbnailVersion) {
-      setThumbnailPreviewState("idle");
-      setThumbnailPreviewDataUrl(null);
-      setThumbnailPreviewError(null);
-      return;
-    }
-
-    if (selectedThumbnailVersion.status === "failed") {
-      setThumbnailPreviewState("error");
-      setThumbnailPreviewDataUrl(null);
-      setThumbnailPreviewError(selectedThumbnailVersion.error ?? "This version failed.");
-      return;
-    }
-
-    let cancelled = false;
-    setThumbnailPreviewState("loading");
-    setThumbnailPreviewError(null);
-
-    void loadThumbnailPreviewDataUrl({
-      workpieceId: episodeId,
-      version: selectedThumbnailVersion,
-    }).then((result) => {
-      if (
-        cancelled
-        || thumbnailPreviewRequestSeqRef.current !== previewSeq
-        || (workpieceId?.trim() ?? "") !== episodeId
-        || selectedThumbnailVersionId !== selectedThumbnailVersion.id
-      ) {
-        return;
-      }
-      if (!result.ok) {
-        setThumbnailPreviewState("error");
-        setThumbnailPreviewDataUrl(null);
-        setThumbnailPreviewError(result.error);
-        return;
-      }
-      setThumbnailPreviewState("ready");
-      setThumbnailPreviewDataUrl(result.dataUrl);
-      setThumbnailPreviewError(null);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedThumbnailVersion, selectedThumbnailVersionId, workpieceId]);
-
-  useEffect(() => {
     syncSelectedMediaMapEntryId(mediaMapEntries);
   }, [mediaMapEntries, syncSelectedMediaMapEntryId]);
 
@@ -6541,11 +6422,6 @@ export default function HearthShell({
   }, [selectedReferenceClipEntry, syncReferenceClipDraftFromEntry]);
 
   useEffect(() => {
-    setIsVisualScriptMode(false);
-    resetImageMapReanchorState();
-  }, [resetImageMapReanchorState, workpieceId]);
-
-  useEffect(() => {
     let cancelled = false;
 
     if (!selectedImageMapEntry || !workpieceId) {
@@ -6592,85 +6468,6 @@ export default function HearthShell({
       cancelled = true;
     };
   }, [selectedImageMapEntry, workpieceId]);
-
-  useEffect(() => {
-    const episodeId = workpieceId?.trim() ?? "";
-    const previewSeq = imageMapCandidatePreviewRequestSeqRef.current + 1;
-    imageMapCandidatePreviewRequestSeqRef.current = previewSeq;
-
-    if (!episodeId || !selectedImageMapEntry) {
-      setImageMapCandidatePreviewStateById({});
-      setImageMapCandidatePreviewUrlById({});
-      setImageMapCandidatePreviewErrorById({});
-      return;
-    }
-
-    const candidates = selectedImageMapEntry.candidate_assets.filter((asset) => asset.asset_id && asset.path);
-    if (candidates.length === 0) {
-      setImageMapCandidatePreviewStateById({});
-      setImageMapCandidatePreviewUrlById({});
-      setImageMapCandidatePreviewErrorById({});
-      return;
-    }
-
-    const loadingState = Object.fromEntries(candidates.map((asset) => [asset.asset_id, "loading"] as const));
-    setImageMapCandidatePreviewStateById(loadingState);
-    setImageMapCandidatePreviewUrlById({});
-    setImageMapCandidatePreviewErrorById({});
-
-    let cancelled = false;
-    void Promise.all(candidates.map(async (asset) => {
-      const result = await loadImageMapCandidatePreviewDataUrl({
-        workpieceId: episodeId,
-        path: asset.path,
-        mimeType: asset.mime_type ?? null,
-      });
-      return { assetId: asset.asset_id, result };
-    })).then((results) => {
-      if (
-        cancelled
-        || imageMapCandidatePreviewRequestSeqRef.current !== previewSeq
-        || (workpieceId?.trim() ?? "") !== episodeId
-        || selectedImageMapEntryId !== selectedImageMapEntry.id
-      ) {
-        return;
-      }
-
-      const nextState: Record<string, "loading" | "ready" | "error"> = {};
-      const nextUrls: Record<string, string> = {};
-      const nextErrors: Record<string, string> = {};
-      for (const { assetId, result } of results) {
-        if (result.ok) {
-          nextState[assetId] = "ready";
-          nextUrls[assetId] = result.dataUrl;
-        } else {
-          nextState[assetId] = "error";
-          nextErrors[assetId] = result.error;
-        }
-      }
-      setImageMapCandidatePreviewStateById(nextState);
-      setImageMapCandidatePreviewUrlById(nextUrls);
-      setImageMapCandidatePreviewErrorById(nextErrors);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedImageMapEntry, selectedImageMapEntryId, workpieceId]);
-
-  useEffect(() => {
-    if (!workpieceId) {
-      setImageMapMetadataUpdatedAt(null);
-      setImageMapSaveState("saved");
-      setImageMapSaveError(null);
-      setImageMapExportMessage(null);
-      setImageMapCandidateError(null);
-      setImageMapCandidateSelectionError(null);
-      setImageMapCandidatePreviewStateById({});
-      setImageMapCandidatePreviewUrlById({});
-      setImageMapCandidatePreviewErrorById({});
-    }
-  }, [workpieceId]);
 
   useEffect(() => {
     if (imageMapSaveState !== "editing") return;
