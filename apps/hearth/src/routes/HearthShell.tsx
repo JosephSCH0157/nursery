@@ -198,10 +198,18 @@ import ScriptSurface from "../views/surfaces/ScriptSurface";
 import VisualsSurface from "../views/surfaces/VisualsSurface";
 import WorkpieceTabBar from "../views/surfaces/WorkpieceTabBar";
 import {
-  commitWorkpieceProductionArtifact,
   readWorkpieceProductionArtifact,
-  type ProductionArtifactKind,
 } from "../lib/hearth-production-repo";
+import {
+  PRODUCTION_ACTION_LABEL,
+  persistProductionArtifact as persistHearthProductionArtifact,
+  runProductionAction,
+  type ProductionAction,
+} from "../lib/hearth-production-actions";
+import {
+  parseReleasePrepPackSections,
+  type ReleasePrepSection,
+} from "../lib/hearth-release-prep-pack";
 import {
   loadThumbnailPreviewDataUrl,
   readEpisodePackageForWorkpiece,
@@ -267,7 +275,6 @@ import {
   resolvePrimarySeoTitle,
   updateImageMapEntry,
 } from "../lib/episode-package-v2";
-import { resolveHearthProductionArtifactFeedback } from "../lib/hearth-production-feedback";
 import {
   DEFAULT_HEARTH_VISUAL_STYLE,
   normalizeHearthVisualStyle,
@@ -296,7 +303,6 @@ import type {
   EpisodeThumbnailTitleStyle,
 } from "../lib/hearth-title-fonts";
 import {
-  HEARTH_THUMBNAIL_TITLE_CONTRACT,
   deriveHearthThumbnailOverlayText,
   resolveHearthThumbnailOverlayText,
 } from "../lib/hearth-thumbnail-title-contract";
@@ -342,7 +348,6 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
 type UiDensity = "comfortable" | "compact";
 type FocusTab = "draft" | "planning" | "sources" | "revisions";
-type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
 type SttLane = "browser" | "ai";
 type SttState = "idle" | "listening" | "transcribing";
 type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
@@ -392,50 +397,12 @@ type DraftConflictState = {
   localBody: string;
 };
 
-type ImageBeatSheetEntry = {
-  id: string;
-  attach_after: string;
-  description: string;
-  prompt: string;
-  match?: string;
-};
-
 type CanonicalImageMapScriptState = {
   status: "idle" | "loading" | "ready" | "error";
   text: string | null;
   source: "primary_script" | "saved_draft" | null;
   includesUnsavedLocalEdits: boolean;
   error: string | null;
-};
-
-type ReleasePrepSectionKey =
-  | "youtube_optimized_cut"
-  | "title_options"
-  | "short_form_hook_20s"
-  | "tone_variant_creator"
-  | "audience_variant"
-  | "monetization_angle";
-
-type ReleasePrepSection = {
-  key: ReleasePrepSectionKey;
-  label: string;
-  content: string;
-};
-
-const PRODUCTION_ACTION_LABEL: Record<ProductionAction, string> = {
-  seo: "Generate Titles",
-  tags: "Generate Tags",
-  thumbnails: "Thumbnail Briefs",
-  image_beat_sheet: "Image Beat Sheet",
-  release_prep_pack: "Framing Pack",
-};
-
-const PRODUCTION_ACTION_ARTIFACT_KIND: Record<ProductionAction, ProductionArtifactKind> = {
-  seo: "seo",
-  tags: "tags",
-  thumbnails: "thumbnails",
-  image_beat_sheet: "image_beat_sheet",
-  release_prep_pack: "pack",
 };
 
 const TONE_PRESET_OPTIONS = [
@@ -1126,214 +1093,6 @@ function isScriptApprovalStateEqual(a: ScriptApprovalState, b: ScriptApprovalSta
   return a.hasApprovedScript === b.hasApprovedScript
     && a.approvedScriptVersion === b.approvedScriptVersion
     && a.approvedAt === b.approvedAt;
-}
-
-function buildProductionPrompt(args: {
-  action: ProductionAction;
-  scriptVersion: number;
-  scriptText: string;
-  episodeTitle: string;
-}): string {
-  const header = [
-    `Production mode request for approved Script Version ${args.scriptVersion}.`,
-    "Use the approved script text below as the only source for script-derived outputs.",
-    "Do not request topic basics. Do not output markdown tables.",
-    "",
-    `EPISODE_TITLE: ${args.episodeTitle || "Untitled Episode"}`,
-    `SCRIPT_VERSION: ${args.scriptVersion}`,
-    "APPROVED_SCRIPT_TEXT:",
-    args.scriptText,
-    "",
-  ];
-
-  if (args.action === "seo") {
-    return [
-      ...header,
-      "Return plain text with exact sections:",
-      "SEO_TITLES:",
-      "- 5 options total",
-      "- include labels: SAFE, SPICY, BALANCED_1, BALANCED_2, BALANCED_3",
-      `- every title must preserve a thumbnail-safe hook of ${HEARTH_THUMBNAIL_TITLE_CONTRACT.preferred_max_words} words or fewer`,
-      "",
-      "DESCRIPTION:",
-      "- one YouTube-ready description paragraph block",
-      "",
-      "PINNED_COMMENT_IDEAS:",
-      "- 3 concise options",
-    ].join("\n");
-  }
-
-  if (args.action === "tags") {
-    return [
-      ...header,
-      "Return plain text with exact sections:",
-      "TAGS_TOP10:",
-      "- comma-separated (10 items)",
-      "",
-      "TAGS_FULL:",
-      "- comma-separated (20-35 items)",
-    ].join("\n");
-  }
-
-  if (args.action === "thumbnails") {
-    return [
-      ...header,
-      "Return plain text with exactly 5 concepts in this format:",
-      "THUMBNAIL_01",
-      "Headline: ...",
-      "Image concept: ...",
-      "Mood/style: ...",
-      "",
-      "Repeat THUMBNAIL_02 ... THUMBNAIL_05 with same fields.",
-    ].join("\n");
-  }
-
-  if (args.action === "release_prep_pack") {
-    return [
-      ...header,
-      "Generate a Framing Pack from this approved script.",
-      "Return plain text with exact sections in this order:",
-      "YOUTUBE_OPTIMIZED_CUT:",
-      "- tighter opening hook and clear promise",
-      "- retention-aware structure notes",
-      "",
-      "TITLE_OPTIONS:",
-      "- provide 3-7 options",
-      "- click-optimized but honest",
-      "- varied emotional framing",
-      "",
-      "SHORT_FORM_HOOK_20S:",
-      "- one cold-open hook suitable for Shorts/TikTok/Reels",
-      "- keep it to <= 20 seconds spoken length",
-      "",
-      "TONE_VARIANT_CREATOR:",
-      "- more conversational personality-led version of the opening",
-      "",
-      "AUDIENCE_VARIANT:",
-      "- one tailored opening variant for a likely audience angle",
-      "",
-      "MONETIZATION_ANGLE:",
-      "- sponsorship positioning idea",
-      "- one CTA direction",
-      "- optional premium episode framing",
-      "",
-      "Rules:",
-      "- Do not overwrite the primary script.",
-      "- Treat this as a derived release-prep output.",
-      "- Do not use markdown tables.",
-      "- Keep recommendations practical and production-ready.",
-    ].join("\n");
-  }
-
-  return [
-    ...header,
-    "Generate an image beat sheet.",
-    "Return plain text with one or more blocks in this exact format:",
-    "IMAGE_01",
-    "Attach after: \"<EXACT QUOTE FROM APPROVED SCRIPT>\"",
-    "Description: ...",
-    "Prompt: ...",
-    "Match: first occurrence",
-    "",
-    "Rules:",
-    "- Attach after must be an exact quote from APPROVED_SCRIPT_TEXT.",
-    "- If quote appears multiple times, include Match line with disambiguation.",
-    "- Use plain text prompts only.",
-  ].join("\n");
-}
-
-function parseImageBeatSheetEntries(text: string): ImageBeatSheetEntry[] {
-  const lines = text.split(/\r?\n/);
-  const entries: ImageBeatSheetEntry[] = [];
-  let current: Partial<ImageBeatSheetEntry> | null = null;
-
-  const flush = () => {
-    if (!current) return;
-    if (current.id && current.attach_after && current.description && current.prompt) {
-      entries.push({
-        id: current.id,
-        attach_after: current.attach_after,
-        description: current.description,
-        prompt: current.prompt,
-        ...(current.match ? { match: current.match } : {}),
-      });
-    }
-    current = null;
-  };
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const imageHeader = line.match(/^IMAGE_(\d{1,3})$/i);
-    if (imageHeader) {
-      flush();
-      current = { id: `IMAGE_${imageHeader[1]?.padStart(2, "0") ?? "01"}` };
-      continue;
-    }
-    if (!current) continue;
-
-    const attach = line.match(/^Attach after:\s*["“](.+)["”]\s*$/i);
-    if (attach && attach[1]) {
-      current.attach_after = attach[1].trim();
-      continue;
-    }
-
-    const description = line.match(/^Description:\s*(.+)$/i);
-    if (description && description[1]) {
-      current.description = description[1].trim();
-      continue;
-    }
-
-    const prompt = line.match(/^Prompt:\s*(.+)$/i);
-    if (prompt && prompt[1]) {
-      current.prompt = prompt[1].trim();
-      continue;
-    }
-
-    const match = line.match(/^Match:\s*(.+)$/i);
-    if (match && match[1]) {
-      current.match = match[1].trim();
-    }
-  }
-
-  flush();
-  return entries;
-}
-
-function parseReleasePrepPackSections(rawText: string): ReleasePrepSection[] {
-  const text = rawText.replace(/\r\n?/g, "\n").trim();
-  if (!text) return [];
-  const headerRe = /^(YOUTUBE_OPTIMIZED_CUT|TITLE_OPTIONS|SHORT_FORM_HOOK_20S|TONE_VARIANT_CREATOR|AUDIENCE_VARIANT|MONETIZATION_ANGLE):\s*$/gm;
-  const matches = [...text.matchAll(headerRe)];
-  if (matches.length === 0) {
-    return [{
-      key: "youtube_optimized_cut",
-      label: "Framing Pack",
-      content: text,
-    }];
-  }
-
-  const out: ReleasePrepSection[] = [];
-  for (let index = 0; index < matches.length; index += 1) {
-    const current = matches[index];
-    const next = matches[index + 1];
-    const header = (current?.[1] ?? "").trim().toUpperCase();
-    const start = (current?.index ?? 0) + (current?.[0]?.length ?? 0);
-    const end = next?.index ?? text.length;
-    const body = text.slice(start, end).trim();
-    const key = header.toLowerCase() as ReleasePrepSectionKey;
-    const label = header
-      .toLowerCase()
-      .split("_")
-      .map((part) => (part === "20s" ? "20s" : part.charAt(0).toUpperCase() + part.slice(1)))
-      .join(" ");
-    out.push({
-      key,
-      label,
-      content: body || "(No content generated)",
-    });
-  }
-  return out;
 }
 
 function hasExplicitWorkpieceQuery(): boolean {
@@ -7967,103 +7726,40 @@ export default function HearthShell({
     scriptVersion: number;
     assistantText: string;
   }) {
-    const episodeId = workpieceId?.trim();
-    if (!episodeId) return;
-
-    const generatedAt = new Date().toISOString();
-    const artifactKind = PRODUCTION_ACTION_ARTIFACT_KIND[args.action];
-    const payload = args.action === "image_beat_sheet"
-      ? {
-          script_version: args.scriptVersion,
-          generated_at: generatedAt,
-          action: args.action,
-          raw_text: args.assistantText,
-          entries: parseImageBeatSheetEntries(args.assistantText),
-        }
-      : {
-          script_version: args.scriptVersion,
-          generated_at: generatedAt,
-          action: args.action,
-          raw_text: args.assistantText,
-        };
-
-    try {
-      const committed = await commitWorkpieceProductionArtifact({
-        workpieceId: episodeId,
-        workspaceId,
-        scriptVersion: args.scriptVersion,
-        kind: artifactKind,
-        payload,
-      });
-
-      if (!committed.ok) {
-        setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
-        return;
-      }
-      const artifactFeedback = resolveHearthProductionArtifactFeedback({
-        action: args.action,
-        assistantText: args.assistantText,
-      });
-      if (artifactFeedback.titles.length > 0) {
-        setMetadataTitlesDraft(artifactFeedback.titles);
-      }
-      if (artifactFeedback.descriptionShort) {
-        setMetadataDescriptionShortDraft(artifactFeedback.descriptionShort);
-      }
-      if (artifactFeedback.descriptionLong) {
-        setMetadataDescriptionLongDraft(artifactFeedback.descriptionLong);
-      }
-      if (artifactFeedback.tags.length > 0) {
-        setMetadataTagsDraft(artifactFeedback.tags);
-      }
-      if (artifactFeedback.warning) {
-        setAiRuntimeWarning(artifactFeedback.warning);
-      }
-      if (artifactFeedback.shouldRefreshEpisodePackage) {
-        await refreshEpisodePackage();
-      }
-      if (args.action === "release_prep_pack") {
-        await loadLatestReleasePrepPack(args.scriptVersion);
-      }
-    } catch {
-      setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
-    }
+    await persistHearthProductionArtifact({
+      action: args.action,
+      scriptVersion: args.scriptVersion,
+      assistantText: args.assistantText,
+      workpieceId,
+      workspaceId,
+      refreshEpisodePackage,
+      loadLatestReleasePrepPack,
+      setAiRuntimeWarning,
+      setMetadataTitlesDraft,
+      setMetadataDescriptionShortDraft,
+      setMetadataDescriptionLongDraft,
+      setMetadataTagsDraft,
+    });
   }
 
   async function onRunProductionAction(action: ProductionAction) {
-    if (isAiProcessing || isApprovingScript) return;
-    if (!activeDraft) return;
-    if (!hasApprovedScript || !approvedScriptVersion) {
-      setChatError("Approve a Script Version before using production actions.");
-      return;
-    }
-    if (!activeDraft.body.trim()) {
-      setChatError("Approved script body is empty.");
-      return;
-    }
-    if (action === "image_beat_sheet") {
-      setChatError("Image Beat Sheet has been replaced by Episode Media Map. Use Generate Episode Media Map in the media panel.");
-      return;
-    }
-
-    const prompt = buildProductionPrompt({
+    await runProductionAction({
       action,
-      scriptVersion: approvedScriptVersion,
-      scriptText: activeDraft.body,
-      episodeTitle: activeDraft.title || planningSession?.title || "",
+      isAiProcessing,
+      isApprovingScript,
+      hasApprovedScript,
+      approvedScriptVersion,
+      activeDraft: activeDraft
+        ? {
+            body: activeDraft.body,
+            title: activeDraft.title,
+          }
+        : null,
+      planningSessionTitle: planningSession?.title ?? null,
+      setChatError,
+      setActiveProductionAction,
+      sendChatMessage,
     });
-    const displayContent = `${PRODUCTION_ACTION_LABEL[action]} for Script Version ${approvedScriptVersion}.`;
-    setActiveProductionAction(action);
-    try {
-      await sendChatMessage({
-        requestContent: prompt,
-        displayContent,
-        productionAction: action,
-        productionScriptVersion: approvedScriptVersion,
-      });
-    } finally {
-      setActiveProductionAction(null);
-    }
   }
 
   function resolveBrollDataVisualSpecFromDraft(intent: EpisodeBrollPlanBeat["motion_intent"]): EpisodeBrollDataVisualSpec | null {
