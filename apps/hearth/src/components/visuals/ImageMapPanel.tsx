@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   EPISODE_IMAGE_MAP_VISUAL_PRIORITY_VALUES,
   EPISODE_IMAGE_MAP_VISUAL_TYPE_VALUES,
@@ -13,6 +13,12 @@ import type {
   ImageMapScriptSelection,
 } from "../../lib/hearth-image-map-beats";
 import { resolveImageMapWorkflowGuidance } from "../../lib/hearth-image-map-workflow";
+import {
+  buildTimelineImagePromptPack,
+  type PromptPack,
+  type ResolvedVisualProvider,
+  type VisualProviderId,
+} from "../../lib/hearth-visual-provider-profiles";
 
 type ImageMapSaveState = "saved" | "editing" | "saving" | "error" | "offline";
 
@@ -43,6 +49,9 @@ type ImageMapPanelProps = {
   saveState: ImageMapSaveState;
   saveError: string | null;
   exportMessage: string | null;
+  activeVisualProvider: ResolvedVisualProvider;
+  visualProviderOptions: ReadonlyArray<{ id: VisualProviderId; label: string }>;
+  visualProviderOverride: VisualProviderId | null;
   candidateCards: ImageMapCandidateCard[];
   candidateGenerateBusy: boolean;
   candidateGenerateError: string | null;
@@ -81,6 +90,7 @@ type ImageMapPanelProps = {
   onSelectCandidate: (candidateId: string) => void;
   onCopyExport: () => void;
   onDownloadExport: () => void;
+  onVisualProviderOverrideChange: (providerId: VisualProviderId | null) => void;
   onStartReanchor: () => void;
   onRepairNearestParagraph: () => void;
   onConvertToGlobalVisual: () => void;
@@ -110,6 +120,51 @@ function resolveInitialPreviewCandidateId(candidateCards: ImageMapCandidateCard[
     ?? null;
 }
 
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall back when direct clipboard access is blocked.
+    }
+  }
+
+  if (typeof document === "undefined") return false;
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  textarea.style.left = "-1000px";
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+function downloadPromptPack(pack: PromptPack, filename: string): void {
+  if (typeof document === "undefined" || typeof URL === "undefined") return;
+  const blob = new Blob([JSON.stringify(pack, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(href);
+}
+
 export default function ImageMapPanel({
   panelTitle,
   manualOnly = false,
@@ -127,6 +182,9 @@ export default function ImageMapPanel({
   saveState,
   saveError,
   exportMessage,
+  activeVisualProvider,
+  visualProviderOptions,
+  visualProviderOverride,
   candidateCards,
   candidateGenerateBusy,
   candidateGenerateError,
@@ -165,6 +223,7 @@ export default function ImageMapPanel({
   onSelectCandidate,
   onCopyExport,
   onDownloadExport,
+  onVisualProviderOverrideChange,
   onStartReanchor,
   onRepairNearestParagraph,
   onConvertToGlobalVisual,
@@ -175,6 +234,7 @@ export default function ImageMapPanel({
   const resolvedPanelTitle = panelTitle?.trim() || (manualOnly ? "Visual Beats" : "Image Map");
   const entryLabel = manualOnly ? "Anchor" : "Entry";
   const hasSelection = Boolean(selectedEntryId);
+  const selectedEntry = entries.find((entry) => entry.id === selectedEntryId) ?? null;
   const selectedCandidateId = candidateCards.find((candidate) => candidate.isSelected)?.id ?? null;
   const workflowGuidance = resolveImageMapWorkflowGuidance({
     manualOnly,
@@ -187,6 +247,7 @@ export default function ImageMapPanel({
   const [previewCandidateId, setPreviewCandidateId] = useState<string | null>(
     () => resolveInitialPreviewCandidateId(candidateCards),
   );
+  const [activePromptPack, setActivePromptPack] = useState<PromptPack | null>(null);
 
   useEffect(() => {
     if (candidateCards.length === 0) {
@@ -205,10 +266,68 @@ export default function ImageMapPanel({
     setPreviewCandidateId(resolveInitialPreviewCandidateId(candidateCards));
   }, [candidateCards, previewCandidateId, selectedCandidateId]);
 
+  useEffect(() => {
+    setActivePromptPack(null);
+  }, [
+    activeVisualProvider.id,
+    activeVisualProvider.usedFallback,
+    draftAnchor,
+    draftDescription,
+    draftIntent,
+    draftPlacementHint,
+    draftSectionIntentNote,
+    draftStylePreset,
+    selectedEntryId,
+  ]);
+
   const previewCandidate = candidateCards.find((candidate) => candidate.id === previewCandidateId) ?? null;
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const newEntryLabel = manualOnly ? "New Beat" : "New Entry";
   const seedFromScriptLabel = "Pull Beats from Script";
+  const canGeneratePromptPack = Boolean(
+    selectedEntry
+    && (draftDescription.trim().length > 0 || selectedEntry.prompt_basis.trim().length > 0),
+  );
+  const promptPackButtonLabel = activePromptPack ? "Generate Prompt Pack Again" : "Generate Prompt Pack";
+  const onGeneratePromptPack = useCallback(() => {
+    if (!selectedEntry) return;
+    const result = buildTimelineImagePromptPack({
+      entry: selectedEntry,
+      description: draftDescription,
+      anchor: draftAnchor,
+      stylePreset: draftStylePreset,
+      intent: draftIntent,
+      sectionIntentNote: draftSectionIntentNote,
+      placementHint: draftPlacementHint,
+      resolvedProvider: activeVisualProvider,
+      aspectRatio: "16:9",
+    });
+    setActivePromptPack(result.pack);
+  }, [
+    activeVisualProvider,
+    draftAnchor,
+    draftDescription,
+    draftIntent,
+    draftPlacementHint,
+    draftSectionIntentNote,
+    draftStylePreset,
+    selectedEntry,
+  ]);
+  const onCopyPromptPack = useCallback(() => {
+    if (!activePromptPack) return;
+    void copyTextToClipboard(activePromptPack.prompt);
+  }, [activePromptPack]);
+  const onCopyNegativePrompt = useCallback(() => {
+    if (!activePromptPack?.negative) return;
+    void copyTextToClipboard(activePromptPack.negative);
+  }, [activePromptPack]);
+  const onDownloadPromptPack = useCallback(() => {
+    if (!activePromptPack || !selectedEntry) return;
+    downloadPromptPack(
+      activePromptPack,
+      `timeline-image-prompt-pack-${selectedEntry.id.slice(0, 8).toLowerCase()}.json`,
+    );
+  }, [activePromptPack, selectedEntry]);
   let primaryActionButton: ReactNode = null;
 
   if (workflowGuidance.primaryAction === "seed_from_script" && !manualOnly) {
@@ -423,6 +542,92 @@ export default function ImageMapPanel({
                     className="hs-imap-description-input"
                   />
                 </label>
+                <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
+                  <div className="hs-imap-candidate-action-group">
+                    <label className="hs-field">
+                      <span className="hs-field-label">Provider</span>
+                      <select
+                        value={visualProviderOverride ?? ""}
+                        onChange={(event) => onVisualProviderOverrideChange((event.target.value || null) as VisualProviderId | null)}
+                        disabled={disabled}
+                      >
+                        <option value="">Use Global Default</option>
+                        {visualProviderOptions.map((option) => (
+                          <option key={option.id} value={option.id}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={onGeneratePromptPack}
+                      disabled={disabled || !canGeneratePromptPack}
+                    >
+                      {promptPackButtonLabel}
+                    </button>
+                  </div>
+                  <span className="hs-field-label-muted">
+                    Choose the provider Hearth should speak to, then generate a pack you can paste straight into that outside tool.
+                  </span>
+                </div>
+                <section className="hs-imap-provider-pack" aria-label="Provider-aware prompt pack">
+                  <div className="hs-imap-provider-pack-header">
+                    <div>
+                      <div className="hs-field-label">Prompt Pack</div>
+                      <div className="hs-imap-help-text">{activeVisualProvider.bannerLabel}</div>
+                    </div>
+                    <div className="hs-imap-help-text">{activeVisualProvider.helperText}</div>
+                  </div>
+                  {activePromptPack ? (
+                    <>
+                      <textarea
+                        value={activePromptPack.prompt}
+                        readOnly
+                        rows={5}
+                        aria-label="Generated prompt"
+                        className="hs-thumb-prompt-card-text"
+                      />
+                      {activePromptPack.negative ? (
+                        <textarea
+                          value={activePromptPack.negative}
+                          readOnly
+                          rows={3}
+                          aria-label="Generated negative prompt"
+                          className="hs-thumb-prompt-card-text is-secondary"
+                        />
+                      ) : null}
+                      <div className="hs-imap-help-text">
+                        Aspect: {activePromptPack.aspectRatio ?? "16:9"} · Provider: {activeVisualProvider.label}
+                      </div>
+                      {activePromptPack.styleTags?.length ? (
+                        <div className="hs-thumb-prompt-card-tags">
+                          {activePromptPack.styleTags.map((tag) => (
+                            <span key={tag} className="hs-thumb-prompt-card-tag">{tag}</span>
+                          ))}
+                        </div>
+                      ) : null}
+                      {activePromptPack.notes ? (
+                        <div className="hs-thumb-prompt-card-note">{activePromptPack.notes}</div>
+                      ) : null}
+                      <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
+                        <div className="hs-imap-candidate-action-group">
+                          <button type="button" onClick={onCopyPromptPack} disabled={disabled}>Copy Prompt</button>
+                          <button
+                            type="button"
+                            onClick={onCopyNegativePrompt}
+                            disabled={disabled || !activePromptPack.negative}
+                          >
+                            Copy Negative
+                          </button>
+                          <button type="button" onClick={onDownloadPromptPack} disabled={disabled}>Download Prompt Pack</button>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="hs-imap-empty">
+                      Use <strong>Generate Prompt Pack</strong> to turn this selected beat into a provider-ready outside-tool prompt.
+                    </div>
+                  )}
+                </section>
                 <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
                   <div className="hs-imap-candidate-action-group">
                     <button

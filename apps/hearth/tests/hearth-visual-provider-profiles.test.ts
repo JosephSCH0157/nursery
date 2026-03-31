@@ -3,6 +3,7 @@ import test from "node:test";
 import { createReferenceClipPlan } from "../src/lib/hearth-reference-clip-plan";
 import {
   buildReferenceClipPromptPack,
+  buildTimelineImagePromptPack,
   buildThumbnailPromptPackVariants,
   resolveActiveVisualProvider,
 } from "../src/lib/hearth-visual-provider-profiles";
@@ -144,4 +145,40 @@ test("visual providers: reference clip prompt pack reuses existing clip context"
   assert.ok((result.pack.negative ?? "").length > 0);
   assert.match(result.pack.prompt, /32 percent|year-over-year|editorial|data point/i);
   assert.match(result.pack.prompt, /reference-image prompt|editorial reference/i);
+});
+
+test("visual providers: timeline image prompt pack uses the same active provider resolution flow", () => {
+  const result = buildTimelineImagePromptPack({
+    entry: {
+      id: "img-1",
+      anchor: "s1:para2",
+      script_anchor: null,
+      beat_anchor: null,
+      anchor_scope: "attached",
+      purpose: "coverage",
+      description: "A split-screen protest image showing a calm march on one side and tense police lines on the other.",
+      visual_intent: "contrast between peaceful turnout and later escalation",
+      prompt_basis: "media framing comparison",
+      style_preset: "cinematic_realism",
+      intent: "comparison",
+      source_type: "generated",
+      origin: "hearth",
+      visual_priority: "primary",
+      visual_type: "still_image",
+      section_intent_note: "Keep it grounded and readable as a narrated beat.",
+      beat_order: 2,
+      paragraph_beat_order: 1,
+      candidate_assets: [],
+      selected_asset_id: null,
+      status: "draft",
+      placement_hint: "first contrast beat",
+    },
+    providerId: "gpt_images",
+  });
+
+  assert.equal(result.provider.id, "gpt_images");
+  assert.equal(result.pack.provider, "gpt_images");
+  assert.equal(result.pack.aspectRatio, "16:9");
+  assert.equal(result.pack.negative, undefined);
+  assert.match(result.pack.prompt, /podcast|timeline beat|spoken narration|comparison/i);
 });

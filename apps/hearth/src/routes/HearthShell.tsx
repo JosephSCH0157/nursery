@@ -4847,6 +4847,12 @@ export default function HearthShell({
       setSessionTouched(true);
     }
   }, [workpieceId, workspaceId]);
+  const handleVisualProviderOverrideChange = useCallback((providerId: VisualProviderId | null) => {
+    updatePlanningSession((prev) => ({
+      ...prev,
+      visual_provider_override: providerId,
+    }));
+  }, [updatePlanningSession]);
 
   const syncSessionToTongs = useCallback(async (overrideSession?: HearthPlanningSession | null) => {
     const baseSession = overrideSession ?? planningSession;
@@ -12147,6 +12153,8 @@ export default function HearthShell({
       brandLogoStatus: thumbnailBrandLogoStatus,
       aspect: thumbnailAspect,
       activeVisualProvider,
+      visualProviderOptions,
+      visualProviderOverride: planningSession?.visual_provider_override ?? null,
       safeZoneEnabled: thumbnailSafeZoneEnabled,
       previewDataUrl: thumbnailPreviewDataUrl,
       previewState: thumbnailPreviewState,
@@ -12197,6 +12205,7 @@ export default function HearthShell({
       onSaveConcept: () => void onSaveSelectedThumbnailConcept(),
       onDeleteConcept: () => void onDeleteSelectedThumbnailConcept(),
       onAspectChange: setThumbnailAspect,
+      onVisualProviderOverrideChange: handleVisualProviderOverrideChange,
       onToggleSafeZone: () => setThumbnailSafeZoneEnabled((prev) => !prev),
       onUploadImage: (file: File) => void onUploadThumbnailImage(file),
       onSelectVersion: onSelectThumbnailVersion,
@@ -12293,6 +12302,9 @@ export default function HearthShell({
       saveState: imageMapSaveState,
       saveError: imageMapSaveError,
       exportMessage: imageMapExportMessage,
+      activeVisualProvider,
+      visualProviderOptions,
+      visualProviderOverride: planningSession?.visual_provider_override ?? null,
       candidateCards: imageMapCandidateCards,
       candidateGenerateBusy: isImageMapCandidateGenerating,
       candidateGenerateError: imageMapCandidateError,
@@ -12331,6 +12343,7 @@ export default function HearthShell({
       onSelectCandidate: (candidateId: string) => void onSelectImageMapCandidate(candidateId),
       onCopyExport: () => void onCopyImageMapExportJson(),
       onDownloadExport: () => void onDownloadImageMapExportJson(),
+      onVisualProviderOverrideChange: handleVisualProviderOverrideChange,
       onStartReanchor: onStartImageMapReanchor,
       onRepairNearestParagraph: () => void onRepairImageMapNearestParagraph(),
       onConvertToGlobalVisual: () => void onConvertImageMapToGlobalVisual(),
@@ -12764,14 +12777,6 @@ export default function HearthShell({
               referenceClipPanelMeta={referenceClipPanelMeta}
               activeVisualProviderBanner={activeVisualProvider.bannerLabel}
               activeVisualProviderHelperText={activeVisualProvider.helperText}
-              visualProviderOptions={visualProviderOptions}
-              visualProviderOverride={planningSession?.visual_provider_override ?? null}
-              onVisualProviderOverrideChange={(providerId) => {
-                updatePlanningSession((prev) => ({
-                  ...prev,
-                  visual_provider_override: providerId,
-                }));
-              }}
               thumbnailPanelProps={thumbnailPanelProps}
               mediaMapPanelProps={mediaMapPanelProps}
               imageMapPanelProps={imageMapPanelProps}

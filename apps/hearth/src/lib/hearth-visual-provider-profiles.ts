@@ -1,4 +1,7 @@
-import type { EpisodeContextualDataCompositePlan } from "./episode-package-v2";
+import type {
+  EpisodeContextualDataCompositePlan,
+  EpisodeImageMapEntry,
+} from "./episode-package-v2";
 import {
   buildReferenceClipBrief,
   type ReferenceClipBrief,
@@ -70,7 +73,7 @@ type PromptPackContext = {
   aspectRatio?: string | null;
   usedFallback?: boolean;
   notes?: string | null;
-  intendedUse?: "thumbnail" | "reference_clip";
+  intendedUse?: "thumbnail" | "reference_clip" | "timeline_image";
 };
 
 type NormalizedVisualBeat = {
@@ -281,12 +284,17 @@ function inferUseGuidance(intendedUse: PromptPackContext["intendedUse"]): string
   if (intendedUse === "thumbnail") {
     return "The frame should stay readable at thumbnail size and leave room for a short text overlay";
   }
+  if (intendedUse === "timeline_image") {
+    return "The frame should read quickly as a timeline beat and cut cleanly against spoken narration";
+  }
   return "The frame should support spoken narration clearly and hold as an editorial reference visual";
 }
 
 function buildSparseSceneFallback(intendedUse: PromptPackContext["intendedUse"]): string {
   return intendedUse === "thumbnail"
     ? "A current-events scene with one clear focal subject, readable contrast, and background context that supports the click"
+    : intendedUse === "timeline_image"
+      ? "A timeline image beat with one clear focal subject and enough context to support the spoken line cleanly"
     : "A current-events reference visual with one clear focal subject and enough background context to explain the spoken point";
 }
 
@@ -433,7 +441,9 @@ function buildOpenArtPrompt(beat: NormalizedVisualBeat, context: PromptPackConte
       extraNotes: context.notes,
       providerHint: context.intendedUse === "thumbnail"
         ? "Use this as a production-ready cinematic thumbnail prompt."
-        : "Use this as a production-ready editorial reference-image prompt.",
+        : context.intendedUse === "timeline_image"
+          ? "Use this as a production-ready timeline image prompt."
+          : "Use this as a production-ready editorial reference-image prompt.",
     }),
   };
 }
@@ -672,6 +682,73 @@ export function buildReferenceClipPromptPack(args: {
     intendedUse: "reference_clip",
   });
   return { pack, provider, brief };
+}
+
+function buildTimelineImageNotes(args: {
+  entry: EpisodeImageMapEntry;
+  sectionIntentNote?: string | null;
+  placementHint?: string | null;
+}): string {
+  const parts = [
+    args.entry.anchor ? `Anchor: ${args.entry.anchor}.` : null,
+    cleanText(args.entry.visual_intent),
+    cleanText(args.sectionIntentNote) ?? cleanText(args.entry.section_intent_note),
+    cleanText(args.placementHint) ?? cleanText(args.entry.placement_hint),
+    args.entry.source_type ? `Source: ${args.entry.source_type}.` : null,
+  ].filter(Boolean) as string[];
+  return parts.join(" ");
+}
+
+export function buildTimelineImagePromptPack(args: {
+  entry: EpisodeImageMapEntry;
+  description?: string | null;
+  anchor?: string | null;
+  stylePreset?: string | null;
+  intent?: string | null;
+  sectionIntentNote?: string | null;
+  placementHint?: string | null;
+  providerId?: string | null;
+  resolvedProvider?: ResolvedVisualProvider;
+  aspectRatio?: string | null;
+}): {
+  pack: PromptPack;
+  provider: ResolvedVisualProvider;
+} {
+  const provider = args.resolvedProvider ?? resolveActiveVisualProvider({ defaultProvider: args.providerId ?? null });
+  const purpose = dedupeStrings([
+    cleanText(args.intent) ?? "",
+    cleanText(args.entry.purpose) ?? "",
+    cleanText(args.entry.visual_intent) ?? "",
+  ]).join(". ");
+  const normalizedBeat = normalizeVisualBeat({
+    primaryText: `${cleanText(args.description) ?? args.entry.description}. ${args.entry.prompt_basis}`,
+    secondaryText: [
+      cleanText(args.sectionIntentNote) ?? cleanText(args.entry.section_intent_note),
+      cleanText(args.placementHint) ?? cleanText(args.entry.placement_hint),
+      cleanText(args.entry.visual_intent),
+    ].filter(Boolean).join(". "),
+    title: cleanText(args.anchor) ?? args.entry.anchor,
+    tone: args.intent ?? args.entry.intent,
+    style: args.stylePreset ?? args.entry.style_preset ?? null,
+    labels: [
+      args.entry.source_type,
+      args.entry.visual_priority ?? "",
+      args.entry.visual_type ?? "",
+    ],
+    purpose,
+    intendedUse: "timeline_image",
+  });
+  const pack = provider.profile.buildPrompt(normalizedBeat, {
+    aspectRatio: args.aspectRatio ?? "16:9",
+    usedFallback: provider.usedFallback,
+    notes: buildTimelineImageNotes({
+      entry: args.entry,
+      sectionIntentNote: args.sectionIntentNote,
+      placementHint: args.placementHint,
+    }),
+    intendedUse: "timeline_image",
+  });
+  return { pack, provider };
 }
 
 export function serializePromptPack(pack: PromptPack): string {

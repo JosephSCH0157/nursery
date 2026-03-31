@@ -84,15 +84,15 @@ export function resolveThumbnailWorkspaceGuidance(args: {
     return {
       stateCue,
       cardTitle: "Next step",
-      cardLead: "You've got the concept. Pick the title, generate the image prompt, then render outside Forge and bring the finished frame back here.",
+      cardLead: "You've got the concept. Pick the title, generate the prompt pack, then render outside Forge and bring the finished frame back here.",
       steps: [
         "Choose the title line that carries the best hook.",
-        "Generate the image prompt from the selected concept and title.",
+        "Generate the prompt pack from the selected concept and title.",
         "Render the image outside Forge, then upload it here.",
       ],
       note: "This is your planning space. Once the image comes back in, we'll line everything up.",
       primaryAction: "generate_prompt",
-      primaryActionLabel: "Generate Image Prompt",
+      primaryActionLabel: "Generate Prompt Pack",
     };
   }
 

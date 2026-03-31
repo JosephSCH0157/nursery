@@ -41,6 +41,7 @@ import {
   type PromptPack,
   type ResolvedVisualProvider,
   type ThumbnailPromptPackVariant,
+  type VisualProviderId,
 } from "../../lib/hearth-visual-provider-profiles";
 import ThumbnailVersions from "./ThumbnailVersions";
 
@@ -73,6 +74,8 @@ type ThumbnailPanelProps = {
   brandLogoStatus: string | null;
   aspect: "16:9" | "1:1" | "9:16";
   activeVisualProvider: ResolvedVisualProvider;
+  visualProviderOptions: ReadonlyArray<{ id: VisualProviderId; label: string }>;
+  visualProviderOverride: VisualProviderId | null;
   safeZoneEnabled: boolean;
   previewDataUrl: string | null;
   previewState: "idle" | "loading" | "ready" | "error";
@@ -105,6 +108,7 @@ type ThumbnailPanelProps = {
   onSaveConcept: () => void;
   onDeleteConcept: () => void;
   onAspectChange: (value: "16:9" | "1:1" | "9:16") => void;
+  onVisualProviderOverrideChange: (providerId: VisualProviderId | null) => void;
   onToggleSafeZone: () => void;
   onUploadImage: (file: File) => void;
   onSelectVersion: (versionId: string) => void;
@@ -358,6 +362,8 @@ export default function ThumbnailPanel({
   brandLogoStatus,
   aspect,
   activeVisualProvider,
+  visualProviderOptions,
+  visualProviderOverride,
   safeZoneEnabled,
   previewDataUrl,
   previewState,
@@ -390,6 +396,7 @@ export default function ThumbnailPanel({
   onSaveConcept,
   onDeleteConcept,
   onAspectChange,
+  onVisualProviderOverrideChange,
   onToggleSafeZone,
   onUploadImage,
   onSelectVersion,
@@ -521,6 +528,7 @@ export default function ThumbnailPanel({
       `thumbnail-prompt-pack-${conceptSuffix}-${variant.id}.json`,
     );
   }, [selectedConceptId]);
+  const promptPackButtonLabel = promptVariants ? "Generate Prompt Pack Again" : "Generate Prompt Pack";
 
   useEffect(() => {
     setPromptVariants(null);
@@ -696,7 +704,7 @@ export default function ThumbnailPanel({
       onClick={onGeneratePromptVariants}
       disabled={!canGeneratePrompt}
     >
-      Generate Image Prompt
+      Generate Prompt Pack
     </button>
   ) : draftBriefIsPrimary && onGenerateConcepts ? (
     <button
@@ -987,20 +995,33 @@ export default function ThumbnailPanel({
           <section className="hs-thumb-prompt-section" aria-label="Image prompt generation">
             <div className="hs-thumb-prompt-header">
               <div>
-                <div className="hs-field-label">Image Prompts</div>
+                <div className="hs-field-label">Prompt Pack</div>
                 <div className="hs-thumb-field-helper">
-                  Hearth turns the selected concept brief and title into copy-ready image prompts for your outside tool.
+                  Hearth turns the selected concept brief and title into a provider-ready prompt pack for your outside tool.
                 </div>
               </div>
-              {promptVariants ? (
+              <div className="hs-imap-candidate-action-group">
+                <label className="hs-field">
+                  <span className="hs-field-label">Provider</span>
+                  <select
+                    value={visualProviderOverride ?? ""}
+                    onChange={(event) => onVisualProviderOverrideChange((event.target.value || null) as VisualProviderId | null)}
+                    disabled={interactionDisabled}
+                  >
+                    <option value="">Use Global Default</option>
+                    {visualProviderOptions.map((option) => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
                 <button
                   type="button"
                   onClick={onGeneratePromptVariants}
                   disabled={!canGeneratePrompt}
                 >
-                  Generate Again
+                  {promptPackButtonLabel}
                 </button>
-              ) : null}
+              </div>
             </div>
             <div className="hs-thumb-prompt-context">
               <span><strong>Concept:</strong> {selectedConceptLabel.trim() || "No concept selected"}</span>
@@ -1015,9 +1036,9 @@ export default function ThumbnailPanel({
             ) : !selectedConceptPrompt.trim() ? (
               <div className="hs-thumb-empty">Add enough detail to the concept brief so Hearth has something concrete to translate.</div>
             ) : !selectedTitleText.trim() ? (
-              <div className="hs-thumb-empty">Choose a title on the right, then generate the image prompt.</div>
+              <div className="hs-thumb-empty">Choose a title on the right, then generate the prompt pack.</div>
             ) : promptVariants?.length ? (
-              <div className="hs-thumb-prompt-output" aria-label="Generated image prompt variants">
+              <div className="hs-thumb-prompt-output" aria-label="Generated prompt pack variants">
                 {promptVariants.map((variant) => (
                   <article key={variant.id} className="hs-thumb-prompt-card">
                     <div className="hs-thumb-prompt-card-header">
@@ -1084,7 +1105,7 @@ export default function ThumbnailPanel({
               </div>
             ) : (
               <div className="hs-thumb-prompt-empty">
-                Use <strong>Generate Image Prompt</strong> to turn this concept and title into outside-tool prompt variants.
+                Use <strong>Generate Prompt Pack</strong> to turn this concept and title into a provider-ready pack for your outside tool.
               </div>
             )}
             <details className="hs-thumb-advanced-options">

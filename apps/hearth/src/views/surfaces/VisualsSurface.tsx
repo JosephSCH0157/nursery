@@ -10,7 +10,6 @@ import {
   toggleHearthVisualsPanel,
   type HearthVisualsPanelId,
 } from "../../lib/hearth-visuals-panel";
-import type { VisualProviderId } from "../../lib/hearth-visual-provider-profiles";
 
 type VisualsSurfaceProps = {
   visible: boolean;
@@ -26,9 +25,6 @@ type VisualsSurfaceProps = {
   referenceClipPanelMeta: string;
   activeVisualProviderBanner: string;
   activeVisualProviderHelperText: string;
-  visualProviderOptions: ReadonlyArray<{ id: VisualProviderId; label: string }>;
-  visualProviderOverride: VisualProviderId | null;
-  onVisualProviderOverrideChange: (providerId: VisualProviderId | null) => void;
   thumbnailPanelProps: ComponentProps<typeof ThumbnailPanel>;
   mediaMapPanelProps: ComponentProps<typeof EpisodeMediaMapPanel>;
   imageMapPanelProps: ComponentProps<typeof ImageMapPanel>;
@@ -76,18 +72,6 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
       <section className="hs-media-plan-banner" aria-label="Media plan status">
         <div className="hs-media-plan-banner-header">
           <strong>Media Plan Status</strong>
-          <label className="hs-media-plan-provider">
-            <span>Visual provider</span>
-            <select
-              value={props.visualProviderOverride ?? ""}
-              onChange={(event) => props.onVisualProviderOverrideChange((event.target.value || null) as VisualProviderId | null)}
-            >
-              <option value="">Use global default</option>
-              {props.visualProviderOptions.map((option) => (
-                <option key={option.id} value={option.id}>{option.label}</option>
-              ))}
-            </select>
-          </label>
         </div>
         <div>
           [{String(props.mediaMapStatus ?? "draft").toUpperCase()}] · Coverage: {props.mediaMapCoverageLevel} · Scope: {props.mediaMapScopeLabel}

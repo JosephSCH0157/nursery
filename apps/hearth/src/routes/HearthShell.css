@@ -2283,9 +2283,15 @@
 
 .hs-thumb-prompt-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
+}
+
+.hs-thumb-prompt-header .hs-imap-candidate-action-group {
+  align-items: flex-end;
+  justify-content: flex-end;
 }
 
 .hs-thumb-prompt-context {
