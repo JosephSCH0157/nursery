@@ -97,6 +97,7 @@ import { useHearthAutosave } from "../hooks/useHearthAutosave";
 import { useApprovalFlow } from "../hooks/useApprovalFlow";
 import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
 import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
+import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
 import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
