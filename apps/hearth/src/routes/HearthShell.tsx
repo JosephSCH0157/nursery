@@ -93,6 +93,7 @@ import { useHearthWorkspaceResetLifecycle } from "../hooks/useHearthWorkspaceRes
 import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
 import { useHearthSparkDiscovery } from "../hooks/useHearthSparkDiscovery";
 import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceSessionLifecycle";
+import { useHearthDraftController } from "../hooks/useHearthDraftController";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
 import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
@@ -5110,54 +5111,28 @@ export default function HearthShell({
     workspaceId,
   ]);
 
-  const onSaveDraft = useCallback(async () => {
-    if (!activeDraft) return;
-    const now = Date.now();
-    const saved = await persistDraft({
-      draft: activeDraft,
-      updatedAt: now,
-      createRevision: null,
-      saveReason: "manual",
-    });
-    if (!saved) return;
-    noteManualSaveSuccess(now);
-    flushChatHistoryNow({ draftId: activeDraft.id });
-  }, [activeDraft, flushChatHistoryNow, noteManualSaveSuccess]);
-
-  const onReloadLatestDraftAfterConflict = useCallback(async () => {
-    const currentDraftId = activeDraft?.id ?? null;
-    await refreshDrafts();
-    if (!currentDraftId) {
-      setDraftConflictState(null);
-      return;
-    }
-    const latest = await store.getDraft(currentDraftId);
-    if (latest) {
-      await selectDraft(latest);
-    }
-    setDraftConflictState(null);
-  }, [activeDraft?.id, refreshDrafts, selectDraft, store]);
-
-  const onCopyConflictLocalText = useCallback(async () => {
-    const text = draftConflictState?.localBody?.trim() ?? "";
-    if (!text) return;
-    try {
-      const copied = await writeTextToClipboard(text);
-      if (!copied) {
-        throw new Error("copy_failed");
-      }
-      setError("Copied your local draft text to clipboard.");
-    } catch {
-      setError("Unable to copy local text. Select and copy manually.");
-    }
-  }, [draftConflictState?.localBody]);
-
-  const onCopyScriptPanelText = useCallback(async () => {
-    const text = scriptPanelBodyText;
-    if (!text.trim()) return;
-    const copied = await writeTextToClipboard(text);
-    setScriptPanelCopyMessage(copied ? "Copied to clipboard." : "Clipboard write failed.");
-  }, [scriptPanelBodyText]);
+  const {
+    onSaveDraft,
+    onReloadLatestDraftAfterConflict,
+    onCopyConflictLocalText,
+    onCopyScriptPanelText,
+  } = useHearthDraftController({
+    activeDraft,
+    draftConflictLocalBody: draftConflictState?.localBody ?? null,
+    scriptPanelBodyText,
+    persistDraftManual: (manualSaveArgs) => persistDraft(manualSaveArgs),
+    noteManualSaveSuccess,
+    flushChatHistoryNow,
+    refreshDrafts,
+    getDraftById: (draftId) => store.getDraft(draftId),
+    selectDraft: async (draft) => {
+      await selectDraft(draft);
+    },
+    setDraftConflictState,
+    setError,
+    setScriptPanelCopyMessage,
+    writeTextToClipboard,
+  });
 
   const onJumpToValidationIssue = useCallback((issue: ScriptValidationIssue) => {
     const textarea = bodyRef.current;
