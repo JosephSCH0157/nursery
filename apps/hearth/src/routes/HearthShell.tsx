@@ -100,7 +100,9 @@ import { useApprovalFlow } from "../hooks/useApprovalFlow";
 import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
+import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
 import { useMetadataWorkspace } from "../hooks/visuals/useMetadataWorkspace";
+import { useThumbnailWorkspace } from "../hooks/visuals/useThumbnailWorkspace";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
@@ -2489,57 +2491,7 @@ export default function HearthShell({
   const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
   const [defaultVisualProvider, setDefaultVisualProvider] = useState<VisualProviderId>(() => resolveDefaultVisualProviderFromStorage());
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
-  const [selectedThumbnailTitleId, setSelectedThumbnailTitleId] = useState<string | null>(null);
-  const [selectedThumbnailConceptId, setSelectedThumbnailConceptId] = useState<string>("");
-  const [selectedThumbnailVersionId, setSelectedThumbnailVersionId] = useState<string | null>(null);
-  const [selectedLaunchVariantId, setSelectedLaunchVariantId] = useState<string | null>(null);
-  const [launchVariantStatusDraft, setLaunchVariantStatusDraft] = useState<EpisodeLaunchVariantStatus>("draft");
-  const [launchVariantNotesDraft, setLaunchVariantNotesDraft] = useState("");
-  const [thumbnailConceptLabelDraft, setThumbnailConceptLabelDraft] = useState("");
-  const [thumbnailConceptPromptDraft, setThumbnailConceptPromptDraft] = useState("");
-  const [thumbnailConceptStyleDraft, setThumbnailConceptStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
-  const [thumbnailTitleStyleDraft, setThumbnailTitleStyleDraft] = useState<EpisodeThumbnailTitleStyle>(DEFAULT_TITLE_STYLE);
-  const [thumbnailConceptBrandTemplateIdDraft, setThumbnailConceptBrandTemplateIdDraft] = useState<string | null>(null);
-  const [thumbnailBrandTemplates, setThumbnailBrandTemplates] = useState<ThumbnailBrandTemplate[]>([]);
-  const [isThumbnailBrandTemplatesLoading, setIsThumbnailBrandTemplatesLoading] = useState(false);
-  const [thumbnailBrandTemplatesError, setThumbnailBrandTemplatesError] = useState<string | null>(null);
-  const [thumbnailBrandLogoDataUrl, setThumbnailBrandLogoDataUrl] = useState<string | null>(null);
-  const [isThumbnailBrandLogoUploading, setIsThumbnailBrandLogoUploading] = useState(false);
-  const [thumbnailBrandLogoError, setThumbnailBrandLogoError] = useState<string | null>(null);
-  const [thumbnailBrandLogoStatus, setThumbnailBrandLogoStatus] = useState<string | null>(null);
-  const [thumbnailAspect, setThumbnailAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
-  const [isThumbnailGenerating, setIsThumbnailGenerating] = useState(false);
-  const [isThumbnailConceptSaving, setIsThumbnailConceptSaving] = useState(false);
-  const [isThumbnailUploading, setIsThumbnailUploading] = useState(false);
-  const [thumbnailGenerateError, setThumbnailGenerateError] = useState<string | null>(null);
-  const [thumbnailUploadError, setThumbnailUploadError] = useState<string | null>(null);
-  const [thumbnailPairingError, setThumbnailPairingError] = useState<string | null>(null);
-  const [thumbnailPreviewState, setThumbnailPreviewState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [thumbnailPreviewDataUrl, setThumbnailPreviewDataUrl] = useState<string | null>(null);
-  const [thumbnailPreviewError, setThumbnailPreviewError] = useState<string | null>(null);
-  const [thumbnailSafeZoneEnabled, setThumbnailSafeZoneEnabled] = useState(false);
   const [selectedImageMapEntryId, setSelectedImageMapEntryId] = useState<string | null>(null);
-  const [selectedMediaMapEntryId, setSelectedMediaMapEntryId] = useState<string | null>(null);
-  const [mediaMapTypeDraft, setMediaMapTypeDraft] = useState("image");
-  const [mediaMapAnchorModeDraft, setMediaMapAnchorModeDraft] = useState("phrase_match");
-  const [mediaMapAnchorTargetDraft, setMediaMapAnchorTargetDraft] = useState("");
-  const [mediaMapInOffsetDraft, setMediaMapInOffsetDraft] = useState("0");
-  const [mediaMapDurationDraft, setMediaMapDurationDraft] = useState("6");
-  const [mediaMapDescriptionDraft, setMediaMapDescriptionDraft] = useState("");
-  const [mediaMapIntentDraft, setMediaMapIntentDraft] = useState("");
-  const [mediaMapSourceStatusDraft, setMediaMapSourceStatusDraft] = useState("unresolved");
-  const [mediaMapSourceAssetIdDraft, setMediaMapSourceAssetIdDraft] = useState("");
-  const [mediaMapConfidenceDraft, setMediaMapConfidenceDraft] = useState("medium");
-  const [mediaMapOptionalDraft, setMediaMapOptionalDraft] = useState(false);
-  const [mediaMapCriticalDraft, setMediaMapCriticalDraft] = useState(false);
-  const [mediaMapSaveState, setMediaMapSaveState] = useState<"saved" | "editing" | "saving" | "error">("saved");
-  const [mediaMapSaveError, setMediaMapSaveError] = useState<string | null>(null);
-  const [mediaMapMessage, setMediaMapMessage] = useState<string | null>(null);
-  const [mediaMapGenerationScope, setMediaMapGenerationScope] = useState<MediaMapGenerationScope>("full_media_plan");
-  const [isMediaMapBusy, setIsMediaMapBusy] = useState(false);
-  const [mediaMapConversationSeed, setMediaMapConversationSeed] = useState<MediaMapConversationSeed | null>(null);
-  const [mediaMapConversationState, setMediaMapConversationState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [mediaMapConversationError, setMediaMapConversationError] = useState<string | null>(null);
   const [imageMapAnchorDraft, setImageMapAnchorDraft] = useState("");
   const [imageMapDescriptionDraft, setImageMapDescriptionDraft] = useState("");
   const [imageMapStyleDraft, setImageMapStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
@@ -2665,6 +2617,111 @@ export default function HearthShell({
   const pendingDraftEditorPanelRef = useRef<"script" | "manual" | null>(null);
   const gateAwaitingAnswersRef = useRef(false);
   const pendingShortcutIntentRef = useRef<"outline" | "script" | null>(null);
+  const {
+    selectedThumbnailTitleId,
+    setSelectedThumbnailTitleId,
+    selectedThumbnailConceptId,
+    setSelectedThumbnailConceptId,
+    selectedThumbnailVersionId,
+    setSelectedThumbnailVersionId,
+    selectedLaunchVariantId,
+    setSelectedLaunchVariantId,
+    launchVariantStatusDraft,
+    setLaunchVariantStatusDraft,
+    launchVariantNotesDraft,
+    setLaunchVariantNotesDraft,
+    thumbnailConceptLabelDraft,
+    setThumbnailConceptLabelDraft,
+    thumbnailConceptPromptDraft,
+    setThumbnailConceptPromptDraft,
+    thumbnailConceptStyleDraft,
+    setThumbnailConceptStyleDraft,
+    thumbnailTitleStyleDraft,
+    setThumbnailTitleStyleDraft,
+    thumbnailConceptBrandTemplateIdDraft,
+    setThumbnailConceptBrandTemplateIdDraft,
+    thumbnailBrandTemplates,
+    setThumbnailBrandTemplates,
+    isThumbnailBrandTemplatesLoading,
+    setIsThumbnailBrandTemplatesLoading,
+    thumbnailBrandTemplatesError,
+    setThumbnailBrandTemplatesError,
+    thumbnailBrandLogoDataUrl,
+    setThumbnailBrandLogoDataUrl,
+    isThumbnailBrandLogoUploading,
+    setIsThumbnailBrandLogoUploading,
+    thumbnailBrandLogoError,
+    setThumbnailBrandLogoError,
+    thumbnailBrandLogoStatus,
+    setThumbnailBrandLogoStatus,
+    thumbnailAspect,
+    setThumbnailAspect,
+    isThumbnailGenerating,
+    setIsThumbnailGenerating,
+    isThumbnailConceptSaving,
+    setIsThumbnailConceptSaving,
+    isThumbnailUploading,
+    setIsThumbnailUploading,
+    thumbnailGenerateError,
+    setThumbnailGenerateError,
+    thumbnailUploadError,
+    setThumbnailUploadError,
+    thumbnailPairingError,
+    setThumbnailPairingError,
+    thumbnailPreviewState,
+    setThumbnailPreviewState,
+    thumbnailPreviewDataUrl,
+    setThumbnailPreviewDataUrl,
+    thumbnailPreviewError,
+    setThumbnailPreviewError,
+    thumbnailSafeZoneEnabled,
+    setThumbnailSafeZoneEnabled,
+  } = useThumbnailWorkspace();
+  const {
+    selectedMediaMapEntryId,
+    setSelectedMediaMapEntryId,
+    mediaMapTypeDraft,
+    setMediaMapTypeDraft,
+    mediaMapAnchorModeDraft,
+    setMediaMapAnchorModeDraft,
+    mediaMapAnchorTargetDraft,
+    setMediaMapAnchorTargetDraft,
+    mediaMapInOffsetDraft,
+    setMediaMapInOffsetDraft,
+    mediaMapDurationDraft,
+    setMediaMapDurationDraft,
+    mediaMapDescriptionDraft,
+    setMediaMapDescriptionDraft,
+    mediaMapIntentDraft,
+    setMediaMapIntentDraft,
+    mediaMapSourceStatusDraft,
+    setMediaMapSourceStatusDraft,
+    mediaMapSourceAssetIdDraft,
+    setMediaMapSourceAssetIdDraft,
+    mediaMapConfidenceDraft,
+    setMediaMapConfidenceDraft,
+    mediaMapOptionalDraft,
+    setMediaMapOptionalDraft,
+    mediaMapCriticalDraft,
+    setMediaMapCriticalDraft,
+    mediaMapSaveState,
+    setMediaMapSaveState,
+    mediaMapSaveError,
+    setMediaMapSaveError,
+    mediaMapMessage,
+    setMediaMapMessage,
+    mediaMapGenerationScope,
+    setMediaMapGenerationScope,
+    isMediaMapBusy,
+    setIsMediaMapBusy,
+    mediaMapConversationSeed,
+    setMediaMapConversationSeed,
+    mediaMapConversationState,
+    setMediaMapConversationState,
+    mediaMapConversationError,
+    setMediaMapConversationError,
+    setMediaMapDraftEditing,
+  } = useMediaMapWorkspace();
   const {
     metadataTitlesDraft,
     metadataTagsDraft,
@@ -8049,14 +8106,6 @@ export default function HearthShell({
     setEpisodePackage(savedEpisode.episodePackage);
     setImageMapMetadataUpdatedAt(savedEpisode.metadataUpdatedAt);
     return { ok: true, episodePackage: savedEpisode.episodePackage };
-  }
-
-  function setMediaMapDraftEditing<T extends string | boolean>(fieldSetter: (value: T) => void, value: T): void {
-    fieldSetter(value);
-    if (mediaMapSaveState !== "editing") {
-      setMediaMapSaveState("editing");
-    }
-    setMediaMapSaveError(null);
   }
 
   function createMediaMapEntryId(): string {
