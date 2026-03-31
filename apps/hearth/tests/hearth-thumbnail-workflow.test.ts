@@ -48,9 +48,9 @@ test("hearthThumbnailWorkflow: guidance makes the next step explicit", () => {
   assert.match(noBriefYet.cardLead, /start with the concept brief/i);
 
   const readyForUpload = resolveThumbnailWorkspaceGuidance({ conceptCount: 2, versionCount: 0, titleCount: 2 });
-  assert.equal(readyForUpload.primaryAction, "upload_image");
-  assert.equal(readyForUpload.primaryActionLabel, "Upload Final Image");
-  assert.match(readyForUpload.cardLead, /you've got the concept/i);
+  assert.equal(readyForUpload.primaryAction, "generate_prompt");
+  assert.equal(readyForUpload.primaryActionLabel, "Generate Image Prompt");
+  assert.match(readyForUpload.cardLead, /generate the image prompt/i);
   assert.match(readyForUpload.note, /planning space/i);
 
   const withImage = resolveThumbnailWorkspaceGuidance({ conceptCount: 2, versionCount: 1, titleCount: 2 });

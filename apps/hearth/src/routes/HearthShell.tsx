@@ -208,6 +208,7 @@ import {
   createReferenceClipPlan,
   inferReferenceClipSuitabilitySignals,
 } from "../lib/hearth-reference-clip-plan";
+import { resolveReferenceClipPlanForMediaMapBootstrap } from "../lib/hearth-reference-clip-bootstrap";
 import {
   deriveMediaMapPurpose,
 } from "../lib/hearth-visual-purpose";
@@ -2472,7 +2473,6 @@ export default function HearthShell({
   const [isThumbnailBrandLogoUploading, setIsThumbnailBrandLogoUploading] = useState(false);
   const [thumbnailBrandLogoError, setThumbnailBrandLogoError] = useState<string | null>(null);
   const [thumbnailBrandLogoStatus, setThumbnailBrandLogoStatus] = useState<string | null>(null);
-  const [thumbnailPromptOverride, setThumbnailPromptOverride] = useState("");
   const [thumbnailAspect, setThumbnailAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
   const [isThumbnailGenerating, setIsThumbnailGenerating] = useState(false);
   const [isThumbnailConceptSaving, setIsThumbnailConceptSaving] = useState(false);
@@ -6067,7 +6067,6 @@ export default function HearthShell({
   }, [primaryThumbnailVersionId, selectedThumbnailConceptId, selectedThumbnailVersionId, thumbnailVersions]);
 
   useEffect(() => {
-    setThumbnailPromptOverride("");
     setThumbnailAspect("16:9");
     setThumbnailSafeZoneEnabled(false);
     setThumbnailPairingError(null);
@@ -7847,11 +7846,13 @@ export default function HearthShell({
     plan: EpisodeBrollPlan;
     eventName: string;
     eventPayload: Record<string, unknown>;
+    baseEpisodePackage?: EpisodePackageV2;
   }): Promise<
     | { ok: true; episodePackage: EpisodePackageV2 }
     | { ok: false; error: string }
   > {
-    if (!episodePackage) {
+    const baseEpisodePackage = args.baseEpisodePackage ?? episodePackage;
+    if (!baseEpisodePackage) {
       return { ok: false, error: "Unable to save B-roll plan for this episode." };
     }
     const episodeId = workpieceId?.trim() ?? "";
@@ -7860,7 +7861,7 @@ export default function HearthShell({
       return { ok: false, error: "Workspace or workpiece is missing." };
     }
     const nextEpisodePackage = ensureBrollPlanV2({
-      ...episodePackage,
+      ...baseEpisodePackage,
       broll_plan: {
         ...args.plan,
         workpiece_id: episodeId,
@@ -7885,11 +7886,13 @@ export default function HearthShell({
     map: EpisodeMediaMap;
     eventName: string;
     eventPayload: Record<string, unknown>;
+    baseEpisodePackage?: EpisodePackageV2;
   }): Promise<
     | { ok: true; episodePackage: EpisodePackageV2 }
     | { ok: false; error: string }
   > {
-    if (!episodePackage) {
+    const baseEpisodePackage = args.baseEpisodePackage ?? episodePackage;
+    if (!baseEpisodePackage) {
       return { ok: false, error: "Unable to save Episode Media Map for this episode." };
     }
     const episodeId = workpieceId?.trim() ?? "";
@@ -7898,7 +7901,7 @@ export default function HearthShell({
       return { ok: false, error: "Workspace or workpiece is missing." };
     }
     const nextEpisodePackage: EpisodePackageV2 = {
-      ...episodePackage,
+      ...baseEpisodePackage,
       media_map: {
         ...args.map,
         workpiece_id: episodeId,
@@ -7959,7 +7962,7 @@ export default function HearthShell({
   ): EpisodeMediaMapEntry[] {
     return entries.map((entry) => ({
       id: `${idPrefix}${entry.id}`,
-      final_media_kind: entry.purpose === "explanation" ? "contextual_data_composite" : "image",
+      final_media_kind: "image",
       purpose: entry.purpose,
       anchor: {
         mode: entry.anchor_scope === "global"
@@ -7987,7 +7990,7 @@ export default function HearthShell({
       confidence: entry.status === "selected" ? "high" : "medium",
       fulfillment_status: entry.selected_asset_id ? "resolved" : "planned",
       fulfillment_path: entry.selected_asset_id
-        ? (entry.purpose === "explanation" ? "reference_clip" : "image")
+        ? "image"
         : null,
       optional: entry.visual_priority === "supporting",
       critical: entry.visual_priority === "primary",
@@ -8126,11 +8129,13 @@ export default function HearthShell({
     plan: EpisodeReferenceClipPlan;
     eventName: string;
     eventPayload: Record<string, unknown>;
+    baseEpisodePackage?: EpisodePackageV2;
   }): Promise<
     | { ok: true; episodePackage: EpisodePackageV2 }
     | { ok: false; error: string }
   > {
-    if (!episodePackage) {
+    const baseEpisodePackage = args.baseEpisodePackage ?? episodePackage;
+    if (!baseEpisodePackage) {
       return { ok: false, error: "Unable to save Reference Clip plan for this episode." };
     }
     const episodeId = workpieceId?.trim() ?? "";
@@ -8139,7 +8144,7 @@ export default function HearthShell({
       return { ok: false, error: "Workspace or workpiece is missing." };
     }
     const nextEpisodePackage = ensureReferenceClipPlanV2({
-      ...episodePackage,
+      ...baseEpisodePackage,
       cdc_plan: {
         ...args.plan,
         workpiece_id: episodeId,
@@ -9455,15 +9460,29 @@ export default function HearthShell({
     if (!episodePackage) return;
     if (isMediaMapBusy) return;
     const scriptVersionId = approvedScriptVersion ? String(approvedScriptVersion) : null;
+    const shouldIncludeBroll = mediaMapGenerationScope === "images_broll" || mediaMapGenerationScope === "full_media_plan";
+    const shouldIncludeReferenceClips = mediaMapGenerationScope === "images_reference_clips" || mediaMapGenerationScope === "full_media_plan";
     setIsMediaMapBusy(true);
     setMediaMapSaveState("saving");
     setMediaMapSaveError(null);
     try {
       let sourceEpisodePackage = episodePackage;
       let bootstrappedImageCount = 0;
+      let bootstrappedBrollCount = 0;
+      let bootstrappedReferenceClipCount = 0;
+      let canonicalScriptCache:
+        | Awaited<ReturnType<typeof readCanonicalScriptForImageMapGeneration>>
+        | null
+        = null;
+
+      const ensureCanonicalScript = async () => {
+        if (canonicalScriptCache) return canonicalScriptCache;
+        canonicalScriptCache = await readCanonicalScriptForImageMapGeneration();
+        return canonicalScriptCache;
+      };
 
       if (sourceEpisodePackage.image_map.entries.length === 0) {
-        const canonicalScript = await readCanonicalScriptForImageMapGeneration();
+        const canonicalScript = await ensureCanonicalScript();
         if (canonicalScript.ok) {
           const bootstrap = resolveImageMapEntriesForMediaMapBootstrap({
             currentEntries: sourceEpisodePackage.image_map.entries,
@@ -9487,6 +9506,72 @@ export default function HearthShell({
         }
       }
 
+      if (shouldIncludeBroll && sourceEpisodePackage.broll_plan.beats.length === 0) {
+        const canonicalScript = await ensureCanonicalScript();
+        const episodeId = workpieceId?.trim();
+        if (canonicalScript.ok && episodeId) {
+          const plan = buildBrollPlanFromScript({
+            workpieceId: episodeId,
+            scriptText: canonicalScript.text,
+            previousPlan: sourceEpisodePackage.broll_plan,
+          });
+          if (plan.beats.length > 0) {
+            const seeded = await persistBrollPlan({
+              plan,
+              eventName: "hearth.broll_plan.bootstrapped_from_media_map.v1",
+              eventPayload: {
+                beat_count: plan.beats.length,
+                source: canonicalScript.source,
+              },
+              baseEpisodePackage: sourceEpisodePackage,
+            });
+            if (!seeded.ok) {
+              setMediaMapSaveError(seeded.error);
+              setMediaMapSaveState("error");
+              return;
+            }
+            sourceEpisodePackage = seeded.episodePackage;
+            bootstrappedBrollCount = plan.beats.length;
+          }
+        }
+      }
+
+      if (shouldIncludeReferenceClips && sourceEpisodePackage.cdc_plan.entries.length === 0) {
+        const episodeId = workpieceId?.trim();
+        if (episodeId) {
+          const bootstrap = resolveReferenceClipPlanForMediaMapBootstrap({
+            workpieceId: episodeId,
+            currentEntries: sourceEpisodePackage.cdc_plan.entries,
+            imageMapEntries: sourceEpisodePackage.image_map.entries,
+          });
+          if (bootstrap.seededFromImageMap && bootstrap.entries.length > 0) {
+            const plan: EpisodeReferenceClipPlan = {
+              ...sourceEpisodePackage.cdc_plan,
+              workpiece_id: episodeId,
+              version: Math.max(1, sourceEpisodePackage.cdc_plan.version + 1),
+              entries: bootstrap.entries,
+              generated_at: new Date().toISOString(),
+            };
+            const seeded = await persistReferenceClipPlan({
+              plan,
+              eventName: "hearth.cdc_plan.bootstrapped_from_image_map.v1",
+              eventPayload: {
+                entry_count: bootstrap.entries.length,
+                source: "image_map_explanation_beats",
+              },
+              baseEpisodePackage: sourceEpisodePackage,
+            });
+            if (!seeded.ok) {
+              setMediaMapSaveError(seeded.error);
+              setMediaMapSaveState("error");
+              return;
+            }
+            sourceEpisodePackage = seeded.episodePackage;
+            bootstrappedReferenceClipCount = bootstrap.entries.length;
+          }
+        }
+      }
+
       const nextMap = buildMediaMapFromExistingPlans(
         sourceEpisodePackage,
         scriptVersionId,
@@ -9506,6 +9591,7 @@ export default function HearthShell({
           script_version_id: scriptVersionId,
           scope: mediaMapGenerationScope,
         },
+        baseEpisodePackage: sourceEpisodePackage,
       });
       if (!saved.ok) {
         setMediaMapSaveError(saved.error);
@@ -9517,7 +9603,7 @@ export default function HearthShell({
       const brollCount = nextMap.entries.filter((entry) => entry.final_media_kind === "b_roll").length;
       const referenceClipCount = nextMap.entries.filter((entry) => entry.final_media_kind === "contextual_data_composite").length;
       setMediaMapMessage(
-        `${bootstrappedImageCount > 0 ? `Seeded ${bootstrappedImageCount} timeline image beat${bootstrappedImageCount === 1 ? "" : "s"} from the canonical script, then ` : ""}generated ${nextMap.entries.length} media map entries from the current visual plans using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}). Next: Frame the episode (titles, SEO, tags).`,
+        `${bootstrappedImageCount > 0 ? `Seeded ${bootstrappedImageCount} timeline image beat${bootstrappedImageCount === 1 ? "" : "s"} from the canonical script. ` : ""}${bootstrappedBrollCount > 0 ? `Seeded ${bootstrappedBrollCount} B-roll beat${bootstrappedBrollCount === 1 ? "" : "s"} from the canonical script. ` : ""}${bootstrappedReferenceClipCount > 0 ? `Seeded ${bootstrappedReferenceClipCount} Reference Clip${bootstrappedReferenceClipCount === 1 ? "" : "s"} from explanatory Timeline Image beats. ` : ""}Generated ${nextMap.entries.length} media map entries from the current visual plans using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}). Next: Frame the episode (titles, SEO, tags).`,
       );
     } catch {
       setMediaMapSaveError("Unable to generate Episode Media Map.");
@@ -9813,7 +9899,6 @@ export default function HearthShell({
       );
       if (!saved) return;
       setSelectedThumbnailConceptId(concept.id);
-      setThumbnailPromptOverride("");
     } finally {
       setIsThumbnailConceptSaving(false);
     }
@@ -10064,7 +10149,7 @@ export default function HearthShell({
     const resolvedConcept = conceptId
       ? episodePackage.thumbnail.concepts.find((concept) => concept.id === conceptId) ?? null
       : null;
-    const promptOverride = options?.forcePrompt ?? (thumbnailPromptOverride.trim() || null);
+    const promptOverride = options?.forcePrompt?.trim() || null;
     const effectiveStylePreset = conceptId && conceptId === selectedThumbnailConceptId
       ? normalizeHearthVisualStyle(thumbnailConceptStyleDraft)
       : normalizeHearthVisualStyle(resolvedConcept?.style_preset ?? null);
@@ -10152,7 +10237,6 @@ export default function HearthShell({
       setEpisodePackage(nextEpisodePackage);
       setSelectedThumbnailConceptId(generated.version.concept_id);
       setSelectedThumbnailVersionId(generated.version.id);
-      setThumbnailPromptOverride("");
       if (typeof generated.tokenBalance === "number") {
         setAiTokenBalance(generated.tokenBalance);
       }
@@ -11710,7 +11794,6 @@ export default function HearthShell({
       brandLogoUploading: isThumbnailBrandLogoUploading,
       brandLogoError: thumbnailBrandLogoError,
       brandLogoStatus: thumbnailBrandLogoStatus,
-      promptOverride: thumbnailPromptOverride,
       aspect: thumbnailAspect,
       safeZoneEnabled: thumbnailSafeZoneEnabled,
       previewDataUrl: thumbnailPreviewDataUrl,
@@ -11761,10 +11844,7 @@ export default function HearthShell({
       onCreateConcept: () => void onCreateThumbnailConcept(),
       onSaveConcept: () => void onSaveSelectedThumbnailConcept(),
       onDeleteConcept: () => void onDeleteSelectedThumbnailConcept(),
-      onPromptOverrideChange: setThumbnailPromptOverride,
       onAspectChange: setThumbnailAspect,
-      onGenerate: () => void onGenerateThumbnailVersion(),
-      onRegenerate: () => void onGenerateThumbnailVersion({ forceConceptId: selectedThumbnailConceptId || null }),
       onToggleSafeZone: () => setThumbnailSafeZoneEnabled((prev) => !prev),
       onUploadImage: (file: File) => void onUploadThumbnailImage(file),
       onSelectVersion: onSelectThumbnailVersion,

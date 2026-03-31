@@ -1843,6 +1843,7 @@
 .hs-thumb-concepts {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 
 .hs-thumb-section-title {
@@ -2073,12 +2074,22 @@
   gap: 12px;
   align-content: start;
   max-width: 920px;
+  min-width: 0;
 }
 
 .hs-thumb-sidebar-right {
   display: grid;
   gap: 10px;
   align-content: start;
+  min-width: 0;
+}
+
+.hs-thumb-sidebar-toggle {
+  display: none;
+}
+
+.hs-thumb-sidebar-backdrop {
+  display: none;
 }
 
 .hs-thumb-block {
@@ -2226,17 +2237,73 @@
 
 .hs-thumb-prompt-section {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   max-width: 920px;
+}
+
+.hs-thumb-prompt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.hs-thumb-prompt-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 12px;
+  opacity: 0.84;
+}
+
+.hs-thumb-prompt-output {
+  display: grid;
+  gap: 10px;
+}
+
+.hs-thumb-prompt-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.46);
+  padding: 12px;
+}
+
+.hs-thumb-prompt-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.hs-thumb-prompt-card-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.84;
+}
+
+.hs-thumb-prompt-card-text {
+  min-height: 112px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.hs-thumb-prompt-empty {
+  border: 1px dashed rgba(148, 163, 184, 0.26);
+  border-radius: 14px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(226, 232, 240, 0.88);
+  background: rgba(15, 23, 42, 0.28);
 }
 
 .hs-thumb-prompt-input {
   min-height: 88px;
   padding: 10px 12px;
-}
-
-.hs-thumb-prompt-override {
-  min-height: 56px;
 }
 
 .hs-shell.hs-density-compact {
@@ -2312,8 +2379,8 @@
   min-height: 72px;
 }
 
-.hs-shell.hs-density-compact .hs-thumb-prompt-override {
-  min-height: 44px;
+.hs-shell.hs-density-compact .hs-thumb-prompt-card-text {
+  min-height: 96px;
 }
 
 /* Timeline Images is usually the only active tool in this stack, so let it breathe. */

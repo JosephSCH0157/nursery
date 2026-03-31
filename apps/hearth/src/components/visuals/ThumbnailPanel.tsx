@@ -36,6 +36,10 @@ import {
   resolveThumbnailPreviewStatus,
   resolveThumbnailWorkspaceGuidance,
 } from "../../lib/hearth-thumbnail-workflow";
+import {
+  buildThumbnailPrompts,
+  type PromptVariant,
+} from "../../lib/hearth-thumbnail-prompt-builder";
 import ThumbnailVersions from "./ThumbnailVersions";
 
 type ThumbnailPanelProps = {
@@ -65,7 +69,6 @@ type ThumbnailPanelProps = {
   brandLogoUploading: boolean;
   brandLogoError: string | null;
   brandLogoStatus: string | null;
-  promptOverride: string;
   aspect: "16:9" | "1:1" | "9:16";
   safeZoneEnabled: boolean;
   previewDataUrl: string | null;
@@ -98,10 +101,7 @@ type ThumbnailPanelProps = {
   onCreateConcept: () => void;
   onSaveConcept: () => void;
   onDeleteConcept: () => void;
-  onPromptOverrideChange: (value: string) => void;
   onAspectChange: (value: "16:9" | "1:1" | "9:16") => void;
-  onGenerate: () => void;
-  onRegenerate: () => void;
   onToggleSafeZone: () => void;
   onUploadImage: (file: File) => void;
   onSelectVersion: (versionId: string) => void;
@@ -245,6 +245,47 @@ async function loadRenderedPreviewImageData(
   };
 }
 
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall back for browsers that reject direct Clipboard API writes.
+    }
+  }
+
+  if (typeof document === "undefined") return false;
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  textarea.style.left = "-1000px";
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+function resolvePromptVariantLabel(style: PromptVariant["style"]): string {
+  switch (style) {
+    case "high_ctr":
+      return "High CTR";
+    case "balanced":
+      return "Balanced";
+    default:
+      return "Subtle";
+  }
+}
+
 function measureRenderedTextBox(
   previewEl: HTMLDivElement,
   textEl: HTMLDivElement,
@@ -297,7 +338,6 @@ export default function ThumbnailPanel({
   brandLogoUploading,
   brandLogoError,
   brandLogoStatus,
-  promptOverride,
   aspect,
   safeZoneEnabled,
   previewDataUrl,
@@ -330,10 +370,7 @@ export default function ThumbnailPanel({
   onCreateConcept,
   onSaveConcept,
   onDeleteConcept,
-  onPromptOverrideChange,
   onAspectChange,
-  onGenerate,
-  onRegenerate,
   onToggleSafeZone,
   onUploadImage,
   onSelectVersion,
@@ -355,6 +392,7 @@ export default function ThumbnailPanel({
     result: null,
     error: null,
   });
+  const [promptVariants, setPromptVariants] = useState<PromptVariant[] | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const previewAspectClass = aspect === "1:1"
     ? " is-square"
@@ -434,6 +472,28 @@ export default function ThumbnailPanel({
     && previewRef.current
     && previewTextRef.current,
   );
+  const canGeneratePrompt = Boolean(
+    hasFramingTitles
+    && selectedConceptPrompt.trim().length > 0
+    && selectedTitleText.trim().length > 0,
+  );
+  const onGeneratePromptVariants = useCallback(() => {
+    if (!canGeneratePrompt) return;
+    const result = buildThumbnailPrompts({
+      conceptBrief: selectedConceptPrompt,
+      title: selectedTitleText,
+      tone: selectedConceptStylePreset,
+    });
+    setPromptVariants(result.variants);
+  }, [canGeneratePrompt, selectedConceptPrompt, selectedConceptStylePreset, selectedTitleText]);
+  const onCopyPromptVariant = useCallback((prompt: string) => {
+    void copyTextToClipboard(prompt);
+  }, []);
+
+  useEffect(() => {
+    setPromptVariants(null);
+  }, [selectedConceptId, selectedConceptPrompt, selectedConceptStylePreset, selectedTitleId, selectedTitleText]);
+
   const runThumbnailAudit = useCallback(async () => {
     if (!previewDataUrl || previewState !== "ready" || !hasOverlayTitle) {
       setAuditState({ mode: "idle", result: null, error: null });
@@ -596,6 +656,15 @@ export default function ThumbnailPanel({
       disabled={!canGenerateTitles || isGeneratingTitles || interactionDisabled}
     >
       {isGeneratingTitles ? "Generating Titles..." : "Generate Titles"}
+    </button>
+  ) : workspaceGuidance.primaryAction === "generate_prompt" ? (
+    <button
+      type="button"
+      className="is-primary"
+      onClick={onGeneratePromptVariants}
+      disabled={!canGeneratePrompt}
+    >
+      Generate Image Prompt
     </button>
   ) : draftBriefIsPrimary && onGenerateConcepts ? (
     <button
@@ -883,21 +952,63 @@ export default function ThumbnailPanel({
             This is your planning space. Once the image comes back in, we'll keep the text, framing, and pairing aligned.
           </div>
 
-          <section className="hs-thumb-prompt-section" aria-label="Concept authoring">
-            <label className="hs-field">
-              <span className="hs-field-label">Concept Brief (what you'll give your image tool)</span>
-              <div className="hs-thumb-field-helper">Keep it plain and useful: subject, framing, tone, and what should carry the click.</div>
-              <textarea
-                value={selectedConceptPrompt}
-                onChange={(event) => onSelectedConceptPromptChange(event.target.value)}
-                placeholder="Write the thumbnail brief you want to hand off"
-                rows={7}
-                disabled={conceptEditingDisabled}
-                className="hs-thumb-prompt-input"
-              />
-            </label>
+          <section className="hs-thumb-prompt-section" aria-label="Image prompt generation">
+            <div className="hs-thumb-prompt-header">
+              <div>
+                <div className="hs-field-label">Image Prompts</div>
+                <div className="hs-thumb-field-helper">
+                  Hearth turns the selected concept brief and title into copy-ready image prompts for your outside tool.
+                </div>
+              </div>
+              {promptVariants ? (
+                <button
+                  type="button"
+                  onClick={onGeneratePromptVariants}
+                  disabled={!canGeneratePrompt}
+                >
+                  Generate Again
+                </button>
+              ) : null}
+            </div>
+            <div className="hs-thumb-prompt-context">
+              <span><strong>Concept:</strong> {selectedConceptLabel.trim() || "No concept selected"}</span>
+              <span><strong>Title:</strong> {selectedTitleText.trim() || "Choose a title on the right"}</span>
+            </div>
+            {!hasFramingTitles ? (
+              <div className="hs-thumb-empty">Start with a title. Framing helps shape thumbnail ideas.</div>
+            ) : !selectedConceptPrompt.trim() ? (
+              <div className="hs-thumb-empty">Add enough detail to the concept brief so Hearth has something concrete to translate.</div>
+            ) : !selectedTitleText.trim() ? (
+              <div className="hs-thumb-empty">Choose a title on the right, then generate the image prompt.</div>
+            ) : promptVariants?.length ? (
+              <div className="hs-thumb-prompt-output" aria-label="Generated image prompt variants">
+                {promptVariants.map((variant) => (
+                  <article key={variant.id} className="hs-thumb-prompt-card">
+                    <div className="hs-thumb-prompt-card-header">
+                      <div className="hs-thumb-prompt-card-title">{resolvePromptVariantLabel(variant.style)}</div>
+                      <button
+                        type="button"
+                        onClick={() => onCopyPromptVariant(variant.prompt)}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <textarea
+                      value={variant.prompt}
+                      readOnly
+                      rows={6}
+                      className="hs-thumb-prompt-card-text"
+                    />
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="hs-thumb-prompt-empty">
+                Use <strong>Generate Image Prompt</strong> to turn this concept and title into outside-tool prompt variants.
+              </div>
+            )}
             <details className="hs-thumb-advanced-options">
-              <summary>Extra Setup</summary>
+              <summary>Concept Source</summary>
               <div className="hs-thumb-advanced-options-body">
                 <label className="hs-field">
                   <span className="hs-field-label">Concept Label</span>
@@ -924,15 +1035,15 @@ export default function ThumbnailPanel({
                   </select>
                 </label>
                 <label className="hs-field">
-                  <span className="hs-field-label">Tool-Specific Override</span>
-                  <div className="hs-thumb-field-helper">Only use this if your image tool needs a slightly different prompt.</div>
+                  <span className="hs-field-label">Concept Brief (source)</span>
+                  <div className="hs-thumb-field-helper">This is the planning brief Hearth interprets. It is not the final provider prompt.</div>
                   <textarea
-                    value={promptOverride}
-                    onChange={(event) => onPromptOverrideChange(event.target.value)}
-                    placeholder="Optional tool-specific wording"
-                    rows={3}
-                    disabled={uploadImageDisabled}
-                    className="hs-thumb-prompt-override"
+                    value={selectedConceptPrompt}
+                    onChange={(event) => onSelectedConceptPromptChange(event.target.value)}
+                    placeholder="Outline the focal subject, framing, contrast, and tone."
+                    rows={7}
+                    disabled={conceptEditingDisabled}
+                    className="hs-thumb-prompt-input"
                   />
                 </label>
               </div>
