@@ -126,6 +126,24 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
           ? "contextual_data_composite"
           : "image"
     );
+    const mediaKindChanged = args.selectedMediaMapEntry.final_media_kind !== nextFinalMediaKind;
+    const nextSourceStatus = (
+      mediaKindChanged
+        ? "unresolved"
+        : (args.mediaMapSourceStatusDraft === "selected" || args.mediaMapSourceStatusDraft === "attached"
+          ? args.mediaMapSourceStatusDraft
+          : "unresolved")
+    );
+    const nextSourceAssetId = (
+      mediaKindChanged
+        ? null
+        : (args.mediaMapSourceAssetIdDraft.trim() || null)
+    );
+    const nextFulfillmentStatus = (
+      nextSourceStatus === "selected" || nextSourceStatus === "attached"
+        ? "resolved"
+        : "planned"
+    );
     const nextEntry: EpisodeMediaMapEntry = {
       ...args.selectedMediaMapEntry,
       final_media_kind: nextFinalMediaKind,
@@ -154,13 +172,8 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
       description: args.mediaMapDescriptionDraft.trim(),
       intent: args.mediaMapIntentDraft.trim(),
       source: {
-        status: (
-          args.mediaMapSourceStatusDraft === "selected"
-          || args.mediaMapSourceStatusDraft === "attached"
-            ? args.mediaMapSourceStatusDraft
-            : "unresolved"
-        ),
-        asset_id: args.mediaMapSourceAssetIdDraft.trim() || null,
+        status: nextSourceStatus,
+        asset_id: nextSourceAssetId,
       },
       confidence: (
         args.mediaMapConfidenceDraft === "high"
@@ -168,11 +181,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
           ? args.mediaMapConfidenceDraft
           : "medium"
       ),
-      fulfillment_status: (
-        args.mediaMapSourceStatusDraft === "selected" || args.mediaMapSourceStatusDraft === "attached"
-          ? "resolved"
-          : args.selectedMediaMapEntry.fulfillment_status
-      ),
+      fulfillment_status: nextFulfillmentStatus,
       fulfillment_path: (
         nextFinalMediaKind === "b_roll"
           ? "motion_broll"

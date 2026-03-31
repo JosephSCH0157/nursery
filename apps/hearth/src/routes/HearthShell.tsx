@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createDraft, type Draft } from "../domain/draft";
 import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin } from "../domain/hearth-session";
 import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
-import { createRevision, type Revision, type RevisionKind } from "../domain/revision";
+import type { Revision, RevisionKind } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
 import {
   type BarStockSpark,
@@ -163,6 +163,11 @@ import {
   buildNoScriptChangesExplanation,
   detectHearthScriptMutationIntent,
 } from "../lib/hearth-script-mutation";
+import {
+  parseHearthDraftConflictError,
+  persistHearthDraft,
+  persistHearthDraftMeta,
+} from "../lib/hearth-draft-persistence";
 import {
   normalizeScriptTags,
   repairScriptTags,
@@ -1332,23 +1337,7 @@ function resolveDraftEditorName(draft: Draft | null | undefined): string {
   return "Unknown";
 }
 
-function parseDraftConflictError(error: unknown): DraftConflictState | null {
-  if (!error || typeof error !== "object") return null;
-  const row = error as {
-    code?: unknown;
-    details?: unknown;
-  };
-  if (row.code !== "draft_conflict") return null;
-  const details = row.details && typeof row.details === "object"
-    ? row.details as Record<string, unknown>
-    : null;
-  const currentUpdatedAt = readTrimmedString(details?.current_updated_at);
-  const currentLabel = currentUpdatedAt ? new Date(currentUpdatedAt).toLocaleString() : "a newer save";
-  return {
-    message: `This draft changed on another client at ${currentLabel}. Reload latest to continue.`,
-    localBody: "",
-  };
-}
+const parseDraftConflictError = parseHearthDraftConflictError;
 
 function parseIsoTimestamp(value: string | null | undefined): number | undefined {
   if (!value) return undefined;
@@ -6334,163 +6323,53 @@ export default function HearthShell({
     quietFailure?: boolean;
     saveReason?: string;
   }): Promise<boolean> {
-    const showSavingState = args.showSavingState ?? true;
-    const quietFailure = args.quietFailure ?? false;
-    if (showSavingState) {
-      setIsSaving(true);
-    }
-    if (!quietFailure) {
-      setDraftConflictState(null);
-      setError(null);
-    }
-    const shouldValidateForAnvil = args.validateForAnvil === true;
-    const { normalizedText, validation } = evaluateScriptValidation(args.draft.body);
-    const hasAnvilTagWarning = !validation.ok;
-    if (hasAnvilTagWarning) {
-      setScriptValidation({
-        source: shouldValidateForAnvil ? "save_gate" : "save_notice",
-        result: validation,
-      });
-      if (shouldValidateForAnvil) {
-        setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(validation)}`);
-        if (showSavingState) setIsSaving(false);
-        return false;
-      }
-    } else {
-      setScriptValidation(null);
-    }
-    const editVersionAtStart = draftEditVersionRef.current;
-    try {
-      let revisionCount = args.draft.revisionCount;
-      let lastRevisionAt = args.draft.lastRevisionAt;
-      let createdRevision: Revision | null = null;
-      let refreshedRevisions: Revision[] | null = null;
-
-      if (args.createRevision) {
-        createdRevision = createRevision({
-          draftId: args.draft.id,
-          title: normalizeTitle(args.draft.title),
-          body: args.draft.body,
-          kind: args.createRevision.kind,
-          note: args.createRevision.note,
-        });
-        const activeRevisionWorkpieceId = resolveRevisionWorkpieceId();
-        if (!activeRevisionWorkpieceId) {
-          reportRevisionPersistenceWarning(
-            args.createRevision.kind,
-            "Saved draft, but revision history is unavailable until this draft is attached to an Episode.",
-          );
-        } else {
-          try {
-            await store.saveRevision(activeRevisionWorkpieceId, createdRevision);
-            if (args.createRevision.kind === "autosave") {
-              setAiAutosaveWarning(null);
-            } else {
-              setAiRuntimeWarning(null);
-            }
-          } catch (err) {
-            const message = err instanceof Error && err.message === "revision_snapshot_sync_failed"
-              ? "Saved draft, but revision history was kept locally and not synced to cloud."
-              : "Saved draft, but revision history could not be synced.";
-            reportRevisionPersistenceWarning(args.createRevision.kind, message);
-          }
-
-          refreshedRevisions = await refreshRevisions(activeRevisionWorkpieceId, args.draft.id);
-          revisionCount = refreshedRevisions.length;
-          lastRevisionAt = refreshedRevisions[0]?.createdAt;
-        }
-      }
-
-      const toSave: Draft = {
-        ...args.draft,
-        title: normalizeTitle(args.draft.title),
-        body: normalizedText,
-        updatedAt: args.updatedAt,
-        revisionCount,
-        lastRevisionAt,
-        createdBy: args.draft.createdBy ?? buildDraftAttribution(hearthUser),
-        updatedBy: buildDraftAttribution(hearthUser),
-        scriptValidationMeta: buildPersistedValidationMeta(validation),
-      };
-
-      await store.saveDraft(toSave, { reason: args.saveReason });
-
-      const latestActiveDraft = activeDraftRef.current;
-      const hasNewerEdits = latestActiveDraft?.id === toSave.id
-        && draftEditVersionRef.current !== editVersionAtStart;
-
-      if (!hasNewerEdits) {
-        setActiveDraft(toSave);
-        setDraftSnapshot({ title: toSave.title, body: toSave.body, updatedAt: toSave.updatedAt });
-      }
-      setDrafts((prev) => {
-        const exists = prev.some((d) => d.id === toSave.id);
-        const next = exists
-          ? prev.map((d) => (d.id === toSave.id ? toSave : d))
-          : [toSave, ...prev];
-        return dedupeDraftListById(next);
-      });
-
-      if (createdRevision && refreshedRevisions) {
-        const selected = refreshedRevisions.find((revision) => revision.id === createdRevision?.id) ?? null;
-        setSelectedRevision(selected);
-        setRevisionView("preview");
-      }
-
-      const tab = mode === "focus"
-        ? (focusTab === "revisions" ? revisionView : focusTab)
-        : mode;
-      await persistSession(toSave.id, tab);
-      if (args.syncSources) {
-        sourcesState.syncSources();
-      }
-      if (args.syncSession) {
-        void syncSessionToTongs();
-      }
-      setDraftConflictState(null);
-      return true;
-    } catch (err) {
-      const conflict = parseDraftConflictError(err);
-      if (conflict) {
-        if (!quietFailure) {
-          const withLocalBody: DraftConflictState = {
-            ...conflict,
-            localBody: args.draft.body,
-          };
-          setDraftConflictState(withLocalBody);
-          setError(withLocalBody.message);
-        }
-        return false;
-      }
-      if (!quietFailure) {
-        const message = err instanceof Error ? err.message : "Failed to save draft.";
-        setError(message);
-      }
-      return false;
-    } finally {
-      if (showSavingState) {
-        setIsSaving(false);
-      }
-    }
+    return persistHearthDraft(args, {
+      mode,
+      focusTab,
+      revisionView,
+      hearthUser,
+      evaluateScriptValidation,
+      buildValidationReport,
+      normalizeTitle,
+      buildDraftAttribution,
+      buildPersistedValidationMeta,
+      resolveRevisionWorkpieceId: () => resolveRevisionWorkpieceId(),
+      reportRevisionPersistenceWarning,
+      refreshRevisions,
+      persistSession,
+      syncSources: () => sourcesState.syncSources(),
+      syncSessionToTongs,
+      dedupeDraftListById,
+      draftEditVersionRef,
+      activeDraftRef,
+      store,
+      setIsSaving,
+      setDraftConflictState,
+      setError,
+      setScriptValidation,
+      setAiAutosaveWarning,
+      setAiRuntimeWarning,
+      setActiveDraft,
+      setDraftSnapshot,
+      setDrafts,
+      setSelectedRevision,
+      setRevisionView,
+    });
   }
 
   async function saveDraftMeta(draft: Draft, updates: Partial<Draft>) {
-    const now = Date.now();
-    const toSave: Draft = {
-      ...draft,
-      ...updates,
-      title: normalizeTitle(updates.title ?? draft.title),
-      updatedAt: now,
-      createdBy: draft.createdBy ?? buildDraftAttribution(hearthUser),
-      updatedBy: buildDraftAttribution(hearthUser),
-    };
-    setScriptValidation(null);
-    await store.saveDraft(toSave);
-    setDrafts((prev) => dedupeDraftListById(prev.map((d) => (d.id === toSave.id ? toSave : d))));
-    if (activeDraft?.id === toSave.id) {
-      setActiveDraft(toSave);
-      setDraftSnapshot({ title: toSave.title, body: toSave.body, updatedAt: toSave.updatedAt });
-    }
+    await persistHearthDraftMeta(draft, updates, {
+      activeDraftId: activeDraft?.id ?? null,
+      hearthUser,
+      normalizeTitle,
+      buildDraftAttribution,
+      dedupeDraftListById,
+      store,
+      setScriptValidation: () => setScriptValidation(null),
+      setDrafts,
+      setActiveDraft,
+      setDraftSnapshot,
+    });
   }
 
   async function onCreateDraft() {
