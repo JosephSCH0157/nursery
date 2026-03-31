@@ -3,6 +3,7 @@ import type {
   MediaMapConversationSeed,
   MediaMapGenerationScope,
 } from "../../lib/hearth-media-map-conversation";
+import { normalizeMediaMapGenerationScope } from "../../lib/hearth-media-map-conversation";
 
 export function useMediaMapWorkspace() {
   const [selectedMediaMapEntryId, setSelectedMediaMapEntryId] = useState<string | null>(null);
@@ -34,6 +35,25 @@ export function useMediaMapWorkspace() {
     }
     setMediaMapSaveError(null);
     setMediaMapMessage(null);
+  }
+
+  function onMediaMapDraftChange(field: string, value: unknown): void {
+    if (field === "type") setMediaMapDraftEditing(setMediaMapTypeDraft, String(value));
+    else if (field === "anchorMode") setMediaMapDraftEditing(setMediaMapAnchorModeDraft, String(value));
+    else if (field === "anchorTarget") setMediaMapDraftEditing(setMediaMapAnchorTargetDraft, String(value));
+    else if (field === "inOffsetSec") setMediaMapDraftEditing(setMediaMapInOffsetDraft, String(value));
+    else if (field === "durationSec") setMediaMapDraftEditing(setMediaMapDurationDraft, String(value));
+    else if (field === "description") setMediaMapDraftEditing(setMediaMapDescriptionDraft, String(value));
+    else if (field === "intent") setMediaMapDraftEditing(setMediaMapIntentDraft, String(value));
+    else if (field === "sourceStatus") setMediaMapDraftEditing(setMediaMapSourceStatusDraft, String(value));
+    else if (field === "sourceAssetId") setMediaMapDraftEditing(setMediaMapSourceAssetIdDraft, String(value));
+    else if (field === "confidence") setMediaMapDraftEditing(setMediaMapConfidenceDraft, String(value));
+    else if (field === "optional") setMediaMapDraftEditing(setMediaMapOptionalDraft, Boolean(value));
+    else if (field === "critical") setMediaMapDraftEditing(setMediaMapCriticalDraft, Boolean(value));
+  }
+
+  function onMediaMapGenerationScopeChange(value: string): void {
+    setMediaMapGenerationScope(normalizeMediaMapGenerationScope(value));
   }
 
   return {
@@ -80,5 +100,7 @@ export function useMediaMapWorkspace() {
     mediaMapConversationError,
     setMediaMapConversationError,
     setMediaMapDraftEditing,
+    onMediaMapDraftChange,
+    onMediaMapGenerationScopeChange,
   };
 }

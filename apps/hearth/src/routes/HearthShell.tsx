@@ -102,6 +102,9 @@ import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
 import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
 import { useMetadataWorkspace } from "../hooks/visuals/useMetadataWorkspace";
+import { useImageMapWorkspace } from "../hooks/visuals/useImageMapWorkspace";
+import { useBrollWorkspace } from "../hooks/visuals/useBrollWorkspace";
+import { useReferenceClipWorkspace } from "../hooks/visuals/useReferenceClipWorkspace";
 import { useThumbnailWorkspace } from "../hooks/visuals/useThumbnailWorkspace";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
@@ -2491,94 +2494,6 @@ export default function HearthShell({
   const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
   const [defaultVisualProvider, setDefaultVisualProvider] = useState<VisualProviderId>(() => resolveDefaultVisualProviderFromStorage());
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
-  const [selectedImageMapEntryId, setSelectedImageMapEntryId] = useState<string | null>(null);
-  const [imageMapAnchorDraft, setImageMapAnchorDraft] = useState("");
-  const [imageMapDescriptionDraft, setImageMapDescriptionDraft] = useState("");
-  const [imageMapStyleDraft, setImageMapStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
-  const [imageMapIntentDraft, setImageMapIntentDraft] = useState("cutaway");
-  const [imageMapSourceTypeDraft, setImageMapSourceTypeDraft] = useState("stock");
-  const [imageMapAnchorScopeDraft, setImageMapAnchorScopeDraft] = useState<EpisodeImageMapAnchorScope>("attached");
-  const [imageMapVisualPriorityDraft, setImageMapVisualPriorityDraft] = useState<EpisodeImageMapVisualPriority>("supporting");
-  const [imageMapVisualTypeDraft, setImageMapVisualTypeDraft] = useState<EpisodeImageMapVisualType>("still_image");
-  const [imageMapSectionIntentNoteDraft, setImageMapSectionIntentNoteDraft] = useState("");
-  const [imageMapPlacementHintDraft, setImageMapPlacementHintDraft] = useState("");
-  const [imageMapMetadataUpdatedAt, setImageMapMetadataUpdatedAt] = useState<string | null>(null);
-  const [imageMapSaveState, setImageMapSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
-  const [imageMapSaveError, setImageMapSaveError] = useState<string | null>(null);
-  const [imageMapExportMessage, setImageMapExportMessage] = useState<string | null>(null);
-  const [isImageMapCandidateGenerating, setIsImageMapCandidateGenerating] = useState(false);
-  const [isImageMapCandidateSelecting, setIsImageMapCandidateSelecting] = useState(false);
-  const [imageMapCandidateError, setImageMapCandidateError] = useState<string | null>(null);
-  const [imageMapCandidateSelectionError, setImageMapCandidateSelectionError] = useState<string | null>(null);
-  const [imageMapCandidatePreviewStateById, setImageMapCandidatePreviewStateById] = useState<Record<string, "loading" | "ready" | "error">>({});
-  const [imageMapCandidatePreviewUrlById, setImageMapCandidatePreviewUrlById] = useState<Record<string, string>>({});
-  const [imageMapCandidatePreviewErrorById, setImageMapCandidatePreviewErrorById] = useState<Record<string, string>>({});
-  const [canonicalImageMapScriptState, setCanonicalImageMapScriptState] = useState<CanonicalImageMapScriptState>({
-    status: "idle",
-    text: null,
-    source: null,
-    includesUnsavedLocalEdits: false,
-    error: null,
-  });
-  const [isImageMapReanchorMode, setIsImageMapReanchorMode] = useState(false);
-  const [isImageMapReanchorSaving, setIsImageMapReanchorSaving] = useState(false);
-  const [imageMapReanchorError, setImageMapReanchorError] = useState<string | null>(null);
-  const [selectedBrollBeatId, setSelectedBrollBeatId] = useState<string | null>(null);
-  const [brollAnchorDraft, setBrollAnchorDraft] = useState("");
-  const [brollDescriptionDraft, setBrollDescriptionDraft] = useState("");
-  const [brollMotionIntentDraft, setBrollMotionIntentDraft] = useState("broll");
-  const [brollAssetCategoryDraft, setBrollAssetCategoryDraft] = useState<EpisodeBrollMotionAssetCategory>("stock_video");
-  const [brollPriorityDraft, setBrollPriorityDraft] = useState("supporting");
-  const [brollKeywordsDraft, setBrollKeywordsDraft] = useState("");
-  const [brollMoodDraft, setBrollMoodDraft] = useState("");
-  const [brollShotTypeDraft, setBrollShotTypeDraft] = useState("mixed");
-  const [brollMotionSuggestionDraft, setBrollMotionSuggestionDraft] = useState("");
-  const [brollSuggestedDurationDraft, setBrollSuggestedDurationDraft] = useState("");
-  const [brollPlacementHintDraft, setBrollPlacementHintDraft] = useState("first_occurrence");
-  const [brollDataChartTypeDraft, setBrollDataChartTypeDraft] = useState("bar");
-  const [brollDataTitleDraft, setBrollDataTitleDraft] = useState("");
-  const [brollDataLabelsDraft, setBrollDataLabelsDraft] = useState("");
-  const [brollDataValuesDraft, setBrollDataValuesDraft] = useState("");
-  const [brollDataEmphasisKeyDraft, setBrollDataEmphasisKeyDraft] = useState("");
-  const [brollDataAnimationStyleDraft, setBrollDataAnimationStyleDraft] = useState("");
-  const [brollProviderIdDraft, setBrollProviderIdDraft] = useState("");
-  const [brollSourceLabelDraft, setBrollSourceLabelDraft] = useState("");
-  const [brollSourceUrlDraft, setBrollSourceUrlDraft] = useState("");
-  const [brollProviderNoteDraft, setBrollProviderNoteDraft] = useState("");
-  const [brollUsageNoteDraft, setBrollUsageNoteDraft] = useState("");
-  const [brollResultMetadataDraft, setBrollResultMetadataDraft] = useState("");
-  const [brollSaveState, setBrollSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
-  const [brollSaveError, setBrollSaveError] = useState<string | null>(null);
-  const [brollMessage, setBrollMessage] = useState<string | null>(null);
-  const [isBrollBusy, setIsBrollBusy] = useState(false);
-  const [selectedReferenceClipEntryId, setSelectedReferenceClipEntryId] = useState<string | null>(null);
-  const [referenceClipAnchorDraft, setReferenceClipAnchorDraft] = useState("");
-  const [referenceClipDescriptionDraft, setReferenceClipDescriptionDraft] = useState("");
-  const [referenceClipPlacementHintDraft, setReferenceClipPlacementHintDraft] = useState("first_occurrence");
-  const [referenceClipFormatDraft, setReferenceClipFormatDraft] = useState("still");
-  const [referenceClipDataTypeDraft, setReferenceClipDataTypeDraft] = useState("quantitative");
-  const [referenceClipContextTypeDraft, setReferenceClipContextTypeDraft] = useState("historical");
-  const [referenceClipToneDraft, setReferenceClipToneDraft] = useState("neutral");
-  const [referenceClipMotionLevelDraft, setReferenceClipMotionLevelDraft] = useState("static");
-  const [referenceClipBackgroundContextDraft, setReferenceClipBackgroundContextDraft] = useState("");
-  const [referenceClipForegroundDataDraft, setReferenceClipForegroundDataDraft] = useState("");
-  const [referenceClipVisualStyleDraft, setReferenceClipVisualStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
-  const [referenceClipChartTypeDraft, setReferenceClipChartTypeDraft] = useState("line");
-  const [referenceClipTitleDraft, setReferenceClipTitleDraft] = useState("");
-  const [referenceClipLabelsDraft, setReferenceClipLabelsDraft] = useState("");
-  const [referenceClipValuesDraft, setReferenceClipValuesDraft] = useState("");
-  const [referenceClipEmphasisKeyDraft, setReferenceClipEmphasisKeyDraft] = useState("");
-  const [referenceClipSourceTypeDraft, setReferenceClipSourceTypeDraft] = useState("planned");
-  const [referenceClipProviderIdDraft, setReferenceClipProviderIdDraft] = useState("");
-  const [referenceClipSourceLabelDraft, setReferenceClipSourceLabelDraft] = useState("");
-  const [referenceClipSourceUrlDraft, setReferenceClipSourceUrlDraft] = useState("");
-  const [referenceClipProviderNoteDraft, setReferenceClipProviderNoteDraft] = useState("");
-  const [referenceClipUsageNoteDraft, setReferenceClipUsageNoteDraft] = useState("");
-  const [referenceClipResultMetadataDraft, setReferenceClipResultMetadataDraft] = useState("");
-  const [referenceClipSaveState, setReferenceClipSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
-  const [referenceClipSaveError, setReferenceClipSaveError] = useState<string | null>(null);
-  const [referenceClipMessage, setReferenceClipMessage] = useState<string | null>(null);
-  const [isReferenceClipBusy, setIsReferenceClipBusy] = useState(false);
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
   const episodePackageRequestSeqRef = useRef(0);
   const thumbnailPreviewRequestSeqRef = useRef(0);
@@ -2722,6 +2637,179 @@ export default function HearthShell({
     setMediaMapConversationError,
     setMediaMapDraftEditing,
   } = useMediaMapWorkspace();
+  const {
+    selectedImageMapEntryId,
+    setSelectedImageMapEntryId,
+    imageMapAnchorDraft,
+    setImageMapAnchorDraft,
+    imageMapDescriptionDraft,
+    setImageMapDescriptionDraft,
+    imageMapStyleDraft,
+    setImageMapStyleDraft,
+    imageMapIntentDraft,
+    setImageMapIntentDraft,
+    imageMapSourceTypeDraft,
+    setImageMapSourceTypeDraft,
+    imageMapAnchorScopeDraft,
+    setImageMapAnchorScopeDraft,
+    imageMapVisualPriorityDraft,
+    setImageMapVisualPriorityDraft,
+    imageMapVisualTypeDraft,
+    setImageMapVisualTypeDraft,
+    imageMapSectionIntentNoteDraft,
+    setImageMapSectionIntentNoteDraft,
+    imageMapPlacementHintDraft,
+    setImageMapPlacementHintDraft,
+    imageMapMetadataUpdatedAt,
+    setImageMapMetadataUpdatedAt,
+    imageMapSaveState,
+    setImageMapSaveState,
+    imageMapSaveError,
+    setImageMapSaveError,
+    imageMapExportMessage,
+    setImageMapExportMessage,
+    isImageMapCandidateGenerating,
+    setIsImageMapCandidateGenerating,
+    isImageMapCandidateSelecting,
+    setIsImageMapCandidateSelecting,
+    imageMapCandidateError,
+    setImageMapCandidateError,
+    imageMapCandidateSelectionError,
+    setImageMapCandidateSelectionError,
+    imageMapCandidatePreviewStateById,
+    setImageMapCandidatePreviewStateById,
+    imageMapCandidatePreviewUrlById,
+    setImageMapCandidatePreviewUrlById,
+    imageMapCandidatePreviewErrorById,
+    setImageMapCandidatePreviewErrorById,
+    canonicalImageMapScriptState,
+    setCanonicalImageMapScriptState,
+    isImageMapReanchorMode,
+    setIsImageMapReanchorMode,
+    isImageMapReanchorSaving,
+    setIsImageMapReanchorSaving,
+    imageMapReanchorError,
+    setImageMapReanchorError,
+    setImageMapDraftEditing,
+  } = useImageMapWorkspace();
+  const {
+    selectedBrollBeatId,
+    setSelectedBrollBeatId,
+    brollAnchorDraft,
+    setBrollAnchorDraft,
+    brollDescriptionDraft,
+    setBrollDescriptionDraft,
+    brollMotionIntentDraft,
+    setBrollMotionIntentDraft,
+    brollAssetCategoryDraft,
+    setBrollAssetCategoryDraft,
+    brollPriorityDraft,
+    setBrollPriorityDraft,
+    brollKeywordsDraft,
+    setBrollKeywordsDraft,
+    brollMoodDraft,
+    setBrollMoodDraft,
+    brollShotTypeDraft,
+    setBrollShotTypeDraft,
+    brollMotionSuggestionDraft,
+    setBrollMotionSuggestionDraft,
+    brollSuggestedDurationDraft,
+    setBrollSuggestedDurationDraft,
+    brollPlacementHintDraft,
+    setBrollPlacementHintDraft,
+    brollDataChartTypeDraft,
+    setBrollDataChartTypeDraft,
+    brollDataTitleDraft,
+    setBrollDataTitleDraft,
+    brollDataLabelsDraft,
+    setBrollDataLabelsDraft,
+    brollDataValuesDraft,
+    setBrollDataValuesDraft,
+    brollDataEmphasisKeyDraft,
+    setBrollDataEmphasisKeyDraft,
+    brollDataAnimationStyleDraft,
+    setBrollDataAnimationStyleDraft,
+    brollProviderIdDraft,
+    setBrollProviderIdDraft,
+    brollSourceLabelDraft,
+    setBrollSourceLabelDraft,
+    brollSourceUrlDraft,
+    setBrollSourceUrlDraft,
+    brollProviderNoteDraft,
+    setBrollProviderNoteDraft,
+    brollUsageNoteDraft,
+    setBrollUsageNoteDraft,
+    brollResultMetadataDraft,
+    setBrollResultMetadataDraft,
+    brollSaveState,
+    setBrollSaveState,
+    brollSaveError,
+    setBrollSaveError,
+    brollMessage,
+    setBrollMessage,
+    isBrollBusy,
+    setIsBrollBusy,
+    setBrollDraftEditing,
+  } = useBrollWorkspace();
+  const {
+    selectedReferenceClipEntryId,
+    setSelectedReferenceClipEntryId,
+    referenceClipAnchorDraft,
+    setReferenceClipAnchorDraft,
+    referenceClipDescriptionDraft,
+    setReferenceClipDescriptionDraft,
+    referenceClipPlacementHintDraft,
+    setReferenceClipPlacementHintDraft,
+    referenceClipFormatDraft,
+    setReferenceClipFormatDraft,
+    referenceClipDataTypeDraft,
+    setReferenceClipDataTypeDraft,
+    referenceClipContextTypeDraft,
+    setReferenceClipContextTypeDraft,
+    referenceClipToneDraft,
+    setReferenceClipToneDraft,
+    referenceClipMotionLevelDraft,
+    setReferenceClipMotionLevelDraft,
+    referenceClipBackgroundContextDraft,
+    setReferenceClipBackgroundContextDraft,
+    referenceClipForegroundDataDraft,
+    setReferenceClipForegroundDataDraft,
+    referenceClipVisualStyleDraft,
+    setReferenceClipVisualStyleDraft,
+    referenceClipChartTypeDraft,
+    setReferenceClipChartTypeDraft,
+    referenceClipTitleDraft,
+    setReferenceClipTitleDraft,
+    referenceClipLabelsDraft,
+    setReferenceClipLabelsDraft,
+    referenceClipValuesDraft,
+    setReferenceClipValuesDraft,
+    referenceClipEmphasisKeyDraft,
+    setReferenceClipEmphasisKeyDraft,
+    referenceClipSourceTypeDraft,
+    setReferenceClipSourceTypeDraft,
+    referenceClipProviderIdDraft,
+    setReferenceClipProviderIdDraft,
+    referenceClipSourceLabelDraft,
+    setReferenceClipSourceLabelDraft,
+    referenceClipSourceUrlDraft,
+    setReferenceClipSourceUrlDraft,
+    referenceClipProviderNoteDraft,
+    setReferenceClipProviderNoteDraft,
+    referenceClipUsageNoteDraft,
+    setReferenceClipUsageNoteDraft,
+    referenceClipResultMetadataDraft,
+    setReferenceClipResultMetadataDraft,
+    referenceClipSaveState,
+    setReferenceClipSaveState,
+    referenceClipSaveError,
+    setReferenceClipSaveError,
+    referenceClipMessage,
+    setReferenceClipMessage,
+    isReferenceClipBusy,
+    setIsReferenceClipBusy,
+    setReferenceClipDraftEditing,
+  } = useReferenceClipWorkspace();
   const {
     metadataTitlesDraft,
     metadataTagsDraft,
@@ -8331,22 +8419,6 @@ export default function HearthShell({
     return { ok: true, episodePackage: saved.episodePackage };
   }
 
-  function setBrollDraftEditing(fieldSetter: (value: string) => void, value: string): void {
-    fieldSetter(value);
-    if (brollSaveState !== "editing") {
-      setBrollSaveState("editing");
-    }
-    setBrollSaveError(null);
-  }
-
-  function setReferenceClipDraftEditing(fieldSetter: (value: string) => void, value: string): void {
-    fieldSetter(value);
-    if (referenceClipSaveState !== "editing") {
-      setReferenceClipSaveState("editing");
-    }
-    setReferenceClipSaveError(null);
-  }
-
   function resolveBrollDataVisualSpecFromDraft(intent: EpisodeBrollPlanBeat["motion_intent"]): EpisodeBrollDataVisualSpec | null {
     if (intent !== "data_visual") return null;
     const labels = brollDataLabelsDraft
@@ -12191,13 +12263,6 @@ export default function HearthShell({
       onAddEntry: () => void onAddMediaMapEntry(),
       onSaveEntry: () => void onSaveMediaMapEntry(),
       onDeleteEntry: () => void onDeleteMediaMapEntry(),
-    };
-    const setImageMapDraftEditing = <T,>(setter: (value: T) => void, value: T) => {
-      setter(value);
-      if (imageMapSaveState !== "editing") {
-        setImageMapSaveState("editing");
-      }
-      setImageMapSaveError(null);
     };
     const imageMapPanelProps = {
       panelTitle: "Timeline Images",
