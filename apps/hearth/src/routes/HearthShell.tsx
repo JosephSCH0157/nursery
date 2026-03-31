@@ -94,6 +94,8 @@ import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
 import { useHearthSparkDiscovery } from "../hooks/useHearthSparkDiscovery";
 import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceSessionLifecycle";
 import { useHearthDraftController } from "../hooks/useHearthDraftController";
+import { useHearthScriptRepairActions } from "../hooks/useHearthScriptRepairActions";
+import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
@@ -3348,6 +3350,38 @@ export default function HearthShell({
       sparks: episodeSparks,
     });
   }, [activeDraft, planningSession, sourceIndexById, sparks, workpieceId, workpieceSources, workspaceId]);
+  const {
+    onFixScriptFormattingNoAi,
+    onAskAiRepairScript,
+  } = useHearthScriptRepairActions({
+    activeDraft,
+    isRepairingScript,
+    isAiProcessing,
+    aiTokenBalance,
+    chatHistoryMaxMessages: CHAT_HISTORY_MAX_MESSAGES,
+    aiRequestControllerRef,
+    draftEditVersionRef,
+    activeDraftRef,
+    buildActiveEpisodeContext,
+    persistDraft,
+    dedupeDraftListById,
+    queueAiAutosave,
+    requestHearthChatReply,
+    refreshMyAiCredits,
+    resolveAiLaneFromStorage,
+    buildValidationReport,
+    setAiBillingMode,
+    setAiTokenBalance,
+    setIsRepairingScript,
+    setIsAiProcessing,
+    setChatError,
+    setAiRuntimeWarning,
+    setScriptValidation,
+    setError,
+    setActiveDraft,
+    setDrafts,
+    setChatMessages,
+  });
   const { flushChatHistoryNow } = useChatWorkspaceHistory<PendingAiProposal>({
     store,
     activeDraftId: activeDraft?.id ?? null,
@@ -6266,52 +6300,31 @@ export default function HearthShell({
     };
   }, [activeDraft?.id, cursorPosition, focusTab, mode, persistSession, revisionView, scrollTop]);
 
-  useEffect(() => {
-    if (!hasAnyUnsavedTab) return;
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = TAB_SWITCH_UNSAVED_WARNING;
-      return TAB_SWITCH_UNSAVED_WARNING;
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, [hasAnyUnsavedTab]);
-
-  useEffect(() => {
-    function handleKey(event: KeyboardEvent) {
-      const key = event.key.toLowerCase();
-      if ((event.ctrlKey || event.metaKey) && key === "s") {
-        event.preventDefault();
-        if (event.shiftKey) {
-          if (!revisionModalOpen && activeDraft) {
-            openRevisionModal();
-          }
-          return;
-        }
-        void onSaveDraft();
-      }
-
-      if ((event.ctrlKey || event.metaKey) && key === "k") {
-        event.preventDefault();
-        searchRef.current?.focus();
-        searchRef.current?.select();
-      }
-
-      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
-        const tabIndex = Number(key);
-        if (Number.isInteger(tabIndex) && tabIndex >= 1 && tabIndex <= WORKPIECE_WORKSPACE_TABS.length) {
-          event.preventDefault();
-          if (!hasActiveEpisode) return;
-          requestWorkpieceTabChange(WORKPIECE_WORKSPACE_TABS[tabIndex - 1]!);
-        }
-      }
-    }
-
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [activeDraft, hasActiveEpisode, onSaveDraft, openRevisionModal, revisionModalOpen, requestWorkpieceTabChange]);
+  const {
+    requestWorkpieceTabChange,
+    openRevisionPanel,
+    closeRevisionPanel,
+  } = useHearthWorkpieceTabLifecycle({
+    activeWorkpieceTab,
+    tabDirtyById,
+    hasAnyUnsavedTab,
+    hasActiveEpisode,
+    hasActiveDraft: Boolean(activeDraft),
+    revisionModalOpen,
+    focusTab,
+    activeDraftId: activeDraft?.id ?? null,
+    workpieceWorkspaceTabs: WORKPIECE_WORKSPACE_TABS,
+    tabSwitchUnsavedWarning: TAB_SWITCH_UNSAVED_WARNING,
+    searchRef,
+    setActiveWorkpieceTab,
+    setFocusTab,
+    setMode,
+    normalizeWorkpieceWorkspaceTab,
+    persistSession,
+    resetRevisionSelection,
+    openRevisionModal,
+    onSaveDraft,
+  });
 
   async function persistDraft(args: {
     draft: Draft;
@@ -6672,35 +6685,6 @@ export default function HearthShell({
     workspaceId,
   ]);
 
-  function openRevisionPanel() {
-    setFocusTab("revisions");
-    if (!requestWorkpieceTabChange("history")) return;
-    setMode("focus");
-    resetRevisionSelection();
-    void persistSession(activeDraft?.id ?? null, "list");
-  }
-
-  function closeRevisionPanel() {
-    setFocusTab("draft");
-    requestWorkpieceTabChange("script");
-    setMode("focus");
-    resetRevisionSelection();
-    void persistSession(activeDraft?.id ?? null, "draft");
-  }
-
-  function requestWorkpieceTabChange(nextTab: WorkpieceWorkspaceTab): boolean {
-    const normalizedNextTab = normalizeWorkpieceWorkspaceTab(nextTab);
-    if (normalizedNextTab === activeWorkpieceTab) return true;
-    if (tabDirtyById[activeWorkpieceTab]) {
-      const shouldContinue = typeof window === "undefined"
-        ? true
-        : window.confirm(TAB_SWITCH_UNSAVED_WARNING);
-      if (!shouldContinue) return false;
-    }
-    setActiveWorkpieceTab(normalizedNextTab);
-    return true;
-  }
-
   function findNextBodyFromOps(baseBody: string, ops: HearthOp[]): string {
     let next = baseBody;
     for (const op of ops) {
@@ -6709,161 +6693,6 @@ export default function HearthShell({
       }
     }
     return next;
-  }
-
-  async function onFixScriptFormattingNoAi() {
-    if (!activeDraft) return;
-    const normalized = normalizeScriptTags(activeDraft.body);
-    const repaired = repairScriptTags(normalized);
-    const { validation } = evaluateHearthScriptValidation(repaired.text);
-    if (!validation.ok) {
-      setScriptValidation({
-        source: "save_gate",
-        result: validation,
-      });
-      setError(
-        `Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(validation)}`,
-      );
-    }
-
-    const now = Date.now();
-    const saved = await persistDraft({
-      draft: { ...activeDraft, body: repaired.text, updatedAt: now },
-      updatedAt: now,
-      createRevision: null,
-      syncSources: false,
-      syncSession: false,
-      saveReason: "repair:deterministic",
-    });
-    if (saved) {
-      const fixedCount = repaired.repairedIssues.length;
-      const remainingCount = validation.issues.length;
-      if (remainingCount > 0) {
-        setError(`${fixedCount} issues fixed automatically. ${remainingCount} issues remain and need manual correction.`);
-      } else {
-        setError(`${fixedCount} issues fixed automatically.`);
-      }
-      setScriptValidation(validation.ok ? null : {
-        source: "save_notice",
-        result: validation,
-      });
-    }
-  }
-
-  async function onAskAiRepairScript() {
-    if (isRepairingScript || isAiProcessing) return;
-    if (!activeDraft) return;
-
-    const episodeContext = buildActiveEpisodeContext();
-    if (!episodeContext) {
-      setChatError("Select an Episode or Spark to start.");
-      return;
-    }
-
-    const lane = resolveAiLaneFromStorage();
-    setAiBillingMode(lane);
-    if (lane === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
-      setChatError("No AI credits remaining.");
-      return;
-    }
-
-    setChatError(null);
-    setAiRuntimeWarning(null);
-    setIsRepairingScript(true);
-
-    const repairMessage = [
-      "Repair this script to satisfy the canonical Anvil tag contract.",
-      "Do NOT rewrite meaning, style, or wording except where required to fix markup.",
-      "Return a set_body op with the repaired script.",
-      "Also include script_text and tag_audit.",
-      "",
-      "SCRIPT TO REPAIR:",
-      activeDraft.body,
-    ].join("\n");
-
-    const controller = new AbortController();
-    aiRequestControllerRef.current = controller;
-    setIsAiProcessing(true);
-
-    try {
-      const result = await requestHearthChatReply(
-        [{ role: "user", content: repairMessage }],
-        episodeContext,
-        { signal: controller.signal },
-      );
-
-      setAiBillingMode(result.runtime.billingMode);
-      if (result.runtime.billingMode === "byo") {
-        setAiTokenBalance(null);
-      }
-
-      if (!result.ok) {
-        if (!result.cancelled) {
-          setChatError(result.error);
-        }
-        return;
-      }
-
-      const opBody = result.ops.find((op) => op.op === "set_body");
-      const aiText = result.scriptText ?? (opBody && opBody.op === "set_body" ? opBody.value : "");
-      const normalized = normalizeScriptTags(aiText);
-      const repaired = repairScriptTags(normalized);
-      const repairedBody = repaired.text;
-      const { validation } = evaluateHearthScriptValidation(repairedBody);
-      if (!validation.ok) {
-        setScriptValidation({
-          source: "ai_repair",
-          result: validation,
-        });
-        setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(validation)}`);
-        return;
-      }
-
-      const previousBody = activeDraft.body;
-      const bodyChanged = repairedBody !== previousBody;
-      if (bodyChanged) {
-        const now = Date.now();
-        const nextDraft: Draft = { ...activeDraft, body: repairedBody, updatedAt: now };
-        draftEditVersionRef.current += 1;
-        activeDraftRef.current = nextDraft;
-        setActiveDraft((prev) => (prev && prev.id === nextDraft.id ? nextDraft : prev));
-        setDrafts((prev) => {
-          const exists = prev.some((draft) => draft.id === nextDraft.id);
-          const next = exists
-            ? prev.map((draft) => (draft.id === nextDraft.id ? nextDraft : draft))
-            : [nextDraft, ...prev];
-          return dedupeDraftListById(next);
-        });
-        queueAiAutosave({
-          draft: nextDraft,
-          previousBody,
-          reasonCode: "ai_repair",
-        });
-      }
-      setScriptValidation(null);
-
-      const assistantMessage: HearthChatMessage = {
-        role: "assistant",
-        content: result.assistantText || "I cleaned up the script tags and left the wording alone.",
-      };
-      setChatMessages((prev) => [...prev, assistantMessage].slice(-CHAT_HISTORY_MAX_MESSAGES));
-
-      if (result.creditsWarning) {
-        setAiRuntimeWarning(result.creditsWarning);
-      }
-
-      const refreshedCredits = await refreshMyAiCredits();
-      if (refreshedCredits.ok) {
-        setAiBillingMode(refreshedCredits.runtime.billingMode);
-        setAiTokenBalance(refreshedCredits.runtime.tokenBalance);
-      }
-    } finally {
-      if (aiRequestControllerRef.current === controller) {
-        aiRequestControllerRef.current = null;
-        setIsAiProcessing(false);
-      }
-      setIsRepairingScript(false);
-    }
   }
 
   function graduateLinkedSpark(episodeId: string): string | null {

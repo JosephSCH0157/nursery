@@ -154,7 +154,11 @@ function MediaMapAdvancedEditor(props: EpisodeMediaMapPanelProps & {
               <div className="hs-imap-field-grid">
                 <label>
                   Type
-                  <select value={props.draft.type} onChange={(event) => props.onDraftChange("type", event.target.value)} disabled={props.disabled}>
+                  <select
+                    value={props.draft.type === "reference_clip" ? "contextual_data_composite" : props.draft.type}
+                    onChange={(event) => props.onDraftChange("type", event.target.value)}
+                    disabled={props.disabled}
+                  >
                     {TYPES.map((value) => <option key={value} value={value}>{formatMediaKindLabel(value)}</option>)}
                   </select>
                 </label>

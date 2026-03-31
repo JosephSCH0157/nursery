@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type {
   MediaMapConversationSeed,
   MediaMapGenerationScope,
@@ -28,6 +28,7 @@ export function useMediaMapWorkspace() {
   const [mediaMapConversationSeed, setMediaMapConversationSeed] = useState<MediaMapConversationSeed | null>(null);
   const [mediaMapConversationState, setMediaMapConversationState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [mediaMapConversationError, setMediaMapConversationError] = useState<string | null>(null);
+  const hydratedMediaMapEntryIdRef = useRef<string | null>(null);
 
   function setMediaMapDraftEditing<T extends string | boolean>(fieldSetter: (value: T) => void, value: T): void {
     fieldSetter(value);
@@ -59,6 +60,7 @@ export function useMediaMapWorkspace() {
 
   const syncMediaMapDraftFromEntry = useCallback((selectedMediaMapEntry: EpisodeMediaMapEntry | null): void => {
     if (!selectedMediaMapEntry) {
+      hydratedMediaMapEntryIdRef.current = null;
       setMediaMapTypeDraft("image");
       setMediaMapAnchorModeDraft("phrase_match");
       setMediaMapAnchorTargetDraft("");
@@ -74,7 +76,19 @@ export function useMediaMapWorkspace() {
       setMediaMapSaveState("saved");
       return;
     }
-    setMediaMapTypeDraft(selectedMediaMapEntry.final_media_kind);
+    // Do not clobber in-progress edits for the same selected entry.
+    if (
+      mediaMapSaveState === "editing"
+      && hydratedMediaMapEntryIdRef.current === selectedMediaMapEntry.id
+    ) {
+      return;
+    }
+    hydratedMediaMapEntryIdRef.current = selectedMediaMapEntry.id;
+    setMediaMapTypeDraft(
+      selectedMediaMapEntry.final_media_kind === "contextual_data_composite"
+        ? "contextual_data_composite"
+        : selectedMediaMapEntry.final_media_kind,
+    );
     setMediaMapAnchorModeDraft(selectedMediaMapEntry.anchor.mode);
     setMediaMapAnchorTargetDraft(selectedMediaMapEntry.anchor.target);
     setMediaMapInOffsetDraft(String(selectedMediaMapEntry.timing.in_offset_sec));
@@ -88,7 +102,7 @@ export function useMediaMapWorkspace() {
     setMediaMapCriticalDraft(selectedMediaMapEntry.critical);
     setMediaMapSaveState("saved");
     setMediaMapSaveError(null);
-  }, []);
+  }, [mediaMapSaveState]);
 
   const syncSelectedMediaMapEntryId = useCallback((mediaMapEntries: EpisodeMediaMapEntry[]): void => {
     if (mediaMapEntries.length === 0) {

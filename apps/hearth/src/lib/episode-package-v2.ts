@@ -1955,6 +1955,7 @@ function normalizeMediaMapType(value: unknown): EpisodeMediaMapMediaType {
   if (normalized === "b_roll" || normalized === "contextual_data_composite" || normalized === "image") {
     return normalized;
   }
+  if (normalized === "reference_clip") return "contextual_data_composite";
   if (normalized === "broll") return "b_roll";
   if (normalized === "cdc") return "contextual_data_composite";
   return "image";

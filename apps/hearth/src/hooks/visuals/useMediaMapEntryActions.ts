@@ -120,9 +120,11 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
     if (args.isMediaMapBusy) return;
     const nowIso = new Date().toISOString();
     const nextFinalMediaKind = (
-      args.mediaMapTypeDraft === "b_roll" || args.mediaMapTypeDraft === "contextual_data_composite"
-        ? args.mediaMapTypeDraft
-        : "image"
+      args.mediaMapTypeDraft === "b_roll"
+        ? "b_roll"
+        : args.mediaMapTypeDraft === "contextual_data_composite" || args.mediaMapTypeDraft === "reference_clip"
+          ? "contextual_data_composite"
+          : "image"
     );
     const nextEntry: EpisodeMediaMapEntry = {
       ...args.selectedMediaMapEntry,
