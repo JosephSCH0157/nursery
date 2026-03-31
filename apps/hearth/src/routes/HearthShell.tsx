@@ -107,6 +107,9 @@ import { useBrollWorkspace } from "../hooks/visuals/useBrollWorkspace";
 import { useReferenceClipWorkspace } from "../hooks/visuals/useReferenceClipWorkspace";
 import { useThumbnailWorkspace } from "../hooks/visuals/useThumbnailWorkspace";
 import { useMediaMapEntryActions } from "../hooks/visuals/useMediaMapEntryActions";
+import { useMediaMapGenerationActions } from "../hooks/visuals/useMediaMapGenerationActions";
+import { useBrollCoreActions } from "../hooks/visuals/useBrollCoreActions";
+import { useBrollBridgeActions } from "../hooks/visuals/useBrollBridgeActions";
 import {
   buildBrollPlanPanelProps,
   buildImageMapPanelProps,
@@ -221,7 +224,6 @@ import {
 import {
   buildBrollPlanFromScript,
   buildStockCandidatesForBrollBeat,
-  regenerateBrollBeatFromDescription,
 } from "../lib/hearth-broll-plan";
 import { uploadBrollBeatAsset } from "../lib/hearth-broll-plan-repo";
 import {
@@ -250,13 +252,7 @@ import {
   saveWorkpieceEpisodeMediaMap,
 } from "../lib/hearth-media-map-repo";
 import {
-  activateEpisodeMediaMapForFulfillment,
-} from "../lib/hearth-media-map-fulfillment";
-import {
-  applyProducerDirectionToMediaMap,
   deriveMediaMapConversationFromScript,
-  resolveMediaMapConversationScope,
-  type MediaMapConversationDirectionId,
   type MediaMapConversationSeed,
   type MediaMapGenerationScope,
 } from "../lib/hearth-media-map-conversation";
@@ -3473,6 +3469,24 @@ export default function HearthShell({
     setSelectedMediaMapEntryId,
     persistMediaMap,
   });
+  const {
+    onGenerateEpisodeMediaMapFromPlans,
+    onBuildAndApplyMediaMapFromConversation,
+  } = useMediaMapGenerationActions({
+    episodePackage,
+    isMediaMapBusy,
+    approvedScriptVersion,
+    mediaMapGenerationScope,
+    setMediaMapGenerationScope,
+    setIsMediaMapBusy,
+    setMediaMapSaveState,
+    setMediaMapSaveError,
+    setMediaMapMessage,
+    setSelectedMediaMapEntryId,
+    prepareSourceEpisodePackageForMediaMapGeneration,
+    buildMediaMapFromExistingPlans,
+    persistMediaMap,
+  });
   const approvedAtText = scriptApprovalState.approvedAt
     ? formatUpdatedAt(scriptApprovalState.approvedAt)
     : "Unknown";
@@ -4679,6 +4693,43 @@ export default function HearthShell({
     updateStyleProfileFromReadyCheckpoint,
     appendApprovalMarker,
     refreshReadyScripts,
+  });
+  const {
+    onGenerateBrollPlan,
+    onSaveBrollBeat,
+    onDeleteBrollBeat,
+    onRegenerateBrollBeat,
+  } = useBrollCoreActions({
+    isApprovingScript,
+    isAiProcessing,
+    isBrollBusy,
+    episodePackage,
+    workpieceId,
+    selectedBrollBeat,
+    brollMotionIntentDraft,
+    brollDescriptionDraft,
+    brollAnchorDraft,
+    brollAssetCategoryDraft,
+    brollPriorityDraft,
+    brollKeywordsDraft,
+    brollMoodDraft,
+    brollShotTypeDraft,
+    brollMotionSuggestionDraft,
+    brollSuggestedDurationDraft,
+    brollPlacementHintDraft,
+    brollProviderIdDraft,
+    brollSourceUrlDraft,
+    brollProviderNoteDraft,
+    brollUsageNoteDraft,
+    brollResultMetadataDraft,
+    setIsBrollBusy,
+    setBrollSaveState,
+    setBrollSaveError,
+    setBrollMessage,
+    setSelectedBrollBeatId,
+    readCanonicalScriptForImageMapGeneration,
+    resolveBrollDataVisualSpecFromDraft,
+    persistBrollPlan,
   });
 
   useEffect(() => {
@@ -8170,192 +8221,6 @@ export default function HearthShell({
       });
   }
 
-  async function onGenerateBrollPlan() {
-    if (isApprovingScript || isAiProcessing || isBrollBusy) return;
-    if (!episodePackage) return;
-    const canonicalScript = await readCanonicalScriptForImageMapGeneration();
-    if (!canonicalScript.ok) {
-      setBrollSaveError(canonicalScript.message);
-      setBrollSaveState("error");
-      return;
-    }
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId) {
-      setBrollSaveError("Select an Episode before generating a B-roll plan.");
-      setBrollSaveState("error");
-      return;
-    }
-    setIsBrollBusy(true);
-    setBrollSaveState("saving");
-    setBrollSaveError(null);
-    try {
-      const plan = buildBrollPlanFromScript({
-        workpieceId: episodeId,
-        scriptText: canonicalScript.text,
-        previousPlan: episodePackage.broll_plan,
-      });
-      const saved = await persistBrollPlan({
-        plan,
-        eventName: "hearth.broll_plan.generated.v1",
-        eventPayload: {
-          beat_count: plan.beats.length,
-          coverage_strength: plan.coverage_strength ?? null,
-          source: canonicalScript.source,
-        },
-      });
-      if (!saved.ok) {
-        setBrollSaveError(saved.error);
-        setBrollSaveState("error");
-        return;
-      }
-      setSelectedBrollBeatId(plan.beats[0]?.id ?? null);
-      setBrollSaveState("saved");
-      setBrollMessage(`Generated ${plan.beats.length} B-roll beats from the canonical script.`);
-    } finally {
-      setIsBrollBusy(false);
-    }
-  }
-
-  async function onSaveBrollBeat() {
-    if (!episodePackage || !selectedBrollBeat) return;
-    if (isBrollBusy) return;
-    const nextMotionIntent = brollMotionIntentDraft as EpisodeBrollPlanBeat["motion_intent"];
-    const nextDataVisualSpec = resolveBrollDataVisualSpecFromDraft(nextMotionIntent);
-    const nextKeywords = brollKeywordsDraft
-      .split(",")
-      .map((entry) => entry.trim().toLowerCase())
-      .filter(Boolean);
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      anchor_text: brollAnchorDraft.trim(),
-      description: brollDescriptionDraft.trim(),
-      motion_intent: nextMotionIntent,
-      asset_category: brollAssetCategoryDraft,
-      priority: brollPriorityDraft as EpisodeBrollPlanBeat["priority"],
-      keywords: nextKeywords,
-      mood: brollMoodDraft.trim() || null,
-      shot_type: (brollShotTypeDraft.trim() || "mixed") as EpisodeBrollPlanBeat["shot_type"],
-      motion_suggestion: brollMotionSuggestionDraft.trim() || null,
-      suggested_duration_ms: Number.isFinite(Number(brollSuggestedDurationDraft))
-        ? Math.max(0, Math.trunc(Number(brollSuggestedDurationDraft)))
-        : null,
-      data_visual_spec: nextDataVisualSpec,
-      placement_hint: (brollPlacementHintDraft.trim() || "first_occurrence") as EpisodeBrollPlanBeat["placement_hint"],
-      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, selectedBrollBeat.external_request?.state ?? "planned", {
-        providerId: brollProviderIdDraft,
-        sourceUrl: brollSourceUrlDraft,
-        providerNote: brollProviderNoteDraft,
-        usageNote: brollUsageNoteDraft,
-        resultMetadata: brollResultMetadataDraft,
-        attachedAssetId: selectedBrollBeat.selected_asset_id ?? null,
-      }),
-      updated_at: new Date().toISOString(),
-      fulfillment_state: selectedBrollBeat.selected_asset_id ? "stale" : selectedBrollBeat.fulfillment_state,
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    setIsBrollBusy(true);
-    setBrollSaveState("saving");
-    setBrollSaveError(null);
-    try {
-      const saved = await persistBrollPlan({
-        plan: nextPlan,
-        eventName: "hearth.broll_plan.beat_updated.v1",
-        eventPayload: { beat_id: selectedBrollBeat.id },
-      });
-      if (!saved.ok) {
-        setBrollSaveError(saved.error);
-        setBrollSaveState("error");
-        return;
-      }
-      setBrollSaveState("saved");
-      setBrollMessage("B-roll beat saved.");
-    } catch {
-      setBrollSaveError("Unable to save this B-roll beat.");
-      setBrollSaveState("error");
-    } finally {
-      setIsBrollBusy(false);
-    }
-  }
-
-  async function onDeleteBrollBeat() {
-    if (!episodePackage || !selectedBrollBeat) return;
-    if (isBrollBusy) return;
-    const confirmed = window.confirm("Delete this B-roll beat?");
-    if (!confirmed) return;
-    const nextBeats = episodePackage.broll_plan.beats.filter((beat) => beat.id !== selectedBrollBeat.id);
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: nextBeats,
-      generated_at: new Date().toISOString(),
-    };
-    setIsBrollBusy(true);
-    setBrollSaveState("saving");
-    setBrollSaveError(null);
-    try {
-      const saved = await persistBrollPlan({
-        plan: nextPlan,
-        eventName: "hearth.broll_plan.beat_deleted.v1",
-        eventPayload: { beat_id: selectedBrollBeat.id },
-      });
-      if (!saved.ok) {
-        setBrollSaveError(saved.error);
-        setBrollSaveState("error");
-        return;
-      }
-      setSelectedBrollBeatId(nextBeats[0]?.id ?? null);
-      setBrollSaveState("saved");
-      setBrollMessage("B-roll beat removed.");
-    } catch {
-      setBrollSaveError("Unable to delete this B-roll beat.");
-      setBrollSaveState("error");
-    } finally {
-      setIsBrollBusy(false);
-    }
-  }
-
-  async function onRegenerateBrollBeat() {
-    if (!episodePackage || !selectedBrollBeat) return;
-    if (isBrollBusy) return;
-    const regenerated = regenerateBrollBeatFromDescription({
-      ...selectedBrollBeat,
-      description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
-    });
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? regenerated : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    setIsBrollBusy(true);
-    setBrollSaveState("saving");
-    setBrollSaveError(null);
-    try {
-      const saved = await persistBrollPlan({
-        plan: nextPlan,
-        eventName: "hearth.broll_plan.beat_regenerated.v1",
-        eventPayload: { beat_id: selectedBrollBeat.id },
-      });
-      if (!saved.ok) {
-        setBrollSaveError(saved.error);
-        setBrollSaveState("error");
-        return;
-      }
-      setBrollSaveState("saved");
-      setBrollMessage("B-roll beat regenerated.");
-    } catch {
-      setBrollSaveError("Unable to regenerate this B-roll beat.");
-      setBrollSaveState("error");
-    } finally {
-      setIsBrollBusy(false);
-    }
-  }
-
   async function onCopyBrollPrompt() {
     if (!episodePackage || !selectedBrollBeat) return;
     const brief = buildBrollBeatBrief({
@@ -9567,138 +9432,6 @@ export default function HearthShell({
       bootstrappedBrollCount,
       bootstrappedReferenceClipCount,
     };
-  }
-
-  async function onGenerateEpisodeMediaMapFromPlans() {
-    if (!episodePackage) return;
-    if (isMediaMapBusy) return;
-    const scriptVersionId = approvedScriptVersion ? String(approvedScriptVersion) : null;
-    setIsMediaMapBusy(true);
-    setMediaMapSaveState("saving");
-    setMediaMapSaveError(null);
-    try {
-      const prepared = await prepareSourceEpisodePackageForMediaMapGeneration(mediaMapGenerationScope);
-      if (!prepared.ok) {
-        setMediaMapSaveError(prepared.error);
-        setMediaMapSaveState("error");
-        return;
-      }
-
-      const nextMap = buildMediaMapFromExistingPlans(
-        prepared.episodePackage,
-        scriptVersionId,
-        mediaMapGenerationScope,
-      );
-      if (nextMap.entries.length === 0) {
-        setMediaMapSaveState("saved");
-        setMediaMapMessage("No visual plans are ready yet. Pull beats from the script or add thumbnails, B-roll, or reference clips first.");
-        return;
-      }
-
-      const saved = await persistMediaMap({
-        map: nextMap,
-        eventName: "hearth.media_map.generated_from_plans.v1",
-        eventPayload: {
-          entry_count: nextMap.entries.length,
-          script_version_id: scriptVersionId,
-          scope: mediaMapGenerationScope,
-        },
-        baseEpisodePackage: prepared.episodePackage,
-      });
-      if (!saved.ok) {
-        setMediaMapSaveError(saved.error);
-        setMediaMapSaveState("error");
-        return;
-      }
-      setSelectedMediaMapEntryId(nextMap.entries[0]?.id ?? null);
-      setMediaMapSaveState("saved");
-      const brollCount = nextMap.entries.filter((entry) => entry.final_media_kind === "b_roll").length;
-      const referenceClipCount = nextMap.entries.filter((entry) => entry.final_media_kind === "contextual_data_composite").length;
-      setMediaMapMessage(
-        `${prepared.bootstrappedImageCount > 0 ? `Seeded ${prepared.bootstrappedImageCount} timeline image beat${prepared.bootstrappedImageCount === 1 ? "" : "s"} from the canonical script. ` : ""}${prepared.bootstrappedBrollCount > 0 ? `Seeded ${prepared.bootstrappedBrollCount} B-roll beat${prepared.bootstrappedBrollCount === 1 ? "" : "s"} from the canonical script. ` : ""}${prepared.bootstrappedReferenceClipCount > 0 ? `Seeded ${prepared.bootstrappedReferenceClipCount} Reference Clip${prepared.bootstrappedReferenceClipCount === 1 ? "" : "s"} from explanatory Timeline Image beats. ` : ""}Generated ${nextMap.entries.length} media map entries from the current visual plans using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}). Next: Frame the episode (titles, SEO, tags).`,
-      );
-    } catch {
-      setMediaMapSaveError("Unable to generate Episode Media Map.");
-      setMediaMapSaveState("error");
-    } finally {
-      setIsMediaMapBusy(false);
-    }
-  }
-
-  async function onBuildAndApplyMediaMapFromConversation(args: {
-    directionId: MediaMapConversationDirectionId;
-    constraintsText: string;
-    derivedFromScript: boolean;
-  }): Promise<boolean> {
-    if (!episodePackage) return false;
-    if (isMediaMapBusy) return false;
-    const scriptVersionId = approvedScriptVersion ? String(approvedScriptVersion) : null;
-    const conversationScope = resolveMediaMapConversationScope({
-      directionId: args.directionId,
-      constraintsText: args.constraintsText,
-      fallbackScope: mediaMapGenerationScope,
-    });
-    setMediaMapGenerationScope(conversationScope);
-    setIsMediaMapBusy(true);
-    setMediaMapSaveState("saving");
-    setMediaMapSaveError(null);
-    try {
-      const prepared = await prepareSourceEpisodePackageForMediaMapGeneration(conversationScope);
-      if (!prepared.ok) {
-        setMediaMapSaveError(prepared.error);
-        setMediaMapSaveState("error");
-        return false;
-      }
-      const generatedMap = buildMediaMapFromExistingPlans(
-        prepared.episodePackage,
-        scriptVersionId,
-        conversationScope,
-      );
-      if (generatedMap.entries.length === 0) {
-        setMediaMapSaveState("saved");
-        setMediaMapMessage("No visual plans are ready yet. Pull beats from the script or add thumbnails, B-roll, or reference clips first.");
-        return false;
-      }
-      const directedMap = applyProducerDirectionToMediaMap({
-        map: generatedMap,
-        directionId: args.directionId,
-        constraintsText: args.constraintsText,
-      });
-      const activatedMap = activateEpisodeMediaMapForFulfillment({
-        ...directedMap,
-        script_version_id: scriptVersionId,
-      });
-      const saved = await persistMediaMap({
-        map: activatedMap,
-        eventName: "hearth.media_map.conversation_applied.v1",
-        eventPayload: {
-          entry_count: activatedMap.entries.length,
-          direction: args.directionId,
-          constraints: args.constraintsText.trim() || null,
-          derived_from_script: args.derivedFromScript,
-          scope: conversationScope,
-          script_version_id: scriptVersionId,
-        },
-        baseEpisodePackage: prepared.episodePackage,
-      });
-      if (!saved.ok) {
-        setMediaMapSaveError(saved.error);
-        setMediaMapSaveState("error");
-        return false;
-      }
-      setSelectedMediaMapEntryId(activatedMap.entries[0]?.id ?? null);
-      setMediaMapSaveState("saved");
-      setMediaMapMessage(
-        `${prepared.bootstrappedImageCount > 0 ? `Seeded ${prepared.bootstrappedImageCount} timeline image beat${prepared.bootstrappedImageCount === 1 ? "" : "s"} from the canonical script. ` : ""}${prepared.bootstrappedBrollCount > 0 ? `Seeded ${prepared.bootstrappedBrollCount} B-roll beat${prepared.bootstrappedBrollCount === 1 ? "" : "s"} from the canonical script. ` : ""}${prepared.bootstrappedReferenceClipCount > 0 ? `Seeded ${prepared.bootstrappedReferenceClipCount} Reference Clip${prepared.bootstrappedReferenceClipCount === 1 ? "" : "s"} from explanatory Timeline Image beats. ` : ""}Applied a ${args.directionId} visual plan with ${activatedMap.entries.length} mapped beats. ${args.constraintsText.trim() ? `Constraints: ${args.constraintsText.trim()}. ` : ""}${args.derivedFromScript ? "Started from the current script read." : "Direction was chosen manually."}`,
-      );
-      return true;
-    } catch {
-      setMediaMapSaveError("Unable to build and apply the Episode Media Map.");
-      setMediaMapSaveState("error");
-      return false;
-    } finally {
-      setIsMediaMapBusy(false);
-    }
   }
 
   async function onCreateThumbnailConcept() {
