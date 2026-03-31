@@ -19,7 +19,6 @@ import SourcesView from "../views/SourcesView";
 import "./HearthShell.css";
 import { createHearthWorkpiece } from "../lib/hearth-workpiece";
 import {
-  isHearthPlanningSessionKey,
   readHearthPlanningSessionCache,
   writeHearthPlanningSessionCache,
 } from "../lib/hearth-session-registry";
@@ -37,7 +36,7 @@ import {
   type HearthInteractionEventType,
 } from "../lib/hearth-chat-api";
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
-import { commitHearthSession, readHearthSession } from "../lib/hearth-session-repo";
+import { commitHearthSession } from "../lib/hearth-session-repo";
 import {
   commitHearthPrimaryScript,
   getHearthPrimaryScriptPath,
@@ -75,7 +74,7 @@ import {
   upsertHearthWorkpiecePresence,
   type HearthWorkpiecePresence,
 } from "../lib/hearth-presence";
-import { resolveTongsRequestApiToken, tongsFetch } from "../lib/tongs-fetch";
+import { resolveTongsRequestApiToken } from "../lib/tongs-fetch";
 import { useSourcesState } from "../hooks/useSourcesState";
 import {
   useChatWorkspace,
@@ -93,6 +92,7 @@ import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
 import { useHearthWorkspaceResetLifecycle } from "../hooks/useHearthWorkspaceResetLifecycle";
 import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
 import { useHearthSparkDiscovery } from "../hooks/useHearthSparkDiscovery";
+import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceSessionLifecycle";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
 import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
@@ -5761,114 +5761,22 @@ export default function HearthShell({
     }
   }, [selectedSparkId, visibleSparks]);
 
-  useEffect(() => {
-    if (incomingBarStockIntakeRoute && !workpieceId) {
-      setPlanningSession(null);
-      setSessionTouched(false);
-      return;
-    }
-
-    if (typeof window === "undefined") return;
-    const refreshSession = () => {
-      const cached = readHearthPlanningSessionCache(workpieceId, workspaceId);
-      if (cached) {
-        const normalizedCached: HearthPlanningSession = {
-          ...cached,
-          workpiece_id: normalizeUuid(cached.workpiece_id),
-          workspace_id: normalizeUuid(cached.workspace_id),
-        };
-        setPlanningSession(normalizedCached);
-      }
-    };
-    refreshSession();
-    const onStorage = (event: StorageEvent) => {
-      if (!isHearthPlanningSessionKey(event.key)) return;
-      refreshSession();
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, [incomingBarStockIntakeRoute, workpieceId, workspaceId]);
-
-  useEffect(() => {
-    const normalizedWorkpieceId = normalizeUuid(workpieceId);
-    if (!normalizedWorkpieceId) return;
-    let cancelled = false;
-    readHearthSession(normalizedWorkpieceId)
-      .then((session) => {
-        if (cancelled || !session) return;
-        const normalizedSession: HearthPlanningSession = {
-          ...session,
-          workpiece_id: normalizeUuid(session.workpiece_id),
-          workspace_id: normalizeUuid(session.workspace_id),
-        };
-        setPlanningSession(normalizedSession);
-        setSessionTouched(false);
-        sessionCommitRef.current = buildSessionFingerprint(normalizedSession);
-        writeHearthPlanningSessionCache(
-          normalizedSession,
-          normalizedWorkpieceId,
-          workspaceId ?? normalizedSession.workspace_id ?? null,
-        );
-        if (!workspaceId && normalizedSession.workspace_id) {
-          setWorkspaceId(normalizedSession.workspace_id);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [workpieceId, workspaceId]);
-
-  useEffect(() => {
-    const workspace = normalizeUuid(workspaceId);
-    const workpiece = normalizeUuid(workpieceId);
-    if (!workspace || !workpiece) return;
-
-    let cancelled = false;
-    void (async () => {
-      try {
-        const response = await tongsFetch(
-          `/tongs/workpieces/${encodeURIComponent(workpiece)}/read-file?path=${encodeURIComponent("metadata.json")}`,
-          { method: "GET" },
-        );
-        if (!response.ok) {
-          if (response.status === 401 || response.status === 403) {
-            if (!cancelled) {
-              setError("You no longer have access to this workpiece in the active workspace.");
-              setWorkpieceId(null);
-            }
-          }
-          return;
-        }
-        const body = await response.json() as { data?: { workspace_id?: unknown } };
-        const workpieceWorkspaceId = normalizeUuid(body?.data?.workspace_id);
-        if (!cancelled && workpieceWorkspaceId && workpieceWorkspaceId !== workspace) {
-          setError("This workpiece belongs to another workspace. Switch workspace to open it.");
-          setPlanningSession(null);
-          setPresenceRows([]);
-          setWorkpieceId(null);
-        }
-      } catch {
-        // ignore metadata workspace checks when the network is unavailable
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [workpieceId, workspaceId]);
-
-  useEffect(() => {
-    if (!planningSession) return;
-    const needsWorkspace = workspaceId && planningSession.workspace_id !== workspaceId;
-    const needsWorkpiece = workpieceId && planningSession.workpiece_id !== workpieceId;
-    if (!needsWorkspace && !needsWorkpiece) return;
-    updatePlanningSession((prev) => ({
-      ...prev,
-      workspace_id: workspaceId ?? prev.workspace_id ?? null,
-      workpiece_id: workpieceId ?? prev.workpiece_id ?? null,
-    }), { touched: false });
-  }, [planningSession, updatePlanningSession, workspaceId, workpieceId]);
+  useHearthWorkspaceSessionLifecycle({
+    incomingBarStockIntakeRoute,
+    workpieceId,
+    workspaceId,
+    planningSession,
+    normalizeUuid,
+    setPlanningSession,
+    setSessionTouched,
+    setWorkspaceId,
+    setError,
+    setPresenceRows,
+    setWorkpieceId,
+    sessionCommitRef,
+    buildSessionFingerprint,
+    updatePlanningSession,
+  });
 
   useEffect(() => {
     const workspace = workspaceId?.trim() ?? "";
