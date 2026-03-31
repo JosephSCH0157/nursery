@@ -206,6 +206,7 @@ import WorkpieceTabBar from "../views/surfaces/WorkpieceTabBar";
 import HearthReadyMode from "../views/modes/HearthReadyMode";
 import HearthSeriesMode from "../views/modes/HearthSeriesMode";
 import HearthEpisodesMode from "../views/modes/HearthEpisodesMode";
+import HearthPlanningMode from "../views/modes/HearthPlanningMode";
 import {
   PRODUCTION_ACTION_LABEL,
   persistProductionArtifact as persistHearthProductionArtifact,
@@ -7437,116 +7438,44 @@ export default function HearthShell({
   };
 
   const renderPlanningView = () => (
-    <section className="hs-planning">
-      <header className="hs-planning-header">
-        <div className="hs-planning-title">Planning Board</div>
-        <div className="hs-planning-meta">
-          {sessionIntent ? `Intent: ${sessionIntent === "from_spark" ? "From Spark" : "New Idea"}` : "Intent: —"}
-          {sessionSparkId ? ` · Spark ${sessionSparkId.slice(0, 8)}` : ""}
-        </div>
-      </header>
-
-      <div className="hs-toolbar">
-        <button
-          type="button"
-          onClick={() => void syncSessionToTongs()}
-          disabled={!planningSession || !workpieceId}
-        >
-          Save Planning
-        </button>
-        <span className="hs-status-text">
-          {sessionTouched ? "Unsaved changes" : "Saved"}
-        </span>
-      </div>
-
-      <label className="hs-field">
-        <span className="hs-field-label">Title</span>
-        <input
-          type="text"
-          value={sessionTitle}
-          placeholder="Episode title seed"
-          onChange={(event) => {
-            updatePlanningSession((prev) => ({
-              ...prev,
-              title: event.target.value,
-            }));
-          }}
-        />
-      </label>
-      <label className="hs-field">
-        <span className="hs-field-label">Goals</span>
-        <textarea
-          value={sessionGoalsText}
-          placeholder="One per line"
-          onChange={(event) => {
-            const nextGoals = parsePlanningLines(event.target.value);
-            updatePlanningSession((prev) => ({
-              ...prev,
-              goals: nextGoals,
-            }));
-          }}
-          className="hs-textarea-small"
-        />
-      </label>
-      <label className="hs-field">
-        <span className="hs-field-label">Outline</span>
-        <textarea
-          value={sessionOutlineText}
-          placeholder="Bullet outline, one per line"
-          onChange={(event) => {
-            const nextOutline = parsePlanningLines(event.target.value);
-            updatePlanningSession((prev) => ({
-              ...prev,
-              outline: nextOutline,
-            }));
-          }}
-          className="hs-textarea-medium"
-        />
-      </label>
-      <div className="hs-decision-section">
-        <span className="hs-decision-title">Decision notes</span>
-        <div className="hs-decision-input-row">
-          <input
-            type="text"
-            aria-label="Decision draft"
-            value={decisionDraft}
-            placeholder="Add a decision"
-            onChange={(event) => setDecisionDraft(event.target.value)}
-            className="hs-decision-input"
-          />
-          <button type="button" onClick={onAddDecision} disabled={!decisionDraft.trim()}>
-            Add
-          </button>
-        </div>
-        {sessionDecisions.length === 0 ? (
-          <p className="hs-muted-text-small">No decisions logged yet.</p>
-        ) : (
-          <div className="hs-decision-list">
-            {sessionDecisions.map((decision, idx) => (
-              <div
-                key={`${decision.at}-${idx}`}
-                className="hs-decision-card"
-              >
-                <div className="hs-decision-time">
-                  {formatDecisionAt(decision.at)}
-                </div>
-                <input
-                  type="text"
-                  aria-label={`Decision note ${idx + 1}`}
-                  value={decision.text}
-                  onChange={(event) => onUpdateDecision(idx, event.target.value)}
-                />
-                <div className="hs-decision-actions">
-                  <button type="button" onClick={() => onRemoveDecision(idx)}>
-                    Remove
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </section>
+    <HearthPlanningMode
+      sessionIntent={sessionIntent}
+      sessionSparkId={sessionSparkId}
+      syncSessionToTongs={syncSessionToTongs}
+      planningSession={planningSession}
+      workpieceId={workpieceId}
+      sessionTouched={sessionTouched}
+      sessionTitle={sessionTitle}
+      onSessionTitleChange={(value) => {
+        updatePlanningSession((prev) => ({
+          ...prev,
+          title: value,
+        }));
+      }}
+      sessionGoalsText={sessionGoalsText}
+      onSessionGoalsChange={(value) => {
+        const nextGoals = parsePlanningLines(value);
+        updatePlanningSession((prev) => ({
+          ...prev,
+          goals: nextGoals,
+        }));
+      }}
+      sessionOutlineText={sessionOutlineText}
+      onSessionOutlineChange={(value) => {
+        const nextOutline = parsePlanningLines(value);
+        updatePlanningSession((prev) => ({
+          ...prev,
+          outline: nextOutline,
+        }));
+      }}
+      decisionDraft={decisionDraft}
+      onDecisionDraftChange={setDecisionDraft}
+      onAddDecision={onAddDecision}
+      sessionDecisions={sessionDecisions}
+      formatDecisionAt={formatDecisionAt}
+      onUpdateDecision={onUpdateDecision}
+      onRemoveDecision={onRemoveDecision}
+    />
   );
 
   const renderSourcesView = () => (
