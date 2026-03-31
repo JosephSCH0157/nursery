@@ -1,5 +1,11 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { EpisodeMediaMapEntry } from "../../lib/episode-package-v2";
+import {
+  buildMediaMapBeatCards,
+  resolveMediaMapConversationSummary,
+  type MediaMapConversationDirectionId,
+  type MediaMapConversationSeed,
+} from "../../lib/hearth-media-map-conversation";
 import { formatHearthVisualPurposeLabel } from "../../lib/hearth-visual-purpose";
 
 type EpisodeMediaMapPanelProps = {
@@ -27,6 +33,16 @@ type EpisodeMediaMapPanelProps = {
     optional: boolean;
     critical: boolean;
   };
+  conversation: {
+    state: "idle" | "loading" | "ready" | "error";
+    seed: MediaMapConversationSeed | null;
+    error: string | null;
+    onBuildAndApply: (args: {
+      directionId: MediaMapConversationDirectionId;
+      constraintsText: string;
+      derivedFromScript: boolean;
+    }) => Promise<boolean>;
+  };
   onSelectEntry: (id: string) => void;
   onDraftChange: (field: string, value: string | boolean) => void;
   onGenerationScopeChange: (value: string) => void;
@@ -47,6 +63,12 @@ const GENERATION_SCOPES = [
   { value: "images_reference_clips", label: "Images + Reference Clips" },
   { value: "full_media_plan", label: "Full media plan" },
 ];
+const CONSTRAINT_CHIPS = [
+  "Keep it simple.",
+  "Only 2-3 generated clips.",
+  "Heavier on B-roll than graphics.",
+  "Avoid branded visuals.",
+];
 
 function formatMediaKindLabel(kind: string): string {
   if (kind === "b_roll") return "B-roll";
@@ -60,58 +82,42 @@ function resolveEntryPurposeSummary(entry: EpisodeMediaMapEntry): string {
   return "Covers motion, mood, or narrative support";
 }
 
-export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
-  const selectedEntry = useMemo(
-    () => props.entries.find((entry) => entry.id === props.selectedEntryId) ?? null,
-    [props.entries, props.selectedEntryId],
-  );
-  const selectedEntryPurposeSummary = useMemo(
-    () => (selectedEntry ? resolveEntryPurposeSummary(selectedEntry) : null),
-    [selectedEntry],
-  );
+function appendConstraint(currentValue: string, nextValue: string): string {
+  const trimmedCurrent = currentValue.trim();
+  const trimmedNext = nextValue.trim();
+  if (!trimmedCurrent) return trimmedNext;
+  if (trimmedCurrent.toLowerCase().includes(trimmedNext.toLowerCase())) return trimmedCurrent;
+  return `${trimmedCurrent} ${trimmedNext}`.trim();
+}
 
+function MediaMapAdvancedEditor(props: EpisodeMediaMapPanelProps & {
+  selectedEntry: EpisodeMediaMapEntry | null;
+  selectedEntryPurposeSummary: string | null;
+}) {
   return (
-    <div className="hs-imap-panel">
-      <div className="hs-imap-header">
-        <div>
-          <h4 className="hs-imap-title">Episode Media Map</h4>
-          <p className="hs-imap-subtitle">
-            Canonical visual intent map for Hammer. Script version: {props.scriptVersionLabel}
-            {props.stale ? " (needs review)" : ""}
-          </p>
-          <p className="hs-imap-help-text">
-            This reflects the current thumbnail, Timeline Images, B-roll, and Reference Clip plans. Activate it when those lanes are ready to hand off.
-          </p>
-        </div>
-        <div className="hs-imap-candidate-action-group">
-          <label>
-            Plan Scope
-            <select
-              value={props.generationScope}
-              onChange={(event) => props.onGenerationScopeChange(event.target.value)}
-              disabled={props.disabled}
-            >
-              {GENERATION_SCOPES.map((scope) => (
-                <option key={scope.value} value={scope.value}>{scope.label}</option>
-              ))}
-            </select>
-          </label>
-          <button type="button" className="hs-primary-btn" onClick={props.onGenerateFromPlans} disabled={props.disabled}>
-            Generate Episode Media Map
-          </button>
-          <button type="button" className="hs-secondary-btn" onClick={props.onActivateMap} disabled={props.disabled}>
-            Activate Media Plan
-          </button>
-          <button type="button" className="hs-secondary-btn" onClick={props.onAddEntry} disabled={props.disabled}>
-            Add Entry
-          </button>
-        </div>
-      </div>
-
-      <div className="hs-imap-toolbar">
-        <span className="hs-pill">{props.entries.length} entry{props.entries.length === 1 ? "" : "ies"}</span>
-        <span className="hs-pill">Map: {props.mapStatus}</span>
-        <span className="hs-pill">State: {props.saveState}</span>
+    <div className="hs-imap-advanced-body">
+      <div className="hs-imap-candidate-action-group">
+        <label>
+          Plan Scope
+          <select
+            value={props.generationScope}
+            onChange={(event) => props.onGenerationScopeChange(event.target.value)}
+            disabled={props.disabled}
+          >
+            {GENERATION_SCOPES.map((scope) => (
+              <option key={scope.value} value={scope.value}>{scope.label}</option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className="hs-secondary-btn" onClick={props.onGenerateFromPlans} disabled={props.disabled}>
+          Build Draft From Plans
+        </button>
+        <button type="button" className="hs-secondary-btn" onClick={props.onActivateMap} disabled={props.disabled}>
+          Activate Current Map
+        </button>
+        <button type="button" className="hs-secondary-btn" onClick={props.onAddEntry} disabled={props.disabled}>
+          Add Entry
+        </button>
       </div>
 
       <div className="hs-imap-grid">
@@ -134,7 +140,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
         </section>
 
         <section className="hs-imap-editor" aria-label="Episode media map editor">
-          {!selectedEntry ? (
+          {!props.selectedEntry ? (
             <div className="hs-imap-empty">Select an entry to edit.</div>
           ) : (
             <>
@@ -197,9 +203,9 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
               </div>
 
               <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
-                {selectedEntryPurposeSummary ? (
+                {props.selectedEntryPurposeSummary ? (
                   <div className="hs-imap-help-text">
-                    Purpose: {formatHearthVisualPurposeLabel(selectedEntry.purpose)}. {selectedEntryPurposeSummary}
+                    Purpose: {formatHearthVisualPurposeLabel(props.selectedEntry.purpose)}. {props.selectedEntryPurposeSummary}
                   </div>
                 ) : null}
                 <label className="hs-checkbox">
@@ -229,6 +235,219 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
           )}
         </section>
       </div>
+    </div>
+  );
+}
+
+export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
+  const selectedEntry = useMemo(
+    () => props.entries.find((entry) => entry.id === props.selectedEntryId) ?? null,
+    [props.entries, props.selectedEntryId],
+  );
+  const selectedEntryPurposeSummary = useMemo(
+    () => (selectedEntry ? resolveEntryPurposeSummary(selectedEntry) : null),
+    [selectedEntry],
+  );
+  const beatCards = useMemo(() => buildMediaMapBeatCards(props.entries), [props.entries]);
+  const [selectedDirectionId, setSelectedDirectionId] = useState<MediaMapConversationDirectionId | null>(null);
+  const [constraintsText, setConstraintsText] = useState("");
+  const [showPlanningConversation, setShowPlanningConversation] = useState(props.entries.length === 0);
+  const [isConversationApplying, setIsConversationApplying] = useState(false);
+  const selectedDirection = props.conversation.seed?.directions.find((direction) => direction.id === selectedDirectionId) ?? null;
+  const summary = useMemo(
+    () => resolveMediaMapConversationSummary({
+      entries: props.entries,
+      directionId: selectedDirectionId,
+      constraintsText,
+      derivedFromScript: selectedDirectionId ? props.conversation.seed?.derivedFromScript : undefined,
+    }),
+    [constraintsText, props.conversation.seed?.derivedFromScript, props.entries, selectedDirectionId],
+  );
+
+  useEffect(() => {
+    if (props.entries.length > 0 && !isConversationApplying) {
+      setShowPlanningConversation(false);
+    }
+  }, [isConversationApplying, props.entries.length]);
+
+  useEffect(() => {
+    if (props.entries.length === 0) {
+      setShowPlanningConversation(true);
+    }
+  }, [props.entries.length]);
+
+  return (
+    <div className="hs-imap-panel">
+      <div className="hs-imap-header">
+        <div>
+          <h4 className="hs-imap-title">Episode Media Map</h4>
+          <p className="hs-imap-subtitle">
+            Producer-facing visual plan for Hammer. Script version: {props.scriptVersionLabel}
+            {props.stale ? " (needs review)" : ""}
+          </p>
+          <p className="hs-imap-help-text">
+            Hearth reads the current script, helps you choose a visual direction, then lays out and applies the plan in one move.
+          </p>
+        </div>
+        <div className={`hs-imap-save-state is-${props.saveState}`}>
+          {props.saveState}
+        </div>
+      </div>
+
+      <div className="hs-imap-toolbar">
+        <span className="hs-pill">{props.entries.length} mapped beat{props.entries.length === 1 ? "" : "s"}</span>
+        <span className="hs-pill">Map: {props.mapStatus}</span>
+        <span className="hs-pill">State: {props.saveState}</span>
+      </div>
+
+      {summary && props.entries.length > 0 ? (
+        <section className="hs-imap-summary-band" aria-label="Applied media map summary">
+          <div className="hs-imap-summary-copy">
+            <div className="hs-imap-summary-title">Applied visual plan</div>
+            <div className="hs-imap-summary-meta">
+              <span>Direction: {summary.directionLabel}</span>
+              <span>Constraints: {summary.constraintsLabel}</span>
+              <span>{summary.sourceLabel}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="hs-secondary-btn"
+            onClick={() => setShowPlanningConversation((prev) => !prev)}
+            disabled={props.disabled}
+          >
+            {showPlanningConversation ? "Hide planning conversation" : "Show planning conversation"}
+          </button>
+        </section>
+      ) : null}
+
+      {showPlanningConversation ? (
+        <section className="hs-imap-conversation" aria-label="Media map planning conversation">
+          <div className="hs-imap-conversation-bubble is-hearth">
+            <div className="hs-imap-conversation-speaker">Hearth</div>
+            <p>{props.conversation.seed?.lead ?? "I'm reading through the episode to find the cleanest visual package."}</p>
+            <p>{props.conversation.seed?.ask ?? "Which direction feels closest for this visual plan?"}</p>
+          </div>
+
+          {props.conversation.error ? (
+            <div className="hs-imap-help-text">
+              {props.conversation.error} I can still lay this out if you choose the direction manually.
+            </div>
+          ) : null}
+
+          <div className="hs-imap-direction-list" aria-label="Suggested visual directions">
+            {(props.conversation.seed?.directions ?? []).map((direction) => (
+              <button
+                key={direction.id}
+                type="button"
+                className={`hs-imap-direction-chip${direction.id === selectedDirectionId ? " is-selected" : ""}`}
+                onClick={() => setSelectedDirectionId(direction.id)}
+                disabled={props.disabled || props.conversation.state === "loading" || isConversationApplying}
+              >
+                <span className="hs-imap-direction-chip-title">{direction.label}</span>
+                <span className="hs-imap-direction-chip-copy">{direction.lead}</span>
+              </button>
+            ))}
+          </div>
+
+          {selectedDirection ? (
+            <>
+              <div className="hs-imap-conversation-bubble is-hearth">
+                <div className="hs-imap-conversation-speaker">Hearth</div>
+                <p>{selectedDirection.plan}</p>
+                <p>Anything I should keep in mind before I lay this out?</p>
+              </div>
+
+              <label className="hs-field">
+                <span className="hs-field-label">Optional constraints</span>
+                <textarea
+                  value={constraintsText}
+                  onChange={(event) => setConstraintsText(event.target.value)}
+                  rows={3}
+                  placeholder="Keep it simple. Heavier on B-roll than graphics. Avoid branded visuals."
+                  disabled={props.disabled || isConversationApplying}
+                />
+              </label>
+
+              <div className="hs-imap-constraint-chips">
+                {CONSTRAINT_CHIPS.map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    className="hs-imap-constraint-chip"
+                    onClick={() => setConstraintsText((current) => appendConstraint(current, chip))}
+                    disabled={props.disabled || isConversationApplying}
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+
+              <div className="hs-imap-conversation-actions">
+                <button
+                  type="button"
+                  className="hs-imap-primary-action"
+                  disabled={props.disabled || isConversationApplying}
+                  onClick={async () => {
+                    if (!selectedDirectionId) return;
+                    setIsConversationApplying(true);
+                    const applied = await props.conversation.onBuildAndApply({
+                      directionId: selectedDirectionId,
+                      constraintsText,
+                      derivedFromScript: Boolean(props.conversation.seed?.derivedFromScript),
+                    });
+                    setIsConversationApplying(false);
+                    if (applied) {
+                      setShowPlanningConversation(false);
+                    }
+                  }}
+                >
+                  {isConversationApplying ? "Building visual plan..." : "Go Ahead: Build Visual Plan"}
+                </button>
+                <div className="hs-imap-help-text">
+                  This builds, applies, and persists the map in one action. Choosing a direction alone does not apply anything.
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="hs-imap-help-text">Pick the direction that feels closest. Hearth will wait for your go-ahead before applying the plan.</div>
+          )}
+        </section>
+      ) : null}
+
+      {props.entries.length === 0 ? (
+        <div className="hs-imap-empty">No media map is applied yet.</div>
+      ) : (
+        <section className="hs-imap-beat-cards" aria-label="Mapped visual beats">
+          {beatCards.map((card, index) => (
+            <article key={card.id} className="hs-imap-beat-card">
+              <div className="hs-imap-beat-card-header">
+                <div>
+                  <div className="hs-imap-beat-card-title">{card.title}</div>
+                  <div className="hs-imap-beat-card-meta">Beat {index + 1} · {card.mediaKindLabel} · {card.purposeLabel}</div>
+                </div>
+              </div>
+              <div className="hs-imap-beat-card-copy">{card.description}</div>
+              <div className="hs-imap-beat-card-detail">
+                <strong>What it is doing:</strong> {card.whatItDoes}
+              </div>
+              <div className="hs-imap-beat-card-detail">
+                <strong>Why it is here:</strong> {card.whyHere}
+              </div>
+              <div className="hs-imap-beat-card-hold">{card.holdLabel}</div>
+            </article>
+          ))}
+        </section>
+      )}
+
+      <details className="hs-imap-advanced" aria-label="Advanced media map controls">
+        <summary>Advanced / Fine Tune</summary>
+        <MediaMapAdvancedEditor
+          {...props}
+          selectedEntry={selectedEntry}
+          selectedEntryPurposeSummary={selectedEntryPurposeSummary}
+        />
+      </details>
 
       {props.saveError ? <div className="hs-error-text-small">{props.saveError}</div> : null}
       {props.message ? <div className="hs-imap-help-text">{props.message}</div> : null}

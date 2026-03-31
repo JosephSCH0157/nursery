@@ -2285,6 +2285,13 @@
   opacity: 0.84;
 }
 
+.hs-thumb-prompt-card-tagline {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(226, 232, 240, 0.8);
+}
+
 .hs-thumb-prompt-card-text {
   min-height: 112px;
   padding: 10px 12px;
@@ -3079,6 +3086,196 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.hs-imap-summary-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.hs-imap-summary-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.hs-imap-summary-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.hs-imap-summary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.hs-imap-conversation {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(29, 78, 216, 0.22);
+  border-radius: 12px;
+  background: rgba(29, 78, 216, 0.05);
+  padding: 14px;
+}
+
+.hs-imap-conversation-bubble {
+  display: grid;
+  gap: 6px;
+  max-width: 920px;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(15, 23, 42, 0.05);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.hs-imap-conversation-bubble.is-hearth {
+  background: rgba(29, 78, 216, 0.08);
+  border-color: rgba(29, 78, 216, 0.22);
+}
+
+.hs-imap-conversation-bubble p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.hs-imap-conversation-speaker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.64;
+}
+
+.hs-imap-direction-list {
+  display: grid;
+  gap: 8px;
+}
+
+.hs-imap-direction-chip {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.04);
+  padding: 12px;
+}
+
+.hs-imap-direction-chip.is-selected {
+  border-color: rgba(29, 78, 216, 0.5);
+  background: rgba(29, 78, 216, 0.12);
+}
+
+.hs-imap-direction-chip-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.hs-imap-direction-chip-copy {
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.84;
+}
+
+.hs-imap-constraint-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hs-imap-constraint-chip {
+  border-radius: 999px;
+}
+
+.hs-imap-conversation-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.hs-imap-beat-cards {
+  display: grid;
+  gap: 10px;
+}
+
+.hs-imap-beat-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.hs-imap-beat-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.hs-imap-beat-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.hs-imap-beat-card-meta {
+  font-size: 11px;
+  opacity: 0.68;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.hs-imap-beat-card-copy,
+.hs-imap-beat-card-detail,
+.hs-imap-beat-card-hold {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.hs-imap-beat-card-hold {
+  font-weight: 600;
+}
+
+.hs-imap-advanced {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.hs-imap-advanced > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(15, 23, 42, 0.04);
+  opacity: 0.8;
+}
+
+.hs-imap-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.hs-imap-advanced-body {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
 }
 
 .hs-imap-workspace-band {

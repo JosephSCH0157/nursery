@@ -985,7 +985,12 @@ export default function ThumbnailPanel({
                 {promptVariants.map((variant) => (
                   <article key={variant.id} className="hs-thumb-prompt-card">
                     <div className="hs-thumb-prompt-card-header">
-                      <div className="hs-thumb-prompt-card-title">{resolvePromptVariantLabel(variant.style)}</div>
+                      <div>
+                        <div className="hs-thumb-prompt-card-title">{resolvePromptVariantLabel(variant.style)}</div>
+                        {variant.tagline ? (
+                          <div className="hs-thumb-prompt-card-tagline">{variant.tagline}</div>
+                        ) : null}
+                      </div>
                       <button
                         type="button"
                         onClick={() => onCopyPromptVariant(variant.prompt)}
