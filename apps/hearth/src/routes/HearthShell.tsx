@@ -14,14 +14,10 @@ import {
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
 import {
-  isCanonicalSparkDiscoveryResolved,
   listHearthBarStockSparks,
-  resolveCanonicalSparkIntakeError,
 } from "../lib/hearth-barstock-sparks";
 import {
-  readBarstockProjectContext,
   resolveBarstockProjectIdFromQuery,
-  upsertBarstockProjectEpisodeLink,
 } from "../lib/barstock-project-links";
 import SourcesView from "../views/SourcesView";
 import "./HearthShell.css";
@@ -98,6 +94,8 @@ import { useApprovalFlow } from "../hooks/useApprovalFlow";
 import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
 import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
 import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
+import { useHearthWorkspaceResetLifecycle } from "../hooks/useHearthWorkspaceResetLifecycle";
+import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
 import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
@@ -2195,7 +2193,6 @@ export default function HearthShell({
   const projectIntakeHandledRef = useRef<string | null>(null);
   const sparkIntakeHandledRef = useRef<string | null>(null);
   const intakeResetKeyRef = useRef<string | null>(null);
-  const previousWorkspaceIdRef = useRef<string | null>(workspaceId);
   const readyScriptsRequestSeqRef = useRef(0);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const restoredModeDraftKeyRef = useRef<string | null>(null);
@@ -5687,171 +5684,63 @@ export default function HearthShell({
     };
   }, [workspaceId]);
 
-  useEffect(() => {
-    const previousWorkspaceId = previousWorkspaceIdRef.current;
-    if (previousWorkspaceId === workspaceId) return;
-    previousWorkspaceIdRef.current = workspaceId;
-
-    projectIntakeHandledRef.current = null;
-    sparkIntakeHandledRef.current = null;
-    setSparks([]);
-    setSparkDiscoveryWorkspaceId(null);
-    setIsSparksLoading(Boolean(normalizeUuid(workspaceId)));
-    setWorkpieceId(null);
-    setPlanningSession(null);
-    setSessionTouched(false);
-    setWorkpieceSummaries([]);
-    setWorkpiecesError(null);
-    setDrafts([]);
-    setActiveDraft(null);
-    setDraftSnapshot(null);
-    setRevisions([]);
-    setSelectedRevision(null);
-    setEditingDraftId(null);
-    setDraftConflictState(null);
-    setPresenceRows([]);
-    setError(null);
-    setForgeError(null);
-    setMode("episodes");
-    void sessionStore.clearSession();
-  }, [sessionStore, workspaceId]);
-
-  useEffect(() => {
-    if (!routeProjectId) return;
-    if (projectIntakeHandledRef.current === routeProjectId) return;
-
-    const workspace = workspaceId ?? resolveWorkspaceId();
-    if (!workspace) {
-      setForgeError("Project intake requires workspace_id.");
-      return;
-    }
-
-    let cancelled = false;
-    setIsForging(true);
-    setForgeError(null);
-
-    void (async () => {
-      const context = await readBarstockProjectContext({
-        workspaceId: workspace,
-        projectId: routeProjectId,
-      });
-      if (cancelled) return;
-
-      if (context.error) {
-        console.warn("[hearth-project-intake] context lookup issue", context.error);
-        setForgeError("Unable to resolve this Project in Tongs. Sync Bar Stock, then retry.");
-        return;
-      }
-
-      const projectTitle = context.projectTitle?.trim() || null;
-      setRouteProjectTitle(projectTitle);
-      if (!context.projectExists) {
-        setForgeError("Project not found in Tongs yet. Sync Bar Stock, then retry.");
-        return;
-      }
-
-      let resolvedWorkpieceId = context.workpieceId ?? readPendingProjectWorkpieceId(workspace, routeProjectId);
-      if (!resolvedWorkpieceId) {
-        const created = await createHearthWorkpiece(
-          { created_from: "bar-stock" },
-          SAFE_SCRIPT_STARTER,
-          { title: projectTitle ?? `Project ${routeProjectId.slice(0, 8)}` },
-        );
-        if (!created.ok) {
-          setForgeError("Failed to open this Project in Hearth.");
-          return;
-        }
-        resolvedWorkpieceId = created.workpieceId;
-        writePendingProjectWorkpieceId(workspace, routeProjectId, resolvedWorkpieceId);
-      }
-
-      const linked = await upsertBarstockProjectEpisodeLink({
-        workspaceId: workspace,
-        projectId: routeProjectId,
-        workpieceId: resolvedWorkpieceId,
-      });
-      if (!linked.ok) {
-        console.warn("[hearth-project-intake] link upsert failed", linked.error);
-        writePendingProjectWorkpieceId(workspace, routeProjectId, resolvedWorkpieceId);
-        setForgeError("Failed to link this Project to an Episode. Sync and retry.");
-        return;
-      }
-      writePendingProjectWorkpieceId(workspace, routeProjectId, null);
-
-      if (cancelled) return;
-      projectIntakeHandledRef.current = routeProjectId;
-      setWorkspaceId(workspace);
-      setWorkpieceId(resolvedWorkpieceId);
-    })().catch((err) => {
-      if (cancelled) return;
-      const message = err instanceof Error ? err.message : "Failed to resolve project intake.";
-      setForgeError(message);
-    }).finally(() => {
-      if (!cancelled) {
-        setIsForging(false);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [routeProjectId, workspaceId]);
-
-  useEffect(() => {
-    if (routeProjectId || !routeSparkId) return;
-
-    const intakeKey = `${workspaceId ?? "none"}:${routeSparkId}`;
-    if (sparkIntakeHandledRef.current === intakeKey) return;
-
-    const intakeError = resolveCanonicalSparkIntakeError({
-      routeProjectId,
-      routeSparkId,
-      workspaceId,
-      discoveryWorkspaceId: sparkDiscoveryWorkspaceId,
-      spark: routeSpark,
-    });
-    if (intakeError) {
-      sparkIntakeHandledRef.current = intakeKey;
-      setForgeError(intakeError);
-      return;
-    }
-
-    if (!isCanonicalSparkDiscoveryResolved(workspaceId, sparkDiscoveryWorkspaceId) || isSparksLoading) {
-      return;
-    }
-    if (!routeSpark) {
-      return;
-    }
-
-    sparkIntakeHandledRef.current = intakeKey;
-    setSelectedSparkId(routeSpark.id);
-    const linkedWorkpieceId = resolveBarStockSparkHearthWorkpieceId(routeSpark);
-    if (linkedWorkpieceId) {
-      setForgeError(null);
-      void openWorkpieceInFocus(linkedWorkpieceId, {
-        workspaceId,
-        preferredDraftId: routeSpark.links?.hearthDraftId ?? null,
-        preferredWorkspaceTab: "script",
-        preferredEditorPanel: "script",
-      });
-      return;
-    }
-    if (isSparkForged(routeSpark)) {
-      setMode("episodes");
-      setForgeError("This spark is already attached to Hearth, but its Episode link could not be resolved.");
-      return;
-    }
-    void forgeSpark(routeSpark);
-  }, [
-    forgeSpark,
-    isSparksLoading,
-    openWorkpieceInFocus,
-    routeProjectId,
-    routeSpark,
-    routeSparkId,
-    sparkDiscoveryWorkspaceId,
+  useHearthWorkspaceResetLifecycle({
     workspaceId,
-  ]);
+    projectIntakeHandledRef,
+    sparkIntakeHandledRef,
+    onWorkspaceChanged: () => {
+      setSparks([]);
+      setSparkDiscoveryWorkspaceId(null);
+      setIsSparksLoading(Boolean(normalizeUuid(workspaceId)));
+      setWorkpieceId(null);
+      setPlanningSession(null);
+      setSessionTouched(false);
+      setWorkpieceSummaries([]);
+      setWorkpiecesError(null);
+      setDrafts([]);
+      setActiveDraft(null);
+      setDraftSnapshot(null);
+      setRevisions([]);
+      setSelectedRevision(null);
+      setEditingDraftId(null);
+      setDraftConflictState(null);
+      setPresenceRows([]);
+      setError(null);
+      setForgeError(null);
+      setMode("episodes");
+      void sessionStore.clearSession();
+    },
+  });
+
+  useHearthIntakeLifecycle({
+    routeProjectId,
+    routeSparkId,
+    workspaceId,
+    sparkDiscoveryWorkspaceId,
+    isSparksLoading,
+    routeSpark,
+    projectIntakeHandledRef,
+    sparkIntakeHandledRef,
+    resolveWorkspaceId,
+    readPendingProjectWorkpieceId,
+    writePendingProjectWorkpieceId,
+    createProjectWorkpiece: async (title) => (
+      await createHearthWorkpiece(
+        { created_from: "bar-stock" },
+        SAFE_SCRIPT_STARTER,
+        { title },
+      )
+    ),
+    openWorkpieceInFocus,
+    forgeSpark,
+    setIsForging,
+    setForgeError,
+    setRouteProjectTitle,
+    setWorkspaceId,
+    setWorkpieceId,
+    setSelectedSparkId,
+    setMode,
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
