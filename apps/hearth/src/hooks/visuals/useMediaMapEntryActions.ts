@@ -33,6 +33,7 @@ type UseMediaMapEntryActionsArgs = {
   mediaMapConfidenceDraft: string;
   mediaMapOptionalDraft: boolean;
   mediaMapCriticalDraft: boolean;
+  mediaMapSaveState: "saved" | "editing" | "saving" | "error";
   setIsMediaMapBusy: (next: boolean) => void;
   setMediaMapSaveState: (next: "saved" | "editing" | "saving" | "error") => void;
   setMediaMapSaveError: (next: string | null) => void;
@@ -322,10 +323,104 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
       args.setMediaMapSaveState("error");
       return;
     }
-    const activated = activateEpisodeMediaMapForFulfillment({
+    const nowIso = new Date().toISOString();
+    let mapForActivation: EpisodeMediaMap = {
       ...args.episodePackage.media_map,
       script_version_id: args.approvedScriptVersion ? String(args.approvedScriptVersion) : args.episodePackage.media_map.script_version_id,
-    });
+    };
+    let includedPendingEntryEdits = false;
+    if (args.mediaMapSaveState === "editing" && args.selectedMediaMapEntry) {
+      const nextFinalMediaKind = (
+        args.mediaMapTypeDraft === "b_roll"
+          ? "b_roll"
+          : args.mediaMapTypeDraft === "contextual_data_composite" || args.mediaMapTypeDraft === "reference_clip"
+            ? "contextual_data_composite"
+            : "image"
+      );
+      const mediaKindChanged = args.selectedMediaMapEntry.final_media_kind !== nextFinalMediaKind;
+      const nextSourceStatus = (
+        mediaKindChanged
+          ? "unresolved"
+          : (args.mediaMapSourceStatusDraft === "selected" || args.mediaMapSourceStatusDraft === "attached"
+            ? args.mediaMapSourceStatusDraft
+            : "unresolved")
+      );
+      const nextSourceAssetId = (
+        mediaKindChanged
+          ? null
+          : (args.mediaMapSourceAssetIdDraft.trim() || null)
+      );
+      const nextFulfillmentStatus = (
+        nextSourceStatus === "selected" || nextSourceStatus === "attached"
+          ? "resolved"
+          : "planned"
+      );
+      const draftPatchedEntry: EpisodeMediaMapEntry = {
+        ...args.selectedMediaMapEntry,
+        final_media_kind: nextFinalMediaKind,
+        purpose: deriveMediaMapPurpose({
+          finalMediaKind: nextFinalMediaKind,
+          intent: args.mediaMapIntentDraft.trim(),
+          description: args.mediaMapDescriptionDraft.trim(),
+          anchorTarget: args.mediaMapAnchorTargetDraft.trim(),
+        }),
+        anchor: {
+          mode: (
+            args.mediaMapAnchorModeDraft === "line_anchor"
+            || args.mediaMapAnchorModeDraft === "phrase_match"
+            || args.mediaMapAnchorModeDraft === "speaker_turn"
+            || args.mediaMapAnchorModeDraft === "section_marker"
+            || args.mediaMapAnchorModeDraft === "absolute_time"
+              ? args.mediaMapAnchorModeDraft
+              : "phrase_match"
+          ),
+          target: args.mediaMapAnchorTargetDraft.trim(),
+        },
+        timing: {
+          in_offset_sec: normalizeMediaMapNumber(args.mediaMapInOffsetDraft, args.selectedMediaMapEntry.timing.in_offset_sec),
+          duration_sec: normalizeMediaMapNumber(args.mediaMapDurationDraft, args.selectedMediaMapEntry.timing.duration_sec),
+        },
+        description: args.mediaMapDescriptionDraft.trim(),
+        intent: args.mediaMapIntentDraft.trim(),
+        source: {
+          status: nextSourceStatus,
+          asset_id: nextSourceAssetId,
+        },
+        confidence: (
+          args.mediaMapConfidenceDraft === "high"
+          || args.mediaMapConfidenceDraft === "low"
+            ? args.mediaMapConfidenceDraft
+            : "medium"
+        ),
+        fulfillment_status: nextFulfillmentStatus,
+        fulfillment_path: (
+          nextFinalMediaKind === "b_roll"
+            ? "motion_broll"
+            : nextFinalMediaKind === "contextual_data_composite"
+              ? "reference_clip"
+              : "image"
+        ),
+        optional: args.mediaMapOptionalDraft,
+        critical: args.mediaMapCriticalDraft,
+        stale: false,
+        updated_at: nowIso,
+      };
+      mapForActivation = {
+        ...mapForActivation,
+        status: (
+          mapForActivation.status === "activated"
+          || mapForActivation.status === "fulfilling"
+          || mapForActivation.status === "fulfilled"
+        )
+          ? "needs_attention"
+          : mapForActivation.status,
+        version: Math.max(1, mapForActivation.version + 1),
+        entries: mapForActivation.entries.map((entry) => (entry.id === args.selectedMediaMapEntry?.id ? draftPatchedEntry : entry)),
+        generated_at: nowIso,
+      };
+      includedPendingEntryEdits = true;
+    }
+    const activated = activateEpisodeMediaMapForFulfillment(mapForActivation);
     args.setIsMediaMapBusy(true);
     args.setMediaMapSaveState("saving");
     args.setMediaMapSaveError(null);
@@ -334,8 +429,6 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
       const existingImageById = new Map(args.episodePackage.image_map.entries.map((entry) => [entry.id, entry] as const));
       const existingBrollById = new Map(args.episodePackage.broll_plan.beats.map((beat) => [beat.id, beat] as const));
       const existingReferenceById = new Map(args.episodePackage.cdc_plan.entries.map((entry) => [entry.id, entry] as const));
-      const nowIso = new Date().toISOString();
-
       const syncedImageEntries: EpisodeImageMapEntry[] = mediaEntriesForPlans
         .filter((entry) => entry.final_media_kind === "image")
         .map((entry, index) => {
@@ -527,7 +620,9 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
         return;
       }
       args.setMediaMapSaveState("saved");
-      args.setMediaMapMessage(`Media plan activated and synchronized (timeline images: ${syncedImageEntries.length}, B-roll: ${syncedBrollBeats.length}, reference clips: ${syncedReferenceEntries.length}).`);
+      args.setMediaMapMessage(
+        `Media plan activated and synchronized (timeline images: ${syncedImageEntries.length}, B-roll: ${syncedBrollBeats.length}, reference clips: ${syncedReferenceEntries.length})${includedPendingEntryEdits ? " with pending editor changes." : "."}`,
+      );
     } catch {
       args.setMediaMapSaveError("Unable to activate Episode Media Map.");
       args.setMediaMapSaveState("error");

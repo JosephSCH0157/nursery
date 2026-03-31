@@ -92,6 +92,7 @@ import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
 import { useHearthSparkDiscovery } from "../hooks/useHearthSparkDiscovery";
 import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceSessionLifecycle";
 import { useHearthDraftController } from "../hooks/useHearthDraftController";
+import { useHearthDraftPersistenceActions } from "../hooks/useHearthDraftPersistenceActions";
 import { useHearthScriptRepairActions } from "../hooks/useHearthScriptRepairActions";
 import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
 import { useHearthWorkpieceArchiveActions } from "../hooks/useHearthWorkpieceArchiveActions";
@@ -165,8 +166,6 @@ import {
 } from "../lib/hearth-script-mutation";
 import {
   parseHearthDraftConflictError,
-  persistHearthDraft,
-  persistHearthDraftMeta,
 } from "../lib/hearth-draft-persistence";
 import {
   normalizeScriptTags,
@@ -3235,6 +3234,7 @@ export default function HearthShell({
     mediaMapConfidenceDraft,
     mediaMapOptionalDraft,
     mediaMapCriticalDraft,
+    mediaMapSaveState,
     setIsMediaMapBusy,
     setMediaMapSaveState,
     setMediaMapSaveError,
@@ -6316,6 +6316,40 @@ export default function HearthShell({
     onSaveDraft,
   });
 
+  const { persistDraft: persistDraftImpl, saveDraftMeta: saveDraftMetaImpl } = useHearthDraftPersistenceActions({
+    mode,
+    focusTab,
+    revisionView,
+    activeDraftId: activeDraft?.id ?? null,
+    hearthUser,
+    evaluateScriptValidation,
+    buildValidationReport,
+    normalizeTitle,
+    buildDraftAttribution,
+    buildPersistedValidationMeta,
+    resolveRevisionWorkpieceId: () => resolveRevisionWorkpieceId(),
+    reportRevisionPersistenceWarning,
+    refreshRevisions,
+    persistSession,
+    syncSources: () => sourcesState.syncSources(),
+    syncSessionToTongs,
+    dedupeDraftListById,
+    draftEditVersionRef,
+    activeDraftRef,
+    store,
+    setIsSaving,
+    setDraftConflictState,
+    setError,
+    setScriptValidation,
+    setAiAutosaveWarning,
+    setAiRuntimeWarning,
+    setActiveDraft,
+    setDraftSnapshot,
+    setDrafts,
+    setSelectedRevision,
+    setRevisionView,
+  });
+
   async function persistDraft(args: {
     draft: Draft;
     updatedAt: number;
@@ -6327,53 +6361,11 @@ export default function HearthShell({
     quietFailure?: boolean;
     saveReason?: string;
   }): Promise<boolean> {
-    return persistHearthDraft(args, {
-      mode,
-      focusTab,
-      revisionView,
-      hearthUser,
-      evaluateScriptValidation,
-      buildValidationReport,
-      normalizeTitle,
-      buildDraftAttribution,
-      buildPersistedValidationMeta,
-      resolveRevisionWorkpieceId: () => resolveRevisionWorkpieceId(),
-      reportRevisionPersistenceWarning,
-      refreshRevisions,
-      persistSession,
-      syncSources: () => sourcesState.syncSources(),
-      syncSessionToTongs,
-      dedupeDraftListById,
-      draftEditVersionRef,
-      activeDraftRef,
-      store,
-      setIsSaving,
-      setDraftConflictState,
-      setError,
-      setScriptValidation,
-      setAiAutosaveWarning,
-      setAiRuntimeWarning,
-      setActiveDraft,
-      setDraftSnapshot,
-      setDrafts,
-      setSelectedRevision,
-      setRevisionView,
-    });
+    return persistDraftImpl(args);
   }
 
   async function saveDraftMeta(draft: Draft, updates: Partial<Draft>) {
-    await persistHearthDraftMeta(draft, updates, {
-      activeDraftId: activeDraft?.id ?? null,
-      hearthUser,
-      normalizeTitle,
-      buildDraftAttribution,
-      dedupeDraftListById,
-      store,
-      setScriptValidation: () => setScriptValidation(null),
-      setDrafts,
-      setActiveDraft,
-      setDraftSnapshot,
-    });
+    await saveDraftMetaImpl(draft, updates);
   }
 
   async function onCreateDraft() {
