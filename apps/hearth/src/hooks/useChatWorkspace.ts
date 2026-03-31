@@ -5,7 +5,11 @@ import {
   shouldRestartBrowserSttSession,
 } from "../lib/browser-stt";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
-import { shouldKeepHearthOutlineInChatOnly } from "../lib/hearth-chat-proposal-routing";
+import {
+  buildNoScriptChangesExplanation,
+  type HearthScriptMutationIntent,
+  resolveHearthScriptMutationRouting,
+} from "../lib/hearth-script-mutation";
 import type { ChatSurfaceProps } from "../views/surfaces/ChatSurface";
 
 type UseChatWorkspaceArgs = {
@@ -345,12 +349,15 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>
     requestedOutline: boolean;
     requestedScript: boolean;
     explicitDraftNow: boolean;
+    scriptMutationIntent: HearthScriptMutationIntent;
   };
   detectAiAutosaveReasonCode: (text: string) => any;
   buildAssistantMessageContent: (args: {
     assistantText: string;
     ops: THearthOp[];
     autosaveReasonCode: any;
+    scriptMutationRequested: boolean;
+    scriptMutationReady: boolean;
   }) => string;
   countProducerQuestions: (text: string) => number;
   readLatestOutlineFromOps: (ops: THearthOp[]) => string | null;
@@ -513,6 +520,12 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
 
       const ops = result.ops ?? [];
       const assistantText = result.assistantText ?? "";
+      const scriptMutationRouting = resolveHearthScriptMutationRouting({
+        productionAction: Boolean(params.productionAction),
+        autosaveReasonCode,
+        ops: ops as Array<{ op: string }>,
+        intent: intentSignals.scriptMutationIntent,
+      });
 
       if (result.gate === "clarify") {
         args.gateAwaitingAnswersRef.current = true;
@@ -522,15 +535,12 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
         });
       }
 
-      const keepOutlineInChatOnly = shouldKeepHearthOutlineInChatOnly({
-        productionAction: Boolean(params.productionAction),
-        autosaveReasonCode,
-        ops: ops as Array<{ op: string }>,
-      });
       const assistantContent = args.buildAssistantMessageContent({
         assistantText,
         ops,
         autosaveReasonCode,
+        scriptMutationRequested: intentSignals.scriptMutationIntent.targetsScriptBody,
+        scriptMutationReady: scriptMutationRouting.hasScriptBodyProposal,
       });
       const assistantMessage: HearthChatMessage = { role: "assistant", content: assistantContent };
       args.setChatMessages((prev) => [...prev, assistantMessage].slice(-args.chatHistoryMaxMessages));
@@ -543,8 +553,8 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
         });
       }
 
-      const proposalOps = keepOutlineInChatOnly ? [] : ops;
-      if (keepOutlineInChatOnly) {
+      const proposalOps = scriptMutationRouting.proposalOps as THearthOp[];
+      if (scriptMutationRouting.keepOutlineInChatOnly) {
         args.recordInteractionEvent("outline_generated", {
           source,
           has_outline: Boolean(args.readLatestOutlineFromOps(ops)),
@@ -570,14 +580,23 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
       if (!params.productionAction) {
         const scriptUpdated = proposalOps.some((op: any) => op.op === "set_body");
         const sourceAdditions = proposalOps.filter((op: any) => op.op === "add_source").length;
-        if (scriptUpdated) {
+        if (scriptMutationRouting.missingScriptBodyMutation) {
+          const message = buildNoScriptChangesExplanation(intentSignals.scriptMutationIntent);
+          args.setChatError(message);
+          args.publishForgeNotice({
+            job: "script-completed",
+            title: "No script changes made",
+            message,
+            severity: "warning",
+          });
+        } else if (scriptUpdated) {
           const sourceSuffix = sourceAdditions > 0
             ? ` and added ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"}`
             : "";
           args.publishForgeNotice({
             job: "script-completed",
-            title: "Draft ready",
-            message: `Hearth put together a draft pass${sourceSuffix}.`,
+            title: "Script changes ready to review",
+            message: `Hearth staged a proposed script update${sourceSuffix}.`,
             severity: "success",
           });
         } else if (sourceAdditions > 0) {

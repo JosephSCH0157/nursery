@@ -1,10 +1,15 @@
-import { useState, type ComponentProps } from "react";
+import { useCallback, useRef, useState, type ComponentProps } from "react";
 import CollapsibleFocusPanel from "../../components/focus/CollapsibleFocusPanel";
 import BrollPlanPanel from "../../components/visuals/BrollPlanPanel";
 import EpisodeMediaMapPanel from "../../components/visuals/EpisodeMediaMapPanel";
 import ImageMapPanel from "../../components/visuals/ImageMapPanel";
 import ReferenceClipPlanPanel from "../../components/visuals/ReferenceClipPlanPanel";
 import ThumbnailPanel from "../../components/visuals/ThumbnailPanel";
+import {
+  HEARTH_VISUALS_PANEL_SECTION_IDS,
+  toggleHearthVisualsPanel,
+  type HearthVisualsPanelId,
+} from "../../lib/hearth-visuals-panel";
 
 type VisualsSurfaceProps = {
   visible: boolean;
@@ -35,7 +40,30 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
       </section>
     );
   }
-  const [openPanel, setOpenPanel] = useState<"media_map" | "thumbnails" | "timeline_images" | "broll" | "reference_clips">("media_map");
+  const [openPanel, setOpenPanel] = useState<HearthVisualsPanelId | null>("media_map");
+  const openPanelRef = useRef<HearthVisualsPanelId | null>("media_map");
+
+  const queueScrollToPanel = useCallback((panel: HearthVisualsPanelId) => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    const sectionId = HEARTH_VISUALS_PANEL_SECTION_IDS[panel];
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        document.getElementById(sectionId)?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+    });
+  }, []);
+
+  const handleTogglePanel = useCallback((panel: HearthVisualsPanelId) => {
+    const nextPanel = toggleHearthVisualsPanel(openPanelRef.current, panel);
+    openPanelRef.current = nextPanel;
+    setOpenPanel(nextPanel);
+    if (nextPanel) {
+      queueScrollToPanel(nextPanel);
+    }
+  }, [queueScrollToPanel]);
 
   return (
     <>
@@ -51,7 +79,7 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
         title="Episode Media Map"
         meta={props.mediaMapPanelMeta}
         collapsed={openPanel !== "media_map"}
-        onToggle={() => setOpenPanel("media_map")}
+        onToggle={() => handleTogglePanel("media_map")}
         collapsible
         priority="primary"
       >
@@ -63,7 +91,7 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
         title="Thumbnails"
         meta={props.thumbnailPanelMeta}
         collapsed={openPanel !== "thumbnails"}
-        onToggle={() => setOpenPanel("thumbnails")}
+        onToggle={() => handleTogglePanel("thumbnails")}
         collapsible
         priority="secondary"
       >
@@ -75,7 +103,7 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
         title="Timeline Images"
         meta={props.imageMapPanelMeta}
         collapsed={openPanel !== "timeline_images"}
-        onToggle={() => setOpenPanel("timeline_images")}
+        onToggle={() => handleTogglePanel("timeline_images")}
         collapsible
         priority="secondary"
       >
@@ -87,7 +115,7 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
         title="B-roll Plan"
         meta={props.brollPanelMeta}
         collapsed={openPanel !== "broll"}
-        onToggle={() => setOpenPanel("broll")}
+        onToggle={() => handleTogglePanel("broll")}
         collapsible
         priority="secondary"
       >
@@ -99,7 +127,7 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
         title="Reference Clips"
         meta={props.referenceClipPanelMeta}
         collapsed={openPanel !== "reference_clips"}
-        onToggle={() => setOpenPanel("reference_clips")}
+        onToggle={() => handleTogglePanel("reference_clips")}
         collapsible
         priority="secondary"
       >

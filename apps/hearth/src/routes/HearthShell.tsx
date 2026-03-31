@@ -123,6 +123,10 @@ import {
 } from "../lib/hearth-script-authoring-meta";
 import { insertVoiceTranscriptIntoScript } from "../lib/hearth-script-dictation";
 import {
+  buildNoScriptChangesExplanation,
+  detectHearthScriptMutationIntent,
+} from "../lib/hearth-script-mutation";
+import {
   normalizeScriptTags,
   repairScriptTags,
   type ScriptValidationResult,
@@ -1813,17 +1817,20 @@ type ChatIntentSignals = {
   requestedScript: boolean;
   explicitDraftNow: boolean;
   hasDeliverable: boolean;
+  scriptMutationIntent: ReturnType<typeof detectHearthScriptMutationIntent>;
 };
 
 function detectChatIntentSignals(text: string): ChatIntentSignals {
   const normalized = text.replace(/\s+/g, " ").trim().toLowerCase();
   const requestedOutline = isExplicitHearthOutlineRequest(normalized);
   const requestedScript = isExplicitHearthFullScriptRequest(normalized);
+  const scriptMutationIntent = detectHearthScriptMutationIntent(normalized);
   const explicitDraftNow = /\bdraft now\b/.test(normalized)
     || /\bskip questions\b/.test(normalized)
     || /\bno questions\b/.test(normalized);
   const hasDeliverable = requestedOutline
     || requestedScript
+    || scriptMutationIntent.targetsScriptBody
     || /\bbullet points?\b/.test(normalized)
     || /\bthumbnail\b/.test(normalized)
     || /\bseo\b/.test(normalized)
@@ -1833,6 +1840,7 @@ function detectChatIntentSignals(text: string): ChatIntentSignals {
     requestedScript,
     explicitDraftNow,
     hasDeliverable,
+    scriptMutationIntent,
   };
 }
 
@@ -1860,9 +1868,19 @@ function buildAssistantMessageContent(args: {
   assistantText: string;
   ops: HearthOp[];
   autosaveReasonCode: AiAutosaveReasonCode;
+  scriptMutationRequested: boolean;
+  scriptMutationReady: boolean;
 }): string {
   const assistantText = args.assistantText.trim();
   const outlineFromOps = readLatestOutlineFromOps(args.ops);
+
+  if (args.scriptMutationRequested && !args.scriptMutationReady) {
+    if (assistantText) return assistantText;
+    if (outlineFromOps) {
+      return `No script changes made.\n\n${outlineFromOps}`;
+    }
+    return "No script changes made.";
+  }
 
   if (args.autosaveReasonCode === "ai_outline") {
     if (outlineFromOps) {
@@ -3449,6 +3467,7 @@ export default function HearthShell({
     let planningChanged = false;
     let sourcesChanged = false;
     let saveRequested = false;
+    const bodyWasRequested = args.opsToApply.some((op) => op.op === "set_body");
 
     const opsStore: HearthOpsStore = {
       setTitle: (value) => {
@@ -3547,6 +3566,7 @@ export default function HearthShell({
       const previousBody = activeDraft.body;
       const now = Date.now();
       const stagedDraft: Draft = { ...nextDraft, updatedAt: now };
+      const bodyChanged = previousBody !== stagedDraft.body;
       draftEditVersionRef.current += 1;
       activeDraftRef.current = stagedDraft;
       setActiveDraft((prev) => (prev && prev.id === stagedDraft.id ? stagedDraft : prev));
@@ -3562,8 +3582,22 @@ export default function HearthShell({
         previousBody,
         reasonCode: args.proposal.autosaveReasonCode,
       });
+      if (bodyChanged) {
+        publishForgeNotice({
+          job: "script-completed",
+          title: "Script updated",
+          severity: "success",
+        });
+      }
     } else {
       setActiveDraft((prev) => (prev ? nextDraft : prev));
+      if (bodyWasRequested) {
+        publishForgeNotice({
+          job: "script-completed",
+          title: "No script changes made",
+          severity: "warning",
+        });
+      }
     }
 
     if (planningChanged) {
@@ -3597,6 +3631,7 @@ export default function HearthShell({
     sourcesState,
     workpieceId,
     workspaceId,
+    publishForgeNotice,
   ]);
   const {
     onApplyAiProposal,
