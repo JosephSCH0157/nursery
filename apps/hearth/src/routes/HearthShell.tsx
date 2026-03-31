@@ -115,7 +115,10 @@ import { useThumbnailConceptActions } from "../hooks/visuals/useThumbnailConcept
 import { useThumbnailGenerationActions } from "../hooks/visuals/useThumbnailGenerationActions";
 import { useImageMapReanchorActions } from "../hooks/visuals/useImageMapReanchorActions";
 import { useImageMapCandidateActions } from "../hooks/visuals/useImageMapCandidateActions";
+import { useImageMapEntryCrudActions } from "../hooks/visuals/useImageMapEntryCrudActions";
+import { useImageMapSeedExportActions } from "../hooks/visuals/useImageMapSeedExportActions";
 import {
+  buildThumbnailPanelProps,
   buildBrollPlanPanelProps,
   buildImageMapPanelProps,
   buildMediaMapPanelProps,
@@ -214,6 +217,10 @@ import {
   type ImageMapScriptSelection,
 } from "../lib/hearth-image-map-beats";
 import {
+  hasStructuredImageMapAnchor,
+  resolveImageMapEntryAnchorScope,
+} from "../lib/hearth-image-map-anchor";
+import {
   generateImageMapEntriesFromBulletScript,
   isBulletOutlineScript,
 } from "../lib/hearth-spoken-beats";
@@ -251,7 +258,6 @@ import type {
   EpisodeMediaMap,
   EpisodeMediaMapEntry,
   EpisodePackageV2,
-  EpisodeImageMapAnchorScope,
   EpisodeSpokenBeat,
   EpisodeLaunchVariant,
   EpisodeLaunchVariantStatus,
@@ -298,8 +304,6 @@ import {
 } from "../lib/hearth-title-fonts";
 import type {
   EpisodeThumbnailTitleStyle,
-  TitleFontPreset,
-  TitleShadowStrength,
 } from "../lib/hearth-title-fonts";
 import {
   HEARTH_THUMBNAIL_TITLE_CONTRACT,
@@ -1628,17 +1632,6 @@ function createThumbnailClientId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function buildVisualScriptIntentExportDocument(
-  workpieceId: string | null,
-  entries: EpisodeImageMapEntry[],
-): Record<string, unknown> {
-  return {
-    schema: "forge.hearth.visual-script-intent.v1",
-    ...(workpieceId ? { workpiece_id: workpieceId } : {}),
-    anchors: entries,
-  };
-}
-
 function replaceEpisodePackageImageMap(
   pkg: EpisodePackageV2,
   entries: EpisodeImageMapEntry[],
@@ -1651,18 +1644,6 @@ function replaceEpisodePackageImageMap(
       entries,
     },
   };
-}
-
-function resolveImageMapEntryAnchorScope(entry: EpisodeImageMapEntry | null | undefined): EpisodeImageMapAnchorScope {
-  if (!entry) return "orphaned";
-  if (entry.anchor_scope) return entry.anchor_scope;
-  if (entry.beat_anchor) return "beat";
-  return entry.script_anchor ? "attached" : "orphaned";
-}
-
-function hasStructuredImageMapAnchor(entry: EpisodeImageMapEntry | null | undefined): boolean {
-  if (!entry) return false;
-  return Boolean(entry.script_anchor || entry.beat_anchor);
 }
 
 const METADATA_TAG_SUGGESTIONS_BY_CATEGORY: Record<string, string[]> = {
@@ -4966,6 +4947,48 @@ export default function HearthShell({
     setImageMapCandidateSelectionError,
     setImageMapExportMessage,
     publishForgeNotice,
+  });
+  const {
+    onCreateImageMapEntry,
+    onDuplicateImageMapEntry,
+    onDeleteImageMapEntry,
+  } = useImageMapEntryCrudActions({
+    episodePackage,
+    selectedImageMapEntry,
+    selectedImageMapEntryId,
+    persistImageMapEntries,
+    setSelectedImageMapEntryId,
+    setImageMapSaveState,
+    setImageMapSaveError,
+  });
+  const {
+    onSeedImageMapFromScript,
+    onCopyImageMapExportJson,
+    onDownloadImageMapExportJson,
+  } = useImageMapSeedExportActions({
+    workpieceId,
+    episodePackage,
+    selectedImageMapEntryId,
+    effectiveComposeSetupMode: effectiveComposeSetup?.mode ?? null,
+    imageMapSaveState,
+    imageMapAnchorDraft,
+    imageMapDescriptionDraft,
+    imageMapStyleDraft,
+    imageMapIntentDraft,
+    imageMapSourceTypeDraft,
+    imageMapAnchorScopeDraft,
+    imageMapVisualPriorityDraft,
+    imageMapVisualTypeDraft,
+    imageMapSectionIntentNoteDraft,
+    imageMapPlacementHintDraft,
+    normalizeVisualStyle: normalizeHearthVisualStyle,
+    readCanonicalScriptForImageMapGeneration,
+    persistImageMapEntries,
+    writeTextToClipboard,
+    setImageMapSaveState,
+    setImageMapSaveError,
+    setSelectedImageMapEntryId,
+    setImageMapExportMessage,
   });
 
   useEffect(() => {
@@ -8581,37 +8604,6 @@ export default function HearthShell({
     };
   }
 
-  function resolveImageMapEntriesForExport(): EpisodeImageMapEntry[] {
-    if (!episodePackage) return [];
-    if (!selectedImageMapEntryId) return episodePackage.image_map.entries;
-    const selected = episodePackage.image_map.entries.find((entry) => entry.id === selectedImageMapEntryId);
-    if (!selected) return episodePackage.image_map.entries;
-    if (imageMapSaveState !== "editing" && imageMapSaveState !== "saving") {
-      return episodePackage.image_map.entries;
-    }
-
-    const nextAnchor = imageMapAnchorDraft.trim();
-    if (!nextAnchor) return episodePackage.image_map.entries;
-    return episodePackage.image_map.entries.map((entry) => {
-      if (entry.id !== selectedImageMapEntryId) return entry;
-      return {
-        ...entry,
-        anchor: nextAnchor,
-        description: imageMapDescriptionDraft,
-        visual_intent: imageMapDescriptionDraft,
-        prompt_basis: imageMapDescriptionDraft,
-        style_preset: normalizeHearthVisualStyle(imageMapStyleDraft),
-        intent: imageMapIntentDraft.trim().toLowerCase(),
-        source_type: imageMapSourceTypeDraft.trim().toLowerCase(),
-        anchor_scope: imageMapAnchorScopeDraft,
-        visual_priority: imageMapVisualPriorityDraft,
-        visual_type: imageMapVisualTypeDraft,
-        section_intent_note: imageMapSectionIntentNoteDraft.trim() || null,
-        placement_hint: imageMapPlacementHintDraft.trim() || null,
-      };
-    });
-  }
-
   async function readCanonicalScriptForImageMapGeneration(): Promise<{
     ok: true;
     text: string;
@@ -8680,181 +8672,6 @@ export default function HearthShell({
       }
       return next;
     });
-  }
-
-  async function onCreateImageMapEntry() {
-    if (!episodePackage) return;
-    const nextAnchor = `manual:p${episodePackage.image_map.entries.length + 1}`;
-    const nextEpisodePackage = addImageMapEntry(episodePackage, {
-      anchor: nextAnchor,
-      purpose: "coverage",
-      description: "",
-      visual_intent: "",
-      prompt_basis: "",
-      anchor_scope: "orphaned",
-      style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
-      intent: "cutaway",
-      source_type: "stock",
-      visual_priority: "supporting",
-      visual_type: "still_image",
-      section_intent_note: null,
-      beat_order: episodePackage.image_map.entries.length + 1,
-      paragraph_beat_order: 1,
-      candidate_assets: [],
-      selected_asset_id: null,
-      status: "draft",
-      placement_hint: null,
-    });
-    const newEntry = nextEpisodePackage.image_map.entries[nextEpisodePackage.image_map.entries.length - 1] ?? null;
-    if (!newEntry) {
-      setImageMapSaveState("error");
-      setImageMapSaveError("Unable to create entry in current episode.");
-      return;
-    }
-
-    setImageMapSaveState("saving");
-    setImageMapSaveError(null);
-    const saved = await persistImageMapEntries({
-      entries: nextEpisodePackage.image_map.entries,
-    });
-    if (!saved.ok) {
-      setImageMapSaveState("error");
-      setImageMapSaveError(saved.error);
-      return;
-    }
-    setSelectedImageMapEntryId(newEntry.id);
-    setImageMapSaveState("saved");
-  }
-
-  async function onDuplicateImageMapEntry() {
-    if (!episodePackage || !selectedImageMapEntry) return;
-    const nextEpisodePackage = addImageMapEntry(episodePackage, {
-      anchor: selectedImageMapEntry.anchor,
-      script_anchor: selectedImageMapEntry.script_anchor,
-      beat_anchor: selectedImageMapEntry.beat_anchor,
-      anchor_scope: resolveImageMapEntryAnchorScope(selectedImageMapEntry),
-      purpose: selectedImageMapEntry.purpose,
-      description: selectedImageMapEntry.description,
-      visual_intent: selectedImageMapEntry.visual_intent,
-      prompt_basis: selectedImageMapEntry.prompt_basis,
-      style_preset: normalizeHearthVisualStyle(selectedImageMapEntry.style_preset),
-      intent: selectedImageMapEntry.intent,
-      source_type: selectedImageMapEntry.source_type,
-      visual_priority: selectedImageMapEntry.visual_priority ?? "supporting",
-      visual_type: selectedImageMapEntry.visual_type ?? "still_image",
-      section_intent_note: selectedImageMapEntry.section_intent_note ?? null,
-      beat_order: selectedImageMapEntry.beat_order,
-      paragraph_beat_order: selectedImageMapEntry.paragraph_beat_order,
-      candidate_assets: [],
-      selected_asset_id: null,
-      status: hasStructuredImageMapAnchor(selectedImageMapEntry) ? "mapped" : "draft",
-      placement_hint: selectedImageMapEntry.placement_hint ?? null,
-    });
-    const duplicated = nextEpisodePackage.image_map.entries[nextEpisodePackage.image_map.entries.length - 1] ?? null;
-    if (!duplicated) {
-      setImageMapSaveState("error");
-      setImageMapSaveError("Unable to duplicate entry.");
-      return;
-    }
-
-    setImageMapSaveState("saving");
-    setImageMapSaveError(null);
-    const saved = await persistImageMapEntries({
-      entries: nextEpisodePackage.image_map.entries,
-    });
-    if (!saved.ok) {
-      setImageMapSaveState("error");
-      setImageMapSaveError(saved.error);
-      return;
-    }
-    setSelectedImageMapEntryId(duplicated.id);
-    setImageMapSaveState("saved");
-  }
-
-  async function onDeleteImageMapEntry() {
-    if (!episodePackage || !selectedImageMapEntryId) return;
-    const confirmed = window.confirm("Delete this image map entry?");
-    if (!confirmed) return;
-
-    const nextEpisodePackage = removeImageMapEntry(episodePackage, selectedImageMapEntryId);
-    setImageMapSaveState("saving");
-    setImageMapSaveError(null);
-    const saved = await persistImageMapEntries({
-      entries: nextEpisodePackage.image_map.entries,
-    });
-    if (!saved.ok) {
-      setImageMapSaveState("error");
-      setImageMapSaveError(saved.error);
-      return;
-    }
-    setSelectedImageMapEntryId(saved.episodePackage.image_map.entries[0]?.id ?? null);
-    setImageMapSaveState("saved");
-  }
-
-  async function onSeedImageMapFromScript() {
-    if (!episodePackage) return;
-    if (episodePackage.image_map.entries.length > 0) {
-      const confirmed = window.confirm(
-        "Generate a new image map from the canonical script? This replaces the current visual beats.",
-      );
-      if (!confirmed) return;
-    }
-    const canonicalScript = await readCanonicalScriptForImageMapGeneration();
-    if (!canonicalScript.ok) {
-      setImageMapExportMessage(canonicalScript.message);
-      return;
-    }
-
-    const generatedPlan = resolveImageMapEntriesForMediaMapBootstrap({
-      currentEntries: [],
-      currentSpokenBeats: episodePackage.spoken_beats,
-      scriptText: canonicalScript.text,
-      preferBeatAnchors: effectiveComposeSetup?.mode === "outline_by_speaker" || isBulletOutlineScript(canonicalScript.text),
-    });
-    if (generatedPlan.entries.length === 0) {
-      setImageMapExportMessage("No visually meaningful beats found in the canonical script.");
-      return;
-    }
-
-    setImageMapSaveState("saving");
-    setImageMapSaveError(null);
-    const saved = await persistImageMapEntries({
-      entries: generatedPlan.entries,
-      spokenBeats: generatedPlan.spokenBeats,
-    });
-    if (!saved.ok) {
-      setImageMapSaveState("error");
-      setImageMapSaveError(saved.error);
-      return;
-    }
-    setSelectedImageMapEntryId(saved.episodePackage.image_map.entries[0]?.id ?? null);
-    setImageMapSaveState("saved");
-    const sourceLabel = canonicalScript.source === "primary_script" ? "published script" : "saved draft";
-    const note = canonicalScript.includesUnsavedLocalEdits ? " Save the draft first to include unsaved local edits." : "";
-    setImageMapExportMessage(`${generatedPlan.anchorMode === "bullet_beat" ? `Generated ${generatedPlan.entries.length} beat-anchored visual plans` : `Generated ${generatedPlan.entries.length} visual beats`} from the canonical ${sourceLabel}.${note}`);
-  }
-
-  async function onCopyImageMapExportJson() {
-    const entries = resolveImageMapEntriesForExport();
-    const payload = buildVisualScriptIntentExportDocument(workpieceId?.trim() ?? null, entries);
-    const text = JSON.stringify(payload, null, 2);
-    const copied = await writeTextToClipboard(text);
-    setImageMapExportMessage(copied ? "Visual script intent JSON copied." : "Clipboard write failed.");
-  }
-
-  function onDownloadImageMapExportJson() {
-    const entries = resolveImageMapEntriesForExport();
-    const payload = buildVisualScriptIntentExportDocument(workpieceId?.trim() ?? null, entries);
-    const text = JSON.stringify(payload, null, 2);
-    const blob = new Blob([text], { type: "application/json;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    const suffix = (workpieceId?.slice(0, 8) ?? "episode").toLowerCase();
-    anchor.href = url;
-    anchor.download = `visual-script-intent-${suffix}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    setImageMapExportMessage("Visual script intent JSON downloaded.");
   }
 
   function onSelectImageMapEntry(entryId: string) {
@@ -9400,7 +9217,7 @@ export default function HearthShell({
     const isMetadataWorkspaceTab = activeWorkpieceTab === "metadata";
     const isReleaseWorkspaceTab = activeWorkpieceTab === "release";
     const isHistoryWorkspaceTab = activeWorkpieceTab === "history";
-    const thumbnailPanelProps = {
+    const thumbnailPanelProps = buildThumbnailPanelProps({
       concepts: thumbnailConcepts,
       versions: thumbnailVersions,
       titleOptions: thumbnailTitleOptions,
@@ -9445,44 +9262,23 @@ export default function HearthShell({
       isGenerating: isThumbnailGenerating,
       isSavingConcept: isThumbnailConceptSaving,
       isUploading: isThumbnailUploading,
+      setSelectedConceptId: setSelectedThumbnailConceptId,
+      setSelectedConceptLabel: setThumbnailConceptLabelDraft,
+      setSelectedConceptPrompt: setThumbnailConceptPromptDraft,
+      setSelectedConceptStyle: (value: string) => setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(value)),
+      setSelectedConceptTitleStyle: setThumbnailTitleStyleDraft,
+      setSelectedConceptBrandTemplate: setThumbnailConceptBrandTemplateIdDraft,
+      setAspect: setThumbnailAspect,
+      setSafeZoneEnabled: setThumbnailSafeZoneEnabled,
       onGenerateTitles: () => void onRunProductionAction("seo"),
       onSelectTitle: onSelectThumbnailTitle,
-      onSelectConcept: setSelectedThumbnailConceptId,
-      onSelectedConceptLabelChange: setThumbnailConceptLabelDraft,
-      onSelectedConceptPromptChange: setThumbnailConceptPromptDraft,
-      onSelectedConceptStylePresetChange: (value: string) => setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(value)),
-      onSelectedConceptTitleFontPresetChange: (value: string) => setThumbnailTitleStyleDraft((prev) => ({
-        ...normalizeEpisodeThumbnailTitleStyle(prev),
-        font_preset: value as TitleFontPreset,
-      })),
-      onSelectedConceptTitleColorChange: (value: string) => setThumbnailTitleStyleDraft((prev) => ({
-        ...normalizeEpisodeThumbnailTitleStyle(prev),
-        text_color: value.toUpperCase(),
-      })),
-      onSelectedConceptTitleShadowEnabledChange: (value: boolean) => setThumbnailTitleStyleDraft((prev) => ({
-        ...normalizeEpisodeThumbnailTitleStyle(prev),
-        shadow: {
-          ...normalizeEpisodeThumbnailTitleStyle(prev).shadow,
-          enabled: value,
-        },
-      })),
-      onSelectedConceptTitleShadowStrengthChange: (value: string) => setThumbnailTitleStyleDraft((prev) => ({
-        ...normalizeEpisodeThumbnailTitleStyle(prev),
-        shadow: {
-          ...normalizeEpisodeThumbnailTitleStyle(prev).shadow,
-          strength: value as TitleShadowStrength,
-        },
-      })),
-      onSelectedConceptBrandTemplateChange: setThumbnailConceptBrandTemplateIdDraft,
       onUploadBrandLogo: (file: File) => void onUploadThumbnailBrandLogo(file),
       onRemoveBrandLogo: () => void onRemoveThumbnailBrandLogo(),
       onGenerateConcepts: () => void onRunProductionAction("thumbnails"),
       onCreateConcept: () => void onCreateThumbnailConcept(),
       onSaveConcept: () => void onSaveSelectedThumbnailConcept(),
       onDeleteConcept: () => void onDeleteSelectedThumbnailConcept(),
-      onAspectChange: setThumbnailAspect,
       onVisualProviderOverrideChange: handleVisualProviderOverrideChange,
-      onToggleSafeZone: () => setThumbnailSafeZoneEnabled((prev) => !prev),
       onUploadImage: (file: File) => void onUploadThumbnailImage(file),
       onSelectVersion: onSelectThumbnailVersion,
       onSetPrimary: (versionId: string) => void onSetPrimaryThumbnailVersion(versionId),
@@ -9492,7 +9288,7 @@ export default function HearthShell({
       onSelectedLaunchVariantStatusChange: setLaunchVariantStatusDraft,
       onSelectedLaunchVariantNotesChange: setLaunchVariantNotesDraft,
       onSaveLaunchVariant: () => void onSaveLaunchVariant(),
-    };
+    });
     const mediaMapPanelProps = buildMediaMapPanelProps({
       entries: mediaMapEntries,
       selectedEntryId: selectedMediaMapEntryId,
@@ -11173,3 +10969,4 @@ export default function HearthShell({
 }
 
 
+                                                                                                   

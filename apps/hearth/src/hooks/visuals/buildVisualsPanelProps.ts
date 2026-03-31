@@ -1,8 +1,9 @@
-import type { ComponentProps } from "react";
+import type { ComponentProps, Dispatch, SetStateAction } from "react";
 import BrollPlanPanel from "../../components/visuals/BrollPlanPanel";
 import EpisodeMediaMapPanel from "../../components/visuals/EpisodeMediaMapPanel";
 import ImageMapPanel from "../../components/visuals/ImageMapPanel";
 import ReferenceClipPlanPanel from "../../components/visuals/ReferenceClipPlanPanel";
+import ThumbnailPanel from "../../components/visuals/ThumbnailPanel";
 import type {
   EpisodeBrollPlan,
   EpisodeMediaMap,
@@ -15,11 +16,14 @@ import type {
   MediaMapGenerationScope,
 } from "../../lib/hearth-media-map-conversation";
 import type { ImageMapScriptSelection } from "../../lib/hearth-image-map-beats";
+import { normalizeEpisodeThumbnailTitleStyle } from "../../lib/hearth-title-fonts";
+import type { TitleFontPreset, TitleShadowStrength } from "../../lib/hearth-title-fonts";
 
 type MediaMapPanelProps = ComponentProps<typeof EpisodeMediaMapPanel>;
 type ImageMapPanelProps = ComponentProps<typeof ImageMapPanel>;
 type BrollPanelProps = ComponentProps<typeof BrollPlanPanel>;
 type ReferenceClipPanelProps = ComponentProps<typeof ReferenceClipPlanPanel>;
+type ThumbnailPanelProps = ComponentProps<typeof ThumbnailPanel>;
 
 type BuildMediaMapPanelArgs = {
   entries: EpisodeMediaMapEntry[];
@@ -181,6 +185,79 @@ type BuildReferenceClipPanelArgs = {
   onMarkAwaitingResult: () => void;
   onClearRequestState: () => void;
   onAttachResultFromUrl: () => void;
+};
+
+type BuildThumbnailPanelArgs = {
+  concepts: ThumbnailPanelProps["concepts"];
+  versions: ThumbnailPanelProps["versions"];
+  titleOptions: ThumbnailPanelProps["titleOptions"];
+  launchVariants: ThumbnailPanelProps["launchVariants"];
+  selectedTitleId: string | null;
+  selectedTitleText: string;
+  selectedConceptId: string;
+  selectedVersionId: string | null;
+  selectedLaunchVariantId: string | null;
+  selectedLaunchVariantStatus: ThumbnailPanelProps["selectedLaunchVariantStatus"];
+  selectedLaunchVariantNotes: string;
+  selectedLaunchVariantLastTestedAt: string | null;
+  selectedLaunchVariantWinnerSelectedAt: string | null;
+  primaryVersionId: string | null;
+  selectedConceptLabel: string;
+  selectedConceptPrompt: string;
+  selectedConceptStylePreset: string;
+  selectedConceptTitleStyle: ThumbnailPanelProps["selectedConceptTitleStyle"];
+  brandTemplates: ThumbnailPanelProps["brandTemplates"];
+  brandTemplatesLoading: boolean;
+  brandTemplatesError: string | null;
+  selectedConceptBrandTemplateId: string | null;
+  selectedBrandTemplateLogoDataUrl: string | null;
+  brandLogoUploading: boolean;
+  brandLogoError: string | null;
+  brandLogoStatus: string | null;
+  aspect: ThumbnailPanelProps["aspect"];
+  activeVisualProvider: ThumbnailPanelProps["activeVisualProvider"];
+  visualProviderOptions: ThumbnailPanelProps["visualProviderOptions"];
+  visualProviderOverride: ThumbnailPanelProps["visualProviderOverride"];
+  safeZoneEnabled: boolean;
+  previewDataUrl: string | null;
+  previewState: ThumbnailPanelProps["previewState"];
+  previewError: string | null;
+  generateError: string | null;
+  uploadError: string | null;
+  pairingError: string | null;
+  canGenerateConcepts: boolean;
+  isGeneratingConcepts: boolean;
+  canGenerateTitles: boolean;
+  isGeneratingTitles: boolean;
+  isGenerating: boolean;
+  isSavingConcept: boolean;
+  isUploading: boolean;
+  setSelectedConceptId: (conceptId: string) => void;
+  setSelectedConceptLabel: (value: string) => void;
+  setSelectedConceptPrompt: (value: string) => void;
+  setSelectedConceptStyle: (value: string) => void;
+  setSelectedConceptTitleStyle: Dispatch<SetStateAction<ThumbnailPanelProps["selectedConceptTitleStyle"]>>;
+  setSelectedConceptBrandTemplate: (value: string | null) => void;
+  setAspect: (value: ThumbnailPanelProps["aspect"]) => void;
+  setSafeZoneEnabled: Dispatch<SetStateAction<boolean>>;
+  onGenerateTitles: () => void;
+  onSelectTitle: (titleId: string) => void;
+  onUploadBrandLogo: (file: File) => void;
+  onRemoveBrandLogo: () => void;
+  onGenerateConcepts: () => void;
+  onCreateConcept: () => void;
+  onSaveConcept: () => void;
+  onDeleteConcept: () => void;
+  onVisualProviderOverrideChange: ThumbnailPanelProps["onVisualProviderOverrideChange"];
+  onUploadImage: (file: File) => void;
+  onSelectVersion: (versionId: string) => void;
+  onSetPrimary: (versionId: string) => void;
+  onRetryVersion: (version: ThumbnailPanelProps["versions"][number]) => void;
+  onSelectLaunchVariant: (variantId: string) => void;
+  onCreateLaunchVariant: () => void;
+  onSelectedLaunchVariantStatusChange: ThumbnailPanelProps["onSelectedLaunchVariantStatusChange"];
+  onSelectedLaunchVariantNotesChange: ThumbnailPanelProps["onSelectedLaunchVariantNotesChange"];
+  onSaveLaunchVariant: () => void;
 };
 
 export function buildMediaMapPanelProps(args: BuildMediaMapPanelArgs): MediaMapPanelProps {
@@ -353,5 +430,101 @@ export function buildReferenceClipPlanPanelProps(args: BuildReferenceClipPanelAr
     onMarkAwaitingResult: args.onMarkAwaitingResult,
     onClearRequestState: args.onClearRequestState,
     onAttachResultFromUrl: args.onAttachResultFromUrl,
+  };
+}
+
+export function buildThumbnailPanelProps(args: BuildThumbnailPanelArgs): ThumbnailPanelProps {
+  return {
+    concepts: args.concepts,
+    versions: args.versions,
+    titleOptions: args.titleOptions,
+    launchVariants: args.launchVariants,
+    selectedTitleId: args.selectedTitleId,
+    selectedTitleText: args.selectedTitleText,
+    selectedConceptId: args.selectedConceptId,
+    selectedVersionId: args.selectedVersionId,
+    selectedLaunchVariantId: args.selectedLaunchVariantId,
+    selectedLaunchVariantStatus: args.selectedLaunchVariantStatus,
+    selectedLaunchVariantNotes: args.selectedLaunchVariantNotes,
+    selectedLaunchVariantLastTestedAt: args.selectedLaunchVariantLastTestedAt,
+    selectedLaunchVariantWinnerSelectedAt: args.selectedLaunchVariantWinnerSelectedAt,
+    primaryVersionId: args.primaryVersionId,
+    selectedConceptLabel: args.selectedConceptLabel,
+    selectedConceptPrompt: args.selectedConceptPrompt,
+    selectedConceptStylePreset: args.selectedConceptStylePreset,
+    selectedConceptTitleStyle: args.selectedConceptTitleStyle,
+    brandTemplates: args.brandTemplates,
+    brandTemplatesLoading: args.brandTemplatesLoading,
+    brandTemplatesError: args.brandTemplatesError,
+    selectedConceptBrandTemplateId: args.selectedConceptBrandTemplateId,
+    selectedBrandTemplateLogoDataUrl: args.selectedBrandTemplateLogoDataUrl,
+    brandLogoUploading: args.brandLogoUploading,
+    brandLogoError: args.brandLogoError,
+    brandLogoStatus: args.brandLogoStatus,
+    aspect: args.aspect,
+    activeVisualProvider: args.activeVisualProvider,
+    visualProviderOptions: args.visualProviderOptions,
+    visualProviderOverride: args.visualProviderOverride,
+    safeZoneEnabled: args.safeZoneEnabled,
+    previewDataUrl: args.previewDataUrl,
+    previewState: args.previewState,
+    previewError: args.previewError,
+    generateError: args.generateError,
+    uploadError: args.uploadError,
+    pairingError: args.pairingError,
+    canGenerateConcepts: args.canGenerateConcepts,
+    isGeneratingConcepts: args.isGeneratingConcepts,
+    canGenerateTitles: args.canGenerateTitles,
+    isGeneratingTitles: args.isGeneratingTitles,
+    isGenerating: args.isGenerating,
+    isSavingConcept: args.isSavingConcept,
+    isUploading: args.isUploading,
+    onGenerateTitles: args.onGenerateTitles,
+    onSelectTitle: args.onSelectTitle,
+    onSelectConcept: args.setSelectedConceptId,
+    onSelectedConceptLabelChange: args.setSelectedConceptLabel,
+    onSelectedConceptPromptChange: args.setSelectedConceptPrompt,
+    onSelectedConceptStylePresetChange: args.setSelectedConceptStyle,
+    onSelectedConceptTitleFontPresetChange: (value: string) => args.setSelectedConceptTitleStyle((prev) => ({
+      ...normalizeEpisodeThumbnailTitleStyle(prev),
+      font_preset: value as TitleFontPreset,
+    })),
+    onSelectedConceptTitleColorChange: (value: string) => args.setSelectedConceptTitleStyle((prev) => ({
+      ...normalizeEpisodeThumbnailTitleStyle(prev),
+      text_color: value.toUpperCase(),
+    })),
+    onSelectedConceptTitleShadowEnabledChange: (value: boolean) => args.setSelectedConceptTitleStyle((prev) => ({
+      ...normalizeEpisodeThumbnailTitleStyle(prev),
+      shadow: {
+        ...normalizeEpisodeThumbnailTitleStyle(prev).shadow,
+        enabled: value,
+      },
+    })),
+    onSelectedConceptTitleShadowStrengthChange: (value: string) => args.setSelectedConceptTitleStyle((prev) => ({
+      ...normalizeEpisodeThumbnailTitleStyle(prev),
+      shadow: {
+        ...normalizeEpisodeThumbnailTitleStyle(prev).shadow,
+        strength: value as TitleShadowStrength,
+      },
+    })),
+    onSelectedConceptBrandTemplateChange: args.setSelectedConceptBrandTemplate,
+    onUploadBrandLogo: args.onUploadBrandLogo,
+    onRemoveBrandLogo: args.onRemoveBrandLogo,
+    onGenerateConcepts: args.onGenerateConcepts,
+    onCreateConcept: args.onCreateConcept,
+    onSaveConcept: args.onSaveConcept,
+    onDeleteConcept: args.onDeleteConcept,
+    onAspectChange: args.setAspect,
+    onVisualProviderOverrideChange: args.onVisualProviderOverrideChange,
+    onToggleSafeZone: () => args.setSafeZoneEnabled((prev) => !prev),
+    onUploadImage: args.onUploadImage,
+    onSelectVersion: args.onSelectVersion,
+    onSetPrimary: args.onSetPrimary,
+    onRetryVersion: args.onRetryVersion,
+    onSelectLaunchVariant: args.onSelectLaunchVariant,
+    onCreateLaunchVariant: args.onCreateLaunchVariant,
+    onSelectedLaunchVariantStatusChange: args.onSelectedLaunchVariantStatusChange,
+    onSelectedLaunchVariantNotesChange: args.onSelectedLaunchVariantNotesChange,
+    onSaveLaunchVariant: args.onSaveLaunchVariant,
   };
 }
