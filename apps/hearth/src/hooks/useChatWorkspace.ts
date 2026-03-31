@@ -46,6 +46,7 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
   const aiSttTranscribeControllerRef = useRef<AbortController | null>(null);
   const sttNoticeTimerRef = useRef<number | null>(null);
   const sttPreviewTimerRef = useRef<number | null>(null);
+  const browserSttStopTimerRef = useRef<number | null>(null);
   const chatPersistTimerRef = useRef<number | null>(null);
   const chatMessagesRef = useRef<HearthChatMessage[]>([]);
   const latestChatHistoryKeyRef = useRef<string | null>(null);
@@ -95,6 +96,7 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
     aiSttTranscribeControllerRef,
     sttNoticeTimerRef,
     sttPreviewTimerRef,
+    browserSttStopTimerRef,
     chatPersistTimerRef,
     chatMessagesRef,
     latestChatHistoryKeyRef,
@@ -662,6 +664,7 @@ type UseChatWorkspaceSttArgs = {
   aiSttTranscribeControllerRef: MutableRefObject<AbortController | null>;
   sttNoticeTimerRef: MutableRefObject<number | null>;
   sttPreviewTimerRef: MutableRefObject<number | null>;
+  browserSttStopTimerRef: MutableRefObject<number | null>;
   sttInlineFeedbackMs: number;
   sttPreviewMaxChars: number;
   aiSttMaxDurationMs: number;
@@ -683,6 +686,13 @@ type UseChatWorkspaceSttArgs = {
 export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
   onToggleMic: (target?: "chat" | "script") => void;
 } {
+  const clearBrowserSttStopTimer = useCallback(() => {
+    if (args.browserSttStopTimerRef.current) {
+      window.clearTimeout(args.browserSttStopTimerRef.current);
+      args.browserSttStopTimerRef.current = null;
+    }
+  }, [args.browserSttStopTimerRef]);
+
   const clearSttNoticeTimer = useCallback(() => {
     if (args.sttNoticeTimerRef.current) {
       window.clearTimeout(args.sttNoticeTimerRef.current);
@@ -882,6 +892,14 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
     clearSttPreviewTimer();
     args.setSttPreview(null);
     args.setSttError(null);
+    clearBrowserSttStopTimer();
+    try {
+      args.speechRecognitionRef.current?.abort?.();
+    } catch {
+      // ignore browser recognition abort errors
+    }
+    args.speechRecognitionRef.current = null;
+    stopAiSttStream();
 
     let stream: MediaStream;
     try {
@@ -1015,12 +1033,41 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.setSttState("idle");
       args.setSttError(message);
     }
-  }, [args, clearAiSttStopTimer, clearSttNoticeTimer, clearSttPreviewTimer, commitAiSttBlob, commitVoiceTranscript, stopAiStt, stopAiSttStream]);
+  }, [args, clearAiSttStopTimer, clearBrowserSttStopTimer, clearSttNoticeTimer, clearSttPreviewTimer, commitAiSttBlob, commitVoiceTranscript, stopAiStt, stopAiSttStream]);
 
   const startBrowserStt = useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      args.setSttError("Microphone capture is not supported in this browser.");
+      args.setSttState("idle");
+      return;
+    }
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       args.setSttError("Browser speech not supported.");
+      args.setSttState("idle");
+      return;
+    }
+
+    clearBrowserSttStopTimer();
+    clearSttNoticeTimer();
+    args.setSttNotice(null);
+    clearSttPreviewTimer();
+    args.setSttPreview(null);
+    args.setSttError(null);
+    try {
+      args.speechRecognitionRef.current?.abort?.();
+    } catch {
+      // ignore stale recognition abort errors
+    }
+    args.speechRecognitionRef.current = null;
+    stopAiSttStream();
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to access microphone.";
+      args.setSttError(message);
       args.setSttState("idle");
       return;
     }
@@ -1029,35 +1076,50 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "en-US";
-    let finalTranscript = "";
-    let interimTranscript = "";
     const session = {
       fatalErrorMessage: null as string | null,
       heardSpeech: false,
       manualStopRequested: false,
       restartAttempts: 0,
+      finalTranscript: "",
+      interimTranscript: "",
+      settled: false,
+    };
+    const settleBrowserSession = async () => {
+      if (session.settled) return;
+      session.settled = true;
+      clearBrowserSttStopTimer();
+      stopAiSttStream();
+      args.setSttState("idle");
+      if (session.fatalErrorMessage) {
+        args.setSttError(session.fatalErrorMessage);
+        return;
+      }
+      const transcript = `${session.finalTranscript} ${session.interimTranscript}`.trim();
+      await commitVoiceTranscript(transcript);
     };
     (recognition as any).__hearthBrowserSttSession = session;
+    (recognition as any).__hearthBrowserSttSettle = settleBrowserSession;
     const isCurrentRecognition = () => args.speechRecognitionRef.current === recognition;
 
     recognition.onresult = (event: any) => {
       if (!isCurrentRecognition()) return;
-      interimTranscript = "";
+      session.interimTranscript = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
         const chunk = result[0]?.transcript;
         if (typeof chunk === "string" && chunk.trim()) {
           session.heardSpeech = true;
           if (result.isFinal) {
-            finalTranscript += `${chunk.trim()} `;
-            interimTranscript = "";
+            session.finalTranscript += `${chunk.trim()} `;
+            session.interimTranscript = "";
             session.restartAttempts = 0;
           } else {
-            interimTranscript = chunk.trim();
+            session.interimTranscript = chunk.trim();
           }
         }
       }
-      const previewTranscript = `${finalTranscript} ${interimTranscript}`.trim();
+      const previewTranscript = `${session.finalTranscript} ${session.interimTranscript}`.trim();
       if (previewTranscript) {
         showSttPreviewLine(previewTranscript);
       }
@@ -1079,8 +1141,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
     };
 
     recognition.onend = async () => {
-      if (!isCurrentRecognition()) return;
-      const transcript = `${finalTranscript} ${interimTranscript}`.trim();
+      if (!isCurrentRecognition() && !session.manualStopRequested) return;
       if (shouldRestartBrowserSttSession(session)) {
         session.restartAttempts += 1;
         try {
@@ -1093,26 +1154,14 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
         }
       }
 
-      if (!isCurrentRecognition()) return;
-      args.speechRecognitionRef.current = null;
-      stopAiSttStream();
-      args.setSttState("idle");
-      if (session.fatalErrorMessage) {
-        args.setSttError(session.fatalErrorMessage);
-        return;
+      if (isCurrentRecognition()) {
+        args.speechRecognitionRef.current = null;
       }
-      await commitVoiceTranscript(transcript);
+      await settleBrowserSession();
     };
 
-    stopAiSttStream();
-    args.mediaStreamRef.current = null;
-
+    args.mediaStreamRef.current = stream;
     args.speechRecognitionRef.current = recognition;
-    clearSttNoticeTimer();
-    args.setSttNotice(null);
-    clearSttPreviewTimer();
-    args.setSttPreview(null);
-    args.setSttError(null);
     args.setSttState("listening");
     try {
       recognition.start();
@@ -1122,20 +1171,38 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.setSttState("idle");
       args.setSttError("Unable to start speech recognition.");
     }
-  }, [args, clearSttNoticeTimer, clearSttPreviewTimer, commitVoiceTranscript, showSttNotice, showSttPreviewLine, stopAiSttStream]);
+  }, [args, clearBrowserSttStopTimer, clearSttNoticeTimer, clearSttPreviewTimer, commitVoiceTranscript, showSttNotice, showSttPreviewLine, stopAiSttStream]);
 
   const stopBrowserStt = useCallback(() => {
-    stopAiSttStream();
-    try {
-      const recognition = args.speechRecognitionRef.current as any;
-      if (recognition?.__hearthBrowserSttSession) {
-        recognition.__hearthBrowserSttSession.manualStopRequested = true;
-      }
-      args.speechRecognitionRef.current?.stop();
-    } catch {
-      // onend will settle state
+    const recognition = args.speechRecognitionRef.current as any;
+    if (!recognition) {
+      clearBrowserSttStopTimer();
+      stopAiSttStream();
+      args.setSttState("idle");
+      return;
     }
-  }, [args.speechRecognitionRef, stopAiSttStream]);
+    const settle = recognition.__hearthBrowserSttSettle as (() => Promise<void>) | undefined;
+    if (recognition.__hearthBrowserSttSession) {
+      recognition.__hearthBrowserSttSession.manualStopRequested = true;
+    }
+    args.speechRecognitionRef.current = null;
+    clearBrowserSttStopTimer();
+    stopAiSttStream();
+    args.setSttState("idle");
+    args.browserSttStopTimerRef.current = window.setTimeout(() => {
+      args.browserSttStopTimerRef.current = null;
+      void settle?.();
+    }, 250);
+    try {
+      recognition.stop?.();
+    } catch {
+      try {
+        recognition.abort?.();
+      } catch {
+        // ignore browser recognition stop errors
+      }
+    }
+  }, [args, clearBrowserSttStopTimer, stopAiSttStream]);
 
   const onToggleMic = useCallback((target: "chat" | "script" = "chat") => {
     if (args.sttState === "transcribing") return;
@@ -1184,6 +1251,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.speechRecognitionRef.current = null;
       args.aiSttTranscribeControllerRef.current?.abort();
       args.aiSttTranscribeControllerRef.current = null;
+      clearBrowserSttStopTimer();
       clearSttNoticeTimer();
       clearSttPreviewTimer();
       clearAiSttStopTimer();
@@ -1202,7 +1270,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.aiSttEpisodeIdRef.current = null;
       stopAiSttStream();
     };
-  }, [args, clearAiSttStopTimer, clearSttNoticeTimer, clearSttPreviewTimer, stopAiSttStream]);
+  }, [args, clearAiSttStopTimer, clearBrowserSttStopTimer, clearSttNoticeTimer, clearSttPreviewTimer, stopAiSttStream]);
 
   return { onToggleMic };
 }
