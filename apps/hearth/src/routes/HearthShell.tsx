@@ -7,15 +7,11 @@ import type { HearthSession } from "../domain/session";
 import {
   type BarStockSpark,
   enqueueBarStockSpark,
-  isBarStockKey,
   resolveBarStockSparkHearthWorkpieceId,
   resolveBarstockSparkIdFromQuery,
   upsertBarStockSpark,
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
-import {
-  listHearthBarStockSparks,
-} from "../lib/hearth-barstock-sparks";
 import {
   resolveBarstockProjectIdFromQuery,
 } from "../lib/barstock-project-links";
@@ -96,6 +92,7 @@ import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
 import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
 import { useHearthWorkspaceResetLifecycle } from "../hooks/useHearthWorkspaceResetLifecycle";
 import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
+import { useHearthSparkDiscovery } from "../hooks/useHearthSparkDiscovery";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
 import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
@@ -5741,47 +5738,13 @@ export default function HearthShell({
     setSelectedSparkId,
     setMode,
   });
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    let cancelled = false;
-    const refresh = async () => {
-      const normalizedWorkspaceId = normalizeUuid(workspaceId);
-      if (!normalizedWorkspaceId) {
-        if (!cancelled) {
-          setSparks([]);
-          setSparkDiscoveryWorkspaceId(null);
-          setIsSparksLoading(false);
-        }
-        return;
-      }
-
-      if (!cancelled) setIsSparksLoading(true);
-      try {
-        const remote = await listHearthBarStockSparks(normalizedWorkspaceId);
-        if (cancelled) return;
-        setSparks(remote);
-      } catch {
-        if (cancelled) return;
-      } finally {
-        if (!cancelled) {
-          setSparkDiscoveryWorkspaceId(normalizedWorkspaceId);
-          setIsSparksLoading(false);
-        }
-      }
-    };
-
-    void refresh();
-    const onStorage = (event: StorageEvent) => {
-      if (!isBarStockKey(event.key, workspaceId)) return;
-      void refresh();
-    };
-    window.addEventListener("storage", onStorage);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("storage", onStorage);
-    };
-  }, [workspaceId]);
+  useHearthSparkDiscovery({
+    workspaceId,
+    normalizeUuid,
+    setSparks,
+    setSparkDiscoveryWorkspaceId,
+    setIsSparksLoading,
+  });
 
   useEffect(() => {
     if (visibleSparks.length === 0) {
