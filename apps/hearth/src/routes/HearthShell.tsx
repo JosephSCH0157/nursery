@@ -2593,29 +2593,17 @@ export default function HearthShell({
     selectedMediaMapEntryId,
     setSelectedMediaMapEntryId,
     mediaMapTypeDraft,
-    setMediaMapTypeDraft,
     mediaMapAnchorModeDraft,
-    setMediaMapAnchorModeDraft,
     mediaMapAnchorTargetDraft,
-    setMediaMapAnchorTargetDraft,
     mediaMapInOffsetDraft,
-    setMediaMapInOffsetDraft,
     mediaMapDurationDraft,
-    setMediaMapDurationDraft,
     mediaMapDescriptionDraft,
-    setMediaMapDescriptionDraft,
     mediaMapIntentDraft,
-    setMediaMapIntentDraft,
     mediaMapSourceStatusDraft,
-    setMediaMapSourceStatusDraft,
     mediaMapSourceAssetIdDraft,
-    setMediaMapSourceAssetIdDraft,
     mediaMapConfidenceDraft,
-    setMediaMapConfidenceDraft,
     mediaMapOptionalDraft,
-    setMediaMapOptionalDraft,
     mediaMapCriticalDraft,
-    setMediaMapCriticalDraft,
     mediaMapSaveState,
     setMediaMapSaveState,
     mediaMapSaveError,
@@ -2634,30 +2622,22 @@ export default function HearthShell({
     setMediaMapConversationError,
     onMediaMapDraftChange,
     onMediaMapGenerationScopeChange,
+    syncMediaMapDraftFromEntry,
   } = useMediaMapWorkspace();
   const {
     selectedImageMapEntryId,
     setSelectedImageMapEntryId,
     imageMapAnchorDraft,
-    setImageMapAnchorDraft,
     imageMapDescriptionDraft,
-    setImageMapDescriptionDraft,
     imageMapStyleDraft,
-    setImageMapStyleDraft,
     imageMapIntentDraft,
-    setImageMapIntentDraft,
     imageMapSourceTypeDraft,
     setImageMapSourceTypeDraft,
     imageMapAnchorScopeDraft,
-    setImageMapAnchorScopeDraft,
     imageMapVisualPriorityDraft,
-    setImageMapVisualPriorityDraft,
     imageMapVisualTypeDraft,
-    setImageMapVisualTypeDraft,
     imageMapSectionIntentNoteDraft,
-    setImageMapSectionIntentNoteDraft,
     imageMapPlacementHintDraft,
-    setImageMapPlacementHintDraft,
     imageMapMetadataUpdatedAt,
     setImageMapMetadataUpdatedAt,
     imageMapSaveState,
@@ -2697,56 +2677,34 @@ export default function HearthShell({
     onImageMapDraftVisualTypeChange,
     onImageMapDraftSectionIntentNoteChange,
     onImageMapDraftPlacementHintChange,
+    syncImageMapDraftFromEntry,
   } = useImageMapWorkspace();
   const {
     selectedBrollBeatId,
     setSelectedBrollBeatId,
     brollAnchorDraft,
-    setBrollAnchorDraft,
     brollDescriptionDraft,
-    setBrollDescriptionDraft,
     brollMotionIntentDraft,
-    setBrollMotionIntentDraft,
     brollAssetCategoryDraft,
-    setBrollAssetCategoryDraft,
     brollPriorityDraft,
-    setBrollPriorityDraft,
     brollKeywordsDraft,
-    setBrollKeywordsDraft,
     brollMoodDraft,
-    setBrollMoodDraft,
     brollShotTypeDraft,
-    setBrollShotTypeDraft,
     brollMotionSuggestionDraft,
-    setBrollMotionSuggestionDraft,
     brollSuggestedDurationDraft,
-    setBrollSuggestedDurationDraft,
     brollPlacementHintDraft,
-    setBrollPlacementHintDraft,
     brollDataChartTypeDraft,
-    setBrollDataChartTypeDraft,
     brollDataTitleDraft,
-    setBrollDataTitleDraft,
     brollDataLabelsDraft,
-    setBrollDataLabelsDraft,
     brollDataValuesDraft,
-    setBrollDataValuesDraft,
     brollDataEmphasisKeyDraft,
-    setBrollDataEmphasisKeyDraft,
     brollDataAnimationStyleDraft,
-    setBrollDataAnimationStyleDraft,
     brollProviderIdDraft,
-    setBrollProviderIdDraft,
     brollSourceLabelDraft,
-    setBrollSourceLabelDraft,
     brollSourceUrlDraft,
-    setBrollSourceUrlDraft,
     brollProviderNoteDraft,
-    setBrollProviderNoteDraft,
     brollUsageNoteDraft,
-    setBrollUsageNoteDraft,
     brollResultMetadataDraft,
-    setBrollResultMetadataDraft,
     brollSaveState,
     setBrollSaveState,
     brollSaveError,
@@ -2756,56 +2714,34 @@ export default function HearthShell({
     isBrollBusy,
     setIsBrollBusy,
     onBrollDraftChange,
+    syncBrollDraftFromBeat,
   } = useBrollWorkspace();
   const {
     selectedReferenceClipEntryId,
     setSelectedReferenceClipEntryId,
     referenceClipAnchorDraft,
-    setReferenceClipAnchorDraft,
     referenceClipDescriptionDraft,
-    setReferenceClipDescriptionDraft,
     referenceClipPlacementHintDraft,
-    setReferenceClipPlacementHintDraft,
     referenceClipFormatDraft,
-    setReferenceClipFormatDraft,
     referenceClipDataTypeDraft,
-    setReferenceClipDataTypeDraft,
     referenceClipContextTypeDraft,
-    setReferenceClipContextTypeDraft,
     referenceClipToneDraft,
-    setReferenceClipToneDraft,
     referenceClipMotionLevelDraft,
-    setReferenceClipMotionLevelDraft,
     referenceClipBackgroundContextDraft,
-    setReferenceClipBackgroundContextDraft,
     referenceClipForegroundDataDraft,
-    setReferenceClipForegroundDataDraft,
     referenceClipVisualStyleDraft,
-    setReferenceClipVisualStyleDraft,
     referenceClipChartTypeDraft,
-    setReferenceClipChartTypeDraft,
     referenceClipTitleDraft,
-    setReferenceClipTitleDraft,
     referenceClipLabelsDraft,
-    setReferenceClipLabelsDraft,
     referenceClipValuesDraft,
-    setReferenceClipValuesDraft,
     referenceClipEmphasisKeyDraft,
-    setReferenceClipEmphasisKeyDraft,
     referenceClipSourceTypeDraft,
-    setReferenceClipSourceTypeDraft,
     referenceClipProviderIdDraft,
-    setReferenceClipProviderIdDraft,
     referenceClipSourceLabelDraft,
-    setReferenceClipSourceLabelDraft,
     referenceClipSourceUrlDraft,
-    setReferenceClipSourceUrlDraft,
     referenceClipProviderNoteDraft,
-    setReferenceClipProviderNoteDraft,
     referenceClipUsageNoteDraft,
-    setReferenceClipUsageNoteDraft,
     referenceClipResultMetadataDraft,
-    setReferenceClipResultMetadataDraft,
     referenceClipSaveState,
     setReferenceClipSaveState,
     referenceClipSaveError,
@@ -2815,6 +2751,7 @@ export default function HearthShell({
     isReferenceClipBusy,
     setIsReferenceClipBusy,
     onReferenceClipDraftChange,
+    syncReferenceClipDraftFromEntry,
   } = useReferenceClipWorkspace();
   const {
     metadataTitlesDraft,
@@ -6522,37 +6459,8 @@ export default function HearthShell({
   }, [mediaMapEntries, selectedMediaMapEntryId]);
 
   useEffect(() => {
-    if (!selectedMediaMapEntry) {
-      setMediaMapTypeDraft("image");
-      setMediaMapAnchorModeDraft("phrase_match");
-      setMediaMapAnchorTargetDraft("");
-      setMediaMapInOffsetDraft("0");
-      setMediaMapDurationDraft("6");
-      setMediaMapDescriptionDraft("");
-      setMediaMapIntentDraft("");
-      setMediaMapSourceStatusDraft("unresolved");
-      setMediaMapSourceAssetIdDraft("");
-      setMediaMapConfidenceDraft("medium");
-      setMediaMapOptionalDraft(false);
-      setMediaMapCriticalDraft(false);
-      setMediaMapSaveState("saved");
-      return;
-    }
-    setMediaMapTypeDraft(selectedMediaMapEntry.final_media_kind);
-    setMediaMapAnchorModeDraft(selectedMediaMapEntry.anchor.mode);
-    setMediaMapAnchorTargetDraft(selectedMediaMapEntry.anchor.target);
-    setMediaMapInOffsetDraft(String(selectedMediaMapEntry.timing.in_offset_sec));
-    setMediaMapDurationDraft(String(selectedMediaMapEntry.timing.duration_sec));
-    setMediaMapDescriptionDraft(selectedMediaMapEntry.description);
-    setMediaMapIntentDraft(selectedMediaMapEntry.intent);
-    setMediaMapSourceStatusDraft(selectedMediaMapEntry.source.status);
-    setMediaMapSourceAssetIdDraft(selectedMediaMapEntry.source.asset_id ?? "");
-    setMediaMapConfidenceDraft(selectedMediaMapEntry.confidence);
-    setMediaMapOptionalDraft(selectedMediaMapEntry.optional);
-    setMediaMapCriticalDraft(selectedMediaMapEntry.critical);
-    setMediaMapSaveState("saved");
-    setMediaMapSaveError(null);
-  }, [selectedMediaMapEntry]);
+    syncMediaMapDraftFromEntry(selectedMediaMapEntry);
+  }, [selectedMediaMapEntry, syncMediaMapDraftFromEntry]);
 
   useEffect(() => {
     if (!episodePackage) return;
@@ -6611,34 +6519,8 @@ export default function HearthShell({
   }, [imageMapEntries, selectedImageMapEntryId]);
 
   useEffect(() => {
-    if (!selectedImageMapEntry) {
-      setImageMapAnchorDraft("");
-      setImageMapDescriptionDraft("");
-      setImageMapStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
-      setImageMapIntentDraft("cutaway");
-      setImageMapSourceTypeDraft("stock");
-      setImageMapAnchorScopeDraft("attached");
-      setImageMapVisualPriorityDraft("supporting");
-      setImageMapVisualTypeDraft("still_image");
-      setImageMapSectionIntentNoteDraft("");
-      setImageMapPlacementHintDraft("");
-      setImageMapSaveState("saved");
-      return;
-    }
-    setImageMapAnchorDraft(selectedImageMapEntry.anchor);
-    setImageMapDescriptionDraft(selectedImageMapEntry.description);
-    setImageMapStyleDraft(normalizeHearthVisualStyle(selectedImageMapEntry.style_preset));
-    setImageMapIntentDraft(selectedImageMapEntry.intent || "cutaway");
-    setImageMapSourceTypeDraft(selectedImageMapEntry.source_type || "stock");
-    setImageMapAnchorScopeDraft(resolveImageMapEntryAnchorScope(selectedImageMapEntry));
-    setImageMapVisualPriorityDraft(selectedImageMapEntry.visual_priority ?? "supporting");
-    setImageMapVisualTypeDraft(selectedImageMapEntry.visual_type ?? "still_image");
-    setImageMapSectionIntentNoteDraft(selectedImageMapEntry.section_intent_note ?? "");
-    setImageMapPlacementHintDraft(selectedImageMapEntry.placement_hint ?? "");
-    setImageMapSaveState("saved");
-    setImageMapCandidateError(null);
-    setImageMapCandidateSelectionError(null);
-  }, [selectedImageMapEntry]);
+    syncImageMapDraftFromEntry(selectedImageMapEntry, resolveImageMapEntryAnchorScope);
+  }, [selectedImageMapEntry, syncImageMapDraftFromEntry]);
 
   useEffect(() => {
     if (brollBeats.length === 0) {
@@ -6652,65 +6534,8 @@ export default function HearthShell({
   }, [brollBeats, selectedBrollBeatId]);
 
   useEffect(() => {
-    if (!selectedBrollBeat) {
-      setBrollAnchorDraft("");
-      setBrollDescriptionDraft("");
-      setBrollMotionIntentDraft("broll");
-      setBrollAssetCategoryDraft("stock_video");
-      setBrollPriorityDraft("supporting");
-      setBrollKeywordsDraft("");
-      setBrollMoodDraft("");
-      setBrollShotTypeDraft("mixed");
-      setBrollMotionSuggestionDraft("");
-      setBrollSuggestedDurationDraft("");
-      setBrollPlacementHintDraft("first_occurrence");
-      setBrollDataChartTypeDraft("bar");
-      setBrollDataTitleDraft("");
-      setBrollDataLabelsDraft("");
-      setBrollDataValuesDraft("");
-      setBrollDataEmphasisKeyDraft("");
-      setBrollDataAnimationStyleDraft("");
-      setBrollProviderIdDraft("");
-      setBrollSourceLabelDraft("");
-      setBrollSourceUrlDraft("");
-      setBrollProviderNoteDraft("");
-      setBrollUsageNoteDraft("");
-      setBrollResultMetadataDraft("");
-      setBrollSaveState("saved");
-      return;
-    }
-    setBrollAnchorDraft(selectedBrollBeat.anchor_text);
-    setBrollDescriptionDraft(selectedBrollBeat.description);
-    setBrollMotionIntentDraft(selectedBrollBeat.motion_intent);
-    setBrollAssetCategoryDraft(selectedBrollBeat.asset_category ?? "stock_video");
-    setBrollPriorityDraft(selectedBrollBeat.priority);
-    setBrollKeywordsDraft((selectedBrollBeat.keywords ?? []).join(", "));
-    setBrollMoodDraft(selectedBrollBeat.mood ?? "");
-    setBrollShotTypeDraft(selectedBrollBeat.shot_type ?? "mixed");
-    setBrollMotionSuggestionDraft(selectedBrollBeat.motion_suggestion ?? "");
-    setBrollSuggestedDurationDraft(
-      selectedBrollBeat.suggested_duration_ms != null ? String(selectedBrollBeat.suggested_duration_ms) : "",
-    );
-    setBrollPlacementHintDraft(selectedBrollBeat.placement_hint ?? "first_occurrence");
-    setBrollDataChartTypeDraft(selectedBrollBeat.data_visual_spec?.chart_type ?? "bar");
-    setBrollDataTitleDraft(selectedBrollBeat.data_visual_spec?.title ?? "");
-    setBrollDataLabelsDraft((selectedBrollBeat.data_visual_spec?.labels ?? []).join(", "));
-    setBrollDataValuesDraft((selectedBrollBeat.data_visual_spec?.values ?? []).map((value) => String(value)).join(", "));
-    setBrollDataEmphasisKeyDraft(selectedBrollBeat.data_visual_spec?.emphasis_key ?? "");
-    setBrollDataAnimationStyleDraft(selectedBrollBeat.data_visual_spec?.animation_style ?? "");
-    setBrollProviderIdDraft(selectedBrollBeat.external_request?.provider_id ?? "");
-    setBrollSourceLabelDraft(
-      (selectedBrollBeat.selected_asset_id
-        ? (selectedBrollBeat.candidate_assets ?? []).find((asset) => asset.asset_id === selectedBrollBeat.selected_asset_id)?.source_label
-        : null) ?? "",
-    );
-    setBrollSourceUrlDraft(selectedBrollBeat.external_request?.source_url ?? "");
-    setBrollProviderNoteDraft(selectedBrollBeat.external_request?.provider_note ?? "");
-    setBrollUsageNoteDraft(selectedBrollBeat.external_request?.usage_note ?? "");
-    setBrollResultMetadataDraft(selectedBrollBeat.external_request?.result_metadata ?? "");
-    setBrollSaveState("saved");
-    setBrollSaveError(null);
-  }, [selectedBrollBeat]);
+    syncBrollDraftFromBeat(selectedBrollBeat);
+  }, [selectedBrollBeat, syncBrollDraftFromBeat]);
 
   useEffect(() => {
     if (referenceClipEntries.length === 0) {
@@ -6724,63 +6549,8 @@ export default function HearthShell({
   }, [referenceClipEntries, selectedReferenceClipEntryId]);
 
   useEffect(() => {
-    if (!selectedReferenceClipEntry) {
-      setReferenceClipAnchorDraft("");
-      setReferenceClipDescriptionDraft("");
-      setReferenceClipPlacementHintDraft("first_occurrence");
-      setReferenceClipFormatDraft("still");
-      setReferenceClipDataTypeDraft("quantitative");
-      setReferenceClipContextTypeDraft("historical");
-      setReferenceClipToneDraft("neutral");
-      setReferenceClipMotionLevelDraft("static");
-      setReferenceClipBackgroundContextDraft("");
-      setReferenceClipForegroundDataDraft("");
-      setReferenceClipVisualStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
-      setReferenceClipChartTypeDraft("line");
-      setReferenceClipTitleDraft("");
-      setReferenceClipLabelsDraft("");
-      setReferenceClipValuesDraft("");
-      setReferenceClipEmphasisKeyDraft("");
-      setReferenceClipSourceTypeDraft("planned");
-      setReferenceClipProviderIdDraft("");
-      setReferenceClipSourceLabelDraft("");
-      setReferenceClipSourceUrlDraft("");
-      setReferenceClipProviderNoteDraft("");
-      setReferenceClipUsageNoteDraft("");
-      setReferenceClipResultMetadataDraft("");
-      setReferenceClipSaveState("saved");
-      return;
-    }
-    setReferenceClipAnchorDraft(selectedReferenceClipEntry.anchor_text);
-    setReferenceClipDescriptionDraft(selectedReferenceClipEntry.description);
-    setReferenceClipPlacementHintDraft(selectedReferenceClipEntry.placement_hint ?? "first_occurrence");
-    setReferenceClipFormatDraft(selectedReferenceClipEntry.format);
-    setReferenceClipDataTypeDraft(selectedReferenceClipEntry.data_type);
-    setReferenceClipContextTypeDraft(selectedReferenceClipEntry.context_type);
-    setReferenceClipToneDraft(selectedReferenceClipEntry.tone);
-    setReferenceClipMotionLevelDraft(selectedReferenceClipEntry.motion_level);
-    setReferenceClipBackgroundContextDraft(selectedReferenceClipEntry.background_context_description ?? "");
-    setReferenceClipForegroundDataDraft(selectedReferenceClipEntry.foreground_data_description ?? "");
-    setReferenceClipVisualStyleDraft(normalizeHearthVisualStyle(selectedReferenceClipEntry.visual_style ?? null));
-    setReferenceClipChartTypeDraft(selectedReferenceClipEntry.chart_type ?? "line");
-    setReferenceClipTitleDraft(selectedReferenceClipEntry.title ?? "");
-    setReferenceClipLabelsDraft((selectedReferenceClipEntry.labels ?? []).join(", "));
-    setReferenceClipValuesDraft((selectedReferenceClipEntry.values ?? []).map((value) => String(value)).join(", "));
-    setReferenceClipEmphasisKeyDraft(selectedReferenceClipEntry.emphasis_key ?? "");
-    setReferenceClipSourceTypeDraft(selectedReferenceClipEntry.source_type ?? "planned");
-    setReferenceClipProviderIdDraft(selectedReferenceClipEntry.external_request?.provider_id ?? "");
-    setReferenceClipSourceLabelDraft(
-      (selectedReferenceClipEntry.selected_asset_id
-        ? (selectedReferenceClipEntry.candidate_assets ?? []).find((asset) => asset.asset_id === selectedReferenceClipEntry.selected_asset_id)?.source_label
-        : null) ?? "",
-    );
-    setReferenceClipSourceUrlDraft(selectedReferenceClipEntry.external_request?.source_url ?? "");
-    setReferenceClipProviderNoteDraft(selectedReferenceClipEntry.external_request?.provider_note ?? "");
-    setReferenceClipUsageNoteDraft(selectedReferenceClipEntry.external_request?.usage_note ?? "");
-    setReferenceClipResultMetadataDraft(selectedReferenceClipEntry.external_request?.result_metadata ?? "");
-    setReferenceClipSaveState("saved");
-    setReferenceClipSaveError(null);
-  }, [selectedReferenceClipEntry]);
+    syncReferenceClipDraftFromEntry(selectedReferenceClipEntry);
+  }, [selectedReferenceClipEntry, syncReferenceClipDraftFromEntry]);
 
   useEffect(() => {
     setIsVisualScriptMode(false);

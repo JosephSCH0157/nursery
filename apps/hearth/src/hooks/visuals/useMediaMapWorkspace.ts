@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type {
   MediaMapConversationSeed,
   MediaMapGenerationScope,
 } from "../../lib/hearth-media-map-conversation";
 import { normalizeMediaMapGenerationScope } from "../../lib/hearth-media-map-conversation";
+import type { EpisodeMediaMapEntry } from "../../lib/episode-package-v2";
 
 export function useMediaMapWorkspace() {
   const [selectedMediaMapEntryId, setSelectedMediaMapEntryId] = useState<string | null>(null);
@@ -56,6 +57,39 @@ export function useMediaMapWorkspace() {
     setMediaMapGenerationScope(normalizeMediaMapGenerationScope(value));
   }
 
+  const syncMediaMapDraftFromEntry = useCallback((selectedMediaMapEntry: EpisodeMediaMapEntry | null): void => {
+    if (!selectedMediaMapEntry) {
+      setMediaMapTypeDraft("image");
+      setMediaMapAnchorModeDraft("phrase_match");
+      setMediaMapAnchorTargetDraft("");
+      setMediaMapInOffsetDraft("0");
+      setMediaMapDurationDraft("6");
+      setMediaMapDescriptionDraft("");
+      setMediaMapIntentDraft("");
+      setMediaMapSourceStatusDraft("unresolved");
+      setMediaMapSourceAssetIdDraft("");
+      setMediaMapConfidenceDraft("medium");
+      setMediaMapOptionalDraft(false);
+      setMediaMapCriticalDraft(false);
+      setMediaMapSaveState("saved");
+      return;
+    }
+    setMediaMapTypeDraft(selectedMediaMapEntry.final_media_kind);
+    setMediaMapAnchorModeDraft(selectedMediaMapEntry.anchor.mode);
+    setMediaMapAnchorTargetDraft(selectedMediaMapEntry.anchor.target);
+    setMediaMapInOffsetDraft(String(selectedMediaMapEntry.timing.in_offset_sec));
+    setMediaMapDurationDraft(String(selectedMediaMapEntry.timing.duration_sec));
+    setMediaMapDescriptionDraft(selectedMediaMapEntry.description);
+    setMediaMapIntentDraft(selectedMediaMapEntry.intent);
+    setMediaMapSourceStatusDraft(selectedMediaMapEntry.source.status);
+    setMediaMapSourceAssetIdDraft(selectedMediaMapEntry.source.asset_id ?? "");
+    setMediaMapConfidenceDraft(selectedMediaMapEntry.confidence);
+    setMediaMapOptionalDraft(selectedMediaMapEntry.optional);
+    setMediaMapCriticalDraft(selectedMediaMapEntry.critical);
+    setMediaMapSaveState("saved");
+    setMediaMapSaveError(null);
+  }, []);
+
   return {
     selectedMediaMapEntryId,
     setSelectedMediaMapEntryId,
@@ -102,5 +136,6 @@ export function useMediaMapWorkspace() {
     setMediaMapDraftEditing,
     onMediaMapDraftChange,
     onMediaMapGenerationScopeChange,
+    syncMediaMapDraftFromEntry,
   };
 }

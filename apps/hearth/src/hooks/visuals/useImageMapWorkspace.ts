@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type {
+  EpisodeImageMapEntry,
   EpisodeImageMapAnchorScope,
   EpisodeImageMapVisualPriority,
   EpisodeImageMapVisualType,
@@ -92,6 +93,39 @@ export function useImageMapWorkspace() {
     setImageMapDraftEditing(setImageMapPlacementHintDraft, value);
   }
 
+  const syncImageMapDraftFromEntry = useCallback((
+    selectedImageMapEntry: EpisodeImageMapEntry | null,
+    resolveAnchorScope: (entry: EpisodeImageMapEntry) => EpisodeImageMapAnchorScope,
+  ): void => {
+    if (!selectedImageMapEntry) {
+      setImageMapAnchorDraft("");
+      setImageMapDescriptionDraft("");
+      setImageMapStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
+      setImageMapIntentDraft("cutaway");
+      setImageMapSourceTypeDraft("stock");
+      setImageMapAnchorScopeDraft("attached");
+      setImageMapVisualPriorityDraft("supporting");
+      setImageMapVisualTypeDraft("still_image");
+      setImageMapSectionIntentNoteDraft("");
+      setImageMapPlacementHintDraft("");
+      setImageMapSaveState("saved");
+      return;
+    }
+    setImageMapAnchorDraft(selectedImageMapEntry.anchor);
+    setImageMapDescriptionDraft(selectedImageMapEntry.description);
+    setImageMapStyleDraft(normalizeHearthVisualStyle(selectedImageMapEntry.style_preset));
+    setImageMapIntentDraft(selectedImageMapEntry.intent || "cutaway");
+    setImageMapSourceTypeDraft(selectedImageMapEntry.source_type || "stock");
+    setImageMapAnchorScopeDraft(resolveAnchorScope(selectedImageMapEntry));
+    setImageMapVisualPriorityDraft(selectedImageMapEntry.visual_priority ?? "supporting");
+    setImageMapVisualTypeDraft(selectedImageMapEntry.visual_type ?? "still_image");
+    setImageMapSectionIntentNoteDraft(selectedImageMapEntry.section_intent_note ?? "");
+    setImageMapPlacementHintDraft(selectedImageMapEntry.placement_hint ?? "");
+    setImageMapSaveState("saved");
+    setImageMapCandidateError(null);
+    setImageMapCandidateSelectionError(null);
+  }, []);
+
   return {
     selectedImageMapEntryId,
     setSelectedImageMapEntryId,
@@ -155,5 +189,6 @@ export function useImageMapWorkspace() {
     onImageMapDraftVisualTypeChange,
     onImageMapDraftSectionIntentNoteChange,
     onImageMapDraftPlacementHintChange,
+    syncImageMapDraftFromEntry,
   };
 }

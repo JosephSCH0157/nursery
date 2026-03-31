@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { DEFAULT_HEARTH_VISUAL_STYLE, normalizeHearthVisualStyle } from "../../lib/hearth-visual-styles";
+import type { EpisodeReferenceClipPlan } from "../../lib/episode-package-v2";
 
 export function useReferenceClipWorkspace() {
   const [selectedReferenceClipEntryId, setSelectedReferenceClipEntryId] = useState<string | null>(null);
@@ -65,6 +66,67 @@ export function useReferenceClipWorkspace() {
     else if (field === "resultMetadata") setReferenceClipDraftEditing(setReferenceClipResultMetadataDraft, value);
   }
 
+  const syncReferenceClipDraftFromEntry = useCallback((
+    selectedReferenceClipEntry: EpisodeReferenceClipPlan["entries"][number] | null,
+  ): void => {
+    if (!selectedReferenceClipEntry) {
+      setReferenceClipAnchorDraft("");
+      setReferenceClipDescriptionDraft("");
+      setReferenceClipPlacementHintDraft("first_occurrence");
+      setReferenceClipFormatDraft("still");
+      setReferenceClipDataTypeDraft("quantitative");
+      setReferenceClipContextTypeDraft("historical");
+      setReferenceClipToneDraft("neutral");
+      setReferenceClipMotionLevelDraft("static");
+      setReferenceClipBackgroundContextDraft("");
+      setReferenceClipForegroundDataDraft("");
+      setReferenceClipVisualStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
+      setReferenceClipChartTypeDraft("line");
+      setReferenceClipTitleDraft("");
+      setReferenceClipLabelsDraft("");
+      setReferenceClipValuesDraft("");
+      setReferenceClipEmphasisKeyDraft("");
+      setReferenceClipSourceTypeDraft("planned");
+      setReferenceClipProviderIdDraft("");
+      setReferenceClipSourceLabelDraft("");
+      setReferenceClipSourceUrlDraft("");
+      setReferenceClipProviderNoteDraft("");
+      setReferenceClipUsageNoteDraft("");
+      setReferenceClipResultMetadataDraft("");
+      setReferenceClipSaveState("saved");
+      return;
+    }
+    setReferenceClipAnchorDraft(selectedReferenceClipEntry.anchor_text);
+    setReferenceClipDescriptionDraft(selectedReferenceClipEntry.description);
+    setReferenceClipPlacementHintDraft(selectedReferenceClipEntry.placement_hint ?? "first_occurrence");
+    setReferenceClipFormatDraft(selectedReferenceClipEntry.format);
+    setReferenceClipDataTypeDraft(selectedReferenceClipEntry.data_type);
+    setReferenceClipContextTypeDraft(selectedReferenceClipEntry.context_type);
+    setReferenceClipToneDraft(selectedReferenceClipEntry.tone);
+    setReferenceClipMotionLevelDraft(selectedReferenceClipEntry.motion_level);
+    setReferenceClipBackgroundContextDraft(selectedReferenceClipEntry.background_context_description ?? "");
+    setReferenceClipForegroundDataDraft(selectedReferenceClipEntry.foreground_data_description ?? "");
+    setReferenceClipVisualStyleDraft(normalizeHearthVisualStyle(selectedReferenceClipEntry.visual_style ?? null));
+    setReferenceClipChartTypeDraft(selectedReferenceClipEntry.chart_type ?? "line");
+    setReferenceClipTitleDraft(selectedReferenceClipEntry.title ?? "");
+    setReferenceClipLabelsDraft((selectedReferenceClipEntry.labels ?? []).join(", "));
+    setReferenceClipValuesDraft((selectedReferenceClipEntry.values ?? []).map((value) => String(value)).join(", "));
+    setReferenceClipEmphasisKeyDraft(selectedReferenceClipEntry.emphasis_key ?? "");
+    setReferenceClipSourceTypeDraft(selectedReferenceClipEntry.source_type ?? "planned");
+    setReferenceClipProviderIdDraft(selectedReferenceClipEntry.external_request?.provider_id ?? "");
+    setReferenceClipSourceLabelDraft(
+      (selectedReferenceClipEntry.selected_asset_id
+        ? (selectedReferenceClipEntry.candidate_assets ?? []).find((asset) => asset.asset_id === selectedReferenceClipEntry.selected_asset_id)?.source_label
+        : null) ?? "",
+    );
+    setReferenceClipSourceUrlDraft(selectedReferenceClipEntry.external_request?.source_url ?? "");
+    setReferenceClipProviderNoteDraft(selectedReferenceClipEntry.external_request?.provider_note ?? "");
+    setReferenceClipUsageNoteDraft(selectedReferenceClipEntry.external_request?.usage_note ?? "");
+    setReferenceClipResultMetadataDraft(selectedReferenceClipEntry.external_request?.result_metadata ?? "");
+    setReferenceClipSaveState("saved");
+    setReferenceClipSaveError(null);
+  }, []);
+
   return {
     selectedReferenceClipEntryId,
     setSelectedReferenceClipEntryId,
@@ -124,5 +186,6 @@ export function useReferenceClipWorkspace() {
     setIsReferenceClipBusy,
     setReferenceClipDraftEditing,
     onReferenceClipDraftChange,
+    syncReferenceClipDraftFromEntry,
   };
 }

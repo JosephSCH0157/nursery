@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { EpisodeBrollMotionAssetCategory } from "../../lib/episode-package-v2";
+import { useCallback, useState } from "react";
+import type { EpisodeBrollMotionAssetCategory, EpisodeBrollPlanBeat } from "../../lib/episode-package-v2";
 
 export function useBrollWorkspace() {
   const [selectedBrollBeatId, setSelectedBrollBeatId] = useState<string | null>(null);
@@ -65,6 +65,67 @@ export function useBrollWorkspace() {
     else if (field === "resultMetadata") setBrollDraftEditing(setBrollResultMetadataDraft, value);
   }
 
+  const syncBrollDraftFromBeat = useCallback((selectedBrollBeat: EpisodeBrollPlanBeat | null): void => {
+    if (!selectedBrollBeat) {
+      setBrollAnchorDraft("");
+      setBrollDescriptionDraft("");
+      setBrollMotionIntentDraft("broll");
+      setBrollAssetCategoryDraft("stock_video");
+      setBrollPriorityDraft("supporting");
+      setBrollKeywordsDraft("");
+      setBrollMoodDraft("");
+      setBrollShotTypeDraft("mixed");
+      setBrollMotionSuggestionDraft("");
+      setBrollSuggestedDurationDraft("");
+      setBrollPlacementHintDraft("first_occurrence");
+      setBrollDataChartTypeDraft("bar");
+      setBrollDataTitleDraft("");
+      setBrollDataLabelsDraft("");
+      setBrollDataValuesDraft("");
+      setBrollDataEmphasisKeyDraft("");
+      setBrollDataAnimationStyleDraft("");
+      setBrollProviderIdDraft("");
+      setBrollSourceLabelDraft("");
+      setBrollSourceUrlDraft("");
+      setBrollProviderNoteDraft("");
+      setBrollUsageNoteDraft("");
+      setBrollResultMetadataDraft("");
+      setBrollSaveState("saved");
+      return;
+    }
+    setBrollAnchorDraft(selectedBrollBeat.anchor_text);
+    setBrollDescriptionDraft(selectedBrollBeat.description);
+    setBrollMotionIntentDraft(selectedBrollBeat.motion_intent);
+    setBrollAssetCategoryDraft(selectedBrollBeat.asset_category ?? "stock_video");
+    setBrollPriorityDraft(selectedBrollBeat.priority);
+    setBrollKeywordsDraft((selectedBrollBeat.keywords ?? []).join(", "));
+    setBrollMoodDraft(selectedBrollBeat.mood ?? "");
+    setBrollShotTypeDraft(selectedBrollBeat.shot_type ?? "mixed");
+    setBrollMotionSuggestionDraft(selectedBrollBeat.motion_suggestion ?? "");
+    setBrollSuggestedDurationDraft(
+      selectedBrollBeat.suggested_duration_ms != null ? String(selectedBrollBeat.suggested_duration_ms) : "",
+    );
+    setBrollPlacementHintDraft(selectedBrollBeat.placement_hint ?? "first_occurrence");
+    setBrollDataChartTypeDraft(selectedBrollBeat.data_visual_spec?.chart_type ?? "bar");
+    setBrollDataTitleDraft(selectedBrollBeat.data_visual_spec?.title ?? "");
+    setBrollDataLabelsDraft((selectedBrollBeat.data_visual_spec?.labels ?? []).join(", "));
+    setBrollDataValuesDraft((selectedBrollBeat.data_visual_spec?.values ?? []).map((value) => String(value)).join(", "));
+    setBrollDataEmphasisKeyDraft(selectedBrollBeat.data_visual_spec?.emphasis_key ?? "");
+    setBrollDataAnimationStyleDraft(selectedBrollBeat.data_visual_spec?.animation_style ?? "");
+    setBrollProviderIdDraft(selectedBrollBeat.external_request?.provider_id ?? "");
+    setBrollSourceLabelDraft(
+      (selectedBrollBeat.selected_asset_id
+        ? (selectedBrollBeat.candidate_assets ?? []).find((asset) => asset.asset_id === selectedBrollBeat.selected_asset_id)?.source_label
+        : null) ?? "",
+    );
+    setBrollSourceUrlDraft(selectedBrollBeat.external_request?.source_url ?? "");
+    setBrollProviderNoteDraft(selectedBrollBeat.external_request?.provider_note ?? "");
+    setBrollUsageNoteDraft(selectedBrollBeat.external_request?.usage_note ?? "");
+    setBrollResultMetadataDraft(selectedBrollBeat.external_request?.result_metadata ?? "");
+    setBrollSaveState("saved");
+    setBrollSaveError(null);
+  }, []);
+
   return {
     selectedBrollBeatId,
     setSelectedBrollBeatId,
@@ -124,5 +185,6 @@ export function useBrollWorkspace() {
     setIsBrollBusy,
     setBrollDraftEditing,
     onBrollDraftChange,
+    syncBrollDraftFromBeat,
   };
 }
