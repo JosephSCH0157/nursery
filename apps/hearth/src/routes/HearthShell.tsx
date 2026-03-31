@@ -3219,6 +3219,7 @@ export default function HearthShell({
     onActivateEpisodeMediaMap,
   } = useMediaMapEntryActions({
     episodePackage,
+    workpieceId,
     selectedMediaMapEntry,
     approvedScriptVersion,
     isMediaMapBusy,
@@ -3239,6 +3240,9 @@ export default function HearthShell({
     setMediaMapSaveError,
     setMediaMapMessage,
     setSelectedMediaMapEntryId,
+    persistImageMapEntries,
+    persistBrollPlan,
+    persistReferenceClipPlan,
     persistMediaMap,
   });
   const { prepareSourceEpisodePackageForMediaMapGeneration } = useMediaMapSourcePreparation({

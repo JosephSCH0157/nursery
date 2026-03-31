@@ -1,7 +1,15 @@
 import { useCallback } from "react";
 import { activateEpisodeMediaMapForFulfillment } from "../../lib/hearth-media-map-fulfillment";
 import { deriveMediaMapPurpose } from "../../lib/hearth-visual-purpose";
-import type { EpisodeMediaMap, EpisodeMediaMapEntry, EpisodePackageV2 } from "../../lib/episode-package-v2";
+import type {
+  EpisodeBrollPlan,
+  EpisodeContextualDataCompositePlan,
+  EpisodeImageMapEntry,
+  EpisodeMediaMap,
+  EpisodeMediaMapEntry,
+  EpisodePackageV2,
+  EpisodeReferenceClipPlan,
+} from "../../lib/episode-package-v2";
 
 type PersistMediaMapResult =
   | { ok: true; episodePackage: EpisodePackageV2 }
@@ -9,6 +17,7 @@ type PersistMediaMapResult =
 
 type UseMediaMapEntryActionsArgs = {
   episodePackage: EpisodePackageV2 | null;
+  workpieceId: string | null;
   selectedMediaMapEntry: EpisodeMediaMapEntry | null;
   approvedScriptVersion: number | null;
   isMediaMapBusy: boolean;
@@ -29,6 +38,22 @@ type UseMediaMapEntryActionsArgs = {
   setMediaMapSaveError: (next: string | null) => void;
   setMediaMapMessage: (next: string | null) => void;
   setSelectedMediaMapEntryId: (next: string | null) => void;
+  persistImageMapEntries: (args: {
+    entries: EpisodeImageMapEntry[];
+    spokenBeats?: EpisodePackageV2["spoken_beats"] | null;
+  }) => Promise<{ ok: true; episodePackage: EpisodePackageV2; metadataUpdatedAt: string | null } | { ok: false; error: string }>;
+  persistBrollPlan: (args: {
+    plan: EpisodeBrollPlan;
+    eventName: string;
+    eventPayload: Record<string, unknown>;
+    baseEpisodePackage?: EpisodePackageV2;
+  }) => Promise<PersistMediaMapResult>;
+  persistReferenceClipPlan: (args: {
+    plan: EpisodeReferenceClipPlan;
+    eventName: string;
+    eventPayload: Record<string, unknown>;
+    baseEpisodePackage?: EpisodePackageV2;
+  }) => Promise<PersistMediaMapResult>;
   persistMediaMap: (args: {
     map: EpisodeMediaMap;
     eventName: string;
@@ -48,6 +73,19 @@ function normalizeMediaMapNumber(text: string, fallback: number): number {
   const parsed = Number(text);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(0, parsed);
+}
+
+function deriveSuffixFromMediaMapEntryId(id: string): string {
+  const trimmed = id.trim();
+  if (trimmed.startsWith("mm_imap_")) return trimmed.slice("mm_imap_".length);
+  if (trimmed.startsWith("mm_broll_")) return trimmed.slice("mm_broll_".length);
+  if (trimmed.startsWith("mm_reference_clip_")) return trimmed.slice("mm_reference_clip_".length);
+  if (trimmed.startsWith("mm_thumbnail_")) return trimmed.slice("mm_thumbnail_".length);
+  return trimmed.replace(/^mm_/, "");
+}
+
+function isThumbnailMediaMapEntry(entry: EpisodeMediaMapEntry): boolean {
+  return entry.id.startsWith("mm_thumbnail_") || entry.intent === "thumbnail_concept";
 }
 
 export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
@@ -278,6 +316,12 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
   const onActivateEpisodeMediaMap = useCallback(async () => {
     if (!args.episodePackage) return;
     if (args.isMediaMapBusy) return;
+    const normalizedWorkpieceId = args.workpieceId?.trim() ?? "";
+    if (!normalizedWorkpieceId) {
+      args.setMediaMapSaveError("Select an Episode before applying the media map.");
+      args.setMediaMapSaveState("error");
+      return;
+    }
     const activated = activateEpisodeMediaMapForFulfillment({
       ...args.episodePackage.media_map,
       script_version_id: args.approvedScriptVersion ? String(args.approvedScriptVersion) : args.episodePackage.media_map.script_version_id,
@@ -286,6 +330,187 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
     args.setMediaMapSaveState("saving");
     args.setMediaMapSaveError(null);
     try {
+      const mediaEntriesForPlans = activated.entries.filter((entry) => !isThumbnailMediaMapEntry(entry));
+      const existingImageById = new Map(args.episodePackage.image_map.entries.map((entry) => [entry.id, entry] as const));
+      const existingBrollById = new Map(args.episodePackage.broll_plan.beats.map((beat) => [beat.id, beat] as const));
+      const existingReferenceById = new Map(args.episodePackage.cdc_plan.entries.map((entry) => [entry.id, entry] as const));
+      const nowIso = new Date().toISOString();
+
+      const syncedImageEntries: EpisodeImageMapEntry[] = mediaEntriesForPlans
+        .filter((entry) => entry.final_media_kind === "image")
+        .map((entry, index) => {
+          const suffix = deriveSuffixFromMediaMapEntryId(entry.id);
+          const mappedId = entry.id.startsWith("mm_imap_") ? suffix : `mm_from_media_${suffix}`;
+          const existing = existingImageById.get(mappedId);
+          const selectedAssetId = entry.source.status === "selected" || entry.source.status === "attached"
+            ? entry.source.asset_id
+            : null;
+          return {
+            id: mappedId,
+            anchor: entry.anchor.target,
+            script_anchor: existing?.script_anchor ?? null,
+            beat_anchor: entry.beat_anchor ?? existing?.beat_anchor ?? null,
+            anchor_scope: existing?.anchor_scope ?? "orphaned",
+            purpose: entry.purpose,
+            description: entry.description,
+            visual_intent: entry.description,
+            prompt_basis: entry.description,
+            style_preset: existing?.style_preset ?? null,
+            intent: entry.intent || existing?.intent || "cutaway",
+            source_type: existing?.source_type ?? (selectedAssetId ? "external" : "stock"),
+            origin: existing?.origin ?? "hearth",
+            visual_priority: existing?.visual_priority ?? (entry.critical ? "primary" : "supporting"),
+            visual_type: existing?.visual_type ?? "still_image",
+            section_intent_note: existing?.section_intent_note ?? null,
+            beat_order: index + 1,
+            paragraph_beat_order: 1,
+            candidate_assets: existing?.candidate_assets ?? [],
+            selected_asset_id: selectedAssetId,
+            status: selectedAssetId ? "selected" : "draft",
+            placement_hint: entry.anchor.mode === "absolute_time" ? "exact_timestamp" : (existing?.placement_hint ?? null),
+          };
+        });
+
+      const syncedBrollBeats = mediaEntriesForPlans
+        .filter((entry) => entry.final_media_kind === "b_roll")
+        .map((entry) => {
+          const suffix = deriveSuffixFromMediaMapEntryId(entry.id);
+          const mappedId = entry.id.startsWith("mm_broll_") ? suffix : `mm_from_media_${suffix}`;
+          const existing = existingBrollById.get(mappedId);
+          const selectedAssetId = entry.source.status === "selected" || entry.source.status === "attached"
+            ? entry.source.asset_id
+            : null;
+          return {
+            id: mappedId,
+            workpiece_id: normalizedWorkpieceId,
+            anchor_text: entry.anchor.target,
+            placement_hint: entry.anchor.mode === "absolute_time" ? "exact_timestamp" : "first_occurrence",
+            timestamp_ms: entry.anchor.mode === "absolute_time"
+              ? Math.max(0, Math.trunc(Number(entry.anchor.target) * 1000)) || null
+              : null,
+            purpose: entry.purpose,
+            description: entry.description,
+            motion_intent: existing?.motion_intent ?? "broll",
+            visual_style: existing?.visual_style ?? null,
+            priority: existing?.priority ?? (entry.critical ? "primary" : "supporting"),
+            keywords: existing?.keywords ?? [],
+            mood: existing?.mood ?? null,
+            shot_type: existing?.shot_type ?? "mixed",
+            motion_suggestion: existing?.motion_suggestion ?? null,
+            suggested_duration_ms: Math.max(1000, Math.trunc(entry.timing.duration_sec * 1000)),
+            source_type: existing?.source_type ?? (selectedAssetId ? "external" : "planned"),
+            asset_category: existing?.asset_category ?? null,
+            data_visual_spec: existing?.data_visual_spec ?? null,
+            selected_asset_id: selectedAssetId,
+            candidate_assets: existing?.candidate_assets ?? [],
+            external_request: existing?.external_request ?? null,
+            fulfillment_state: selectedAssetId ? "resolved" : "unresolved",
+            origin: existing?.origin ?? "hearth",
+            created_at: existing?.created_at ?? nowIso,
+            updated_at: nowIso,
+          } as EpisodeBrollPlan["beats"][number];
+        });
+
+      const syncedReferenceEntries: EpisodeContextualDataCompositePlan[] = mediaEntriesForPlans
+        .filter((entry) => entry.final_media_kind === "contextual_data_composite")
+        .map((entry) => {
+          const suffix = deriveSuffixFromMediaMapEntryId(entry.id);
+          const mappedId = entry.id.startsWith("mm_reference_clip_") ? suffix : `mm_from_media_${suffix}`;
+          const existing = existingReferenceById.get(mappedId);
+          const selectedAssetId = entry.source.status === "selected" || entry.source.status === "attached"
+            ? entry.source.asset_id
+            : null;
+          return {
+            id: mappedId,
+            workpiece_id: normalizedWorkpieceId,
+            media_type: "contextual_data_composite",
+            anchor_text: entry.anchor.target,
+            placement_hint: entry.anchor.mode === "absolute_time" ? "exact_timestamp" : "first_occurrence",
+            timestamp_ms: entry.anchor.mode === "absolute_time"
+              ? Math.max(0, Math.trunc(Number(entry.anchor.target) * 1000)) || null
+              : null,
+            purpose: entry.purpose,
+            format: existing?.format ?? "still",
+            data_type: existing?.data_type ?? "quantitative",
+            context_type: existing?.context_type ?? "historical",
+            tone: existing?.tone ?? "neutral",
+            motion_level: existing?.motion_level ?? "static",
+            description: entry.description,
+            background_context_description: existing?.background_context_description ?? "",
+            foreground_data_description: existing?.foreground_data_description ?? "",
+            visual_style: existing?.visual_style ?? null,
+            chart_type: existing?.chart_type ?? null,
+            title: existing?.title ?? null,
+            labels: existing?.labels ?? [],
+            values: existing?.values ?? [],
+            emphasis_key: existing?.emphasis_key ?? null,
+            candidate_assets: existing?.candidate_assets ?? [],
+            external_request: existing?.external_request ?? null,
+            selected_asset_id: selectedAssetId,
+            source_type: existing?.source_type ?? (selectedAssetId ? "external" : "planned"),
+            origin: existing?.origin ?? "hearth",
+            created_at: existing?.created_at ?? nowIso,
+            updated_at: nowIso,
+          };
+        });
+
+      let syncedEpisodePackage = args.episodePackage;
+      const syncedImage = await args.persistImageMapEntries({
+        entries: syncedImageEntries,
+      });
+      if (!syncedImage.ok) {
+        args.setMediaMapSaveError(syncedImage.error);
+        args.setMediaMapSaveState("error");
+        return;
+      }
+      syncedEpisodePackage = syncedImage.episodePackage;
+
+      const syncedBrollPlan: EpisodeBrollPlan = {
+        ...syncedEpisodePackage.broll_plan,
+        workpiece_id: normalizedWorkpieceId,
+        version: Math.max(1, syncedEpisodePackage.broll_plan.version + 1),
+        beats: syncedBrollBeats,
+        generated_at: nowIso,
+      };
+      const syncedBroll = await args.persistBrollPlan({
+        plan: syncedBrollPlan,
+        eventName: "hearth.broll_plan.synced_from_media_map.v1",
+        eventPayload: {
+          beat_count: syncedBrollBeats.length,
+          source: "media_map_activation",
+        },
+        baseEpisodePackage: syncedEpisodePackage,
+      });
+      if (!syncedBroll.ok) {
+        args.setMediaMapSaveError(syncedBroll.error);
+        args.setMediaMapSaveState("error");
+        return;
+      }
+      syncedEpisodePackage = syncedBroll.episodePackage;
+
+      const syncedReferencePlan: EpisodeReferenceClipPlan = {
+        ...syncedEpisodePackage.cdc_plan,
+        workpiece_id: normalizedWorkpieceId,
+        version: Math.max(1, syncedEpisodePackage.cdc_plan.version + 1),
+        entries: syncedReferenceEntries,
+        generated_at: nowIso,
+      };
+      const syncedReference = await args.persistReferenceClipPlan({
+        plan: syncedReferencePlan,
+        eventName: "hearth.cdc_plan.synced_from_media_map.v1",
+        eventPayload: {
+          entry_count: syncedReferenceEntries.length,
+          source: "media_map_activation",
+        },
+        baseEpisodePackage: syncedEpisodePackage,
+      });
+      if (!syncedReference.ok) {
+        args.setMediaMapSaveError(syncedReference.error);
+        args.setMediaMapSaveState("error");
+        return;
+      }
+      syncedEpisodePackage = syncedReference.episodePackage;
+
       const saved = await args.persistMediaMap({
         map: activated,
         eventName: "hearth.media_map.activated.v1",
@@ -294,6 +519,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
           script_version_id: activated.script_version_id,
           queued_count: activated.entries.filter((entry) => entry.fulfillment_status === "queued").length,
         },
+        baseEpisodePackage: syncedEpisodePackage,
       });
       if (!saved.ok) {
         args.setMediaMapSaveError(saved.error);
@@ -301,7 +527,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
         return;
       }
       args.setMediaMapSaveState("saved");
-      args.setMediaMapMessage("Media plan activated. Beats routed to image, motion B-roll, and Reference Clip fulfillment paths.");
+      args.setMediaMapMessage(`Media plan activated and synchronized (timeline images: ${syncedImageEntries.length}, B-roll: ${syncedBrollBeats.length}, reference clips: ${syncedReferenceEntries.length}).`);
     } catch {
       args.setMediaMapSaveError("Unable to activate Episode Media Map.");
       args.setMediaMapSaveState("error");
