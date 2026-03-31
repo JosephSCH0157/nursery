@@ -1270,7 +1270,9 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.aiSttEpisodeIdRef.current = null;
       stopAiSttStream();
     };
-  }, [args, clearAiSttStopTimer, clearBrowserSttStopTimer, clearSttNoticeTimer, clearSttPreviewTimer, stopAiSttStream]);
+  // Cleanup should only run when the hook unmounts. If it runs on rerender, it will
+  // tear down an active mic session the moment STT flips state and the component rerenders.
+  }, []);
 
   return { onToggleMic };
 }

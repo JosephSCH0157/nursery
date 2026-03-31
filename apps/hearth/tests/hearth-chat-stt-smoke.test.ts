@@ -12,5 +12,6 @@ assert.match(source, /args\.speechRecognitionRef\.current\?\.abort\?\.\(\);/);
 assert.match(source, /navigator\.mediaDevices\?\.getUserMedia/);
 assert.match(source, /__hearthBrowserSttSettle/);
 assert.match(source, /args\.browserSttStopTimerRef\.current = window\.setTimeout/);
+assert.match(source, /Cleanup should only run when the hook unmounts\./);
 
 console.log("[ok] hearth-chat-stt-smoke");
