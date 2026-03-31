@@ -54,6 +54,10 @@ test("visual providers: OpenArt prompt packs include negative prompts and style 
   assert.equal(first?.pack.aspectRatio, "16:9");
   assert.ok((first?.pack.negative ?? "").length > 0);
   assert.ok((first?.pack.styleTags?.length ?? 0) > 0);
+  assert.match(first?.pack.prompt ?? "", /render it as a photoreal|documentary still|cinematic/i);
+  assert.match(first?.pack.prompt ?? "", /split composition|side-to-side comparison|editorial reads/i);
+  assert.match(first?.pack.negative ?? "", /fake broadcast logos|text artifacts|plastic skin/i);
+  assert.match(first?.pack.notes ?? "", /production-ready cinematic thumbnail prompt/i);
 });
 
 test("visual providers: GPT Images prompt packs stay natural-language without negative prompts", () => {
@@ -69,7 +73,10 @@ test("visual providers: GPT Images prompt packs stay natural-language without ne
   assert.equal(first?.pack.provider, "gpt_images");
   assert.equal(first?.pack.aspectRatio, "1:1");
   assert.equal(first?.pack.negative, undefined);
-  assert.match(first?.pack.prompt ?? "", /editorial image showing|main subject/i);
+  assert.equal(first?.pack.styleTags, undefined);
+  assert.match(first?.pack.prompt ?? "", /^Create a .*podcast thumbnail concept\./i);
+  assert.match(first?.pack.prompt ?? "", /Show |Make the main subject|Keep it realistic/i);
+  assert.match(first?.pack.notes ?? "", /Natural-language instruction pack tuned for direct paste/i);
 });
 
 test("visual providers: generic thumbnail fallback produces copy-safe prompt packs", () => {
@@ -84,8 +91,37 @@ test("visual providers: generic thumbnail fallback produces copy-safe prompt pac
   assert.equal(result.variants.length, 3);
   for (const variant of result.variants) {
     assert.ok(variant.pack.prompt.length > 0);
+    assert.equal(variant.pack.negative, undefined);
+    assert.equal(variant.pack.styleTags, undefined);
+    assert.match(variant.pack.prompt, /editorial|focal subject|readable/i);
     assert.match(variant.pack.notes ?? "", /generic \(fallback\)/i);
   }
+});
+
+test("visual providers: OpenArt and GPT Images intentionally shape the same beat differently", () => {
+  const openart = buildThumbnailPromptPackVariants({
+    conceptBrief: "Compare dismissive pundit framing against polished national coverage of the same protest.",
+    title: "Same Footage, Different Story",
+    tone: "cinematic_realism",
+    aspectRatio: "16:9",
+    providerId: "openart",
+  }).variants[0]?.pack;
+
+  const gpt = buildThumbnailPromptPackVariants({
+    conceptBrief: "Compare dismissive pundit framing against polished national coverage of the same protest.",
+    title: "Same Footage, Different Story",
+    tone: "cinematic_realism",
+    aspectRatio: "16:9",
+    providerId: "gpt_images",
+  }).variants[0]?.pack;
+
+  assert.ok(openart);
+  assert.ok(gpt);
+  assert.notEqual(openart?.prompt, gpt?.prompt);
+  assert.ok((openart?.styleTags?.length ?? 0) > 0);
+  assert.equal(gpt?.styleTags, undefined);
+  assert.ok((openart?.negative ?? "").length > 0);
+  assert.equal(gpt?.negative, undefined);
 });
 
 test("visual providers: reference clip prompt pack reuses existing clip context", () => {
@@ -106,6 +142,6 @@ test("visual providers: reference clip prompt pack reuses existing clip context"
   assert.equal(result.pack.provider, "openart");
   assert.equal(result.pack.aspectRatio, "16:9");
   assert.ok((result.pack.negative ?? "").length > 0);
-  assert.match(result.pack.prompt, /32 percent|map plus year-over-year line chart|editorial/i);
+  assert.match(result.pack.prompt, /32 percent|year-over-year|editorial|data point/i);
+  assert.match(result.pack.prompt, /reference-image prompt|editorial reference/i);
 });
-

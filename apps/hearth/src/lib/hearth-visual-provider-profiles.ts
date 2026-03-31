@@ -154,6 +154,18 @@ function cleanText(value: string | null | undefined): string | null {
   return normalized.length ? normalized : null;
 }
 
+function toStyleTag(value: string | null | undefined): string | null {
+  const cleaned = cleanText(value)
+    ?.toLowerCase()
+    .replace(/[^a-z0-9\s/-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return null;
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  return words.slice(0, 4).join(" ");
+}
+
 function dedupeStrings(values: ReadonlyArray<string>): string[] {
   const seen = new Set<string>();
   const output: string[] = [];
@@ -286,7 +298,9 @@ function buildProviderSafeStyleTags(beat: NormalizedVisualBeat): string[] {
     /\bmap\b/i.test(beat.compositionHint) ? "map-first layout" : "",
     /\bchart\b|\bdata\b/i.test(beat.compositionHint) ? "editorial data composite" : "",
     ...beat.styleHints,
-  ]).slice(0, 6);
+  ]
+    .map((value) => toStyleTag(value))
+    .filter(Boolean) as string[]).slice(0, 6);
 }
 
 function normalizeVisualBeat(args: {
