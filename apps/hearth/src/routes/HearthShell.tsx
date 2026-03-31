@@ -39,7 +39,6 @@ import {
   refreshMyAiCredits,
   resolveAiLaneFromStorage,
   resolveDefaultVisualProviderFromStorage,
-  resolveAiThumbnailAutoApproveFromStorage,
   uploadHearthSttAudio,
   type HearthAiLane,
   type HearthChatMessage,
@@ -212,13 +211,11 @@ import {
   assessImageMapScriptAnchor,
   buildImageMapAnchorPickerParagraphs,
   resolveNearestParagraphSelection,
-  resolveImageMapAnchorContext,
   type ImageMapScriptSelection,
 } from "../lib/hearth-image-map-beats";
 import {
   generateImageMapEntriesFromBulletScript,
   isBulletOutlineScript,
-  resolveBulletBeatContext,
 } from "../lib/hearth-spoken-beats";
 import {
   buildBrollPlanFromScript,
