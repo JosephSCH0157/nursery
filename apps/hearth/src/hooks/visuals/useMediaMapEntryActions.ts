@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { activateEpisodeMediaMapForFulfillment } from "../../lib/hearth-media-map-fulfillment";
+import { syncImageMapEntryFromMediaMapEntry } from "../../lib/hearth-media-map-sync";
 import { deriveMediaMapPurpose } from "../../lib/hearth-visual-purpose";
 import type {
   EpisodeBrollPlan,
@@ -434,36 +435,12 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
         .map((entry, index) => {
           const suffix = deriveSuffixFromMediaMapEntryId(entry.id);
           const mappedId = entry.id.startsWith("mm_imap_") ? suffix : `mm_from_media_${suffix}`;
-          const existing = existingImageById.get(mappedId);
-          const anchorChanged = (existing?.anchor ?? "") !== entry.anchor.target;
-          const shouldPreserveResolvedAnchor = Boolean(existing) && !anchorChanged;
-          const selectedAssetId = entry.source.status === "selected" || entry.source.status === "attached"
-            ? entry.source.asset_id
-            : null;
-          return {
-            id: mappedId,
-            anchor: entry.anchor.target,
-            script_anchor: shouldPreserveResolvedAnchor ? (existing?.script_anchor ?? null) : null,
-            beat_anchor: shouldPreserveResolvedAnchor ? (entry.beat_anchor ?? existing?.beat_anchor ?? null) : null,
-            anchor_scope: shouldPreserveResolvedAnchor ? (existing?.anchor_scope ?? "orphaned") : "orphaned",
-            purpose: entry.purpose,
-            description: entry.description,
-            visual_intent: entry.description,
-            prompt_basis: entry.description,
-            style_preset: existing?.style_preset ?? null,
-            intent: entry.intent || existing?.intent || "cutaway",
-            source_type: existing?.source_type ?? (selectedAssetId ? "external" : "stock"),
-            origin: existing?.origin ?? "hearth",
-            visual_priority: existing?.visual_priority ?? (entry.critical ? "primary" : "supporting"),
-            visual_type: existing?.visual_type ?? "still_image",
-            section_intent_note: existing?.section_intent_note ?? null,
-            beat_order: index + 1,
-            paragraph_beat_order: 1,
-            candidate_assets: existing?.candidate_assets ?? [],
-            selected_asset_id: selectedAssetId,
-            status: selectedAssetId ? "selected" : "draft",
-            placement_hint: entry.anchor.mode === "absolute_time" ? "exact_timestamp" : (existing?.placement_hint ?? null),
-          };
+          return syncImageMapEntryFromMediaMapEntry({
+            mediaEntry: entry,
+            existingEntry: existingImageById.get(mappedId) ?? null,
+            entryId: mappedId,
+            beatOrder: index + 1,
+          });
         });
 
       const syncedBrollBeats = mediaEntriesForPlans

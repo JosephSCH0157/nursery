@@ -13,6 +13,7 @@ import {
 import { replaceEpisodePackageImageMap } from "../../lib/hearth-episode-package-image-map";
 import { saveEpisodePackageForWorkpiece } from "../../lib/hearth-thumbnail-api";
 import { saveWorkpieceImageMap } from "../../lib/hearth-image-map-repo";
+import { syncMediaMapImageEntriesFromImageMap } from "../../lib/hearth-media-map-sync";
 import { saveWorkpieceEpisodeMediaMap } from "../../lib/hearth-media-map-repo";
 
 type UseVisualsPersistenceArgs = {
@@ -89,7 +90,15 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
       if (saved.reason === "conflict" && saved.latest) {
         const latest = saved.latest;
         args.setEpisodePackage((prev) => (
-          prev ? replaceEpisodePackageImageMap(prev, latest.entries, latest.spokenBeats) : prev
+          prev
+            ? {
+              ...replaceEpisodePackageImageMap(prev, latest.entries, latest.spokenBeats),
+              media_map: syncMediaMapImageEntriesFromImageMap({
+                mediaMap: prev.media_map,
+                imageEntries: latest.entries,
+              }),
+            }
+            : prev
         ));
         args.setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
         return {
@@ -111,11 +120,20 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
       saved.imageMap.entries,
       input.spokenBeats ?? args.episodePackage.spoken_beats,
     );
-    args.setEpisodePackage(nextEpisodePackage);
+    const nextEpisodePackageWithMediaMap = nextEpisodePackage.media_map.entries.length > 0
+      ? {
+        ...nextEpisodePackage,
+        media_map: syncMediaMapImageEntriesFromImageMap({
+          mediaMap: nextEpisodePackage.media_map,
+          imageEntries: saved.imageMap.entries,
+        }),
+      }
+      : nextEpisodePackage;
+    args.setEpisodePackage(nextEpisodePackageWithMediaMap);
     args.setImageMapMetadataUpdatedAt(saved.imageMap.metadataUpdatedAt);
     return {
       ok: true,
-      episodePackage: nextEpisodePackage,
+      episodePackage: nextEpisodePackageWithMediaMap,
       metadataUpdatedAt: saved.imageMap.metadataUpdatedAt,
     };
   }, [args]);

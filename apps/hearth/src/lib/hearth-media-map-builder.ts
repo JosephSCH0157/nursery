@@ -8,7 +8,7 @@ import {
 } from "./episode-package-v2";
 import type { MediaMapGenerationScope } from "./hearth-media-map-conversation";
 
-function mapImageEntriesToMediaMapEntries(
+export function mapImageEntriesToMediaMapEntries(
   entries: EpisodeImageMapEntry[],
   nowIso: string,
   idPrefix: string,
@@ -45,7 +45,7 @@ function mapImageEntriesToMediaMapEntries(
     fulfillment_path: entry.selected_asset_id
       ? "image"
       : null,
-    optional: entry.visual_priority === "supporting",
+    optional: entry.visual_priority === "optional",
     critical: entry.visual_priority === "primary",
     stale: false,
     created_at: nowIso,

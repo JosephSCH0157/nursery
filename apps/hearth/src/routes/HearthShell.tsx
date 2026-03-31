@@ -97,6 +97,7 @@ import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLi
 import { useHearthWorkpieceArchiveActions } from "../hooks/useHearthWorkpieceArchiveActions";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
 import { useHearthAnvilOpenAction } from "../hooks/useHearthAnvilOpenAction";
+import { useHearthApprovalPersistenceActions } from "../hooks/useHearthApprovalPersistenceActions";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
 import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
@@ -4308,40 +4309,17 @@ export default function HearthShell({
       result: validation,
     });
   }, []);
-  const persistApprovedDraft = useCallback(async (params: {
-    draft: Draft;
-    updatedAt: number;
-    approvalNote: string;
-  }): Promise<boolean> => {
-    return persistDraft({
-      draft: {
-        ...params.draft,
-        updatedAt: params.updatedAt,
-      },
-      updatedAt: params.updatedAt,
-      createRevision: { kind: "milestone", note: params.approvalNote },
-      syncSources: false,
-      syncSession: false,
-      validateForAnvil: true,
-    });
-  }, [persistDraft]);
-  const publishApprovedScript = useCallback(async (params: {
-    episodeId: string;
-    scriptText: string;
-  }): Promise<boolean> => {
-    const published = await commitHearthPrimaryScript(params.episodeId, params.scriptText, {
-      validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
-    });
-    return published.ok;
-  }, []);
-  const appendApprovalMarker = useCallback((params: { draftId: string; content: string }) => {
-    const markerMessage: HearthChatMessage = { role: "assistant", content: params.content };
-    setChatMessages((prev) => {
-      const next = [...prev, markerMessage].slice(-CHAT_HISTORY_MAX_MESSAGES);
-      flushChatHistoryNow({ draftId: params.draftId, messages: next });
-      return next;
-    });
-  }, [flushChatHistoryNow, setChatMessages]);
+  const {
+    persistApprovedDraft,
+    publishApprovedScript,
+    appendApprovalMarker,
+  } = useHearthApprovalPersistenceActions({
+    persistDraft,
+    validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
+    chatHistoryMaxMessages: CHAT_HISTORY_MAX_MESSAGES,
+    flushChatHistoryNow,
+    setChatMessages,
+  });
   const {
     isApprovingScript,
     onApproveScript,
