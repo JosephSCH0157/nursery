@@ -1,9 +1,15 @@
-import { useState } from "react";
-import type { EpisodeLaunchVariantStatus } from "../../lib/episode-package-v2";
-import { DEFAULT_HEARTH_VISUAL_STYLE } from "../../lib/hearth-visual-styles";
+import { useCallback, useState } from "react";
+import type {
+  EpisodeLaunchVariant,
+  EpisodeLaunchVariantStatus,
+  EpisodeThumbnailConcept,
+  EpisodeThumbnailVersion,
+} from "../../lib/episode-package-v2";
+import { DEFAULT_HEARTH_VISUAL_STYLE, normalizeHearthVisualStyle } from "../../lib/hearth-visual-styles";
 import type { ThumbnailBrandTemplate } from "../../lib/hearth-thumbnail-brand-templates";
 import {
   DEFAULT_TITLE_STYLE,
+  normalizeEpisodeThumbnailTitleStyle,
   type EpisodeThumbnailTitleStyle,
 } from "../../lib/hearth-title-fonts";
 
@@ -37,6 +43,112 @@ export function useThumbnailWorkspace() {
   const [thumbnailPreviewDataUrl, setThumbnailPreviewDataUrl] = useState<string | null>(null);
   const [thumbnailPreviewError, setThumbnailPreviewError] = useState<string | null>(null);
   const [thumbnailSafeZoneEnabled, setThumbnailSafeZoneEnabled] = useState(false);
+
+  const syncSelectedThumbnailConceptId = useCallback((thumbnailConcepts: EpisodeThumbnailConcept[]): void => {
+    if (thumbnailConcepts.length === 0) {
+      setSelectedThumbnailConceptId("");
+      return;
+    }
+    setSelectedThumbnailConceptId((current) => (
+      current && thumbnailConcepts.some((concept) => concept.id === current)
+        ? current
+        : (thumbnailConcepts[0]?.id ?? "")
+    ));
+  }, []);
+
+  const syncThumbnailConceptDraftFromConcept = useCallback((
+    selectedThumbnailConcept: EpisodeThumbnailConcept | null,
+    defaultThumbnailBrandTemplateId: string | null,
+  ): void => {
+    if (!selectedThumbnailConcept) {
+      setThumbnailConceptLabelDraft("");
+      setThumbnailConceptPromptDraft("");
+      setThumbnailConceptStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
+      setThumbnailTitleStyleDraft(DEFAULT_TITLE_STYLE);
+      setThumbnailConceptBrandTemplateIdDraft(defaultThumbnailBrandTemplateId);
+      return;
+    }
+    setThumbnailConceptLabelDraft(selectedThumbnailConcept.label);
+    setThumbnailConceptPromptDraft(selectedThumbnailConcept.prompt_text);
+    setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(selectedThumbnailConcept.style_preset));
+    setThumbnailTitleStyleDraft(normalizeEpisodeThumbnailTitleStyle(selectedThumbnailConcept.title_style));
+    setThumbnailConceptBrandTemplateIdDraft(selectedThumbnailConcept.brand_template_id ?? null);
+  }, []);
+
+  const syncSelectedLaunchVariantId = useCallback((launchVariants: EpisodeLaunchVariant[]): void => {
+    if (launchVariants.length === 0) {
+      setSelectedLaunchVariantId(null);
+      return;
+    }
+    setSelectedLaunchVariantId((current) => (
+      current && launchVariants.some((variant) => variant.id === current)
+        ? current
+        : null
+    ));
+  }, []);
+
+  const syncLaunchVariantDraftFromVariant = useCallback((selectedLaunchVariant: EpisodeLaunchVariant | null): void => {
+    if (!selectedLaunchVariant) {
+      setLaunchVariantStatusDraft("draft");
+      setLaunchVariantNotesDraft("");
+      return;
+    }
+    setLaunchVariantStatusDraft(selectedLaunchVariant.status);
+    setLaunchVariantNotesDraft(selectedLaunchVariant.notes ?? "");
+  }, []);
+
+  const syncSelectedThumbnailTitleId = useCallback((
+    thumbnailTitleOptions: Array<{ id: string }>,
+    preferredTitleId: string | null,
+  ): void => {
+    if (thumbnailTitleOptions.length === 0) {
+      setSelectedThumbnailTitleId(null);
+      return;
+    }
+    setSelectedThumbnailTitleId((current) => (
+      current && thumbnailTitleOptions.some((title) => title.id === current)
+        ? current
+        : (preferredTitleId ?? thumbnailTitleOptions[0]?.id ?? null)
+    ));
+  }, []);
+
+  const syncSelectedThumbnailVersionId = useCallback((
+    thumbnailVersions: EpisodeThumbnailVersion[],
+    selectedThumbnailConceptId: string,
+    primaryThumbnailVersionId: string | null,
+  ): void => {
+    if (thumbnailVersions.length === 0) {
+      setSelectedThumbnailVersionId(null);
+      return;
+    }
+    const eligibleVersions = selectedThumbnailConceptId
+      ? thumbnailVersions.filter((version) => version.concept_id === selectedThumbnailConceptId)
+      : thumbnailVersions;
+    if (selectedThumbnailConceptId && eligibleVersions.length === 0) {
+      setSelectedThumbnailVersionId(null);
+      return;
+    }
+    setSelectedThumbnailVersionId((current) => {
+      if (current && eligibleVersions.some((version) => version.id === current)) {
+        return current;
+      }
+      return (primaryThumbnailVersionId && eligibleVersions.some((version) => version.id === primaryThumbnailVersionId))
+        ? primaryThumbnailVersionId
+        : eligibleVersions
+          .slice()
+          .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.id
+        ?? null;
+    });
+  }, []);
+
+  const resetThumbnailWorkspaceViewState = useCallback((): void => {
+    setThumbnailAspect("16:9");
+    setThumbnailSafeZoneEnabled(false);
+    setThumbnailPairingError(null);
+    setThumbnailPreviewState("idle");
+    setThumbnailPreviewDataUrl(null);
+    setThumbnailPreviewError(null);
+  }, []);
 
   return {
     selectedThumbnailTitleId,
@@ -97,5 +209,12 @@ export function useThumbnailWorkspace() {
     setThumbnailPreviewError,
     thumbnailSafeZoneEnabled,
     setThumbnailSafeZoneEnabled,
+    syncSelectedThumbnailConceptId,
+    syncThumbnailConceptDraftFromConcept,
+    syncSelectedLaunchVariantId,
+    syncLaunchVariantDraftFromVariant,
+    syncSelectedThumbnailTitleId,
+    syncSelectedThumbnailVersionId,
+    resetThumbnailWorkspaceViewState,
   };
 }

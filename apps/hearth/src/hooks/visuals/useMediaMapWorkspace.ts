@@ -90,6 +90,28 @@ export function useMediaMapWorkspace() {
     setMediaMapSaveError(null);
   }, []);
 
+  const syncSelectedMediaMapEntryId = useCallback((mediaMapEntries: EpisodeMediaMapEntry[]): void => {
+    if (mediaMapEntries.length === 0) {
+      setSelectedMediaMapEntryId(null);
+      return;
+    }
+    setSelectedMediaMapEntryId((current) => (
+      current && mediaMapEntries.some((entry) => entry.id === current)
+        ? current
+        : (mediaMapEntries[0]?.id ?? null)
+    ));
+  }, []);
+
+  const resetMediaMapWorkspaceForWorkpieceSwitch = useCallback((): void => {
+    setSelectedMediaMapEntryId(null);
+    setMediaMapSaveState("saved");
+    setMediaMapSaveError(null);
+    setMediaMapMessage(null);
+    setMediaMapConversationSeed(null);
+    setMediaMapConversationState("idle");
+    setMediaMapConversationError(null);
+  }, []);
+
   return {
     selectedMediaMapEntryId,
     setSelectedMediaMapEntryId,
@@ -137,5 +159,7 @@ export function useMediaMapWorkspace() {
     onMediaMapDraftChange,
     onMediaMapGenerationScopeChange,
     syncMediaMapDraftFromEntry,
+    syncSelectedMediaMapEntryId,
+    resetMediaMapWorkspaceForWorkpieceSwitch,
   };
 }

@@ -106,6 +106,11 @@ import { useImageMapWorkspace } from "../hooks/visuals/useImageMapWorkspace";
 import { useBrollWorkspace } from "../hooks/visuals/useBrollWorkspace";
 import { useReferenceClipWorkspace } from "../hooks/visuals/useReferenceClipWorkspace";
 import { useThumbnailWorkspace } from "../hooks/visuals/useThumbnailWorkspace";
+import {
+  buildBrollPlanPanelProps,
+  buildMediaMapPanelProps,
+  buildReferenceClipPlanPanelProps,
+} from "../hooks/visuals/buildVisualsPanelProps";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
@@ -2588,6 +2593,13 @@ export default function HearthShell({
     setThumbnailPreviewError,
     thumbnailSafeZoneEnabled,
     setThumbnailSafeZoneEnabled,
+    syncSelectedThumbnailConceptId,
+    syncThumbnailConceptDraftFromConcept,
+    syncSelectedLaunchVariantId,
+    syncLaunchVariantDraftFromVariant,
+    syncSelectedThumbnailTitleId,
+    syncSelectedThumbnailVersionId,
+    resetThumbnailWorkspaceViewState,
   } = useThumbnailWorkspace();
   const {
     selectedMediaMapEntryId,
@@ -2623,6 +2635,8 @@ export default function HearthShell({
     onMediaMapDraftChange,
     onMediaMapGenerationScopeChange,
     syncMediaMapDraftFromEntry,
+    syncSelectedMediaMapEntryId,
+    resetMediaMapWorkspaceForWorkpieceSwitch,
   } = useMediaMapWorkspace();
   const {
     selectedImageMapEntryId,
@@ -2678,6 +2692,8 @@ export default function HearthShell({
     onImageMapDraftSectionIntentNoteChange,
     onImageMapDraftPlacementHintChange,
     syncImageMapDraftFromEntry,
+    syncSelectedImageMapEntryId,
+    resetImageMapReanchorState,
   } = useImageMapWorkspace();
   const {
     selectedBrollBeatId,
@@ -2715,6 +2731,8 @@ export default function HearthShell({
     setIsBrollBusy,
     onBrollDraftChange,
     syncBrollDraftFromBeat,
+    syncSelectedBrollBeatId,
+    resetBrollWorkspaceForWorkpieceSwitch,
   } = useBrollWorkspace();
   const {
     selectedReferenceClipEntryId,
@@ -2752,6 +2770,8 @@ export default function HearthShell({
     setIsReferenceClipBusy,
     onReferenceClipDraftChange,
     syncReferenceClipDraftFromEntry,
+    syncSelectedReferenceClipEntryId,
+    resetReferenceClipWorkspaceForWorkpieceSwitch,
   } = useReferenceClipWorkspace();
   const {
     metadataTitlesDraft,
@@ -6148,31 +6168,12 @@ export default function HearthShell({
   }, [workspaceId]);
 
   useEffect(() => {
-    if (thumbnailConcepts.length === 0) {
-      setSelectedThumbnailConceptId("");
-      return;
-    }
-    if (selectedThumbnailConceptId && thumbnailConcepts.some((concept) => concept.id === selectedThumbnailConceptId)) {
-      return;
-    }
-    setSelectedThumbnailConceptId(thumbnailConcepts[0]?.id ?? "");
-  }, [selectedThumbnailConceptId, thumbnailConcepts]);
+    syncSelectedThumbnailConceptId(thumbnailConcepts);
+  }, [syncSelectedThumbnailConceptId, thumbnailConcepts]);
 
   useEffect(() => {
-    if (!selectedThumbnailConcept) {
-      setThumbnailConceptLabelDraft("");
-      setThumbnailConceptPromptDraft("");
-      setThumbnailConceptStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
-      setThumbnailTitleStyleDraft(DEFAULT_TITLE_STYLE);
-      setThumbnailConceptBrandTemplateIdDraft(defaultThumbnailBrandTemplateId);
-      return;
-    }
-    setThumbnailConceptLabelDraft(selectedThumbnailConcept.label);
-    setThumbnailConceptPromptDraft(selectedThumbnailConcept.prompt_text);
-    setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(selectedThumbnailConcept.style_preset));
-    setThumbnailTitleStyleDraft(normalizeEpisodeThumbnailTitleStyle(selectedThumbnailConcept.title_style));
-    setThumbnailConceptBrandTemplateIdDraft(selectedThumbnailConcept.brand_template_id ?? null);
-  }, [defaultThumbnailBrandTemplateId, selectedThumbnailConcept]);
+    syncThumbnailConceptDraftFromConcept(selectedThumbnailConcept, defaultThumbnailBrandTemplateId);
+  }, [defaultThumbnailBrandTemplateId, selectedThumbnailConcept, syncThumbnailConceptDraftFromConcept]);
 
   useEffect(() => {
     const logoWorkpieceId = selectedThumbnailBrandLogoWorkpieceId ?? (workpieceId?.trim() ?? "");
@@ -6309,93 +6310,45 @@ export default function HearthShell({
   ]);
 
   useEffect(() => {
-    if (launchVariants.length === 0) {
-      setSelectedLaunchVariantId(null);
-      return;
-    }
-    if (selectedLaunchVariantId && launchVariants.some((variant) => variant.id === selectedLaunchVariantId)) {
-      return;
-    }
-    setSelectedLaunchVariantId(null);
-  }, [launchVariants, selectedLaunchVariantId]);
+    syncSelectedLaunchVariantId(launchVariants);
+  }, [launchVariants, syncSelectedLaunchVariantId]);
 
   useEffect(() => {
-    if (!selectedLaunchVariant) {
-      setLaunchVariantStatusDraft("draft");
-      setLaunchVariantNotesDraft("");
-      return;
-    }
-    setLaunchVariantStatusDraft(selectedLaunchVariant.status);
-    setLaunchVariantNotesDraft(selectedLaunchVariant.notes ?? "");
-  }, [selectedLaunchVariant]);
+    syncLaunchVariantDraftFromVariant(selectedLaunchVariant);
+  }, [selectedLaunchVariant, syncLaunchVariantDraftFromVariant]);
 
   useEffect(() => {
-    if (thumbnailTitleOptions.length === 0) {
-      setSelectedThumbnailTitleId(null);
-      return;
-    }
-    if (selectedThumbnailTitleId && thumbnailTitleOptions.some((title) => title.id === selectedThumbnailTitleId)) {
-      return;
-    }
-    setSelectedThumbnailTitleId(resolvePrimarySeoTitle(thumbnailTitleOptions)?.id ?? thumbnailTitleOptions[0]?.id ?? null);
-  }, [selectedThumbnailTitleId, thumbnailTitleOptions]);
+    syncSelectedThumbnailTitleId(
+      thumbnailTitleOptions,
+      resolvePrimarySeoTitle(thumbnailTitleOptions)?.id ?? null,
+    );
+  }, [syncSelectedThumbnailTitleId, thumbnailTitleOptions]);
 
   useEffect(() => {
-    if (thumbnailVersions.length === 0) {
-      setSelectedThumbnailVersionId(null);
-      return;
-    }
-    const eligibleVersions = selectedThumbnailConceptId
-      ? thumbnailVersions.filter((version) => version.concept_id === selectedThumbnailConceptId)
-      : thumbnailVersions;
-    if (selectedThumbnailConceptId && eligibleVersions.length === 0) {
-      setSelectedThumbnailVersionId(null);
-      return;
-    }
-    if (
-      selectedThumbnailVersionId
-      && eligibleVersions.some((version) => version.id === selectedThumbnailVersionId)
-    ) {
-      return;
-    }
-    const nextVersionId = (primaryThumbnailVersionId && eligibleVersions.some((version) => version.id === primaryThumbnailVersionId))
-      ? primaryThumbnailVersionId
-      : eligibleVersions
-        .slice()
-        .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.id
-      ?? null;
-    setSelectedThumbnailVersionId(nextVersionId);
-  }, [primaryThumbnailVersionId, selectedThumbnailConceptId, selectedThumbnailVersionId, thumbnailVersions]);
+    syncSelectedThumbnailVersionId(
+      thumbnailVersions,
+      selectedThumbnailConceptId,
+      primaryThumbnailVersionId,
+    );
+  }, [
+    primaryThumbnailVersionId,
+    selectedThumbnailConceptId,
+    syncSelectedThumbnailVersionId,
+    thumbnailVersions,
+  ]);
 
   useEffect(() => {
-    setThumbnailAspect("16:9");
-    setThumbnailSafeZoneEnabled(false);
-    setThumbnailPairingError(null);
-    setThumbnailPreviewState("idle");
-    setThumbnailPreviewDataUrl(null);
-    setThumbnailPreviewError(null);
-  }, [workpieceId]);
+    resetThumbnailWorkspaceViewState();
+  }, [resetThumbnailWorkspaceViewState, workpieceId]);
 
   useEffect(() => {
-    setSelectedMediaMapEntryId(null);
-    setMediaMapSaveState("saved");
-    setMediaMapSaveError(null);
-    setMediaMapMessage(null);
-    setMediaMapConversationSeed(null);
-    setMediaMapConversationState("idle");
-    setMediaMapConversationError(null);
-    setSelectedBrollBeatId(null);
-    setBrollSaveState("saved");
-    setBrollSaveError(null);
-    setBrollMessage(null);
-  }, [workpieceId]);
+    resetMediaMapWorkspaceForWorkpieceSwitch();
+    resetBrollWorkspaceForWorkpieceSwitch();
+  }, [resetBrollWorkspaceForWorkpieceSwitch, resetMediaMapWorkspaceForWorkpieceSwitch, workpieceId]);
 
   useEffect(() => {
-    setSelectedReferenceClipEntryId(null);
-    setReferenceClipSaveState("saved");
-    setReferenceClipSaveError(null);
-    setReferenceClipMessage(null);
-  }, [workpieceId]);
+    resetReferenceClipWorkspaceForWorkpieceSwitch();
+  }, [resetReferenceClipWorkspaceForWorkpieceSwitch, workpieceId]);
 
   useEffect(() => {
     const episodeId = workpieceId?.trim() ?? "";
@@ -6448,15 +6401,8 @@ export default function HearthShell({
   }, [selectedThumbnailVersion, selectedThumbnailVersionId, workpieceId]);
 
   useEffect(() => {
-    if (mediaMapEntries.length === 0) {
-      setSelectedMediaMapEntryId(null);
-      return;
-    }
-    if (selectedMediaMapEntryId && mediaMapEntries.some((entry) => entry.id === selectedMediaMapEntryId)) {
-      return;
-    }
-    setSelectedMediaMapEntryId(mediaMapEntries[0]?.id ?? null);
-  }, [mediaMapEntries, selectedMediaMapEntryId]);
+    syncSelectedMediaMapEntryId(mediaMapEntries);
+  }, [mediaMapEntries, syncSelectedMediaMapEntryId]);
 
   useEffect(() => {
     syncMediaMapDraftFromEntry(selectedMediaMapEntry);
@@ -6505,48 +6451,24 @@ export default function HearthShell({
   }, [approvedScriptVersion, episodePackage]);
 
   useEffect(() => {
-    if (imageMapEntries.length === 0) {
-      setSelectedImageMapEntryId(null);
-      setIsImageMapReanchorMode(false);
-      setIsImageMapReanchorSaving(false);
-      setImageMapReanchorError(null);
-      return;
-    }
-    if (selectedImageMapEntryId && imageMapEntries.some((entry) => entry.id === selectedImageMapEntryId)) {
-      return;
-    }
-    setSelectedImageMapEntryId(imageMapEntries[0]?.id ?? null);
-  }, [imageMapEntries, selectedImageMapEntryId]);
+    syncSelectedImageMapEntryId(imageMapEntries);
+  }, [imageMapEntries, syncSelectedImageMapEntryId]);
 
   useEffect(() => {
     syncImageMapDraftFromEntry(selectedImageMapEntry, resolveImageMapEntryAnchorScope);
   }, [selectedImageMapEntry, syncImageMapDraftFromEntry]);
 
   useEffect(() => {
-    if (brollBeats.length === 0) {
-      setSelectedBrollBeatId(null);
-      return;
-    }
-    if (selectedBrollBeatId && brollBeats.some((beat) => beat.id === selectedBrollBeatId)) {
-      return;
-    }
-    setSelectedBrollBeatId(brollBeats[0]?.id ?? null);
-  }, [brollBeats, selectedBrollBeatId]);
+    syncSelectedBrollBeatId(brollBeats);
+  }, [brollBeats, syncSelectedBrollBeatId]);
 
   useEffect(() => {
     syncBrollDraftFromBeat(selectedBrollBeat);
   }, [selectedBrollBeat, syncBrollDraftFromBeat]);
 
   useEffect(() => {
-    if (referenceClipEntries.length === 0) {
-      setSelectedReferenceClipEntryId(null);
-      return;
-    }
-    if (selectedReferenceClipEntryId && referenceClipEntries.some((entry) => entry.id === selectedReferenceClipEntryId)) {
-      return;
-    }
-    setSelectedReferenceClipEntryId(referenceClipEntries[0]?.id ?? null);
-  }, [referenceClipEntries, selectedReferenceClipEntryId]);
+    syncSelectedReferenceClipEntryId(referenceClipEntries);
+  }, [referenceClipEntries, syncSelectedReferenceClipEntryId]);
 
   useEffect(() => {
     syncReferenceClipDraftFromEntry(selectedReferenceClipEntry);
@@ -6554,10 +6476,8 @@ export default function HearthShell({
 
   useEffect(() => {
     setIsVisualScriptMode(false);
-    setIsImageMapReanchorMode(false);
-    setIsImageMapReanchorSaving(false);
-    setImageMapReanchorError(null);
-  }, [workpieceId]);
+    resetImageMapReanchorState();
+  }, [resetImageMapReanchorState, workpieceId]);
 
   useEffect(() => {
     let cancelled = false;

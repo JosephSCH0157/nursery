@@ -127,6 +127,25 @@ export function useReferenceClipWorkspace() {
     setReferenceClipSaveError(null);
   }, []);
 
+  const syncSelectedReferenceClipEntryId = useCallback((entries: EpisodeReferenceClipPlan["entries"]): void => {
+    if (entries.length === 0) {
+      setSelectedReferenceClipEntryId(null);
+      return;
+    }
+    setSelectedReferenceClipEntryId((current) => (
+      current && entries.some((entry) => entry.id === current)
+        ? current
+        : (entries[0]?.id ?? null)
+    ));
+  }, []);
+
+  const resetReferenceClipWorkspaceForWorkpieceSwitch = useCallback((): void => {
+    setSelectedReferenceClipEntryId(null);
+    setReferenceClipSaveState("saved");
+    setReferenceClipSaveError(null);
+    setReferenceClipMessage(null);
+  }, []);
+
   return {
     selectedReferenceClipEntryId,
     setSelectedReferenceClipEntryId,
@@ -187,5 +206,7 @@ export function useReferenceClipWorkspace() {
     setReferenceClipDraftEditing,
     onReferenceClipDraftChange,
     syncReferenceClipDraftFromEntry,
+    syncSelectedReferenceClipEntryId,
+    resetReferenceClipWorkspaceForWorkpieceSwitch,
   };
 }

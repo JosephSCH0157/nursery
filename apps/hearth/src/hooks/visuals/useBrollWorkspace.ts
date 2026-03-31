@@ -126,6 +126,25 @@ export function useBrollWorkspace() {
     setBrollSaveError(null);
   }, []);
 
+  const syncSelectedBrollBeatId = useCallback((brollBeats: EpisodeBrollPlanBeat[]): void => {
+    if (brollBeats.length === 0) {
+      setSelectedBrollBeatId(null);
+      return;
+    }
+    setSelectedBrollBeatId((current) => (
+      current && brollBeats.some((beat) => beat.id === current)
+        ? current
+        : (brollBeats[0]?.id ?? null)
+    ));
+  }, []);
+
+  const resetBrollWorkspaceForWorkpieceSwitch = useCallback((): void => {
+    setSelectedBrollBeatId(null);
+    setBrollSaveState("saved");
+    setBrollSaveError(null);
+    setBrollMessage(null);
+  }, []);
+
   return {
     selectedBrollBeatId,
     setSelectedBrollBeatId,
@@ -186,5 +205,7 @@ export function useBrollWorkspace() {
     setBrollDraftEditing,
     onBrollDraftChange,
     syncBrollDraftFromBeat,
+    syncSelectedBrollBeatId,
+    resetBrollWorkspaceForWorkpieceSwitch,
   };
 }

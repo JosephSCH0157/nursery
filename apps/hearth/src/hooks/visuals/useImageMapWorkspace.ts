@@ -126,6 +126,27 @@ export function useImageMapWorkspace() {
     setImageMapCandidateSelectionError(null);
   }, []);
 
+  const syncSelectedImageMapEntryId = useCallback((entries: EpisodeImageMapEntry[]): void => {
+    if (entries.length === 0) {
+      setSelectedImageMapEntryId(null);
+      setIsImageMapReanchorMode(false);
+      setIsImageMapReanchorSaving(false);
+      setImageMapReanchorError(null);
+      return;
+    }
+    setSelectedImageMapEntryId((current) => (
+      current && entries.some((entry) => entry.id === current)
+        ? current
+        : (entries[0]?.id ?? null)
+    ));
+  }, []);
+
+  const resetImageMapReanchorState = useCallback((): void => {
+    setIsImageMapReanchorMode(false);
+    setIsImageMapReanchorSaving(false);
+    setImageMapReanchorError(null);
+  }, []);
+
   return {
     selectedImageMapEntryId,
     setSelectedImageMapEntryId,
@@ -190,5 +211,7 @@ export function useImageMapWorkspace() {
     onImageMapDraftSectionIntentNoteChange,
     onImageMapDraftPlacementHintChange,
     syncImageMapDraftFromEntry,
+    syncSelectedImageMapEntryId,
+    resetImageMapReanchorState,
   };
 }
