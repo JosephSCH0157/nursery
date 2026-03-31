@@ -58,7 +58,6 @@ import {
   type HearthWorkpieceSummary,
 } from "../lib/hearth-workpieces";
 import {
-  chooseCanonicalImageMapScriptSource,
   choosePreferredHydratedDraft,
   draftHasUsableScriptBody,
   hydrateDraftBodyFromCanonicalScript,
@@ -117,6 +116,9 @@ import { useImageMapReanchorActions } from "../hooks/visuals/useImageMapReanchor
 import { useImageMapCandidateActions } from "../hooks/visuals/useImageMapCandidateActions";
 import { useImageMapEntryCrudActions } from "../hooks/visuals/useImageMapEntryCrudActions";
 import { useImageMapSeedExportActions } from "../hooks/visuals/useImageMapSeedExportActions";
+import { useMediaMapSourcePreparation } from "../hooks/visuals/useMediaMapSourcePreparation";
+import { useImageMapViewActions } from "../hooks/visuals/useImageMapViewActions";
+import { useCanonicalImageMapScriptReader } from "../hooks/visuals/useCanonicalImageMapScriptReader";
 import {
   buildThumbnailPanelProps,
   buildBrollPlanPanelProps,
@@ -159,7 +161,6 @@ import {
   type ScriptValidationIssue,
 } from "@forge/shared/script-tags";
 import { evaluateHearthScriptValidation } from "../lib/hearth-script-tag-policy";
-import { resolveImageMapEntriesForMediaMapBootstrap } from "../lib/hearth-media-map-bootstrap";
 import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import type {
   ComposeSetup,
@@ -222,12 +223,7 @@ import {
 } from "../lib/hearth-image-map-anchor";
 import {
   generateImageMapEntriesFromBulletScript,
-  isBulletOutlineScript,
 } from "../lib/hearth-spoken-beats";
-import {
-  buildBrollPlanFromScript,
-} from "../lib/hearth-broll-plan";
-import { resolveReferenceClipPlanForMediaMapBootstrap } from "../lib/hearth-reference-clip-bootstrap";
 import {
   listExternalGenerationProviders,
   type ExternalGenerationProvider,
@@ -3396,6 +3392,11 @@ export default function HearthShell({
     && scriptApprovalState.approvedScriptVersion > 0,
   );
   const approvedScriptVersion = hasApprovedScript ? scriptApprovalState.approvedScriptVersion : null;
+  const { readCanonicalScriptForImageMapGeneration } = useCanonicalImageMapScriptReader({
+    workpieceId,
+    activeDraft,
+    listWorkpieceDrafts: (episodeId: string) => store.listWorkpieceDrafts(episodeId),
+  });
   const {
     onAddMediaMapEntry,
     onSaveMediaMapEntry,
@@ -3424,6 +3425,15 @@ export default function HearthShell({
     setMediaMapMessage,
     setSelectedMediaMapEntryId,
     persistMediaMap,
+  });
+  const { prepareSourceEpisodePackageForMediaMapGeneration } = useMediaMapSourcePreparation({
+    episodePackage,
+    workpieceId,
+    effectiveComposeSetupMode: effectiveComposeSetup?.mode ?? null,
+    readCanonicalScriptForImageMapGeneration,
+    persistImageMapEntries,
+    persistBrollPlan,
+    persistReferenceClipPlan,
   });
   const {
     onGenerateEpisodeMediaMapFromPlans,
@@ -4989,6 +4999,23 @@ export default function HearthShell({
     setImageMapSaveError,
     setSelectedImageMapEntryId,
     setImageMapExportMessage,
+  });
+  const {
+    onToggleVisualScriptMode,
+    onSelectImageMapEntry,
+  } = useImageMapViewActions({
+    hasApprovedScript,
+    approvedScriptVersion,
+    isImageMapReanchorSaving,
+    selectedImageMapEntryId,
+    setMode,
+    setShowManualDraft,
+    setShowScriptPanel,
+    setIsVisualScriptMode,
+    setIsImageMapReanchorMode,
+    setIsImageMapReanchorSaving,
+    setImageMapReanchorError,
+    setSelectedImageMapEntryId,
   });
 
   useEffect(() => {
@@ -8478,209 +8505,6 @@ export default function HearthShell({
         const numeric = Number(value);
         return Number.isFinite(numeric) ? numeric : value;
       });
-  }
-
-  async function prepareSourceEpisodePackageForMediaMapGeneration(scope: MediaMapGenerationScope): Promise<{
-    ok: true;
-    episodePackage: EpisodePackageV2;
-    bootstrappedImageCount: number;
-    bootstrappedBrollCount: number;
-    bootstrappedReferenceClipCount: number;
-  } | {
-    ok: false;
-    error: string;
-  }> {
-    if (!episodePackage) {
-      return { ok: false, error: "Select an Episode before generating visuals." };
-    }
-    const shouldIncludeBroll = scope === "images_broll" || scope === "full_media_plan";
-    const shouldIncludeReferenceClips = scope === "images_reference_clips" || scope === "full_media_plan";
-    let sourceEpisodePackage = episodePackage;
-    let bootstrappedImageCount = 0;
-    let bootstrappedBrollCount = 0;
-    let bootstrappedReferenceClipCount = 0;
-    let canonicalScriptCache:
-      | Awaited<ReturnType<typeof readCanonicalScriptForImageMapGeneration>>
-      | null
-      = null;
-
-    const ensureCanonicalScript = async () => {
-      if (canonicalScriptCache) return canonicalScriptCache;
-      canonicalScriptCache = await readCanonicalScriptForImageMapGeneration();
-      return canonicalScriptCache;
-    };
-
-    if (sourceEpisodePackage.image_map.entries.length === 0) {
-      const canonicalScript = await ensureCanonicalScript();
-      if (canonicalScript.ok) {
-        const bootstrap = resolveImageMapEntriesForMediaMapBootstrap({
-          currentEntries: sourceEpisodePackage.image_map.entries,
-          currentSpokenBeats: sourceEpisodePackage.spoken_beats,
-          scriptText: canonicalScript.text,
-          preferBeatAnchors: effectiveComposeSetup?.mode === "outline_by_speaker" || isBulletOutlineScript(canonicalScript.text),
-        });
-        if (bootstrap.seededFromScript && bootstrap.entries.length > 0) {
-          const seeded = await persistImageMapEntries({
-            entries: bootstrap.entries,
-            spokenBeats: bootstrap.spokenBeats,
-          });
-          if (!seeded.ok) {
-            return { ok: false, error: seeded.error };
-          }
-          sourceEpisodePackage = seeded.episodePackage;
-          bootstrappedImageCount = bootstrap.entries.length;
-        }
-      }
-    }
-
-    if (shouldIncludeBroll && sourceEpisodePackage.broll_plan.beats.length === 0) {
-      const canonicalScript = await ensureCanonicalScript();
-      const episodeId = workpieceId?.trim();
-      if (canonicalScript.ok && episodeId) {
-        const plan = buildBrollPlanFromScript({
-          workpieceId: episodeId,
-          scriptText: canonicalScript.text,
-          previousPlan: sourceEpisodePackage.broll_plan,
-        });
-        if (plan.beats.length > 0) {
-          const seeded = await persistBrollPlan({
-            plan,
-            eventName: "hearth.broll_plan.bootstrapped_from_media_map.v1",
-            eventPayload: {
-              beat_count: plan.beats.length,
-              source: canonicalScript.source,
-            },
-            baseEpisodePackage: sourceEpisodePackage,
-          });
-          if (!seeded.ok) {
-            return { ok: false, error: seeded.error };
-          }
-          sourceEpisodePackage = seeded.episodePackage;
-          bootstrappedBrollCount = plan.beats.length;
-        }
-      }
-    }
-
-    if (shouldIncludeReferenceClips && sourceEpisodePackage.cdc_plan.entries.length === 0) {
-      const episodeId = workpieceId?.trim();
-      if (episodeId) {
-        const bootstrap = resolveReferenceClipPlanForMediaMapBootstrap({
-          workpieceId: episodeId,
-          currentEntries: sourceEpisodePackage.cdc_plan.entries,
-          imageMapEntries: sourceEpisodePackage.image_map.entries,
-        });
-        if (bootstrap.seededFromImageMap && bootstrap.entries.length > 0) {
-          const plan: EpisodeReferenceClipPlan = {
-            ...sourceEpisodePackage.cdc_plan,
-            workpiece_id: episodeId,
-            version: Math.max(1, sourceEpisodePackage.cdc_plan.version + 1),
-            entries: bootstrap.entries,
-            generated_at: new Date().toISOString(),
-          };
-          const seeded = await persistReferenceClipPlan({
-            plan,
-            eventName: "hearth.cdc_plan.bootstrapped_from_image_map.v1",
-            eventPayload: {
-              entry_count: bootstrap.entries.length,
-              source: "image_map_explanation_beats",
-            },
-            baseEpisodePackage: sourceEpisodePackage,
-          });
-          if (!seeded.ok) {
-            return { ok: false, error: seeded.error };
-          }
-          sourceEpisodePackage = seeded.episodePackage;
-          bootstrappedReferenceClipCount = bootstrap.entries.length;
-        }
-      }
-    }
-
-    return {
-      ok: true,
-      episodePackage: sourceEpisodePackage,
-      bootstrappedImageCount,
-      bootstrappedBrollCount,
-      bootstrappedReferenceClipCount,
-    };
-  }
-
-  async function readCanonicalScriptForImageMapGeneration(): Promise<{
-    ok: true;
-    text: string;
-    source: "primary_script" | "saved_draft";
-    includesUnsavedLocalEdits: boolean;
-  } | {
-    ok: false;
-    message: string;
-  }> {
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId) {
-      return { ok: false, message: "Select an Episode before generating visuals." };
-    }
-
-    const primaryScript = await readHearthPrimaryScript(episodeId);
-    const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(episodeId));
-    const preferredDraft = activeDraft?.id
-      ? canonicalDrafts.find((draft) => draft.id === activeDraft.id) ?? null
-      : null;
-    const latestDraft = preferredDraft ?? canonicalDrafts
-      .slice()
-      .sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0))[0]
-      ?? null;
-    const canonicalChoice = chooseCanonicalImageMapScriptSource({
-      primaryText: primaryScript.ok ? primaryScript.data.text : null,
-      primaryUpdatedAtMs: primaryScript.ok ? (parseIsoTimestamp(primaryScript.data.updatedAt) ?? 0) : null,
-      drafts: canonicalDrafts,
-      preferredDraftId: activeDraft?.id ?? null,
-    });
-
-    if (canonicalChoice) {
-      return {
-        ok: true,
-        text: canonicalChoice.text,
-        source: canonicalChoice.source,
-        includesUnsavedLocalEdits: Boolean(
-          activeDraft?.body
-          && activeDraft.body.trim()
-          && activeDraft.body !== canonicalChoice.text
-        ),
-      };
-    }
-
-    if (!latestDraft?.body.trim()) {
-      return { ok: false, message: "No canonical script found for this workpiece yet." };
-    }
-
-    return {
-      ok: true,
-      text: latestDraft.body,
-      source: "saved_draft",
-      includesUnsavedLocalEdits: Boolean(
-        activeDraft?.body && activeDraft.body.trim() && activeDraft.body !== latestDraft.body,
-      ),
-    };
-  }
-
-  function onToggleVisualScriptMode() {
-    if (!hasApprovedScript || !approvedScriptVersion) return;
-    setIsVisualScriptMode((prev) => {
-      const next = !prev;
-      if (next) {
-        setMode("focus");
-        setShowManualDraft(false);
-        setShowScriptPanel(true);
-      }
-      return next;
-    });
-  }
-
-  function onSelectImageMapEntry(entryId: string) {
-    if (entryId !== selectedImageMapEntryId) {
-      setIsImageMapReanchorMode(false);
-      setIsImageMapReanchorSaving(false);
-      setImageMapReanchorError(null);
-    }
-    setSelectedImageMapEntryId(entryId);
   }
 
   function onUseChatShortcut(prompt: string) {
