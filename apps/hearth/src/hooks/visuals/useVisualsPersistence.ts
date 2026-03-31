@@ -1,0 +1,262 @@
+import { useCallback, type Dispatch, type SetStateAction } from "react";
+import {
+  ensureBrollPlanV2,
+  ensureLaunchVariantsV2,
+  ensureReferenceClipPlanV2,
+  type EpisodeBrollPlan,
+  type EpisodeImageMapEntry,
+  type EpisodeMediaMap,
+  type EpisodePackageV2,
+  type EpisodeReferenceClipPlan,
+  type EpisodeSpokenBeat,
+} from "../../lib/episode-package-v2";
+import { replaceEpisodePackageImageMap } from "../../lib/hearth-episode-package-image-map";
+import { saveEpisodePackageForWorkpiece } from "../../lib/hearth-thumbnail-api";
+import { saveWorkpieceImageMap } from "../../lib/hearth-image-map-repo";
+import { saveWorkpieceEpisodeMediaMap } from "../../lib/hearth-media-map-repo";
+
+type UseVisualsPersistenceArgs = {
+  episodePackage: EpisodePackageV2 | null;
+  workpieceId: string | null;
+  workspaceId: string | null;
+  imageMapMetadataUpdatedAt: string | null;
+  setEpisodePackage: Dispatch<SetStateAction<EpisodePackageV2 | null>>;
+  setImageMapMetadataUpdatedAt: (next: string | null) => void;
+  setThumbnailGenerateError: (next: string | null) => void;
+};
+
+export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
+  const persistThumbnailEpisodePackage = useCallback(async (
+    nextEpisodePackage: EpisodePackageV2,
+    eventName: string,
+    eventPayload: Record<string, unknown>,
+  ): Promise<EpisodePackageV2 | null> => {
+    const episodeId = args.workpieceId?.trim() ?? "";
+    const workspace = args.workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      args.setThumbnailGenerateError("Select an Episode before editing visuals.");
+      return null;
+    }
+    const normalizedEpisodePackage = ensureLaunchVariantsV2(nextEpisodePackage);
+    const saved = await saveEpisodePackageForWorkpiece({
+      workpieceId: episodeId,
+      workspaceId: workspace,
+      episodePackage: normalizedEpisodePackage,
+      eventName,
+      eventPayload,
+    });
+    if (!saved.ok) {
+      args.setThumbnailGenerateError(saved.error);
+      return null;
+    }
+    args.setEpisodePackage(saved.episodePackage);
+    args.setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
+    return saved.episodePackage;
+  }, [args]);
+
+  const persistImageMapEntries = useCallback(async (input: {
+    entries: EpisodeImageMapEntry[];
+    spokenBeats?: EpisodeSpokenBeat[] | null;
+  }): Promise<
+    | { ok: true; episodePackage: EpisodePackageV2; metadataUpdatedAt: string | null }
+    | { ok: false; error: string }
+  > => {
+    if (!args.episodePackage) {
+      return {
+        ok: false,
+        error: "Unable to save image map for this episode.",
+      };
+    }
+
+    const workspace = args.workspaceId?.trim() ?? "";
+    const workpiece = args.workpieceId?.trim() ?? "";
+    if (!workspace || !workpiece) {
+      return {
+        ok: false,
+        error: "Workspace or workpiece is missing.",
+      };
+    }
+
+    const saved = await saveWorkpieceImageMap({
+      workpieceId: workpiece,
+      workspaceId: workspace,
+      entries: input.entries,
+      spokenBeats: input.spokenBeats ?? args.episodePackage.spoken_beats,
+      expectedMetadataUpdatedAt: args.imageMapMetadataUpdatedAt,
+    });
+
+    if (!saved.ok) {
+      if (saved.reason === "conflict" && saved.latest) {
+        const latest = saved.latest;
+        args.setEpisodePackage((prev) => (
+          prev ? replaceEpisodePackageImageMap(prev, latest.entries, latest.spokenBeats) : prev
+        ));
+        args.setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
+        return {
+          ok: false,
+          error: "Image map changed on another client. Latest entries have been reloaded.",
+        };
+      }
+
+      return {
+        ok: false,
+        error: saved.reason === "invalid_response"
+          ? "Image map save returned an invalid response."
+          : saved.error ?? "Unable to save image map.",
+      };
+    }
+
+    const nextEpisodePackage = replaceEpisodePackageImageMap(
+      args.episodePackage,
+      saved.imageMap.entries,
+      input.spokenBeats ?? args.episodePackage.spoken_beats,
+    );
+    args.setEpisodePackage(nextEpisodePackage);
+    args.setImageMapMetadataUpdatedAt(saved.imageMap.metadataUpdatedAt);
+    return {
+      ok: true,
+      episodePackage: nextEpisodePackage,
+      metadataUpdatedAt: saved.imageMap.metadataUpdatedAt,
+    };
+  }, [args]);
+
+  const persistBrollPlan = useCallback(async (input: {
+    plan: EpisodeBrollPlan;
+    eventName: string;
+    eventPayload: Record<string, unknown>;
+    baseEpisodePackage?: EpisodePackageV2;
+  }): Promise<
+    | { ok: true; episodePackage: EpisodePackageV2 }
+    | { ok: false; error: string }
+  > => {
+    const baseEpisodePackage = input.baseEpisodePackage ?? args.episodePackage;
+    if (!baseEpisodePackage) {
+      return { ok: false, error: "Unable to save B-roll plan for this episode." };
+    }
+    const episodeId = args.workpieceId?.trim() ?? "";
+    const workspace = args.workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      return { ok: false, error: "Workspace or workpiece is missing." };
+    }
+    const nextEpisodePackage = ensureBrollPlanV2({
+      ...baseEpisodePackage,
+      broll_plan: {
+        ...input.plan,
+        workpiece_id: episodeId,
+      },
+    });
+    const saved = await saveEpisodePackageForWorkpiece({
+      workpieceId: episodeId,
+      workspaceId: workspace,
+      episodePackage: ensureLaunchVariantsV2(nextEpisodePackage),
+      eventName: input.eventName,
+      eventPayload: input.eventPayload,
+    });
+    if (!saved.ok) {
+      return { ok: false, error: saved.error };
+    }
+    args.setEpisodePackage(saved.episodePackage);
+    args.setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
+    return { ok: true, episodePackage: saved.episodePackage };
+  }, [args]);
+
+  const persistMediaMap = useCallback(async (input: {
+    map: EpisodeMediaMap;
+    eventName: string;
+    eventPayload: Record<string, unknown>;
+    baseEpisodePackage?: EpisodePackageV2;
+  }): Promise<
+    | { ok: true; episodePackage: EpisodePackageV2 }
+    | { ok: false; error: string }
+  > => {
+    const baseEpisodePackage = input.baseEpisodePackage ?? args.episodePackage;
+    if (!baseEpisodePackage) {
+      return { ok: false, error: "Unable to save Episode Media Map for this episode." };
+    }
+    const episodeId = args.workpieceId?.trim() ?? "";
+    const workspace = args.workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      return { ok: false, error: "Workspace or workpiece is missing." };
+    }
+    const nextEpisodePackage: EpisodePackageV2 = {
+      ...baseEpisodePackage,
+      media_map: {
+        ...input.map,
+        workpiece_id: episodeId,
+      },
+    };
+    const savedEpisode = await saveEpisodePackageForWorkpiece({
+      workpieceId: episodeId,
+      workspaceId: workspace,
+      episodePackage: ensureLaunchVariantsV2(nextEpisodePackage),
+      eventName: input.eventName,
+      eventPayload: input.eventPayload,
+    });
+    if (!savedEpisode.ok) {
+      return { ok: false, error: savedEpisode.error };
+    }
+    const mediaMapSaved = await saveWorkpieceEpisodeMediaMap({
+      workpieceId: episodeId,
+      mediaMap: savedEpisode.episodePackage.media_map,
+      eventName: "hearth.media_map.artifact.saved.v1",
+      eventPayload: {
+        entry_count: savedEpisode.episodePackage.media_map.entries.length,
+        script_version_id: savedEpisode.episodePackage.media_map.script_version_id,
+      },
+    });
+    if (!mediaMapSaved.ok) {
+      return { ok: false, error: mediaMapSaved.error };
+    }
+    args.setEpisodePackage(savedEpisode.episodePackage);
+    args.setImageMapMetadataUpdatedAt(savedEpisode.metadataUpdatedAt);
+    return { ok: true, episodePackage: savedEpisode.episodePackage };
+  }, [args]);
+
+  const persistReferenceClipPlan = useCallback(async (input: {
+    plan: EpisodeReferenceClipPlan;
+    eventName: string;
+    eventPayload: Record<string, unknown>;
+    baseEpisodePackage?: EpisodePackageV2;
+  }): Promise<
+    | { ok: true; episodePackage: EpisodePackageV2 }
+    | { ok: false; error: string }
+  > => {
+    const baseEpisodePackage = input.baseEpisodePackage ?? args.episodePackage;
+    if (!baseEpisodePackage) {
+      return { ok: false, error: "Unable to save Reference Clip plan for this episode." };
+    }
+    const episodeId = args.workpieceId?.trim() ?? "";
+    const workspace = args.workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      return { ok: false, error: "Workspace or workpiece is missing." };
+    }
+    const nextEpisodePackage = ensureReferenceClipPlanV2({
+      ...baseEpisodePackage,
+      cdc_plan: {
+        ...input.plan,
+        workpiece_id: episodeId,
+      },
+    });
+    const saved = await saveEpisodePackageForWorkpiece({
+      workpieceId: episodeId,
+      workspaceId: workspace,
+      episodePackage: ensureLaunchVariantsV2(nextEpisodePackage),
+      eventName: input.eventName,
+      eventPayload: input.eventPayload,
+    });
+    if (!saved.ok) {
+      return { ok: false, error: saved.error };
+    }
+    args.setEpisodePackage(saved.episodePackage);
+    args.setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
+    return { ok: true, episodePackage: saved.episodePackage };
+  }, [args]);
+
+  return {
+    persistThumbnailEpisodePackage,
+    persistImageMapEntries,
+    persistBrollPlan,
+    persistMediaMap,
+    persistReferenceClipPlan,
+  };
+}
