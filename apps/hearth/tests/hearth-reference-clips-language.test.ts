@@ -27,9 +27,13 @@ run("visual panels use Reference Clip user-facing language", () => {
   assert.equal(/\bCDC\b/.test(hearthShell), false);
 
   assert.equal(referenceClipPanel.includes("Reference Clip"), true);
-  assert.equal(referenceClipPanel.includes("Open Provider"), true);
+  assert.equal(referenceClipPanel.includes("Prompt Pack"), true);
+  assert.equal(referenceClipPanel.includes("Open Manual Bridge Provider"), true);
   assert.equal(referenceClipPanel.includes("Attach Result URL"), true);
-  assert.equal(referenceClipPanel.includes("Manual bridge"), true);
+  assert.equal(referenceClipPanel.includes("Manual Bridge State"), true);
+  assert.equal(referenceClipPanel.includes("Manual Bridge Provider"), true);
+  assert.equal(referenceClipPanel.includes("Manual Bridge Note"), true);
+  assert.equal(referenceClipPanel.includes("Download Source Brief"), true);
   assert.equal(brollPanel.includes("Open Provider"), true);
   assert.equal(brollPanel.includes("Attach Result URL"), true);
   assert.equal(brollPanel.includes("Manual bridge"), true);

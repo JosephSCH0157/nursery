@@ -301,6 +301,9 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
                   </div>
                   <div className="hs-imap-help-text">{props.activeVisualProviderHelperText}</div>
                 </div>
+                <div className="hs-imap-help-text">
+                  Hearth shapes this pack for the active visual provider. Use it in your outside tool, then track the manual bridge below.
+                </div>
                 {props.activePromptPack ? (
                   <>
                     <textarea
@@ -334,7 +337,7 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
                     ) : null}
                   </>
                 ) : (
-                  <div className="hs-imap-empty">Select a reference clip to generate the active provider pack.</div>
+                  <div className="hs-imap-empty">Select a reference clip to load the active provider pack for this beat.</div>
                 )}
               </section>
 
@@ -349,17 +352,20 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
                     Copy Negative
                   </button>
                   <button type="button" onClick={props.onDownloadPromptPack} disabled={props.disabled || !props.activePromptPack}>Download Prompt Pack</button>
-                  <button type="button" onClick={props.onDownloadBrief} disabled={props.disabled}>Download Brief</button>
-                  <button type="button" onClick={props.onDownloadBriefJson} disabled={props.disabled}>Download JSON Brief</button>
+                  <button type="button" onClick={props.onDownloadBrief} disabled={props.disabled}>Download Source Brief</button>
+                  <button type="button" onClick={props.onDownloadBriefJson} disabled={props.disabled}>Download Source Brief JSON</button>
                 </div>
                 <div className="hs-imap-candidate-action-group">
-                  <span className="hs-pill">Manual bridge: {props.requestState}</span>
+                  <span className="hs-pill">Manual Bridge State: {props.requestState}</span>
                 </div>
               </div>
 
+              <div className="hs-imap-help-text">
+                These fields track where you sent the pack and what came back. They do not change the active prompt provider above.
+              </div>
               <div className="hs-imap-field-grid">
                 <label>
-                  Provider
+                  Manual Bridge Provider
                   <select value={props.draft.providerId} onChange={(event) => props.onDraftChange("providerId", event.target.value)} disabled={props.disabled}>
                     <option value="">Select provider</option>
                     {props.providers.map((provider) => (
@@ -368,17 +374,17 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
                   </select>
                 </label>
                 <label>
-                  Source Label
+                  Result Source Label
                   <input value={props.draft.sourceLabel} onChange={(event) => props.onDraftChange("sourceLabel", event.target.value)} disabled={props.disabled} />
                 </label>
                 <label>
-                  Source URL
+                  Result Source URL
                   <input value={props.draft.sourceUrl} onChange={(event) => props.onDraftChange("sourceUrl", event.target.value)} disabled={props.disabled} />
                 </label>
               </div>
               <div className="hs-imap-field-grid">
                 <label>
-                  Provider Note
+                  Manual Bridge Note
                   <input value={props.draft.providerNote} onChange={(event) => props.onDraftChange("providerNote", event.target.value)} disabled={props.disabled} />
                 </label>
                 <label>
@@ -393,7 +399,7 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
 
               <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
                 <div className="hs-imap-candidate-action-group">
-                  <button type="button" onClick={props.onOpenProvider} disabled={props.disabled}>Open Provider</button>
+                  <button type="button" onClick={props.onOpenProvider} disabled={props.disabled}>Open Manual Bridge Provider</button>
                   <button type="button" onClick={props.onMarkSent} disabled={props.disabled}>Mark as Sent</button>
                   <button type="button" onClick={props.onMarkAwaitingResult} disabled={props.disabled}>Mark Awaiting Result</button>
                   <button type="button" onClick={props.onAttachResultFromUrl} disabled={props.disabled}>Attach Result URL</button>

@@ -566,7 +566,7 @@ export default function ImageMapPanel({
                     </button>
                   </div>
                   <span className="hs-field-label-muted">
-                    Choose the provider Hearth should speak to, then generate a pack you can paste straight into that outside tool.
+                    Choose the active provider Hearth should speak to, then generate a prompt pack you can paste straight into that outside tool.
                   </span>
                 </div>
                 <section className="hs-imap-provider-pack" aria-label="Provider-aware prompt pack">
@@ -576,6 +576,9 @@ export default function ImageMapPanel({
                       <div className="hs-imap-help-text">{activeVisualProvider.bannerLabel}</div>
                     </div>
                     <div className="hs-imap-help-text">{activeVisualProvider.helperText}</div>
+                  </div>
+                  <div className="hs-imap-help-text">
+                    Hearth shapes this pack for the active visual provider. Use it in your outside tool, then come back here to source or attach the final asset.
                   </div>
                   {activePromptPack ? (
                     <>
@@ -624,7 +627,7 @@ export default function ImageMapPanel({
                     </>
                   ) : (
                     <div className="hs-imap-empty">
-                      Use <strong>Generate Prompt Pack</strong> to turn this selected beat into a provider-ready outside-tool prompt.
+                      Use <strong>Generate Prompt Pack</strong> to create the active provider pack for this beat.
                     </div>
                   )}
                 </section>
