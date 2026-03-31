@@ -60,10 +60,6 @@ import { mirrorApprovedScriptToLocal } from "../lib/hearth-script-mirror";
 import {
   listHearthReadyScripts,
   removeHearthReadyScripts,
-  reorderHearthReadyScripts,
-  setHearthReadyScriptCategory,
-  setHearthReadyScriptHidden,
-  updateHearthReadyQueueState,
   type HearthContentCategory,
   type HearthReadyScript,
 } from "../lib/hearth-ready-scripts";
@@ -98,6 +94,8 @@ import { useHearthWorkpieceArchiveActions } from "../hooks/useHearthWorkpieceArc
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
 import { useHearthAnvilOpenAction } from "../hooks/useHearthAnvilOpenAction";
 import { useHearthApprovalPersistenceActions } from "../hooks/useHearthApprovalPersistenceActions";
+import { useHearthReadyScriptsLifecycle } from "../hooks/useHearthReadyScriptsLifecycle";
+import { useHearthReadyQueueActions } from "../hooks/useHearthReadyQueueActions";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
 import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
@@ -2181,7 +2179,6 @@ export default function HearthShell({
   const projectIntakeHandledRef = useRef<string | null>(null);
   const sparkIntakeHandledRef = useRef<string | null>(null);
   const intakeResetKeyRef = useRef<string | null>(null);
-  const readyScriptsRequestSeqRef = useRef(0);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const restoredModeDraftKeyRef = useRef<string | null>(null);
   const pendingFocusOpenCountRef = useRef(0);
@@ -4273,36 +4270,15 @@ export default function HearthShell({
     setReferenceClipMessage,
   });
 
-  const refreshReadyScripts = useCallback(async () => {
-    const workspace = normalizeUuid(workspaceId);
-    const requestSeq = readyScriptsRequestSeqRef.current + 1;
-    readyScriptsRequestSeqRef.current = requestSeq;
-    if (!workspace) {
-      setReadyScripts([]);
-      setReadyScriptsWorkspaceId(null);
-      setReadyScriptsError(null);
-      setIsReadyScriptsLoading(false);
-      return;
-    }
-
-    setIsReadyScriptsLoading(true);
-    setReadyScriptsError(null);
-    try {
-      const entries = await listHearthReadyScripts(workspace);
-      if (readyScriptsRequestSeqRef.current !== requestSeq) return;
-      setReadyScripts(entries);
-      setReadyScriptsWorkspaceId(workspace);
-    } catch {
-      if (readyScriptsRequestSeqRef.current !== requestSeq) return;
-      setReadyScripts([]);
-      setReadyScriptsWorkspaceId(null);
-      setReadyScriptsError("Failed to load Ready to Record list.");
-    } finally {
-      if (readyScriptsRequestSeqRef.current === requestSeq) {
-        setIsReadyScriptsLoading(false);
-      }
-    }
-  }, [workspaceId]);
+  const { refreshReadyScripts } = useHearthReadyScriptsLifecycle({
+    workspaceId,
+    normalizeUuid,
+    listReadyScripts: listHearthReadyScripts,
+    setReadyScripts,
+    setReadyScriptsWorkspaceId,
+    setReadyScriptsError,
+    setIsReadyScriptsLoading,
+  });
   const setScriptValidationGateResult = useCallback((validation: ScriptValidationResult) => {
     setScriptValidation({
       source: "save_gate",
@@ -4807,152 +4783,32 @@ export default function HearthShell({
     void refreshEpisodePackage();
   }, [refreshEpisodePackage]);
 
-  const onSetReadyScriptCategory = useCallback(async (
-    entry: HearthReadyScript,
-    category: HearthContentCategory | null,
-  ) => {
-    setReadyCategoryError(null);
-    setUpdatingReadyCategoryId(entry.id);
-
-    const previousCategory = entry.contentCategory;
-    setReadyScripts((prev) => prev.map((row) => (
-      row.id === entry.id ? { ...row, contentCategory: category } : row
-    )));
-
-    try {
-      const result = await setHearthReadyScriptCategory({
-        workspaceId: entry.workspaceId,
-        workpieceId: entry.workpieceId,
-        category,
-      });
-      if (!result.ok) {
-        setReadyScripts((prev) => prev.map((row) => (
-          row.id === entry.id ? { ...row, contentCategory: previousCategory } : row
-        )));
-        setReadyCategoryError("Failed to save script category.");
-        return;
-      }
-      void refreshReadyScripts();
-    } catch {
-      setReadyScripts((prev) => prev.map((row) => (
-        row.id === entry.id ? { ...row, contentCategory: previousCategory } : row
-      )));
-      setReadyCategoryError("Failed to save script category.");
-    } finally {
-      setUpdatingReadyCategoryId(null);
-    }
-  }, [refreshReadyScripts]);
+  const {
+    onSetReadyScriptCategory,
+    onRemoveFromReady,
+    onRestoreRemovedReady,
+    onReorderReady,
+  } = useHearthReadyQueueActions({
+    workspaceId,
+    normalizeUuid,
+    readyScriptsForDisplay,
+    removingReadyIds,
+    isRestoringReady,
+    hearthUserId: hearthUser.userId,
+    reorderVisibleReadyEntries,
+    setReadyScripts,
+    setReadyScriptsError,
+    setReadyCategoryError,
+    setUpdatingReadyCategoryId,
+    setRemovingReadyIds,
+    setIsRestoringReady,
+    refreshReadyScripts,
+  });
 
   const onReadyLabelChange = useCallback((entry: HearthReadyScript, label: ReadyLabel) => {
     const category = READY_LABEL_TO_CATEGORY[label] ?? "evergreen";
     void onSetReadyScriptCategory(entry, category);
   }, [onSetReadyScriptCategory]);
-
-  const onRemoveFromReady = useCallback(async (entry: HearthReadyScript) => {
-    if (!entry.id || removingReadyIds.includes(entry.id)) return;
-
-    setReadyScriptsError(null);
-    setRemovingReadyIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
-    setReadyScripts((prev) => prev.map((row) => (
-      row.id === entry.id
-        ? {
-            ...row,
-            hiddenAt: new Date().toISOString(),
-            hiddenBy: hearthUser.userId ?? row.hiddenBy,
-          }
-        : row
-    )));
-
-    try {
-      const result = await setHearthReadyScriptHidden({
-        workspaceId: entry.workspaceId,
-        workpieceId: entry.workpieceId,
-        hidden: true,
-      });
-      if (!result.ok) {
-        setReadyScriptsError("Failed to hide script from Ready.");
-        await refreshReadyScripts();
-        return;
-      }
-      await refreshReadyScripts();
-    } catch {
-      setReadyScriptsError("Failed to hide script from Ready.");
-      await refreshReadyScripts();
-    } finally {
-      setRemovingReadyIds((prev) => prev.filter((id) => id !== entry.id));
-    }
-  }, [
-    refreshReadyScripts,
-    hearthUser.userId,
-    removingReadyIds,
-  ]);
-
-  const onRestoreRemovedReady = useCallback(async () => {
-    const normalizedWorkspaceId = normalizeUuid(workspaceId);
-    const hiddenEntries = readyScriptsForDisplay.filter((entry) => entry.hiddenAt);
-    if (!normalizedWorkspaceId || hiddenEntries.length === 0 || isRestoringReady) return;
-
-    setReadyScriptsError(null);
-    setIsRestoringReady(true);
-    setReadyScripts((prev) => prev.map((entry) => (
-      entry.hiddenAt
-        ? { ...entry, hiddenAt: null, hiddenBy: null }
-        : entry
-    )));
-
-    try {
-      const result = await updateHearthReadyQueueState({
-        workspaceId: normalizedWorkspaceId,
-        entries: hiddenEntries.map((entry) => ({
-          workpieceId: entry.workpieceId,
-          hidden: false,
-        })),
-      });
-      if (!result.ok) {
-        setReadyScriptsError("Failed to restore hidden Ready items.");
-        await refreshReadyScripts();
-        return;
-      }
-      await refreshReadyScripts();
-    } catch {
-      setReadyScriptsError("Failed to restore hidden Ready items.");
-      await refreshReadyScripts();
-    } finally {
-      setIsRestoringReady(false);
-    }
-  }, [isRestoringReady, readyScriptsForDisplay, refreshReadyScripts, workspaceId]);
-
-  const onReorderReady = useCallback(async (fromId: string, toId: string) => {
-    const normalizedWorkspaceId = normalizeUuid(workspaceId);
-    if (!normalizedWorkspaceId || !fromId || !toId || fromId === toId) return;
-
-    const reordered = reorderVisibleReadyEntries(readyScriptsForDisplay, fromId, toId);
-    const changed = reordered.some((entry, index) => entry !== readyScriptsForDisplay[index]);
-    if (!changed) return;
-
-    const orderedVisibleIds = reordered
-      .filter((entry) => !entry.hiddenAt)
-      .map((entry) => entry.workpieceId);
-
-    setReadyScriptsError(null);
-    setReadyScripts(reordered);
-
-    try {
-      const result = await reorderHearthReadyScripts({
-        workspaceId: normalizedWorkspaceId,
-        orderedWorkpieceIds: orderedVisibleIds,
-      });
-      if (!result.ok) {
-        setReadyScriptsError("Failed to reorder Ready queue.");
-        await refreshReadyScripts();
-        return;
-      }
-      await refreshReadyScripts();
-    } catch {
-      setReadyScriptsError("Failed to reorder Ready queue.");
-      await refreshReadyScripts();
-    }
-  }, [readyScriptsForDisplay, refreshReadyScripts, workspaceId]);
 
   const persistSession = useCallback(async (draftId: string | null, uiSelectedTab?: string) => {
     const now = Date.now();
