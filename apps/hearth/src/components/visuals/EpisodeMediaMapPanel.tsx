@@ -253,6 +253,12 @@ function MediaMapAdvancedEditor(props: EpisodeMediaMapPanelProps & {
 export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
   const conversation = props.conversation ?? FALLBACK_CONVERSATION;
   const mediaMapNeedsReapply = props.mapStatus === "needs_attention";
+  const mediaMapActivated = props.mapStatus === "activated"
+    || props.mapStatus === "fulfilling"
+    || props.mapStatus === "fulfilled";
+  const applyButtonLabel = mediaMapNeedsReapply || mediaMapActivated
+    ? "Reapply Updated Map"
+    : "Activate Current Map";
   const selectedEntry = useMemo(
     () => props.entries.find((entry) => entry.id === props.selectedEntryId) ?? null,
     [props.entries, props.selectedEntryId],
@@ -311,14 +317,14 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
         <span className="hs-pill">{props.entries.length} mapped beat{props.entries.length === 1 ? "" : "s"}</span>
         <span className="hs-pill">Map: {props.mapStatus}</span>
         <span className="hs-pill">State: {props.saveState}</span>
-        {mediaMapNeedsReapply ? (
+        {props.entries.length > 0 ? (
           <button
             type="button"
             className="hs-imap-primary-action"
             onClick={props.onActivateMap}
             disabled={props.disabled}
           >
-            Reapply Updated Map
+            {applyButtonLabel}
           </button>
         ) : null}
       </div>
