@@ -37,9 +37,11 @@ import {
   resolveThumbnailWorkspaceGuidance,
 } from "../../lib/hearth-thumbnail-workflow";
 import {
-  buildThumbnailPrompts,
-  type PromptVariant,
-} from "../../lib/hearth-thumbnail-prompt-builder";
+  buildThumbnailPromptPackVariants,
+  type PromptPack,
+  type ResolvedVisualProvider,
+  type ThumbnailPromptPackVariant,
+} from "../../lib/hearth-visual-provider-profiles";
 import ThumbnailVersions from "./ThumbnailVersions";
 
 type ThumbnailPanelProps = {
@@ -70,6 +72,7 @@ type ThumbnailPanelProps = {
   brandLogoError: string | null;
   brandLogoStatus: string | null;
   aspect: "16:9" | "1:1" | "9:16";
+  activeVisualProvider: ResolvedVisualProvider;
   safeZoneEnabled: boolean;
   previewDataUrl: string | null;
   previewState: "idle" | "loading" | "ready" | "error";
@@ -275,7 +278,22 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
   }
 }
 
-function resolvePromptVariantLabel(style: PromptVariant["style"]): string {
+function downloadPromptPack(pack: PromptPack, filename: string): void {
+  if (typeof document === "undefined" || typeof URL === "undefined") return;
+  const blob = new Blob([JSON.stringify(pack, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(href);
+}
+
+function resolvePromptVariantLabel(style: ThumbnailPromptPackVariant["style"]): string {
   switch (style) {
     case "high_ctr":
       return "High CTR";
@@ -339,6 +357,7 @@ export default function ThumbnailPanel({
   brandLogoError,
   brandLogoStatus,
   aspect,
+  activeVisualProvider,
   safeZoneEnabled,
   previewDataUrl,
   previewState,
@@ -392,7 +411,7 @@ export default function ThumbnailPanel({
     result: null,
     error: null,
   });
-  const [promptVariants, setPromptVariants] = useState<PromptVariant[] | null>(null);
+  const [promptVariants, setPromptVariants] = useState<ThumbnailPromptPackVariant[] | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const previewAspectClass = aspect === "1:1"
     ? " is-square"
@@ -479,20 +498,33 @@ export default function ThumbnailPanel({
   );
   const onGeneratePromptVariants = useCallback(() => {
     if (!canGeneratePrompt) return;
-    const result = buildThumbnailPrompts({
+    const result = buildThumbnailPromptPackVariants({
       conceptBrief: selectedConceptPrompt,
       title: selectedTitleText,
       tone: selectedConceptStylePreset,
+      aspectRatio: aspect,
+      providerId: activeVisualProvider.id,
+      resolvedProvider: activeVisualProvider,
     });
     setPromptVariants(result.variants);
-  }, [canGeneratePrompt, selectedConceptPrompt, selectedConceptStylePreset, selectedTitleText]);
+  }, [activeVisualProvider, aspect, canGeneratePrompt, selectedConceptPrompt, selectedConceptStylePreset, selectedTitleText]);
   const onCopyPromptVariant = useCallback((prompt: string) => {
     void copyTextToClipboard(prompt);
   }, []);
+  const onCopyNegativePrompt = useCallback((negative: string) => {
+    void copyTextToClipboard(negative);
+  }, []);
+  const onDownloadVariantPack = useCallback((variant: ThumbnailPromptPackVariant) => {
+    const conceptSuffix = (selectedConceptId || "concept").slice(0, 8).toLowerCase();
+    downloadPromptPack(
+      variant.pack,
+      `thumbnail-prompt-pack-${conceptSuffix}-${variant.id}.json`,
+    );
+  }, [selectedConceptId]);
 
   useEffect(() => {
     setPromptVariants(null);
-  }, [selectedConceptId, selectedConceptPrompt, selectedConceptStylePreset, selectedTitleId, selectedTitleText]);
+  }, [activeVisualProvider.id, activeVisualProvider.usedFallback, aspect, selectedConceptId, selectedConceptPrompt, selectedConceptStylePreset, selectedTitleId, selectedTitleText]);
 
   const runThumbnailAudit = useCallback(async () => {
     if (!previewDataUrl || previewState !== "ready" || !hasOverlayTitle) {
@@ -973,6 +1005,10 @@ export default function ThumbnailPanel({
             <div className="hs-thumb-prompt-context">
               <span><strong>Concept:</strong> {selectedConceptLabel.trim() || "No concept selected"}</span>
               <span><strong>Title:</strong> {selectedTitleText.trim() || "Choose a title on the right"}</span>
+              <span><strong>Provider:</strong> {activeVisualProvider.bannerLabel}</span>
+            </div>
+            <div className="hs-thumb-field-helper">
+              {activeVisualProvider.helperText}
             </div>
             {!hasFramingTitles ? (
               <div className="hs-thumb-empty">Start with a title. Framing helps shape thumbnail ideas.</div>
@@ -987,23 +1023,60 @@ export default function ThumbnailPanel({
                     <div className="hs-thumb-prompt-card-header">
                       <div>
                         <div className="hs-thumb-prompt-card-title">{resolvePromptVariantLabel(variant.style)}</div>
+                        <div className="hs-thumb-prompt-card-provider">{activeVisualProvider.label} · {variant.pack.aspectRatio ?? aspect}</div>
                         {variant.tagline ? (
                           <div className="hs-thumb-prompt-card-tagline">{variant.tagline}</div>
                         ) : null}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => onCopyPromptVariant(variant.prompt)}
-                      >
-                        Copy
-                      </button>
+                      <div className="hs-thumb-prompt-card-actions">
+                        <button
+                          type="button"
+                          onClick={() => onCopyPromptVariant(variant.pack.prompt)}
+                        >
+                          Copy Prompt
+                        </button>
+                        {variant.pack.negative ? (
+                          <button
+                            type="button"
+                            onClick={() => onCopyNegativePrompt(variant.pack.negative ?? "")}
+                          >
+                            Copy Negative
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => onDownloadVariantPack(variant)}
+                        >
+                          Download Prompt Pack
+                        </button>
+                      </div>
                     </div>
                     <textarea
-                      value={variant.prompt}
+                      value={variant.pack.prompt}
                       readOnly
                       rows={6}
                       className="hs-thumb-prompt-card-text"
                     />
+                    {variant.pack.negative ? (
+                      <textarea
+                        value={variant.pack.negative}
+                        readOnly
+                        rows={3}
+                        className="hs-thumb-prompt-card-text is-secondary"
+                      />
+                    ) : null}
+                    {variant.pack.styleTags?.length ? (
+                      <div className="hs-thumb-prompt-card-tags">
+                        {variant.pack.styleTags.map((tag) => (
+                          <span key={`${variant.id}:${tag}`} className="hs-thumb-prompt-card-tag">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {variant.pack.notes ? (
+                      <div className="hs-thumb-prompt-card-note">{variant.pack.notes}</div>
+                    ) : null}
                   </article>
                 ))}
               </div>

@@ -1,6 +1,7 @@
 import { useMemo, useRef } from "react";
 import type { EpisodeBrollAssetCandidate, EpisodeContextualDataCompositePlan } from "../../lib/episode-package-v2";
 import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actionability";
+import type { PromptPack } from "../../lib/hearth-visual-provider-profiles";
 
 type ReferenceClipPlanPanelProps = {
   entries: EpisodeContextualDataCompositePlan[];
@@ -36,6 +37,10 @@ type ReferenceClipPlanPanelProps = {
   };
   requestState: string;
   providers: ExternalGenerationProvider[];
+  activeVisualProviderLabel: string;
+  activeVisualProviderBanner: string;
+  activeVisualProviderHelperText: string;
+  activePromptPack: PromptPack | null;
   selectedCandidateId: string | null;
   onSelectEntry: (entryId: string) => void;
   onDraftChange: (field: string, value: string) => void;
@@ -46,6 +51,8 @@ type ReferenceClipPlanPanelProps = {
   onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
   onCopyPrompt: () => void;
+  onCopyNegativePrompt: () => void;
+  onDownloadPromptPack: () => void;
   onDownloadBrief: () => void;
   onDownloadBriefJson: () => void;
   onOpenProvider: () => void;
@@ -286,9 +293,60 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
                 />
               </div>
 
+              <section className="hs-imap-provider-pack" aria-label="Provider-aware prompt pack">
+                <div className="hs-imap-provider-pack-header">
+                  <div>
+                    <div className="hs-field-label">Prompt Pack</div>
+                    <div className="hs-imap-help-text">{props.activeVisualProviderBanner}</div>
+                  </div>
+                  <div className="hs-imap-help-text">{props.activeVisualProviderHelperText}</div>
+                </div>
+                {props.activePromptPack ? (
+                  <>
+                    <textarea
+                      value={props.activePromptPack.prompt}
+                      readOnly
+                      rows={5}
+                      className="hs-thumb-prompt-card-text"
+                    />
+                    {props.activePromptPack.negative ? (
+                      <textarea
+                        value={props.activePromptPack.negative}
+                        readOnly
+                        rows={3}
+                        className="hs-thumb-prompt-card-text is-secondary"
+                      />
+                    ) : null}
+                    <div className="hs-imap-help-text">
+                      Aspect: {props.activePromptPack.aspectRatio ?? "16:9"} · Provider: {props.activeVisualProviderLabel}
+                    </div>
+                    {props.activePromptPack.styleTags?.length ? (
+                      <div className="hs-thumb-prompt-card-tags">
+                        {props.activePromptPack.styleTags.map((tag) => (
+                          <span key={tag} className="hs-thumb-prompt-card-tag">{tag}</span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {props.activePromptPack.notes ? (
+                      <div className="hs-thumb-prompt-card-note">{props.activePromptPack.notes}</div>
+                    ) : null}
+                  </>
+                ) : (
+                  <div className="hs-imap-empty">Select a reference clip to generate the active provider pack.</div>
+                )}
+              </section>
+
               <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
                 <div className="hs-imap-candidate-action-group">
-                  <button type="button" onClick={props.onCopyPrompt} disabled={props.disabled}>Copy Prompt</button>
+                  <button type="button" onClick={props.onCopyPrompt} disabled={props.disabled || !props.activePromptPack}>Copy Prompt</button>
+                  <button
+                    type="button"
+                    onClick={props.onCopyNegativePrompt}
+                    disabled={props.disabled || !props.activePromptPack?.negative}
+                  >
+                    Copy Negative
+                  </button>
+                  <button type="button" onClick={props.onDownloadPromptPack} disabled={props.disabled || !props.activePromptPack}>Download Prompt Pack</button>
                   <button type="button" onClick={props.onDownloadBrief} disabled={props.disabled}>Download Brief</button>
                   <button type="button" onClick={props.onDownloadBriefJson} disabled={props.disabled}>Download JSON Brief</button>
                 </div>

@@ -21,6 +21,10 @@ import {
   type AiReasonCode,
 } from "@forge/tongs/ai-policy";
 import { evaluateHearthScriptValidation } from "./hearth-script-tag-policy";
+import {
+  normalizeVisualProviderId,
+  type VisualProviderId,
+} from "./hearth-visual-provider-profiles";
 
 export type {
   HearthAiBehavior,
@@ -111,6 +115,7 @@ type AiSettingsSnapshot = {
   behavior: HearthAiBehavior;
   autoApproveImageSpend: boolean;
   policyTestOverride: "rpc" | "allow" | "soft_deny" | "hard_deny";
+  defaultVisualProvider: VisualProviderId;
 };
 
 const DEFAULT_AI_SETTINGS: AiSettingsSnapshot = {
@@ -118,6 +123,7 @@ const DEFAULT_AI_SETTINGS: AiSettingsSnapshot = {
   behavior: "careful",
   autoApproveImageSpend: false,
   policyTestOverride: "rpc",
+  defaultVisualProvider: "generic",
 };
 
 type AiPolicyDecisionType = "ALLOW" | "SOFT_DENY" | "HARD_DENY";
@@ -608,6 +614,7 @@ function resolveAiSettingsFromStorage(): AiSettingsSnapshot {
       behavior?: unknown;
       autoApproveImageSpend?: unknown;
       policyTestOverride?: unknown;
+      defaultVisualProvider?: unknown;
     };
     return {
       lane: isLane(parsed.lane) ? parsed.lane : "forge",
@@ -619,6 +626,7 @@ function resolveAiSettingsFromStorage(): AiSettingsSnapshot {
         || parsed.policyTestOverride === "hard_deny"
           ? parsed.policyTestOverride
           : "rpc",
+      defaultVisualProvider: normalizeVisualProviderId(parsed.defaultVisualProvider) ?? "generic",
     };
   } catch {
     return DEFAULT_AI_SETTINGS;
@@ -635,6 +643,10 @@ export async function resolveForgeUserAccessToken(): Promise<string | null> {
 
 export function resolveAiThumbnailAutoApproveFromStorage(): boolean {
   return resolveAiSettingsFromStorage().autoApproveImageSpend === true;
+}
+
+export function resolveDefaultVisualProviderFromStorage(): VisualProviderId {
+  return resolveAiSettingsFromStorage().defaultVisualProvider;
 }
 
 function parseCreditsPayload(payload: unknown, fallbackLane: HearthAiLane): HearthAiRuntimeSnapshot {

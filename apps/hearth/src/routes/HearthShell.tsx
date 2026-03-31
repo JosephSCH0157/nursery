@@ -38,6 +38,7 @@ import {
   requestHearthSttTranscript,
   refreshMyAiCredits,
   resolveAiLaneFromStorage,
+  resolveDefaultVisualProviderFromStorage,
   resolveAiThumbnailAutoApproveFromStorage,
   uploadHearthSttAudio,
   type HearthAiLane,
@@ -226,6 +227,13 @@ import {
   listExternalGenerationProviders,
   type ExternalGenerationProvider,
 } from "../lib/hearth-visual-actionability";
+import {
+  buildReferenceClipPromptPack,
+  listVisualProviderOptions,
+  resolveActiveVisualProvider,
+  serializePromptPack,
+  type VisualProviderId,
+} from "../lib/hearth-visual-provider-profiles";
 import {
   readWorkpieceEpisodeMediaMap,
   saveWorkpieceEpisodeMediaMap,
@@ -2281,7 +2289,8 @@ function isPlanningSessionEmpty(session: HearthPlanningSession | null): boolean 
   const hasDecisions = (session.decisions ?? []).length > 0;
   const hasAudience = Boolean(session.audience && session.audience.trim());
   const hasTone = Boolean(session.tone_preset && session.tone_preset.trim());
-  return !(hasTitle || hasTitleVariants || hasGoals || hasOutline || hasDecisions || hasAudience || hasTone);
+  const hasVisualProviderOverride = Boolean(session.visual_provider_override);
+  return !(hasTitle || hasTitleVariants || hasGoals || hasOutline || hasDecisions || hasAudience || hasTone || hasVisualProviderOverride);
 }
 
 function buildSessionFingerprint(session: HearthPlanningSession): string {
@@ -2296,6 +2305,7 @@ function buildSessionFingerprint(session: HearthPlanningSession): string {
     outline: session.outline ?? [],
     audience: session.audience ?? "",
     tone_preset: session.tone_preset ?? "",
+    visual_provider_override: session.visual_provider_override ?? null,
     links: session.links ?? null,
     decisions: session.decisions ?? [],
   });
@@ -2317,6 +2327,7 @@ function createPlanningSessionForEpisode(workpieceId: string, workspaceId: strin
     outline: [],
     audience: null,
     tone_preset: null,
+    visual_provider_override: null,
     links: null,
     decisions: [],
   };
@@ -2476,6 +2487,7 @@ export default function HearthShell({
   });
   const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
   const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
+  const [defaultVisualProvider, setDefaultVisualProvider] = useState<VisualProviderId>(() => resolveDefaultVisualProviderFromStorage());
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
   const [selectedThumbnailTitleId, setSelectedThumbnailTitleId] = useState<string | null>(null);
   const [selectedThumbnailConceptId, setSelectedThumbnailConceptId] = useState<string>("");
@@ -3063,6 +3075,54 @@ export default function HearthShell({
   const selectedReferenceClipEntry = referenceClipEntries.find((entry) => entry.id === selectedReferenceClipEntryId) ?? null;
   const referenceClipProviders: ExternalGenerationProvider[] = listExternalGenerationProviders("reference_clip");
   const referenceClipRequestStateLabel = resolveVisualRequestStateLabel(selectedReferenceClipEntry?.external_request?.state);
+  const visualProviderOptions = useMemo(() => listVisualProviderOptions(), []);
+  const activeVisualProvider = useMemo(() => resolveActiveVisualProvider({
+    override: planningSession?.visual_provider_override ?? null,
+    defaultProvider: defaultVisualProvider,
+  }), [defaultVisualProvider, planningSession?.visual_provider_override]);
+  const activeVisualPromptPackForReferenceClip = useMemo(() => {
+    if (!selectedReferenceClipEntry || !workpieceId?.trim()) return null;
+    return buildReferenceClipPromptPack({
+      entry: {
+        ...selectedReferenceClipEntry,
+        anchor_text: referenceClipAnchorDraft.trim() || selectedReferenceClipEntry.anchor_text,
+        description: referenceClipDescriptionDraft.trim() || selectedReferenceClipEntry.description,
+        background_context_description: referenceClipBackgroundContextDraft.trim() || selectedReferenceClipEntry.background_context_description,
+        foreground_data_description: referenceClipForegroundDataDraft.trim() || selectedReferenceClipEntry.foreground_data_description,
+        visual_style: referenceClipVisualStyleDraft || selectedReferenceClipEntry.visual_style,
+        title: referenceClipTitleDraft.trim() || selectedReferenceClipEntry.title,
+        labels: referenceClipLabelsDraft.trim()
+          ? referenceClipLabelsDraft.split(",").map((value) => value.trim()).filter(Boolean)
+          : selectedReferenceClipEntry.labels,
+        values: referenceClipValuesDraft.trim()
+          ? referenceClipValuesDraft.split(",").map((value) => value.trim()).filter(Boolean)
+          : selectedReferenceClipEntry.values,
+        emphasis_key: referenceClipEmphasisKeyDraft.trim() || selectedReferenceClipEntry.emphasis_key,
+        tone: (referenceClipToneDraft || selectedReferenceClipEntry.tone) as EpisodeReferenceClipTone,
+      },
+      workpieceId: workpieceId.trim(),
+      workpieceTitle: activeDraft?.title ?? planningSession?.title ?? null,
+      providerId: activeVisualProvider.id,
+      resolvedProvider: activeVisualProvider,
+      aspectRatio: "16:9",
+    });
+  }, [
+    activeDraft?.title,
+    activeVisualProvider.id,
+    planningSession?.title,
+    referenceClipAnchorDraft,
+    referenceClipBackgroundContextDraft,
+    referenceClipDescriptionDraft,
+    referenceClipEmphasisKeyDraft,
+    referenceClipForegroundDataDraft,
+    referenceClipLabelsDraft,
+    referenceClipTitleDraft,
+    referenceClipToneDraft,
+    referenceClipValuesDraft,
+    referenceClipVisualStyleDraft,
+    selectedReferenceClipEntry,
+    workpieceId,
+  ]);
   const selectedImageMapExactAnchor = useMemo(() => {
     if (
       !selectedImageMapEntry
@@ -3984,8 +4044,10 @@ export default function HearthShell({
 
     const syncAiRuntime = async () => {
       const lane = resolveAiLaneFromStorage();
+      const visualProvider = resolveDefaultVisualProviderFromStorage();
       if (!cancelled) {
         setAiBillingMode(lane);
+        setDefaultVisualProvider(visualProvider);
         if (lane === "byo") {
           setAiTokenBalance(null);
         }
@@ -9229,18 +9291,8 @@ export default function HearthShell({
   }
 
   async function onCopyReferenceClipPrompt() {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    const brief = buildReferenceClipBrief({
-      entry: {
-        ...selectedReferenceClipEntry,
-        anchor_text: referenceClipAnchorDraft.trim() || selectedReferenceClipEntry.anchor_text,
-        description: referenceClipDescriptionDraft.trim() || selectedReferenceClipEntry.description,
-      },
-      workpieceId: workpieceId?.trim() ?? "",
-      workpieceTitle: activeDraft?.title ?? null,
-    });
-    const text = formatVisualBriefAsText(brief);
-    const copied = await writeTextToClipboard(text);
+    if (!episodePackage || !selectedReferenceClipEntry || !activeVisualPromptPackForReferenceClip) return;
+    const copied = await writeTextToClipboard(activeVisualPromptPackForReferenceClip.pack.prompt);
     if (!copied) {
       setReferenceClipSaveError("Unable to copy prompt to clipboard.");
       setReferenceClipSaveState("error");
@@ -9265,8 +9317,11 @@ export default function HearthShell({
     };
     const saved = await persistReferenceClipPlan({
       plan: nextPlan,
-      eventName: "hearth.cdc_plan.brief_copied.v1",
-      eventPayload: { cdc_id: selectedReferenceClipEntry.id },
+      eventName: "hearth.cdc_plan.prompt_copied.v1",
+      eventPayload: {
+        cdc_id: selectedReferenceClipEntry.id,
+        provider: activeVisualPromptPackForReferenceClip.provider.id,
+      },
     });
     if (!saved.ok) {
       setReferenceClipSaveError(saved.error);
@@ -9274,7 +9329,61 @@ export default function HearthShell({
       return;
     }
     setReferenceClipSaveState("saved");
-    setReferenceClipMessage("Prompt copied. Manual bridge state updated.");
+    setReferenceClipMessage(`${activeVisualPromptPackForReferenceClip.provider.label} prompt copied. Manual bridge state updated.`);
+  }
+
+  async function onCopyReferenceClipNegativePrompt() {
+    if (!episodePackage || !selectedReferenceClipEntry || !activeVisualPromptPackForReferenceClip?.pack.negative) return;
+    const copied = await writeTextToClipboard(activeVisualPromptPackForReferenceClip.pack.negative);
+    if (!copied) {
+      setReferenceClipSaveError("Unable to copy negative prompt to clipboard.");
+      setReferenceClipSaveState("error");
+      return;
+    }
+    setReferenceClipSaveState("saved");
+    setReferenceClipMessage("Negative prompt copied.");
+  }
+
+  async function onDownloadReferenceClipPromptPack() {
+    if (!episodePackage || !selectedReferenceClipEntry || !activeVisualPromptPackForReferenceClip) return;
+    const suffix = (workpieceId?.slice(0, 8) ?? "episode").toLowerCase();
+    downloadTextFile({
+      text: serializePromptPack(activeVisualPromptPackForReferenceClip.pack),
+      filename: `reference-clip-prompt-pack-${suffix}-${selectedReferenceClipEntry.id}.json`,
+      mimeType: "application/json;charset=utf-8",
+    });
+    const nextEntry: EpisodeContextualDataCompositePlan = {
+      ...selectedReferenceClipEntry,
+      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "brief_exported", {
+        providerId: referenceClipProviderIdDraft,
+        sourceUrl: referenceClipSourceUrlDraft,
+        providerNote: referenceClipProviderNoteDraft,
+        usageNote: referenceClipUsageNoteDraft,
+        resultMetadata: referenceClipResultMetadataDraft,
+      }),
+      updated_at: new Date().toISOString(),
+    };
+    const nextPlan: EpisodeReferenceClipPlan = {
+      ...episodePackage.cdc_plan,
+      version: Math.max(1, episodePackage.cdc_plan.version + 1),
+      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
+      generated_at: new Date().toISOString(),
+    };
+    const saved = await persistReferenceClipPlan({
+      plan: nextPlan,
+      eventName: "hearth.cdc_plan.prompt_pack_downloaded.v1",
+      eventPayload: {
+        cdc_id: selectedReferenceClipEntry.id,
+        provider: activeVisualPromptPackForReferenceClip.provider.id,
+      },
+    });
+    if (!saved.ok) {
+      setReferenceClipSaveError(saved.error);
+      setReferenceClipSaveState("error");
+      return;
+    }
+    setReferenceClipSaveState("saved");
+    setReferenceClipMessage(`${activeVisualPromptPackForReferenceClip.provider.label} prompt pack downloaded.`);
   }
 
   async function onDownloadReferenceClipBrief(format: "text" | "json") {
@@ -9340,21 +9449,14 @@ export default function HearthShell({
       setReferenceClipSaveState("error");
       return;
     }
-    const brief = buildReferenceClipBrief({
-      entry: {
-        ...selectedReferenceClipEntry,
-        anchor_text: referenceClipAnchorDraft.trim() || selectedReferenceClipEntry.anchor_text,
-        description: referenceClipDescriptionDraft.trim() || selectedReferenceClipEntry.description,
-      },
-      workpieceId: workpieceId?.trim() ?? "",
-      workpieceTitle: activeDraft?.title ?? null,
-    });
-    await writeTextToClipboard(formatVisualBriefAsText(brief));
+    if (activeVisualPromptPackForReferenceClip) {
+      await writeTextToClipboard(activeVisualPromptPackForReferenceClip.pack.prompt);
+    }
     if (typeof window !== "undefined") {
       window.open(provider.launchUrl, "_blank", "noopener,noreferrer");
     }
     await onMarkReferenceClipRequestState("sent_external");
-    setReferenceClipMessage(`Opened ${provider.name}. Prompt copied for manual paste.`);
+    setReferenceClipMessage(`Opened ${provider.name}. ${activeVisualPromptPackForReferenceClip?.provider.label ?? "Prompt"} copied for manual paste.`);
   }
 
   async function onMarkReferenceClipRequestState(nextState: EpisodeExternalRequestState) {
@@ -12044,6 +12146,7 @@ export default function HearthShell({
       brandLogoError: thumbnailBrandLogoError,
       brandLogoStatus: thumbnailBrandLogoStatus,
       aspect: thumbnailAspect,
+      activeVisualProvider,
       safeZoneEnabled: thumbnailSafeZoneEnabled,
       previewDataUrl: thumbnailPreviewDataUrl,
       previewState: thumbnailPreviewState,
@@ -12347,6 +12450,10 @@ export default function HearthShell({
       },
       requestState: referenceClipRequestStateLabel,
       providers: referenceClipProviders,
+      activeVisualProviderLabel: activeVisualProvider.label,
+      activeVisualProviderBanner: activeVisualProvider.bannerLabel,
+      activeVisualProviderHelperText: activeVisualProvider.helperText,
+      activePromptPack: activeVisualPromptPackForReferenceClip?.pack ?? null,
       selectedCandidateId: selectedReferenceClipEntry?.selected_asset_id ?? null,
       onSelectEntry: setSelectedReferenceClipEntryId,
       onDraftChange: (field: string, value: string) => {
@@ -12381,6 +12488,8 @@ export default function HearthShell({
       onUploadAsset: (file: File) => void onUploadReferenceClipAsset(file),
       onSelectCandidate: (candidateId: string) => void onSelectReferenceClipCandidate(candidateId),
       onCopyPrompt: () => void onCopyReferenceClipPrompt(),
+      onCopyNegativePrompt: () => void onCopyReferenceClipNegativePrompt(),
+      onDownloadPromptPack: () => void onDownloadReferenceClipPromptPack(),
       onDownloadBrief: () => void onDownloadReferenceClipBrief("text"),
       onDownloadBriefJson: () => void onDownloadReferenceClipBrief("json"),
       onOpenProvider: () => void onOpenReferenceClipProvider(),
@@ -12653,6 +12762,16 @@ export default function HearthShell({
               imageMapPanelMeta={imageMapPanelMeta}
               brollPanelMeta={brollPanelMeta}
               referenceClipPanelMeta={referenceClipPanelMeta}
+              activeVisualProviderBanner={activeVisualProvider.bannerLabel}
+              activeVisualProviderHelperText={activeVisualProvider.helperText}
+              visualProviderOptions={visualProviderOptions}
+              visualProviderOverride={planningSession?.visual_provider_override ?? null}
+              onVisualProviderOverrideChange={(providerId) => {
+                updatePlanningSession((prev) => ({
+                  ...prev,
+                  visual_provider_override: providerId,
+                }));
+              }}
               thumbnailPanelProps={thumbnailPanelProps}
               mediaMapPanelProps={mediaMapPanelProps}
               imageMapPanelProps={imageMapPanelProps}
