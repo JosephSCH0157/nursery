@@ -202,6 +202,36 @@ function buildDistinctPromptText(
   return segments.join(". ");
 }
 
+function dedupePromptSentenceRuns(value: string): string {
+  const cleaned = cleanText(value);
+  if (!cleaned) return "";
+  const segments = cleaned
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((segment) => cleanText(segment))
+    .filter(Boolean) as string[];
+  if (!segments.length) return cleaned;
+
+  const normalizeForDedup = (segment: string) => (
+    segment
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const segment of segments) {
+    const key = normalizeForDedup(segment);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(segment);
+  }
+
+  const joined = deduped.join(" ");
+  return cleanText(joined) ?? joined;
+}
+
 function limitWords(value: string, maxWords: number): string {
   const words = value.trim().split(/\s+/).filter(Boolean);
   if (words.length <= maxWords) return value.trim();
@@ -772,7 +802,13 @@ export function buildTimelineImagePromptPack(args: {
     }),
     intendedUse: "timeline_image",
   });
-  return { pack, provider };
+  return {
+    pack: {
+      ...pack,
+      prompt: dedupePromptSentenceRuns(pack.prompt),
+    },
+    provider,
+  };
 }
 
 export function serializePromptPack(pack: PromptPack): string {
