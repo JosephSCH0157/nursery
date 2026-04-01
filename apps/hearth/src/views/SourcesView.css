@@ -1,0 +1,170 @@
+.hs-sources-view {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--forge-bg-elevated, #fff);
+  min-height: 240px;
+  display: grid;
+  gap: 14px;
+}
+
+.hs-sources-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.hs-sources-title {
+  font-weight: 700;
+}
+
+.hs-sources-status {
+  font-size: 12px;
+}
+
+.hs-sources-status-error {
+  color: #b00020;
+}
+
+.hs-sources-status-success {
+  color: #0f7b2f;
+}
+
+.hs-sources-status-info {
+  color: rgba(15, 23, 42, 0.7);
+}
+
+.hs-sources-muted {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.hs-sources-section {
+  display: grid;
+  gap: 10px;
+}
+
+.hs-sources-section-title {
+  font-weight: 600;
+}
+
+.hs-sources-list {
+  display: grid;
+  gap: 10px;
+}
+
+.hs-sources-card {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 8px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.hs-sources-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hs-sources-card-title {
+  font-weight: 600;
+}
+
+.hs-sources-meta {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.hs-sources-action-stack {
+  display: grid;
+  gap: 6px;
+}
+
+.hs-sources-action-stack-end {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.hs-sources-badge-unused {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  opacity: 0.7;
+}
+
+.hs-sources-label-stack {
+  display: grid;
+  gap: 4px;
+}
+
+.hs-sources-label-caption {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.hs-sources-label-caption-sm {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.hs-sources-textarea-notes {
+  min-height: 60px;
+  resize: vertical;
+}
+
+.hs-sources-textarea-form {
+  min-height: 70px;
+  resize: vertical;
+}
+
+.hs-sources-detail-block {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.hs-sources-detail-grid {
+  display: grid;
+  gap: 4px;
+}
+
+.hs-sources-group {
+  display: grid;
+  gap: 6px;
+}
+
+.hs-sources-group-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hs-sources-inline-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hs-sources-inline-row-tight {
+  gap: 6px;
+  align-items: center;
+}
+
+.hs-sources-text-xs {
+  font-size: 12px;
+}
+
+.hs-sources-meta-xs {
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.hs-sources-checkbox-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  opacity: 0.8;
+}
