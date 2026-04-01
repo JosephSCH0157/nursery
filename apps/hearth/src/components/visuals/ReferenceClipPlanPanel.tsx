@@ -74,6 +74,18 @@ const MOTION_LEVELS = ["static", "subtle", "full_animation"];
 const CHART_TYPES = ["line", "bar", "area", "scatter", "timeline", "map", "stat_card", "comparison"];
 const SOURCE_TYPES = ["planned", "hearth_ai", "upload", "external", "hammer_upload"];
 
+function resolveCandidatePreviewSource(candidate: EpisodeBrollAssetCandidate): string | null {
+  const uri = (candidate.uri ?? "").trim();
+  if (uri && (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("blob:") || uri.startsWith("data:"))) {
+    return uri;
+  }
+  const path = (candidate.path ?? "").trim();
+  if (path && (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("blob:") || path.startsWith("data:"))) {
+    return path;
+  }
+  return null;
+}
+
 function CandidateList(args: {
   candidates: EpisodeBrollAssetCandidate[];
   selectedCandidateId: string | null;
@@ -87,6 +99,20 @@ function CandidateList(args: {
     <div className="hs-imap-candidates">
       {args.candidates.map((candidate) => (
         <article key={candidate.asset_id} className={`hs-imap-candidate-card${candidate.asset_id === args.selectedCandidateId ? " is-selected" : ""}`}>
+          {candidate.mime_type?.startsWith("image/") ? (
+            <div className="hs-imap-candidate-media">
+              {resolveCandidatePreviewSource(candidate) ? (
+                <img
+                  src={resolveCandidatePreviewSource(candidate) ?? ""}
+                  alt={candidate.label ?? "Reference clip candidate"}
+                  className="hs-imap-candidate-image"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="hs-imap-candidate-placeholder">Preview unavailable in-app</div>
+              )}
+            </div>
+          ) : null}
           <div className="hs-imap-candidate-meta">
             <div className="hs-imap-candidate-title">
               {candidate.label ?? candidate.source}
@@ -127,13 +153,14 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
     [props.entries, props.selectedEntryId],
   );
   const candidates = selectedEntry?.candidate_assets ?? [];
+  const hasSelectedAsset = Boolean(selectedEntry?.selected_asset_id);
 
   return (
     <div className="hs-imap-panel">
       <div className="hs-imap-header">
         <div>
           <h4 className="hs-imap-title">Reference Clips</h4>
-          <p className="hs-imap-subtitle">Plan explanatory reference visuals that combine real-world context with structured data.</p>
+          <p className="hs-imap-subtitle">Create one grounded, usable visual per beat. Start with anchor + description, then generate directly in Forge.</p>
         </div>
         <div className="hs-imap-candidate-action-group">
           <button type="button" className="hs-primary-btn" onClick={props.onCreateReferenceClip} disabled={props.disabled || props.saveState === "saving"}>
@@ -145,6 +172,7 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
       <div className="hs-imap-toolbar">
         <span className="hs-pill">{props.entries.length} reference clip{props.entries.length === 1 ? "" : "s"}</span>
         <span className="hs-pill">State: {props.saveState}</span>
+        {selectedEntry ? <span className="hs-pill">{hasSelectedAsset ? "Result attached" : "No result selected"}</span> : null}
       </div>
 
       <div className="hs-imap-grid">
@@ -170,6 +198,23 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
             <div className="hs-imap-empty">Select a reference clip to edit.</div>
           ) : (
             <>
+              <section className="hs-imap-next-card" aria-label="Reference clip quick workflow">
+                <div className="hs-imap-next-eyebrow">Quick Workflow</div>
+                <div className="hs-imap-next-copy">1) Adjust anchor and description. 2) Generate usable image in Forge. 3) Keep the best attached result.</div>
+                <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
+                  <div className="hs-imap-candidate-action-group">
+                    <button type="button" className="hs-primary-btn" onClick={props.onGenerateInForge} disabled={props.disabled}>
+                      Generate Usable Image
+                    </button>
+                    <button type="button" onClick={props.onSaveEntry} disabled={props.disabled}>Save Draft</button>
+                    <button type="button" onClick={() => uploadInputRef.current?.click()} disabled={props.disabled}>Attach Existing File</button>
+                  </div>
+                  <div className="hs-imap-candidate-action-group">
+                    <button type="button" onClick={props.onDeleteEntry} disabled={props.disabled}>Delete Clip</button>
+                  </div>
+                </div>
+              </section>
+
               <div className="hs-imap-field-grid">
                 <label>
                   Anchor
@@ -194,6 +239,9 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
                 <textarea id="description-textarea" value={props.draft.description} onChange={(event) => props.onDraftChange("description", event.target.value)} disabled={props.disabled} rows={2} />
               </div>
 
+              <details className="hs-imap-advanced">
+                <summary>Fine-tune generation settings</summary>
+                <div className="hs-imap-advanced-body">
               <div className="hs-imap-field-grid">
                 <label>
                   Data Type
@@ -272,33 +320,15 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
                   <input value={props.draft.values} onChange={(event) => props.onDraftChange("values", event.target.value)} disabled={props.disabled} />
                 </label>
               </div>
-
-              <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
-                <div className="hs-imap-candidate-action-group">
-                  <button type="button" className="hs-primary-btn" onClick={props.onGenerateInForge} disabled={props.disabled}>
-                    Generate in Forge
-                  </button>
-                  <button type="button" onClick={() => uploadInputRef.current?.click()} disabled={props.disabled}>Attach Result File</button>
-                  <button type="button" onClick={props.onRegenerateStub} disabled={props.disabled}>Refresh Guidance</button>
+                  <div className="hs-imap-candidate-action-group">
+                    <button type="button" onClick={props.onRegenerateStub} disabled={props.disabled}>Refresh Guidance From Description</button>
+                  </div>
                 </div>
-                <div className="hs-imap-candidate-action-group">
-                  <button type="button" onClick={props.onSaveEntry} disabled={props.disabled}>Save Reference Clip</button>
-                  <button type="button" onClick={props.onDeleteEntry} disabled={props.disabled}>Delete Reference Clip</button>
-                </div>
-                <input
-                  ref={uploadInputRef}
-                  type="file"
-                  accept="image/*,video/*"
-                  className="hs-hidden-input"
-                  aria-label="Upload Asset File"
-                  onChange={(event) => {
-                    const file = event.currentTarget.files?.[0];
-                    if (file) props.onUploadAsset(file);
-                    event.currentTarget.value = "";
-                  }}
-                />
-              </div>
+              </details>
 
+              <details className="hs-imap-advanced">
+                <summary>Manual Bridge, Prompt Pack, and External Provider</summary>
+                <div className="hs-imap-advanced-body">
               <section className="hs-imap-provider-pack" aria-label="Provider-aware prompt pack">
                 <div className="hs-imap-provider-pack-header">
                   <div>
@@ -422,6 +452,23 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
                   <button type="button" onClick={props.onClearRequestState} disabled={props.disabled}>Clear Request State</button>
                 </div>
               </div>
+                </div>
+              </details>
+
+              <input
+                ref={uploadInputRef}
+                type="file"
+                accept="image/*,video/*"
+                className="hs-hidden-input"
+                aria-label="Upload Asset File"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  if (file) props.onUploadAsset(file);
+                  event.currentTarget.value = "";
+                }}
+              />
+
+              <div className="hs-imap-tools-label">Attached results</div>
 
               <CandidateList
                 candidates={candidates}

@@ -347,6 +347,66 @@ test("createHearthAiHandler keeps clarify gate for very short ambiguous asks", a
   }
 });
 
+test("createHearthAiHandler bypasses clarify gate for short research asks and enables research-first prompt behavior", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  let openAiCalled = false;
+  let capturedSystemPrompt = "";
+
+  globalThis.fetch = async (_input, init) => {
+    openAiCalled = true;
+    const body = JSON.parse(String(init?.body ?? "{}")) as {
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    capturedSystemPrompt = body.messages?.[0]?.content ?? "";
+
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: "Angle is strong. Here are examples grouped by bucket.",
+              ops: [],
+              script_text: null,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 79 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Find breach-related reporting examples." }],
+        episode_context: buildEpisodeContext(),
+        lane: "forge",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.gate, undefined);
+    assert.equal(openAiCalled, true);
+    assert.match(capturedSystemPrompt, /Research mode behavior \(hard rule\):/i);
+    assert.match(capturedSystemPrompt, /Always attempt a first-pass answer before limitations/i);
+    assert.match(capturedSystemPrompt, /Start with immediate known examples/i);
+    assert.match(capturedSystemPrompt, /Organize examples into clear buckets\/categories/i);
+    assert.match(capturedSystemPrompt, /Research response shape:/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("createHearthAiHandler acceptance prompts route to drafting flow instead of checklist gating", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;

@@ -24,6 +24,10 @@ import {
   type HearthOp,
 } from "../../../hearth/src/lib/hearth-ai-runtime-contract";
 import {
+  buildHearthResearchRequest,
+  type HearthResearchRequest,
+} from "../../../hearth/src/lib/hearth-research-contract";
+import {
   FORGE_ALLOWED_CHAT_MODELS,
 } from "./ai-pricing";
 import {
@@ -123,6 +127,7 @@ const SOURCING_NUDGE_RE = /\b(source|sources|sourcing|citation|citations|cite|ev
 const RISK_NUDGE_RE = /\b(risk|risky|legal|defamation|liability|compliance|sensitive claim|hot take)\b/i;
 const RECORD_ANYWAY_RE = /\b(record anyway|record now anyway|ok to record anyway|okay to record anyway|go ahead and record)\b/i;
 const CDC_REQUEST_RE = /\b(cdc|contextual data composite|chart|graph|plot|dataset|bar chart|line chart|pie chart)\b/i;
+const RESEARCH_INTENT_RE = /\b(browse|look up|lookup|find(?: me)?|search|news|reports?|reporting|examples?|case studies?|incidents?|breach(?:es)?|source|sources|citations?|evidence)\b/i;
 const ALLOWED_CHAT_MODELS = new Set<string>(FORGE_ALLOWED_CHAT_MODELS);
 const DEFAULT_CREATOR_PROFILE: CreatorProfile = {
   userId: null,
@@ -396,6 +401,13 @@ function detectReadinessNudgeCategory(text: string): ReadinessNudgeCategory | nu
   return null;
 }
 
+function isResearchIntentRequest(text: string): boolean {
+  const normalized = compactSpaces(text);
+  if (!normalized) return false;
+  if (RESEARCH_INTENT_RE.test(normalized)) return true;
+  return /\breach\b/.test(normalized) && /\breport(?:ing|s)?\b/.test(normalized);
+}
+
 function splitAssistantSentences(text: string): string[] {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (!normalized) return [];
@@ -520,6 +532,7 @@ function shouldAskClarifyingQuestions(args: {
   profile: CreatorProfile;
   chatHistory: ChatMessage[];
 }): boolean {
+  if (isResearchIntentRequest(args.requestText)) return false;
   const requestWordCount = compactSpaces(args.requestText)
     .split(/\s+/)
     .filter(Boolean)
@@ -642,6 +655,8 @@ function buildSystemPrompt(
     readinessCheck?: boolean;
     allowRepeatedReadinessNudge?: boolean;
     priorReadinessNudge?: ReadinessNudgeCategory | null;
+    researchMode?: boolean;
+    researchRequest?: HearthResearchRequest | null;
   },
 ): string {
   const baseLines = [
@@ -871,6 +886,31 @@ function buildSystemPrompt(
     if (options.priorReadinessNudge && !options.allowRepeatedReadinessNudge) {
       baseLines.push(
         `- Prior assistant nudge already covered: ${options.priorReadinessNudge}. Do not repeat it unless user explicitly asks for strict re-review.`,
+      );
+    }
+  }
+
+  if (options?.researchMode) {
+    baseLines.push(
+      "Research mode behavior (hard rule):",
+      "- Always attempt a first-pass answer before limitations.",
+      "- Never lead with inability, missing browsing, or uncertainty statements.",
+      "- Start with immediate known examples relevant to the user's angle (target: 2-5 examples).",
+      "- Organize examples into clear buckets/categories.",
+      "- Tie examples back to the user's thesis or production angle in one concise pattern statement.",
+      "- Include verification gaps only as a lightweight follow-up section; do not block delivery on them.",
+      "- Prefer fast producer momentum: first pass now, deeper sourcing next.",
+      "Research response shape:",
+      "1) Brief angle confirmation.",
+      "2) Immediate examples.",
+      "3) Categorized buckets.",
+      "4) Optional verification gaps.",
+      "5) One concrete next step (expand list, script spine, or source-backed pass).",
+    );
+    if (options.researchRequest) {
+      baseLines.push(
+        "Canonical research request:",
+        JSON.stringify(options.researchRequest),
       );
     }
   }
@@ -2026,6 +2066,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const priorMessages = typeof latestUserMessageIndex === "number"
         ? messages.filter((_, index) => index !== latestUserMessageIndex)
         : messages;
+      const researchModeRequested = isResearchIntentRequest(requestText);
+      const researchRequest = researchModeRequested
+        ? buildHearthResearchRequest({ query: requestText })
+        : null;
       const readinessCheckRequested = isReadinessCheckRequest(requestText);
       const allowRepeatedReadinessNudge = requestedDeepReadinessReview(requestText);
       const priorAssistantMessage = [...priorMessages]
@@ -2097,6 +2141,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             readinessCheck: readinessCheckRequested,
             allowRepeatedReadinessNudge,
             priorReadinessNudge,
+            researchMode: researchModeRequested,
+            researchRequest,
           },
         ),
       };

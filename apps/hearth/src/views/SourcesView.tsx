@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SourcesState, NewSourceInput } from "../hooks/useSourcesState";
+import type { HearthResearchResult } from "../lib/hearth-research-contract";
 import { normalizeSourceId } from "../lib/source-tokens";
 
 type SourcesViewProps = {
   state: SourcesState;
   workspaceId: string | null;
   workpieceId: string | null;
+  researchResult?: HearthResearchResult | null;
 };
 
 const SOURCE_TYPES = [
