@@ -220,6 +220,8 @@ import HearthActiveWorkpieceRail from "../views/modes/HearthActiveWorkpieceRail"
 import HearthReadyQueueRail from "../views/modes/HearthReadyQueueRail";
 import HearthDesktopFrame from "../views/modes/HearthDesktopFrame";
 import HearthDesktopRailContent from "../views/modes/HearthDesktopRailContent";
+import { buildHearthDraftScriptSurfaceProps } from "../views/modes/buildHearthDraftScriptSurfaceProps";
+import { buildHearthDraftScriptPanelState } from "../views/modes/buildHearthDraftScriptPanelState";
 import {
   PRODUCTION_ACTION_LABEL,
   persistProductionArtifact as persistHearthProductionArtifact,
@@ -6586,27 +6588,27 @@ export default function HearthShell({
   }
 
   const renderDraftView = () => {
-    const sourcesSummary = missingSourcesCount > 0
-      ? `${missingSourcesCount} missing citation${missingSourcesCount === 1 ? "" : "s"}`
-      : "No missing citations";
-    const unusedSummary = unusedSourcesCount > 0
-      ? ` · ${unusedSourcesCount} unused`
-      : "";
     const hasScript = Boolean((activeDraft?.body ?? "").trim());
     const displayedValidation = scriptValidation?.result ?? hearthScriptState?.validation ?? null;
     const validationIssueCount = displayedValidation?.issues.length ?? 0;
-    const showScriptEditor = showManualDraft || showScriptPanel;
-    const scriptPanelTitle = isCanonicalImageMapScriptPanel
-      ? "Canonical Script"
-      : (showScriptPanel && hasScript ? "Script" : "Manual Draft");
-    const scriptPanelMetaText = isCanonicalImageMapScriptPanel
-      ? (scriptPanelSourceLabel ?? "Source: canonical script")
-      : `Sources: ${sourcesSummary}${unusedSummary}`;
-    const scriptPanelPlaceholder = isCanonicalImageMapScriptPanel
-      ? (canonicalImageMapScriptState.status === "loading"
-        ? "Loading current canonical script..."
-        : canonicalImageMapScriptState.error ?? "Current canonical script is unavailable.")
-      : "Start writing...";
+    const {
+      sourcesSummary,
+      unusedSummary,
+      showScriptEditor,
+      scriptPanelTitle,
+      scriptPanelMetaText,
+      scriptPanelPlaceholder,
+    } = buildHearthDraftScriptPanelState({
+      missingSourcesCount,
+      unusedSourcesCount,
+      showManualDraft,
+      showScriptPanel,
+      isCanonicalImageMapScriptPanel,
+      hasScript,
+      scriptPanelSourceLabel,
+      canonicalImageMapScriptStateStatus: canonicalImageMapScriptState.status,
+      canonicalImageMapScriptStateError: canonicalImageMapScriptState.error ?? null,
+    });
     const composeModeLabel = effectiveComposeSetup
       ? (effectiveComposeSetup.mode === "outline_by_speaker"
         ? "Outline by speaker"
@@ -7091,7 +7093,7 @@ export default function HearthShell({
         }}
         historyVisible={isHistoryWorkspaceTab}
         revisionsContent={renderRevisionsView()}
-        scriptSurfaceProps={{
+        scriptSurfaceProps={buildHearthDraftScriptSurfaceProps({
           visible: isScriptWorkspaceTab,
           showScriptEditor,
           scriptPanelTitle,
@@ -7135,7 +7137,7 @@ export default function HearthShell({
             setFocusTab("sources");
             setMode("focus");
           },
-        }}
+        })}
       />
     );
   };
