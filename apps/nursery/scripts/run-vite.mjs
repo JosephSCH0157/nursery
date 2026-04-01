@@ -28,8 +28,10 @@ const vitePackageJsonPath = require.resolve("vite/package.json");
 const viteNodeModulesDir = path.resolve(path.dirname(vitePackageJsonPath), "..");
 const esbuildPackageJsonPath = path.join(viteNodeModulesDir, "esbuild", "package.json");
 const esbuildRequire = createRequire(esbuildPackageJsonPath);
-const esbuildBinPath = esbuildRequire.resolve("@esbuild/win32-x64/esbuild.exe");
-process.env.ESBUILD_BINARY_PATH = esbuildBinPath;
+if (process.platform === "win32") {
+  const esbuildBinPath = esbuildRequire.resolve("@esbuild/win32-x64/esbuild.exe");
+  process.env.ESBUILD_BINARY_PATH = esbuildBinPath;
+}
 
 const viteCliPath = path.join(path.dirname(vitePackageJsonPath), "bin", "vite.js");
 await import(pathToFileURL(viteCliPath).href);
