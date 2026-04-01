@@ -14,6 +14,7 @@ function buildConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntim
   return {
     textApiKey: null,
     imageApiKey: null,
+    researchApiKey: null,
     apiKey: null,
     model: "gpt-5",
     sttModel: "gpt-4o-mini-transcribe",
@@ -405,6 +406,105 @@ test("createHearthAiHandler bypasses clarify gate for short research asks and en
     assert.match(capturedSystemPrompt, /Canonical research runtime result:/i);
     assert.equal(payload.research_result?.mode, "knowledge_first");
     assert.equal(payload.research_result?.runtimeStatus, "partial");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler returns retrieval-backed canonical research results when provider is configured", async () => {
+  const handler = createHearthAiHandler(buildConfig({
+    textApiKey: "test-key",
+    researchApiKey: "brave-test-key",
+  }));
+  const originalFetch = globalThis.fetch;
+  let openAiCalled = false;
+
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      return new Response(JSON.stringify({
+        web: {
+          results: [
+            {
+              title: "Breach report one",
+              url: "https://example.com/one",
+              description: "Incident one summary.",
+              page_age: "2026-03-10",
+            },
+            {
+              title: "Breach report two",
+              url: "https://example.org/two",
+              description: "Incident two summary.",
+              page_age: "2026-03-15",
+            },
+          ],
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://example.com/one") {
+      return new Response("<html><head><title>One</title></head><body><p>First incident details.</p></body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+    if (url === "https://example.org/two") {
+      return new Response("Second incident details in plain text.", {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      openAiCalled = true;
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                assistantText: "Retrieved examples and grouped findings.",
+                ops: [],
+                script_text: null,
+                tag_audit: null,
+              }),
+            },
+          },
+        ],
+        usage: { total_tokens: 92 },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Find breach-related reporting examples." }],
+        episode_context: buildEpisodeContext(),
+        lane: "forge",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(openAiCalled, true);
+    assert.equal(payload.research_result?.mode, "retrieval_first");
+    assert.equal(payload.research_result?.runtimeStatus, "ok");
+    assert.equal(payload.research_result?.sources?.length, 2);
+    assert.equal(payload.research_result?.sources?.[0]?.url, "https://example.com/one");
+    assert.equal(payload.research_result?.sources?.[0]?.extractionStatus, "extracted");
+    assert.equal(payload.research_result?.sources?.[1]?.url, "https://example.org/two");
+    assert.equal(payload.research_result?.sources?.[1]?.extractionStatus, "extracted");
+    assert.match(String(payload.research_result?.synthesis?.summary ?? ""), /Retrieved 2 source/);
   } finally {
     globalThis.fetch = originalFetch;
   }

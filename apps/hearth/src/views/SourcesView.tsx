@@ -159,6 +159,40 @@ export default function SourcesView({ state, workspaceId, workpieceId, researchR
           {researchResult.synthesis.coverageNote ? (
             <div className="hs-sources-muted">{researchResult.synthesis.coverageNote}</div>
           ) : null}
+          {researchResult.synthesis.summary ? (
+            <div className="hs-sources-research-summary">{researchResult.synthesis.summary}</div>
+          ) : null}
+          {researchResult.sources.length ? (
+            <div className="hs-sources-list">
+              {researchResult.sources.map((source) => (
+                <article key={source.sourceId} className="hs-sources-card">
+                  <div className="hs-sources-card-header">
+                    <div>
+                      <div className="hs-sources-card-title">
+                        {source.title ?? source.domain ?? source.url}
+                      </div>
+                      <div className="hs-sources-meta">
+                        {source.domain ?? "unknown domain"}
+                        {source.publishedAt ? ` · ${new Date(source.publishedAt).toLocaleDateString()}` : ""}
+                      </div>
+                    </div>
+                    <span className={`hs-sources-research-badge hs-sources-research-badge-${source.extractionStatus}`}>
+                      {source.extractionStatus}
+                    </span>
+                  </div>
+                  <a href={source.url} target="_blank" rel="noreferrer" className="hs-sources-url">
+                    {source.url}
+                  </a>
+                  {source.snippet ? (
+                    <div className="hs-sources-research-snippet">{source.snippet}</div>
+                  ) : null}
+                  {source.extractionError ? (
+                    <div className="hs-sources-research-error">{source.extractionError}</div>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
         </section>
       ) : null}
 

@@ -34,6 +34,11 @@
   color: rgba(15, 23, 42, 0.7);
 }
 
+.hs-sources-research-summary {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .hs-sources-muted {
   font-size: 12px;
   opacity: 0.7;
@@ -74,6 +79,46 @@
 .hs-sources-meta {
   font-size: 12px;
   opacity: 0.7;
+}
+
+.hs-sources-research-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  text-transform: capitalize;
+}
+
+.hs-sources-research-badge-extracted {
+  color: #0f7b2f;
+  border-color: rgba(15, 123, 47, 0.45);
+}
+
+.hs-sources-research-badge-partial,
+.hs-sources-research-badge-skipped {
+  color: #8a6d1d;
+  border-color: rgba(138, 109, 29, 0.45);
+}
+
+.hs-sources-research-badge-failed {
+  color: #b00020;
+  border-color: rgba(176, 0, 32, 0.45);
+}
+
+.hs-sources-url {
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.hs-sources-research-snippet {
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0.85;
+}
+
+.hs-sources-research-error {
+  font-size: 11px;
+  color: #b00020;
 }
 
 .hs-sources-action-stack {
