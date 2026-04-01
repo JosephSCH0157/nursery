@@ -73,6 +73,7 @@ type UseReferenceClipCoreActionsArgs = {
   persistImageMapEntries: (args: {
     entries: EpisodeImageMapEntry[];
     spokenBeats?: EpisodePackageV2["spoken_beats"] | null;
+    skipOptimisticConflictCheck?: boolean;
   }) => Promise<
     | { ok: true; episodePackage: EpisodePackageV2; metadataUpdatedAt: string | null }
     | { ok: false; error: string }
@@ -226,6 +227,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
           bridgeEntry,
         ],
         spokenBeats: baseEpisodePackage.spoken_beats,
+        skipOptimisticConflictCheck: true,
       });
       if (!withTempImageMap.ok) {
         args.setReferenceClipSaveError(withTempImageMap.error);
@@ -248,6 +250,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
       const cleanedImageMap = await args.persistImageMapEntries({
         entries: cleanedImageMapEntries,
         spokenBeats: withTempImageMap.episodePackage.spoken_beats,
+        skipOptimisticConflictCheck: true,
       });
       if (!cleanedImageMap.ok) {
         args.setReferenceClipSaveState("saved");

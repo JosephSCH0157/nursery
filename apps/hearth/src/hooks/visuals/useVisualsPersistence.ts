@@ -59,6 +59,7 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
     entries: EpisodeImageMapEntry[];
     spokenBeats?: EpisodeSpokenBeat[] | null;
     expectedMetadataUpdatedAt?: string | null;
+    skipOptimisticConflictCheck?: boolean;
   }): Promise<
     | { ok: true; episodePackage: EpisodePackageV2; metadataUpdatedAt: string | null }
     | { ok: false; error: string }
@@ -79,14 +80,20 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
       };
     }
 
+    const expectedMetadataUpdatedAt = input.skipOptimisticConflictCheck
+      ? undefined
+      : (typeof input.expectedMetadataUpdatedAt !== "undefined"
+        ? input.expectedMetadataUpdatedAt
+        : args.imageMapMetadataUpdatedAt);
+
     const saved = await saveWorkpieceImageMap({
       workpieceId: workpiece,
       workspaceId: workspace,
       entries: input.entries,
       spokenBeats: input.spokenBeats ?? args.episodePackage.spoken_beats,
-      expectedMetadataUpdatedAt: typeof input.expectedMetadataUpdatedAt !== "undefined"
-        ? input.expectedMetadataUpdatedAt
-        : args.imageMapMetadataUpdatedAt,
+      ...(typeof expectedMetadataUpdatedAt !== "undefined"
+        ? { expectedMetadataUpdatedAt }
+        : {}),
     });
 
     if (!saved.ok) {
