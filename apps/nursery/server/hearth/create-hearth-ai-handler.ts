@@ -99,6 +99,13 @@ type ScriptExcerpt = {
   excerpt: string;
 };
 
+type CrossProjectReferenceResolution = {
+  detected: boolean;
+  level: "clear" | "ambiguous" | "unanchored";
+  resolvedTitle: string | null;
+  candidateTitles: string[];
+};
+
 type ReqBody = {
   messages?: unknown;
   episode_context?: unknown;
@@ -131,6 +138,7 @@ const RISK_NUDGE_RE = /\b(risk|risky|legal|defamation|liability|compliance|sensi
 const RECORD_ANYWAY_RE = /\b(record anyway|record now anyway|ok to record anyway|okay to record anyway|go ahead and record)\b/i;
 const CDC_REQUEST_RE = /\b(cdc|contextual data composite|chart|graph|plot|dataset|bar chart|line chart|pie chart)\b/i;
 const RESEARCH_INTENT_RE = /\b(browse|look up|lookup|find(?: me)?|search|news|reports?|reporting|examples?|case studies?|incidents?|breach(?:es)?|source|sources|citations?|evidence)\b/i;
+const CROSS_PROJECT_REFERENCE_RE = /\b(use|pull in|bring in|remember|recall|like|from)\b[\s\S]{0,120}\b(script|episode|project|conversation|workspace|last week|other chat|that)\b/i;
 const ALLOWED_CHAT_MODELS = new Set<string>(FORGE_ALLOWED_CHAT_MODELS);
 const DEFAULT_CREATOR_PROFILE: CreatorProfile = {
   userId: null,
@@ -411,6 +419,136 @@ function isResearchIntentRequest(text: string): boolean {
   return /\breach\b/.test(normalized) && /\breport(?:ing|s)?\b/.test(normalized);
 }
 
+function isCrossProjectReferenceRequest(text: string): boolean {
+  const normalized = compactSpaces(text);
+  if (!normalized) return false;
+  if (!CROSS_PROJECT_REFERENCE_RE.test(normalized)) return false;
+  if (/\bthis script\b/.test(normalized) || /\bthis episode\b/.test(normalized) || /\bthis project\b/.test(normalized)) {
+    return false;
+  }
+  return /\bthat\b/.test(normalized)
+    || /\banother\b/.test(normalized)
+    || /\bother\b/.test(normalized)
+    || /\blast week\b/.test(normalized)
+    || /\bfrom\b/.test(normalized)
+    || /\bremember\b/.test(normalized)
+    || /\brecall\b/.test(normalized)
+    || /\bworkspace\b/.test(normalized);
+}
+
+function tokenizeReferenceText(value: string): string[] {
+  const stop = new Set([
+    "the",
+    "that",
+    "this",
+    "with",
+    "from",
+    "into",
+    "for",
+    "and",
+    "our",
+    "your",
+    "script",
+    "episode",
+    "project",
+    "conversation",
+    "workspace",
+    "week",
+    "last",
+    "like",
+    "use",
+    "pull",
+    "bring",
+    "remember",
+    "recall",
+  ]);
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 3 && !stop.has(token));
+}
+
+function resolveCrossProjectReference(args: {
+  requestText: string;
+  currentWorkpieceId: string;
+  references: RecentScriptReference[];
+}): CrossProjectReferenceResolution {
+  if (!isCrossProjectReferenceRequest(args.requestText)) {
+    return {
+      detected: false,
+      level: "unanchored",
+      resolvedTitle: null,
+      candidateTitles: [],
+    };
+  }
+  const candidates = args.references.filter((ref) => ref.workpieceId !== args.currentWorkpieceId);
+  if (candidates.length === 0) {
+    return {
+      detected: true,
+      level: "unanchored",
+      resolvedTitle: null,
+      candidateTitles: [],
+    };
+  }
+
+  const requestNormalized = compactSpaces(args.requestText).toLowerCase();
+  const requestTokens = new Set(tokenizeReferenceText(args.requestText));
+  const scored = candidates.map((ref) => {
+    const title = ref.title.trim();
+    const titleNormalized = compactSpaces(title).toLowerCase();
+    const titleTokens = tokenizeReferenceText(title);
+    let score = 0;
+    if (titleNormalized && requestNormalized.includes(titleNormalized)) {
+      score += 100;
+    }
+    for (const token of titleTokens) {
+      if (requestTokens.has(token)) score += 1;
+    }
+    return { ref, score };
+  }).sort((left, right) => right.score - left.score);
+
+  const top = scored[0];
+  const second = scored[1];
+  if (!top || top.score <= 0) {
+    return {
+      detected: true,
+      level: "unanchored",
+      resolvedTitle: null,
+      candidateTitles: [],
+    };
+  }
+
+  if (top.score >= 100 || (top.score >= 3 && (!second || top.score - second.score >= 2))) {
+    return {
+      detected: true,
+      level: "clear",
+      resolvedTitle: top.ref.title,
+      candidateTitles: [top.ref.title],
+    };
+  }
+
+  const ambiguousTitles = scored
+    .filter((entry) => entry.score > 0)
+    .slice(0, 2)
+    .map((entry) => entry.ref.title);
+  if (ambiguousTitles.length >= 2) {
+    return {
+      detected: true,
+      level: "ambiguous",
+      resolvedTitle: null,
+      candidateTitles: ambiguousTitles,
+    };
+  }
+
+  return {
+    detected: true,
+    level: "clear",
+    resolvedTitle: top.ref.title,
+    candidateTitles: [top.ref.title],
+  };
+}
+
 function splitAssistantSentences(text: string): string[] {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (!normalized) return [];
@@ -536,6 +674,7 @@ function shouldAskClarifyingQuestions(args: {
   chatHistory: ChatMessage[];
 }): boolean {
   if (isResearchIntentRequest(args.requestText)) return false;
+  if (isCrossProjectReferenceRequest(args.requestText)) return false;
   const requestWordCount = compactSpaces(args.requestText)
     .split(/\s+/)
     .filter(Boolean)
@@ -1291,6 +1430,32 @@ function enforceResearchOutcomeReply(args: {
     result: args.result,
   });
   const body = sanitizeResearchReplyBody(args.assistantText.trim(), args.result);
+  if (!body) return lead;
+  const normalizedLead = lead.trim().toLowerCase();
+  const normalizedBody = body.toLowerCase();
+  if (normalizedBody.startsWith(normalizedLead)) return body;
+  return `${lead}\n\n${body}`;
+}
+
+function buildCrossProjectScopeLead(resolution: CrossProjectReferenceResolution): string | null {
+  if (!resolution.detected) return null;
+  if (resolution.level === "clear" && resolution.resolvedTitle) {
+    return `Scope note: I resolved this to the workspace artifact "${resolution.resolvedTitle}" via Tongs. I am using it as a reference while keeping the current episode as the active working fire.`;
+  }
+  if (resolution.level === "ambiguous" && resolution.candidateTitles.length >= 2) {
+    const [first, second] = resolution.candidateTitles;
+    return `Scope note: I found multiple workspace artifact matches via Tongs. I can anchor this to "${first}" or "${second}" once you pick one.`;
+  }
+  return "Scope note: This sounds like a reference to another workspace artifact, but I do not have a reliable anchor yet. Name the episode/project (or paste one line) and I will resolve it through Tongs.";
+}
+
+function enforceCrossProjectScopeReply(args: {
+  assistantText: string;
+  resolution: CrossProjectReferenceResolution;
+}): string {
+  const lead = buildCrossProjectScopeLead(args.resolution);
+  if (!lead) return args.assistantText;
+  const body = args.assistantText.trim();
   if (!body) return lead;
   const normalizedLead = lead.trim().toLowerCase();
   const normalizedBody = body.toLowerCase();
@@ -2317,6 +2482,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const styleSamples = await loadStyleSamplesForToken(bearerToken, episodeContext.workspaceId);
       const recentScriptRefs = await loadRecentScriptReferencesForToken(bearerToken, episodeContext.workspaceId);
       const recentScriptExcerpts = await loadRecentScriptExcerpts(recentScriptRefs);
+      const crossProjectReference = resolveCrossProjectReference({
+        requestText,
+        currentWorkpieceId: episodeContext.episodeId,
+        references: recentScriptRefs,
+      });
       const styleCorpusSnippet = buildStyleCorpusSnippet({
         styleSamples,
         recentScriptExcerpts,
@@ -2500,6 +2670,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             assistantText: structured.assistantText,
             request: researchRequest,
             result: researchResult,
+          });
+        }
+
+        if (crossProjectReference.detected) {
+          structured.assistantText = enforceCrossProjectScopeReply({
+            assistantText: structured.assistantText,
+            resolution: crossProjectReference,
           });
         }
 

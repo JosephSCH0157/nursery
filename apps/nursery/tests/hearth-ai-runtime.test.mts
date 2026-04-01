@@ -351,6 +351,57 @@ test("createHearthAiHandler keeps clarify gate for very short ambiguous asks", a
   }
 });
 
+test("createHearthAiHandler adds explicit scope bridge note for cross-project references", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  let openAiCalled = false;
+
+  globalThis.fetch = async (_input, _init) => {
+    openAiCalled = true;
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: "We can keep the current draft and tune the tone.",
+              ops: [],
+              script_text: null,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 67 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Use the tone from that Whig Party script." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.gate, undefined);
+    assert.equal(openAiCalled, true);
+    assert.match(String(payload.assistant_text ?? ""), /Scope note: This sounds like a reference to another workspace artifact/i);
+    assert.match(String(payload.assistant_text ?? ""), /resolve it through Tongs/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("createHearthAiHandler bypasses clarify gate for short research asks and enables research-first prompt behavior", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;
