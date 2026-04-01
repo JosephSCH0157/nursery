@@ -212,7 +212,6 @@ import HearthWorkspaceProjectsRail from "../views/modes/HearthWorkspaceProjectsR
 import HearthActiveWorkpieceRail from "../views/modes/HearthActiveWorkpieceRail";
 import HearthReadyQueueRail from "../views/modes/HearthReadyQueueRail";
 import HearthDesktopFrame from "../views/modes/HearthDesktopFrame";
-import HearthDesktopRailContent from "../views/modes/HearthDesktopRailContent";
 import { buildHearthDraftScriptSurfaceProps } from "../views/modes/buildHearthDraftScriptSurfaceProps";
 import { buildHearthDraftScriptPanelState } from "../views/modes/buildHearthDraftScriptPanelState";
 import HearthDesktopRail from "../views/modes/HearthDesktopRail";
@@ -7339,6 +7338,58 @@ export default function HearthShell({
     : unusedSourcesCount > 0
       ? `Unused refs: ${unusedSourcesCount}`
       : "Sources";
+  const shouldShowWorkpieceId = useCallback(
+    (title: string) => duplicateRailTitleKeys.has(normalizeRailTitleKey(title)),
+    [duplicateRailTitleKeys],
+  );
+  const onOpenReadyView = useCallback(() => {
+    setMode("ready");
+  }, []);
+  const onFocusDraft = useCallback(() => {
+    setFocusTab("draft");
+    setMode("focus");
+  }, []);
+  const onFocusPlanning = useCallback(() => {
+    setFocusTab("planning");
+    setMode("focus");
+  }, []);
+  const onFocusSources = useCallback(() => {
+    setFocusTab("sources");
+    setMode("focus");
+  }, []);
+  const onFocusRevisions = useCallback(() => {
+    setFocusTab("revisions");
+    setMode("focus");
+  }, []);
+  const onOpenApiLedger = useCallback(() => {
+    if (!hasActiveEpisode) {
+      setMode("episodes");
+      return;
+    }
+    setFocusTab("sources");
+    setMode("focus");
+  }, [hasActiveEpisode]);
+  const onRestoreActiveWorkpiece = useCallback(() => {
+    if (!activeWorkpiece) return;
+    return onRestoreWorkpiece(activeWorkpiece.workpieceId, { openAfterRestore: true });
+  }, [activeWorkpiece, onRestoreWorkpiece]);
+  const onRestoreMobileWorkpiece = useCallback(() => {
+    const targetWorkpiece = activeWorkpieceContext.workpiece;
+    if (!targetWorkpiece) return;
+    return onRestoreWorkpiece(targetWorkpiece.workpieceId, { openAfterRestore: true });
+  }, [activeWorkpieceContext.workpiece, onRestoreWorkpiece]);
+  const onDeleteActiveDraftBuffer = useCallback(() => {
+    if (!activeDraft) return;
+    return onDeleteDraft(activeDraft);
+  }, [activeDraft, onDeleteDraft]);
+  const mobileRestoreButtonLabel = activeWorkpieceContext.workpiece
+    && restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId)
+    ? "Restoring..."
+    : "Restore Workpiece";
+  const mobileRestoreButtonDisabled = Boolean(
+    !activeWorkpieceContext.workpiece
+    || restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId),
+  );
 
   return (
     <section className={`hs-shell hs-density-${uiDensity}${isMobile ? " hs-shell--mobile" : ""}`}>
@@ -7373,7 +7424,7 @@ export default function HearthShell({
               readyUrgencyCoolingCount={readyUrgencyCounts.cooling}
               readyUrgencyColdCount={readyUrgencyCounts.cold}
               removedReadyCount={removedReadyCount}
-              onOpenReadyView={() => setMode("ready")}
+              onOpenReadyView={onOpenReadyView}
               onRestoreRemovedReady={onRestoreRemovedReady}
               isRestoringReady={isRestoringReady}
               searchRef={searchRef}
@@ -7393,7 +7444,7 @@ export default function HearthShell({
               setEditingDraftId={setEditingDraftId}
               editingTitle={editingTitle}
               setEditingTitle={setEditingTitle}
-              shouldShowWorkpieceId={(title) => duplicateRailTitleKeys.has(normalizeRailTitleKey(title))}
+              shouldShowWorkpieceId={shouldShowWorkpieceId}
               archivingWorkpieceIds={archivingWorkpieceIds}
               restoringWorkpieceIds={restoringWorkpieceIds}
               openWorkpieceInFocus={openWorkpieceInFocus}
@@ -7410,10 +7461,7 @@ export default function HearthShell({
               isRestoringActiveWorkpiece={Boolean(
                 activeWorkpiece && restoringWorkpieceIds.includes(activeWorkpiece.workpieceId),
               )}
-              onRestoreActiveWorkpiece={() => {
-                if (!activeWorkpiece) return;
-                return onRestoreWorkpiece(activeWorkpiece.workpieceId, { openAfterRestore: true });
-              }}
+              onRestoreActiveWorkpiece={onRestoreActiveWorkpiece}
               openInAnvilHref={openInAnvilHref}
               handoffBlocked={handoffBlocked}
               onOpenInAnvil={onOpenInAnvil}
@@ -7425,30 +7473,11 @@ export default function HearthShell({
               sourcesBadgeTitle={sourcesBadgeTitle}
               sourcesBadge={sourcesBadge}
               devMode={devMode}
-              onFocusDraft={() => {
-                setFocusTab("draft");
-                setMode("focus");
-              }}
-              onFocusPlanning={() => {
-                setFocusTab("planning");
-                setMode("focus");
-              }}
-              onFocusSources={() => {
-                setFocusTab("sources");
-                setMode("focus");
-              }}
-              onFocusRevisions={() => {
-                setFocusTab("revisions");
-                setMode("focus");
-              }}
-              onOpenApiLedger={() => {
-                if (!hasActiveEpisode) {
-                  setMode("episodes");
-                  return;
-                }
-                setFocusTab("sources");
-                setMode("focus");
-              }}
+              onFocusDraft={onFocusDraft}
+              onFocusPlanning={onFocusPlanning}
+              onFocusSources={onFocusSources}
+              onFocusRevisions={onFocusRevisions}
+              onOpenApiLedger={onOpenApiLedger}
             />
           )}
           mainContent={mainContent}
@@ -7463,25 +7492,12 @@ export default function HearthShell({
         openReadyInMobileOverlay={openReadyInMobileOverlay}
         isActiveWorkpieceArchived={Boolean(activeWorkpieceContext.workpiece?.isArchived)}
         hasActiveWorkpiece={Boolean(activeWorkpieceContext.workpiece)}
-        restoreButtonLabel={
-          activeWorkpieceContext.workpiece && restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId)
-            ? "Restoring..."
-            : "Restore Workpiece"
-        }
-        restoreButtonDisabled={Boolean(
-          !activeWorkpieceContext.workpiece
-          || restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId),
-        )}
-        onRestoreWorkpiece={() => {
-          if (!activeWorkpieceContext.workpiece) return;
-          return onRestoreWorkpiece(activeWorkpieceContext.workpiece.workpieceId, { openAfterRestore: true });
-        }}
+        restoreButtonLabel={mobileRestoreButtonLabel}
+        restoreButtonDisabled={mobileRestoreButtonDisabled}
+        onRestoreWorkpiece={onRestoreMobileWorkpiece}
         hasActiveDraft={Boolean(activeDraft)}
         isSaving={isSaving}
-        onDeleteDraftBuffer={() => {
-          if (!activeDraft) return;
-          return onDeleteDraft(activeDraft);
-        }}
+        onDeleteDraftBuffer={onDeleteActiveDraftBuffer}
         onSaveDraft={onSaveDraft}
         refreshReadyScripts={refreshReadyScripts}
         isReadyScriptsLoading={isReadyScriptsLoading}
