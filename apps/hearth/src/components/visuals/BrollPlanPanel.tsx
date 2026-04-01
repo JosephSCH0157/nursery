@@ -190,6 +190,22 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
             <div className="hs-imap-empty">Select a B-roll beat to edit.</div>
           ) : (
             <>
+              <section className="hs-imap-next-card" aria-label="B-roll quick workflow">
+                <div className="hs-imap-next-eyebrow">Quick Workflow</div>
+                <div className="hs-imap-next-copy">1) Adjust beat details. 2) Resolve with stock, upload from another source, or attach a URL. 3) Save this beat.</div>
+                <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
+                  <div className="hs-imap-candidate-action-group">
+                    <button type="button" onClick={props.onFindStock} disabled={props.disabled}>Find Stock</button>
+                    <button type="button" onClick={() => uploadInputRef.current?.click()} disabled={props.disabled}>Attach Existing File</button>
+                    <button type="button" onClick={props.onAttachResultFromUrl} disabled={props.disabled}>Attach Result URL</button>
+                    <button type="button" onClick={props.onSaveBeat} disabled={props.disabled}>Save Beat</button>
+                  </div>
+                  <div className="hs-imap-candidate-action-group">
+                    <button type="button" onClick={props.onDeleteBeat} disabled={props.disabled}>Delete Beat</button>
+                  </div>
+                </div>
+              </section>
+
               <div className="hs-imap-field">
                 <label htmlFor={`${formFieldIdPrefix}-anchor`}>Anchor</label>
                 <input
@@ -303,7 +319,7 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
               <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
                 <div className="hs-imap-candidate-action-group">
                   <button type="button" onClick={props.onFindStock} disabled={props.disabled}>Find Stock</button>
-                  <button type="button" onClick={() => uploadInputRef.current?.click()} disabled={props.disabled}>Attach Result File</button>
+                  <button type="button" onClick={() => uploadInputRef.current?.click()} disabled={props.disabled}>Attach Existing File</button>
                   <button type="button" onClick={props.onRegenerateBeat} disabled={props.disabled}>Regenerate Beat</button>
                 </div>
                 <div className="hs-imap-candidate-action-group">
