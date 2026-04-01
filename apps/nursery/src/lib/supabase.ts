@@ -5,7 +5,9 @@ import {
 } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const url =
+  (import.meta.env.VITE_SUPABASE_URL as string | undefined)
+  ?? (import.meta.env.VITE_SUPABASE_DATABASE_URL as string | undefined);
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 const AUTH_STORAGE_KEY = "forge-auth";
 // Separate key so the two clients own distinct GoTrueClient instances and
@@ -24,7 +26,7 @@ const globalStore = globalThis as typeof globalThis & {
 };
 
 if (!url || !anon) {
-  throw new Error("Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY");
+  throw new Error("Missing VITE_SUPABASE_URL (or VITE_SUPABASE_DATABASE_URL) or VITE_SUPABASE_ANON_KEY");
 }
 
 const primaryAuthOptions = {
