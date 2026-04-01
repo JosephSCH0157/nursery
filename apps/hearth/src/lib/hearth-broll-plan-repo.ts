@@ -79,7 +79,7 @@ export async function uploadBrollBeatAsset(args: {
     json: {
       path: uploadPath,
       content_type: mimeType,
-      base64: bytesToBase64(buffer),
+      bytes_base64: bytesToBase64(buffer),
       written_by: {
         tool: "hearth",
         tool_version: "v1",
