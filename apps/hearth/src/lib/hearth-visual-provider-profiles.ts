@@ -6,6 +6,7 @@ import {
   buildReferenceClipBrief,
   type ReferenceClipBrief,
 } from "./hearth-visual-actionability";
+import { buildReferenceClipGenerationGuidance } from "./hearth-reference-clip-plan";
 import {
   buildThumbnailPrompts,
   type BuildThumbnailPromptsInput,
@@ -653,6 +654,7 @@ export function buildReferenceClipPromptPack(args: {
   provider: ResolvedVisualProvider;
   brief: ReferenceClipBrief;
 } {
+  const guidance = buildReferenceClipGenerationGuidance(args.entry);
   const brief = buildReferenceClipBrief({
     entry: args.entry,
     workpieceId: args.workpieceId,
@@ -660,19 +662,22 @@ export function buildReferenceClipPromptPack(args: {
   });
   const provider = args.resolvedProvider ?? resolveActiveVisualProvider({ defaultProvider: args.providerId ?? null });
   const normalizedBeat = normalizeVisualBeat({
-    primaryText: `${brief.anchor_text}. ${brief.shot_intent}.`,
+    primaryText: guidance.promptBasis,
     secondaryText: [
       brief.background_data_notes,
       brief.foreground_data_notes,
       brief.chart.title,
       brief.chart.labels.join(", "),
+      brief.chart.type,
+      brief.data_type,
+      brief.context_type,
     ].filter(Boolean).join(". "),
     title: brief.workpiece_title,
     tone: brief.tone,
     style: brief.style,
-    labels: brief.keywords,
+    labels: [...brief.keywords, brief.chart.type ?? "", brief.data_type, brief.context_type],
     cuePhrase: brief.chart.emphasis_key,
-    purpose: brief.framing_mode,
+    purpose: guidance.visualIntent,
     intendedUse: "reference_clip",
   });
   const pack = provider.profile.buildPrompt(normalizedBeat, {

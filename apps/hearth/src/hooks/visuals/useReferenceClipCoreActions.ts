@@ -1,8 +1,15 @@
 import { useCallback } from "react";
-import { createReferenceClipPlan, inferReferenceClipSuitabilitySignals } from "../../lib/hearth-reference-clip-plan";
+import {
+  buildReferenceClipImageMapBridgeEntry,
+  createReferenceClipPlan,
+  inferReferenceClipSuitabilitySignals,
+  resolveReferenceClipSourceImageEntry,
+} from "../../lib/hearth-reference-clip-plan";
+import { resolveImageMapAnchorContext, resolveImageMapScriptAnchorFromText } from "../../lib/hearth-image-map-beats";
 import { advanceExternalRequestTracker } from "../../lib/hearth-visual-actionability";
 import { normalizeHearthVisualStyle } from "../../lib/hearth-visual-styles";
 import { generateWorkpieceImageMapCandidates } from "../../lib/hearth-image-map-repo";
+import { resolveBulletBeatContext } from "../../lib/hearth-spoken-beats";
 import { resolveAiThumbnailAutoApproveFromStorage } from "../../lib/hearth-chat-api";
 import type {
   EpisodeContextualDataCompositePlan,
@@ -70,9 +77,250 @@ type UseReferenceClipCoreActionsArgs = {
     | { ok: true; episodePackage: EpisodePackageV2; metadataUpdatedAt: string | null }
     | { ok: false; error: string }
   >;
+  readCanonicalScriptForImageMapGeneration: () => Promise<
+    | { ok: true; text: string; source: "primary_script" | "saved_draft"; includesUnsavedLocalEdits: boolean }
+    | { ok: false; message: string }
+  >;
 };
 
 export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArgs) {
+  const buildReferenceClipEntryFromDraft = useCallback((
+    entry: EpisodeContextualDataCompositePlan,
+  ): EpisodeContextualDataCompositePlan => ({
+    ...entry,
+    anchor_text: args.referenceClipAnchorDraft.trim() || entry.anchor_text,
+    placement_hint: (args.referenceClipPlacementHintDraft.trim() || "first_occurrence") as EpisodeContextualDataCompositePlan["placement_hint"],
+    format: (args.referenceClipFormatDraft.trim() || "still") as EpisodeReferenceClipFormat,
+    data_type: (args.referenceClipDataTypeDraft.trim() || "quantitative") as EpisodeReferenceClipDataType,
+    context_type: (args.referenceClipContextTypeDraft.trim() || "historical") as EpisodeReferenceClipContextType,
+    tone: (args.referenceClipToneDraft.trim() || "neutral") as EpisodeReferenceClipTone,
+    motion_level: (args.referenceClipMotionLevelDraft.trim() || "static") as EpisodeReferenceClipMotionLevel,
+    description: args.referenceClipDescriptionDraft.trim() || entry.description,
+    background_context_description: args.referenceClipBackgroundContextDraft.trim(),
+    foreground_data_description: args.referenceClipForegroundDataDraft.trim(),
+    visual_style: normalizeHearthVisualStyle(args.referenceClipVisualStyleDraft),
+    chart_type: (args.referenceClipChartTypeDraft.trim() || "line") as EpisodeReferenceClipChartType,
+    title: args.referenceClipTitleDraft.trim() || null,
+    labels: args.referenceClipLabelsDraft
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+    values: args.resolveReferenceClipValuesFromDraft(),
+    emphasis_key: args.referenceClipEmphasisKeyDraft.trim() || null,
+    source_type: args.referenceClipSourceTypeDraft as EpisodeContextualDataCompositePlan["source_type"],
+    external_request: advanceExternalRequestTracker(
+      entry.external_request,
+      entry.external_request?.state ?? "planned",
+      {
+        providerId: args.referenceClipProviderIdDraft,
+        sourceUrl: args.referenceClipSourceUrlDraft,
+        providerNote: args.referenceClipProviderNoteDraft,
+        usageNote: args.referenceClipUsageNoteDraft,
+        resultMetadata: args.referenceClipResultMetadataDraft,
+        attachedAssetId: entry.selected_asset_id ?? null,
+      },
+    ),
+    origin: args.referenceClipSourceTypeDraft === "hammer_upload" && entry.origin === "hearth"
+      ? "mixed"
+      : entry.origin,
+    updated_at: new Date().toISOString(),
+  }), [args]);
+
+  const runReferenceClipForgeGeneration = useCallback(async (
+    referenceClipEntry: EpisodeContextualDataCompositePlan,
+    baseEpisodePackage: EpisodePackageV2,
+    options: {
+      confirmSpend: boolean;
+      alwaysApproveAiSpend: boolean;
+    },
+  ): Promise<boolean> => {
+    const episodeId = args.workpieceId?.trim() ?? "";
+    const workspace = args.workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      args.setReferenceClipSaveError("Select an Episode before generating Reference Clip images.");
+      args.setReferenceClipSaveState("error");
+      return false;
+    }
+
+    const sourceImageEntry = resolveReferenceClipSourceImageEntry({
+      entry: referenceClipEntry,
+      imageMapEntries: baseEpisodePackage.image_map.entries,
+      selectedImageMapEntry: args.selectedImageMapEntry,
+    });
+
+    let canonicalScriptText: string | null = null;
+    let scriptAnchor = sourceImageEntry?.script_anchor ?? null;
+    const beatAnchor = sourceImageEntry?.beat_anchor ?? null;
+
+    if (!scriptAnchor || sourceImageEntry?.script_anchor) {
+      const canonicalScript = await args.readCanonicalScriptForImageMapGeneration();
+      if (canonicalScript.ok) {
+        canonicalScriptText = canonicalScript.text;
+        if (!scriptAnchor) {
+          scriptAnchor = resolveImageMapScriptAnchorFromText(
+            canonicalScript.text,
+            referenceClipEntry.anchor_text,
+            referenceClipEntry.placement_hint,
+          ) ?? resolveImageMapScriptAnchorFromText(
+            canonicalScript.text,
+            referenceClipEntry.description,
+            referenceClipEntry.placement_hint,
+          ) ?? resolveImageMapScriptAnchorFromText(
+            canonicalScript.text,
+            referenceClipEntry.foreground_data_description,
+            referenceClipEntry.placement_hint,
+          ) ?? resolveImageMapScriptAnchorFromText(
+            canonicalScript.text,
+            referenceClipEntry.background_context_description,
+            referenceClipEntry.placement_hint,
+          );
+        }
+      } else if (!beatAnchor) {
+        args.setReferenceClipSaveError(canonicalScript.message);
+        args.setReferenceClipSaveState("error");
+        return false;
+      }
+    }
+
+    if (!scriptAnchor && !beatAnchor) {
+      args.setReferenceClipSaveError(
+        "Forge could not find this reference clip in the canonical script. Select the matching Timeline Image beat or use a script phrase that exists verbatim.",
+      );
+      args.setReferenceClipSaveState("error");
+      return false;
+    }
+
+    const tempImageEntryId = `rc_temp_${referenceClipEntry.id}`;
+    const bridgeEntry = buildReferenceClipImageMapBridgeEntry({
+      entry: referenceClipEntry,
+      tempEntryId: tempImageEntryId,
+      beatOrder: Math.max(1, baseEpisodePackage.image_map.entries.length + 1),
+      sourceEntry: sourceImageEntry,
+      scriptAnchor,
+      beatAnchor,
+    });
+
+    let contextBefore: string | null = null;
+    let contextAfter: string | null = null;
+    if (scriptAnchor && canonicalScriptText) {
+      const anchorContext = resolveImageMapAnchorContext(canonicalScriptText, scriptAnchor);
+      contextBefore = anchorContext.before;
+      contextAfter = anchorContext.after;
+    } else if (beatAnchor) {
+      const beatContext = resolveBulletBeatContext({
+        spokenBeats: baseEpisodePackage.spoken_beats,
+        beatAnchor,
+      });
+      contextBefore = beatContext.before;
+      contextAfter = beatContext.after;
+    }
+
+    args.setIsReferenceClipBusy(true);
+    args.setReferenceClipSaveState("saving");
+    args.setReferenceClipSaveError(null);
+
+    try {
+      const withTempImageMap = await args.persistImageMapEntries({
+        entries: [
+          ...baseEpisodePackage.image_map.entries.filter((entry) => entry.id !== tempImageEntryId),
+          bridgeEntry,
+        ],
+        spokenBeats: baseEpisodePackage.spoken_beats,
+      });
+      if (!withTempImageMap.ok) {
+        args.setReferenceClipSaveError(withTempImageMap.error);
+        args.setReferenceClipSaveState("error");
+        return false;
+      }
+
+      const generated = await generateWorkpieceImageMapCandidates({
+        workpieceId: episodeId,
+        workspaceId: workspace,
+        imageMapEntryId: tempImageEntryId,
+        contextBefore,
+        contextAfter,
+        aspect: "16:9",
+        confirmSpend: options.confirmSpend,
+        alwaysApproveAiSpend: options.alwaysApproveAiSpend,
+      });
+
+      const cleanedImageMapEntries = withTempImageMap.episodePackage.image_map.entries.filter((entry) => entry.id !== tempImageEntryId);
+      const cleanedImageMap = await args.persistImageMapEntries({
+        entries: cleanedImageMapEntries,
+        spokenBeats: withTempImageMap.episodePackage.spoken_beats,
+      });
+      if (!cleanedImageMap.ok) {
+        args.setReferenceClipSaveState("saved");
+        args.setReferenceClipMessage("Reference Clip generation finished, but the temporary bridge beat cleanup needs a refresh.");
+        return false;
+      }
+
+      if (!generated.ok) {
+        args.setReferenceClipSaveState("saved");
+        args.setReferenceClipMessage(generated.error ?? "Reference Clip generation failed. Try again after saving the latest script anchor.");
+        return false;
+      }
+
+      const generatedAt = new Date().toISOString();
+      const generatedCandidates = generated.generatedAssets.map((asset) => ({
+        asset_id: asset.id,
+        source: "hearth_ai" as const,
+        asset_class: "reference_clip" as const,
+        source_beat_id: referenceClipEntry.id,
+        source_label: "Forge",
+        label: asset.variantLabel,
+        path: asset.path,
+        mime_type: asset.mimeType,
+        created_at: generatedAt,
+      }));
+      const selectedGeneratedAssetId = generatedCandidates[0]?.asset_id ?? null;
+      const preservedCandidates = (referenceClipEntry.candidate_assets ?? []).filter((asset) => asset.source !== "hearth_ai");
+      const nextGeneratedEntry: EpisodeContextualDataCompositePlan = {
+        ...referenceClipEntry,
+        source_type: "hearth_ai",
+        candidate_assets: [...preservedCandidates, ...generatedCandidates],
+        selected_asset_id: selectedGeneratedAssetId,
+        external_request: advanceExternalRequestTracker(referenceClipEntry.external_request, "resolved", {
+          providerId: "forge",
+          attachedAssetId: selectedGeneratedAssetId,
+        }),
+        updated_at: generatedAt,
+      };
+      const generatedPlan: EpisodeReferenceClipPlan = {
+        ...cleanedImageMap.episodePackage.cdc_plan,
+        version: Math.max(1, cleanedImageMap.episodePackage.cdc_plan.version + 1),
+        entries: cleanedImageMap.episodePackage.cdc_plan.entries.map((entry) => (
+          entry.id === referenceClipEntry.id ? nextGeneratedEntry : entry
+        )),
+        generated_at: generatedAt,
+      };
+      const generatedSaved = await args.persistReferenceClipPlan({
+        plan: generatedPlan,
+        eventName: "hearth.cdc_plan.generated_in_forge.v1",
+        eventPayload: {
+          cdc_id: referenceClipEntry.id,
+          generated_asset_count: generatedCandidates.length,
+        },
+        baseEpisodePackage: cleanedImageMap.episodePackage,
+      });
+      if (!generatedSaved.ok) {
+        args.setReferenceClipSaveState("saved");
+        args.setReferenceClipMessage("Reference Clip images generated, but the canonical clip update failed.");
+        return false;
+      }
+
+      args.setReferenceClipSaveState("saved");
+      args.setReferenceClipMessage(`Reference Clip generated in Forge (${generatedCandidates.length} candidate${generatedCandidates.length === 1 ? "" : "s"}).`);
+      return true;
+    } catch {
+      args.setReferenceClipSaveError("Unable to generate this Reference Clip in Forge.");
+      args.setReferenceClipSaveState("error");
+      return false;
+    } finally {
+      args.setIsReferenceClipBusy(false);
+    }
+  }, [args]);
+
   const onCreateReferenceClipEntry = useCallback(async () => {
     if (args.isReferenceClipBusy) return;
     if (!args.episodePackage) return;
@@ -118,131 +366,20 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
         args.setReferenceClipSaveState("error");
         return;
       }
-      const workspace = args.workspaceId?.trim() ?? "";
       const alwaysApproveAiSpend = resolveAiThumbnailAutoApproveFromStorage();
       const confirmSpend = alwaysApproveAiSpend
         ? true
         : window.confirm("Generate this Reference Clip inside Forge now? This will spend AI credits.");
       args.setSelectedReferenceClipEntryId(created.id);
-      if (!workspace || !confirmSpend) {
+      if (!confirmSpend) {
         args.setReferenceClipSaveState("saved");
-        args.setReferenceClipMessage(confirmSpend ? "Reference Clip created." : "Reference Clip created. Generation skipped.");
+        args.setReferenceClipMessage("Reference Clip created. Generation skipped.");
         return;
       }
-
-      const tempImageEntryId = `rc_temp_${created.id}`;
-      const tempImageEntry: EpisodeImageMapEntry = {
-        id: tempImageEntryId,
-        anchor: created.anchor_text,
-        script_anchor: null,
-        beat_anchor: null,
-        anchor_scope: "orphaned",
-        purpose: created.purpose,
-        description: created.description || created.anchor_text,
-        visual_intent: created.description || created.anchor_text,
-        prompt_basis: created.description || created.anchor_text,
-        style_preset: null,
-        intent: "reference_clip",
-        source_type: "ai",
-        origin: "hearth",
-        visual_priority: "supporting",
-        visual_type: "still_image",
-        section_intent_note: null,
-        beat_order: Math.max(1, (saved.episodePackage.image_map.entries.length + 1)),
-        paragraph_beat_order: 1,
-        candidate_assets: [],
-        selected_asset_id: null,
-        status: "draft",
-        placement_hint: "first_occurrence",
-      };
-
-      const withTempImageMap = await args.persistImageMapEntries({
-        entries: [...saved.episodePackage.image_map.entries.filter((entry) => entry.id !== tempImageEntryId), tempImageEntry],
-        spokenBeats: saved.episodePackage.spoken_beats,
-      });
-      if (!withTempImageMap.ok) {
-        args.setReferenceClipSaveState("saved");
-        args.setReferenceClipMessage("Reference Clip created, but Forge generation could not start.");
-        return;
-      }
-
-      const generated = await generateWorkpieceImageMapCandidates({
-        workpieceId: episodeId,
-        workspaceId: workspace,
-        imageMapEntryId: tempImageEntryId,
-        contextBefore: created.background_context_description || null,
-        contextAfter: created.foreground_data_description || null,
-        aspect: "16:9",
+      await runReferenceClipForgeGeneration(created, saved.episodePackage, {
         confirmSpend,
         alwaysApproveAiSpend,
       });
-
-      const cleanedImageMapEntries = withTempImageMap.episodePackage.image_map.entries.filter((entry) => entry.id !== tempImageEntryId);
-      const cleanedImageMap = await args.persistImageMapEntries({
-        entries: cleanedImageMapEntries,
-        spokenBeats: withTempImageMap.episodePackage.spoken_beats,
-      });
-      if (!cleanedImageMap.ok) {
-        args.setReferenceClipSaveState("saved");
-        args.setReferenceClipMessage("Reference Clip generated, but cleanup needs a refresh.");
-        return;
-      }
-
-      if (!generated.ok) {
-        args.setReferenceClipSaveState("saved");
-        args.setReferenceClipMessage("Reference Clip created. Forge generation failed; try again.");
-        return;
-      }
-
-      const generatedCandidates = generated.generatedAssets.map((asset) => ({
-        asset_id: asset.id,
-        source: "hearth_ai" as const,
-        asset_class: "reference_clip" as const,
-        source_beat_id: created.id,
-        source_label: "Forge",
-        label: asset.variantLabel,
-        path: asset.path,
-        mime_type: asset.mimeType,
-        created_at: new Date().toISOString(),
-      }));
-      const selectedGeneratedAssetId = generatedCandidates[0]?.asset_id ?? null;
-      const generatedAt = new Date().toISOString();
-      const nextGeneratedEntry: EpisodeContextualDataCompositePlan = {
-        ...created,
-        source_type: "hearth_ai",
-        candidate_assets: generatedCandidates,
-        selected_asset_id: selectedGeneratedAssetId,
-        external_request: advanceExternalRequestTracker(created.external_request, "resolved", {
-          providerId: "forge",
-          attachedAssetId: selectedGeneratedAssetId,
-        }),
-        updated_at: generatedAt,
-      };
-      const generatedPlan: EpisodeReferenceClipPlan = {
-        ...cleanedImageMap.episodePackage.cdc_plan,
-        version: Math.max(1, cleanedImageMap.episodePackage.cdc_plan.version + 1),
-        entries: cleanedImageMap.episodePackage.cdc_plan.entries.map((entry) => (
-          entry.id === created.id ? nextGeneratedEntry : entry
-        )),
-        generated_at: generatedAt,
-      };
-      const generatedSaved = await args.persistReferenceClipPlan({
-        plan: generatedPlan,
-        eventName: "hearth.cdc_plan.generated_in_forge.v1",
-        eventPayload: {
-          cdc_id: created.id,
-          generated_asset_count: generatedCandidates.length,
-        },
-        baseEpisodePackage: cleanedImageMap.episodePackage,
-      });
-      if (!generatedSaved.ok) {
-        args.setReferenceClipSaveState("saved");
-        args.setReferenceClipMessage("Reference Clip created and generated, but save failed.");
-        return;
-      }
-
-      args.setReferenceClipSaveState("saved");
-      args.setReferenceClipMessage(`Reference Clip generated in Forge (${generatedCandidates.length} candidate${generatedCandidates.length === 1 ? "" : "s"}).`);
     } catch {
       args.setReferenceClipSaveError("Unable to create this reference clip.");
       args.setReferenceClipSaveState("error");
@@ -254,45 +391,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
   const onSaveReferenceClipEntry = useCallback(async () => {
     if (!args.episodePackage || !args.selectedReferenceClipEntry) return;
     if (args.isReferenceClipBusy) return;
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...args.selectedReferenceClipEntry,
-      anchor_text: args.referenceClipAnchorDraft.trim(),
-      placement_hint: (args.referenceClipPlacementHintDraft.trim() || "first_occurrence") as EpisodeContextualDataCompositePlan["placement_hint"],
-      format: (args.referenceClipFormatDraft.trim() || "still") as EpisodeReferenceClipFormat,
-      data_type: (args.referenceClipDataTypeDraft.trim() || "quantitative") as EpisodeReferenceClipDataType,
-      context_type: (args.referenceClipContextTypeDraft.trim() || "historical") as EpisodeReferenceClipContextType,
-      tone: (args.referenceClipToneDraft.trim() || "neutral") as EpisodeReferenceClipTone,
-      motion_level: (args.referenceClipMotionLevelDraft.trim() || "static") as EpisodeReferenceClipMotionLevel,
-      description: args.referenceClipDescriptionDraft.trim(),
-      background_context_description: args.referenceClipBackgroundContextDraft.trim(),
-      foreground_data_description: args.referenceClipForegroundDataDraft.trim(),
-      visual_style: normalizeHearthVisualStyle(args.referenceClipVisualStyleDraft),
-      chart_type: (args.referenceClipChartTypeDraft.trim() || "line") as EpisodeReferenceClipChartType,
-      title: args.referenceClipTitleDraft.trim() || null,
-      labels: args.referenceClipLabelsDraft
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean),
-      values: args.resolveReferenceClipValuesFromDraft(),
-      emphasis_key: args.referenceClipEmphasisKeyDraft.trim() || null,
-      source_type: args.referenceClipSourceTypeDraft as EpisodeContextualDataCompositePlan["source_type"],
-      external_request: advanceExternalRequestTracker(
-        args.selectedReferenceClipEntry.external_request,
-        args.selectedReferenceClipEntry.external_request?.state ?? "planned",
-        {
-          providerId: args.referenceClipProviderIdDraft,
-          sourceUrl: args.referenceClipSourceUrlDraft,
-          providerNote: args.referenceClipProviderNoteDraft,
-          usageNote: args.referenceClipUsageNoteDraft,
-          resultMetadata: args.referenceClipResultMetadataDraft,
-          attachedAssetId: args.selectedReferenceClipEntry.selected_asset_id ?? null,
-        },
-      ),
-      origin: args.referenceClipSourceTypeDraft === "hammer_upload" && args.selectedReferenceClipEntry.origin === "hearth"
-        ? "mixed"
-        : args.selectedReferenceClipEntry.origin,
-      updated_at: new Date().toISOString(),
-    };
+    const nextEntry = buildReferenceClipEntryFromDraft(args.selectedReferenceClipEntry);
     const nextPlan: EpisodeReferenceClipPlan = {
       ...args.episodePackage.cdc_plan,
       version: Math.max(1, args.episodePackage.cdc_plan.version + 1),
@@ -321,7 +420,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
     } finally {
       args.setIsReferenceClipBusy(false);
     }
-  }, [args]);
+  }, [args, buildReferenceClipEntryFromDraft]);
 
   const onDeleteReferenceClipEntry = useCallback(async () => {
     if (!args.episodePackage || !args.selectedReferenceClipEntry) return;
@@ -359,6 +458,21 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
       args.setIsReferenceClipBusy(false);
     }
   }, [args]);
+
+  const onGenerateReferenceClipInForge = useCallback(async () => {
+    if (!args.episodePackage || !args.selectedReferenceClipEntry) return;
+    if (args.isReferenceClipBusy) return;
+    const alwaysApproveAiSpend = resolveAiThumbnailAutoApproveFromStorage();
+    const confirmSpend = alwaysApproveAiSpend
+      ? true
+      : window.confirm("Generate this Reference Clip inside Forge now? This will spend AI credits.");
+    if (!confirmSpend) return;
+    const nextEntry = buildReferenceClipEntryFromDraft(args.selectedReferenceClipEntry);
+    await runReferenceClipForgeGeneration(nextEntry, args.episodePackage, {
+      confirmSpend,
+      alwaysApproveAiSpend,
+    });
+  }, [args, buildReferenceClipEntryFromDraft, runReferenceClipForgeGeneration]);
 
   const onRegenerateReferenceClipEntryStub = useCallback(async () => {
     if (!args.episodePackage || !args.selectedReferenceClipEntry) return;
@@ -431,6 +545,7 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
     onCreateReferenceClipEntry,
     onSaveReferenceClipEntry,
     onDeleteReferenceClipEntry,
+    onGenerateReferenceClipInForge,
     onRegenerateReferenceClipEntryStub,
   };
 }

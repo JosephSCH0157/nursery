@@ -4422,6 +4422,7 @@ export default function HearthShell({
     onCreateReferenceClipEntry,
     onSaveReferenceClipEntry,
     onDeleteReferenceClipEntry,
+    onGenerateReferenceClipInForge,
     onRegenerateReferenceClipEntryStub,
   } = useReferenceClipCoreActions({
     episodePackage,
@@ -4461,6 +4462,7 @@ export default function HearthShell({
     setSelectedReferenceClipEntryId,
     persistReferenceClipPlan,
     persistImageMapEntries,
+    readCanonicalScriptForImageMapGeneration,
   });
   const {
     onCopyReferenceClipPrompt,
@@ -6907,6 +6909,7 @@ export default function HearthShell({
       onCreateReferenceClip: () => void onCreateReferenceClipEntry(),
       onSaveEntry: () => void onSaveReferenceClipEntry(),
       onDeleteEntry: () => void onDeleteReferenceClipEntry(),
+      onGenerateInForge: () => void onGenerateReferenceClipInForge(),
       onRegenerateStub: () => void onRegenerateReferenceClipEntryStub(),
       onUploadAsset: (file: File) => void onUploadReferenceClipAsset(file),
       onSelectCandidate: (candidateId: string) => void onSelectReferenceClipCandidate(candidateId),

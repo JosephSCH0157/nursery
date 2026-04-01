@@ -176,6 +176,7 @@ type BuildReferenceClipPanelArgs = {
   onCreateReferenceClip: () => void;
   onSaveEntry: () => void;
   onDeleteEntry: () => void;
+  onGenerateInForge: () => void;
   onRegenerateStub: () => void;
   onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
@@ -425,6 +426,7 @@ export function buildReferenceClipPlanPanelProps(args: BuildReferenceClipPanelAr
     onCreateReferenceClip: args.onCreateReferenceClip,
     onSaveEntry: args.onSaveEntry,
     onDeleteEntry: args.onDeleteEntry,
+    onGenerateInForge: args.onGenerateInForge,
     onRegenerateStub: args.onRegenerateStub,
     onUploadAsset: args.onUploadAsset,
     onSelectCandidate: args.onSelectCandidate,

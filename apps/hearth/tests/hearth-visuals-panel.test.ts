@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   HEARTH_VISUALS_PANEL_SECTION_IDS,
   toggleHearthVisualsPanel,
@@ -22,4 +24,14 @@ test("hearthVisualsPanel section ids stay aligned with the rendered panel ids", 
     broll: "hearth-broll-plan-panel",
     reference_clips: "hearth-reference-clip-plan-panel",
   });
+});
+
+test("VisualsSurface recenters opened panels instead of pinning them to the top", () => {
+  const source = readFileSync(
+    resolve(process.cwd(), "src/views/surfaces/VisualsSurface.tsx"),
+    "utf8",
+  );
+
+  assert.match(source, /block:\s*"center"/);
+  assert.match(source, /setTimeout\(scrollPanelIntoView,\s*140\)/);
 });

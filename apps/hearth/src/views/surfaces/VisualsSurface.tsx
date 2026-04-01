@@ -33,28 +33,21 @@ type VisualsSurfaceProps = {
 };
 
 export default function VisualsSurface(props: VisualsSurfaceProps) {
-  if (!props.visible) return null;
-  if (!props.hasApprovedScript || !props.approvedScriptVersion) {
-    return (
-      <section className="hs-visuals-skeleton" aria-live="polite">
-        <strong>Visual workflow is loading.</strong>
-        <span>Approve a script version to unlock Media Map, Images, B-roll, and Reference Clips.</span>
-      </section>
-    );
-  }
   const [openPanel, setOpenPanel] = useState<HearthVisualsPanelId | null>("media_map");
   const openPanelRef = useRef<HearthVisualsPanelId | null>("media_map");
 
   const queueScrollToPanel = useCallback((panel: HearthVisualsPanelId) => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
     const sectionId = HEARTH_VISUALS_PANEL_SECTION_IDS[panel];
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        document.getElementById(sectionId)?.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
+    const scrollPanelIntoView = () => {
+      document.getElementById(sectionId)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
       });
+    };
+    window.requestAnimationFrame(() => {
+      scrollPanelIntoView();
+      window.setTimeout(scrollPanelIntoView, 140);
     });
   }, []);
 
@@ -66,6 +59,16 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
       queueScrollToPanel(nextPanel);
     }
   }, [queueScrollToPanel]);
+
+  if (!props.visible) return null;
+  if (!props.hasApprovedScript || !props.approvedScriptVersion) {
+    return (
+      <section className="hs-visuals-skeleton" aria-live="polite">
+        <strong>Visual workflow is loading.</strong>
+        <span>Approve a script version to unlock Media Map, Images, B-roll, and Reference Clips.</span>
+      </section>
+    );
+  }
 
   return (
     <>

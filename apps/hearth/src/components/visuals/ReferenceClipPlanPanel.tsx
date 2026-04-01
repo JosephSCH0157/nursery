@@ -49,6 +49,7 @@ type ReferenceClipPlanPanelProps = {
   onCreateReferenceClip: () => void;
   onSaveEntry: () => void;
   onDeleteEntry: () => void;
+  onGenerateInForge: () => void;
   onRegenerateStub: () => void;
   onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
@@ -274,8 +275,11 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
 
               <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
                 <div className="hs-imap-candidate-action-group">
+                  <button type="button" className="hs-primary-btn" onClick={props.onGenerateInForge} disabled={props.disabled}>
+                    Generate in Forge
+                  </button>
                   <button type="button" onClick={() => uploadInputRef.current?.click()} disabled={props.disabled}>Attach Result File</button>
-                  <button type="button" onClick={props.onRegenerateStub} disabled={props.disabled}>Regenerate (stub)</button>
+                  <button type="button" onClick={props.onRegenerateStub} disabled={props.disabled}>Refresh Guidance</button>
                 </div>
                 <div className="hs-imap-candidate-action-group">
                   <button type="button" onClick={props.onSaveEntry} disabled={props.disabled}>Save Reference Clip</button>
