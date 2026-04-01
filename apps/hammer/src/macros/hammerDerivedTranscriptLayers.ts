@@ -118,7 +118,7 @@ function normalizeHammerSubtitleArtifact(
     generated_at: generatedAt,
     source_transcript_id: sourceTranscriptId,
     source_layer_id: sourceLayerId,
-    source_kind,
+    source_kind: sourceKind,
     source_recipe_ref: sourceRecipeRef,
     approximate_timing: approximateTiming,
     entry_count: entryCount,
