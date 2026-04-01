@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  cloneHammerStructuredTranscript,
   discardHammerDerivedTextLayer,
   getHammerActiveDerivedTextLayer,
   getHammerOutputDerivedTextLayer,
@@ -125,6 +126,86 @@ const transcript: HammerPersistedStructuredTranscript = {
     },
   } as unknown as HammerPersistedStructuredTranscript;
   assert.equal(getHammerOutputDerivedTextLayer(legacyTranscript), null);
+}
+
+{
+  const normalized = cloneHammerStructuredTranscript({
+    ...transcript,
+    derived_text_layers: {
+      schema_version: 1,
+      active_layer_id: "missing_active",
+      output_layer_id: "missing_output",
+      layers: [
+        {
+          layer_id: "legacy_layer",
+          recipe_ref: "macro:podcast_cleanup.v1",
+          macro_kind: "filler_cleanup",
+          status: "review",
+          created_at: "2026-03-15T04:07:00.000Z",
+          based_on_transcript_id: transcript.transcript_id,
+          summary: {
+            changed_segment_count: 1,
+            removal_count: 1,
+            untouched_segment_count: 1,
+          },
+          changes: [
+            {
+              segment_id: "seg_a",
+              original_text: "Um this is the start.",
+              cleaned_text: "this is the start.",
+              removed_fillers: [
+                {
+                  value: "Um",
+                  start: 0,
+                  end: 2,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  } as unknown as HammerPersistedStructuredTranscript);
+
+  assert.equal(normalized?.derived_text_layers?.active_layer_id, null);
+  assert.equal(normalized?.derived_text_layers?.output_layer_id, null);
+  assert.deepEqual(
+    normalized?.derived_text_layers?.layers[0]?.changes[0]?.operations,
+    [
+      {
+        kind: "filler_removed",
+        value: "Um",
+        start: 0,
+        end: 2,
+      },
+    ],
+  );
+}
+
+{
+  const normalized = cloneHammerStructuredTranscript({
+    ...transcript,
+    subtitle_outputs: {
+      schema_version: 1,
+      last_generated_format: "srt",
+      srt: {
+        format: "srt",
+        generated_at: "2026-03-15T09:09:00.000Z",
+        source_transcript_id: transcript.transcript_id,
+        source_layer_id: null,
+        source_kind: "raw",
+        source_recipe_ref: null,
+        approximate_timing: false,
+        entry_count: 2,
+        content: "example",
+      },
+      vtt: "bad-payload",
+    },
+  } as unknown as HammerPersistedStructuredTranscript);
+
+  assert.equal(normalized?.subtitle_outputs?.last_generated_format, "srt");
+  assert.equal(normalized?.subtitle_outputs?.srt?.format, "srt");
+  assert.equal(normalized?.subtitle_outputs?.vtt, null);
 }
 
 console.log("Hammer derived transcript layer tests passed.");

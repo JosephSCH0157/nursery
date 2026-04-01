@@ -1,11 +1,13 @@
 import type { MediaKind } from "../../../../packages/contracts/hammer/media-resolver.contract";
+import {
+  normalizeHammerAudioEdit,
+  type HammerPersistedAudioEdit,
+} from "../../../../packages/tongs/src/hammer-audio-edit-contract";
 import type {
   HammerAudioPolishAnalysis,
   HammerAudioPolishFailureCode,
   HammerAudioPolishPass,
-  HammerPersistedAudioEdit,
 } from "../persistence/hammerPersistenceContract";
-import { normalizeHammerAudioEdit } from "./hammerAudioPolish";
 
 export const HAMMER_AUDIO_POLISH_ROUTE = "/api/hammer/prep/audio-polish";
 export const HAMMER_AUDIO_POLISH_STATUS_ROUTE = "/api/hammer/prep/audio-polish/status";

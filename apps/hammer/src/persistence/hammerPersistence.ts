@@ -1,6 +1,7 @@
 import type { HammerEditPlan } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import { normalizeHammerAudioEdit } from "../../../../packages/tongs/src/hammer-audio-edit-contract";
 import {
   cloneHammerEditorialAuthorityGraph,
   type HammerEditorialAuthorityGraph,
@@ -21,7 +22,6 @@ import {
 import {
   buildNotStartedHammerAudioPolish,
   cloneHammerAudioPolish,
-  normalizeHammerAudioEdit,
 } from "../prep/hammerAudioPolish";
 import type {
   HammerHydratedLaunchContext,
@@ -436,12 +436,41 @@ function normalizeAudioPolishArtifact(
   };
 }
 
+function normalizeStructuredTranscriptArtifact(
+  value: unknown,
+): { path: string | null; file_updated_at: string | null; data: HammerPersistedStructuredTranscript | null } {
+  const artifact = normalizeArtifact<Record<string, unknown>>(value);
+  const dataRow = readJsonObject(artifact.data);
+  if (!dataRow) {
+    return {
+      path: artifact.path,
+      file_updated_at: artifact.file_updated_at,
+      data: null,
+    };
+  }
+
+  try {
+    return {
+      path: artifact.path,
+      file_updated_at: artifact.file_updated_at,
+      data: cloneHammerStructuredTranscript(dataRow as unknown as HammerPersistedStructuredTranscript),
+    };
+  } catch {
+    return {
+      path: artifact.path,
+      file_updated_at: artifact.file_updated_at,
+      data: null,
+    };
+  }
+}
+
 function normalizeSnapshot(payload: unknown): HammerPersistenceSnapshot | null {
   const root = readJsonObject(payload);
   const data = readJsonObject(root?.data);
   const snapshot = readJsonObject(data?.snapshot);
   if (!snapshot) return null;
   const audioPolish = normalizeAudioPolishArtifact(snapshot.audio_polish);
+  const structuredTranscript = normalizeStructuredTranscriptArtifact(snapshot.structured_transcript);
 
   return {
     schema_version: 1,
@@ -452,9 +481,9 @@ function normalizeSnapshot(payload: unknown): HammerPersistenceSnapshot | null {
       data: normalizeArtifact<HammerPersistedEditorSession>(snapshot.editor_session).data,
     },
     structured_transcript: {
-      path: normalizeArtifact<HammerPersistedStructuredTranscript>(snapshot.structured_transcript).path,
-      updated_at: normalizeArtifact<HammerPersistedStructuredTranscript>(snapshot.structured_transcript).file_updated_at,
-      data: normalizeArtifact<HammerPersistedStructuredTranscript>(snapshot.structured_transcript).data,
+      path: structuredTranscript.path,
+      updated_at: structuredTranscript.file_updated_at,
+      data: structuredTranscript.data,
     },
     speaker_map: {
       path: normalizeArtifact<HammerPersistedSpeakerMap>(snapshot.speaker_map).path,

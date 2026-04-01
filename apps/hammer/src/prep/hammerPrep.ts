@@ -11,7 +11,10 @@ import type {
   HammerPersistenceSnapshot,
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
-import { cloneHammerDerivedTextLayers } from "../macros/hammerDerivedTranscriptLayers";
+import {
+  cloneHammerDerivedTextLayers,
+  ensureHammerSubtitleOutputs,
+} from "../macros/hammerDerivedTranscriptLayers";
 import type { HammerTranscriptPrepResponse, HammerTranscriptPrepSegment } from "./hammerPrepApi";
 
 export const DEFAULT_FORGE_NEUTRAL_SPEAKER_LABELS = ["S1", "S2", "S3", "G1", "G2"] as const;
@@ -655,38 +658,44 @@ export function preserveTranscriptMetadata(
   transcriptId: string,
 ): HammerPersistedStructuredTranscript {
   const isSameTranscript = existingTranscript?.transcript_id === transcriptId;
+  const preservedTranscript = isSameTranscript
+    ? {
+      ...existingTranscript,
+      derived_text_layers: cloneHammerDerivedTextLayers(existingTranscript?.derived_text_layers),
+      subtitle_outputs: ensureHammerSubtitleOutputs(existingTranscript),
+    } as HammerPersistedStructuredTranscript
+    : null;
 
   return {
     schema_version: 1,
     transcript_id: transcriptId,
-    media_id: mediaRef?.media_id ?? existingTranscript?.media_id ?? null,
+    media_id: mediaRef?.media_id ?? preservedTranscript?.media_id ?? null,
     media_signature: isSameTranscript
-      ? existingTranscript?.media_signature ?? buildHammerMediaSignature(mediaRef ?? null)
+      ? preservedTranscript?.media_signature ?? buildHammerMediaSignature(mediaRef ?? null)
       : buildHammerMediaSignature(mediaRef ?? null),
     prepared_at: isSameTranscript
-      ? existingTranscript?.prepared_at ?? new Date().toISOString()
+      ? preservedTranscript?.prepared_at ?? new Date().toISOString()
       : new Date().toISOString(),
     structure: "speaker_turns",
     source_media_ref: mediaRef
       ? cloneMediaRef(mediaRef)
-      : existingTranscript?.source_media_ref
-        ? cloneMediaRef(existingTranscript.source_media_ref)
+      : preservedTranscript?.source_media_ref
+        ? cloneMediaRef(preservedTranscript.source_media_ref)
         : null,
     diarization: {
       label_scheme: "forge-neutral-speakers.v1",
       labels: uniqueSpeakerLabels(segments),
-      raw_labels: isSameTranscript ? existingTranscript?.diarization.raw_labels ?? [] : [],
-      version: isSameTranscript ? existingTranscript?.diarization.version ?? null : null,
+      raw_labels: isSameTranscript ? preservedTranscript?.diarization.raw_labels ?? [] : [],
+      version: isSameTranscript ? preservedTranscript?.diarization.version ?? null : null,
       provider: "openai",
-      provider_request_id: isSameTranscript ? existingTranscript?.diarization.provider_request_id ?? null : null,
-      model: isSameTranscript ? existingTranscript?.diarization.model ?? null : null,
+      provider_request_id: isSameTranscript ? preservedTranscript?.diarization.provider_request_id ?? null : null,
+      model: isSameTranscript ? preservedTranscript?.diarization.model ?? null : null,
     },
-    confidence_flags: isSameTranscript ? existingTranscript?.confidence_flags ?? [] : [],
+    confidence_flags: isSameTranscript ? preservedTranscript?.confidence_flags ?? [] : [],
     segments: cloneTranscriptSegments(segments),
     derived_text_layers: isSameTranscript
-      ? existingTranscript?.derived_text_layers
-        ? cloneHammerDerivedTextLayers(existingTranscript.derived_text_layers)
-        : {
+      ? preservedTranscript?.derived_text_layers
+        ?? {
           schema_version: 1,
           active_layer_id: null,
           output_layer_id: null,
@@ -699,19 +708,7 @@ export function preserveTranscriptMetadata(
         layers: [],
       },
     subtitle_outputs: isSameTranscript
-      ? existingTranscript?.subtitle_outputs
-        ? {
-          schema_version: 1,
-          last_generated_format: existingTranscript.subtitle_outputs.last_generated_format ?? null,
-          srt: existingTranscript.subtitle_outputs.srt ? { ...existingTranscript.subtitle_outputs.srt } : null,
-          vtt: existingTranscript.subtitle_outputs.vtt ? { ...existingTranscript.subtitle_outputs.vtt } : null,
-        }
-        : {
-          schema_version: 1,
-          last_generated_format: null,
-          srt: null,
-          vtt: null,
-        }
+      ? ensureHammerSubtitleOutputs(preservedTranscript)
       : {
         schema_version: 1,
         last_generated_format: null,

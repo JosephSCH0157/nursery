@@ -52,6 +52,14 @@ type HydrateOptions = {
 const SETTINGS_SAVE_DEBOUNCE_MS = 900;
 const RECENT_CHANGE_WINDOW_MS = 10_000;
 
+function areSettingsSnapshotsEqual(left: UserSettings, right: UserSettings): boolean {
+  try {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  } catch {
+    return false;
+  }
+}
+
 export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
   const {
     store,
@@ -293,6 +301,10 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
       saving = true;
       try {
         const merged = snapshotAppSettings();
+        if (areSettingsSnapshotsEqual(currentSettings, merged)) {
+          log('save:skip-noop');
+          return;
+        }
         currentSettings = merged;
         setSettingsSaveStatus({ state: 'saving', at: Date.now() });
         const { rev } = await saveProfileSettings({
@@ -352,9 +364,14 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
     persistenceUserId = userId;
     if (speakerPersistenceInstalled) return;
     speakerPersistenceInstalled = true;
+    let seenInit = false;
     subscribeSpeakerProfileState(() => {
       if (!persistenceUserId) return;
       if (!profileHydrated || suppressSave) return;
+      if (!seenInit) {
+        seenInit = true;
+        return;
+      }
       lastUserChange = Date.now();
       queueProfileSave();
     });

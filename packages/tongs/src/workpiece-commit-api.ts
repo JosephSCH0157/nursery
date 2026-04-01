@@ -38,6 +38,7 @@ import {
   type AiUsageSubfeature,
   type AiUsageTrigger,
 } from "./ai-usage-taxonomy.js";
+import { normalizeHammerAudioEdit } from "./hammer-audio-edit-contract.js";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
@@ -2428,6 +2429,22 @@ function normalizeHammerArtifactWriteRequest(
   };
 }
 
+function normalizeHammerAudioPolishArtifactData(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const row = value as Record<string, unknown>;
+  if (!Object.prototype.hasOwnProperty.call(row, "audio_edit")) {
+    return row;
+  }
+
+  return {
+    ...row,
+    audio_edit: normalizeHammerAudioEdit(row.audio_edit),
+  };
+}
+
 function normalizeSaveHammerWorkpieceStateRequest(
   body: Record<string, unknown>,
 ): SaveHammerWorkpieceStateRequest {
@@ -2493,7 +2510,16 @@ function normalizeSaveHammerWorkpieceStateRequest(
       : { visual_placements: normalizeHammerArtifactWriteRequest(body.visual_placements, "visual_placements") }),
     ...(typeof body.audio_polish === "undefined"
       ? {}
-      : { audio_polish: normalizeHammerArtifactWriteRequest(body.audio_polish, "audio_polish") }),
+      : {
+        audio_polish: (() => {
+          const normalized = normalizeHammerArtifactWriteRequest(body.audio_polish, "audio_polish");
+          if (!normalized) return normalized;
+          return {
+            ...normalized,
+            data: normalizeHammerAudioPolishArtifactData(normalized.data),
+          };
+        })(),
+      }),
     ...(typeof body.edit_plan === "undefined"
       ? {}
       : { edit_plan: normalizeHammerArtifactWriteRequest(body.edit_plan, "edit_plan") }),
@@ -4893,7 +4919,9 @@ export class TongsCommitService {
       return {
         path,
         file_updated_at: result.file_row?.updated_at ?? null,
-        data: result.data ?? null,
+        data: path === (state?.audio_polish_artifact_path ?? null)
+          ? normalizeHammerAudioPolishArtifactData(result.data ?? null)
+          : result.data ?? null,
       };
     };
 
@@ -4960,7 +4988,9 @@ export class TongsCommitService {
           workspace_id: workspaceId,
           workpiece_id: workpieceId,
         } as Json,
-        json: request.data,
+        json: (key === "audio_polish"
+          ? normalizeHammerAudioPolishArtifactData(request.data)
+          : request.data) as Json,
         user_access_token: options?.userAccessToken ?? null,
       });
       return path;

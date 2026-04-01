@@ -991,6 +991,51 @@ test("PUT /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/state fo
   assert.equal(calls.saveHammerWorkpieceState[0]?.input?.edit_plan?.path, "hammer/edit-plan/current.v1.json");
 });
 
+test("PUT /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/state normalizes invalid audio_edit to null before save", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/state",
+    {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer hammer_user_token",
+      },
+      body: JSON.stringify({
+        written_by: {
+          tool: "hammer",
+          tool_version: "forge-v1.2.0",
+          lane: "forge-managed",
+        },
+        audio_polish: {
+          data: {
+            audio_edit: {
+              version: "v1",
+              operations: [
+                {
+                  id: "cut_invalid",
+                  type: "cut",
+                  start_sec: 5,
+                  end_sec: 5,
+                },
+              ],
+            },
+          },
+        },
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(calls.saveHammerWorkpieceState.length, 1);
+  assert.equal(calls.saveHammerWorkpieceState[0]?.input?.audio_polish?.data?.audio_edit, null);
+});
+
 test("GET /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/presence returns Hammer presence rows", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);

@@ -1,30 +1,15 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import { buildHammerCaptionPreviewModel, type HammerCaptionPreviewChunk } from "./hammerCaptionPreview";
-import { cloneHammerStructuredTranscript, getHammerOutputDerivedTextLayer } from "../macros/hammerDerivedTranscriptLayers";
+import {
+  cloneHammerStructuredTranscript,
+  ensureHammerSubtitleOutputs,
+  getHammerOutputDerivedTextLayer,
+} from "../macros/hammerDerivedTranscriptLayers";
 import type {
   HammerPersistedStructuredTranscript,
   HammerPersistedSubtitleArtifact,
-  HammerPersistedSubtitleOutputs,
   HammerSubtitleFormat,
 } from "../persistence/hammerPersistenceContract";
-
-function ensureHammerSubtitleOutputs(
-  transcript: HammerPersistedStructuredTranscript,
-): HammerPersistedSubtitleOutputs {
-  return transcript.subtitle_outputs
-    ? {
-      schema_version: 1,
-      last_generated_format: transcript.subtitle_outputs.last_generated_format ?? null,
-      srt: transcript.subtitle_outputs.srt ? { ...transcript.subtitle_outputs.srt } : null,
-      vtt: transcript.subtitle_outputs.vtt ? { ...transcript.subtitle_outputs.vtt } : null,
-    }
-    : {
-      schema_version: 1,
-      last_generated_format: null,
-      srt: null,
-      vtt: null,
-    };
-}
 
 function padTimeUnit(value: number, size = 2): string {
   return String(value).padStart(size, "0");

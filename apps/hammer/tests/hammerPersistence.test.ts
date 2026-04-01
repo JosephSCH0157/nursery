@@ -574,6 +574,130 @@ try {
 
   await assertInvalidAudioEditPersistsAsCanonicalNull();
 
+  async function assertStructuredTranscriptRoundTripsToCanonicalShape(): Promise<void> {
+    globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
+      ok: true,
+      data: {
+        snapshot: {
+          schema_version: 1,
+          state: persistedSnapshot.state,
+          editor_session: toApiArtifact(persistedSnapshot.editor_session),
+          structured_transcript: {
+            path: persistedSnapshot.structured_transcript.path,
+            file_updated_at: persistedSnapshot.structured_transcript.updated_at,
+            data: {
+              ...persistedSnapshot.structured_transcript.data,
+              derived_text_layers: {
+                schema_version: 1,
+                active_layer_id: "missing_active_layer",
+                output_layer_id: "missing_output_layer",
+                layers: [
+                  {
+                    layer_id: "legacy_macro_run",
+                    recipe_ref: "macro:podcast_cleanup.v1",
+                    macro_kind: "filler_cleanup",
+                    status: "review",
+                    created_at: "2026-03-13T10:15:00.000Z",
+                    based_on_transcript_id: "transcript_01",
+                    summary: {
+                      changed_segment_count: 1,
+                      removal_count: 1,
+                      untouched_segment_count: 1,
+                    },
+                    changes: [
+                      {
+                        segment_id: "seg_001",
+                        original_text: "Um line one.",
+                        cleaned_text: "line one.",
+                        removed_fillers: [
+                          {
+                            value: "Um",
+                            start: 0,
+                            end: 2,
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+              subtitle_outputs: {
+                schema_version: 1,
+                last_generated_format: "srt",
+                srt: {
+                  format: "srt",
+                  generated_at: "2026-03-13T10:14:00.000Z",
+                  source_transcript_id: "transcript_01",
+                  source_layer_id: null,
+                  source_kind: "raw",
+                  source_recipe_ref: null,
+                  approximate_timing: false,
+                  entry_count: 2,
+                  content: "canonical subtitle body",
+                },
+                vtt: "not-an-artifact",
+              },
+            },
+          },
+          speaker_map: toApiArtifact(persistedSnapshot.speaker_map),
+          visual_placements: toApiArtifact(persistedSnapshot.visual_placements),
+          audio_polish: toApiArtifact(persistedSnapshot.audio_polish),
+          edit_plan: toApiArtifact(persistedSnapshot.edit_plan),
+          editorial_authority: toApiArtifact(persistedSnapshot.editorial_authority),
+          macro_hooks: persistedSnapshot.macro_hooks,
+        },
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+    const result = await loadHammerPersistenceSnapshot(target);
+    assert.equal(result.ok, true);
+    if (!result.ok) {
+      throw new Error("Expected malformed structured_transcript payload to normalize on load.");
+    }
+
+    const normalizedTranscript = result.data.structured_transcript.data;
+    assert.equal(normalizedTranscript?.derived_text_layers?.active_layer_id, null);
+    assert.equal(normalizedTranscript?.derived_text_layers?.output_layer_id, null);
+    assert.deepEqual(
+      normalizedTranscript?.derived_text_layers?.layers[0]?.changes[0]?.operations,
+      [
+        {
+          kind: "filler_removed",
+          value: "Um",
+          start: 0,
+          end: 2,
+        },
+      ],
+    );
+    assert.equal(normalizedTranscript?.subtitle_outputs?.last_generated_format, "srt");
+    assert.equal(normalizedTranscript?.subtitle_outputs?.srt?.content, "canonical subtitle body");
+    assert.equal(normalizedTranscript?.subtitle_outputs?.vtt, null);
+
+    const roundTripSaveRequest = buildHammerPersistenceSaveRequest({
+      ...snapshot,
+      structuredTranscript: normalizedTranscript,
+    });
+    assert.equal(roundTripSaveRequest.structured_transcript?.data.derived_text_layers?.active_layer_id, null);
+    assert.equal(roundTripSaveRequest.structured_transcript?.data.derived_text_layers?.output_layer_id, null);
+    assert.deepEqual(
+      roundTripSaveRequest.structured_transcript?.data.derived_text_layers?.layers[0]?.changes[0]?.operations,
+      [
+        {
+          kind: "filler_removed",
+          value: "Um",
+          start: 0,
+          end: 2,
+        },
+      ],
+    );
+    assert.equal(roundTripSaveRequest.structured_transcript?.data.subtitle_outputs?.vtt, null);
+  }
+
+  await assertStructuredTranscriptRoundTripsToCanonicalShape();
+
   globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
     ok: true,
     data: {

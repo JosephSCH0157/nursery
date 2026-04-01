@@ -12,6 +12,17 @@ import type {
   WorkspaceMediaMapping,
 } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import type {
+  HammerAudioEditOperation,
+  HammerAudioEditCutOperation,
+  HammerPersistedAudioEdit,
+} from "../../../../packages/tongs/src/hammer-audio-edit-contract";
+
+export type {
+  HammerAudioEditOperation,
+  HammerAudioEditCutOperation,
+  HammerPersistedAudioEdit,
+};
 
 export type HammerPrepStatus = "idle" | "preparing" | "prepared" | "prep_failed";
 export type HammerAlignmentStatus = "not_started" | "pending" | "aligned" | "needs_review";
@@ -286,21 +297,6 @@ export interface HammerAudioPolishAnalysis {
   transcript_prep: HammerAudioPolishAnalysisTranscriptPrep;
   channel_characterization: HammerAudioPolishAnalysisChannelCharacterization | null;
   waveform_proxy: HammerAudioPolishAnalysisWaveformProxy | null;
-}
-
-export interface HammerAudioEditCutOperation {
-  id: string;
-  type: "cut";
-  // Hammer edit ranges are persisted as half-open intervals: [start_sec, end_sec)
-  start_sec: number;
-  end_sec: number;
-}
-
-export type HammerAudioEditOperation = HammerAudioEditCutOperation;
-
-export interface HammerPersistedAudioEdit {
-  version: "v1";
-  operations: HammerAudioEditOperation[];
 }
 
 export interface HammerPersistedAudioPolish {

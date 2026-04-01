@@ -9,6 +9,27 @@ import type {
   HammerPersistedStructuredTranscript,
 } from "../persistence/hammerPersistenceContract";
 
+function readString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function readNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return null;
+}
+
+function readBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  return null;
+}
+
+function readObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
 function normalizeHammerDerivedTextOperations(change: {
   operations?: HammerDerivedTextOperation[];
   removed_fillers?: Array<{
@@ -57,15 +78,74 @@ function sortHammerDerivedTextLayers(layers: HammerDerivedTextLayer[]): HammerDe
   });
 }
 
-function cloneHammerSubtitleOutputs(
+function normalizeHammerSubtitleArtifact(
+  value: unknown,
+  format: "srt" | "vtt",
+): HammerPersistedSubtitleOutputs["srt"] {
+  const row = readObject(value);
+  if (!row) return null;
+
+  const generatedAt = readString(row.generated_at);
+  const sourceTranscriptId = readString(row.source_transcript_id);
+  const sourceKind = readString(row.source_kind);
+  const approximateTiming = readBoolean(row.approximate_timing);
+  const entryCount = readNumber(row.entry_count);
+  const content = readString(row.content);
+  if (
+    readString(row.format) !== format
+    || !generatedAt
+    || !sourceTranscriptId
+    || (sourceKind !== "raw" && sourceKind !== "derived")
+    || approximateTiming == null
+    || entryCount == null
+    || entryCount < 0
+    || !content
+  ) {
+    return null;
+  }
+
+  const sourceLayerId = row.source_layer_id == null ? null : readString(row.source_layer_id);
+  const sourceRecipeRef = row.source_recipe_ref == null ? null : readString(row.source_recipe_ref);
+  if (row.source_layer_id != null && !sourceLayerId) {
+    return null;
+  }
+  if (row.source_recipe_ref != null && !sourceRecipeRef) {
+    return null;
+  }
+
+  return {
+    format,
+    generated_at: generatedAt,
+    source_transcript_id: sourceTranscriptId,
+    source_layer_id: sourceLayerId,
+    source_kind,
+    source_recipe_ref: sourceRecipeRef,
+    approximate_timing: approximateTiming,
+    entry_count: entryCount,
+    content,
+  };
+}
+
+export function cloneHammerSubtitleOutputs(
   value: HammerPersistedSubtitleOutputs | null | undefined,
 ): HammerPersistedSubtitleOutputs | undefined {
   if (!value) return undefined;
   return {
     schema_version: 1,
-    last_generated_format: value.last_generated_format ?? null,
-    srt: value.srt ? { ...value.srt } : null,
-    vtt: value.vtt ? { ...value.vtt } : null,
+    last_generated_format: value.last_generated_format === "vtt" ? "vtt" : value.last_generated_format === "srt" ? "srt" : null,
+    srt: normalizeHammerSubtitleArtifact(value.srt, "srt"),
+    vtt: normalizeHammerSubtitleArtifact(value.vtt, "vtt"),
+  };
+}
+
+export function ensureHammerSubtitleOutputs(
+  transcript: HammerPersistedStructuredTranscript | null | undefined,
+): HammerPersistedSubtitleOutputs {
+  return cloneHammerSubtitleOutputs(transcript?.subtitle_outputs) ?? {
+    schema_version: 1,
+    last_generated_format: null,
+    srt: null,
+    vtt: null,
   };
 }
 
