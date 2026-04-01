@@ -191,6 +191,17 @@ function splitSegments(value: string | null | undefined): string[] {
     .filter(Boolean) as string[];
 }
 
+function buildDistinctPromptText(
+  parts: ReadonlyArray<string | null | undefined>,
+  fallback: string,
+): string {
+  const segments = dedupeStrings(parts.flatMap((part) => splitSegments(part)));
+  if (!segments.length) {
+    return cleanText(fallback) ?? fallback;
+  }
+  return segments.join(". ");
+}
+
 function limitWords(value: string, maxWords: number): string {
   const words = value.trim().split(/\s+/).filter(Boolean);
   if (words.length <= maxWords) return value.trim();
@@ -725,13 +736,21 @@ export function buildTimelineImagePromptPack(args: {
     cleanText(args.entry.purpose) ?? "",
     cleanText(args.entry.visual_intent) ?? "",
   ]).join(". ");
-  const normalizedBeat = normalizeVisualBeat({
-    primaryText: `${cleanText(args.description) ?? args.entry.description}. ${args.entry.prompt_basis}`,
-    secondaryText: [
+  const primaryPromptText = buildDistinctPromptText(
+    [cleanText(args.description) ?? args.entry.description, args.entry.prompt_basis],
+    cleanText(args.description) ?? args.entry.description ?? "Timeline beat visual",
+  );
+  const secondaryPromptText = buildDistinctPromptText(
+    [
       cleanText(args.sectionIntentNote) ?? cleanText(args.entry.section_intent_note),
       cleanText(args.placementHint) ?? cleanText(args.entry.placement_hint),
       cleanText(args.entry.visual_intent),
-    ].filter(Boolean).join(". "),
+    ],
+    "",
+  );
+  const normalizedBeat = normalizeVisualBeat({
+    primaryText: primaryPromptText,
+    secondaryText: secondaryPromptText || null,
     title: cleanText(args.anchor) ?? args.entry.anchor,
     tone: args.intent ?? args.entry.intent,
     style: args.stylePreset ?? args.entry.style_preset ?? null,
