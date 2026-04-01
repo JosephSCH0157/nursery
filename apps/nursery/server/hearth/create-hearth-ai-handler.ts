@@ -1155,6 +1155,39 @@ function normalizeStructuredReply(raw: string): StructuredReply | null {
   };
 }
 
+function summarizeResearchResult(result: HearthResearchResult): Record<string, number | string> {
+  let extracted = 0;
+  let partial = 0;
+  let failed = 0;
+  let skipped = 0;
+  let pending = 0;
+  let dated = 0;
+  let undated = 0;
+
+  for (const source of result.sources) {
+    if (source.extractionStatus === "extracted") extracted += 1;
+    else if (source.extractionStatus === "partial") partial += 1;
+    else if (source.extractionStatus === "failed") failed += 1;
+    else if (source.extractionStatus === "skipped") skipped += 1;
+    else if (source.extractionStatus === "pending") pending += 1;
+    if (source.publishedAt) dated += 1;
+    else undated += 1;
+  }
+
+  return {
+    mode: result.mode,
+    runtime_status: result.runtimeStatus,
+    source_count: result.sources.length,
+    extracted_count: extracted,
+    partial_count: partial,
+    failed_count: failed,
+    skipped_count: skipped,
+    pending_count: pending,
+    dated_count: dated,
+    undated_count: undated,
+  };
+}
+
 export function createHearthAiHandler(config: HearthRuntimeConfig) {
   const researchApiKey = (
     config.researchApiKey
@@ -2104,6 +2137,21 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             summary: "Research runtime failed before synthesis.",
           });
         }
+        await recordHearthEventForToken({
+          accessToken: bearerToken,
+          episodeId: episodeContext.episodeId,
+          eventType: "research_runtime_result",
+          payload: {
+            source: "middleware",
+            query: researchRequest.query,
+            intent: researchRequest.intent,
+            recency: researchRequest.recencyPreference,
+            max_sources: researchRequest.maxSources,
+            require_dates: researchRequest.requireDates,
+            require_full_extraction: researchRequest.requireFullExtraction,
+            ...summarizeResearchResult(researchResult),
+          },
+        });
       }
       const readinessCheckRequested = isReadinessCheckRequest(requestText);
       const allowRepeatedReadinessNudge = requestedDeepReadinessReview(requestText);

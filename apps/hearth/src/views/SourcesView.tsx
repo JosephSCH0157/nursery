@@ -23,6 +23,29 @@ const SOURCE_TYPES = [
   "other",
 ];
 
+function formatPublishedAt(value: string | null): string | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toLocaleDateString();
+}
+
+function buildResearchRuntimeMessage(result: HearthResearchResult): string {
+  if (result.runtimeStatus === "no_results") {
+    return "No strong sources came back for this query yet. Try adjusting keywords or recency.";
+  }
+  if (result.runtimeStatus === "error") {
+    return "Research hit a provider error in this pass. The result is honest but incomplete.";
+  }
+  if (result.runtimeStatus === "partial" || result.mode === "partial_retrieval") {
+    return "Partial retrieval: some sources were fetched and some could not be fully extracted.";
+  }
+  if (result.mode === "knowledge_first") {
+    return "Knowledge-first fallback was used. Live retrieval was unavailable in this pass.";
+  }
+  return "Retrieval completed with usable sources.";
+}
+
 export default function SourcesView({ state, workspaceId, workpieceId, researchResult = null }: SourcesViewProps) {
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [notesDrafts, setNotesDrafts] = useState<Record<string, string>>({});
@@ -159,38 +182,42 @@ export default function SourcesView({ state, workspaceId, workpieceId, researchR
           {researchResult.synthesis.coverageNote ? (
             <div className="hs-sources-muted">{researchResult.synthesis.coverageNote}</div>
           ) : null}
+          <div className="hs-sources-research-state-note">{buildResearchRuntimeMessage(researchResult)}</div>
           {researchResult.synthesis.summary ? (
             <div className="hs-sources-research-summary">{researchResult.synthesis.summary}</div>
           ) : null}
           {researchResult.sources.length ? (
             <div className="hs-sources-list">
-              {researchResult.sources.map((source) => (
-                <article key={source.sourceId} className="hs-sources-card">
-                  <div className="hs-sources-card-header">
-                    <div>
-                      <div className="hs-sources-card-title">
-                        {source.title ?? source.domain ?? source.url}
+              {researchResult.sources.map((source) => {
+                const publishedLabel = formatPublishedAt(source.publishedAt);
+                return (
+                  <article key={source.sourceId} className="hs-sources-card">
+                    <div className="hs-sources-card-header">
+                      <div>
+                        <div className="hs-sources-card-title">
+                          {source.title ?? source.domain ?? source.url}
+                        </div>
+                        <div className="hs-sources-meta">
+                          {source.domain ?? "unknown domain"}
+                          {publishedLabel ? ` · ${publishedLabel}` : ""}
+                        </div>
                       </div>
-                      <div className="hs-sources-meta">
-                        {source.domain ?? "unknown domain"}
-                        {source.publishedAt ? ` · ${new Date(source.publishedAt).toLocaleDateString()}` : ""}
-                      </div>
+                      <span className={`hs-sources-research-badge hs-sources-research-badge-${source.extractionStatus}`}>
+                        {source.extractionStatus}
+                      </span>
                     </div>
-                    <span className={`hs-sources-research-badge hs-sources-research-badge-${source.extractionStatus}`}>
-                      {source.extractionStatus}
-                    </span>
-                  </div>
-                  <a href={source.url} target="_blank" rel="noreferrer" className="hs-sources-url">
-                    {source.url}
-                  </a>
-                  {source.snippet ? (
-                    <div className="hs-sources-research-snippet">{source.snippet}</div>
-                  ) : null}
-                  {source.extractionError ? (
-                    <div className="hs-sources-research-error">{source.extractionError}</div>
-                  ) : null}
-                </article>
-              ))}
+                    <a href={source.url} target="_blank" rel="noreferrer" className="hs-sources-url">
+                      {source.url}
+                    </a>
+                    {source.snippet ? (
+                      <div className="hs-sources-research-snippet">{source.snippet}</div>
+                    ) : null}
+                    {source.extractionError ? (
+                      <div className="hs-sources-research-error">{source.extractionError}</div>
+                    ) : null}
+                  </article>
+                );
+              })}
             </div>
           ) : null}
         </section>

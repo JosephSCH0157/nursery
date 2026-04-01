@@ -39,6 +39,11 @@
   line-height: 1.4;
 }
 
+.hs-sources-research-state-note {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
 .hs-sources-muted {
   font-size: 12px;
   opacity: 0.7;

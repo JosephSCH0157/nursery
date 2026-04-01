@@ -40,6 +40,7 @@ const BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search";
 const MAX_FETCH_CHARS = 2_400;
 const MAX_SNIPPET_CHARS = 320;
 const FETCH_TIMEOUT_MS = 8_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function readText(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -61,6 +62,72 @@ function toIsoDate(value: string | null): string | null {
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed)) return null;
   return new Date(parsed).toISOString();
+}
+
+function toIsoFromMs(ms: number): string | null {
+  if (!Number.isFinite(ms)) return null;
+  const date = new Date(ms);
+  if (!Number.isFinite(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function normalizePublishedAt(value: string | null, nowMs = Date.now()): string | null {
+  const raw = readText(value);
+  if (!raw) return null;
+  const normalized = raw.toLowerCase();
+
+  const strictDateMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (strictDateMatch) {
+    const iso = toIsoFromMs(Date.UTC(
+      Number.parseInt(strictDateMatch[1] ?? "0", 10),
+      Number.parseInt(strictDateMatch[2] ?? "1", 10) - 1,
+      Number.parseInt(strictDateMatch[3] ?? "1", 10),
+      12,
+    ));
+    if (iso) return iso;
+  }
+
+  const yearMonthMatch = normalized.match(/^(\d{4})-(\d{2})$/);
+  if (yearMonthMatch) {
+    const iso = toIsoFromMs(Date.UTC(
+      Number.parseInt(yearMonthMatch[1] ?? "0", 10),
+      Number.parseInt(yearMonthMatch[2] ?? "1", 10) - 1,
+      1,
+      12,
+    ));
+    if (iso) return iso;
+  }
+
+  if (normalized === "today") {
+    return toIsoFromMs(nowMs);
+  }
+  if (normalized === "yesterday") {
+    return toIsoFromMs(nowMs - DAY_MS);
+  }
+
+  const agoMatch = normalized.match(/^(\d+)\s+(minute|hour|day|week|month|year)s?\s+ago$/);
+  if (agoMatch) {
+    const amount = Number.parseInt(agoMatch[1] ?? "0", 10);
+    const unit = agoMatch[2] ?? "";
+    if (amount > 0) {
+      let deltaMs = 0;
+      if (unit === "minute") deltaMs = amount * 60 * 1000;
+      else if (unit === "hour") deltaMs = amount * 60 * 60 * 1000;
+      else if (unit === "day") deltaMs = amount * DAY_MS;
+      else if (unit === "week") deltaMs = amount * 7 * DAY_MS;
+      else if (unit === "month") deltaMs = amount * 30 * DAY_MS;
+      else if (unit === "year") deltaMs = amount * 365 * DAY_MS;
+      const iso = toIsoFromMs(nowMs - deltaMs);
+      if (iso) return iso;
+    }
+  }
+
+  const loose = toIsoDate(raw);
+  if (!loose) return null;
+  const looseMs = Date.parse(loose);
+  if (!Number.isFinite(looseMs)) return null;
+  if (looseMs > nowMs + (2 * DAY_MS)) return null;
+  return loose;
 }
 
 function parseDomain(urlString: string): string | null {
@@ -135,7 +202,7 @@ async function searchWithBrave(args: {
       url: urlValue,
       domain,
       snippet: readText(item.description),
-      publishedAt: toIsoDate(readText(item.page_age) ?? readText(item.age)),
+      publishedAt: normalizePublishedAt(readText(item.page_age) ?? readText(item.age)),
     });
   }
   const deduped: BraveSearchResult[] = [];
@@ -288,6 +355,26 @@ function buildSynthesis(args: {
   };
 }
 
+function deriveRetrievalOutcome(args: {
+  sourceCount: number;
+  extractionSuccessCount: number;
+  extractionFailureCount: number;
+}): { mode: HearthResearchResult["mode"]; runtimeStatus: HearthResearchResult["runtimeStatus"] } {
+  if (args.sourceCount <= 0) {
+    return { mode: "retrieval_first", runtimeStatus: "no_results" };
+  }
+  if (args.extractionSuccessCount >= args.sourceCount) {
+    return { mode: "retrieval_first", runtimeStatus: "ok" };
+  }
+  if (args.extractionSuccessCount > 0) {
+    return { mode: "partial_retrieval", runtimeStatus: "partial" };
+  }
+  if (args.extractionFailureCount > 0) {
+    return { mode: "partial_retrieval", runtimeStatus: "partial" };
+  }
+  return { mode: "retrieval_first", runtimeStatus: "partial" };
+}
+
 export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig = {}): HearthResearchRuntime {
   const braveApiKey = readText(config.braveApiKey);
   return {
@@ -393,15 +480,15 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
       }
 
       const extractionFailureCount = sources.length - extractionSuccessCount;
-      const hasFailures = extractionFailureCount > 0;
-      const mode = hasFailures ? "partial_retrieval" : "retrieval_first";
-      const runtimeStatus = extractionSuccessCount > 0
-        ? (hasFailures ? "partial" : "ok")
-        : "partial";
+      const outcome = deriveRetrievalOutcome({
+        sourceCount: sources.length,
+        extractionSuccessCount,
+        extractionFailureCount,
+      });
 
       return {
-        mode,
-        runtimeStatus,
+        mode: outcome.mode,
+        runtimeStatus: outcome.runtimeStatus,
         sources,
         synthesis: buildSynthesis({
           request: args.request,
