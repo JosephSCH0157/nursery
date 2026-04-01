@@ -222,6 +222,7 @@ import HearthDesktopFrame from "../views/modes/HearthDesktopFrame";
 import HearthDesktopRailContent from "../views/modes/HearthDesktopRailContent";
 import { buildHearthDraftScriptSurfaceProps } from "../views/modes/buildHearthDraftScriptSurfaceProps";
 import { buildHearthDraftScriptPanelState } from "../views/modes/buildHearthDraftScriptPanelState";
+import HearthDesktopRail from "../views/modes/HearthDesktopRail";
 import {
   PRODUCTION_ACTION_LABEL,
   persistProductionArtifact as persistHearthProductionArtifact,
@@ -7360,110 +7361,96 @@ export default function HearthShell({
           uiDensity={uiDensity}
           onUiDensityChange={setUiDensity}
           railContent={(
-            <HearthDesktopRailContent
+            <HearthDesktopRail
               deferDesktopRailCollections={deferDesktopRailCollections}
-              readyQueueRail={(
-                <HearthReadyQueueRail
-                  readyTotalCount={readyTotalCount}
-                  refreshReadyScripts={refreshReadyScripts}
-                  isReadyScriptsLoading={isReadyScriptsLoading}
-                  readyScriptsError={readyScriptsError}
-                  readyCategoryError={readyCategoryError}
-                  readyUrgencyLabelFresh={READY_URGENCY_LABEL.fresh}
-                  readyUrgencyLabelCooling={READY_URGENCY_LABEL.cooling}
-                  readyUrgencyLabelCold={READY_URGENCY_LABEL.cold}
-                  readyUrgencyFreshCount={readyUrgencyCounts.fresh}
-                  readyUrgencyCoolingCount={readyUrgencyCounts.cooling}
-                  readyUrgencyColdCount={readyUrgencyCounts.cold}
-                  removedReadyCount={removedReadyCount}
-                  onOpenReadyView={() => setMode("ready")}
-                  onRestoreRemovedReady={onRestoreRemovedReady}
-                  isRestoringReady={isRestoringReady}
-                />
+              readyTotalCount={readyTotalCount}
+              refreshReadyScripts={refreshReadyScripts}
+              isReadyScriptsLoading={isReadyScriptsLoading}
+              readyScriptsError={readyScriptsError}
+              readyCategoryError={readyCategoryError}
+              readyUrgencyLabelFresh={READY_URGENCY_LABEL.fresh}
+              readyUrgencyLabelCooling={READY_URGENCY_LABEL.cooling}
+              readyUrgencyLabelCold={READY_URGENCY_LABEL.cold}
+              readyUrgencyFreshCount={readyUrgencyCounts.fresh}
+              readyUrgencyCoolingCount={readyUrgencyCounts.cooling}
+              readyUrgencyColdCount={readyUrgencyCounts.cold}
+              removedReadyCount={removedReadyCount}
+              onOpenReadyView={() => setMode("ready")}
+              onRestoreRemovedReady={onRestoreRemovedReady}
+              isRestoringReady={isRestoringReady}
+              searchRef={searchRef}
+              searchText={searchText}
+              onSearchTextChange={setSearchText}
+              sortKey={sortKey}
+              onSortKeyChange={setSortKey}
+              showArchived={showArchived}
+              onShowArchivedChange={setShowArchived}
+              isLoading={isLoading}
+              isWorkpiecesLoading={isWorkpiecesLoading}
+              workpiecesError={workpiecesError}
+              filteredWorkpieceNavItems={filteredWorkpieceNavItems}
+              draftsById={draftsById}
+              workpieceId={workpieceId}
+              editingDraftId={editingDraftId}
+              setEditingDraftId={setEditingDraftId}
+              editingTitle={editingTitle}
+              setEditingTitle={setEditingTitle}
+              shouldShowWorkpieceId={(title) => duplicateRailTitleKeys.has(normalizeRailTitleKey(title))}
+              archivingWorkpieceIds={archivingWorkpieceIds}
+              restoringWorkpieceIds={restoringWorkpieceIds}
+              openWorkpieceInFocus={openWorkpieceInFocus}
+              formatUpdatedAt={formatUpdatedAt}
+              resolveDraftEditorName={resolveDraftEditorName}
+              saveDraftMeta={saveDraftMeta}
+              onRestoreWorkpiece={onRestoreWorkpiece}
+              onArchiveWorkpiece={onArchiveWorkpiece}
+              onDeleteDraft={onDeleteDraft}
+              hasActiveEpisode={hasActiveEpisode}
+              activeEpisodeReadyStatus={activeEpisodeReadyStatus}
+              activeWorkpieceIsArchived={activeWorkpieceIsArchived}
+              activeWorkpieceArchiveReason={activeWorkpiece?.archiveReason ?? null}
+              isRestoringActiveWorkpiece={Boolean(
+                activeWorkpiece && restoringWorkpieceIds.includes(activeWorkpiece.workpieceId),
               )}
-              workspaceProjectsRail={(
-                <HearthWorkspaceProjectsRail
-                  searchRef={searchRef}
-                  searchText={searchText}
-                  onSearchTextChange={setSearchText}
-                  sortKey={sortKey}
-                  onSortKeyChange={setSortKey}
-                  showArchived={showArchived}
-                  onShowArchivedChange={setShowArchived}
-                  isLoading={isLoading}
-                  isWorkpiecesLoading={isWorkpiecesLoading}
-                  workpiecesError={workpiecesError}
-                  filteredWorkpieceNavItems={filteredWorkpieceNavItems}
-                  draftsById={draftsById}
-                  workpieceId={workpieceId}
-                  editingDraftId={editingDraftId}
-                  setEditingDraftId={setEditingDraftId}
-                  editingTitle={editingTitle}
-                  setEditingTitle={setEditingTitle}
-                  shouldShowWorkpieceId={(title) => duplicateRailTitleKeys.has(normalizeRailTitleKey(title))}
-                  archivingWorkpieceIds={archivingWorkpieceIds}
-                  restoringWorkpieceIds={restoringWorkpieceIds}
-                  openWorkpieceInFocus={openWorkpieceInFocus}
-                  formatUpdatedAt={formatUpdatedAt}
-                  resolveDraftEditorName={resolveDraftEditorName}
-                  saveDraftMeta={saveDraftMeta}
-                  onRestoreWorkpiece={onRestoreWorkpiece}
-                  onArchiveWorkpiece={onArchiveWorkpiece}
-                  onDeleteDraft={onDeleteDraft}
-                />
-              )}
-              activeWorkpieceRail={(
-                <HearthActiveWorkpieceRail
-                  hasActiveEpisode={hasActiveEpisode}
-                  activeEpisodeReadyStatus={activeEpisodeReadyStatus}
-                  activeWorkpieceIsArchived={activeWorkpieceIsArchived}
-                  activeWorkpieceArchiveReason={activeWorkpiece?.archiveReason ?? null}
-                  isRestoringActiveWorkpiece={Boolean(
-                    activeWorkpiece && restoringWorkpieceIds.includes(activeWorkpiece.workpieceId),
-                  )}
-                  onRestoreActiveWorkpiece={() => {
-                    if (!activeWorkpiece) return;
-                    return onRestoreWorkpiece(activeWorkpiece.workpieceId, { openAfterRestore: true });
-                  }}
-                  openInAnvilHref={openInAnvilHref}
-                  handoffBlocked={handoffBlocked}
-                  onOpenInAnvil={onOpenInAnvil}
-                  anvilStepModeHint={anvilStepModeHint}
-                  isFocusDraftActive={mode === "focus" && focusTab === "draft"}
-                  isFocusPlanningActive={mode === "focus" && focusTab === "planning"}
-                  isFocusSourcesActive={mode === "focus" && focusTab === "sources"}
-                  isFocusRevisionsActive={mode === "focus" && focusTab === "revisions"}
-                  wordCount={wordCount}
-                  revisionsCount={revisions.length}
-                  sourcesBadgeTitle={sourcesBadgeTitle}
-                  sourcesBadge={sourcesBadge}
-                  devMode={devMode}
-                  onFocusDraft={() => {
-                    setFocusTab("draft");
-                    setMode("focus");
-                  }}
-                  onFocusPlanning={() => {
-                    setFocusTab("planning");
-                    setMode("focus");
-                  }}
-                  onFocusSources={() => {
-                    setFocusTab("sources");
-                    setMode("focus");
-                  }}
-                  onFocusRevisions={() => {
-                    setFocusTab("revisions");
-                    setMode("focus");
-                  }}
-                  onOpenApiLedger={() => {
-                    if (!hasActiveEpisode) {
-                      setMode("episodes");
-                      return;
-                    }
-                    setFocusTab("sources");
-                    setMode("focus");
-                  }}
-                />
-              )}
+              onRestoreActiveWorkpiece={() => {
+                if (!activeWorkpiece) return;
+                return onRestoreWorkpiece(activeWorkpiece.workpieceId, { openAfterRestore: true });
+              }}
+              openInAnvilHref={openInAnvilHref}
+              handoffBlocked={handoffBlocked}
+              onOpenInAnvil={onOpenInAnvil}
+              anvilStepModeHint={anvilStepModeHint}
+              mode={mode}
+              focusTab={focusTab}
+              wordCount={wordCount}
+              revisionsCount={revisions.length}
+              sourcesBadgeTitle={sourcesBadgeTitle}
+              sourcesBadge={sourcesBadge}
+              devMode={devMode}
+              onFocusDraft={() => {
+                setFocusTab("draft");
+                setMode("focus");
+              }}
+              onFocusPlanning={() => {
+                setFocusTab("planning");
+                setMode("focus");
+              }}
+              onFocusSources={() => {
+                setFocusTab("sources");
+                setMode("focus");
+              }}
+              onFocusRevisions={() => {
+                setFocusTab("revisions");
+                setMode("focus");
+              }}
+              onOpenApiLedger={() => {
+                if (!hasActiveEpisode) {
+                  setMode("episodes");
+                  return;
+                }
+                setFocusTab("sources");
+                setMode("focus");
+              }}
             />
           )}
           mainContent={mainContent}
