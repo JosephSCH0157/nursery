@@ -161,7 +161,7 @@ import {
   type ScriptValidationResult,
   type ScriptValidationIssue,
 } from "@forge/shared/script-tags";
-import { evaluateHearthScriptValidation } from "../lib/hearth-script-tag-policy";
+import { evaluateHearthScriptValidation, normalizeHearthAiScriptIngress } from "../lib/hearth-script-tag-policy";
 import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import type {
   ComposeSetup,
@@ -3441,15 +3441,18 @@ export default function HearthShell({
     countProducerQuestions,
     readLatestOutlineFromOps,
     cloneHearthProposalOps,
-    createPendingAiProposal: (proposalArgs) => ({
-      assistantText: proposalArgs.assistantText,
-      ops: proposalArgs.proposalOps,
-      originalOps: cloneHearthProposalOps(proposalArgs.proposalOps),
-      selected: proposalArgs.proposalOps.map(() => true),
-      context: proposalArgs.episodeContext,
-      fromGate: proposalArgs.fromGate,
-      autosaveReasonCode: proposalArgs.autosaveReasonCode,
-    }),
+    createPendingAiProposal: (proposalArgs) => {
+      const normalizedOps = normalizeAiProposalOpsForScriptIngress(proposalArgs.proposalOps);
+      return {
+        assistantText: proposalArgs.assistantText,
+        ops: normalizedOps,
+        originalOps: cloneHearthProposalOps(normalizedOps),
+        selected: normalizedOps.map(() => true),
+        context: proposalArgs.episodeContext,
+        fromGate: proposalArgs.fromGate,
+        autosaveReasonCode: proposalArgs.autosaveReasonCode,
+      };
+    },
     resolveAiLaneFromStorage,
     requestHearthChatReply,
     persistProductionArtifact: async (artifactArgs) => {
@@ -6184,6 +6187,17 @@ export default function HearthShell({
       }
     }
     return next;
+  }
+
+  function normalizeAiProposalOpsForScriptIngress(ops: HearthOp[]): HearthOp[] {
+    return ops.map((op) => {
+      if (op.op !== "set_body") return op;
+      const normalized = normalizeHearthAiScriptIngress(op.value);
+      return {
+        ...op,
+        value: normalized.text,
+      };
+    });
   }
 
   function graduateLinkedSpark(episodeId: string): string | null {

@@ -3,6 +3,7 @@ import {
   SPEAKER_CLOSE_TAGS,
   SPEAKER_OPEN_TAGS,
   normalizeScriptTags,
+  repairScriptTags,
   validateScriptTags,
   type ScriptValidationResult,
 } from "@forge/shared/script-tags";
@@ -17,6 +18,7 @@ const CANONICAL_NON_SPEAKER_TAGS = new Set<string>(
   ALL_CANONICAL_TAGS.filter((tag) => !CANONICAL_SPEAKER_TAGS.has(tag)),
 );
 const SPEAKERISH_TAG_PATTERN = /^\[\/?(?:s\d+|g\d+|speaker\d*|guest\d*|host|narrator)\]$/i;
+const BRACKET_TAG_PATTERN = /\[[^\]\n]+\]/g;
 
 function extractBracketTokens(input: string): string[] {
   const matches = input.match(SCRIPT_TAG_TOKEN_PATTERN) ?? [];
@@ -54,6 +56,33 @@ export function evaluateHearthScriptValidation(rawText: string): {
     normalizedText,
     tagMode,
     validation: validateScriptTags(normalizedText),
+  };
+}
+
+export function normalizeHearthAiScriptIngress(rawText: string): {
+  text: string;
+  validation: ScriptValidationResult;
+  fallbackApplied: boolean;
+} {
+  const normalized = normalizeScriptTags(rawText);
+  const repaired = repairScriptTags(normalized);
+  const repairedResult = evaluateHearthScriptValidation(repaired.text);
+  if (repairedResult.validation.ok || repairedResult.tagMode === "absent") {
+    return {
+      text: repaired.text,
+      validation: repairedResult.validation,
+      fallbackApplied: false,
+    };
+  }
+
+  const plainText = repaired.text.replace(BRACKET_TAG_PATTERN, " ").replace(/\s+/g, " ").trim();
+  const wrapped = `[s1]\n${plainText || "Pending script line."}\n[/s1]`;
+  const wrappedRepaired = repairScriptTags(normalizeScriptTags(wrapped));
+  const wrappedResult = evaluateHearthScriptValidation(wrappedRepaired.text);
+  return {
+    text: wrappedRepaired.text,
+    validation: wrappedResult.validation,
+    fallbackApplied: true,
   };
 }
 
