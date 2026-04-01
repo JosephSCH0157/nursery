@@ -55,6 +55,7 @@ function readIntegerEnv(name: string): number | null {
 export type HearthRuntimeConfig = {
   textApiKey?: string | null;
   imageApiKey?: string | null;
+  researchApiKey?: string | null;
   apiKey?: string | null;
   model: string;
   sttModel: string;
@@ -99,6 +100,12 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
   const supabaseServiceRoleKey = readEnv("TONGS_SERVICE_ROLE_KEY") || readEnv("SUPABASE_SERVICE_ROLE_KEY") || null;
   const textApiKey = readEnv("OPENAI_TEXT_API_KEY") || readEnv("OPENAI_API_KEY") || null;
   const imageApiKey = readEnv("OPENAI_IMAGE_API_KEY") || readEnv("OPENAI_API_KEY") || null;
+  const researchApiKey = (
+    readEnv("HEARTH_RESEARCH_API_KEY")
+    || readEnv("HEARTH_RESEARCH_BRAVE_API_KEY")
+    || readEnv("BRAVE_SEARCH_API_KEY")
+    || null
+  );
   const supabaseRpcKey = (
     readEnv("TONGS_SUPABASE_ANON_KEY")
     || readEnv("SUPABASE_ANON_KEY")
@@ -110,6 +117,7 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
   return {
     textApiKey,
     imageApiKey,
+    researchApiKey,
     apiKey: textApiKey,
     model: resolveAllowedChatModel(readEnv("HEARTH_AI_MODEL")),
     sttModel: readEnv("HEARTH_STT_MODEL") || DEFAULT_STT_MODEL,

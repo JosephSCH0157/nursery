@@ -28,7 +28,6 @@ import {
   moveSegmentTiming,
   resolveAdjacentJumpPointTime,
   resolveAdjacentSegmentSelection,
-  resolveEffectivePlaybackTime,
   resolveFocusAfterPlayheadChange,
   resolvePlayheadAfterDelete,
   resolvePlayheadAfterRangeCut,
@@ -50,6 +49,19 @@ import {
   type HammerWorkspaceFocusOverride,
   type HammerWorkspaceToolId,
 } from "./hammerWorkspaceTimeline";
+import {
+  isTimeRangeFullyCoveredByCuts,
+  getEffectiveCutRegions,
+  resolveNextAudiblePlaybackTime,
+} from "./hammerAudioEditPlayback";
+import {
+  commitAudioCutSelection,
+  normalizeAudioCutSelection,
+} from "./hammerAudioEditOperations";
+import {
+  buildSilenceCutSuggestions,
+  filterDismissedSilenceCutSuggestions,
+} from "./hammerSilenceCutSuggestions";
 import {
   resolveTranscriptDurationSec,
   syncEditableTranscriptSegments,
@@ -149,6 +161,10 @@ import {
 import { buildHammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBackbone";
 import { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
 import { preserveTranscriptMetadata } from "../prep/hammerPrep";
+import {
+  cloneHammerAudioEdit,
+  cloneHammerAudioPolish,
+} from "../prep/hammerAudioPolish";
 import { buildHammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
 import {
   HAMMER_PREPARED_RELEASE_PACKAGE_PATH,
@@ -1663,6 +1679,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [activeCandidateIndex, setActiveCandidateIndex] = useState(0);
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
+  const [editableAudioPolish, setEditableAudioPolish] = useState<HammerPersistedAudioPolish | null>(
+    () => cloneHammerAudioPolish(props.audioPolish),
+  );
+  const [audioCutSelectionStartSec, setAudioCutSelectionStartSec] = useState<number | null>(null);
+  const [audioCutSelectionEndSec, setAudioCutSelectionEndSec] = useState<number | null>(null);
+  const [dismissedSilenceSuggestionIds, setDismissedSilenceSuggestionIds] = useState<Set<string>>(() => new Set());
   const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
   const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
   const [audioFinalizationCompareMode, setAudioFinalizationCompareMode] = useState<HammerAudioFinalizationCompareMode>("after");
@@ -1760,7 +1782,51 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
   const lastGapAutoApplySignatureRef = useRef<string | null>(null);
   const imagePlacementDraftWindowsRef = useRef<Record<string, HammerImagePlacementDraftWindow>>({});
+  const audioPolishHasLocalEditsRef = useRef(false);
+  const editableAudioPolishRef = useRef<HammerPersistedAudioPolish | null>(
+    cloneHammerAudioPolish(props.audioPolish),
+  );
   const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
+
+  useEffect(() => {
+    audioPolishHasLocalEditsRef.current = false;
+    editableAudioPolishRef.current = null;
+    setEditableAudioPolish(null);
+    setAudioCutSelectionStartSec(null);
+    setAudioCutSelectionEndSec(null);
+    setDismissedSilenceSuggestionIds(new Set());
+  }, [launchContext.workpiece_id]);
+
+  useEffect(() => {
+    setEditableAudioPolish((current) => {
+      if (!props.audioPolish) {
+        const next = audioPolishHasLocalEditsRef.current ? current : null;
+        editableAudioPolishRef.current = next;
+        return next;
+      }
+
+      const incoming = cloneHammerAudioPolish(props.audioPolish);
+      if (!incoming) {
+        const next = audioPolishHasLocalEditsRef.current ? current : null;
+        editableAudioPolishRef.current = next;
+        return next;
+      }
+      if (!audioPolishHasLocalEditsRef.current) {
+        editableAudioPolishRef.current = incoming;
+        return incoming;
+      }
+
+      const next = {
+        ...incoming,
+        audio_edit: cloneHammerAudioEdit(current?.audio_edit ?? null) ?? cloneHammerAudioEdit(incoming.audio_edit),
+      };
+      editableAudioPolishRef.current = next;
+      return next;
+    });
+  }, [props.audioPolish]);
+  useEffect(() => {
+    editableAudioPolishRef.current = editableAudioPolish;
+  }, [editableAudioPolish]);
 
   useEffect(() => {
     const nextInitialPass = resolveInitialPassId(props.initialCurrentPass);
@@ -2013,10 +2079,227 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [imagePlacementDraftWindows]);
   const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, playheadSec);
   const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
+  const playbackTransportDurationSec = transcriptDurationSec;
+  const effectivePlaybackCutRegions = useMemo(
+    () => getEffectiveCutRegions(editableAudioPolish?.audio_edit ?? null, playbackTransportDurationSec),
+    [editableAudioPolish?.audio_edit, playbackTransportDurationSec],
+  );
+  const audioCutSelection = useMemo(() => normalizeAudioCutSelection({
+    selection: {
+      startSec: audioCutSelectionStartSec,
+      endSec: audioCutSelectionEndSec,
+    },
+    durationSec: playbackTransportDurationSec,
+  }), [audioCutSelectionEndSec, audioCutSelectionStartSec, playbackTransportDurationSec]);
+  const hasPendingAudioCutSelection = audioCutSelectionStartSec != null || audioCutSelectionEndSec != null;
+  const persistedAudioCutCount = editableAudioPolish?.audio_edit?.operations.length ?? 0;
+  const isAudioCutSelectionCovered = useMemo(() => {
+    if (!audioCutSelection) {
+      return false;
+    }
+    return isTimeRangeFullyCoveredByCuts({
+      effectiveCutRegions: effectivePlaybackCutRegions,
+      startSec: audioCutSelection.startSec,
+      endSec: audioCutSelection.endSec,
+    });
+  }, [audioCutSelection, effectivePlaybackCutRegions]);
+  const audioCutSelectionStatus = useMemo(() => {
+    if (playbackTransportDurationSec <= 0) {
+      return "Timeline duration unavailable. Cut selection is disabled.";
+    }
+    if (audioCutSelection && isAudioCutSelectionCovered) {
+      return `Selection ${audioCutSelection.startSec.toFixed(1)}s-${audioCutSelection.endSec.toFixed(1)}s is already covered by an existing cut.`;
+    }
+    if (audioCutSelection) {
+      return `Cut selection ready: ${audioCutSelection.startSec.toFixed(1)}s-${audioCutSelection.endSec.toFixed(1)}s.`;
+    }
+    if (audioCutSelectionStartSec != null && audioCutSelectionEndSec != null) {
+      return "Selection must be longer than 0.0s to create a cut.";
+    }
+    if (audioCutSelectionStartSec != null) {
+      return `In point marked at ${audioCutSelectionStartSec.toFixed(1)}s. Move the playhead and mark out.`;
+    }
+    if (audioCutSelectionEndSec != null) {
+      return `Out point marked at ${audioCutSelectionEndSec.toFixed(1)}s. Move the playhead and mark in.`;
+    }
+    return "Use the current playhead to mark in, mark out, and create one persisted cut.";
+  }, [
+    audioCutSelection,
+    audioCutSelectionEndSec,
+    audioCutSelectionStartSec,
+    isAudioCutSelectionCovered,
+    playbackTransportDurationSec,
+  ]);
+  const canMarkAudioCutSelection = playbackTransportDurationSec > 0;
+  const canApplyAudioCutSelection = audioCutSelection != null && !isAudioCutSelectionCovered;
+  const silenceCutSuggestions = useMemo(() => buildSilenceCutSuggestions({
+    segmentation: editableAudioPolish?.analysis?.segmentation ?? null,
+    durationSec: playbackTransportDurationSec,
+    effectiveCutRegions: effectivePlaybackCutRegions,
+  }), [
+    editableAudioPolish?.analysis?.segmentation,
+    effectivePlaybackCutRegions,
+    playbackTransportDurationSec,
+  ]);
+  const visibleSilenceCutSuggestions = useMemo(() => filterDismissedSilenceCutSuggestions({
+    suggestions: silenceCutSuggestions,
+    dismissedSuggestionIds: dismissedSilenceSuggestionIds,
+  }), [dismissedSilenceSuggestionIds, silenceCutSuggestions]);
+  const hasSilenceSuggestionAnalysis = editableAudioPolish?.analysis?.segmentation != null;
+  const silenceSuggestionCount = visibleSilenceCutSuggestions.length;
+  useEffect(() => {
+    if (dismissedSilenceSuggestionIds.size === 0) return;
+    const activeSuggestionIds = new Set(silenceCutSuggestions.map((suggestion) => suggestion.id));
+    let changed = false;
+    const nextDismissedIds = new Set<string>();
+    for (const suggestionId of dismissedSilenceSuggestionIds) {
+      if (activeSuggestionIds.has(suggestionId)) {
+        nextDismissedIds.add(suggestionId);
+      } else {
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    setDismissedSilenceSuggestionIds(nextDismissedIds);
+  }, [dismissedSilenceSuggestionIds, silenceCutSuggestions]);
   const playheadBoundaryTimesSec = useMemo(
     () => resolveTimelineBoundaryTimes(editableTranscriptSegments),
     [editableTranscriptSegments],
   );
+  const resolveAudibleSeekTarget = useCallback((requestedTimeSec: number): number | null => (
+    resolveNextAudiblePlaybackTime({
+      requestedTimeSec,
+      durationSec: playbackTransportDurationSec,
+      effectiveCutRegions: effectivePlaybackCutRegions,
+      transcriptSegments: editableTranscriptSegments,
+    })
+  ), [editableTranscriptSegments, effectivePlaybackCutRegions, playbackTransportDurationSec]);
+  useEffect(() => {
+    if (playbackTransportDurationSec <= 0) return;
+
+    const audibleTarget = resolveAudibleSeekTarget(playheadSec);
+    if (audibleTarget == null) {
+      const terminalPlayheadSec = roundToTenth(playbackTransportDurationSec);
+      if (Math.abs(playheadSec - terminalPlayheadSec) >= SCRUB_SEEK_THRESHOLD_SEC) {
+        setPlayheadSec(terminalPlayheadSec);
+      }
+      if (
+        previewAudioRef.current
+        && Math.abs(previewAudioRef.current.currentTime - playbackTransportDurationSec) > PLAYHEAD_WINDOW_EPSILON_SEC
+      ) {
+        previewAudioRef.current.currentTime = playbackTransportDurationSec;
+      }
+      if (isPlaybackActive) {
+        setIsPlaybackActive(false);
+      }
+      if (playbackWindow?.mode === "roll") {
+        setPlaybackWindow(null);
+      }
+      return;
+    }
+
+    if (Math.abs(playheadSec - audibleTarget) < SCRUB_SEEK_THRESHOLD_SEC) {
+      return;
+    }
+
+    const nextPlayheadSec = roundToTenth(audibleTarget);
+    setPlayheadSec(nextPlayheadSec);
+    if (
+      previewAudioRef.current
+      && Math.abs(previewAudioRef.current.currentTime - audibleTarget) > PLAYHEAD_WINDOW_EPSILON_SEC
+    ) {
+      previewAudioRef.current.currentTime = audibleTarget;
+    }
+  }, [
+    effectivePlaybackCutRegions,
+    isPlaybackActive,
+    playbackTransportDurationSec,
+    playbackWindow?.mode,
+    playheadSec,
+    resolveAudibleSeekTarget,
+  ]);
+  const resolvePlaybackTransportProgress = useCallback((requestedTimeSec: number): {
+    nextPlayheadSec: number;
+    shouldLoop: boolean;
+    shouldStop: boolean;
+    shouldSyncMediaTime: boolean;
+  } => {
+    if (playbackTransportDurationSec <= 0) {
+      return {
+        nextPlayheadSec: 0,
+        shouldLoop: false,
+        shouldStop: true,
+        shouldSyncMediaTime: false,
+      };
+    }
+
+    let candidate = Math.max(0, Math.min(playbackTransportDurationSec, requestedTimeSec));
+    let shouldLoop = false;
+    let shouldSyncMediaTime = false;
+    const maxIterations = Math.max(2, effectivePlaybackCutRegions.length + 4);
+
+    for (let index = 0; index < maxIterations; index += 1) {
+      const audibleTarget = resolveNextAudiblePlaybackTime({
+        requestedTimeSec: candidate,
+        durationSec: playbackTransportDurationSec,
+        effectiveCutRegions: effectivePlaybackCutRegions,
+        transcriptSegments: editableTranscriptSegments,
+      });
+
+      if (audibleTarget == null) {
+        return {
+          nextPlayheadSec: playbackTransportDurationSec,
+          shouldLoop: false,
+          shouldStop: true,
+          shouldSyncMediaTime: true,
+        };
+      }
+
+      if (Math.abs(audibleTarget - candidate) > PLAYHEAD_WINDOW_EPSILON_SEC) {
+        shouldSyncMediaTime = true;
+      }
+
+      const windowProgress = resolvePlaybackWindowProgress(audibleTarget);
+      if (windowProgress.shouldStop) {
+        return {
+          nextPlayheadSec: windowProgress.nextPlayheadSec,
+          shouldLoop: false,
+          shouldStop: true,
+          shouldSyncMediaTime: shouldSyncMediaTime
+            || Math.abs(windowProgress.nextPlayheadSec - audibleTarget) > PLAYHEAD_WINDOW_EPSILON_SEC,
+        };
+      }
+
+      if (
+        windowProgress.shouldLoop
+        || Math.abs(windowProgress.nextPlayheadSec - audibleTarget) > PLAYHEAD_WINDOW_EPSILON_SEC
+      ) {
+        candidate = windowProgress.nextPlayheadSec;
+        shouldLoop = shouldLoop || windowProgress.shouldLoop;
+        shouldSyncMediaTime = true;
+        continue;
+      }
+
+      return {
+        nextPlayheadSec: audibleTarget,
+        shouldLoop,
+        shouldStop: false,
+        shouldSyncMediaTime,
+      };
+    }
+
+    return {
+      nextPlayheadSec: candidate,
+      shouldLoop,
+      shouldStop: false,
+      shouldSyncMediaTime,
+    };
+  }, [
+    editableTranscriptSegments,
+    effectivePlaybackCutRegions,
+    playbackTransportDurationSec,
+    playbackWindow,
+  ]);
   const sortedTimelineMarkers = useMemo(
     () => [...timelineMarkers].sort((left, right) => left.timeSec - right.timeSec),
     [timelineMarkers],
@@ -2493,14 +2776,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => buildHammerMediaPrepOutputsPackage({
       structuredTranscript: workspaceStructuredTranscript ?? null,
       visualPlacements: null,
-      audioPolish: props.audioPolish ?? null,
+      audioPolish: editableAudioPolish,
       mediaRef,
       mediaSourceLabel,
     }),
     [
+      editableAudioPolish,
       mediaRef,
       mediaSourceLabel,
-      props.audioPolish,
       workspaceStructuredTranscript,
     ],
   );
@@ -3253,11 +3536,36 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
 
-    const playbackTarget = resolvePlaybackWindowProgress(playheadSec).nextPlayheadSec;
-    const targetTime = Math.max(0, Math.min(playbackTarget, transcriptDurationSec > 0 ? transcriptDurationSec : playbackTarget));
-    const shouldSynchronizeCurrentTime = srcChanged || !isPlaybackActive || isScrubbing;
+    const transportProgress = isPlaybackActive
+      ? resolvePlaybackTransportProgress(playheadSec)
+      : {
+        nextPlayheadSec: resolveAudibleSeekTarget(playheadSec) ?? playbackTransportDurationSec,
+        shouldLoop: false,
+        shouldStop: false,
+        shouldSyncMediaTime: false,
+      };
+    const targetTime = Math.max(
+      0,
+      Math.min(
+        transportProgress.nextPlayheadSec,
+        playbackTransportDurationSec > 0 ? playbackTransportDurationSec : transportProgress.nextPlayheadSec,
+      ),
+    );
+    if (Math.abs(playheadSec - targetTime) >= SCRUB_SEEK_THRESHOLD_SEC) {
+      setPlayheadSec(roundToTenth(targetTime));
+    }
+    const shouldSynchronizeCurrentTime = srcChanged || !isPlaybackActive || isScrubbing || transportProgress.shouldSyncMediaTime;
     if (shouldSynchronizeCurrentTime && Math.abs(previewAudio.currentTime - targetTime) > SCRUB_SEEK_THRESHOLD_SEC) {
       previewAudio.currentTime = targetTime;
+    }
+
+    if (transportProgress.shouldStop) {
+      previewAudio.pause();
+      if (isPlaybackActive) setIsPlaybackActive(false);
+      if (playbackWindow?.mode === "roll") {
+        setPlaybackWindow(null);
+      }
+      return;
     }
 
     if (!isPlaybackActive) {
@@ -3269,7 +3577,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     void previewAudio.play().catch(() => {
       setIsPlaybackActive(false);
     });
-  }, [claimGlobalPlaybackAuthority, isPlaybackActive, isScrubbing, playbackMediaSrc, playheadSec, transcriptDurationSec, playbackWindow]);
+  }, [
+    claimGlobalPlaybackAuthority,
+    isPlaybackActive,
+    isScrubbing,
+    playbackMediaSrc,
+    playbackTransportDurationSec,
+    playheadSec,
+    playbackWindow,
+    resolveAudibleSeekTarget,
+    resolvePlaybackTransportProgress,
+  ]);
 
   useEffect(() => () => {
     const previewAudio = previewAudioRef.current;
@@ -3300,20 +3618,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const intervalId = window.setInterval(() => {
       setPlayheadSec((current) => {
         const next = Math.min(roundToTenth(current + SMALL_PLAYHEAD_NUDGE_SEC), transcriptDurationSec);
-        const effectiveNext = resolveEffectivePlaybackTime(editableTranscriptSegments, next);
-        const windowProgress = resolvePlaybackWindowProgress(effectiveNext);
-        if (windowProgress.shouldStop) {
+        const transportProgress = resolvePlaybackTransportProgress(next);
+        if (transportProgress.shouldStop) {
           window.clearInterval(intervalId);
           setIsPlaybackActive(false);
           if (playbackWindow?.mode === "roll") {
             setPlaybackWindow(null);
           }
         }
-        if (!playbackWindow && effectiveNext >= transcriptDurationSec) {
+        if (!playbackWindow && transportProgress.nextPlayheadSec >= transcriptDurationSec) {
           window.clearInterval(intervalId);
           setIsPlaybackActive(false);
         }
-        return roundToTenth(windowProgress.nextPlayheadSec);
+        return roundToTenth(transportProgress.nextPlayheadSec);
       });
     }, 100);
 
@@ -3321,10 +3638,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       window.clearInterval(intervalId);
     };
   }, [
-    editableTranscriptSegments,
     isPlaybackActive,
     playbackMediaSrc,
     playbackWindow,
+    resolvePlaybackTransportProgress,
     transcriptDurationSec,
   ]);
 
@@ -3747,9 +4064,87 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         boundaryTimesSec: playheadBoundaryTimesSec,
         toleranceSec: PLAYHEAD_SNAP_TOLERANCE_SEC,
       });
+    const audibleTarget = resolveAudibleSeekTarget(snapped);
     selectionOriginRef.current = origin;
-    setPlayheadSec(snapped);
+    setPlayheadSec(roundToTenth(audibleTarget ?? playbackTransportDurationSec));
     setFocusOverride(resolveFocusAfterPlayheadChange(focusOverride));
+  }
+
+  function markAudioCutBoundary(boundary: "start" | "end"): void {
+    if (playbackTransportDurationSec <= 0) return;
+    const markerTimeSec = Math.max(0, Math.min(playbackTransportDurationSec, roundToTenth(playheadSec)));
+    if (boundary === "start") {
+      setAudioCutSelectionStartSec(markerTimeSec);
+      return;
+    }
+    setAudioCutSelectionEndSec(markerTimeSec);
+  }
+
+  function clearAudioCutSelection(): void {
+    setAudioCutSelectionStartSec(null);
+    setAudioCutSelectionEndSec(null);
+  }
+
+  function commitEditableAudioCut(args: {
+    startSec: number | null;
+    endSec: number | null;
+  }): boolean {
+    const committed = commitAudioCutSelection({
+      audioPolish: editableAudioPolishRef.current,
+      selection: {
+        startSec: args.startSec,
+        endSec: args.endSec,
+      },
+      durationSec: playbackTransportDurationSec,
+    });
+    if (!committed) {
+      return false;
+    }
+
+    audioPolishHasLocalEditsRef.current = true;
+    editableAudioPolishRef.current = committed.audioPolish;
+    setEditableAudioPolish(committed.audioPolish);
+    setFocusOverride("time-focus");
+    return true;
+  }
+
+  function applyAudioCutSelection(): void {
+    const applied = commitEditableAudioCut({
+      startSec: audioCutSelectionStartSec,
+      endSec: audioCutSelectionEndSec,
+    });
+    if (!applied) {
+      return;
+    }
+    setAudioCutSelectionStartSec(null);
+    setAudioCutSelectionEndSec(null);
+  }
+
+  function acceptSilenceCutSuggestion(suggestionId: string): void {
+    const suggestion = visibleSilenceCutSuggestions.find((item) => item.id === suggestionId) ?? null;
+    if (!suggestion) {
+      return;
+    }
+    const applied = commitEditableAudioCut({
+      startSec: suggestion.startSec,
+      endSec: suggestion.endSec,
+    });
+    if (!applied) {
+      return;
+    }
+    setDismissedSilenceSuggestionIds((current) => {
+      const next = new Set(current);
+      next.delete(suggestionId);
+      return next;
+    });
+  }
+
+  function dismissSilenceCutSuggestion(suggestionId: string): void {
+    setDismissedSilenceSuggestionIds((current) => {
+      const next = new Set(current);
+      next.add(suggestionId);
+      return next;
+    });
   }
 
   function resolvePlaybackWindowProgress(nextTimeSec: number): {
@@ -4714,20 +5109,26 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [activeCandidateIndex, candidateCards.length]);
 
   function handlePlaybackProgress(nextTimeSec: number): void {
-    const effectiveNext = resolveEffectivePlaybackTime(editableTranscriptSegments, nextTimeSec);
-    const windowProgress = resolvePlaybackWindowProgress(effectiveNext);
-    const nextPlayhead = roundToTenth(windowProgress.nextPlayheadSec);
+    const transportProgress = resolvePlaybackTransportProgress(nextTimeSec);
+    const nextPlayhead = roundToTenth(transportProgress.nextPlayheadSec);
 
     setPlayheadSec((current) => (
       Math.abs(current - nextPlayhead) >= SCRUB_SEEK_THRESHOLD_SEC ? nextPlayhead : current
     ));
 
-    if (windowProgress.shouldLoop && previewAudioRef.current) {
-      previewAudioRef.current.currentTime = nextPlayhead;
+    if (
+      previewAudioRef.current
+      && (transportProgress.shouldLoop || transportProgress.shouldSyncMediaTime)
+      && Math.abs(previewAudioRef.current.currentTime - transportProgress.nextPlayheadSec) > PLAYHEAD_WINDOW_EPSILON_SEC
+    ) {
+      previewAudioRef.current.currentTime = transportProgress.nextPlayheadSec;
+    }
+
+    if (transportProgress.shouldLoop) {
       return;
     }
 
-    if (windowProgress.shouldStop) {
+    if (transportProgress.shouldStop) {
       setIsPlaybackActive(false);
       if (playbackWindow?.mode === "roll") {
         setPlaybackWindow(null);
@@ -6573,7 +6974,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       alignmentStatus: transcriptForRelease.segments.length > 0 ? "aligned" : "not_started",
       structuredTranscript: transcriptForRelease,
       visualPlacements: editableVisualPlacements,
-      audioPolish: props.audioPolish ?? null,
+      audioPolish: editableAudioPolish,
       editorSession: {
         schema_version: 1,
         session_id: launchContext.session_id ?? editPlan.session_id ?? `${launchContext.workpiece_id}:session`,
@@ -6611,9 +7012,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     mediaRef,
     mediaSourceLabel,
     previewMode,
-    props.audioPolish,
     workspaceStructuredTranscript,
     editableVisualPlacements,
+    editableAudioPolish,
     selectedCaptionArtifactFormat,
     selectedSegmentId,
     transcriptSourceId,
@@ -7466,7 +7867,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       editPlan,
       editorialAuthorityGraph: exportBasis.canonicalGraph,
       visualPlacements: editableVisualPlacements,
-      audioPolish: props.audioPolish ?? null,
+      audioPolish: editableAudioPolish,
     };
 
     props.onWorkspaceSnapshotChange(snapshot);
@@ -7475,12 +7876,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     mediaRef,
     mediaSourceLabel,
     previewMode,
-    props.audioPolish,
     props.lastMacroRunRef,
     props.onWorkspaceSnapshotChange,
     props.selectedMacroRecipeRef,
     exportBasis.transcriptForRelease,
     editableVisualPlacements,
+    editableAudioPolish,
     currentPass,
     passStatus,
     selectedSegmentId,
@@ -9683,7 +10084,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 ) : (
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Audio Adjustments</header>
-                  <div className="hammer-tool-hint">Current prep status: {props.audioPolish?.status ?? "not_started"}</div>
+                  <div className="hammer-tool-hint">Current prep status: {editableAudioPolish?.status ?? "not_started"}</div>
+                  <div className="hammer-tool-hint">
+                    Persisted cut ops: {persistedAudioCutCount} raw · {effectivePlaybackCutRegions.length} effective playback region{effectivePlaybackCutRegions.length === 1 ? "" : "s"}
+                  </div>
+                  <div className="hammer-tool-hint">
+                    Silence suggestions: {silenceSuggestionCount} visible · derived from segmentation only
+                  </div>
                   <div className="hammer-tool-hint">
                     Preferred backend: {editableStudioRack.backend_preference}
                   </div>
@@ -11201,7 +11608,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             </header>
           <div className={`hammer-bay-body hammer-timeline-dock__body${isScrubbing ? " is-scrubbing" : ""}`}>
             <HammerWaveformLane
-              waveformProxy={props.audioPolish?.analysis?.waveform_proxy ?? null}
+              waveformProxy={editableAudioPolish?.analysis?.waveform_proxy ?? null}
+              durationSec={playbackTransportDurationSec}
+              cutRegions={effectivePlaybackCutRegions}
               playheadSec={playheadSec}
               onSeekRequest={(targetSec) => {
                 seekPlayheadToTime(targetSec, "timeline", { snapToBoundary: false });
@@ -11277,6 +11686,68 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 {selectedSegment?.is_disabled ? "Enable (M)" : "Disable (M)"}
               </button>
             </div>
+            <section className="hammer-timeline-cut-actions" aria-label="Audio cut selection">
+              <div className="hammer-timeline-cut-actions__meta">
+                <span>{audioCutSelectionStatus}</span>
+                <span>
+                  Persisted cuts: {persistedAudioCutCount} raw
+                  {` · ${effectivePlaybackCutRegions.length} effective playback region${effectivePlaybackCutRegions.length === 1 ? "" : "s"}`}
+                </span>
+              </div>
+              <div className="hammer-timeline-cut-actions__buttons">
+                <button type="button" onClick={() => markAudioCutBoundary("start")} disabled={!canMarkAudioCutSelection}>
+                  Mark In
+                </button>
+                <button type="button" onClick={() => markAudioCutBoundary("end")} disabled={!canMarkAudioCutSelection}>
+                  Mark Out
+                </button>
+                <button type="button" onClick={applyAudioCutSelection} disabled={!canApplyAudioCutSelection}>
+                  Cut Selection
+                </button>
+                <button type="button" onClick={clearAudioCutSelection} disabled={!hasPendingAudioCutSelection}>
+                  Clear Selection
+                </button>
+              </div>
+            </section>
+            {hasSilenceSuggestionAnalysis ? (
+              <section className="hammer-timeline-suggestion-list" aria-label="Silence cut suggestions">
+                <div className="hammer-timeline-suggestion-list__meta">
+                  <span>
+                    Silence suggestions: {silenceSuggestionCount} visible
+                    {` · ${silenceCutSuggestions.length} total from segmentation`}
+                  </span>
+                  <span>Conservative only. Accept creates a real cut. Dismiss hides it for this session.</span>
+                </div>
+                {visibleSilenceCutSuggestions.length > 0 ? (
+                  <div className="hammer-timeline-suggestion-list__items">
+                    {visibleSilenceCutSuggestions.map((suggestion) => (
+                      <article key={suggestion.id} className="hammer-timeline-suggestion-card">
+                        <div className="hammer-timeline-suggestion-card__copy">
+                          <strong>
+                            Cut silence {suggestion.startSec.toFixed(1)}s-{suggestion.endSec.toFixed(1)}s
+                          </strong>
+                          <span>
+                            {suggestion.durationSec.toFixed(1)}s pause · {suggestion.reason === "long_silence" ? "long silence" : suggestion.reason}
+                          </span>
+                        </div>
+                        <div className="hammer-timeline-suggestion-card__actions">
+                          <button type="button" onClick={() => acceptSilenceCutSuggestion(suggestion.id)}>
+                            Accept
+                          </button>
+                          <button type="button" onClick={() => dismissSilenceCutSuggestion(suggestion.id)}>
+                            Dismiss
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="hammer-timeline-suggestion-list__empty">
+                    No long silence suggestions remain above the threshold.
+                  </div>
+                )}
+              </section>
+            ) : null}
             <input
               type="range"
               min={0}

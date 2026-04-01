@@ -519,6 +519,9 @@ export default function QuenchRoute() {
     setSelectedCaseId(nextCase.case_id);
     setSelectedPlatforms([...nextCase.default_platforms]);
     setPublishOptions(clonePublishOptions(nextCase.default_publish_options));
+    setMetadataAssistState("idle");
+    setMetadataAssistError(null);
+    setMetadataAssistDraft(null);
   }, []);
 
   useEffect(() => {
@@ -694,12 +697,6 @@ export default function QuenchRoute() {
       );
     }
   }, [routeCtx.workpieceId, selectedCase, shell.workspaceId]);
-
-  useEffect(() => {
-    setMetadataAssistState("idle");
-    setMetadataAssistError(null);
-    setMetadataAssistDraft(null);
-  }, [selectedCaseId]);
 
   function togglePlatform(platform: QuenchPlatform) {
     setSelectedPlatforms((current) => (

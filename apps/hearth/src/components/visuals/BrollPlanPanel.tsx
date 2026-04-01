@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useId, useMemo, useRef } from "react";
 import type { EpisodeBrollAssetCandidate, EpisodeBrollPlanBeat } from "../../lib/episode-package-v2";
 import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actionability";
 
@@ -38,6 +38,7 @@ type BrollPlanPanelProps = {
   requestState: string;
   providers: ExternalGenerationProvider[];
   selectedCandidateId: string | null;
+  copyPromptAcknowledged?: boolean;
   onSelectBeat: (beatId: string) => void;
   onDraftChange: (field: string, value: string) => void;
   onSaveBeat: () => void;
@@ -140,6 +141,7 @@ function CandidateList(args: {
 
 export default function BrollPlanPanel(props: BrollPlanPanelProps) {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const formFieldIdPrefix = useId();
   const selectedBeat = useMemo(
     () => props.beats.find((beat) => beat.id === props.selectedBeatId) ?? null,
     [props.beats, props.selectedBeatId],
@@ -189,12 +191,23 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
           ) : (
             <>
               <div className="hs-imap-field">
-                <label>Anchor</label>
-                <input value={props.draft.anchorText} onChange={(event) => props.onDraftChange("anchorText", event.target.value)} disabled={props.disabled} />
+                <label htmlFor={`${formFieldIdPrefix}-anchor`}>Anchor</label>
+                <input
+                  id={`${formFieldIdPrefix}-anchor`}
+                  value={props.draft.anchorText}
+                  onChange={(event) => props.onDraftChange("anchorText", event.target.value)}
+                  disabled={props.disabled}
+                />
               </div>
               <div className="hs-imap-field">
-                <label>Description</label>
-                <textarea value={props.draft.description} onChange={(event) => props.onDraftChange("description", event.target.value)} disabled={props.disabled} rows={3} />
+                <label htmlFor={`${formFieldIdPrefix}-description`}>Description</label>
+                <textarea
+                  id={`${formFieldIdPrefix}-description`}
+                  value={props.draft.description}
+                  onChange={(event) => props.onDraftChange("description", event.target.value)}
+                  disabled={props.disabled}
+                  rows={3}
+                />
               </div>
               <div className="hs-imap-field-grid">
                 <label>
@@ -243,8 +256,14 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
                 </label>
               </div>
               <div className="hs-imap-field">
-                <label>Motion Suggestion</label>
-                <textarea value={props.draft.motionSuggestion} onChange={(event) => props.onDraftChange("motionSuggestion", event.target.value)} disabled={props.disabled} rows={2} />
+                <label htmlFor={`${formFieldIdPrefix}-motion-suggestion`}>Motion Suggestion</label>
+                <textarea
+                  id={`${formFieldIdPrefix}-motion-suggestion`}
+                  value={props.draft.motionSuggestion}
+                  onChange={(event) => props.onDraftChange("motionSuggestion", event.target.value)}
+                  disabled={props.disabled}
+                  rows={2}
+                />
               </div>
               {props.draft.motionIntent === "data_visual" ? (
                 <>
@@ -296,6 +315,8 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
                   type="file"
                   accept="image/*,video/*"
                   className="hs-hidden-input"
+                  aria-label="Attach result file"
+                  title="Attach result file"
                   onChange={(event) => {
                     const file = event.currentTarget.files?.[0];
                     if (file) props.onUploadAsset(file);
@@ -306,7 +327,14 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
 
               <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
                 <div className="hs-imap-candidate-action-group">
-                  <button type="button" onClick={props.onCopyPrompt} disabled={props.disabled}>Copy Prompt</button>
+                  <button
+                    type="button"
+                    className={props.copyPromptAcknowledged ? "hs-copy-ack" : undefined}
+                    onClick={props.onCopyPrompt}
+                    disabled={props.disabled}
+                  >
+                    Copy Prompt
+                  </button>
                   <button type="button" onClick={props.onDownloadBrief} disabled={props.disabled}>Download Brief</button>
                   <button type="button" onClick={props.onDownloadBriefJson} disabled={props.disabled}>Download JSON Brief</button>
                 </div>

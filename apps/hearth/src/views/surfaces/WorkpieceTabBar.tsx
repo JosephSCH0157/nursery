@@ -12,8 +12,8 @@ const WORKPIECE_TAB_ITEMS: Array<{
   label: string;
 }> = [
   { tab: "script", label: "Script" },
+  { tab: "metadata", label: "Framing" },
   { tab: "visuals", label: "Visuals" },
-  { tab: "metadata", label: "Metadata" },
   { tab: "release", label: "Release" },
   { tab: "history", label: "History" },
 ];

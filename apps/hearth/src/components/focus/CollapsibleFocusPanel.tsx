@@ -26,7 +26,7 @@ export default function CollapsibleFocusPanel({
   const panelClassName = `hs-focus-panel hs-focus-panel--${priority}${collapsed ? " is-collapsed" : ""}`;
 
   return (
-    <section className={panelClassName} aria-labelledby={labelId}>
+    <section id={panelId} className={panelClassName} aria-labelledby={labelId}>
       <header className="hs-focus-panel-header">
         <div className="hs-focus-panel-heading">
           <div id={labelId} className="hs-focus-panel-title">{title}</div>

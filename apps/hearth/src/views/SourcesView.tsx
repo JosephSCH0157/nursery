@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SourcesState, NewSourceInput } from "../hooks/useSourcesState";
+import type { HearthResearchResult } from "../lib/hearth-research-contract";
 import { normalizeSourceId } from "../lib/source-tokens";
+import "./SourcesView.css";
 
 type SourcesViewProps = {
   state: SourcesState;
   workspaceId: string | null;
   workpieceId: string | null;
+  researchResult?: HearthResearchResult | null;
 };
 
 const SOURCE_TYPES = [
@@ -20,7 +23,30 @@ const SOURCE_TYPES = [
   "other",
 ];
 
-export default function SourcesView({ state, workspaceId, workpieceId }: SourcesViewProps) {
+function formatPublishedAt(value: string | null): string | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toLocaleDateString();
+}
+
+function buildResearchRuntimeMessage(result: HearthResearchResult): string {
+  if (result.runtimeStatus === "no_results") {
+    return "No strong sources came back for this query yet. Try adjusting keywords or recency.";
+  }
+  if (result.runtimeStatus === "error") {
+    return "Research hit a provider error in this pass. The result is honest but incomplete.";
+  }
+  if (result.runtimeStatus === "partial" || result.mode === "partial_retrieval") {
+    return "Partial retrieval: some sources were fetched and some could not be fully extracted.";
+  }
+  if (result.mode === "knowledge_first") {
+    return "Knowledge-first fallback was used. Live retrieval was unavailable in this pass.";
+  }
+  return "Retrieval completed with usable sources.";
+}
+
+export default function SourcesView({ state, workspaceId, workpieceId, researchResult = null }: SourcesViewProps) {
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [notesDrafts, setNotesDrafts] = useState<Record<string, string>>({});
   const [form, setForm] = useState<NewSourceInput>({
@@ -95,11 +121,11 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
     });
   }, [state.workpieceSources]);
 
-  const statusColor = state.status.kind === "error"
-    ? "#b00020"
+  const statusClassName = state.status.kind === "error"
+    ? "hs-sources-status-error"
     : state.status.kind === "success"
-      ? "#0f7b2f"
-      : "rgba(15, 23, 42, 0.7)";
+      ? "hs-sources-status-success"
+      : "hs-sources-status-info";
 
   const toggleExpand = (sourceId: string) => {
     const normalized = normalizeSourceId(sourceId);
@@ -140,37 +166,79 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
   };
 
   return (
-    <section
-      style={{
-        border: "1px solid var(--forge-border, #ddd)",
-        borderRadius: 10,
-        padding: 12,
-        background: "var(--forge-bg-elevated, #fff)",
-        minHeight: 240,
-        display: "grid",
-        gap: 14,
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontWeight: 700 }}>Sources</div>
+    <section className="hs-sources-view">
+      <div className="hs-sources-header">
+        <div className="hs-sources-title">Sources</div>
       </div>
 
+      {researchResult ? (
+        <section className="hs-sources-section">
+          <div className="hs-sources-section-title">
+            Research Runtime: {researchResult.mode} · {researchResult.runtimeStatus}
+          </div>
+          <div className="hs-sources-muted">
+            {researchResult.sources.length} source{researchResult.sources.length === 1 ? "" : "s"} in latest research run.
+          </div>
+          {researchResult.synthesis.coverageNote ? (
+            <div className="hs-sources-muted">{researchResult.synthesis.coverageNote}</div>
+          ) : null}
+          <div className="hs-sources-research-state-note">{buildResearchRuntimeMessage(researchResult)}</div>
+          {researchResult.synthesis.summary ? (
+            <div className="hs-sources-research-summary">{researchResult.synthesis.summary}</div>
+          ) : null}
+          {researchResult.sources.length ? (
+            <div className="hs-sources-list">
+              {researchResult.sources.map((source) => {
+                const publishedLabel = formatPublishedAt(source.publishedAt);
+                return (
+                  <article key={source.sourceId} className="hs-sources-card">
+                    <div className="hs-sources-card-header">
+                      <div>
+                        <div className="hs-sources-card-title">
+                          {source.title ?? source.domain ?? source.url}
+                        </div>
+                        <div className="hs-sources-meta">
+                          {source.domain ?? "unknown domain"}
+                          {publishedLabel ? ` · ${publishedLabel}` : ""}
+                        </div>
+                      </div>
+                      <span className={`hs-sources-research-badge hs-sources-research-badge-${source.extractionStatus}`}>
+                        {source.extractionStatus}
+                      </span>
+                    </div>
+                    <a href={source.url} target="_blank" rel="noreferrer" className="hs-sources-url">
+                      {source.url}
+                    </a>
+                    {source.snippet ? (
+                      <div className="hs-sources-research-snippet">{source.snippet}</div>
+                    ) : null}
+                    {source.extractionError ? (
+                      <div className="hs-sources-research-error">{source.extractionError}</div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       {state.status.kind !== "idle" ? (
-        <div style={{ fontSize: 12, color: statusColor }}>{state.status.message}</div>
+        <div className={`hs-sources-status ${statusClassName}`}>{state.status.message}</div>
       ) : null}
 
       {!workpieceId ? (
-        <div style={{ fontSize: 12, opacity: 0.7 }}>
+        <div className="hs-sources-muted">
           Forge a workpiece to attach sources.
         </div>
       ) : null}
 
-      <section style={{ display: "grid", gap: 10 }}>
-        <div style={{ fontWeight: 600 }}>Cited in this script</div>
+      <section className="hs-sources-section">
+        <div className="hs-sources-section-title">Cited in this script</div>
         {workpieceRows.length === 0 ? (
-          <div style={{ fontSize: 12, opacity: 0.7 }}>No sources attached yet.</div>
+          <div className="hs-sources-muted">No sources attached yet.</div>
         ) : (
-          <div style={{ display: "grid", gap: 10 }}>
+          <div className="hs-sources-list">
             {workpieceRows.map(({ ref, normalized, entry, title }) => {
               const isExpanded = Boolean(expandedIds[normalized]);
               const isUnused = unusedIds.has(normalized);
@@ -179,34 +247,20 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
               return (
                 <div
                   key={`workpiece-${ref.source_id}`}
-                  style={{
-                    border: "1px solid rgba(148,163,184,0.35)",
-                    borderRadius: 8,
-                    padding: 8,
-                    display: "grid",
-                    gap: 6,
-                  }}
+                  className="hs-sources-card"
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <div className="hs-sources-card-header">
                     <div>
-                      <div style={{ fontWeight: 600 }}>{title}</div>
-                      <div style={{ fontSize: 12, opacity: 0.7 }}>
+                      <div className="hs-sources-card-title">{title}</div>
+                      <div className="hs-sources-meta">
                         {entry?.type ? `${entry.type} · ` : ""}
                         {entry?.publisher ?? ""}
                         {entry?.published_at ? ` · ${entry.published_at}` : ""}
                       </div>
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                    <div className="hs-sources-action-stack hs-sources-action-stack-end">
                       {isUnused ? (
-                        <span
-                          style={{
-                            fontSize: 11,
-                            padding: "2px 6px",
-                            borderRadius: 999,
-                            border: "1px solid rgba(148,163,184,0.5)",
-                            opacity: 0.7,
-                          }}
-                        >
+                        <span className="hs-sources-badge-unused">
                           Unused
                         </span>
                       ) : null}
@@ -216,9 +270,10 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
                     </div>
                   </div>
 
-                  <label style={{ display: "grid", gap: 4 }}>
-                    <span style={{ fontSize: 11, opacity: 0.7 }}>Local notes</span>
+                  <label className="hs-sources-label-stack">
+                    <span className="hs-sources-label-caption-sm">Local notes</span>
                     <textarea
+                      className="hs-sources-textarea-notes"
                       value={notesValue}
                       onChange={(event) => {
                         const value = event.target.value;
@@ -226,7 +281,6 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
                       }}
                       onBlur={() => state.updateWorkpieceSourceNotes(ref.source_id, notesValue)}
                       placeholder="Notes for this script"
-                      style={{ minHeight: 60, resize: "vertical" }}
                     />
                   </label>
 
@@ -235,9 +289,9 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
                   </button>
 
                   {isExpanded ? (
-                    <div style={{ fontSize: 12, opacity: 0.8 }}>
+                    <div className="hs-sources-detail-block">
                       {detail ? (
-                        <div style={{ display: "grid", gap: 4 }}>
+                        <div className="hs-sources-detail-grid">
                           <div><strong>Author:</strong> {detail.author ?? "—"}</div>
                           <div><strong>URL:</strong> {detail.url ?? "—"}</div>
                           <div><strong>Publisher:</strong> {detail.publisher ?? "—"}</div>
@@ -256,18 +310,18 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
         )}
       </section>
 
-      <section style={{ display: "grid", gap: 10 }}>
-        <div style={{ fontWeight: 600 }}>Validation</div>
+      <section className="hs-sources-section">
+        <div className="hs-sources-section-title">Validation</div>
         {missingWorkpiece.length === 0 && missingLibrary.length === 0 && state.unusedWorkpieceSources.length === 0 ? (
-          <div style={{ fontSize: 12, opacity: 0.7 }}>All citations look good.</div>
+          <div className="hs-sources-muted">All citations look good.</div>
         ) : (
-          <div style={{ display: "grid", gap: 10 }}>
+          <div className="hs-sources-list">
             {missingWorkpiece.length ? (
-              <div style={{ display: "grid", gap: 6 }}>
-                <div style={{ fontSize: 12, fontWeight: 600 }}>Missing from workpiece refs</div>
+              <div className="hs-sources-group">
+                <div className="hs-sources-group-title">Missing from workpiece refs</div>
                 {missingWorkpiece.map((item) => (
-                  <div key={`missing-workpiece-${item.id}`} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 12 }}>{item.id}</span>
+                  <div key={`missing-workpiece-${item.id}`} className="hs-sources-inline-row">
+                    <span className="hs-sources-text-xs">{item.id}</span>
                     <button
                       type="button"
                       onClick={() => state.attachSourceToWorkpiece(item.id)}
@@ -280,7 +334,7 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
                         Create in library
                       </button>
                     ) : (
-                      <span style={{ fontSize: 11, opacity: 0.6 }}>In library</span>
+                      <span className="hs-sources-meta-xs">In library</span>
                     )}
                   </div>
                 ))}
@@ -288,16 +342,16 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
             ) : null}
 
             {missingLibrary.length ? (
-              <div style={{ display: "grid", gap: 6 }}>
-                <div style={{ fontSize: 12, fontWeight: 600 }}>Missing from library</div>
+              <div className="hs-sources-group">
+                <div className="hs-sources-group-title">Missing from library</div>
                 {missingLibrary.map((item) => (
-                  <div key={`missing-library-${item.id}`} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 12 }}>{item.id}</span>
+                  <div key={`missing-library-${item.id}`} className="hs-sources-inline-row">
+                    <span className="hs-sources-text-xs">{item.id}</span>
                     <button type="button" onClick={() => handlePrefillMissing(item.id)} disabled={!workspaceId}>
                       Create in library
                     </button>
                     {item.inWorkpiece ? (
-                      <span style={{ fontSize: 11, opacity: 0.6 }}>Referenced in workpiece</span>
+                      <span className="hs-sources-meta-xs">Referenced in workpiece</span>
                     ) : null}
                   </div>
                 ))}
@@ -305,9 +359,9 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
             ) : null}
 
             {state.unusedWorkpieceSources.length ? (
-              <div style={{ display: "grid", gap: 6 }}>
-                <div style={{ fontSize: 12, fontWeight: 600 }}>Unused workpiece sources</div>
-                <div style={{ fontSize: 12, opacity: 0.7 }}>
+              <div className="hs-sources-group">
+                <div className="hs-sources-group-title">Unused workpiece sources</div>
+                <div className="hs-sources-muted">
                   {state.unusedWorkpieceSources.join(", ")}
                 </div>
               </div>
@@ -316,14 +370,14 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
         )}
       </section>
 
-      <section style={{ display: "grid", gap: 10 }}>
-        <div style={{ fontWeight: 600 }}>Workspace library</div>
+      <section className="hs-sources-section">
+        <div className="hs-sources-section-title">Workspace library</div>
         {sortedLibrary.length === 0 ? (
-          <div style={{ fontSize: 12, opacity: 0.7 }}>
+          <div className="hs-sources-muted">
             No sources saved yet.
           </div>
         ) : (
-          <div style={{ display: "grid", gap: 10 }}>
+          <div className="hs-sources-list">
             {sortedLibrary.map((entry) => {
               const normalized = normalizeSourceId(entry.source_id);
               const isAttached = attachedIds.has(normalized);
@@ -332,24 +386,18 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
               return (
                 <div
                   key={`library-${entry.source_id}`}
-                  style={{
-                    border: "1px solid rgba(148,163,184,0.35)",
-                    borderRadius: 8,
-                    padding: 8,
-                    display: "grid",
-                    gap: 6,
-                  }}
+                  className="hs-sources-card"
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <div className="hs-sources-card-header">
                     <div>
-                      <div style={{ fontWeight: 600 }}>{entry.title ?? "Untitled source"}</div>
-                      <div style={{ fontSize: 12, opacity: 0.7 }}>
+                      <div className="hs-sources-card-title">{entry.title ?? "Untitled source"}</div>
+                      <div className="hs-sources-meta">
                         {entry.type ?? "other"}
                         {entry.publisher ? ` · ${entry.publisher}` : ""}
                         {entry.published_at ? ` · ${entry.published_at}` : ""}
                       </div>
                     </div>
-                    <div style={{ display: "grid", gap: 6 }}>
+                    <div className="hs-sources-action-stack">
                       <button
                         type="button"
                         onClick={() => state.attachSourceToWorkpiece(entry.source_id)}
@@ -364,9 +412,9 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
                   </div>
 
                   {isExpanded ? (
-                    <div style={{ fontSize: 12, opacity: 0.8 }}>
+                    <div className="hs-sources-detail-block">
                       {detail ? (
-                        <div style={{ display: "grid", gap: 4 }}>
+                        <div className="hs-sources-detail-grid">
                           <div><strong>Author:</strong> {detail.author ?? "—"}</div>
                           <div><strong>URL:</strong> {detail.url ?? "—"}</div>
                           <div><strong>Publisher:</strong> {detail.publisher ?? "—"}</div>
@@ -385,16 +433,16 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
         )}
       </section>
 
-      <section style={{ display: "grid", gap: 10 }}>
-        <div style={{ fontWeight: 600 }}>Add a new source</div>
+      <section className="hs-sources-section">
+        <div className="hs-sources-section-title">Add a new source</div>
         {overrideSourceId ? (
-          <div style={{ fontSize: 12, opacity: 0.7, display: "flex", gap: 6, alignItems: "center" }}>
+          <div className="hs-sources-muted hs-sources-inline-row hs-sources-inline-row-tight">
             Creating source for token <code>{overrideSourceId}</code>
             <button type="button" onClick={() => setOverrideSourceId(null)}>Clear</button>
           </div>
         ) : null}
-        <label style={{ display: "grid", gap: 4 }}>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>Title</span>
+        <label className="hs-sources-label-stack">
+          <span className="hs-sources-label-caption">Title</span>
           <input
             ref={titleInputRef}
             value={form.title}
@@ -402,8 +450,8 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
             placeholder="Source title"
           />
         </label>
-        <label style={{ display: "grid", gap: 4 }}>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>Type</span>
+        <label className="hs-sources-label-stack">
+          <span className="hs-sources-label-caption">Type</span>
           <select
             value={form.type}
             onChange={(event) => setForm((prev) => ({ ...prev, type: event.target.value }))}
@@ -413,45 +461,45 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
             ))}
           </select>
         </label>
-        <label style={{ display: "grid", gap: 4 }}>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>URL</span>
+        <label className="hs-sources-label-stack">
+          <span className="hs-sources-label-caption">URL</span>
           <input
             value={form.url ?? ""}
             onChange={(event) => setForm((prev) => ({ ...prev, url: event.target.value }))}
             placeholder="https://"
           />
         </label>
-        <label style={{ display: "grid", gap: 4 }}>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>Publisher</span>
+        <label className="hs-sources-label-stack">
+          <span className="hs-sources-label-caption">Publisher</span>
           <input
             value={form.publisher ?? ""}
             onChange={(event) => setForm((prev) => ({ ...prev, publisher: event.target.value }))}
           />
         </label>
-        <label style={{ display: "grid", gap: 4 }}>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>Author</span>
+        <label className="hs-sources-label-stack">
+          <span className="hs-sources-label-caption">Author</span>
           <input
             value={form.author ?? ""}
             onChange={(event) => setForm((prev) => ({ ...prev, author: event.target.value }))}
           />
         </label>
-        <label style={{ display: "grid", gap: 4 }}>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>Published date</span>
+        <label className="hs-sources-label-stack">
+          <span className="hs-sources-label-caption">Published date</span>
           <input
             type="date"
             value={form.published_at ?? ""}
             onChange={(event) => setForm((prev) => ({ ...prev, published_at: event.target.value }))}
           />
         </label>
-        <label style={{ display: "grid", gap: 4 }}>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>Notes</span>
+        <label className="hs-sources-label-stack">
+          <span className="hs-sources-label-caption">Notes</span>
           <textarea
+            className="hs-sources-textarea-form"
             value={form.notes ?? ""}
             onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
-            style={{ minHeight: 70, resize: "vertical" }}
           />
         </label>
-        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.8 }}>
+        <label className="hs-sources-checkbox-row">
           <input
             type="checkbox"
             checked={attachOnSave}
@@ -460,7 +508,7 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
           />
           Also add to this workpiece
         </label>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div className="hs-sources-inline-row">
           <button type="button" onClick={handleSaveSource} disabled={!form.title.trim() || !workspaceId}>
             Save to library
           </button>

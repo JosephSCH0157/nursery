@@ -1,16 +1,18 @@
 import {
   createEmptyEpisodePackageV2,
   ensureImageMapV2,
+  ensureSpokenBeatsV2,
   type EpisodeImageMapAssetSource,
   type EpisodeImageMapEntry,
+  type EpisodeSpokenBeat,
 } from "./episode-package-v2";
 import { tongsFetch } from "./tongs-fetch";
-import { normalizeWorkpieceRelativePathOrNull } from "../../../../packages/contracts/workpiece-paths";
 
 export type WorkpieceImageMapView = {
   workpieceId: string;
   workspaceId: string;
   entries: EpisodeImageMapEntry[];
+  spokenBeats: EpisodeSpokenBeat[];
   metadataUpdatedAt: string | null;
   asset: {
     id: string;
@@ -127,6 +129,17 @@ function readApiErrorMessage(body: unknown): string | null {
   return message ?? reason ?? null;
 }
 
+function normalizeWorkpieceRelativePathOrNull(workpieceId: string, rawPath: string | null | undefined): string | null {
+  const path = readString(rawPath);
+  if (!path) return null;
+  const workpiecePrefix = `workpieces/${workpieceId}/`;
+  let normalized = path.replace(/^\/+/, "");
+  while (normalized.startsWith(workpiecePrefix)) {
+    normalized = normalized.slice(workpiecePrefix.length);
+  }
+  return normalized;
+}
+
 function buildWrittenBy(): { tool: string; tool_version: string; lane: string } {
   return {
     tool: "hearth",
@@ -186,6 +199,14 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
   return pkg.image_map.entries;
 }
 
+function normalizeSpokenBeats(value: unknown): EpisodeSpokenBeat[] {
+  const pkg = ensureSpokenBeatsV2({
+    ...createEmptyEpisodePackageV2(),
+    spoken_beats: Array.isArray(value) ? value as EpisodeSpokenBeat[] : [],
+  });
+  return pkg.spoken_beats;
+}
+
 function normalizeWorkpieceImageMapView(
   body: unknown,
   expected?: {
@@ -213,6 +234,7 @@ function normalizeWorkpieceImageMapView(
     workpieceId,
     workspaceId,
     entries: normalizeImageMapEntries(imageMapRoot.entries),
+    spokenBeats: normalizeSpokenBeats(imageMapRoot.spoken_beats),
     metadataUpdatedAt: readString(imageMapRoot.metadata_updated_at),
     asset: assetRoot
       ? {
@@ -312,6 +334,7 @@ export async function saveWorkpieceImageMap(args: {
   workpieceId: string;
   workspaceId: string;
   entries: EpisodeImageMapEntry[];
+  spokenBeats?: EpisodeSpokenBeat[] | null;
   expectedMetadataUpdatedAt?: string | null;
 }): Promise<SaveWorkpieceImageMapResult> {
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/image-map`, {
@@ -319,6 +342,7 @@ export async function saveWorkpieceImageMap(args: {
     json: {
       workspace_id: args.workspaceId,
       entries: args.entries,
+      ...(typeof args.spokenBeats !== "undefined" ? { spoken_beats: args.spokenBeats } : {}),
       ...(typeof args.expectedMetadataUpdatedAt !== "undefined"
         ? { expected_metadata_updated_at: args.expectedMetadataUpdatedAt }
         : {}),

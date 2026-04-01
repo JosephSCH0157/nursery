@@ -1,5 +1,5 @@
 import type { HenryConversationTurn, HenryObservation, HenryPreferenceState } from "@forge/shared/henry";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { parseForgeRouteContext } from "../lib/forge-route-context";
@@ -13,7 +13,7 @@ import {
   resolveHenryRecommendation,
 } from "./henryMessageEngine";
 import { resolveHenryQuickActions } from "./henryQuickActions";
-import { getDefaultHenryPreferences, readCachedHenryPreferences, writeCachedHenryPreferences } from "./henryStorage";
+import { readCachedHenryPreferences, writeCachedHenryPreferences } from "./henryStorage";
 import {
   type HenryMessageStateRow,
   getHenryMessageState,
@@ -66,27 +66,60 @@ export function HenryProvider({ children }: { children: ReactNode }) {
   const subtitle = useMemo(() => deriveLocalSubtitle(location.pathname), [location.pathname]);
 
   const [userId, setUserId] = useState<string | null>(null);
-  const [preferences, setPreferences] = useState<HenryPreferenceState>(() =>
-    readCachedHenryPreferences({ userId: null, workspaceId: routeContext.workspaceId }),
+  const cachedPreferences = useMemo(
+    () => readCachedHenryPreferences({ userId, workspaceId: routeContext.workspaceId }),
+    [routeContext.workspaceId, userId],
   );
+  const [storedPreferences, setStoredPreferences] = useState<{
+    userId: string | null;
+    workspaceId: string | null;
+    value: HenryPreferenceState | null;
+  }>({
+    userId: null,
+    workspaceId: null,
+    value: null,
+  });
   const [panelOpen, setPanelOpen] = useState(false);
   const [actionAnswer, setActionAnswer] = useState<string | null>(null);
   const [showChat, setShowChat] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
   const [conversation, setConversation] = useState<HenryConversationTurn[]>([]);
   const [observation, setObservation] = useState<HenryObservation | null>(null);
-  const [messageState, setMessageState] = useState<Map<string, HenryMessageStateRow>>(new Map());
-  const [pendingFollowThrough, setPendingFollowThrough] = useState<{
+  const [storedMessageState, setStoredMessageState] = useState<{
+    userId: string | null;
+    workspaceId: string | null;
+    rows: Map<string, HenryMessageStateRow>;
+  }>({
+    userId: null,
+    workspaceId: null,
+    rows: new Map(),
+  });
+  const pendingFollowThroughRef = useRef<{
     fromPath: string;
     issuedAtMs: number;
   } | null>(null);
+  const trackedObservationKeyRef = useRef<string | null>(null);
+
+  const preferences = storedPreferences.userId === userId
+    && storedPreferences.workspaceId === routeContext.workspaceId
+    && storedPreferences.value
+    ? storedPreferences.value
+    : cachedPreferences;
+  const messageState = useMemo(
+    () => (
+      storedMessageState.userId === userId
+      && storedMessageState.workspaceId === routeContext.workspaceId
+        ? storedMessageState.rows
+        : new Map<string, HenryMessageStateRow>()
+    ),
+    [routeContext.workspaceId, storedMessageState, userId],
+  );
 
   const muted = isMuted(preferences);
   const suppression = useMemo(
     () => resolveHenrySuppressionState({ pathname: location.pathname, panelOpen, mutedUntil: preferences.mutedUntil }),
     [location.pathname, panelOpen, preferences.mutedUntil],
   );
-
   useEffect(() => {
     let alive = true;
     void supabase.auth.getSession().then(({ data }) => {
@@ -105,14 +138,16 @@ export function HenryProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const workspaceId = routeContext.workspaceId;
-    const base = readCachedHenryPreferences({ userId, workspaceId });
-    setPreferences(base);
     if (!workspaceId || !userId) return;
     let cancelled = false;
     void getHenryPreferences(workspaceId)
       .then((fromDb) => {
         if (cancelled || !fromDb) return;
-        setPreferences(fromDb);
+        setStoredPreferences({
+          userId,
+          workspaceId,
+          value: fromDb,
+        });
         writeCachedHenryPreferences({ userId, workspaceId, preferences: fromDb });
       })
       .catch(() => {
@@ -125,19 +160,24 @@ export function HenryProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const workspaceId = routeContext.workspaceId;
-    if (!workspaceId || !userId) {
-      setMessageState(new Map());
-      return;
-    }
+    if (!workspaceId || !userId) return;
     let cancelled = false;
     void getHenryMessageState(workspaceId)
       .then((rows) => {
         if (cancelled) return;
-        setMessageState(rows);
+        setStoredMessageState({
+          userId,
+          workspaceId,
+          rows,
+        });
       })
       .catch(() => {
         if (cancelled) return;
-        setMessageState(new Map());
+        setStoredMessageState({
+          userId,
+          workspaceId,
+          rows: new Map(),
+        });
       });
     return () => {
       cancelled = true;
@@ -145,32 +185,59 @@ export function HenryProvider({ children }: { children: ReactNode }) {
   }, [routeContext.workspaceId, userId]);
 
   useEffect(() => {
-    if (!shouldRenderHenry(location.pathname)) return;
-    if (!preferences.showHenry || preferences.hideTips || panelOpen || suppression.isSuppressed) {
-      setObservation(null);
-      return;
-    }
-    const candidate = resolveHenryObservation(henryContext);
-    if (!candidate) {
-      setObservation(null);
-      return;
-    }
-
-    const existing = messageState.get(candidate.id);
-    if (existing?.cooldownUntil) {
-      const cooldownMs = Date.parse(existing.cooldownUntil);
-      if (!Number.isNaN(cooldownMs) && cooldownMs > Date.now()) {
-        setObservation(null);
-        return;
+    let cancelled = false;
+    const nextObservation = (() => {
+      if (!shouldRenderHenry(location.pathname)) return null;
+      if (!preferences.showHenry || preferences.hideTips || panelOpen || suppression.isSuppressed) {
+        return null;
       }
-    }
+      const candidate = resolveHenryObservation(henryContext);
+      if (!candidate) return null;
 
-    setObservation(candidate);
+      const existing = messageState.get(candidate.id);
+      if (existing?.cooldownUntil) {
+        const cooldownMs = Date.parse(existing.cooldownUntil);
+        if (!Number.isNaN(cooldownMs) && cooldownMs > Date.now()) {
+          return null;
+        }
+      }
+      return candidate;
+    })();
+
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setObservation(nextObservation);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    henryContext,
+    location.pathname,
+    messageState,
+    panelOpen,
+    preferences.hideTips,
+    preferences.showHenry,
+    suppression.isSuppressed,
+  ]);
+
+  useEffect(() => {
+    const observationKey = observation
+      ? `${routeContext.workspaceId ?? "none"}:${routeContext.workpieceId ?? "none"}:${observation.id}`
+      : null;
+    if (!observationKey) {
+      trackedObservationKeyRef.current = null;
+      return;
+    }
+    if (trackedObservationKeyRef.current === observationKey) return;
+    trackedObservationKeyRef.current = observationKey;
+
     const workspaceId = routeContext.workspaceId;
     if (!workspaceId) return;
     void upsertHenryMessageState({
       workspaceId,
-      messageId: candidate.id,
+      messageId: observation.id,
       lastSeenAt: new Date().toISOString(),
     }).catch(() => {
       // non-fatal in ambient assistant surface
@@ -180,24 +247,18 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       workpieceId: routeContext.workpieceId,
       eventName: "observation_shown",
       surface: henryContext.surface,
-      metadata: { messageId: candidate.id },
+      metadata: { messageId: observation.id },
     }).catch(() => {
       // non-fatal in ambient assistant surface
     });
-  }, [
-    henryContext,
-    location.pathname,
-    messageState,
-    panelOpen,
-    preferences.hideTips,
-    preferences.showHenry,
-    routeContext.workspaceId,
-    routeContext.workpieceId,
-    suppression.isSuppressed,
-  ]);
+  }, [henryContext.surface, observation, routeContext.workspaceId, routeContext.workpieceId]);
 
   function persistPreferences(next: HenryPreferenceState): void {
-    setPreferences(next);
+    setStoredPreferences({
+      userId,
+      workspaceId: routeContext.workspaceId,
+      value: next,
+    });
     writeCachedHenryPreferences({
       userId,
       workspaceId: routeContext.workspaceId,
@@ -212,7 +273,6 @@ export function HenryProvider({ children }: { children: ReactNode }) {
   function handleOpenPanel(): void {
     if (!preferences.showHenry) return;
     setPanelOpen(true);
-    setObservation(null);
     void trackHenryEvent({
       workspaceId: routeContext.workspaceId,
       workpieceId: routeContext.workpieceId,
@@ -237,10 +297,10 @@ export function HenryProvider({ children }: { children: ReactNode }) {
 
     const eventName = actionId === "what-next" ? "next_step_shown" : "quick_action";
     if (actionId === "what-next") {
-      setPendingFollowThrough({
+      pendingFollowThroughRef.current = {
         fromPath: location.pathname,
         issuedAtMs: Date.now(),
-      });
+      };
     }
     void trackHenryEvent({
       workspaceId: routeContext.workspaceId,
@@ -258,9 +318,11 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     const workspaceId = routeContext.workspaceId;
     const now = new Date();
     const cooldownUntil = new Date(now.getTime() + OBSERVATION_COOLDOWN_MS).toISOString();
-    setObservation(null);
-    setMessageState((prev) => {
-      const next = new Map(prev);
+    setStoredMessageState((prev) => {
+      const previousRows = prev.userId === userId && prev.workspaceId === routeContext.workspaceId
+        ? prev.rows
+        : new Map<string, HenryMessageStateRow>();
+      const next = new Map(previousRows);
       const existing = next.get(observation.id);
       next.set(observation.id, {
         messageId: observation.id,
@@ -270,7 +332,11 @@ export function HenryProvider({ children }: { children: ReactNode }) {
         dismissCount: (existing?.dismissCount ?? 0) + 1,
         updatedAt: now.toISOString(),
       });
-      return next;
+      return {
+        userId,
+        workspaceId: routeContext.workspaceId,
+        rows: next,
+      };
     });
 
     if (!workspaceId) return;
@@ -324,7 +390,6 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     const next = { ...preferences, mutedUntil };
     persistPreferences(next);
     if (mutedUntil) {
-      setObservation(null);
       void trackHenryEvent({
         workspaceId: routeContext.workspaceId,
         workpieceId: routeContext.workpieceId,
@@ -339,10 +404,11 @@ export function HenryProvider({ children }: { children: ReactNode }) {
   const recommendation = useMemo(() => resolveHenryRecommendation(henryContext), [henryContext]);
 
   useEffect(() => {
+    const pendingFollowThrough = pendingFollowThroughRef.current;
     if (!pendingFollowThrough) return;
     if (pendingFollowThrough.fromPath === location.pathname) return;
     if (Date.now() - pendingFollowThrough.issuedAtMs > 2 * 60 * 1000) {
-      setPendingFollowThrough(null);
+      pendingFollowThroughRef.current = null;
       return;
     }
     void trackHenryEvent({
@@ -357,11 +423,10 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     }).catch(() => {
       // non-fatal in ambient assistant surface
     });
-    setPendingFollowThrough(null);
+    pendingFollowThroughRef.current = null;
   }, [
     henryContext.surface,
     location.pathname,
-    pendingFollowThrough,
     routeContext.workspaceId,
     routeContext.workpieceId,
   ]);
@@ -376,7 +441,6 @@ export function HenryProvider({ children }: { children: ReactNode }) {
             onDismiss={handleDismissObservation}
             onHideTips={() => {
               persistPreferences({ ...preferences, hideTips: true });
-              setObservation(null);
             }}
           />
           <HenryLauncher

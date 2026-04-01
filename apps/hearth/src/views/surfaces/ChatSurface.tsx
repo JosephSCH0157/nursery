@@ -1,5 +1,6 @@
 import type { ReactNode, RefObject } from "react";
 import CollapsibleFocusPanel from "../../components/focus/CollapsibleFocusPanel";
+import type { HearthWritingFormat } from "../../lib/hearth-writing-format";
 
 export type ChatSurfaceProps = {
   visible: boolean;
@@ -24,6 +25,7 @@ export type ChatSurfaceProps = {
   isAiProcessing: boolean;
   aiEpisodeReady: boolean;
   sttLane: "browser" | "ai";
+  sttTarget: "chat" | "script";
   sttState: "idle" | "listening" | "transcribing";
   hasBrowserSpeech: boolean;
   sttPreview: string | null;
@@ -39,7 +41,15 @@ export type ChatSurfaceProps = {
   onApplyAiProposalAll: () => void;
   onApplyAiProposalSelected: () => void;
   onDiscardAiProposal: () => void;
-  onUseChatShortcutOutline: () => void;
+  writingFormat: HearthWritingFormat;
+  writingFormatOptions: Array<{
+    id: HearthWritingFormat;
+    label: string;
+    helperText: string;
+  }>;
+  onSelectWritingFormat: (format: HearthWritingFormat) => void;
+  onUseChatShortcutDraft: () => void;
+  draftShortcutLabel: string;
   onUseChatShortcutSources: () => void;
   onOpenComposeScript: () => void;
   onSetSttLane: (lane: "browser" | "ai") => void;
@@ -56,6 +66,7 @@ export type ChatSurfaceProps = {
 
 export default function ChatSurface(props: ChatSurfaceProps) {
   if (!props.visible) return null;
+  const isChatVoiceActive = props.sttTarget === "chat" && props.sttState !== "idle";
 
   return (
     <CollapsibleFocusPanel
@@ -68,20 +79,20 @@ export default function ChatSurface(props: ChatSurfaceProps) {
     >
       <section className="hs-ai-chat" aria-label="Hearth AI chat">
         <div className="hs-ai-chat-header">
-          <div className="hs-ai-chat-title">Conversation</div>
+          <div className="hs-ai-chat-title">Talk it through</div>
           <button
             type="button"
             onClick={props.onClearChat}
             disabled={props.isAiProcessing || props.chatMessages.length === 0}
           >
-            Clear
+            Clear chat
           </button>
         </div>
 
         <div className="hs-ai-chat-log" role="log" aria-live="polite">
           {props.chatMessages.length === 0 ? (
             <div className="hs-ai-chat-empty">
-              Ask a question about this Episode. Context is attached automatically.
+              Tell Hearth what you want to shape. It already has the episode context with it.
             </div>
           ) : (
             props.chatMessages.map((message, index) => (
@@ -96,7 +107,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
         {props.pendingAiProposal && props.pendingAiProposal.ops.length > 0 ? (
           <div className="hs-ai-proposal" aria-label="Proposed AI changes">
             <div className="hs-ai-proposal-header">
-              <div className="hs-ai-proposal-title">Proposed changes</div>
+              <div className="hs-ai-proposal-title">First pass to review</div>
               <div className="hs-ai-proposal-meta">
                 {props.pendingAiProposal.selected.filter(Boolean).length} selected · {props.pendingAiProposal.ops.length} total
                 {props.dirtyProposalBodyCount > 0 ? ` · ${props.dirtyProposalBodyCount} edited from AI` : ""}
@@ -164,7 +175,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                           ) : null}
                           <div className={`hs-ai-op-validation${proposalBodyValidation?.ok ? " is-valid" : " is-invalid"}`}>
                             {proposalBodyValidation?.ok
-                              ? "Tag contract OK."
+                              ? "Tag contract looks good."
                               : proposalBodyValidation ? props.buildValidationReport(proposalBodyValidation) : "Tag contract check unavailable."}
                           </div>
                         </div>
@@ -215,7 +226,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
         ) : null}
 
         {props.aiCreditsDepleted ? (
-          <div className="hs-error-text-small">No AI credits remaining.</div>
+          <div className="hs-error-text-small">You are out of AI credits for now.</div>
         ) : null}
 
         {props.hasApprovedScript && props.approvedScriptVersion ? (
@@ -233,9 +244,29 @@ export default function ChatSurface(props: ChatSurfaceProps) {
           </div>
         ) : null}
 
+        <div className="hs-ai-format-row" role="group" aria-label="Chat mode">
+          <div className="hs-ai-format-copy">
+            <strong>Start by exploring and expanding the content, or jump straight to a draft.</strong>
+            <span>Hearth starts in exploration mode and waits to write until you ask.</span>
+          </div>
+          <div className="hs-ai-format-buttons">
+            {props.writingFormatOptions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => props.onSelectWritingFormat(option.id)}
+                className={option.id === props.writingFormat ? "is-active" : undefined}
+                title={option.helperText}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="hs-ai-shortcut-row" role="group" aria-label="Chat shortcuts">
-          <button type="button" onClick={props.onUseChatShortcutOutline}>
-            Outline
+          <button type="button" onClick={props.onUseChatShortcutDraft}>
+            {props.draftShortcutLabel}
           </button>
           <button type="button" onClick={props.onUseChatShortcutSources}>
             Find sources
@@ -268,9 +299,13 @@ export default function ChatSurface(props: ChatSurfaceProps) {
           <button
             type="button"
             onClick={props.onToggleMic}
-            className={`mic-button ${props.sttState}`}
+            className={`mic-button ${isChatVoiceActive ? props.sttState : "idle"}`}
             title={
-              props.sttState === "idle"
+              !isChatVoiceActive
+                ? props.sttLane === "browser"
+                  ? "Voice (Free)"
+                  : "Voice (AI)"
+                : props.sttState === "idle"
                 ? props.sttLane === "browser"
                   ? "Voice (Free)"
                   : "Voice (AI)"
@@ -279,12 +314,12 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                   : "Transcribing..."
             }
           >
-            {props.sttState === "idle" ? "🎙️" : null}
-            {props.sttState === "listening" ? "🔴🎙️" : null}
-            {props.sttState === "transcribing" ? "⏳🎙️" : null}
+            {!isChatVoiceActive || props.sttState === "idle" ? "🎙️" : null}
+            {isChatVoiceActive && props.sttState === "listening" ? "🔴🎙️" : null}
+            {isChatVoiceActive && props.sttState === "transcribing" ? "⏳🎙️" : null}
           </button>
           <div className="hs-ai-chat-inputWrap">
-            {props.sttState === "listening" ? (
+            {props.sttTarget === "chat" && props.sttState === "listening" ? (
               <div className="hs-stt-inputPanel" role="status" aria-live="polite">
                 {props.listeningIndicator}
                 <div className="hs-stt-hint">Listening... tap 🎙️ to stop</div>
@@ -294,7 +329,13 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                 ref={props.chatInputRef}
                 value={props.chatDraft}
                 onChange={(event) => props.onChatDraftChange(event.target.value)}
-                placeholder={props.aiEpisodeReady ? "Talk it out... paste links... ask for an outline..." : "Select an Episode or Spark to start."}
+                placeholder={props.aiEpisodeReady
+                  ? props.writingFormat === "explore_expand"
+                    ? "Talk it through... paste links... explore and expand the content..."
+                    : props.writingFormat === "full_script"
+                      ? "Talk it through... paste links... ask for a full script..."
+                      : "Talk it through... paste links... keep it to bullet points..."
+                  : "Select an Episode or Spark to start."}
                 className="hs-ai-chat-input"
                 rows={2}
                 onKeyDown={(event) => {
@@ -319,13 +360,13 @@ export default function ChatSurface(props: ChatSurfaceProps) {
             {props.isAiProcessing ? "Sending..." : "Send"}
           </button>
         </div>
-        {props.devMode && props.sttPreview ? (
+        {props.devMode && props.sttTarget === "chat" && props.sttPreview ? (
           <div className="hs-field-label-muted">{props.sttPreview}</div>
         ) : null}
-        {props.sttNotice ? (
+        {props.sttTarget === "chat" && props.sttNotice ? (
           <div className="hs-field-label-muted">{props.sttNotice}</div>
         ) : null}
-        {props.sttError ? (
+        {props.sttTarget === "chat" && props.sttError ? (
           <div className="hs-error-text-small">{props.sttError}</div>
         ) : null}
       </section>

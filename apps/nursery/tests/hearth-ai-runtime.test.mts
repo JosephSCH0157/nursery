@@ -14,8 +14,9 @@ function buildConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntim
   return {
     textApiKey: null,
     imageApiKey: null,
+    researchApiKey: null,
     apiKey: null,
-    model: "gpt-5",
+    model: "gpt-5.4-mini",
     sttModel: "gpt-4o-mini-transcribe",
     configuredBillingMode: "forge",
     initialTokenBalance: 42,
@@ -23,6 +24,9 @@ function buildConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntim
     supabaseServiceRoleKey: null,
     supabaseRpcKey: null,
     sttBucket: "forge-workpieces",
+    disableForgeLaneAi: false,
+    disableExpensiveAiActions: false,
+    disableCdcGeneration: false,
     ...overrides,
   };
 }
@@ -342,6 +346,505 @@ test("createHearthAiHandler keeps clarify gate for very short ambiguous asks", a
     assert.equal(payload.gate, "clarify");
     assert.match(String(payload.assistant_text), /Quick unblock before I draft/i);
     assert.equal(openAiCalled, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler adds explicit scope bridge note for cross-project references", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  let openAiCalled = false;
+
+  globalThis.fetch = async (_input, _init) => {
+    openAiCalled = true;
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: "We can keep the current draft and tune the tone.",
+              ops: [],
+              script_text: null,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 67 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Use the tone from that Whig Party script." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.gate, undefined);
+    assert.equal(openAiCalled, true);
+    assert.match(String(payload.assistant_text ?? ""), /Scope note: This sounds like a reference to another workspace artifact/i);
+    assert.match(String(payload.assistant_text ?? ""), /resolve it through Tongs/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler bypasses clarify gate for short research asks and enables research-first prompt behavior", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  let openAiCalled = false;
+  let capturedSystemPrompt = "";
+
+  globalThis.fetch = async (_input, init) => {
+    openAiCalled = true;
+    const body = JSON.parse(String(init?.body ?? "{}")) as {
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    capturedSystemPrompt = body.messages?.[0]?.content ?? "";
+
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: "Angle is strong. Here are examples grouped by bucket.",
+              ops: [],
+              script_text: null,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 79 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Find breach-related reporting examples." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.gate, undefined);
+    assert.equal(openAiCalled, true);
+    assert.match(capturedSystemPrompt, /Research mode behavior \(hard rule\):/i);
+    assert.match(capturedSystemPrompt, /Always attempt a first-pass answer before limitations/i);
+    assert.match(capturedSystemPrompt, /Start with immediate known examples/i);
+    assert.match(capturedSystemPrompt, /Organize examples into clear buckets\/categories/i);
+    assert.match(capturedSystemPrompt, /Research response shape:/i);
+    assert.match(capturedSystemPrompt, /Canonical research runtime result:/i);
+    assert.equal(payload.research_result?.mode, "knowledge_first");
+    assert.equal(payload.research_result?.runtimeStatus, "partial");
+    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Live retrieval was unavailable in this run/i);
+    assert.match(String(payload.assistant_text ?? ""), /knowledge-first fallback/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler returns retrieval-backed canonical research results when provider is configured", async () => {
+  const handler = createHearthAiHandler(buildConfig({
+    textApiKey: "test-key",
+    researchApiKey: "brave-test-key",
+  }));
+  const originalFetch = globalThis.fetch;
+  let openAiCalled = false;
+
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      return new Response(JSON.stringify({
+        web: {
+          results: [
+            {
+              title: "Breach report one",
+              url: "https://example.com/one",
+              description: "Incident one summary.",
+              page_age: "2 days ago",
+            },
+            {
+              title: "Breach report two",
+              url: "https://example.org/two",
+              description: "Incident two summary.",
+              page_age: "2026-03-15",
+            },
+          ],
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://example.com/one") {
+      return new Response("<html><head><title>One</title></head><body><p>First incident details.</p></body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+    if (url === "https://example.org/two") {
+      return new Response("Second incident details in plain text.", {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      openAiCalled = true;
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                assistantText: "Retrieved examples and grouped findings.",
+                ops: [],
+                script_text: null,
+                tag_audit: null,
+              }),
+            },
+          },
+        ],
+        usage: { total_tokens: 92 },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Find breach-related reporting examples." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(openAiCalled, true);
+    assert.equal(payload.research_result?.mode, "retrieval_first");
+    assert.equal(payload.research_result?.runtimeStatus, "ok");
+    assert.equal(payload.research_result?.sources?.length, 2);
+    assert.equal(payload.research_result?.sources?.[0]?.url, "https://example.com/one");
+    assert.equal(payload.research_result?.sources?.[0]?.extractionStatus, "extracted");
+    assert.equal(typeof payload.research_result?.sources?.[0]?.publishedAt, "string");
+    assert.equal(payload.research_result?.sources?.[1]?.url, "https://example.org/two");
+    assert.equal(payload.research_result?.sources?.[1]?.extractionStatus, "extracted");
+    assert.match(String(payload.research_result?.synthesis?.summary ?? ""), /Retrieved 2 source/);
+    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Retrieval found sources/i);
+    assert.match(String(payload.assistant_text ?? ""), /Sources found \(2\):/i);
+    assert.match(String(payload.assistant_text ?? ""), /Retrieved findings:/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler marks partial retrieval honestly when some sources fail extraction", async () => {
+  const handler = createHearthAiHandler(buildConfig({
+    textApiKey: "test-key",
+    researchApiKey: "brave-test-key",
+  }));
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      return new Response(JSON.stringify({
+        web: {
+          results: [
+            {
+              title: "Reachable source",
+              url: "https://example.com/reachable",
+              description: "Reachable source summary.",
+              page_age: "2026-03-12",
+            },
+            {
+              title: "Blocked source",
+              url: "https://example.com/blocked",
+              description: "Blocked source summary.",
+              page_age: "2026-03-14",
+            },
+          ],
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://example.com/reachable") {
+      return new Response("<html><head><title>Reachable</title></head><body>Readable details.</body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+    if (url === "https://example.com/blocked") {
+      return new Response("blocked", { status: 503 });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                assistantText: "Some sources were retrieved and one failed.",
+                ops: [],
+                script_text: null,
+                tag_audit: null,
+              }),
+            },
+          },
+        ],
+        usage: { total_tokens: 74 },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Find breach reports with examples." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.research_result?.mode, "partial_retrieval");
+    assert.equal(payload.research_result?.runtimeStatus, "partial");
+    assert.equal(payload.research_result?.sources?.[0]?.extractionStatus, "extracted");
+    assert.equal(payload.research_result?.sources?.[1]?.extractionStatus, "failed");
+    assert.match(
+      String(payload.research_result?.synthesis?.uncertainties?.[0] ?? ""),
+      /partial, failed, or skipped/i,
+    );
+    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Retrieval was partial/i);
+    assert.match(String(payload.assistant_text ?? ""), /Recovered sources \(2\):/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler returns no_results when provider returns no candidates", async () => {
+  const handler = createHearthAiHandler(buildConfig({
+    textApiKey: "test-key",
+    researchApiKey: "brave-test-key",
+  }));
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      return new Response(JSON.stringify({
+        web: {
+          results: [],
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                assistantText: "No strong matches yet; here is a refinement direction.",
+                ops: [],
+                script_text: null,
+                tag_audit: null,
+              }),
+            },
+          },
+        ],
+        usage: { total_tokens: 64 },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Find breach reporting from an obscure local incident." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.research_result?.mode, "retrieval_first");
+    assert.equal(payload.research_result?.runtimeStatus, "no_results");
+    assert.equal(payload.research_result?.sources?.length, 0);
+    assert.match(String(payload.research_result?.synthesis?.summary ?? ""), /No strong retrieval results/i);
+    assert.match(String(payload.assistant_text ?? ""), /No strong retrieval results were found/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler labels retrieval errors as knowledge-first fallback in research replies", async () => {
+  const handler = createHearthAiHandler(buildConfig({
+    textApiKey: "test-key",
+    researchApiKey: "brave-test-key",
+  }));
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      return new Response("upstream failure", { status: 502 });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                assistantText: "Here are angles to explore next.",
+                ops: [],
+                script_text: null,
+                tag_audit: null,
+              }),
+            },
+          },
+        ],
+        usage: { total_tokens: 62 },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Find recent breach reporting examples." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.research_result?.runtimeStatus, "error");
+    assert.equal(payload.research_result?.mode, "knowledge_first");
+    assert.match(String(payload.assistant_text ?? ""), /Live retrieval was unavailable in this run/i);
+    assert.match(String(payload.assistant_text ?? ""), /knowledge-first fallback/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler strips internal prompt markers from research fallback replies", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as {
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    const systemPrompt = body.messages?.[0]?.content ?? "";
+    if (!/Research mode behavior \(hard rule\):/i.test(systemPrompt)) {
+      throw new Error("Expected research mode prompt");
+    }
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: [
+                "Response tone: Sound like a capable creative operations partner.",
+                "The user prefers a full script when they explicitly ask for one.",
+                "If helpful, ask whether they want a deeper pass.",
+              ].join("\n"),
+              ops: [],
+              script_text: null,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 61 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Find breach-related reporting examples." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    const assistantText = String(payload.assistant_text ?? "");
+    assert.match(assistantText, /Research outcome: Live retrieval was unavailable in this run/i);
+    assert.doesNotMatch(assistantText, /Response tone:/i);
+    assert.doesNotMatch(assistantText, /The user prefers/i);
+    assert.doesNotMatch(assistantText, /If helpful, ask whether/i);
   } finally {
     globalThis.fetch = originalFetch;
   }

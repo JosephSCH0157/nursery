@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useClipboardButtonAcks } from "../../hooks/useClipboardButtonAcks";
 import type {
   EpisodeLaunchVariant,
   EpisodeLaunchVariantStatus,
@@ -31,6 +32,18 @@ import {
   type ThumbnailEvaluation,
 } from "../../lib/thumbnail-ctr-evaluator";
 import { resolveHearthThumbnailOverlayText } from "../../lib/hearth-thumbnail-title-contract";
+import {
+  formatThumbnailPanelMeta,
+  resolveThumbnailPreviewStatus,
+  resolveThumbnailWorkspaceGuidance,
+} from "../../lib/hearth-thumbnail-workflow";
+import {
+  buildThumbnailPromptPackVariants,
+  type PromptPack,
+  type ResolvedVisualProvider,
+  type ThumbnailPromptPackVariant,
+  type VisualProviderId,
+} from "../../lib/hearth-visual-provider-profiles";
 import ThumbnailVersions from "./ThumbnailVersions";
 
 type ThumbnailPanelProps = {
@@ -60,8 +73,10 @@ type ThumbnailPanelProps = {
   brandLogoUploading: boolean;
   brandLogoError: string | null;
   brandLogoStatus: string | null;
-  promptOverride: string;
   aspect: "16:9" | "1:1" | "9:16";
+  activeVisualProvider: ResolvedVisualProvider;
+  visualProviderOptions: ReadonlyArray<{ id: VisualProviderId; label: string }>;
+  visualProviderOverride: VisualProviderId | null;
   safeZoneEnabled: boolean;
   previewDataUrl: string | null;
   previewState: "idle" | "loading" | "ready" | "error";
@@ -71,9 +86,12 @@ type ThumbnailPanelProps = {
   pairingError: string | null;
   canGenerateConcepts?: boolean;
   isGeneratingConcepts?: boolean;
+  canGenerateTitles?: boolean;
+  isGeneratingTitles?: boolean;
   isGenerating: boolean;
   isSavingConcept: boolean;
   isUploading: boolean;
+  onGenerateTitles?: () => void;
   onSelectTitle: (titleId: string) => void;
   onSelectConcept: (conceptId: string) => void;
   onSelectedConceptLabelChange: (value: string) => void;
@@ -90,10 +108,8 @@ type ThumbnailPanelProps = {
   onCreateConcept: () => void;
   onSaveConcept: () => void;
   onDeleteConcept: () => void;
-  onPromptOverrideChange: (value: string) => void;
   onAspectChange: (value: "16:9" | "1:1" | "9:16") => void;
-  onGenerate: () => void;
-  onRegenerate: () => void;
+  onVisualProviderOverrideChange: (providerId: VisualProviderId | null) => void;
   onToggleSafeZone: () => void;
   onUploadImage: (file: File) => void;
   onSelectVersion: (versionId: string) => void;
@@ -237,6 +253,62 @@ async function loadRenderedPreviewImageData(
   };
 }
 
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall back for browsers that reject direct Clipboard API writes.
+    }
+  }
+
+  if (typeof document === "undefined") return false;
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  textarea.style.left = "-1000px";
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+function downloadPromptPack(pack: PromptPack, filename: string): void {
+  if (typeof document === "undefined" || typeof URL === "undefined") return;
+  const blob = new Blob([JSON.stringify(pack, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(href);
+}
+
+function resolvePromptVariantLabel(style: ThumbnailPromptPackVariant["style"]): string {
+  switch (style) {
+    case "high_ctr":
+      return "High CTR";
+    case "balanced":
+      return "Balanced";
+    default:
+      return "Subtle";
+  }
+}
+
 function measureRenderedTextBox(
   previewEl: HTMLDivElement,
   textEl: HTMLDivElement,
@@ -289,8 +361,10 @@ export default function ThumbnailPanel({
   brandLogoUploading,
   brandLogoError,
   brandLogoStatus,
-  promptOverride,
   aspect,
+  activeVisualProvider,
+  visualProviderOptions,
+  visualProviderOverride,
   safeZoneEnabled,
   previewDataUrl,
   previewState,
@@ -300,9 +374,12 @@ export default function ThumbnailPanel({
   pairingError,
   canGenerateConcepts = false,
   isGeneratingConcepts = false,
+  canGenerateTitles = false,
+  isGeneratingTitles = false,
   isGenerating,
   isSavingConcept,
   isUploading,
+  onGenerateTitles,
   onSelectTitle,
   onSelectConcept,
   onSelectedConceptLabelChange,
@@ -319,10 +396,8 @@ export default function ThumbnailPanel({
   onCreateConcept,
   onSaveConcept,
   onDeleteConcept,
-  onPromptOverrideChange,
   onAspectChange,
-  onGenerate,
-  onRegenerate,
+  onVisualProviderOverrideChange,
   onToggleSafeZone,
   onUploadImage,
   onSelectVersion,
@@ -344,18 +419,33 @@ export default function ThumbnailPanel({
     result: null,
     error: null,
   });
+  const { acknowledgeCopy, isCopyAcknowledged } = useClipboardButtonAcks();
+  const [promptVariants, setPromptVariants] = useState<ThumbnailPromptPackVariant[] | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const previewAspectClass = aspect === "1:1"
     ? " is-square"
     : aspect === "9:16"
       ? " is-vertical"
       : " is-widescreen";
-  const previewStatusMessage = selectedVersionId
-    ? `Showing version ${selectedVersionId.slice(0, 8)}. Use the versions below to change the preview.`
-    : "Generate or choose a version below to preview it here.";
+  const selectedVersion = versions.find((version) => version.id === selectedVersionId) ?? null;
+  const previewStatusMessage = resolveThumbnailPreviewStatus({
+    selectedVersionId,
+    selectedVersionProvider: selectedVersion?.provider ?? null,
+  });
+  const workspaceGuidance = resolveThumbnailWorkspaceGuidance({
+    conceptCount: concepts.length,
+    versionCount: versions.length,
+    titleCount: titleOptions.length,
+  });
+  const hasFramingTitles = titleOptions.length > 0;
+  const framingFirst = workspaceGuidance.primaryAction === "generate_titles";
+  const draftBriefIsPrimary = workspaceGuidance.primaryAction === "draft_brief";
+  const uploadImageIsPrimary = workspaceGuidance.primaryAction === "upload_image";
   const hasOverlayTitle = selectedTitleText.trim().length > 0;
   const launchVariantActionLabel = selectedLaunchVariantId ? "Update Pairing" : "Save Pairing";
   const interactionDisabled = isGenerating || isSavingConcept || isUploading;
+  const conceptEditingDisabled = interactionDisabled || !hasFramingTitles;
+  const uploadImageDisabled = isGenerating || isUploading || !hasFramingTitles;
   const canSaveLaunchVariant = Boolean(selectedTitleId && selectedVersionId);
   const lastTestedLabel = formatVariantTimestamp(selectedLaunchVariantLastTestedAt);
   const winnerSelectedLabel = formatVariantTimestamp(selectedLaunchVariantWinnerSelectedAt);
@@ -410,6 +500,46 @@ export default function ThumbnailPanel({
     && previewRef.current
     && previewTextRef.current,
   );
+  const canGeneratePrompt = Boolean(
+    hasFramingTitles
+    && selectedConceptPrompt.trim().length > 0
+    && selectedTitleText.trim().length > 0,
+  );
+  const onGeneratePromptVariants = useCallback(() => {
+    if (!canGeneratePrompt) return;
+    const result = buildThumbnailPromptPackVariants({
+      conceptBrief: selectedConceptPrompt,
+      title: selectedTitleText,
+      tone: selectedConceptStylePreset,
+      aspectRatio: aspect,
+      providerId: activeVisualProvider.id,
+      resolvedProvider: activeVisualProvider,
+    });
+    setPromptVariants(result.variants);
+  }, [activeVisualProvider, aspect, canGeneratePrompt, selectedConceptPrompt, selectedConceptStylePreset, selectedTitleText]);
+  const onCopyPromptVariant = useCallback((prompt: string) => {
+    void copyTextToClipboard(prompt).then((copied) => {
+      if (copied) acknowledgeCopy("thumbnail.prompt");
+    });
+  }, [acknowledgeCopy]);
+  const onCopyNegativePrompt = useCallback((negative: string) => {
+    void copyTextToClipboard(negative).then((copied) => {
+      if (copied) acknowledgeCopy("thumbnail.negative");
+    });
+  }, [acknowledgeCopy]);
+  const onDownloadVariantPack = useCallback((variant: ThumbnailPromptPackVariant) => {
+    const conceptSuffix = (selectedConceptId || "concept").slice(0, 8).toLowerCase();
+    downloadPromptPack(
+      variant.pack,
+      `thumbnail-prompt-pack-${conceptSuffix}-${variant.id}.json`,
+    );
+  }, [selectedConceptId]);
+  const promptPackButtonLabel = promptVariants ? "Generate Prompt Pack Again" : "Generate Prompt Pack";
+
+  useEffect(() => {
+    setPromptVariants(null);
+  }, [activeVisualProvider.id, activeVisualProvider.usedFallback, aspect, selectedConceptId, selectedConceptPrompt, selectedConceptStylePreset, selectedTitleId, selectedTitleText]);
+
   const runThumbnailAudit = useCallback(async () => {
     if (!previewDataUrl || previewState !== "ready" || !hasOverlayTitle) {
       setAuditState({ mode: "idle", result: null, error: null });
@@ -534,14 +664,82 @@ export default function ThumbnailPanel({
     : auditState.mode === "ready"
       ? "Re-analyze"
       : "Analyze Thumbnail";
+  const draftBriefButton = onGenerateConcepts ? (
+    <button
+      type="button"
+      className={draftBriefIsPrimary ? "is-primary" : undefined}
+      onClick={onGenerateConcepts}
+      disabled={!canGenerateConcepts || isGeneratingConcepts || isGenerating || isUploading || !hasFramingTitles}
+    >
+      {isGeneratingConcepts ? "Drafting Brief..." : workspaceGuidance.primaryAction === "draft_brief" ? workspaceGuidance.primaryActionLabel : "Draft Concept Brief"}
+    </button>
+  ) : null;
+  const generateTitlesButton = onGenerateTitles ? (
+    <button
+      type="button"
+      className={framingFirst ? "is-primary" : undefined}
+      onClick={onGenerateTitles}
+      disabled={!canGenerateTitles || isGeneratingTitles || interactionDisabled}
+    >
+      {isGeneratingTitles ? "Generating Titles..." : "Generate Titles"}
+    </button>
+  ) : null;
+  const uploadImageButton = (
+    <button
+      type="button"
+      className={uploadImageIsPrimary ? "is-primary" : undefined}
+      onClick={() => fileInputRef.current?.click()}
+      disabled={uploadImageDisabled}
+    >
+      {isUploading ? "Uploading Image..." : uploadImageIsPrimary ? workspaceGuidance.primaryActionLabel : "Upload Final Image"}
+    </button>
+  );
+  const workflowPrimaryActionButton = framingFirst && onGenerateTitles ? (
+    <button
+      type="button"
+      className="is-primary"
+      onClick={onGenerateTitles}
+      disabled={!canGenerateTitles || isGeneratingTitles || interactionDisabled}
+    >
+      {isGeneratingTitles ? "Generating Titles..." : "Generate Titles"}
+    </button>
+  ) : workspaceGuidance.primaryAction === "generate_prompt" ? (
+    <button
+      type="button"
+      className="is-primary"
+      onClick={onGeneratePromptVariants}
+      disabled={!canGeneratePrompt}
+    >
+      Generate Prompt Pack
+    </button>
+  ) : draftBriefIsPrimary && onGenerateConcepts ? (
+    <button
+      type="button"
+      className="is-primary"
+      onClick={onGenerateConcepts}
+      disabled={!canGenerateConcepts || isGeneratingConcepts || isGenerating || isUploading || !hasFramingTitles}
+    >
+      {isGeneratingConcepts ? "Drafting Brief..." : workspaceGuidance.primaryActionLabel}
+    </button>
+  ) : (
+    <button
+      type="button"
+      className="is-primary"
+      onClick={() => fileInputRef.current?.click()}
+      disabled={uploadImageDisabled}
+    >
+      {isUploading ? "Uploading Image..." : workspaceGuidance.primaryActionLabel}
+    </button>
+  );
 
   return (
     <section className="hs-thumb-panel" aria-label="Visuals panel">
       <header className="hs-thumb-header">
-        <div className="hs-thumb-title">Visuals</div>
+        <div className="hs-thumb-title">Thumbnail Workspace</div>
         <div className="hs-thumb-meta">
-          {concepts.length} concepts · {versions.length} versions
+          {formatThumbnailPanelMeta(concepts.length, versions.length)}
         </div>
+        <div className="hs-thumb-state-cue">{workspaceGuidance.stateCue}</div>
       </header>
 
       <div className="hs-thumb-mobile-concept-header" aria-label="Selected concept">
@@ -557,7 +755,7 @@ export default function ThumbnailPanel({
               conceptsSection.scrollIntoView({ behavior: "smooth", block: "start" });
             }
           }}
-          disabled={interactionDisabled}
+          disabled={conceptEditingDisabled}
         >
           Change
         </button>
@@ -565,10 +763,10 @@ export default function ThumbnailPanel({
 
       <div className="hs-thumb-grid">
         <section className="hs-thumb-concepts" aria-label="Thumbnail concepts">
-          <div className="hs-thumb-section-title">Concepts</div>
+          <div className="hs-thumb-section-title">Concept Briefs</div>
           <div className="hs-thumb-concepts-list">
             {concepts.length === 0 ? (
-              <div className="hs-thumb-empty">No concepts yet.</div>
+              <div className="hs-thumb-empty">Start by drafting a concept brief.</div>
             ) : (
               concepts.map((concept) => (
                 <button
@@ -576,7 +774,7 @@ export default function ThumbnailPanel({
                   type="button"
                   className={`hs-thumb-concept-item${concept.id === selectedConceptId ? " is-selected" : ""}`}
                   onClick={() => onSelectConcept(concept.id)}
-                  disabled={interactionDisabled}
+                  disabled={conceptEditingDisabled}
                 >
                   <span className="hs-thumb-concept-item-label">{concept.label}</span>
                   {conceptEvaluationsById.get(concept.id) ? (
@@ -656,21 +854,21 @@ export default function ThumbnailPanel({
             <button
               type="button"
               onClick={onCreateConcept}
-              disabled={interactionDisabled}
+              disabled={conceptEditingDisabled}
             >
               New Concept
             </button>
             <button
               type="button"
               onClick={onSaveConcept}
-              disabled={interactionDisabled || !selectedConceptId}
+              disabled={conceptEditingDisabled || !selectedConceptId}
             >
               {isSavingConcept ? "Saving..." : "Save Concept"}
             </button>
             <button
               type="button"
               onClick={onDeleteConcept}
-              disabled={interactionDisabled || !selectedConceptId}
+              disabled={conceptEditingDisabled || !selectedConceptId}
             >
               Delete
             </button>
@@ -690,6 +888,24 @@ export default function ThumbnailPanel({
 
           <div className="hs-thumb-preview-note">{previewStatusMessage}</div>
 
+          <section className="hs-thumb-workflow-card" aria-label="Next step guidance">
+            <div className="hs-thumb-workflow-eyebrow">{workspaceGuidance.cardTitle}</div>
+            <div className="hs-thumb-workflow-copy">
+              {workspaceGuidance.cardLead}
+            </div>
+            <div className="hs-thumb-workflow-actions">
+              {workflowPrimaryActionButton}
+            </div>
+            <ol className="hs-thumb-workflow-steps">
+              {workspaceGuidance.steps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+            <div className="hs-thumb-workflow-note">
+              {workspaceGuidance.note}
+            </div>
+          </section>
+
           <div
             ref={previewRef}
             className={`hs-thumb-preview${previewAspectClass}${safeZoneEnabled ? " show-safe-zone" : ""}`}
@@ -701,7 +917,7 @@ export default function ThumbnailPanel({
               <div className="hs-thumb-preview-empty">{previewError || "Preview unavailable."}</div>
             ) : null}
             {previewState === "idle" ? (
-              <div className="hs-thumb-preview-empty">Select a version to preview.</div>
+              <div className="hs-thumb-preview-empty">Upload or select an image version to preview it here.</div>
             ) : null}
             {previewDataUrl && previewState === "ready" ? (
               <>
@@ -735,21 +951,15 @@ export default function ThumbnailPanel({
           </div>
 
           <div className="hs-thumb-controls">
-            {onGenerateConcepts ? (
-              <button
-                type="button"
-                onClick={onGenerateConcepts}
-                disabled={!canGenerateConcepts || isGeneratingConcepts || isGenerating || isUploading}
-              >
-                {isGeneratingConcepts ? "Generating Concepts..." : "Generate Thumbnail Concepts"}
-              </button>
-            ) : null}
+            {framingFirst ? generateTitlesButton : null}
+            {uploadImageIsPrimary ? uploadImageButton : draftBriefButton}
+            {uploadImageIsPrimary ? draftBriefButton : uploadImageButton}
             <select
               aria-label="Thumbnail aspect ratio"
               title="Thumbnail aspect ratio"
               value={aspect}
               onChange={(event) => onAspectChange(event.target.value as "16:9" | "1:1" | "9:16")}
-              disabled={isGenerating || isUploading}
+              disabled={uploadImageDisabled}
             >
               <option value="16:9">16:9</option>
               <option value="1:1">1:1</option>
@@ -758,16 +968,9 @@ export default function ThumbnailPanel({
             <button
               type="button"
               onClick={onToggleSafeZone}
-              disabled={isGenerating || isUploading}
+              disabled={uploadImageDisabled}
             >
               {safeZoneEnabled ? "Hide Safe Zone" : "Show Safe Zone"}
-            </button>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isGenerating || isUploading}
-            >
-              {isUploading ? "Uploading..." : "Upload Image"}
             </button>
             <input
               ref={fileInputRef}
@@ -792,12 +995,129 @@ export default function ThumbnailPanel({
             <div className="hs-error-text-small">{uploadError}</div>
           ) : null}
           <div className="hs-field-label-muted">
-            Image generation is currently disabled in Forge. Upload assets or use an external image generator.
+            This is your planning space. Once the image comes back in, we'll keep the text, framing, and pairing aligned.
           </div>
 
-          <section className="hs-thumb-prompt-section" aria-label="Concept authoring">
+          <section className="hs-thumb-prompt-section" aria-label="Image prompt generation">
+            <div className="hs-thumb-prompt-header">
+              <div>
+                <div className="hs-field-label">Prompt Pack</div>
+                <div className="hs-thumb-field-helper">
+                  Hearth turns the selected concept brief and title into a provider-ready prompt pack for your outside tool.
+                </div>
+              </div>
+              <div className="hs-imap-candidate-action-group">
+                <label className="hs-field">
+                  <span className="hs-field-label">Provider</span>
+                  <select
+                    value={visualProviderOverride ?? ""}
+                    onChange={(event) => onVisualProviderOverrideChange((event.target.value || null) as VisualProviderId | null)}
+                    disabled={interactionDisabled}
+                  >
+                    <option value="">Use Global Default</option>
+                    {(visualProviderOptions ?? []).map((option) => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={onGeneratePromptVariants}
+                  disabled={!canGeneratePrompt}
+                >
+                  {promptPackButtonLabel}
+                </button>
+              </div>
+            </div>
+            <div className="hs-thumb-prompt-context">
+              <span><strong>Concept:</strong> {selectedConceptLabel.trim() || "No concept selected"}</span>
+              <span><strong>Title:</strong> {selectedTitleText.trim() || "Choose a title on the right"}</span>
+              <span><strong>Provider:</strong> {activeVisualProvider.bannerLabel}</span>
+            </div>
+            <div className="hs-thumb-field-helper">
+              {activeVisualProvider.helperText}
+            </div>
+            {!hasFramingTitles ? (
+              <div className="hs-thumb-empty">Start with a title. Framing helps shape thumbnail ideas.</div>
+            ) : !selectedConceptPrompt.trim() ? (
+              <div className="hs-thumb-empty">Add enough detail to the concept brief so Hearth has something concrete to translate.</div>
+            ) : !selectedTitleText.trim() ? (
+              <div className="hs-thumb-empty">Choose a title on the right, then generate the prompt pack.</div>
+            ) : promptVariants?.length ? (
+              <div className="hs-thumb-prompt-output" aria-label="Generated prompt pack variants">
+                {promptVariants.map((variant) => (
+                  <article key={variant.id} className="hs-thumb-prompt-card">
+                    <div className="hs-thumb-prompt-card-header">
+                      <div>
+                        <div className="hs-thumb-prompt-card-title">{resolvePromptVariantLabel(variant.style)}</div>
+                        <div className="hs-thumb-prompt-card-provider">{activeVisualProvider.label} · {variant.pack.aspectRatio ?? aspect}</div>
+                        {variant.tagline ? (
+                          <div className="hs-thumb-prompt-card-tagline">{variant.tagline}</div>
+                        ) : null}
+                      </div>
+                      <div className="hs-thumb-prompt-card-actions">
+                        <button
+                          type="button"
+                          className={isCopyAcknowledged("thumbnail.prompt") ? "hs-copy-ack" : undefined}
+                          onClick={() => onCopyPromptVariant(variant.pack.prompt)}
+                        >
+                          Copy Prompt
+                        </button>
+                        {variant.pack.negative ? (
+                          <button
+                            type="button"
+                            className={isCopyAcknowledged("thumbnail.negative") ? "hs-copy-ack" : undefined}
+                            onClick={() => onCopyNegativePrompt(variant.pack.negative ?? "")}
+                          >
+                            Copy Negative
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => onDownloadVariantPack(variant)}
+                        >
+                          Download Prompt Pack
+                        </button>
+                      </div>
+                    </div>
+                    <textarea
+                      value={variant.pack.prompt}
+                      readOnly
+                      rows={6}
+                      aria-label="Generated prompt"
+                      className="hs-thumb-prompt-card-text"
+                    />
+                    {variant.pack.negative ? (
+                      <textarea
+                        value={variant.pack.negative}
+                        readOnly
+                        rows={3}
+                        aria-label="Generated negative prompt"
+                        className="hs-thumb-prompt-card-text is-secondary"
+                      />
+                    ) : null}
+                    {variant.pack.styleTags?.length ? (
+                      <div className="hs-thumb-prompt-card-tags">
+                        {variant.pack.styleTags.map((tag) => (
+                          <span key={`${variant.id}:${tag}`} className="hs-thumb-prompt-card-tag">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {variant.pack.notes ? (
+                      <div className="hs-thumb-prompt-card-note">{variant.pack.notes}</div>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="hs-thumb-prompt-empty">
+                Use <strong>Generate Prompt Pack</strong> to turn this concept and title into a provider-ready pack for your outside tool.
+              </div>
+            )}
             <details className="hs-thumb-advanced-options">
-              <summary>Concept Authoring</summary>
+              <summary>Concept Source</summary>
               <div className="hs-thumb-advanced-options-body">
                 <label className="hs-field">
                   <span className="hs-field-label">Concept Label</span>
@@ -806,7 +1126,7 @@ export default function ThumbnailPanel({
                     value={selectedConceptLabel}
                     onChange={(event) => onSelectedConceptLabelChange(event.target.value)}
                     placeholder="Concept label"
-                    disabled={interactionDisabled}
+                    disabled={conceptEditingDisabled}
                   />
                 </label>
                 <label className="hs-field">
@@ -814,7 +1134,7 @@ export default function ThumbnailPanel({
                   <select
                     value={selectedConceptStylePreset}
                     onChange={(event) => onSelectedConceptStylePresetChange(event.target.value)}
-                    disabled={interactionDisabled}
+                    disabled={conceptEditingDisabled}
                   >
                     {HEARTH_VISUAL_STYLE_DEFINITIONS.map((style) => (
                       <option key={style.value} value={style.value}>
@@ -823,31 +1143,20 @@ export default function ThumbnailPanel({
                     ))}
                   </select>
                 </label>
+                <label className="hs-field">
+                  <span className="hs-field-label">Concept Brief (source)</span>
+                  <div className="hs-thumb-field-helper">This is the planning brief Hearth interprets. It is not the final provider prompt.</div>
+                  <textarea
+                    value={selectedConceptPrompt}
+                    onChange={(event) => onSelectedConceptPromptChange(event.target.value)}
+                    placeholder="Outline the focal subject, framing, contrast, and tone."
+                    rows={7}
+                    disabled={conceptEditingDisabled}
+                    className="hs-thumb-prompt-input"
+                  />
+                </label>
               </div>
             </details>
-            <label className="hs-field">
-              <span className="hs-field-label">Prompt</span>
-              <div className="hs-thumb-field-helper">Describe the image, tone, framing, and emotional angle.</div>
-              <textarea
-                value={selectedConceptPrompt}
-                onChange={(event) => onSelectedConceptPromptChange(event.target.value)}
-                placeholder="Describe the thumbnail concept"
-                rows={7}
-                disabled={interactionDisabled}
-                className="hs-thumb-prompt-input"
-              />
-            </label>
-            <label className="hs-field">
-              <span className="hs-field-label">Prompt Override</span>
-              <textarea
-                value={promptOverride}
-                onChange={(event) => onPromptOverrideChange(event.target.value)}
-                placeholder="Optional prompt override"
-                rows={3}
-                disabled={isGenerating || isUploading}
-                className="hs-thumb-prompt-override"
-              />
-            </label>
           </section>
         </section>
 
@@ -870,7 +1179,9 @@ export default function ThumbnailPanel({
             <summary>Text & Branding</summary>
             <div>
               {titleOptions.length === 0 ? (
-                <div className="hs-thumb-empty">Generate SEO titles to place clean text on the thumbnail.</div>
+                <div className="hs-thumb-empty">
+                  Start with a title. Framing helps shape thumbnail ideas.
+                </div>
               ) : (
                 <div className="hs-thumb-title-list">
                   {titleOptions.map((title) => (
@@ -891,7 +1202,7 @@ export default function ThumbnailPanel({
                 </div>
               )}
               <div className="hs-thumb-title-help">
-                Hearth derives a thumbnail-safe overlay hook from the selected title using the shared thumbnail title contract.
+                Hearth derives a thumbnail-safe overlay hook from the selected title, so you can carry the same line into your outside image tool.
               </div>
               <details className="hs-thumb-advanced-options">
                 <summary>Branding Options</summary>
@@ -1045,7 +1356,7 @@ export default function ThumbnailPanel({
                   </button>
                 </div>
                 {!previewDataUrl || previewState !== "ready" ? (
-                  <div className="hs-thumb-audit-empty">Generate or select a preview image to run the audit.</div>
+                  <div className="hs-thumb-audit-empty">Upload or select a preview image to run the audit.</div>
                 ) : !hasOverlayTitle ? (
                   <div className="hs-thumb-audit-empty">Select overlay text to analyze thumbnail readability.</div>
                 ) : auditState.mode === "error" ? (
@@ -1076,7 +1387,7 @@ export default function ThumbnailPanel({
       </div>
 
       <section className="hs-thumb-versions" aria-label="Thumbnail versions">
-        <div className="hs-thumb-section-title">Versions</div>
+        <div className="hs-thumb-section-title">Image Versions</div>
         <ThumbnailVersions
           versions={versions}
           selectedVersionId={selectedVersionId}
@@ -1092,7 +1403,7 @@ export default function ThumbnailPanel({
         <div className="hs-thumb-section-title">Launch Variants</div>
         <div className="hs-thumb-launch-toolbar">
           <div className="hs-field-label-muted">
-            Save the currently selected title and thumbnail as a launch-ready variant.
+            Once you have a title and image version selected, save the pairing as a launch-ready variant.
           </div>
           <div className="hs-thumb-launch-actions">
             <button
@@ -1145,11 +1456,11 @@ export default function ThumbnailPanel({
         </div>
 
         {!canSaveLaunchVariant ? (
-          <div className="hs-thumb-empty">Choose both a title and a thumbnail version to save a variant.</div>
+          <div className="hs-thumb-empty">Choose both a title and an image version to save a pairing.</div>
         ) : null}
 
         {launchVariants.length === 0 ? (
-          <div className="hs-thumb-empty">No launch variants saved yet.</div>
+          <div className="hs-thumb-empty">No title/image pairings saved yet.</div>
         ) : (
           <div className="hs-thumb-launch-list">
             {launchVariants.map((variant, index) => {

@@ -1,33 +1,24 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createDraft, type Draft } from "../domain/draft";
+import { type Draft } from "../domain/draft";
 import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin } from "../domain/hearth-session";
 import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
-import { createRevision, type Revision, type RevisionKind } from "../domain/revision";
+import type { Revision, RevisionKind } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
 import {
   type BarStockSpark,
   enqueueBarStockSpark,
-  isBarStockKey,
   resolveBarStockSparkHearthWorkpieceId,
   resolveBarstockSparkIdFromQuery,
   upsertBarStockSpark,
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
 import {
-  isCanonicalSparkDiscoveryResolved,
-  listHearthBarStockSparks,
-  resolveCanonicalSparkIntakeError,
-} from "../lib/hearth-barstock-sparks";
-import {
-  readBarstockProjectContext,
   resolveBarstockProjectIdFromQuery,
-  upsertBarstockProjectEpisodeLink,
 } from "../lib/barstock-project-links";
 import SourcesView from "../views/SourcesView";
 import "./HearthShell.css";
 import { createHearthWorkpiece } from "../lib/hearth-workpiece";
 import {
-  isHearthPlanningSessionKey,
   readHearthPlanningSessionCache,
   writeHearthPlanningSessionCache,
 } from "../lib/hearth-session-registry";
@@ -38,31 +29,23 @@ import {
   requestHearthSttTranscript,
   refreshMyAiCredits,
   resolveAiLaneFromStorage,
-  resolveAiThumbnailAutoApproveFromStorage,
+  resolveDefaultVisualProviderFromStorage,
   uploadHearthSttAudio,
   type HearthAiLane,
   type HearthChatMessage,
   type HearthInteractionEventType,
 } from "../lib/hearth-chat-api";
+import type { HearthResearchResult } from "../lib/hearth-research-contract";
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
-import { commitHearthSession, readHearthSession } from "../lib/hearth-session-repo";
+import { commitHearthSession } from "../lib/hearth-session-repo";
 import {
   commitHearthPrimaryScript,
   getHearthPrimaryScriptPath,
-  readHearthPrimaryScript,
 } from "../lib/hearth-script-repo";
 import {
-  archiveHearthWorkpiece,
   listHearthWorkpieces,
-  restoreHearthWorkpiece,
   type HearthWorkpieceSummary,
 } from "../lib/hearth-workpieces";
-import {
-  chooseCanonicalImageMapScriptSource,
-  choosePreferredHydratedDraft,
-  draftHasUsableScriptBody,
-  hydrateDraftBodyFromCanonicalScript,
-} from "../lib/hearth-draft-hydration";
 import {
   selectActiveWorkpieceContext,
   selectDraftForWorkpiece,
@@ -71,11 +54,6 @@ import {
 import { mirrorApprovedScriptToLocal } from "../lib/hearth-script-mirror";
 import {
   listHearthReadyScripts,
-  removeHearthReadyScripts,
-  reorderHearthReadyScripts,
-  setHearthReadyScriptCategory,
-  setHearthReadyScriptHidden,
-  updateHearthReadyQueueState,
   type HearthContentCategory,
   type HearthReadyScript,
 } from "../lib/hearth-ready-scripts";
@@ -84,7 +62,6 @@ import {
   upsertHearthWorkpiecePresence,
   type HearthWorkpiecePresence,
 } from "../lib/hearth-presence";
-import { resolveTongsRequestApiToken, tongsFetch } from "../lib/tongs-fetch";
 import { useSourcesState } from "../hooks/useSourcesState";
 import {
   useChatWorkspace,
@@ -96,8 +73,57 @@ import {
 } from "../hooks/useChatWorkspace";
 import { useHearthAutosave } from "../hooks/useHearthAutosave";
 import { useApprovalFlow } from "../hooks/useApprovalFlow";
+import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
+import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
+import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
+import { useHearthWorkspaceResetLifecycle } from "../hooks/useHearthWorkspaceResetLifecycle";
+import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
+import { useHearthSparkDiscovery } from "../hooks/useHearthSparkDiscovery";
+import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceSessionLifecycle";
+import { useHearthDraftController } from "../hooks/useHearthDraftController";
+import { useHearthDraftPersistenceActions } from "../hooks/useHearthDraftPersistenceActions";
+import { useHearthScriptRepairActions } from "../hooks/useHearthScriptRepairActions";
+import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
+import { useHearthWorkpieceArchiveActions } from "../hooks/useHearthWorkpieceArchiveActions";
+import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
+import { useHearthAnvilOpenAction } from "../hooks/useHearthAnvilOpenAction";
+import { useHearthApprovalPersistenceActions } from "../hooks/useHearthApprovalPersistenceActions";
+import { useHearthReadyScriptsLifecycle } from "../hooks/useHearthReadyScriptsLifecycle";
+import { useHearthReadyQueueActions } from "../hooks/useHearthReadyQueueActions";
+import { useHearthReadyNavigationActions } from "../hooks/useHearthReadyNavigationActions";
+import { useHearthDraftHydrationActions } from "../hooks/useHearthDraftHydrationActions";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
+import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
+import { useMetadataWorkspace } from "../hooks/visuals/useMetadataWorkspace";
+import { useImageMapWorkspace } from "../hooks/visuals/useImageMapWorkspace";
+import { useBrollWorkspace } from "../hooks/visuals/useBrollWorkspace";
+import { useReferenceClipWorkspace } from "../hooks/visuals/useReferenceClipWorkspace";
+import { useThumbnailWorkspace } from "../hooks/visuals/useThumbnailWorkspace";
+import { useMediaMapEntryActions } from "../hooks/visuals/useMediaMapEntryActions";
+import { useMediaMapGenerationActions } from "../hooks/visuals/useMediaMapGenerationActions";
+import { useBrollCoreActions } from "../hooks/visuals/useBrollCoreActions";
+import { useBrollBridgeActions } from "../hooks/visuals/useBrollBridgeActions";
+import { useReferenceClipCoreActions } from "../hooks/visuals/useReferenceClipCoreActions";
+import { useReferenceClipBridgeActions } from "../hooks/visuals/useReferenceClipBridgeActions";
+import { useThumbnailConceptActions } from "../hooks/visuals/useThumbnailConceptActions";
+import { useThumbnailGenerationActions } from "../hooks/visuals/useThumbnailGenerationActions";
+import { useImageMapReanchorActions } from "../hooks/visuals/useImageMapReanchorActions";
+import { useImageMapCandidateActions } from "../hooks/visuals/useImageMapCandidateActions";
+import { useImageMapEntryCrudActions } from "../hooks/visuals/useImageMapEntryCrudActions";
+import { useImageMapSeedExportActions } from "../hooks/visuals/useImageMapSeedExportActions";
+import { useMediaMapSourcePreparation } from "../hooks/visuals/useMediaMapSourcePreparation";
+import { useImageMapViewActions } from "../hooks/visuals/useImageMapViewActions";
+import { useCanonicalImageMapScriptReader } from "../hooks/visuals/useCanonicalImageMapScriptReader";
+import { useVisualsPersistence } from "../hooks/visuals/useVisualsPersistence";
+import { useReleasePrepPackWorkspace } from "../hooks/visuals/useReleasePrepPackWorkspace";
+import { useEpisodePackageLoader } from "../hooks/visuals/useEpisodePackageLoader";
+import { useThumbnailPreviewLoader } from "../hooks/visuals/useThumbnailPreviewLoader";
+import { useImageMapCandidatePreviewLoader } from "../hooks/visuals/useImageMapCandidatePreviewLoader";
+import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
+import { useMediaMapConversationBootstrap } from "../hooks/visuals/useMediaMapConversationBootstrap";
+import { useCanonicalImageMapScriptStateLoader } from "../hooks/visuals/useCanonicalImageMapScriptStateLoader";
+import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
@@ -116,13 +142,26 @@ import {
   resetHearthProposalBodyOp,
   updateHearthProposalBodyOp,
 } from "../lib/hearth-ai-proposal";
+import { getHearthAnvilStepModeHint } from "../lib/hearth-anvil-handoff";
+import {
+  deriveFullScriptAuthoringMeta,
+  deriveOutlineScriptAuthoringMeta,
+} from "../lib/hearth-script-authoring-meta";
+import { insertVoiceTranscriptIntoScript } from "../lib/hearth-script-dictation";
+import {
+  buildNoScriptChangesExplanation,
+  detectHearthScriptMutationIntent,
+} from "../lib/hearth-script-mutation";
+import {
+  parseHearthDraftConflictError,
+} from "../lib/hearth-draft-persistence";
 import {
   normalizeScriptTags,
   repairScriptTags,
-  validateScriptTags,
   type ScriptValidationResult,
   type ScriptValidationIssue,
 } from "@forge/shared/script-tags";
+import { evaluateHearthScriptValidation } from "../lib/hearth-script-tag-policy";
 import type { EpisodeWorkspaceReadModel } from "@forge/shared/episode-workspace";
 import type {
   ComposeSetup,
@@ -137,9 +176,19 @@ import {
   resolveProductionDefaultsUpdate,
   writeProductionDefaults,
 } from "../lib/compose-defaults";
+import {
+  buildWritingFormatShortcutPrompt,
+  getHearthWritingFormatProfile,
+  HEARTH_WRITING_FORMATS,
+  isExplicitHearthFullScriptRequest,
+  isExplicitHearthOutlineRequest,
+  readLastHearthWritingFormat,
+  resolveHearthWritingFormatRequest,
+  writeLastHearthWritingFormat,
+  type HearthWritingFormat,
+} from "../lib/hearth-writing-format";
 import { inferSpeakersFromScript } from "../lib/compose-content-validation";
 import { buildComposePrompt } from "../lib/compose-prompt";
-import ComposeSetupModal from "../ui/ComposeSetupModal";
 import ChatSurface from "../views/surfaces/ChatSurface";
 import HistorySurface from "../views/surfaces/HistorySurface";
 import MetadataSurface from "../views/surfaces/MetadataSurface";
@@ -147,71 +196,68 @@ import ReleaseSurface from "../views/surfaces/ReleaseSurface";
 import ScriptSurface from "../views/surfaces/ScriptSurface";
 import VisualsSurface from "../views/surfaces/VisualsSurface";
 import WorkpieceTabBar from "../views/surfaces/WorkpieceTabBar";
+import HearthReadyMode from "../views/modes/HearthReadyMode";
+import HearthSeriesMode from "../views/modes/HearthSeriesMode";
+import HearthEpisodesMode from "../views/modes/HearthEpisodesMode";
+import HearthPlanningMode from "../views/modes/HearthPlanningMode";
+import HearthRevisionsMode from "../views/modes/HearthRevisionsMode";
+import HearthSparksMode from "../views/modes/HearthSparksMode";
+import HearthSparkBootstrapMode from "../views/modes/HearthSparkBootstrapMode";
+import HearthFocusMode from "../views/modes/HearthFocusMode";
+import HearthDraftScriptHeader from "../views/modes/HearthDraftScriptHeader";
+import HearthDraftMode from "../views/modes/HearthDraftMode";
+import HearthMobileOverlays from "../views/modes/HearthMobileOverlays";
+import HearthShellModals from "../views/modes/HearthShellModals";
+import HearthMainContentSwitch from "../views/modes/HearthMainContentSwitch";
+import HearthWorkspaceProjectsRail from "../views/modes/HearthWorkspaceProjectsRail";
+import HearthActiveWorkpieceRail from "../views/modes/HearthActiveWorkpieceRail";
+import HearthReadyQueueRail from "../views/modes/HearthReadyQueueRail";
+import HearthDesktopFrame from "../views/modes/HearthDesktopFrame";
+import { buildHearthDraftScriptSurfaceProps } from "../views/modes/buildHearthDraftScriptSurfaceProps";
+import { buildHearthDraftScriptPanelState } from "../views/modes/buildHearthDraftScriptPanelState";
+import HearthDesktopRail from "../views/modes/HearthDesktopRail";
+import { buildHearthReferenceClipPanelProps } from "../views/modes/buildHearthReferenceClipPanelProps";
+import { buildHearthBrollPanelProps } from "../views/modes/buildHearthBrollPanelProps";
+import { buildHearthImageMapPanelProps } from "../views/modes/buildHearthImageMapPanelProps";
+import { buildHearthThumbnailPanelProps } from "../views/modes/buildHearthThumbnailPanelProps";
+import { buildHearthMediaMapPanelProps } from "../views/modes/buildHearthMediaMapPanelProps";
 import {
-  commitWorkpieceProductionArtifact,
-  readWorkpieceProductionArtifact,
-  type ProductionArtifactKind,
-} from "../lib/hearth-production-repo";
-import {
-  generateEpisodeThumbnail,
-  loadThumbnailPreviewDataUrl,
-  readEpisodePackageForWorkpiece,
-  saveEpisodePackageForWorkpiece,
-  uploadThumbnailImageVersion,
-} from "../lib/hearth-thumbnail-api";
-import {
-  getWorkpieceImageMap,
-  generateWorkpieceImageMapCandidates,
-  loadImageMapCandidatePreviewDataUrl,
-  saveWorkpieceImageMap,
-  selectWorkpieceImageMapCandidate,
-  uploadWorkpieceImageMapCandidateAsset,
-} from "../lib/hearth-image-map-repo";
+  PRODUCTION_ACTION_LABEL,
+  persistProductionArtifact as persistHearthProductionArtifact,
+  runProductionAction,
+  type ProductionAction,
+} from "../lib/hearth-production-actions";
 import {
   assessImageMapScriptAnchor,
-  buildExactScriptAnchorFromSelection,
   buildImageMapAnchorPickerParagraphs,
-  generateImageMapEntriesFromScript,
-  reanchorImageMapEntry,
   resolveNearestParagraphSelection,
-  resolveImageMapAnchorContext,
   type ImageMapScriptSelection,
 } from "../lib/hearth-image-map-beats";
 import {
-  buildBrollPlanFromScript,
-  buildStockCandidatesForBrollBeat,
-  regenerateBrollBeatFromDescription,
-} from "../lib/hearth-broll-plan";
-import { uploadBrollBeatAsset } from "../lib/hearth-broll-plan-repo";
+  hasStructuredImageMapAnchor,
+  resolveImageMapEntryAnchorScope,
+} from "../lib/hearth-image-map-anchor";
+import { replaceEpisodePackageImageMap } from "../lib/hearth-episode-package-image-map";
 import {
-  createReferenceClipPlan,
-  inferReferenceClipSuitabilitySignals,
-} from "../lib/hearth-reference-clip-plan";
+  generateImageMapEntriesFromBulletScript,
+} from "../lib/hearth-spoken-beats";
 import {
-  advanceExternalRequestTracker,
-  buildBrollBeatBrief,
-  buildReferenceClipBrief,
-  createManualResultCandidate,
-  formatVisualBriefAsText,
   listExternalGenerationProviders,
   type ExternalGenerationProvider,
 } from "../lib/hearth-visual-actionability";
 import {
-  readWorkpieceEpisodeMediaMap,
-  saveWorkpieceEpisodeMediaMap,
-} from "../lib/hearth-media-map-repo";
+  buildReferenceClipPromptPack,
+  listVisualProviderOptions,
+  resolveActiveVisualProvider,
+  type VisualProviderId,
+} from "../lib/hearth-visual-provider-profiles";
 import {
-  activateEpisodeMediaMapForFulfillment,
-} from "../lib/hearth-media-map-fulfillment";
+  type MediaMapConversationSeed,
+} from "../lib/hearth-media-map-conversation";
+import { buildMediaMapFromExistingPlans } from "../lib/hearth-media-map-builder";
 import type {
   EpisodeBrollDataVisualSpec,
   EpisodeExternalRequestState,
-  EpisodeBrollMotionAssetCategory,
-  EpisodeReferenceClipChartType,
-  EpisodeReferenceClipContextType,
-  EpisodeReferenceClipDataType,
-  EpisodeReferenceClipFormat,
-  EpisodeReferenceClipMotionLevel,
   EpisodeReferenceClipPlan,
   EpisodeReferenceClipTone,
   EpisodeBrollPlan,
@@ -220,25 +266,17 @@ import type {
   EpisodeMediaMap,
   EpisodeMediaMapEntry,
   EpisodePackageV2,
-  EpisodeImageMapAnchorScope,
+  EpisodeSpokenBeat,
   EpisodeLaunchVariant,
   EpisodeLaunchVariantStatus,
   EpisodeThumbnailConcept,
-  EpisodeImageMapVisualPriority,
-  EpisodeImageMapVisualType,
   EpisodeThumbnailVersion,
   EpisodeImageMapEntry,
-  EpisodeSeoTitle,
 } from "../lib/episode-package-v2";
 import {
-  addImageMapEntry,
+  buildBulletBeatAnchorLabel,
   buildImageMapAnchorLabel,
-  ensureBrollPlanV2,
-  ensureReferenceClipPlanV2,
-  ensureLaunchVariantsV2,
-  ensureSeoV2,
   normalizeSeoTags,
-  removeImageMapEntry,
   resolvePrimarySeoTitle,
   updateImageMapEntry,
 } from "../lib/episode-package-v2";
@@ -260,26 +298,21 @@ import {
   listWorkspaceThumbnailBrandTemplates,
   resolveDefaultThumbnailBrandTemplate,
   seedWorkspaceThumbnailBrandTemplates,
-  updateWorkspaceThumbnailBrandTemplate,
-  uploadWorkspaceThumbnailBrandLogo,
 } from "../lib/hearth-thumbnail-brand-templates";
 import type { ThumbnailBrandTemplate } from "../lib/hearth-thumbnail-brand-templates";
 import {
-  DEFAULT_TITLE_STYLE,
   areEpisodeThumbnailTitleStylesEqual,
   normalizeEpisodeThumbnailTitleStyle,
 } from "../lib/hearth-title-fonts";
 import type {
   EpisodeThumbnailTitleStyle,
-  TitleFontPreset,
-  TitleShadowStrength,
 } from "../lib/hearth-title-fonts";
 import {
-  HEARTH_THUMBNAIL_TITLE_CONTRACT,
   deriveHearthThumbnailOverlayText,
   resolveHearthThumbnailOverlayText,
 } from "../lib/hearth-thumbnail-title-contract";
-import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
+import { formatThumbnailPanelMeta } from "../lib/hearth-thumbnail-workflow";
+import { useLayoutMode } from "@forge/ui-mobile";
 import {
   getMyWritingProfile,
   setMyWritingTonePreset,
@@ -320,7 +353,6 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
 type UiDensity = "comfortable" | "compact";
 type FocusTab = "draft" | "planning" | "sources" | "revisions";
-type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
 type SttLane = "browser" | "ai";
 type SttState = "idle" | "listening" | "transcribing";
 type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
@@ -370,59 +402,12 @@ type DraftConflictState = {
   localBody: string;
 };
 
-type MediaMapGenerationScope = "images_only" | "images_broll" | "images_reference_clips" | "full_media_plan";
-
-function normalizeMediaMapGenerationScope(value: string | null | undefined): MediaMapGenerationScope {
-  if (value === "images_reference_clips" || value === "images_cdc") return "images_reference_clips";
-  if (value === "images_broll") return "images_broll";
-  if (value === "images_only") return "images_only";
-  return "full_media_plan";
-}
-
-type ImageBeatSheetEntry = {
-  id: string;
-  attach_after: string;
-  description: string;
-  prompt: string;
-  match?: string;
-};
-
 type CanonicalImageMapScriptState = {
   status: "idle" | "loading" | "ready" | "error";
   text: string | null;
   source: "primary_script" | "saved_draft" | null;
   includesUnsavedLocalEdits: boolean;
   error: string | null;
-};
-
-type ReleasePrepSectionKey =
-  | "youtube_optimized_cut"
-  | "title_options"
-  | "short_form_hook_20s"
-  | "tone_variant_creator"
-  | "audience_variant"
-  | "monetization_angle";
-
-type ReleasePrepSection = {
-  key: ReleasePrepSectionKey;
-  label: string;
-  content: string;
-};
-
-const PRODUCTION_ACTION_LABEL: Record<ProductionAction, string> = {
-  seo: "Generate SEO",
-  tags: "Generate Tags",
-  thumbnails: "Thumbnail Concepts",
-  image_beat_sheet: "Image Beat Sheet",
-  release_prep_pack: "Release Prep Pack",
-};
-
-const PRODUCTION_ACTION_ARTIFACT_KIND: Record<ProductionAction, ProductionArtifactKind> = {
-  seo: "seo",
-  tags: "tags",
-  thumbnails: "thumbnails",
-  image_beat_sheet: "image_beat_sheet",
-  release_prep_pack: "pack",
 };
 
 const TONE_PRESET_OPTIONS = [
@@ -487,7 +472,7 @@ function normalizeTonePreset(value: unknown): string | null {
 }
 
 function resolveImageMapAnchorStatusView(args: {
-  status: "attached" | "weak_match" | "orphaned" | "global";
+  status: "attached" | "beat" | "weak_match" | "orphaned" | "global";
   scriptState: CanonicalImageMapScriptState;
 }): { label: string; tone: "neutral" | "ok" | "warning" | "danger"; detail: string } {
   if (args.status === "global") {
@@ -502,6 +487,13 @@ function resolveImageMapAnchorStatusView(args: {
       label: "orphaned",
       tone: "danger",
       detail: "This visual anchor is orphaned. Repair it deterministically or convert it to a global visual intent.",
+    };
+  }
+  if (args.status === "beat") {
+    return {
+      label: "beat anchored",
+      tone: "ok",
+      detail: "This visual beat is attached to an editorial bullet beat and can be refined against the real transcript after recording.",
     };
   }
   if (args.scriptState.status === "loading") {
@@ -1108,214 +1100,6 @@ function isScriptApprovalStateEqual(a: ScriptApprovalState, b: ScriptApprovalSta
     && a.approvedAt === b.approvedAt;
 }
 
-function buildProductionPrompt(args: {
-  action: ProductionAction;
-  scriptVersion: number;
-  scriptText: string;
-  episodeTitle: string;
-}): string {
-  const header = [
-    `Production mode request for approved Script Version ${args.scriptVersion}.`,
-    "Use the approved script text below as the only source for script-derived outputs.",
-    "Do not request topic basics. Do not output markdown tables.",
-    "",
-    `EPISODE_TITLE: ${args.episodeTitle || "Untitled Episode"}`,
-    `SCRIPT_VERSION: ${args.scriptVersion}`,
-    "APPROVED_SCRIPT_TEXT:",
-    args.scriptText,
-    "",
-  ];
-
-  if (args.action === "seo") {
-    return [
-      ...header,
-      "Return plain text with exact sections:",
-      "SEO_TITLES:",
-      "- 5 options total",
-      "- include labels: SAFE, SPICY, BALANCED_1, BALANCED_2, BALANCED_3",
-      `- every title must preserve a thumbnail-safe hook of ${HEARTH_THUMBNAIL_TITLE_CONTRACT.preferred_max_words} words or fewer`,
-      "",
-      "DESCRIPTION:",
-      "- one YouTube-ready description paragraph block",
-      "",
-      "PINNED_COMMENT_IDEAS:",
-      "- 3 concise options",
-    ].join("\n");
-  }
-
-  if (args.action === "tags") {
-    return [
-      ...header,
-      "Return plain text with exact sections:",
-      "TAGS_TOP10:",
-      "- comma-separated (10 items)",
-      "",
-      "TAGS_FULL:",
-      "- comma-separated (20-35 items)",
-    ].join("\n");
-  }
-
-  if (args.action === "thumbnails") {
-    return [
-      ...header,
-      "Return plain text with exactly 5 concepts in this format:",
-      "THUMBNAIL_01",
-      "Headline: ...",
-      "Image concept: ...",
-      "Mood/style: ...",
-      "",
-      "Repeat THUMBNAIL_02 ... THUMBNAIL_05 with same fields.",
-    ].join("\n");
-  }
-
-  if (args.action === "release_prep_pack") {
-    return [
-      ...header,
-      "Generate a Release Prep Pack from this approved script.",
-      "Return plain text with exact sections in this order:",
-      "YOUTUBE_OPTIMIZED_CUT:",
-      "- tighter opening hook and clear promise",
-      "- retention-aware structure notes",
-      "",
-      "TITLE_OPTIONS:",
-      "- provide 3-7 options",
-      "- click-optimized but honest",
-      "- varied emotional framing",
-      "",
-      "SHORT_FORM_HOOK_20S:",
-      "- one cold-open hook suitable for Shorts/TikTok/Reels",
-      "- keep it to <= 20 seconds spoken length",
-      "",
-      "TONE_VARIANT_CREATOR:",
-      "- more conversational personality-led version of the opening",
-      "",
-      "AUDIENCE_VARIANT:",
-      "- one tailored opening variant for a likely audience angle",
-      "",
-      "MONETIZATION_ANGLE:",
-      "- sponsorship positioning idea",
-      "- one CTA direction",
-      "- optional premium episode framing",
-      "",
-      "Rules:",
-      "- Do not overwrite the primary script.",
-      "- Treat this as a derived release-prep output.",
-      "- Do not use markdown tables.",
-      "- Keep recommendations practical and production-ready.",
-    ].join("\n");
-  }
-
-  return [
-    ...header,
-    "Generate an image beat sheet.",
-    "Return plain text with one or more blocks in this exact format:",
-    "IMAGE_01",
-    "Attach after: \"<EXACT QUOTE FROM APPROVED SCRIPT>\"",
-    "Description: ...",
-    "Prompt: ...",
-    "Match: first occurrence",
-    "",
-    "Rules:",
-    "- Attach after must be an exact quote from APPROVED_SCRIPT_TEXT.",
-    "- If quote appears multiple times, include Match line with disambiguation.",
-    "- Use plain text prompts only.",
-  ].join("\n");
-}
-
-function parseImageBeatSheetEntries(text: string): ImageBeatSheetEntry[] {
-  const lines = text.split(/\r?\n/);
-  const entries: ImageBeatSheetEntry[] = [];
-  let current: Partial<ImageBeatSheetEntry> | null = null;
-
-  const flush = () => {
-    if (!current) return;
-    if (current.id && current.attach_after && current.description && current.prompt) {
-      entries.push({
-        id: current.id,
-        attach_after: current.attach_after,
-        description: current.description,
-        prompt: current.prompt,
-        ...(current.match ? { match: current.match } : {}),
-      });
-    }
-    current = null;
-  };
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const imageHeader = line.match(/^IMAGE_(\d{1,3})$/i);
-    if (imageHeader) {
-      flush();
-      current = { id: `IMAGE_${imageHeader[1]?.padStart(2, "0") ?? "01"}` };
-      continue;
-    }
-    if (!current) continue;
-
-    const attach = line.match(/^Attach after:\s*["“](.+)["”]\s*$/i);
-    if (attach && attach[1]) {
-      current.attach_after = attach[1].trim();
-      continue;
-    }
-
-    const description = line.match(/^Description:\s*(.+)$/i);
-    if (description && description[1]) {
-      current.description = description[1].trim();
-      continue;
-    }
-
-    const prompt = line.match(/^Prompt:\s*(.+)$/i);
-    if (prompt && prompt[1]) {
-      current.prompt = prompt[1].trim();
-      continue;
-    }
-
-    const match = line.match(/^Match:\s*(.+)$/i);
-    if (match && match[1]) {
-      current.match = match[1].trim();
-    }
-  }
-
-  flush();
-  return entries;
-}
-
-function parseReleasePrepPackSections(rawText: string): ReleasePrepSection[] {
-  const text = rawText.replace(/\r\n?/g, "\n").trim();
-  if (!text) return [];
-  const headerRe = /^(YOUTUBE_OPTIMIZED_CUT|TITLE_OPTIONS|SHORT_FORM_HOOK_20S|TONE_VARIANT_CREATOR|AUDIENCE_VARIANT|MONETIZATION_ANGLE):\s*$/gm;
-  const matches = [...text.matchAll(headerRe)];
-  if (matches.length === 0) {
-    return [{
-      key: "youtube_optimized_cut",
-      label: "Release Prep Pack",
-      content: text,
-    }];
-  }
-
-  const out: ReleasePrepSection[] = [];
-  for (let index = 0; index < matches.length; index += 1) {
-    const current = matches[index];
-    const next = matches[index + 1];
-    const header = (current?.[1] ?? "").trim().toUpperCase();
-    const start = (current?.index ?? 0) + (current?.[0]?.length ?? 0);
-    const end = next?.index ?? text.length;
-    const body = text.slice(start, end).trim();
-    const key = header.toLowerCase() as ReleasePrepSectionKey;
-    const label = header
-      .toLowerCase()
-      .split("_")
-      .map((part) => (part === "20s" ? "20s" : part.charAt(0).toUpperCase() + part.slice(1)))
-      .join(" ");
-    out.push({
-      key,
-      label,
-      content: body || "(No content generated)",
-    });
-  }
-  return out;
-}
-
 function hasExplicitWorkpieceQuery(): boolean {
   if (typeof window === "undefined") return false;
   try {
@@ -1564,23 +1348,7 @@ function resolveDraftEditorName(draft: Draft | null | undefined): string {
   return "Unknown";
 }
 
-function parseDraftConflictError(error: unknown): DraftConflictState | null {
-  if (!error || typeof error !== "object") return null;
-  const row = error as {
-    code?: unknown;
-    details?: unknown;
-  };
-  if (row.code !== "draft_conflict") return null;
-  const details = row.details && typeof row.details === "object"
-    ? row.details as Record<string, unknown>
-    : null;
-  const currentUpdatedAt = readTrimmedString(details?.current_updated_at);
-  const currentLabel = currentUpdatedAt ? new Date(currentUpdatedAt).toLocaleString() : "a newer save";
-  return {
-    message: `This draft changed on another client at ${currentLabel}. Reload latest to continue.`,
-    localBody: "",
-  };
-}
+const parseDraftConflictError = parseHearthDraftConflictError;
 
 function parseIsoTimestamp(value: string | null | undefined): number | undefined {
   if (!value) return undefined;
@@ -1600,29 +1368,6 @@ function createThumbnailClientId(prefix: string): string {
     return crypto.randomUUID();
   }
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function buildVisualScriptIntentExportDocument(
-  workpieceId: string | null,
-  entries: EpisodeImageMapEntry[],
-): Record<string, unknown> {
-  return {
-    schema: "forge.hearth.visual-script-intent.v1",
-    ...(workpieceId ? { workpiece_id: workpieceId } : {}),
-    anchors: entries,
-  };
-}
-
-function replaceEpisodePackageImageMap(
-  pkg: EpisodePackageV2,
-  entries: EpisodeImageMapEntry[],
-): EpisodePackageV2 {
-  return {
-    ...pkg,
-    image_map: {
-      entries,
-    },
-  };
 }
 
 const METADATA_TAG_SUGGESTIONS_BY_CATEGORY: Record<string, string[]> = {
@@ -1762,20 +1507,20 @@ type ChatIntentSignals = {
   requestedScript: boolean;
   explicitDraftNow: boolean;
   hasDeliverable: boolean;
+  scriptMutationIntent: ReturnType<typeof detectHearthScriptMutationIntent>;
 };
 
 function detectChatIntentSignals(text: string): ChatIntentSignals {
   const normalized = text.replace(/\s+/g, " ").trim().toLowerCase();
-  const requestedOutline = /\boutline\b/.test(normalized);
-  const requestedScript = /\bscript\b/.test(normalized)
-    || /\bdraft\b/.test(normalized)
-    || /\bcold open\b/.test(normalized)
-    || /\bsegments?\b/.test(normalized);
+  const requestedOutline = isExplicitHearthOutlineRequest(normalized);
+  const requestedScript = isExplicitHearthFullScriptRequest(normalized);
+  const scriptMutationIntent = detectHearthScriptMutationIntent(normalized);
   const explicitDraftNow = /\bdraft now\b/.test(normalized)
     || /\bskip questions\b/.test(normalized)
     || /\bno questions\b/.test(normalized);
   const hasDeliverable = requestedOutline
     || requestedScript
+    || scriptMutationIntent.targetsScriptBody
     || /\bbullet points?\b/.test(normalized)
     || /\bthumbnail\b/.test(normalized)
     || /\bseo\b/.test(normalized)
@@ -1785,6 +1530,7 @@ function detectChatIntentSignals(text: string): ChatIntentSignals {
     requestedScript,
     explicitDraftNow,
     hasDeliverable,
+    scriptMutationIntent,
   };
 }
 
@@ -1793,8 +1539,8 @@ function detectAiAutosaveReasonCode(text: string): AiAutosaveReasonCode {
   if (!normalized) return "ai_rewrite";
   if (/\b(correct|repair|fix|tag audit|cleanup)\b/.test(normalized)) return "ai_repair";
   if (/\b(rewrite|improve|shorten|punch up|edit|revise|polish|tighten)\b/.test(normalized)) return "ai_rewrite";
-  if (/\boutline|bullet points?|beats?\b/.test(normalized)) return "ai_outline";
-  if (/\b(write|script|draft|cold open|segments?)\b/.test(normalized)) return "ai_script";
+  if (isExplicitHearthOutlineRequest(normalized)) return "ai_outline";
+  if (isExplicitHearthFullScriptRequest(normalized)) return "ai_script";
   return "ai_rewrite";
 }
 
@@ -1812,14 +1558,24 @@ function buildAssistantMessageContent(args: {
   assistantText: string;
   ops: HearthOp[];
   autosaveReasonCode: AiAutosaveReasonCode;
+  scriptMutationRequested: boolean;
+  scriptMutationReady: boolean;
 }): string {
   const assistantText = args.assistantText.trim();
   const outlineFromOps = readLatestOutlineFromOps(args.ops);
 
+  if (args.scriptMutationRequested && !args.scriptMutationReady) {
+    if (assistantText) return assistantText;
+    if (outlineFromOps) {
+      return `No script changes made.\n\n${outlineFromOps}`;
+    }
+    return "No script changes made.";
+  }
+
   if (args.autosaveReasonCode === "ai_outline") {
     if (outlineFromOps) {
       if (!assistantText) {
-        return `Outline draft:\n${outlineFromOps}`;
+        return `I took a first pass at a bullet outline:\n${outlineFromOps}`;
       }
       if (assistantText.includes(outlineFromOps)) {
         return assistantText;
@@ -1829,8 +1585,8 @@ function buildAssistantMessageContent(args: {
   }
 
   if (assistantText) return assistantText;
-  if (args.ops.length > 0) return "Proposed updates are ready to review.";
-  return "Response received.";
+  if (args.ops.length > 0) return "I took a first pass. Have a look and we can tighten it from there.";
+  return "I’m ready when you are.";
 }
 
 function toAiAutosaveReason(reasonCode: AiAutosaveReasonCode): AiAutosaveReason {
@@ -2166,6 +1922,12 @@ function buildOpenInAnvilHref(
 }
 
 const SCRIPT_TAG_VALIDATOR_VERSION = "shared-script-tags-v1";
+const LEGACY_DRAFT_SCRIPT_PLACEHOLDER = "## Draft Script";
+const SAFE_SCRIPT_STARTER = "[s1]\nDraft intro goes here.\n[/s1]\n";
+
+function isLegacyDraftScriptPlaceholder(value: string | null | undefined): boolean {
+  return readTrimmedString(value) === LEGACY_DRAFT_SCRIPT_PLACEHOLDER;
+}
 
 function buildValidationReport(result: ScriptValidationResult): string {
   if (result.issues.length === 0) return "No issues.";
@@ -2184,10 +1946,12 @@ function buildPersistedValidationMeta(result: ScriptValidationResult) {
   };
 }
 
-function evaluateScriptValidation(rawText: string): { normalizedText: string; validation: ScriptValidationResult } {
-  const normalizedText = normalizeScriptTags(rawText);
-  const validation = validateScriptTags(normalizedText);
-  return { normalizedText, validation };
+function evaluateScriptValidation(rawText: string): {
+  normalizedText: string;
+  validation: ScriptValidationResult;
+  tagMode: "absent" | "present";
+} {
+  return evaluateHearthScriptValidation(rawText);
 }
 
 function resolveReadyOpenHref(entry: HearthReadyScript): string | null {
@@ -2207,7 +1971,8 @@ function isPlanningSessionEmpty(session: HearthPlanningSession | null): boolean 
   const hasDecisions = (session.decisions ?? []).length > 0;
   const hasAudience = Boolean(session.audience && session.audience.trim());
   const hasTone = Boolean(session.tone_preset && session.tone_preset.trim());
-  return !(hasTitle || hasTitleVariants || hasGoals || hasOutline || hasDecisions || hasAudience || hasTone);
+  const hasVisualProviderOverride = Boolean(session.visual_provider_override);
+  return !(hasTitle || hasTitleVariants || hasGoals || hasOutline || hasDecisions || hasAudience || hasTone || hasVisualProviderOverride);
 }
 
 function buildSessionFingerprint(session: HearthPlanningSession): string {
@@ -2222,6 +1987,7 @@ function buildSessionFingerprint(session: HearthPlanningSession): string {
     outline: session.outline ?? [],
     audience: session.audience ?? "",
     tone_preset: session.tone_preset ?? "",
+    visual_provider_override: session.visual_provider_override ?? null,
     links: session.links ?? null,
     decisions: session.decisions ?? [],
   });
@@ -2243,6 +2009,7 @@ function createPlanningSessionForEpisode(workpieceId: string, workspaceId: strin
     outline: [],
     audience: null,
     tone_preset: null,
+    visual_provider_override: null,
     links: null,
     decisions: [],
   };
@@ -2316,8 +2083,6 @@ export default function HearthShell({
   const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
   const [removingReadyIds, setRemovingReadyIds] = useState<string[]>([]);
   const [sendingBackReadyIds, setSendingBackReadyIds] = useState<string[]>([]);
-  const [archivingWorkpieceIds, setArchivingWorkpieceIds] = useState<string[]>([]);
-  const [restoringWorkpieceIds, setRestoringWorkpieceIds] = useState<string[]>([]);
   const [isRestoringReady, setIsRestoringReady] = useState(false);
   const [draggingReadyId, setDraggingReadyId] = useState<string | null>(null);
   const [session, setSession] = useState<HearthSession | null>(null);
@@ -2335,6 +2100,8 @@ export default function HearthShell({
     setChatError,
     sttLane,
     setSttLane,
+    sttTarget,
+    setSttTarget,
     sttState,
     setSttState,
     sttError,
@@ -2365,6 +2132,7 @@ export default function HearthShell({
     aiSttTranscribeControllerRef,
     sttNoticeTimerRef,
     sttPreviewTimerRef,
+    browserSttStopTimerRef,
     chatPersistTimerRef,
     chatMessagesRef,
     latestChatHistoryKeyRef,
@@ -2373,16 +2141,13 @@ export default function HearthShell({
     pendingChatHydrationKeyRef,
     chatHydrationSeqRef,
   } = useChatWorkspaceState<PendingAiProposal>();
-  const [latestReleasePrepRawText, setLatestReleasePrepRawText] = useState<string | null>(null);
-  const [latestReleasePrepSections, setLatestReleasePrepSections] = useState<ReleasePrepSection[]>([]);
-  const [releasePrepLoadState, setReleasePrepLoadState] = useState<"idle" | "loading" | "ready" | "missing" | "error">("idle");
-  const [releasePrepScriptVersion, setReleasePrepScriptVersion] = useState<number | null>(null);
   const [showManualDraft, setShowManualDraft] = useState(false);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [isVisualScriptMode, setIsVisualScriptMode] = useState(false);
   const [composeModalOpen, setComposeModalOpen] = useState(false);
   const [productionDefaults, setProductionDefaults] = useState<ProductionDefaults>(() => readProductionDefaults());
   const [composeSetupDraft, setComposeSetupDraft] = useState<ComposeSetup>(() => buildSetupFromDefaults(readProductionDefaults()));
+  const [selectedWritingFormat, setSelectedWritingFormat] = useState<HearthWritingFormat>(() => readLastHearthWritingFormat());
   const [scriptCompletionBadge, setScriptCompletionBadge] = useState<ScriptCompletionBadge | null>(null);
   const [scriptCompletionReasons, setScriptCompletionReasons] = useState<string[]>([]);
   const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(() =>
@@ -2398,156 +2163,9 @@ export default function HearthShell({
   });
   const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
   const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
+  const [defaultVisualProvider, setDefaultVisualProvider] = useState<VisualProviderId>(() => resolveDefaultVisualProviderFromStorage());
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
-  const [selectedThumbnailTitleId, setSelectedThumbnailTitleId] = useState<string | null>(null);
-  const [selectedThumbnailConceptId, setSelectedThumbnailConceptId] = useState<string>("");
-  const [selectedThumbnailVersionId, setSelectedThumbnailVersionId] = useState<string | null>(null);
-  const [selectedLaunchVariantId, setSelectedLaunchVariantId] = useState<string | null>(null);
-  const [launchVariantStatusDraft, setLaunchVariantStatusDraft] = useState<EpisodeLaunchVariantStatus>("draft");
-  const [launchVariantNotesDraft, setLaunchVariantNotesDraft] = useState("");
-  const [thumbnailConceptLabelDraft, setThumbnailConceptLabelDraft] = useState("");
-  const [thumbnailConceptPromptDraft, setThumbnailConceptPromptDraft] = useState("");
-  const [thumbnailConceptStyleDraft, setThumbnailConceptStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
-  const [thumbnailTitleStyleDraft, setThumbnailTitleStyleDraft] = useState<EpisodeThumbnailTitleStyle>(DEFAULT_TITLE_STYLE);
-  const [thumbnailConceptBrandTemplateIdDraft, setThumbnailConceptBrandTemplateIdDraft] = useState<string | null>(null);
-  const [thumbnailBrandTemplates, setThumbnailBrandTemplates] = useState<ThumbnailBrandTemplate[]>([]);
-  const [isThumbnailBrandTemplatesLoading, setIsThumbnailBrandTemplatesLoading] = useState(false);
-  const [thumbnailBrandTemplatesError, setThumbnailBrandTemplatesError] = useState<string | null>(null);
-  const [thumbnailBrandLogoDataUrl, setThumbnailBrandLogoDataUrl] = useState<string | null>(null);
-  const [isThumbnailBrandLogoUploading, setIsThumbnailBrandLogoUploading] = useState(false);
-  const [thumbnailBrandLogoError, setThumbnailBrandLogoError] = useState<string | null>(null);
-  const [thumbnailBrandLogoStatus, setThumbnailBrandLogoStatus] = useState<string | null>(null);
-  const [thumbnailPromptOverride, setThumbnailPromptOverride] = useState("");
-  const [thumbnailAspect, setThumbnailAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
-  const [isThumbnailGenerating, setIsThumbnailGenerating] = useState(false);
-  const [isThumbnailConceptSaving, setIsThumbnailConceptSaving] = useState(false);
-  const [isThumbnailUploading, setIsThumbnailUploading] = useState(false);
-  const [thumbnailGenerateError, setThumbnailGenerateError] = useState<string | null>(null);
-  const [thumbnailUploadError, setThumbnailUploadError] = useState<string | null>(null);
-  const [thumbnailPairingError, setThumbnailPairingError] = useState<string | null>(null);
-  const [thumbnailPreviewState, setThumbnailPreviewState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [thumbnailPreviewDataUrl, setThumbnailPreviewDataUrl] = useState<string | null>(null);
-  const [thumbnailPreviewError, setThumbnailPreviewError] = useState<string | null>(null);
-  const [thumbnailSafeZoneEnabled, setThumbnailSafeZoneEnabled] = useState(false);
-  const [selectedImageMapEntryId, setSelectedImageMapEntryId] = useState<string | null>(null);
-  const [selectedMediaMapEntryId, setSelectedMediaMapEntryId] = useState<string | null>(null);
-  const [mediaMapTypeDraft, setMediaMapTypeDraft] = useState("image");
-  const [mediaMapAnchorModeDraft, setMediaMapAnchorModeDraft] = useState("phrase_match");
-  const [mediaMapAnchorTargetDraft, setMediaMapAnchorTargetDraft] = useState("");
-  const [mediaMapInOffsetDraft, setMediaMapInOffsetDraft] = useState("0");
-  const [mediaMapDurationDraft, setMediaMapDurationDraft] = useState("6");
-  const [mediaMapDescriptionDraft, setMediaMapDescriptionDraft] = useState("");
-  const [mediaMapIntentDraft, setMediaMapIntentDraft] = useState("");
-  const [mediaMapSourceStatusDraft, setMediaMapSourceStatusDraft] = useState("unresolved");
-  const [mediaMapSourceAssetIdDraft, setMediaMapSourceAssetIdDraft] = useState("");
-  const [mediaMapConfidenceDraft, setMediaMapConfidenceDraft] = useState("medium");
-  const [mediaMapOptionalDraft, setMediaMapOptionalDraft] = useState(false);
-  const [mediaMapCriticalDraft, setMediaMapCriticalDraft] = useState(false);
-  const [mediaMapSaveState, setMediaMapSaveState] = useState<"saved" | "editing" | "saving" | "error">("saved");
-  const [mediaMapSaveError, setMediaMapSaveError] = useState<string | null>(null);
-  const [mediaMapMessage, setMediaMapMessage] = useState<string | null>(null);
-  const [mediaMapGenerationScope, setMediaMapGenerationScope] = useState<MediaMapGenerationScope>("full_media_plan");
-  const [isMediaMapBusy, setIsMediaMapBusy] = useState(false);
-  const [imageMapAnchorDraft, setImageMapAnchorDraft] = useState("");
-  const [imageMapDescriptionDraft, setImageMapDescriptionDraft] = useState("");
-  const [imageMapStyleDraft, setImageMapStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
-  const [imageMapIntentDraft, setImageMapIntentDraft] = useState("cutaway");
-  const [imageMapSourceTypeDraft, setImageMapSourceTypeDraft] = useState("stock");
-  const [imageMapAnchorScopeDraft, setImageMapAnchorScopeDraft] = useState<EpisodeImageMapAnchorScope>("attached");
-  const [imageMapVisualPriorityDraft, setImageMapVisualPriorityDraft] = useState<EpisodeImageMapVisualPriority>("supporting");
-  const [imageMapVisualTypeDraft, setImageMapVisualTypeDraft] = useState<EpisodeImageMapVisualType>("still_image");
-  const [imageMapSectionIntentNoteDraft, setImageMapSectionIntentNoteDraft] = useState("");
-  const [imageMapPlacementHintDraft, setImageMapPlacementHintDraft] = useState("");
-  const [imageMapMetadataUpdatedAt, setImageMapMetadataUpdatedAt] = useState<string | null>(null);
-  const [imageMapSaveState, setImageMapSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
-  const [imageMapSaveError, setImageMapSaveError] = useState<string | null>(null);
-  const [imageMapExportMessage, setImageMapExportMessage] = useState<string | null>(null);
-  const [isImageMapCandidateGenerating, setIsImageMapCandidateGenerating] = useState(false);
-  const [isImageMapCandidateSelecting, setIsImageMapCandidateSelecting] = useState(false);
-  const [imageMapCandidateError, setImageMapCandidateError] = useState<string | null>(null);
-  const [imageMapCandidateSelectionError, setImageMapCandidateSelectionError] = useState<string | null>(null);
-  const [imageMapCandidatePreviewStateById, setImageMapCandidatePreviewStateById] = useState<Record<string, "loading" | "ready" | "error">>({});
-  const [imageMapCandidatePreviewUrlById, setImageMapCandidatePreviewUrlById] = useState<Record<string, string>>({});
-  const [imageMapCandidatePreviewErrorById, setImageMapCandidatePreviewErrorById] = useState<Record<string, string>>({});
-  const [canonicalImageMapScriptState, setCanonicalImageMapScriptState] = useState<CanonicalImageMapScriptState>({
-    status: "idle",
-    text: null,
-    source: null,
-    includesUnsavedLocalEdits: false,
-    error: null,
-  });
-  const [isImageMapReanchorMode, setIsImageMapReanchorMode] = useState(false);
-  const [isImageMapReanchorSaving, setIsImageMapReanchorSaving] = useState(false);
-  const [imageMapReanchorError, setImageMapReanchorError] = useState<string | null>(null);
-  const [selectedBrollBeatId, setSelectedBrollBeatId] = useState<string | null>(null);
-  const [brollAnchorDraft, setBrollAnchorDraft] = useState("");
-  const [brollDescriptionDraft, setBrollDescriptionDraft] = useState("");
-  const [brollMotionIntentDraft, setBrollMotionIntentDraft] = useState("broll");
-  const [brollAssetCategoryDraft, setBrollAssetCategoryDraft] = useState<EpisodeBrollMotionAssetCategory>("stock_video");
-  const [brollPriorityDraft, setBrollPriorityDraft] = useState("supporting");
-  const [brollKeywordsDraft, setBrollKeywordsDraft] = useState("");
-  const [brollMoodDraft, setBrollMoodDraft] = useState("");
-  const [brollShotTypeDraft, setBrollShotTypeDraft] = useState("mixed");
-  const [brollMotionSuggestionDraft, setBrollMotionSuggestionDraft] = useState("");
-  const [brollSuggestedDurationDraft, setBrollSuggestedDurationDraft] = useState("");
-  const [brollPlacementHintDraft, setBrollPlacementHintDraft] = useState("first_occurrence");
-  const [brollDataChartTypeDraft, setBrollDataChartTypeDraft] = useState("bar");
-  const [brollDataTitleDraft, setBrollDataTitleDraft] = useState("");
-  const [brollDataLabelsDraft, setBrollDataLabelsDraft] = useState("");
-  const [brollDataValuesDraft, setBrollDataValuesDraft] = useState("");
-  const [brollDataEmphasisKeyDraft, setBrollDataEmphasisKeyDraft] = useState("");
-  const [brollDataAnimationStyleDraft, setBrollDataAnimationStyleDraft] = useState("");
-  const [brollProviderIdDraft, setBrollProviderIdDraft] = useState("");
-  const [brollSourceLabelDraft, setBrollSourceLabelDraft] = useState("");
-  const [brollSourceUrlDraft, setBrollSourceUrlDraft] = useState("");
-  const [brollProviderNoteDraft, setBrollProviderNoteDraft] = useState("");
-  const [brollUsageNoteDraft, setBrollUsageNoteDraft] = useState("");
-  const [brollResultMetadataDraft, setBrollResultMetadataDraft] = useState("");
-  const [brollSaveState, setBrollSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
-  const [brollSaveError, setBrollSaveError] = useState<string | null>(null);
-  const [brollMessage, setBrollMessage] = useState<string | null>(null);
-  const [isBrollBusy, setIsBrollBusy] = useState(false);
-  const [selectedReferenceClipEntryId, setSelectedReferenceClipEntryId] = useState<string | null>(null);
-  const [referenceClipAnchorDraft, setReferenceClipAnchorDraft] = useState("");
-  const [referenceClipDescriptionDraft, setReferenceClipDescriptionDraft] = useState("");
-  const [referenceClipPlacementHintDraft, setReferenceClipPlacementHintDraft] = useState("first_occurrence");
-  const [referenceClipFormatDraft, setReferenceClipFormatDraft] = useState("still");
-  const [referenceClipDataTypeDraft, setReferenceClipDataTypeDraft] = useState("quantitative");
-  const [referenceClipContextTypeDraft, setReferenceClipContextTypeDraft] = useState("historical");
-  const [referenceClipToneDraft, setReferenceClipToneDraft] = useState("neutral");
-  const [referenceClipMotionLevelDraft, setReferenceClipMotionLevelDraft] = useState("static");
-  const [referenceClipBackgroundContextDraft, setReferenceClipBackgroundContextDraft] = useState("");
-  const [referenceClipForegroundDataDraft, setReferenceClipForegroundDataDraft] = useState("");
-  const [referenceClipVisualStyleDraft, setReferenceClipVisualStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
-  const [referenceClipChartTypeDraft, setReferenceClipChartTypeDraft] = useState("line");
-  const [referenceClipTitleDraft, setReferenceClipTitleDraft] = useState("");
-  const [referenceClipLabelsDraft, setReferenceClipLabelsDraft] = useState("");
-  const [referenceClipValuesDraft, setReferenceClipValuesDraft] = useState("");
-  const [referenceClipEmphasisKeyDraft, setReferenceClipEmphasisKeyDraft] = useState("");
-  const [referenceClipSourceTypeDraft, setReferenceClipSourceTypeDraft] = useState("planned");
-  const [referenceClipProviderIdDraft, setReferenceClipProviderIdDraft] = useState("");
-  const [referenceClipSourceLabelDraft, setReferenceClipSourceLabelDraft] = useState("");
-  const [referenceClipSourceUrlDraft, setReferenceClipSourceUrlDraft] = useState("");
-  const [referenceClipProviderNoteDraft, setReferenceClipProviderNoteDraft] = useState("");
-  const [referenceClipUsageNoteDraft, setReferenceClipUsageNoteDraft] = useState("");
-  const [referenceClipResultMetadataDraft, setReferenceClipResultMetadataDraft] = useState("");
-  const [referenceClipSaveState, setReferenceClipSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
-  const [referenceClipSaveError, setReferenceClipSaveError] = useState<string | null>(null);
-  const [referenceClipMessage, setReferenceClipMessage] = useState<string | null>(null);
-  const [isReferenceClipBusy, setIsReferenceClipBusy] = useState(false);
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
-  const episodePackageRequestSeqRef = useRef(0);
-  const thumbnailPreviewRequestSeqRef = useRef(0);
-  const imageMapCandidatePreviewRequestSeqRef = useRef(0);
-  const artifactStateWorkpieceIdRef = useRef<string | null>(null);
-  const [metadataTitlesDraft, setMetadataTitlesDraft] = useState<EpisodeSeoTitle[]>([]);
-  const [metadataTagsDraft, setMetadataTagsDraft] = useState<string[]>([]);
-  const [metadataTagInputDraft, setMetadataTagInputDraft] = useState("");
-  const [metadataDescriptionShortDraft, setMetadataDescriptionShortDraft] = useState("");
-  const [metadataDescriptionLongDraft, setMetadataDescriptionLongDraft] = useState("");
-  const [metadataPreviewMode, setMetadataPreviewMode] = useState<"youtube" | "rss" | "plain">("youtube");
-  const [metadataSaveState, setMetadataSaveState] = useState<"saved" | "editing" | "saving" | "offline" | "error">("saved");
-  const [metadataSaveError, setMetadataSaveError] = useState<string | null>(null);
   const [activeWorkpieceTab, setActiveWorkpieceTab] = useState<WorkpieceWorkspaceTab>(() =>
     readWorkpieceWorkspaceTab(
       incomingBarStockIntakeRoute ? null : resolveWorkpieceId(),
@@ -2557,6 +2175,7 @@ export default function HearthShell({
   const [presenceRows, setPresenceRows] = useState<HearthWorkpiecePresence[]>([]);
   const [draftConflictState, setDraftConflictState] = useState<DraftConflictState | null>(null);
   const [mobileOverlayView, setMobileOverlayView] = useState<"editor" | "ready" | null>(null);
+  const { acknowledgeCopy, isCopyAcknowledged } = useClipboardButtonAcks();
 
   const draftEditVersionRef = useRef(0);
   const workpieceIdRef = useRef<string | null>(workpieceId);
@@ -2573,14 +2192,283 @@ export default function HearthShell({
   const projectIntakeHandledRef = useRef<string | null>(null);
   const sparkIntakeHandledRef = useRef<string | null>(null);
   const intakeResetKeyRef = useRef<string | null>(null);
-  const previousWorkspaceIdRef = useRef<string | null>(workspaceId);
-  const readyScriptsRequestSeqRef = useRef(0);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const restoredModeDraftKeyRef = useRef<string | null>(null);
   const pendingFocusOpenCountRef = useRef(0);
   const pendingDraftEditorPanelRef = useRef<"script" | "manual" | null>(null);
   const gateAwaitingAnswersRef = useRef(false);
   const pendingShortcutIntentRef = useRef<"outline" | "script" | null>(null);
+  const {
+    selectedThumbnailTitleId,
+    setSelectedThumbnailTitleId,
+    selectedThumbnailConceptId,
+    setSelectedThumbnailConceptId,
+    selectedThumbnailVersionId,
+    setSelectedThumbnailVersionId,
+    selectedLaunchVariantId,
+    setSelectedLaunchVariantId,
+    launchVariantStatusDraft,
+    setLaunchVariantStatusDraft,
+    launchVariantNotesDraft,
+    setLaunchVariantNotesDraft,
+    thumbnailConceptLabelDraft,
+    setThumbnailConceptLabelDraft,
+    thumbnailConceptPromptDraft,
+    setThumbnailConceptPromptDraft,
+    thumbnailConceptStyleDraft,
+    setThumbnailConceptStyleDraft,
+    thumbnailTitleStyleDraft,
+    setThumbnailTitleStyleDraft,
+    thumbnailConceptBrandTemplateIdDraft,
+    setThumbnailConceptBrandTemplateIdDraft,
+    thumbnailBrandTemplates,
+    setThumbnailBrandTemplates,
+    isThumbnailBrandTemplatesLoading,
+    setIsThumbnailBrandTemplatesLoading,
+    thumbnailBrandTemplatesError,
+    setThumbnailBrandTemplatesError,
+    thumbnailBrandLogoDataUrl,
+    setThumbnailBrandLogoDataUrl,
+    isThumbnailBrandLogoUploading,
+    setIsThumbnailBrandLogoUploading,
+    thumbnailBrandLogoError,
+    setThumbnailBrandLogoError,
+    thumbnailBrandLogoStatus,
+    setThumbnailBrandLogoStatus,
+    thumbnailAspect,
+    setThumbnailAspect,
+    isThumbnailGenerating,
+    setIsThumbnailGenerating,
+    isThumbnailConceptSaving,
+    setIsThumbnailConceptSaving,
+    isThumbnailUploading,
+    setIsThumbnailUploading,
+    thumbnailGenerateError,
+    setThumbnailGenerateError,
+    thumbnailUploadError,
+    setThumbnailUploadError,
+    thumbnailPairingError,
+    setThumbnailPairingError,
+    thumbnailPreviewState,
+    setThumbnailPreviewState,
+    thumbnailPreviewDataUrl,
+    setThumbnailPreviewDataUrl,
+    thumbnailPreviewError,
+    setThumbnailPreviewError,
+    thumbnailSafeZoneEnabled,
+    setThumbnailSafeZoneEnabled,
+    syncSelectedThumbnailConceptId,
+    syncThumbnailConceptDraftFromConcept,
+    syncSelectedLaunchVariantId,
+    syncLaunchVariantDraftFromVariant,
+    syncSelectedThumbnailTitleId,
+    syncSelectedThumbnailVersionId,
+    resetThumbnailWorkspaceViewState,
+  } = useThumbnailWorkspace();
+  const {
+    selectedMediaMapEntryId,
+    setSelectedMediaMapEntryId,
+    mediaMapTypeDraft,
+    mediaMapAnchorModeDraft,
+    mediaMapAnchorTargetDraft,
+    mediaMapInOffsetDraft,
+    mediaMapDurationDraft,
+    mediaMapDescriptionDraft,
+    mediaMapIntentDraft,
+    mediaMapSourceStatusDraft,
+    mediaMapSourceAssetIdDraft,
+    mediaMapConfidenceDraft,
+    mediaMapOptionalDraft,
+    mediaMapCriticalDraft,
+    mediaMapSaveState,
+    setMediaMapSaveState,
+    mediaMapSaveError,
+    setMediaMapSaveError,
+    mediaMapMessage,
+    setMediaMapMessage,
+    mediaMapGenerationScope,
+    setMediaMapGenerationScope,
+    isMediaMapBusy,
+    setIsMediaMapBusy,
+    mediaMapConversationSeed,
+    setMediaMapConversationSeed,
+    mediaMapConversationState,
+    setMediaMapConversationState,
+    mediaMapConversationError,
+    setMediaMapConversationError,
+    onMediaMapDraftChange,
+    onMediaMapGenerationScopeChange,
+    syncMediaMapDraftFromEntry,
+    syncSelectedMediaMapEntryId,
+    resetMediaMapWorkspaceForWorkpieceSwitch,
+  } = useMediaMapWorkspace();
+  const {
+    selectedImageMapEntryId,
+    setSelectedImageMapEntryId,
+    imageMapAnchorDraft,
+    imageMapDescriptionDraft,
+    imageMapStyleDraft,
+    imageMapIntentDraft,
+    imageMapSourceTypeDraft,
+    setImageMapSourceTypeDraft,
+    imageMapAnchorScopeDraft,
+    imageMapVisualPriorityDraft,
+    imageMapVisualTypeDraft,
+    imageMapSectionIntentNoteDraft,
+    imageMapPlacementHintDraft,
+    imageMapMetadataUpdatedAt,
+    setImageMapMetadataUpdatedAt,
+    imageMapSaveState,
+    setImageMapSaveState,
+    imageMapSaveError,
+    setImageMapSaveError,
+    imageMapExportMessage,
+    setImageMapExportMessage,
+    isImageMapCandidateGenerating,
+    setIsImageMapCandidateGenerating,
+    isImageMapCandidateSelecting,
+    setIsImageMapCandidateSelecting,
+    imageMapCandidateError,
+    setImageMapCandidateError,
+    imageMapCandidateSelectionError,
+    setImageMapCandidateSelectionError,
+    imageMapCandidatePreviewStateById,
+    setImageMapCandidatePreviewStateById,
+    imageMapCandidatePreviewUrlById,
+    setImageMapCandidatePreviewUrlById,
+    imageMapCandidatePreviewErrorById,
+    setImageMapCandidatePreviewErrorById,
+    canonicalImageMapScriptState,
+    setCanonicalImageMapScriptState,
+    isImageMapReanchorMode,
+    setIsImageMapReanchorMode,
+    isImageMapReanchorSaving,
+    setIsImageMapReanchorSaving,
+    imageMapReanchorError,
+    setImageMapReanchorError,
+    onImageMapDraftAnchorChange,
+    onImageMapDraftDescriptionChange,
+    onImageMapDraftStylePresetChange,
+    onImageMapDraftIntentChange,
+    onImageMapDraftSourceTypeChange,
+    onImageMapDraftVisualPriorityChange,
+    onImageMapDraftVisualTypeChange,
+    onImageMapDraftSectionIntentNoteChange,
+    onImageMapDraftPlacementHintChange,
+    syncImageMapDraftFromEntry,
+    syncSelectedImageMapEntryId,
+    resetImageMapReanchorState,
+  } = useImageMapWorkspace();
+  const {
+    selectedBrollBeatId,
+    setSelectedBrollBeatId,
+    brollAnchorDraft,
+    brollDescriptionDraft,
+    brollMotionIntentDraft,
+    brollAssetCategoryDraft,
+    brollPriorityDraft,
+    brollKeywordsDraft,
+    brollMoodDraft,
+    brollShotTypeDraft,
+    brollMotionSuggestionDraft,
+    brollSuggestedDurationDraft,
+    brollPlacementHintDraft,
+    brollDataChartTypeDraft,
+    brollDataTitleDraft,
+    brollDataLabelsDraft,
+    brollDataValuesDraft,
+    brollDataEmphasisKeyDraft,
+    brollDataAnimationStyleDraft,
+    brollProviderIdDraft,
+    brollSourceLabelDraft,
+    brollSourceUrlDraft,
+    brollProviderNoteDraft,
+    brollUsageNoteDraft,
+    brollResultMetadataDraft,
+    brollSaveState,
+    setBrollSaveState,
+    brollSaveError,
+    setBrollSaveError,
+    brollMessage,
+    setBrollMessage,
+    isBrollBusy,
+    setIsBrollBusy,
+    onBrollDraftChange,
+    syncBrollDraftFromBeat,
+    syncSelectedBrollBeatId,
+    resetBrollWorkspaceForWorkpieceSwitch,
+  } = useBrollWorkspace();
+  const {
+    selectedReferenceClipEntryId,
+    setSelectedReferenceClipEntryId,
+    referenceClipAnchorDraft,
+    referenceClipDescriptionDraft,
+    referenceClipPlacementHintDraft,
+    referenceClipFormatDraft,
+    referenceClipDataTypeDraft,
+    referenceClipContextTypeDraft,
+    referenceClipToneDraft,
+    referenceClipMotionLevelDraft,
+    referenceClipBackgroundContextDraft,
+    referenceClipForegroundDataDraft,
+    referenceClipVisualStyleDraft,
+    referenceClipChartTypeDraft,
+    referenceClipTitleDraft,
+    referenceClipLabelsDraft,
+    referenceClipValuesDraft,
+    referenceClipEmphasisKeyDraft,
+    referenceClipSourceTypeDraft,
+    referenceClipProviderIdDraft,
+    referenceClipSourceLabelDraft,
+    referenceClipSourceUrlDraft,
+    referenceClipProviderNoteDraft,
+    referenceClipUsageNoteDraft,
+    referenceClipResultMetadataDraft,
+    referenceClipSaveState,
+    setReferenceClipSaveState,
+    referenceClipSaveError,
+    setReferenceClipSaveError,
+    referenceClipMessage,
+    setReferenceClipMessage,
+    isReferenceClipBusy,
+    setIsReferenceClipBusy,
+    onReferenceClipDraftChange,
+    syncReferenceClipDraftFromEntry,
+    syncSelectedReferenceClipEntryId,
+    resetReferenceClipWorkspaceForWorkpieceSwitch,
+  } = useReferenceClipWorkspace();
+  const {
+    metadataTitlesDraft,
+    metadataTagsDraft,
+    metadataTagInputDraft,
+    metadataDescriptionShortDraft,
+    metadataDescriptionLongDraft,
+    metadataPreviewMode,
+    metadataSaveState,
+    metadataSaveError,
+    setMetadataTitlesDraft,
+    setMetadataTagsDraft,
+    setMetadataTagInputDraft,
+    setMetadataDescriptionShortDraft,
+    setMetadataDescriptionLongDraft,
+    onMetadataTitleChange,
+    onMetadataSetPrimaryTitle,
+    onMetadataAddTagFromInput,
+    onMetadataRemoveTag,
+    onMetadataAddTagSuggestion,
+    onMetadataDescriptionShortChange,
+    onMetadataDescriptionLongChange,
+    onMetadataPreviewModeChange,
+  } = useMetadataWorkspace({
+    workpieceId,
+    workspaceId,
+    episodePackage,
+    setEpisodePackage,
+    setImageMapMetadataUpdatedAt,
+    parseTagInput: parseMetadataTagInput,
+    normalizeTag: normalizeMetadataTag,
+    deriveThumbnailOverlayText: deriveHearthThumbnailOverlayText,
+  });
 
   const {
     hearthScriptState,
@@ -2790,6 +2678,54 @@ export default function HearthShell({
     });
   }, [revisions, setSelectedRevision]);
 
+  const commitScriptTranscript = useCallback(async (text: string): Promise<boolean> => {
+    if (!activeDraft) {
+      setSttError("Open a draft to dictate into the script.");
+      return false;
+    }
+    if ((isImageMapReanchorMode || isVisualScriptMode) && showScriptPanel) {
+      setSttError("Script dictation is unavailable while viewing the canonical script.");
+      return false;
+    }
+
+    const liveCursorPosition = bodyRef.current && typeof bodyRef.current.selectionStart === "number"
+      ? bodyRef.current.selectionStart
+      : cursorPosition;
+    const nextScript = insertVoiceTranscriptIntoScript({
+      body: activeDraft.body,
+      transcript: text,
+      cursorPosition: liveCursorPosition,
+    });
+
+    setMode("focus");
+    setActiveWorkpieceTab("script");
+    setShowManualDraft(false);
+    setShowScriptPanel(true);
+    onDraftBodyChange(nextScript.body);
+    setCursorPosition(nextScript.cursorPosition);
+
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        const textarea = bodyRef.current;
+        if (!textarea) return;
+        textarea.focus();
+        textarea.selectionStart = nextScript.cursorPosition;
+        textarea.selectionEnd = nextScript.cursorPosition;
+      });
+    }
+
+    return true;
+  }, [
+    activeDraft,
+    bodyRef,
+    cursorPosition,
+    isImageMapReanchorMode,
+    isVisualScriptMode,
+    onDraftBodyChange,
+    showScriptPanel,
+    setActiveWorkpieceTab,
+  ]);
+
   const wordCount = useMemo(() => countWords(activeDraft?.body ?? ""), [activeDraft?.body]);
   const charCount = useMemo(() => activeDraft?.body?.length ?? 0, [activeDraft?.body]);
   const aiSavedStatusText = useMemo(
@@ -2822,6 +2758,7 @@ export default function HearthShell({
   const sourceIndexById = sourcesState.sourceIndexById;
   const missingSourcesCount = sourcesState.missingCitedCount;
   const unusedSourcesCount = sourcesState.unusedRefsCount;
+  const [latestResearchResult, setLatestResearchResult] = useState<HearthResearchResult | null>(null);
   const preferredDraftIdsByWorkpiece = useMemo(() => {
     const next = new Map<string, string | null>();
     if (workpieceId && activeDraft?.id) {
@@ -2883,6 +2820,10 @@ export default function HearthShell({
     () => (activeWorkpieceIsArchived ? null : buildOpenInAnvilHref(workspaceId, workpieceId)),
     [activeWorkpieceIsArchived, workspaceId, workpieceId],
   );
+  const anvilStepModeHint = useMemo(() => getHearthAnvilStepModeHint({
+    composeSetup: effectiveComposeSetup,
+    hasScriptText: Boolean((activeDraft?.body ?? "").trim()),
+  }), [activeDraft?.body, effectiveComposeSetup]);
   const aiRuntimeBusy = isAiProcessing || isThumbnailGenerating || isImageMapCandidateGenerating;
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
   const aiEpisodeReady = Boolean(workpieceId?.trim());
@@ -2929,22 +2870,116 @@ export default function HearthShell({
   const referenceClipPlan: EpisodeReferenceClipPlan | null = episodePackage?.cdc_plan ?? null;
   const referenceClipEntries: EpisodeContextualDataCompositePlan[] = referenceClipPlan?.entries ?? [];
   const selectedReferenceClipEntry = referenceClipEntries.find((entry) => entry.id === selectedReferenceClipEntryId) ?? null;
+  const preferredThumbnailTitleId = resolvePrimarySeoTitle(thumbnailTitleOptions)?.id ?? null;
+  useThumbnailPreviewLoader({
+    workpieceId,
+    selectedThumbnailVersion,
+    selectedThumbnailVersionId,
+    setThumbnailPreviewState,
+    setThumbnailPreviewDataUrl,
+    setThumbnailPreviewError,
+  });
+  useImageMapCandidatePreviewLoader({
+    workpieceId,
+    selectedImageMapEntry,
+    selectedImageMapEntryId,
+    setImageMapCandidatePreviewStateById,
+    setImageMapCandidatePreviewUrlById,
+    setImageMapCandidatePreviewErrorById,
+  });
+  useVisualWorkspaceResetLifecycle({
+    workpieceId,
+    resetThumbnailWorkspaceViewState,
+    resetMediaMapWorkspaceForWorkpieceSwitch,
+    resetBrollWorkspaceForWorkpieceSwitch,
+    resetReferenceClipWorkspaceForWorkpieceSwitch,
+    resetImageMapReanchorState,
+    setIsVisualScriptMode,
+    setImageMapMetadataUpdatedAt,
+    setImageMapSaveState,
+    setImageMapSaveError,
+    setImageMapExportMessage,
+    setImageMapCandidateError,
+    setImageMapCandidateSelectionError,
+    setImageMapCandidatePreviewStateById,
+    setImageMapCandidatePreviewUrlById,
+    setImageMapCandidatePreviewErrorById,
+  });
   const referenceClipProviders: ExternalGenerationProvider[] = listExternalGenerationProviders("reference_clip");
   const referenceClipRequestStateLabel = resolveVisualRequestStateLabel(selectedReferenceClipEntry?.external_request?.state);
+  const visualProviderOptions = useMemo(() => listVisualProviderOptions(), []);
+  const activeVisualProvider = useMemo(() => resolveActiveVisualProvider({
+    override: planningSession?.visual_provider_override ?? null,
+    defaultProvider: defaultVisualProvider,
+  }), [defaultVisualProvider, planningSession?.visual_provider_override]);
+  const activeVisualPromptPackForReferenceClip = useMemo(() => {
+    if (!selectedReferenceClipEntry || !workpieceId?.trim()) return null;
+    return buildReferenceClipPromptPack({
+      entry: {
+        ...selectedReferenceClipEntry,
+        anchor_text: referenceClipAnchorDraft.trim() || selectedReferenceClipEntry.anchor_text,
+        description: referenceClipDescriptionDraft.trim() || selectedReferenceClipEntry.description,
+        background_context_description: referenceClipBackgroundContextDraft.trim() || selectedReferenceClipEntry.background_context_description,
+        foreground_data_description: referenceClipForegroundDataDraft.trim() || selectedReferenceClipEntry.foreground_data_description,
+        visual_style: referenceClipVisualStyleDraft || selectedReferenceClipEntry.visual_style,
+        title: referenceClipTitleDraft.trim() || selectedReferenceClipEntry.title,
+        labels: referenceClipLabelsDraft.trim()
+          ? referenceClipLabelsDraft.split(",").map((value) => value.trim()).filter(Boolean)
+          : selectedReferenceClipEntry.labels,
+        values: referenceClipValuesDraft.trim()
+          ? referenceClipValuesDraft.split(",").map((value) => value.trim()).filter(Boolean)
+          : selectedReferenceClipEntry.values,
+        emphasis_key: referenceClipEmphasisKeyDraft.trim() || selectedReferenceClipEntry.emphasis_key,
+        tone: (referenceClipToneDraft || selectedReferenceClipEntry.tone) as EpisodeReferenceClipTone,
+      },
+      workpieceId: workpieceId.trim(),
+      workpieceTitle: activeDraft?.title ?? planningSession?.title ?? null,
+      providerId: activeVisualProvider.id,
+      resolvedProvider: activeVisualProvider,
+      aspectRatio: "16:9",
+    });
+  }, [
+    activeDraft?.title,
+    activeVisualProvider.id,
+    planningSession?.title,
+    referenceClipAnchorDraft,
+    referenceClipBackgroundContextDraft,
+    referenceClipDescriptionDraft,
+    referenceClipEmphasisKeyDraft,
+    referenceClipForegroundDataDraft,
+    referenceClipLabelsDraft,
+    referenceClipTitleDraft,
+    referenceClipToneDraft,
+    referenceClipValuesDraft,
+    referenceClipVisualStyleDraft,
+    selectedReferenceClipEntry,
+    workpieceId,
+  ]);
   const selectedImageMapExactAnchor = useMemo(() => {
-    if (!selectedImageMapEntry || canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
+    if (
+      !selectedImageMapEntry
+      || selectedImageMapEntry.beat_anchor
+      || canonicalImageMapScriptState.status !== "ready"
+      || !canonicalImageMapScriptState.text
+    ) {
       return null;
     }
     return assessImageMapScriptAnchor(
       canonicalImageMapScriptState.text,
       selectedImageMapEntry.script_anchor,
-      selectedImageMapEntry.anchor_scope ?? (selectedImageMapEntry.script_anchor ? "attached" : "orphaned"),
+      resolveImageMapEntryAnchorScope(selectedImageMapEntry) === "global" ? "global" : "attached",
     );
   }, [canonicalImageMapScriptState.status, canonicalImageMapScriptState.text, selectedImageMapEntry]);
   const imageMapAnchorStatusView = useMemo(() => {
     if (!selectedImageMapEntry) return null;
+    if (selectedImageMapEntry.beat_anchor) {
+      return resolveImageMapAnchorStatusView({
+        status: "beat",
+        scriptState: canonicalImageMapScriptState,
+      });
+    }
     const status = selectedImageMapExactAnchor?.status
-      ?? ((selectedImageMapEntry.anchor_scope === "global")
+      ?? ((resolveImageMapEntryAnchorScope(selectedImageMapEntry) === "global")
         ? "global"
         : (selectedImageMapEntry.script_anchor ? "attached" : "orphaned"));
     return resolveImageMapAnchorStatusView({
@@ -2959,13 +2994,18 @@ export default function HearthShell({
   ), [canonicalImageMapScriptState.status, canonicalImageMapScriptState.text]);
   const visualScriptParagraphRail = useMemo(() => {
     const countByParagraphId = new Map<string, number>();
+    let beatCount = 0;
     let globalCount = 0;
     let orphanedCount = 0;
 
     for (const entry of imageMapEntries) {
-      const scope = entry.anchor_scope ?? (entry.script_anchor ? "attached" : "orphaned");
+      const scope = resolveImageMapEntryAnchorScope(entry);
       if (scope === "global") {
         globalCount += 1;
+        continue;
+      }
+      if (scope === "beat") {
+        beatCount += 1;
         continue;
       }
       if (scope === "orphaned" || !entry.script_anchor?.paragraph_id) {
@@ -2990,17 +3030,21 @@ export default function HearthShell({
 
     return {
       paragraphs,
+      beatCount,
       globalCount,
       orphanedCount,
     };
   }, [imageMapAnchorPickerParagraphs, imageMapEntries]);
   const imageMapActiveAnchorLabel = useMemo(() => {
+    if (selectedImageMapEntry?.beat_anchor) {
+      return buildBulletBeatAnchorLabel(selectedImageMapEntry.beat_anchor);
+    }
     const anchor = selectedImageMapExactAnchor?.exactAnchor
       ?? selectedImageMapExactAnchor?.weakAnchor
       ?? selectedImageMapEntry?.script_anchor
       ?? null;
     return buildImageMapAnchorLabel(anchor);
-  }, [selectedImageMapEntry?.script_anchor, selectedImageMapExactAnchor]);
+  }, [selectedImageMapEntry?.beat_anchor, selectedImageMapEntry?.script_anchor, selectedImageMapExactAnchor]);
   const isCanonicalImageMapScriptPanel = (isImageMapReanchorMode || isVisualScriptMode) && showScriptPanel;
   const scriptPanelBodyText = useMemo(
     () => (isCanonicalImageMapScriptPanel ? (canonicalImageMapScriptState.text ?? "") : (activeDraft?.body ?? "")),
@@ -3034,6 +3078,7 @@ export default function HearthShell({
       selectedImageMapEntry
       && canonicalImageMapScriptState.status === "ready"
       && canonicalImageMapScriptState.text
+      && !selectedImageMapEntry.beat_anchor
       && imageMapAnchorScopeDraft !== "global"
       && resolveNearestParagraphSelection(canonicalImageMapScriptState.text, selectedImageMapEntry.script_anchor),
     )
@@ -3041,6 +3086,7 @@ export default function HearthShell({
     canonicalImageMapScriptState.status,
     canonicalImageMapScriptState.text,
     imageMapAnchorScopeDraft,
+    selectedImageMapEntry?.beat_anchor,
     selectedImageMapEntry,
   ]);
   const dirtyProposalBodyCount = useMemo(
@@ -3051,6 +3097,25 @@ export default function HearthShell({
     ), 0) ?? 0,
     [pendingAiProposal],
   );
+  const rememberWritingFormat = useCallback((format: HearthWritingFormat) => {
+    setSelectedWritingFormat(format);
+    writeLastHearthWritingFormat(format);
+  }, []);
+  const writingFormatOptions = useMemo(() => (
+    HEARTH_WRITING_FORMATS.map((format) => {
+      const profile = getHearthWritingFormatProfile(format);
+      return {
+        id: profile.id,
+        label: profile.label,
+        helperText: profile.helperText,
+      };
+    })
+  ), []);
+  const draftShortcutLabel = useMemo(() => (
+    selectedWritingFormat === "explore_expand"
+      ? "Explore & Expand"
+      : `Start with ${getHearthWritingFormatProfile(selectedWritingFormat).shortLabel}`
+  ), [selectedWritingFormat]);
   const selectedImageMapCandidates = selectedImageMapEntry?.candidate_assets ?? [];
   const imageMapCandidateCards = selectedImageMapCandidates.map((candidate) => ({
     id: candidate.asset_id,
@@ -3064,7 +3129,7 @@ export default function HearthShell({
   const chatPanelMeta = chatMessages.length > 0
     ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
     : "Ready";
-  const thumbnailPanelMeta = `${thumbnailConcepts.length} concepts · ${thumbnailVersions.length} versions`;
+  const thumbnailPanelMeta = formatThumbnailPanelMeta(thumbnailConcepts.length, thumbnailVersions.length);
   const mediaMapPanelMeta = `${mediaMapEntries.length} visual${mediaMapEntries.length === 1 ? "" : "s"}`;
   const imageMapPanelMeta = `${imageMapEntries.length} anchor${imageMapEntries.length === 1 ? "" : "s"}`;
   const brollPanelMeta = `${brollBeats.length} beat${brollBeats.length === 1 ? "" : "s"} · coverage ${brollPlan?.coverage_strength ?? "low"}`;
@@ -3080,13 +3145,153 @@ export default function HearthShell({
     && scriptApprovalState.approvedScriptVersion > 0,
   );
   const approvedScriptVersion = hasApprovedScript ? scriptApprovalState.approvedScriptVersion : null;
+  const {
+    latestReleasePrepRawText,
+    latestReleasePrepSections,
+    releasePrepLoadState,
+    releasePrepScriptVersion,
+    loadLatestReleasePrepPack,
+    resetReleasePrepState,
+  } = useReleasePrepPackWorkspace({
+    workpieceId,
+    hasApprovedScript,
+    approvedScriptVersion,
+  });
+  const {
+    persistThumbnailEpisodePackage,
+    persistImageMapEntries,
+    persistBrollPlan,
+    persistMediaMap,
+    persistReferenceClipPlan,
+  } = useVisualsPersistence({
+    episodePackage,
+    workpieceId,
+    workspaceId,
+    imageMapMetadataUpdatedAt,
+    setEpisodePackage,
+    setImageMapMetadataUpdatedAt,
+    setThumbnailGenerateError,
+  });
+  const { readCanonicalScriptForImageMapGeneration } = useCanonicalImageMapScriptReader({
+    workpieceId,
+    activeDraft,
+    listWorkpieceDrafts: (episodeId: string) => store.listWorkpieceDrafts(episodeId),
+  });
+  useMediaMapConversationBootstrap({
+    activeWorkpieceTab,
+    episodePackage,
+    mediaMapEntriesLength: mediaMapEntries.length,
+    mediaMapConversationState,
+    setMediaMapConversationSeed,
+    setMediaMapConversationState,
+    setMediaMapConversationError,
+    readCanonicalScriptForImageMapGeneration,
+  });
+  useCanonicalImageMapScriptStateLoader({
+    workpieceId,
+    selectedImageMapEntry,
+    setCanonicalImageMapScriptState,
+    readCanonicalScriptForImageMapGeneration,
+  });
+  useVisualSelectionHydration({
+    launchVariants,
+    selectedLaunchVariant,
+    thumbnailTitleOptions,
+    preferredThumbnailTitleId,
+    thumbnailVersions,
+    selectedThumbnailConceptId,
+    primaryThumbnailVersionId,
+    mediaMapEntries,
+    selectedMediaMapEntry,
+    imageMapEntries,
+    selectedImageMapEntry,
+    brollBeats,
+    selectedBrollBeat,
+    referenceClipEntries,
+    selectedReferenceClipEntry,
+    syncSelectedLaunchVariantId,
+    syncLaunchVariantDraftFromVariant,
+    syncSelectedThumbnailTitleId,
+    syncSelectedThumbnailVersionId,
+    syncSelectedMediaMapEntryId,
+    syncMediaMapDraftFromEntry,
+    syncSelectedImageMapEntryId,
+    syncImageMapDraftFromEntry,
+    resolveImageMapEntryAnchorScope,
+    syncSelectedBrollBeatId,
+    syncBrollDraftFromBeat,
+    syncSelectedReferenceClipEntryId,
+    syncReferenceClipDraftFromEntry,
+  });
+  const {
+    onAddMediaMapEntry,
+    onSaveMediaMapEntry,
+    onDeleteMediaMapEntry,
+    onActivateEpisodeMediaMap,
+  } = useMediaMapEntryActions({
+    episodePackage,
+    workpieceId,
+    selectedMediaMapEntry,
+    approvedScriptVersion,
+    isMediaMapBusy,
+    mediaMapTypeDraft,
+    mediaMapAnchorModeDraft,
+    mediaMapAnchorTargetDraft,
+    mediaMapInOffsetDraft,
+    mediaMapDurationDraft,
+    mediaMapDescriptionDraft,
+    mediaMapIntentDraft,
+    mediaMapSourceStatusDraft,
+    mediaMapSourceAssetIdDraft,
+    mediaMapConfidenceDraft,
+    mediaMapOptionalDraft,
+    mediaMapCriticalDraft,
+    mediaMapSaveState,
+    setIsMediaMapBusy,
+    setMediaMapSaveState,
+    setMediaMapSaveError,
+    setMediaMapMessage,
+    setSelectedMediaMapEntryId,
+    persistImageMapEntries,
+    persistBrollPlan,
+    persistReferenceClipPlan,
+    persistMediaMap,
+  });
+  const { prepareSourceEpisodePackageForMediaMapGeneration } = useMediaMapSourcePreparation({
+    episodePackage,
+    workpieceId,
+    effectiveComposeSetupMode: effectiveComposeSetup?.mode ?? null,
+    readCanonicalScriptForImageMapGeneration,
+    persistImageMapEntries,
+    persistBrollPlan,
+    persistReferenceClipPlan,
+  });
+  const {
+    onGenerateEpisodeMediaMapFromPlans,
+    onBuildAndApplyMediaMapFromConversation,
+  } = useMediaMapGenerationActions({
+    episodePackage,
+    isMediaMapBusy,
+    approvedScriptVersion,
+    mediaMapGenerationScope,
+    setMediaMapGenerationScope,
+    setIsMediaMapBusy,
+    setMediaMapSaveState,
+    setMediaMapSaveError,
+    setMediaMapMessage,
+    setSelectedMediaMapEntryId,
+    prepareSourceEpisodePackageForMediaMapGeneration,
+    buildMediaMapFromExistingPlans,
+    persistMediaMap,
+  });
   const approvedAtText = scriptApprovalState.approvedAt
     ? formatUpdatedAt(scriptApprovalState.approvedAt)
     : "Unknown";
   const mediaMapCoverageLevel = useMemo(() => resolveMediaPlanCoverageLevel(mediaMapEntries), [mediaMapEntries]);
   const mediaMapScopeLabel = useMemo(() => resolveMediaPlanScopeLabel(mediaMapEntries), [mediaMapEntries]);
+  const framingTitleCount = thumbnailTitleOptions.length;
   const metadataComplete = Boolean(
-    metadataTitlesDraft.length > 0
+    framingTitleCount > 0
     && metadataTagsDraft.length > 0
     && metadataDescriptionShortDraft.trim()
     && metadataDescriptionLongDraft.trim(),
@@ -3122,8 +3327,8 @@ export default function HearthShell({
   const tabSummaryById: Record<WorkpieceWorkspaceTab, string> = {
     script: `${hasApprovedScript ? "Approved" : "Draft"} · ${wordCount} words · ${formatUpdatedAt(activeDraft?.updatedAt)}`,
     visuals: `${mediaMapEntries.length} visuals · ${String(mediaMap?.status ?? "draft").toUpperCase()} · ${mediaMapCoverageLevel}`,
-    metadata: `${metadataTitlesDraft.length} titles · ${metadataTagsDraft.length} tags · ${metadataComplete ? "Complete" : "Needs work"}`,
-    release: `${releasePrepLoadState === "ready" ? "Prep ready" : "Prep pending"} · ${releaseReadiness.completeCount}/${releaseReadiness.totalCount} ready`,
+    metadata: `${framingTitleCount} title${framingTitleCount === 1 ? "" : "s"} · ${metadataTagsDraft.length} tags · ${metadataComplete ? "Complete" : "Needs work"}`,
+    release: `${releaseReadiness.completeCount}/${releaseReadiness.totalCount} ready · ${releaseReadiness.completeCount >= releaseReadiness.totalCount ? "Shippable" : "Pending"}`,
     history: `${revisions.length} revisions · ${latestMilestoneRevision ? `Milestone ${formatUpdatedAt(latestMilestoneRevision.createdAt)}` : resolveHistoryMilestoneMarker(revisions)}`,
   };
   const chatHistoryKey = useMemo(
@@ -3147,6 +3352,38 @@ export default function HearthShell({
       sparks: episodeSparks,
     });
   }, [activeDraft, planningSession, sourceIndexById, sparks, workpieceId, workpieceSources, workspaceId]);
+  const {
+    onFixScriptFormattingNoAi,
+    onAskAiRepairScript,
+  } = useHearthScriptRepairActions({
+    activeDraft,
+    isRepairingScript,
+    isAiProcessing,
+    aiTokenBalance,
+    chatHistoryMaxMessages: CHAT_HISTORY_MAX_MESSAGES,
+    aiRequestControllerRef,
+    draftEditVersionRef,
+    activeDraftRef,
+    buildActiveEpisodeContext,
+    persistDraft,
+    dedupeDraftListById,
+    queueAiAutosave,
+    requestHearthChatReply,
+    refreshMyAiCredits,
+    resolveAiLaneFromStorage,
+    buildValidationReport,
+    setAiBillingMode,
+    setAiTokenBalance,
+    setIsRepairingScript,
+    setIsAiProcessing,
+    setChatError,
+    setAiRuntimeWarning,
+    setScriptValidation,
+    setError,
+    setActiveDraft,
+    setDrafts,
+    setChatMessages,
+  });
   const { flushChatHistoryNow } = useChatWorkspaceHistory<PendingAiProposal>({
     store,
     activeDraftId: activeDraft?.id ?? null,
@@ -3188,6 +3425,15 @@ export default function HearthShell({
     gateAwaitingAnswersRef,
     pendingShortcutIntentRef,
     chatHistoryMaxMessages: CHAT_HISTORY_MAX_MESSAGES,
+    getSelectedWritingFormat: () => selectedWritingFormat,
+    resolveChatRequestWritingFormat: ({ requestContent, pendingShortcutIntent, selectedFormat }) => (
+      resolveHearthWritingFormatRequest({
+        requestContent,
+        pendingShortcutIntent,
+        selectedFormat: selectedFormat as HearthWritingFormat,
+      })
+    ),
+    rememberWritingFormat: (format) => rememberWritingFormat(format as HearthWritingFormat),
     buildActiveEpisodeContext,
     detectChatIntentSignals,
     detectAiAutosaveReasonCode,
@@ -3216,6 +3462,7 @@ export default function HearthShell({
     refreshMyAiCredits,
     recordInteractionEvent,
     publishForgeNotice,
+    onResearchResult: setLatestResearchResult,
   });
   const { onToggleMic } = useChatWorkspaceStt({
     workpieceId,
@@ -3224,8 +3471,10 @@ export default function HearthShell({
     isAiProcessing,
     aiTokenBalance,
     sttLane,
+    sttTarget,
     sttState,
     setSttLane,
+    setSttTarget,
     setSttState,
     setSttError,
     setSttNotice,
@@ -3245,6 +3494,7 @@ export default function HearthShell({
     aiSttTranscribeControllerRef,
     sttNoticeTimerRef,
     sttPreviewTimerRef,
+    browserSttStopTimerRef,
     sttInlineFeedbackMs: STT_INLINE_FEEDBACK_MS,
     sttPreviewMaxChars: STT_PREVIEW_MAX_CHARS,
     aiSttMaxDurationMs: AI_STT_MAX_DURATION_MS,
@@ -3254,6 +3504,15 @@ export default function HearthShell({
     uploadHearthSttAudio,
     requestHearthSttTranscript,
     sendChatMessage,
+    commitScriptTranscript,
+    getSttStartError: (target) => {
+      if (target !== "script") return null;
+      if (!activeDraft) return "Open a draft to dictate into the script.";
+      if (isCanonicalImageMapScriptPanel) {
+        return "Script dictation is unavailable while viewing the canonical script.";
+      }
+      return null;
+    },
   });
   const applyProposalOpsToWorkspace = useCallback(async (args: {
     proposal: PendingAiProposal;
@@ -3272,6 +3531,7 @@ export default function HearthShell({
     let planningChanged = false;
     let sourcesChanged = false;
     let saveRequested = false;
+    const bodyWasRequested = args.opsToApply.some((op) => op.op === "set_body");
 
     const opsStore: HearthOpsStore = {
       setTitle: (value) => {
@@ -3308,7 +3568,22 @@ export default function HearthShell({
       },
       setBody: (value) => {
         if (nextDraft.body === value) return;
-        nextDraft = { ...nextDraft, body: value };
+        const nextScriptAuthoringMeta = args.proposal.autosaveReasonCode === "ai_outline"
+          ? deriveOutlineScriptAuthoringMeta({
+            scriptText: value,
+            currentMeta: nextDraft.scriptAuthoringMeta,
+          })
+          : args.proposal.autosaveReasonCode === "ai_script"
+            ? deriveFullScriptAuthoringMeta({
+              scriptText: value,
+              currentMeta: nextDraft.scriptAuthoringMeta,
+            })
+            : nextDraft.scriptAuthoringMeta;
+        nextDraft = {
+          ...nextDraft,
+          body: value,
+          scriptAuthoringMeta: nextScriptAuthoringMeta,
+        };
         draftChanged = true;
       },
       addSource: async (source) => {
@@ -3355,6 +3630,7 @@ export default function HearthShell({
       const previousBody = activeDraft.body;
       const now = Date.now();
       const stagedDraft: Draft = { ...nextDraft, updatedAt: now };
+      const bodyChanged = previousBody !== stagedDraft.body;
       draftEditVersionRef.current += 1;
       activeDraftRef.current = stagedDraft;
       setActiveDraft((prev) => (prev && prev.id === stagedDraft.id ? stagedDraft : prev));
@@ -3370,8 +3646,22 @@ export default function HearthShell({
         previousBody,
         reasonCode: args.proposal.autosaveReasonCode,
       });
+      if (bodyChanged) {
+        publishForgeNotice({
+          job: "script-completed",
+          title: "Script updated",
+          severity: "success",
+        });
+      }
     } else {
       setActiveDraft((prev) => (prev ? nextDraft : prev));
+      if (bodyWasRequested) {
+        publishForgeNotice({
+          job: "script-completed",
+          title: "No script changes made",
+          severity: "warning",
+        });
+      }
     }
 
     if (planningChanged) {
@@ -3405,6 +3695,7 @@ export default function HearthShell({
     sourcesState,
     workpieceId,
     workspaceId,
+    publishForgeNotice,
   ]);
   const {
     onApplyAiProposal,
@@ -3436,7 +3727,7 @@ export default function HearthShell({
         return true;
       }
       const projectedBody = findNextBodyFromOps(activeDraft.body, opsToApply);
-      const projectedValidation = validateScriptTags(normalizeScriptTags(projectedBody));
+      const { validation: projectedValidation } = evaluateHearthScriptValidation(projectedBody);
       if (!projectedValidation.ok) {
         setScriptValidation({
           source: "ai_apply",
@@ -3484,6 +3775,7 @@ export default function HearthShell({
       isAiProcessing,
       aiEpisodeReady,
       sttLane,
+      sttTarget,
       sttState,
       hasBrowserSpeech,
       sttPreview,
@@ -3503,17 +3795,21 @@ export default function HearthShell({
       onApplyAiProposalAll: () => void onApplyAiProposal("all"),
       onApplyAiProposalSelected: () => void onApplyAiProposal("selected"),
       onDiscardAiProposal,
-      onUseChatShortcutOutline: () => onUseChatShortcut("Create a clear outline for this Episode."),
+      writingFormat: selectedWritingFormat,
+      writingFormatOptions,
+      onSelectWritingFormat: rememberWritingFormat,
+      onUseChatShortcutDraft: () => onUseChatShortcut(buildWritingFormatShortcutPrompt(selectedWritingFormat)),
+      draftShortcutLabel,
       onUseChatShortcutSources: () => onUseChatShortcut("Find strong sources I should cite for this Episode."),
       onOpenComposeScript,
       onSetSttLane: (lane) => setSttLane(lane),
-      onToggleMic,
+      onToggleMic: () => onToggleMic("chat"),
       onChatDraftChange: setChatDraft,
       onSendChat: () => void onSendChat(),
       onCancelAiRequest,
       describeProposalOp: describeHearthOp,
       getProposalDiff: buildProposalDiff,
-      validateProposalBody: (value) => validateScriptTags(normalizeScriptTags(value)),
+      validateProposalBody: (value) => evaluateHearthScriptValidation(value).validation,
       isProposalBodyDirty: isProposalBodyDirtyAt,
       buildValidationReport,
     },
@@ -3732,7 +4028,7 @@ export default function HearthShell({
 
   useEffect(() => {
     workpieceIdRef.current = workpieceId;
-  }, [workpieceId]);
+  }, [resetReleasePrepState, workpieceId]);
 
   useEffect(() => {
     draftSnapshotRef.current = draftSnapshot;
@@ -3752,8 +4048,10 @@ export default function HearthShell({
 
     const syncAiRuntime = async () => {
       const lane = resolveAiLaneFromStorage();
+      const visualProvider = resolveDefaultVisualProviderFromStorage();
       if (!cancelled) {
         setAiBillingMode(lane);
+        setDefaultVisualProvider(visualProvider);
         if (lane === "byo") {
           setAiTokenBalance(null);
         }
@@ -3953,240 +4251,66 @@ export default function HearthShell({
     return null;
   }, [activeDraft?.id, sparks, workpieceId]);
 
-  const refreshEpisodePackage = useCallback(async () => {
-    const episodeId = workpieceId?.trim() ?? "";
-    const requestSeq = episodePackageRequestSeqRef.current + 1;
-    episodePackageRequestSeqRef.current = requestSeq;
+  const refreshEpisodePackage = useEpisodePackageLoader({
+    workpieceId,
+    replaceEpisodePackageImageMap,
+    resetReleasePrepState,
+    setEpisodePackage,
+    setImageMapMetadataUpdatedAt,
+    setSelectedThumbnailTitleId,
+    setSelectedThumbnailConceptId,
+    setSelectedThumbnailVersionId,
+    setSelectedLaunchVariantId,
+    setSelectedMediaMapEntryId,
+    setSelectedImageMapEntryId,
+    setSelectedBrollBeatId,
+    setSelectedReferenceClipEntryId,
+    setThumbnailGenerateError,
+    setThumbnailUploadError,
+    setThumbnailPairingError,
+    setThumbnailPreviewState,
+    setThumbnailPreviewDataUrl,
+    setThumbnailPreviewError,
+    setImageMapSaveState,
+    setImageMapSaveError,
+    setImageMapExportMessage,
+    setMediaMapSaveState,
+    setMediaMapSaveError,
+    setMediaMapMessage,
+    setBrollSaveState,
+    setBrollSaveError,
+    setBrollMessage,
+    setReferenceClipSaveState,
+    setReferenceClipSaveError,
+    setReferenceClipMessage,
+  });
 
-    if (artifactStateWorkpieceIdRef.current !== episodeId) {
-      // Clear stale artifact state as soon as the active workpiece changes so prior package
-      // residue never renders as current truth for the new target.
-      setEpisodePackage(null);
-      setImageMapMetadataUpdatedAt(null);
-      setSelectedThumbnailTitleId(null);
-      setSelectedThumbnailConceptId("");
-      setSelectedThumbnailVersionId(null);
-      setSelectedLaunchVariantId(null);
-      setSelectedMediaMapEntryId(null);
-      setSelectedImageMapEntryId(null);
-      setSelectedBrollBeatId(null);
-      setSelectedReferenceClipEntryId(null);
-      setThumbnailGenerateError(null);
-      setThumbnailUploadError(null);
-      setThumbnailPairingError(null);
-      setThumbnailPreviewState("idle");
-      setThumbnailPreviewDataUrl(null);
-      setThumbnailPreviewError(null);
-      setImageMapSaveState("saved");
-      setImageMapSaveError(null);
-      setImageMapExportMessage(null);
-      setMediaMapSaveState("saved");
-      setMediaMapSaveError(null);
-      setMediaMapMessage(null);
-      setBrollSaveState("saved");
-      setBrollSaveError(null);
-      setBrollMessage(null);
-      setReferenceClipSaveState("saved");
-      setReferenceClipSaveError(null);
-      setReferenceClipMessage(null);
-      setLatestReleasePrepRawText(null);
-      setLatestReleasePrepSections([]);
-      setReleasePrepLoadState("idle");
-      setReleasePrepScriptVersion(null);
-      artifactStateWorkpieceIdRef.current = episodeId || null;
-    }
-
-    if (!episodeId) {
-      artifactStateWorkpieceIdRef.current = null;
-      return;
-    }
-
-    const loaded = await readEpisodePackageForWorkpiece(episodeId);
-    if (episodePackageRequestSeqRef.current !== requestSeq || (workpieceId?.trim() ?? "") !== episodeId) {
-      return;
-    }
-    if (!loaded.ok) {
-      setThumbnailGenerateError("Unable to load thumbnail metadata.");
-      setThumbnailPreviewState("error");
-      setThumbnailPreviewDataUrl(null);
-      setThumbnailPreviewError("Unable to load thumbnail metadata.");
-      return;
-    }
-
-    // Paint baseline episode package immediately so the primary list content can render
-    // before slower image/media map hydration calls complete.
-    setEpisodePackage(loaded.episodePackage);
-    artifactStateWorkpieceIdRef.current = episodeId;
-    setThumbnailGenerateError(null);
-    setImageMapSaveError(null);
-    {
-      const versions = loaded.episodePackage.thumbnail.versions;
-      const preferredVersionId = loaded.episodePackage.thumbnail.primary_version_id
-        ?? versions[versions.length - 1]?.id
-        ?? null;
-      setSelectedThumbnailVersionId(preferredVersionId);
-      const initialImageEntries = loaded.episodePackage.image_map.entries;
-      setSelectedImageMapEntryId((prev) => {
-        if (prev && initialImageEntries.some((entry) => entry.id === prev)) return prev;
-        return initialImageEntries[0]?.id ?? null;
-      });
-    }
-
-    const [imageMapLoaded, mediaMapLoaded] = await Promise.all([
-      getWorkpieceImageMap(episodeId),
-      readWorkpieceEpisodeMediaMap(episodeId),
-    ]);
-    if (episodePackageRequestSeqRef.current !== requestSeq || (workpieceId?.trim() ?? "") !== episodeId) {
-      return;
-    }
-
-    let nextEpisodePackage = loaded.episodePackage;
-    if (imageMapLoaded.ok) {
-      nextEpisodePackage = replaceEpisodePackageImageMap(loaded.episodePackage, imageMapLoaded.imageMap.entries);
-      setImageMapMetadataUpdatedAt(imageMapLoaded.imageMap.metadataUpdatedAt);
-    } else {
-      setImageMapMetadataUpdatedAt(null);
-    }
-    if (mediaMapLoaded.ok && mediaMapLoaded.mediaMap) {
-      nextEpisodePackage = {
-        ...nextEpisodePackage,
-        media_map: {
-          ...mediaMapLoaded.mediaMap,
-          workpiece_id: episodeId,
-        },
-      };
-    }
-
-    setEpisodePackage(nextEpisodePackage);
-    const imageEntries = nextEpisodePackage.image_map.entries;
-    setSelectedImageMapEntryId((prev) => {
-      if (prev && imageEntries.some((entry) => entry.id === prev)) return prev;
-      return imageEntries[0]?.id ?? null;
-    });
-  }, [workpieceId]);
-
-  const loadLatestReleasePrepPack = useCallback(async (scriptVersion: number) => {
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId || !Number.isFinite(scriptVersion) || scriptVersion <= 0) {
-      setLatestReleasePrepRawText(null);
-      setLatestReleasePrepSections([]);
-      setReleasePrepLoadState("idle");
-      setReleasePrepScriptVersion(null);
-      return;
-    }
-
-    setReleasePrepLoadState("loading");
-    const loaded = await readWorkpieceProductionArtifact({
-      workpieceId: episodeId,
-      scriptVersion,
-      kind: "pack",
-    });
-    if (!loaded.ok) {
-      setLatestReleasePrepRawText(null);
-      setLatestReleasePrepSections([]);
-      setReleasePrepLoadState(loaded.reason === "not_found" ? "missing" : "error");
-      setReleasePrepScriptVersion(scriptVersion);
-      return;
-    }
-
-    const payload = loaded.payload;
-    const rawText = (
-      typeof payload === "object" && payload && !Array.isArray(payload)
-        ? readTrimmedString((payload as Record<string, unknown>).raw_text)
-        : null
-    ) ?? "";
-    setLatestReleasePrepRawText(rawText || null);
-    setLatestReleasePrepSections(parseReleasePrepPackSections(rawText));
-    setReleasePrepLoadState("ready");
-    setReleasePrepScriptVersion(scriptVersion);
-  }, [workpieceId]);
-
-  useEffect(() => {
-    if (!hasApprovedScript || !approvedScriptVersion) {
-      setLatestReleasePrepRawText(null);
-      setLatestReleasePrepSections([]);
-      setReleasePrepLoadState("idle");
-      setReleasePrepScriptVersion(null);
-      return;
-    }
-    // Avoid eager fetch spam for pack.json (often legitimately absent).
-    // We load on explicit Refresh or when release_prep_pack generation completes.
-    setLatestReleasePrepRawText(null);
-    setLatestReleasePrepSections([]);
-    setReleasePrepLoadState("idle");
-    setReleasePrepScriptVersion(approvedScriptVersion);
-  }, [approvedScriptVersion, hasApprovedScript]);
-
-  const refreshReadyScripts = useCallback(async () => {
-    const workspace = normalizeUuid(workspaceId);
-    const requestSeq = readyScriptsRequestSeqRef.current + 1;
-    readyScriptsRequestSeqRef.current = requestSeq;
-    if (!workspace) {
-      setReadyScripts([]);
-      setReadyScriptsWorkspaceId(null);
-      setReadyScriptsError(null);
-      setIsReadyScriptsLoading(false);
-      return;
-    }
-
-    setIsReadyScriptsLoading(true);
-    setReadyScriptsError(null);
-    try {
-      const entries = await listHearthReadyScripts(workspace);
-      if (readyScriptsRequestSeqRef.current !== requestSeq) return;
-      setReadyScripts(entries);
-      setReadyScriptsWorkspaceId(workspace);
-    } catch {
-      if (readyScriptsRequestSeqRef.current !== requestSeq) return;
-      setReadyScripts([]);
-      setReadyScriptsWorkspaceId(null);
-      setReadyScriptsError("Failed to load Ready to Record list.");
-    } finally {
-      if (readyScriptsRequestSeqRef.current === requestSeq) {
-        setIsReadyScriptsLoading(false);
-      }
-    }
-  }, [workspaceId]);
+  const { refreshReadyScripts } = useHearthReadyScriptsLifecycle({
+    workspaceId,
+    normalizeUuid,
+    listReadyScripts: listHearthReadyScripts,
+    setReadyScripts,
+    setReadyScriptsWorkspaceId,
+    setReadyScriptsError,
+    setIsReadyScriptsLoading,
+  });
   const setScriptValidationGateResult = useCallback((validation: ScriptValidationResult) => {
     setScriptValidation({
       source: "save_gate",
       result: validation,
     });
   }, []);
-  const persistApprovedDraft = useCallback(async (params: {
-    draft: Draft;
-    updatedAt: number;
-    approvalNote: string;
-  }): Promise<boolean> => {
-    return persistDraft({
-      draft: {
-        ...params.draft,
-        updatedAt: params.updatedAt,
-      },
-      updatedAt: params.updatedAt,
-      createRevision: { kind: "milestone", note: params.approvalNote },
-      syncSources: false,
-      syncSession: false,
-      validateForAnvil: true,
-    });
-  }, [persistDraft]);
-  const publishApprovedScript = useCallback(async (params: {
-    episodeId: string;
-    scriptText: string;
-  }): Promise<boolean> => {
-    const published = await commitHearthPrimaryScript(params.episodeId, params.scriptText, {
-      validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
-    });
-    return published.ok;
-  }, []);
-  const appendApprovalMarker = useCallback((params: { draftId: string; content: string }) => {
-    const markerMessage: HearthChatMessage = { role: "assistant", content: params.content };
-    setChatMessages((prev) => {
-      const next = [...prev, markerMessage].slice(-CHAT_HISTORY_MAX_MESSAGES);
-      flushChatHistoryNow({ draftId: params.draftId, messages: next });
-      return next;
-    });
-  }, [flushChatHistoryNow, setChatMessages]);
+  const {
+    persistApprovedDraft,
+    publishApprovedScript,
+    appendApprovalMarker,
+  } = useHearthApprovalPersistenceActions({
+    persistDraft,
+    validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
+    chatHistoryMaxMessages: CHAT_HISTORY_MAX_MESSAGES,
+    flushChatHistoryNow,
+    setChatMessages,
+  });
   const {
     isApprovingScript,
     onApproveScript,
@@ -4221,6 +4345,367 @@ export default function HearthShell({
     updateStyleProfileFromReadyCheckpoint,
     appendApprovalMarker,
     refreshReadyScripts,
+  });
+  const {
+    onGenerateBrollPlan,
+    onSaveBrollBeat,
+    onDeleteBrollBeat,
+    onRegenerateBrollBeat,
+  } = useBrollCoreActions({
+    isApprovingScript,
+    isAiProcessing,
+    isBrollBusy,
+    episodePackage,
+    workpieceId,
+    selectedBrollBeat,
+    brollMotionIntentDraft,
+    brollDescriptionDraft,
+    brollAnchorDraft,
+    brollAssetCategoryDraft,
+    brollPriorityDraft,
+    brollKeywordsDraft,
+    brollMoodDraft,
+    brollShotTypeDraft,
+    brollMotionSuggestionDraft,
+    brollSuggestedDurationDraft,
+    brollPlacementHintDraft,
+    brollProviderIdDraft,
+    brollSourceUrlDraft,
+    brollProviderNoteDraft,
+    brollUsageNoteDraft,
+    brollResultMetadataDraft,
+    setIsBrollBusy,
+    setBrollSaveState,
+    setBrollSaveError,
+    setBrollMessage,
+    setSelectedBrollBeatId,
+    readCanonicalScriptForImageMapGeneration,
+    resolveBrollDataVisualSpecFromDraft,
+    persistBrollPlan,
+  });
+  const {
+    onCopyBrollPrompt,
+    onDownloadBrollBrief,
+    onOpenBrollProvider,
+    onMarkBrollRequestState,
+    onClearBrollRequestState,
+    onAttachBrollResultFromUrl,
+    onFindStockForBrollBeat,
+    onUploadBrollBeatAsset,
+    onSelectBrollCandidate,
+  } = useBrollBridgeActions({
+    episodePackage,
+    selectedBrollBeat,
+    brollProviders,
+    brollProviderIdDraft,
+    brollSourceUrlDraft,
+    brollSourceLabelDraft,
+    brollProviderNoteDraft,
+    brollUsageNoteDraft,
+    brollResultMetadataDraft,
+    brollAnchorDraft,
+    brollDescriptionDraft,
+    brollKeywordsDraft,
+    brollMotionIntentDraft,
+    brollAssetCategoryDraft,
+    brollMoodDraft,
+    brollDataVisualSpecFromDraft: resolveBrollDataVisualSpecFromDraft,
+    workpieceId,
+    activeDraftTitle: activeDraft?.title ?? null,
+    isBrollBusy,
+    setIsBrollBusy,
+    setBrollSaveState,
+    setBrollSaveError,
+    setBrollMessage,
+    writeTextToClipboard,
+    downloadTextFile,
+    persistBrollPlan,
+  });
+  const {
+    onCreateReferenceClipEntry,
+    onSaveReferenceClipEntry,
+    onDeleteReferenceClipEntry,
+    onGenerateReferenceClipInForge,
+    onRegenerateReferenceClipEntryStub,
+  } = useReferenceClipCoreActions({
+    episodePackage,
+    workpieceId,
+    workspaceId,
+    activeDraftTitle: activeDraft?.title ?? null,
+    selectedImageMapEntry,
+    selectedBrollBeatAnchorText: selectedBrollBeat?.anchor_text ?? null,
+    selectedReferenceClipEntry,
+    isReferenceClipBusy,
+    referenceClipFormatDraft,
+    referenceClipAnchorDraft,
+    referenceClipDescriptionDraft,
+    referenceClipPlacementHintDraft,
+    referenceClipDataTypeDraft,
+    referenceClipContextTypeDraft,
+    referenceClipToneDraft,
+    referenceClipMotionLevelDraft,
+    referenceClipBackgroundContextDraft,
+    referenceClipForegroundDataDraft,
+    referenceClipVisualStyleDraft,
+    referenceClipChartTypeDraft,
+    referenceClipTitleDraft,
+    referenceClipLabelsDraft,
+    referenceClipEmphasisKeyDraft,
+    referenceClipSourceTypeDraft,
+    referenceClipProviderIdDraft,
+    referenceClipSourceUrlDraft,
+    referenceClipProviderNoteDraft,
+    referenceClipUsageNoteDraft,
+    referenceClipResultMetadataDraft,
+    resolveReferenceClipValuesFromDraft,
+    setIsReferenceClipBusy,
+    setReferenceClipSaveState,
+    setReferenceClipSaveError,
+    setReferenceClipMessage,
+    setSelectedReferenceClipEntryId,
+    persistReferenceClipPlan,
+    persistImageMapEntries,
+    readCanonicalScriptForImageMapGeneration,
+  });
+  const {
+    onCopyReferenceClipPrompt,
+    onCopyReferenceClipNegativePrompt,
+    onDownloadReferenceClipPromptPack,
+    onDownloadReferenceClipBrief,
+    onOpenReferenceClipProvider,
+    onMarkReferenceClipRequestState,
+    onClearReferenceClipRequestState,
+    onAttachReferenceClipResultFromUrl,
+    onUploadReferenceClipAsset,
+    onSelectReferenceClipCandidate,
+  } = useReferenceClipBridgeActions({
+    episodePackage,
+    selectedReferenceClipEntry,
+    activeVisualPromptPackForReferenceClip,
+    referenceClipProviders,
+    referenceClipProviderIdDraft,
+    referenceClipSourceUrlDraft,
+    referenceClipSourceLabelDraft,
+    referenceClipProviderNoteDraft,
+    referenceClipUsageNoteDraft,
+    referenceClipResultMetadataDraft,
+    referenceClipAnchorDraft,
+    referenceClipDescriptionDraft,
+    referenceClipTitleDraft,
+    workpieceId,
+    activeDraftTitle: activeDraft?.title ?? null,
+    isReferenceClipBusy,
+    setIsReferenceClipBusy,
+    setReferenceClipSaveState,
+    setReferenceClipSaveError,
+    setReferenceClipMessage,
+    writeTextToClipboard,
+    downloadTextFile,
+    persistReferenceClipPlan,
+  });
+  const {
+    onCreateThumbnailConcept,
+    onSaveSelectedThumbnailConcept,
+    onDeleteSelectedThumbnailConcept,
+    onSetPrimaryThumbnailVersion,
+    onSelectThumbnailTitle,
+    onSelectThumbnailVersion,
+    onCreateLaunchVariant,
+    onSelectLaunchVariant,
+    onSaveLaunchVariant,
+  } = useThumbnailConceptActions({
+    episodePackage,
+    thumbnailVersions,
+    launchVariants,
+    metadataTitlesDraft,
+    selectedThumbnailTitleId,
+    selectedThumbnailConceptId,
+    selectedThumbnailVersionId,
+    selectedLaunchVariantId,
+    thumbnailConceptLabelDraft,
+    thumbnailConceptPromptDraft,
+    thumbnailConceptStyleDraft,
+    thumbnailTitleStyleDraft,
+    thumbnailConceptBrandTemplateIdDraft,
+    launchVariantStatusDraft,
+    launchVariantNotesDraft,
+    defaultThumbnailBrandTemplateId,
+    isThumbnailConceptSaving,
+    isThumbnailGenerating,
+    isThumbnailUploading,
+    createThumbnailClientId,
+    normalizeVisualStyle: normalizeHearthVisualStyle,
+    normalizeThumbnailTitleStyle: normalizeEpisodeThumbnailTitleStyle,
+    persistThumbnailEpisodePackage,
+    setIsThumbnailConceptSaving,
+    setSelectedThumbnailTitleId,
+    setSelectedThumbnailConceptId,
+    setSelectedThumbnailVersionId,
+    setSelectedLaunchVariantId,
+    setThumbnailGenerateError,
+    setThumbnailPairingError,
+  });
+  const {
+    onGenerateThumbnailVersion,
+    onRetryFailedThumbnailVersion,
+    onUploadThumbnailBrandLogo,
+    onRemoveThumbnailBrandLogo,
+    onUploadThumbnailImage,
+  } = useThumbnailGenerationActions({
+    workpieceId,
+    workspaceId,
+    episodePackage,
+    selectedThumbnailConceptId,
+    selectedThumbnailBrandTemplate,
+    defaultThumbnailBrandTemplateId,
+    thumbnailAspect,
+    isAiProcessing,
+    isApprovingScript,
+    isThumbnailGenerating,
+    isThumbnailUploading,
+    isThumbnailConceptSaving,
+    aiBillingMode,
+    aiTokenBalance,
+    persistThumbnailEpisodePackage,
+    replaceEpisodePackageImageMap,
+    createThumbnailClientId,
+    setEpisodePackage,
+    setSelectedThumbnailConceptId,
+    setSelectedThumbnailVersionId,
+    setThumbnailBrandTemplates,
+    setImageMapMetadataUpdatedAt,
+    setAiTokenBalance,
+    setAiRuntimeWarning,
+    setIsThumbnailGenerating,
+    setIsThumbnailUploading,
+    setIsThumbnailBrandLogoUploading,
+    setThumbnailGenerateError,
+    setThumbnailUploadError,
+    setThumbnailBrandLogoError,
+    setThumbnailBrandLogoStatus,
+    setThumbnailBrandLogoDataUrl,
+    publishForgeNotice,
+  });
+  const {
+    onStartImageMapReanchor,
+    onCancelImageMapReanchor,
+    onPickImageMapReanchor,
+    onRepairImageMapNearestParagraph,
+    onConvertImageMapToGlobalVisual,
+    onLeaveImageMapOrphaned,
+  } = useImageMapReanchorActions({
+    episodePackage,
+    selectedImageMapEntry,
+    imageMapReanchorDisabledReason,
+    isImageMapReanchorSaving,
+    canonicalImageMapScriptState,
+    persistImageMapEntries,
+    setMode,
+    setShowManualDraft,
+    setShowScriptPanel,
+    setImageMapReanchorError,
+    setImageMapCandidateError,
+    setImageMapCandidateSelectionError,
+    setIsImageMapReanchorMode,
+    setIsImageMapReanchorSaving,
+    setImageMapSaveState,
+    setImageMapSaveError,
+    setImageMapExportMessage,
+  });
+  const {
+    onGenerateImageMapCandidates,
+    onSelectImageMapCandidate,
+    onUploadImageMapAsset,
+  } = useImageMapCandidateActions({
+    workpieceId,
+    workspaceId,
+    episodePackage,
+    selectedImageMapEntry,
+    thumbnailAspect,
+    imageMapSaveState,
+    imageMapMetadataUpdatedAt,
+    isAiProcessing,
+    isApprovingScript,
+    isImageMapCandidateGenerating,
+    aiBillingMode,
+    aiTokenBalance,
+    readCanonicalScriptForImageMapGeneration,
+    replaceEpisodePackageImageMap,
+    persistImageMapEntries,
+    setMode,
+    setShowManualDraft,
+    setShowScriptPanel,
+    setIsImageMapReanchorMode,
+    setImageMapSourceTypeDraft,
+    setEpisodePackage,
+    setImageMapMetadataUpdatedAt,
+    setAiTokenBalance,
+    setAiRuntimeWarning,
+    setIsImageMapCandidateGenerating,
+    setIsImageMapCandidateSelecting,
+    setImageMapCandidateError,
+    setImageMapCandidateSelectionError,
+    setImageMapExportMessage,
+    publishForgeNotice,
+  });
+  const {
+    onCreateImageMapEntry,
+    onDuplicateImageMapEntry,
+    onDeleteImageMapEntry,
+  } = useImageMapEntryCrudActions({
+    episodePackage,
+    selectedImageMapEntry,
+    selectedImageMapEntryId,
+    persistImageMapEntries,
+    setSelectedImageMapEntryId,
+    setImageMapSaveState,
+    setImageMapSaveError,
+  });
+  const {
+    onSeedImageMapFromScript,
+    onCopyImageMapExportJson,
+    onDownloadImageMapExportJson,
+  } = useImageMapSeedExportActions({
+    workpieceId,
+    episodePackage,
+    selectedImageMapEntryId,
+    effectiveComposeSetupMode: effectiveComposeSetup?.mode ?? null,
+    imageMapSaveState,
+    imageMapAnchorDraft,
+    imageMapDescriptionDraft,
+    imageMapStyleDraft,
+    imageMapIntentDraft,
+    imageMapSourceTypeDraft,
+    imageMapAnchorScopeDraft,
+    imageMapVisualPriorityDraft,
+    imageMapVisualTypeDraft,
+    imageMapSectionIntentNoteDraft,
+    imageMapPlacementHintDraft,
+    normalizeVisualStyle: normalizeHearthVisualStyle,
+    readCanonicalScriptForImageMapGeneration,
+    persistImageMapEntries,
+    writeTextToClipboard,
+    setImageMapSaveState,
+    setImageMapSaveError,
+    setSelectedImageMapEntryId,
+    setImageMapExportMessage,
+  });
+  const {
+    onToggleVisualScriptMode,
+    onSelectImageMapEntry,
+  } = useImageMapViewActions({
+    hasApprovedScript,
+    approvedScriptVersion,
+    isImageMapReanchorSaving,
+    selectedImageMapEntryId,
+    setMode,
+    setShowManualDraft,
+    setShowScriptPanel,
+    setIsVisualScriptMode,
+    setIsImageMapReanchorMode,
+    setIsImageMapReanchorSaving,
+    setImageMapReanchorError,
+    setSelectedImageMapEntryId,
   });
 
   useEffect(() => {
@@ -4317,152 +4802,32 @@ export default function HearthShell({
     void refreshEpisodePackage();
   }, [refreshEpisodePackage]);
 
-  const onSetReadyScriptCategory = useCallback(async (
-    entry: HearthReadyScript,
-    category: HearthContentCategory | null,
-  ) => {
-    setReadyCategoryError(null);
-    setUpdatingReadyCategoryId(entry.id);
-
-    const previousCategory = entry.contentCategory;
-    setReadyScripts((prev) => prev.map((row) => (
-      row.id === entry.id ? { ...row, contentCategory: category } : row
-    )));
-
-    try {
-      const result = await setHearthReadyScriptCategory({
-        workspaceId: entry.workspaceId,
-        workpieceId: entry.workpieceId,
-        category,
-      });
-      if (!result.ok) {
-        setReadyScripts((prev) => prev.map((row) => (
-          row.id === entry.id ? { ...row, contentCategory: previousCategory } : row
-        )));
-        setReadyCategoryError("Failed to save script category.");
-        return;
-      }
-      void refreshReadyScripts();
-    } catch {
-      setReadyScripts((prev) => prev.map((row) => (
-        row.id === entry.id ? { ...row, contentCategory: previousCategory } : row
-      )));
-      setReadyCategoryError("Failed to save script category.");
-    } finally {
-      setUpdatingReadyCategoryId(null);
-    }
-  }, [refreshReadyScripts]);
+  const {
+    onSetReadyScriptCategory,
+    onRemoveFromReady,
+    onRestoreRemovedReady,
+    onReorderReady,
+  } = useHearthReadyQueueActions({
+    workspaceId,
+    normalizeUuid,
+    readyScriptsForDisplay,
+    removingReadyIds,
+    isRestoringReady,
+    hearthUserId: hearthUser.userId,
+    reorderVisibleReadyEntries,
+    setReadyScripts,
+    setReadyScriptsError,
+    setReadyCategoryError,
+    setUpdatingReadyCategoryId,
+    setRemovingReadyIds,
+    setIsRestoringReady,
+    refreshReadyScripts,
+  });
 
   const onReadyLabelChange = useCallback((entry: HearthReadyScript, label: ReadyLabel) => {
     const category = READY_LABEL_TO_CATEGORY[label] ?? "evergreen";
     void onSetReadyScriptCategory(entry, category);
   }, [onSetReadyScriptCategory]);
-
-  const onRemoveFromReady = useCallback(async (entry: HearthReadyScript) => {
-    if (!entry.id || removingReadyIds.includes(entry.id)) return;
-
-    setReadyScriptsError(null);
-    setRemovingReadyIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
-    setReadyScripts((prev) => prev.map((row) => (
-      row.id === entry.id
-        ? {
-            ...row,
-            hiddenAt: new Date().toISOString(),
-            hiddenBy: hearthUser.userId ?? row.hiddenBy,
-          }
-        : row
-    )));
-
-    try {
-      const result = await setHearthReadyScriptHidden({
-        workspaceId: entry.workspaceId,
-        workpieceId: entry.workpieceId,
-        hidden: true,
-      });
-      if (!result.ok) {
-        setReadyScriptsError("Failed to hide script from Ready.");
-        await refreshReadyScripts();
-        return;
-      }
-      await refreshReadyScripts();
-    } catch {
-      setReadyScriptsError("Failed to hide script from Ready.");
-      await refreshReadyScripts();
-    } finally {
-      setRemovingReadyIds((prev) => prev.filter((id) => id !== entry.id));
-    }
-  }, [
-    refreshReadyScripts,
-    hearthUser.userId,
-    removingReadyIds,
-  ]);
-
-  const onRestoreRemovedReady = useCallback(async () => {
-    const normalizedWorkspaceId = normalizeUuid(workspaceId);
-    const hiddenEntries = readyScriptsForDisplay.filter((entry) => entry.hiddenAt);
-    if (!normalizedWorkspaceId || hiddenEntries.length === 0 || isRestoringReady) return;
-
-    setReadyScriptsError(null);
-    setIsRestoringReady(true);
-    setReadyScripts((prev) => prev.map((entry) => (
-      entry.hiddenAt
-        ? { ...entry, hiddenAt: null, hiddenBy: null }
-        : entry
-    )));
-
-    try {
-      const result = await updateHearthReadyQueueState({
-        workspaceId: normalizedWorkspaceId,
-        entries: hiddenEntries.map((entry) => ({
-          workpieceId: entry.workpieceId,
-          hidden: false,
-        })),
-      });
-      if (!result.ok) {
-        setReadyScriptsError("Failed to restore hidden Ready items.");
-        await refreshReadyScripts();
-        return;
-      }
-      await refreshReadyScripts();
-    } catch {
-      setReadyScriptsError("Failed to restore hidden Ready items.");
-      await refreshReadyScripts();
-    } finally {
-      setIsRestoringReady(false);
-    }
-  }, [isRestoringReady, readyScriptsForDisplay, refreshReadyScripts, workspaceId]);
-
-  const onReorderReady = useCallback(async (fromId: string, toId: string) => {
-    const normalizedWorkspaceId = normalizeUuid(workspaceId);
-    if (!normalizedWorkspaceId || !fromId || !toId || fromId === toId) return;
-
-    const reordered = reorderVisibleReadyEntries(readyScriptsForDisplay, fromId, toId);
-    const changed = reordered.some((entry, index) => entry !== readyScriptsForDisplay[index]);
-    if (!changed) return;
-
-    const orderedVisibleIds = reordered
-      .filter((entry) => !entry.hiddenAt)
-      .map((entry) => entry.workpieceId);
-
-    setReadyScriptsError(null);
-    setReadyScripts(reordered);
-
-    try {
-      const result = await reorderHearthReadyScripts({
-        workspaceId: normalizedWorkspaceId,
-        orderedWorkpieceIds: orderedVisibleIds,
-      });
-      if (!result.ok) {
-        setReadyScriptsError("Failed to reorder Ready queue.");
-        await refreshReadyScripts();
-        return;
-      }
-      await refreshReadyScripts();
-    } catch {
-      setReadyScriptsError("Failed to reorder Ready queue.");
-      await refreshReadyScripts();
-    }
-  }, [readyScriptsForDisplay, refreshReadyScripts, workspaceId]);
 
   const persistSession = useCallback(async (draftId: string | null, uiSelectedTab?: string) => {
     const now = Date.now();
@@ -4549,6 +4914,12 @@ export default function HearthShell({
       setSessionTouched(true);
     }
   }, [workpieceId, workspaceId]);
+  const handleVisualProviderOverrideChange = useCallback((providerId: VisualProviderId | null) => {
+    updatePlanningSession((prev) => ({
+      ...prev,
+      visual_provider_override: providerId,
+    }));
+  }, [updatePlanningSession]);
 
   const syncSessionToTongs = useCallback(async (overrideSession?: HearthPlanningSession | null) => {
     const baseSession = overrideSession ?? planningSession;
@@ -4619,55 +4990,6 @@ export default function HearthShell({
     workspaceId,
   ]);
 
-  const onSaveDraft = useCallback(async () => {
-    if (!activeDraft) return;
-    const now = Date.now();
-    const saved = await persistDraft({
-      draft: activeDraft,
-      updatedAt: now,
-      createRevision: null,
-      saveReason: "manual",
-    });
-    if (!saved) return;
-    noteManualSaveSuccess(now);
-    flushChatHistoryNow({ draftId: activeDraft.id });
-  }, [activeDraft, flushChatHistoryNow, noteManualSaveSuccess]);
-
-  const onReloadLatestDraftAfterConflict = useCallback(async () => {
-    const currentDraftId = activeDraft?.id ?? null;
-    await refreshDrafts();
-    if (!currentDraftId) {
-      setDraftConflictState(null);
-      return;
-    }
-    const latest = await store.getDraft(currentDraftId);
-    if (latest) {
-      await selectDraft(latest);
-    }
-    setDraftConflictState(null);
-  }, [activeDraft?.id, refreshDrafts, selectDraft, store]);
-
-  const onCopyConflictLocalText = useCallback(async () => {
-    const text = draftConflictState?.localBody?.trim() ?? "";
-    if (!text) return;
-    try {
-      const copied = await writeTextToClipboard(text);
-      if (!copied) {
-        throw new Error("copy_failed");
-      }
-      setError("Copied your local draft text to clipboard.");
-    } catch {
-      setError("Unable to copy local text. Select and copy manually.");
-    }
-  }, [draftConflictState?.localBody]);
-
-  const onCopyScriptPanelText = useCallback(async () => {
-    const text = scriptPanelBodyText;
-    if (!text.trim()) return;
-    const copied = await writeTextToClipboard(text);
-    setScriptPanelCopyMessage(copied ? "Copied to clipboard." : "Clipboard write failed.");
-  }, [scriptPanelBodyText]);
-
   const onJumpToValidationIssue = useCallback((issue: ScriptValidationIssue) => {
     const textarea = bodyRef.current;
     if (!textarea) return;
@@ -4685,81 +5007,28 @@ export default function HearthShell({
     setCursorPosition(nextPos);
   }, []);
 
-  const onOpenInAnvil = useCallback(async () => {
-    const workspace = workspaceId?.trim() ?? "";
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!workspace || !episodeId) {
-      setError("Start Recording needs a valid workspace and episode.");
-      return;
-    }
-    if (activeWorkpieceIsArchived) {
-      setError("This episode is archived. Restore it in Hearth before recording.");
-      return;
-    }
-    const href = buildOpenInAnvilHref(workspace, episodeId);
-    if (!href) {
-      setError("Start Recording is unavailable until episode context finishes loading.");
-      return;
-    }
-    setError(null);
-    if (!activeDraft) {
-      window.location.assign(href);
-      return;
-    }
-
-    if (!activeDraft.body.trim()) {
-      setError("No script yet. Write a script before opening in Anvil.");
-      return;
-    }
-
-    const { normalizedText, validation } = evaluateScriptValidation(activeDraft.body);
-    if (!validation.ok) {
-      setScriptValidation({
-        source: "save_gate",
-        result: validation,
-      });
-      setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(validation)}`);
-      return;
-    }
-
-    const now = Date.now();
-    const saved = await persistDraft({
-      draft: {
-        ...activeDraft,
-        body: normalizedText,
-        updatedAt: now,
-        scriptValidationMeta: buildPersistedValidationMeta(validation),
-      },
-      updatedAt: now,
-      createRevision: null,
-      syncSources: false,
-      syncSession: false,
-      validateForAnvil: true,
-    });
-    if (!saved) return;
-
-    const published = await commitHearthPrimaryScript(episodeId, normalizedText, {
-      validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
-    });
-    if (!published.ok) {
-      const statusText = published.status ? ` (${published.status})` : "";
-      setError(`Failed to publish script for Anvil${statusText}. Try again.`);
-      return;
-    }
-
-    // Bridge token for Anvil static runtime so /tongs calls stay authorized after redirect.
-    try {
-      const token = resolveTongsRequestApiToken();
-      if (token) {
-        window.localStorage.setItem("forge_tongs_api_token_v1", token);
-      }
-    } catch {
-      // ignore token bridge failures
-    }
-
-    flushChatHistoryNow({ draftId: activeDraft.id });
-    window.location.assign(href);
-  }, [activeDraft, activeWorkpieceIsArchived, flushChatHistoryNow, persistDraft, workpieceId, workspaceId]);
+  const onOpenInAnvil = useHearthAnvilOpenAction({
+    activeDraft,
+    activeWorkpieceIsArchived,
+    workspaceId,
+    workpieceId,
+    validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
+    setError,
+    setScriptValidation,
+    evaluateScriptValidation,
+    buildValidationReport,
+    buildPersistedValidationMeta,
+    buildOpenInAnvilHref: (workspace, episodeId) => buildOpenInAnvilHref(workspace, episodeId),
+    persistDraft,
+    publishPrimaryScript: async ({ episodeId, scriptText, validatorVersion }) => {
+      const published = await commitHearthPrimaryScript(episodeId, scriptText, { validatorVersion });
+      return {
+        ok: published.ok,
+        status: "status" in published ? published.status : undefined,
+      };
+    },
+    flushChatHistoryNow,
+  });
 
   const applySessionOrigin = useCallback((origin: HearthSessionOrigin) => {
     updatePlanningSession((prev) => ({
@@ -4773,242 +5042,91 @@ export default function HearthShell({
     }), { touched: false });
   }, [updatePlanningSession]);
 
-  const hydrateOrCreateDraftBufferForWorkpiece = useCallback(async (
-    targetWorkpieceId: string,
-    options?: {
-      drafts?: readonly Draft[];
-      workpieces?: readonly HearthWorkpieceSummary[];
-      preferredDraftId?: string | null;
-      seed?: { title?: string; body?: string };
-    },
-  ): Promise<Draft | null> => {
-    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
-    if (!normalizedWorkpieceId) return null;
+  const { hydrateOrCreateDraftBufferForWorkpiece } = useHearthDraftHydrationActions({
+    hearthUser,
+    sparks,
+    store,
+    draftsRef,
+    workpieceSummariesRef,
+    setDrafts,
+    setAiRuntimeWarning,
+    refreshDrafts,
+    normalizeUuid,
+    dedupeDraftListById,
+    selectDraftForWorkpiece,
+    parseDraftConflictError,
+    buildDraftAttribution,
+    parseIsoTimestamp,
+    readTrimmedString,
+    isLegacyDraftScriptPlaceholder,
+    safeScriptStarter: SAFE_SCRIPT_STARTER,
+  });
 
-    const availableDrafts = options?.drafts ?? draftsRef.current;
-    const existingDraft = selectDraftForWorkpiece({
-      workpieceId: normalizedWorkpieceId,
-      drafts: availableDrafts,
-      sparks,
-      preferredDraftId: options?.preferredDraftId ?? null,
-    });
-    let selectedDraft = existingDraft;
-
-    if (!draftHasUsableScriptBody(selectedDraft)) {
-      const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(normalizedWorkpieceId));
-      if (canonicalDrafts.length > 0) {
-        const mergedDrafts = dedupeDraftListById([...availableDrafts, ...canonicalDrafts]);
-        draftsRef.current = mergedDrafts;
-        setDrafts(mergedDrafts);
-        const canonicalDraft = selectDraftForWorkpiece({
-          workpieceId: normalizedWorkpieceId,
-          drafts: mergedDrafts,
-          sparks,
-          preferredDraftId: options?.preferredDraftId ?? null,
-        }) ?? (
-          options?.preferredDraftId
-            ? mergedDrafts.find((draft) => draft.id === options.preferredDraftId) ?? null
-            : null
-        ) ?? canonicalDrafts
-          .slice()
-          .sort((a, b) => b.updatedAt - a.updatedAt)[0]
-          ?? null;
-        selectedDraft = choosePreferredHydratedDraft([selectedDraft, canonicalDraft]);
-      }
-    }
-
-    if (draftHasUsableScriptBody(selectedDraft)) {
-      return selectedDraft;
-    }
-
-    const availableWorkpieces = options?.workpieces ?? workpieceSummariesRef.current;
-    const workpieceSummary = availableWorkpieces.find((entry) => entry.workpieceId === normalizedWorkpieceId) ?? null;
-    const scriptRead = await readHearthPrimaryScript(normalizedWorkpieceId);
-    if (!scriptRead.ok) {
-      setAiRuntimeWarning("Opened Episode, but Hearth could not load the canonical script snapshot.");
-    }
-    const canonicalScriptData = scriptRead.ok ? scriptRead.data : null;
-    const canonicalScriptText = readTrimmedString(canonicalScriptData?.text);
-
-    if (selectedDraft && canonicalScriptText) {
-      const repairedDraft = hydrateDraftBodyFromCanonicalScript({
-        draft: selectedDraft,
-        scriptText: canonicalScriptData?.text ?? canonicalScriptText,
-        updatedAt: parseIsoTimestamp(canonicalScriptData?.updatedAt) ?? Date.now(),
-        updatedBy: buildDraftAttribution(hearthUser),
-      });
-
-      try {
-        await store.saveDraft(repairedDraft, { reason: "hydrate_workpiece" });
-        const nextDrafts = dedupeDraftListById([repairedDraft, ...draftsRef.current]);
-        draftsRef.current = nextDrafts;
-        setDrafts(nextDrafts);
-        return repairedDraft;
-      } catch (err) {
-        if (!parseDraftConflictError(err)) {
-          throw err;
-        }
-        const latestDrafts = await refreshDrafts();
-        const latestDraft = selectDraftForWorkpiece({
-          workpieceId: normalizedWorkpieceId,
-          drafts: latestDrafts,
-          sparks,
-          preferredDraftId: options?.preferredDraftId ?? null,
-        });
-        return choosePreferredHydratedDraft([latestDraft, repairedDraft]);
-      }
-    }
-
-    const seedBody = options?.seed?.body ?? "";
-    const body = seedBody.trim()
-      ? seedBody
-      : canonicalScriptText
-        ? (canonicalScriptData?.text ?? canonicalScriptText)
-        : "## Draft Script\n\n";
-    const title = workpieceSummary?.title
-      ?? readTrimmedString(options?.seed?.title)
-      ?? `Episode ${normalizedWorkpieceId.slice(0, 8)}`;
-    const updatedAt = scriptRead.ok
-      ? parseIsoTimestamp(scriptRead.data.updatedAt) ?? Date.now()
-      : Date.now();
-    const attribution = buildDraftAttribution(hearthUser);
-    const draft: Draft = {
-      ...createDraft({ title, body }),
-      id: normalizedWorkpieceId,
-      title,
-      body,
-      createdAt: updatedAt,
-      updatedAt,
-      archived: false,
-      pinned: false,
-      createdBy: attribution,
-      updatedBy: attribution,
-    };
-
-    try {
-      await store.saveDraft(draft, { reason: "hydrate_workpiece" });
-    } catch (err) {
-      if (!parseDraftConflictError(err)) {
-        throw err;
-      }
-    }
-
-    const latestDrafts = await refreshDrafts();
-    return selectDraftForWorkpiece({
-      workpieceId: normalizedWorkpieceId,
-      drafts: latestDrafts,
-      sparks,
-      preferredDraftId: options?.preferredDraftId ?? normalizedWorkpieceId,
-    });
-  }, [hearthUser, refreshDrafts, sparks, store]);
-
-  const openWorkpieceInFocus = useCallback(async (
-    targetWorkpieceId: string,
-    options?: {
-      workspaceId?: string | null;
-      drafts?: readonly Draft[];
-      workpieces?: readonly HearthWorkpieceSummary[];
-      preferredDraftId?: string | null;
-      seed?: { title?: string; body?: string };
-    },
-  ): Promise<Draft | null> => {
-    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
-    if (!normalizedWorkpieceId) return null;
-
-    const targetWorkspaceId = normalizeUuid(options?.workspaceId ?? workspaceId) ?? workspaceId;
-    pendingFocusOpenCountRef.current += 1;
-    if (targetWorkspaceId && targetWorkspaceId !== workspaceId) {
-      setWorkspaceId(targetWorkspaceId);
-    }
-    setWorkpieceId(normalizedWorkpieceId);
-    replaceHearthRouteContext(targetWorkspaceId ?? null, normalizedWorkpieceId);
-    setFocusTab("draft");
-    setMode("focus");
-
-    try {
-      let availableWorkpieces = options?.workpieces ?? workpieceSummariesRef.current;
-      if (
-        availableWorkpieces.length === 0
-        || !availableWorkpieces.some((entry) => entry.workpieceId === normalizedWorkpieceId)
-      ) {
-        availableWorkpieces = await refreshWorkpieces(targetWorkspaceId, { includeArchived: true });
-      }
-
-      const targetWorkpiece = availableWorkpieces.find((entry) => entry.workpieceId === normalizedWorkpieceId) ?? null;
-      if (targetWorkpiece?.isArchived) {
-        await selectDraft(null);
-        await persistSession(null, "draft");
-        if (isMobile) {
-          setMobileOverlayView("editor");
-        }
-        return null;
-      }
-
-      const draft = await hydrateOrCreateDraftBufferForWorkpiece(normalizedWorkpieceId, {
-        drafts: options?.drafts ?? draftsRef.current,
-        workpieces: availableWorkpieces,
-        preferredDraftId: options?.preferredDraftId ?? null,
-        seed: options?.seed,
-      });
-
-      if (draft) {
-        await selectDraft(draft, { revisionWorkpieceId: normalizedWorkpieceId });
-      } else {
-        setDraftSnapshot(null);
-        setActiveDraft(null);
-      }
-
-      if (isMobile) {
-        setMobileOverlayView("editor");
-      }
-
-      return draft;
-    } finally {
-      pendingFocusOpenCountRef.current = Math.max(0, pendingFocusOpenCountRef.current - 1);
-    }
-  }, [
-    hydrateOrCreateDraftBufferForWorkpiece,
+  const {
+    openWorkpieceInFocus,
+    createDraftAndOpen,
+  } = useHearthFocusOpenActions({
+    normalizeUuid,
+    workspaceId,
     isMobile,
-    persistSession,
+    draftsRef,
+    workpieceSummariesRef,
+    pendingFocusOpenCountRef,
+    pendingDraftEditorPanelRef,
+    setWorkspaceId,
+    setActiveWorkpieceTab,
+    setWorkpieceId,
+    setFocusTab,
+    setMode,
+    setMobileOverlayView,
+    clearActiveDraftSelection: () => {
+      setDraftSnapshot(null);
+      setActiveDraft(null);
+    },
+    writeWorkpieceWorkspaceTab,
+    replaceHearthRouteContext,
     refreshWorkpieces,
     selectDraft,
-    workspaceId,
-  ]);
-
-  const createDraftAndOpen = useCallback(async (
-    targetWorkpieceId: string,
-    seed?: { title?: string; body?: string },
-    modeToSet: HearthMode = "focus",
-    options?: {
-      revisionWorkpieceId?: string | null;
-      workspaceId?: string | null;
-      drafts?: readonly Draft[];
-      workpieces?: readonly HearthWorkpieceSummary[];
-    },
-  ) => {
-    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
-    if (!normalizedWorkpieceId) {
-      throw new Error("A workpiece is required before creating a Hearth draft buffer.");
-    }
-
-    const draft = await openWorkpieceInFocus(normalizedWorkpieceId, {
-      workspaceId: options?.workspaceId ?? null,
-      drafts: options?.drafts,
-      workpieces: options?.workpieces,
-      preferredDraftId: normalizedWorkpieceId,
-      seed,
-    });
-
-    if (modeToSet !== "focus") {
-      setMode(modeToSet);
-    }
-
-    if (draft && options?.revisionWorkpieceId && options.revisionWorkpieceId !== normalizedWorkpieceId) {
-      await selectDraft(draft, { revisionWorkpieceId: options.revisionWorkpieceId });
-    }
-
-    return draft;
-  }, [openWorkpieceInFocus, selectDraft]);
+    persistSession,
+    hydrateOrCreateDraftBufferForWorkpiece,
+  });
+  const {
+    onSaveDraft,
+    onReloadLatestDraftAfterConflict,
+    onCopyConflictLocalText,
+    onCopyScriptPanelText,
+    onDeleteDraft,
+  } = useHearthDraftController({
+    activeDraft,
+    workpieceId,
+    sparks,
+    mode,
+    isMobile,
+    mobileOverlayView,
+    draftConflictLocalBody: draftConflictState?.localBody ?? null,
+    scriptPanelBodyText,
+    normalizeUuid,
+    dedupeDraftListById,
+    persistDraftManual: (manualSaveArgs) => persistDraft(manualSaveArgs),
+    noteManualSaveSuccess,
+    flushChatHistoryNow,
+    refreshDrafts,
+    listDrafts: () => store.listDrafts(),
+    deleteDraftById: (draftId) => store.deleteDraft(draftId),
+    getDraftById: (draftId) => store.getDraft(draftId),
+    selectDraft,
+    selectDraftForWorkpiece,
+    openWorkpieceInFocus,
+    persistSession,
+    setDraftConflictState,
+    setError,
+    setScriptPanelCopyMessage,
+    setDrafts,
+    setFocusTab,
+    setMode,
+    setMobileOverlayView,
+    writeTextToClipboard,
+  });
 
   const startFromScratch = useCallback(async () => {
     if (isForging) return;
@@ -5017,7 +5135,7 @@ export default function HearthShell({
     try {
       const created = await createHearthWorkpiece(
         { created_from: "scratch" },
-        "## Draft Script\n\n",
+        SAFE_SCRIPT_STARTER,
       );
       if (!created.ok) {
         setForgeError("Workpiece creation failed.");
@@ -5060,9 +5178,7 @@ export default function HearthShell({
     let workpieceId: string | undefined;
     try {
       const sparkTitle = deriveSparkTitle(spark);
-      const scriptSeed = spark.body?.trim()
-        ? spark.body
-        : `## ${sparkTitle}\n\n`;
+      const scriptSeed = "[s1]\nDraft intro goes here.\n[/s1]\n";
       const created = await createHearthWorkpiece({
         created_from: "bar-stock",
         spark_id: spark.id,
@@ -5078,7 +5194,6 @@ export default function HearthShell({
       setWorkpieceId(workpieceId);
       setWorkspaceId(resolveWorkspaceId());
       applySessionOrigin({ created_from: "bar-stock", spark_id: spark.id });
-      pendingDraftEditorPanelRef.current = scriptSeed.trim() ? "script" : "manual";
 
       const draft = await createDraftAndOpen(workpieceId, {
         title: sparkTitle,
@@ -5086,6 +5201,8 @@ export default function HearthShell({
       }, "focus", {
         revisionWorkpieceId: workpieceId ?? null,
         workspaceId: resolveWorkspaceId(),
+        preferredWorkspaceTab: "script",
+        preferredEditorPanel: "script",
       });
       if (!draft) {
         setForgeError("Episode opened, but Hearth could not hydrate a draft buffer.");
@@ -5209,120 +5326,39 @@ export default function HearthShell({
     workpieceId,
   ]);
 
-  const loadInitial = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      if (incomingBarStockIntakeRoute) {
-        const intakeResetKey = `${normalizeUuid(workspaceId) ?? resolveWorkspaceId() ?? "none"}:${routeProjectId ?? routeSparkId ?? "none"}`;
-        if (intakeResetKeyRef.current !== intakeResetKey) {
-          intakeResetKeyRef.current = intakeResetKey;
-          setSession(null);
-          restoredCursorDraftIdRef.current = null;
-          setWorkpieceSummaries([]);
-          setDrafts([]);
-          setWorkpieceId(null);
-          setActiveDraft(null);
-          setDraftSnapshot(null);
-          setRevisions([]);
-          setSelectedRevision(null);
-        }
-        return;
-      }
-
-      const workspace = normalizeUuid(workspaceId) ?? resolveWorkspaceId();
-      const [storedSession, list, loadedWorkpieces] = await Promise.all([
-        sessionStore.getSession(),
-        store.listDrafts(),
-        workspace
-          ? listHearthWorkpieces(workspace, {
-              includeArchived: Boolean(normalizeUuid(workpieceIdRef.current)),
-            }).catch(() => [] as HearthWorkpieceSummary[])
-          : Promise.resolve([] as HearthWorkpieceSummary[]),
-      ]);
-
-      setSession(storedSession);
-      const dedupedDrafts = dedupeDraftListById(list);
-      draftsRef.current = dedupedDrafts;
-      setDrafts(dedupedDrafts);
-      workpieceSummariesRef.current = loadedWorkpieces;
-      setWorkpieceSummaries(loadedWorkpieces);
-      setWorkpiecesError(null);
-
-      const tab = storedSession?.uiState?.selectedTab;
-      if (tab === "preview" || tab === "compare" || tab === "list") {
-        setRevisionView(tab);
-      }
-      if (tab === "draft" || tab === "planning" || tab === "sources" || tab === "revisions") {
-        setFocusTab(tab);
-      }
-
-      const candidateDraftIds: string[] = [];
-      const pushCandidateDraftId = (value: string | null | undefined) => {
-        const next = value?.trim();
-        if (!next || candidateDraftIds.includes(next)) return;
-        candidateDraftIds.push(next);
-      };
-
-      pushCandidateDraftId(storedSession?.activeDraftId ?? null);
-      pushCandidateDraftId(activeDraftRef.current?.id ?? null);
-
-      const explicitWorkpieceId = normalizeUuid(workpieceIdRef.current);
-      const resolvedWorkpieceId = explicitWorkpieceId
-        ?? normalizeUuid(storedSession?.activeWorkpieceId ?? null)
-        ?? candidateDraftIds
-          .map((draftId) => resolveWorkpieceIdForDraftId(draftId, {
-            drafts: dedupedDrafts,
-            workpieces: loadedWorkpieces,
-          }))
-          .find((value): value is string => Boolean(value))
-        ?? null;
-
-      if (resolvedWorkpieceId) {
-        await openWorkpieceInFocus(resolvedWorkpieceId, {
-          workspaceId: workspace,
-          drafts: dedupedDrafts,
-          workpieces: loadedWorkpieces,
-          preferredDraftId: storedSession?.activeDraftId ?? activeDraftRef.current?.id ?? null,
-        });
-        return;
-      }
-
-      restoredCursorDraftIdRef.current = null;
-      setWorkpieceId(null);
-      setActiveDraft(null);
-      setDraftSnapshot(null);
-      setRevisions([]);
-      setSelectedRevision(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load drafts.";
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [
+  useHearthInitialLoader({
+    initialLoadKey,
     incomingBarStockIntakeRoute,
-    openWorkpieceInFocus,
+    workspaceId,
     routeProjectId,
     routeSparkId,
+    normalizeUuid,
+    resolveWorkspaceId,
     resolveWorkpieceIdForDraftId,
+    openWorkpieceInFocus,
     sessionStore,
     store,
-    workspaceId,
-  ]);
-
-  const loadInitialRef = useRef<(() => Promise<void>) | null>(null);
-  const lastInitialLoadKeyRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    loadInitialRef.current = loadInitial;
-  }, [loadInitial]);
-
-  useEffect(() => {
-    if (lastInitialLoadKeyRef.current === initialLoadKey) return;
-    lastInitialLoadKeyRef.current = initialLoadKey;
-    void loadInitialRef.current?.();
-  }, [initialLoadKey]);
+    dedupeDraftListById,
+    workpieceIdRef,
+    activeDraftRef,
+    intakeResetKeyRef,
+    restoredCursorDraftIdRef,
+    draftsRef,
+    workpieceSummariesRef,
+    setIsLoading,
+    setError,
+    setSession,
+    setWorkpieceSummaries,
+    setDrafts,
+    setWorkpiecesError,
+    setRevisionView,
+    setFocusTab,
+    setWorkpieceId,
+    setActiveDraft,
+    clearDraftSnapshot: () => setDraftSnapshot(null),
+    setRevisions,
+    setSelectedRevision,
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -5349,210 +5385,70 @@ export default function HearthShell({
     };
   }, [workspaceId]);
 
-  useEffect(() => {
-    const previousWorkspaceId = previousWorkspaceIdRef.current;
-    if (previousWorkspaceId === workspaceId) return;
-    previousWorkspaceIdRef.current = workspaceId;
-
-    projectIntakeHandledRef.current = null;
-    sparkIntakeHandledRef.current = null;
-    setSparks([]);
-    setSparkDiscoveryWorkspaceId(null);
-    setIsSparksLoading(Boolean(normalizeUuid(workspaceId)));
-    setWorkpieceId(null);
-    setPlanningSession(null);
-    setSessionTouched(false);
-    setWorkpieceSummaries([]);
-    setWorkpiecesError(null);
-    setDrafts([]);
-    setActiveDraft(null);
-    setDraftSnapshot(null);
-    setRevisions([]);
-    setSelectedRevision(null);
-    setEditingDraftId(null);
-    setDraftConflictState(null);
-    setPresenceRows([]);
-    setError(null);
-    setForgeError(null);
-    setMode("episodes");
-    void sessionStore.clearSession();
-  }, [sessionStore, workspaceId]);
-
-  useEffect(() => {
-    if (!routeProjectId) return;
-    if (projectIntakeHandledRef.current === routeProjectId) return;
-
-    const workspace = workspaceId ?? resolveWorkspaceId();
-    if (!workspace) {
-      setForgeError("Project intake requires workspace_id.");
-      return;
-    }
-
-    let cancelled = false;
-    setIsForging(true);
-    setForgeError(null);
-
-    void (async () => {
-      const context = await readBarstockProjectContext({
-        workspaceId: workspace,
-        projectId: routeProjectId,
-      });
-      if (cancelled) return;
-
-      if (context.error) {
-        console.warn("[hearth-project-intake] context lookup issue", context.error);
-        setForgeError("Unable to resolve this Project in Tongs. Sync Bar Stock, then retry.");
-        return;
-      }
-
-      const projectTitle = context.projectTitle?.trim() || null;
-      setRouteProjectTitle(projectTitle);
-      if (!context.projectExists) {
-        setForgeError("Project not found in Tongs yet. Sync Bar Stock, then retry.");
-        return;
-      }
-
-      let resolvedWorkpieceId = context.workpieceId ?? readPendingProjectWorkpieceId(workspace, routeProjectId);
-      if (!resolvedWorkpieceId) {
-        const created = await createHearthWorkpiece(
-          { created_from: "bar-stock" },
-          "## Draft Script\n\n",
-          { title: projectTitle ?? `Project ${routeProjectId.slice(0, 8)}` },
-        );
-        if (!created.ok) {
-          setForgeError("Failed to open this Project in Hearth.");
-          return;
-        }
-        resolvedWorkpieceId = created.workpieceId;
-        writePendingProjectWorkpieceId(workspace, routeProjectId, resolvedWorkpieceId);
-      }
-
-      const linked = await upsertBarstockProjectEpisodeLink({
-        workspaceId: workspace,
-        projectId: routeProjectId,
-        workpieceId: resolvedWorkpieceId,
-      });
-      if (!linked.ok) {
-        console.warn("[hearth-project-intake] link upsert failed", linked.error);
-        writePendingProjectWorkpieceId(workspace, routeProjectId, resolvedWorkpieceId);
-        setForgeError("Failed to link this Project to an Episode. Sync and retry.");
-        return;
-      }
-      writePendingProjectWorkpieceId(workspace, routeProjectId, null);
-
-      if (cancelled) return;
-      projectIntakeHandledRef.current = routeProjectId;
-      setWorkspaceId(workspace);
-      setWorkpieceId(resolvedWorkpieceId);
-    })().catch((err) => {
-      if (cancelled) return;
-      const message = err instanceof Error ? err.message : "Failed to resolve project intake.";
-      setForgeError(message);
-    }).finally(() => {
-      if (!cancelled) {
-        setIsForging(false);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [routeProjectId, workspaceId]);
-
-  useEffect(() => {
-    if (routeProjectId || !routeSparkId) return;
-
-    const intakeKey = `${workspaceId ?? "none"}:${routeSparkId}`;
-    if (sparkIntakeHandledRef.current === intakeKey) return;
-
-    const intakeError = resolveCanonicalSparkIntakeError({
-      routeProjectId,
-      routeSparkId,
-      workspaceId,
-      discoveryWorkspaceId: sparkDiscoveryWorkspaceId,
-      spark: routeSpark,
-    });
-    if (intakeError) {
-      sparkIntakeHandledRef.current = intakeKey;
-      setForgeError(intakeError);
-      return;
-    }
-
-    if (!isCanonicalSparkDiscoveryResolved(workspaceId, sparkDiscoveryWorkspaceId) || isSparksLoading) {
-      return;
-    }
-    if (!routeSpark) {
-      return;
-    }
-
-    sparkIntakeHandledRef.current = intakeKey;
-    setSelectedSparkId(routeSpark.id);
-    const linkedWorkpieceId = resolveBarStockSparkHearthWorkpieceId(routeSpark);
-    if (linkedWorkpieceId) {
-      setForgeError(null);
-      void openWorkpieceInFocus(linkedWorkpieceId, {
-        workspaceId,
-        preferredDraftId: routeSpark.links?.hearthDraftId ?? null,
-      });
-      return;
-    }
-    if (isSparkForged(routeSpark)) {
-      setMode("episodes");
-      setForgeError("This spark is already attached to Hearth, but its Episode link could not be resolved.");
-      return;
-    }
-    void forgeSpark(routeSpark);
-  }, [
-    forgeSpark,
-    isSparksLoading,
-    openWorkpieceInFocus,
-    routeProjectId,
-    routeSpark,
-    routeSparkId,
-    sparkDiscoveryWorkspaceId,
+  useHearthWorkspaceResetLifecycle({
     workspaceId,
-  ]);
+    projectIntakeHandledRef,
+    sparkIntakeHandledRef,
+    onWorkspaceChanged: () => {
+      setSparks([]);
+      setSparkDiscoveryWorkspaceId(null);
+      setIsSparksLoading(Boolean(normalizeUuid(workspaceId)));
+      setWorkpieceId(null);
+      setPlanningSession(null);
+      setSessionTouched(false);
+      setWorkpieceSummaries([]);
+      setWorkpiecesError(null);
+      setDrafts([]);
+      setActiveDraft(null);
+      setDraftSnapshot(null);
+      setRevisions([]);
+      setSelectedRevision(null);
+      setEditingDraftId(null);
+      setDraftConflictState(null);
+      setPresenceRows([]);
+      setError(null);
+      setForgeError(null);
+      setMode("episodes");
+      void sessionStore.clearSession();
+    },
+  });
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    let cancelled = false;
-    const refresh = async () => {
-      const normalizedWorkspaceId = normalizeUuid(workspaceId);
-      if (!normalizedWorkspaceId) {
-        if (!cancelled) {
-          setSparks([]);
-          setSparkDiscoveryWorkspaceId(null);
-          setIsSparksLoading(false);
-        }
-        return;
-      }
-
-      if (!cancelled) setIsSparksLoading(true);
-      try {
-        const remote = await listHearthBarStockSparks(normalizedWorkspaceId);
-        if (cancelled) return;
-        setSparks(remote);
-      } catch {
-        if (cancelled) return;
-      } finally {
-        if (!cancelled) {
-          setSparkDiscoveryWorkspaceId(normalizedWorkspaceId);
-          setIsSparksLoading(false);
-        }
-      }
-    };
-
-    void refresh();
-    const onStorage = (event: StorageEvent) => {
-      if (!isBarStockKey(event.key, workspaceId)) return;
-      void refresh();
-    };
-    window.addEventListener("storage", onStorage);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("storage", onStorage);
-    };
-  }, [workspaceId]);
+  useHearthIntakeLifecycle({
+    routeProjectId,
+    routeSparkId,
+    workspaceId,
+    sparkDiscoveryWorkspaceId,
+    isSparksLoading,
+    routeSpark,
+    projectIntakeHandledRef,
+    sparkIntakeHandledRef,
+    resolveWorkspaceId,
+    readPendingProjectWorkpieceId,
+    writePendingProjectWorkpieceId,
+    createProjectWorkpiece: async (title) => (
+      await createHearthWorkpiece(
+        { created_from: "bar-stock" },
+        SAFE_SCRIPT_STARTER,
+        { title },
+      )
+    ),
+    openWorkpieceInFocus,
+    forgeSpark,
+    setIsForging,
+    setForgeError,
+    setRouteProjectTitle,
+    setWorkspaceId,
+    setWorkpieceId,
+    setSelectedSparkId,
+    setMode,
+  });
+  useHearthSparkDiscovery({
+    workspaceId,
+    normalizeUuid,
+    setSparks,
+    setSparkDiscoveryWorkspaceId,
+    setIsSparksLoading,
+  });
 
   useEffect(() => {
     if (visibleSparks.length === 0) {
@@ -5569,114 +5465,22 @@ export default function HearthShell({
     }
   }, [selectedSparkId, visibleSparks]);
 
-  useEffect(() => {
-    if (incomingBarStockIntakeRoute && !workpieceId) {
-      setPlanningSession(null);
-      setSessionTouched(false);
-      return;
-    }
-
-    if (typeof window === "undefined") return;
-    const refreshSession = () => {
-      const cached = readHearthPlanningSessionCache(workpieceId, workspaceId);
-      if (cached) {
-        const normalizedCached: HearthPlanningSession = {
-          ...cached,
-          workpiece_id: normalizeUuid(cached.workpiece_id),
-          workspace_id: normalizeUuid(cached.workspace_id),
-        };
-        setPlanningSession(normalizedCached);
-      }
-    };
-    refreshSession();
-    const onStorage = (event: StorageEvent) => {
-      if (!isHearthPlanningSessionKey(event.key)) return;
-      refreshSession();
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, [incomingBarStockIntakeRoute, workpieceId, workspaceId]);
-
-  useEffect(() => {
-    const normalizedWorkpieceId = normalizeUuid(workpieceId);
-    if (!normalizedWorkpieceId) return;
-    let cancelled = false;
-    readHearthSession(normalizedWorkpieceId)
-      .then((session) => {
-        if (cancelled || !session) return;
-        const normalizedSession: HearthPlanningSession = {
-          ...session,
-          workpiece_id: normalizeUuid(session.workpiece_id),
-          workspace_id: normalizeUuid(session.workspace_id),
-        };
-        setPlanningSession(normalizedSession);
-        setSessionTouched(false);
-        sessionCommitRef.current = buildSessionFingerprint(normalizedSession);
-        writeHearthPlanningSessionCache(
-          normalizedSession,
-          normalizedWorkpieceId,
-          workspaceId ?? normalizedSession.workspace_id ?? null,
-        );
-        if (!workspaceId && normalizedSession.workspace_id) {
-          setWorkspaceId(normalizedSession.workspace_id);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [workpieceId, workspaceId]);
-
-  useEffect(() => {
-    const workspace = normalizeUuid(workspaceId);
-    const workpiece = normalizeUuid(workpieceId);
-    if (!workspace || !workpiece) return;
-
-    let cancelled = false;
-    void (async () => {
-      try {
-        const response = await tongsFetch(
-          `/tongs/workpieces/${encodeURIComponent(workpiece)}/read-file?path=${encodeURIComponent("metadata.json")}`,
-          { method: "GET" },
-        );
-        if (!response.ok) {
-          if (response.status === 401 || response.status === 403) {
-            if (!cancelled) {
-              setError("You no longer have access to this workpiece in the active workspace.");
-              setWorkpieceId(null);
-            }
-          }
-          return;
-        }
-        const body = await response.json() as { data?: { workspace_id?: unknown } };
-        const workpieceWorkspaceId = normalizeUuid(body?.data?.workspace_id);
-        if (!cancelled && workpieceWorkspaceId && workpieceWorkspaceId !== workspace) {
-          setError("This workpiece belongs to another workspace. Switch workspace to open it.");
-          setPlanningSession(null);
-          setPresenceRows([]);
-          setWorkpieceId(null);
-        }
-      } catch {
-        // ignore metadata workspace checks when the network is unavailable
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [workpieceId, workspaceId]);
-
-  useEffect(() => {
-    if (!planningSession) return;
-    const needsWorkspace = workspaceId && planningSession.workspace_id !== workspaceId;
-    const needsWorkpiece = workpieceId && planningSession.workpiece_id !== workpieceId;
-    if (!needsWorkspace && !needsWorkpiece) return;
-    updatePlanningSession((prev) => ({
-      ...prev,
-      workspace_id: workspaceId ?? prev.workspace_id ?? null,
-      workpiece_id: workpieceId ?? prev.workpiece_id ?? null,
-    }), { touched: false });
-  }, [planningSession, updatePlanningSession, workspaceId, workpieceId]);
+  useHearthWorkspaceSessionLifecycle({
+    incomingBarStockIntakeRoute,
+    workpieceId,
+    workspaceId,
+    planningSession,
+    normalizeUuid,
+    setPlanningSession,
+    setSessionTouched,
+    setWorkspaceId,
+    setError,
+    setPresenceRows,
+    setWorkpieceId,
+    sessionCommitRef,
+    buildSessionFingerprint,
+    updatePlanningSession,
+  });
 
   useEffect(() => {
     const workspace = workspaceId?.trim() ?? "";
@@ -5714,31 +5518,12 @@ export default function HearthShell({
   }, [workspaceId]);
 
   useEffect(() => {
-    if (thumbnailConcepts.length === 0) {
-      setSelectedThumbnailConceptId("");
-      return;
-    }
-    if (selectedThumbnailConceptId && thumbnailConcepts.some((concept) => concept.id === selectedThumbnailConceptId)) {
-      return;
-    }
-    setSelectedThumbnailConceptId(thumbnailConcepts[0]?.id ?? "");
-  }, [selectedThumbnailConceptId, thumbnailConcepts]);
+    syncSelectedThumbnailConceptId(thumbnailConcepts);
+  }, [syncSelectedThumbnailConceptId, thumbnailConcepts]);
 
   useEffect(() => {
-    if (!selectedThumbnailConcept) {
-      setThumbnailConceptLabelDraft("");
-      setThumbnailConceptPromptDraft("");
-      setThumbnailConceptStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
-      setThumbnailTitleStyleDraft(DEFAULT_TITLE_STYLE);
-      setThumbnailConceptBrandTemplateIdDraft(defaultThumbnailBrandTemplateId);
-      return;
-    }
-    setThumbnailConceptLabelDraft(selectedThumbnailConcept.label);
-    setThumbnailConceptPromptDraft(selectedThumbnailConcept.prompt_text);
-    setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(selectedThumbnailConcept.style_preset));
-    setThumbnailTitleStyleDraft(normalizeEpisodeThumbnailTitleStyle(selectedThumbnailConcept.title_style));
-    setThumbnailConceptBrandTemplateIdDraft(selectedThumbnailConcept.brand_template_id ?? null);
-  }, [defaultThumbnailBrandTemplateId, selectedThumbnailConcept]);
+    syncThumbnailConceptDraftFromConcept(selectedThumbnailConcept, defaultThumbnailBrandTemplateId);
+  }, [defaultThumbnailBrandTemplateId, selectedThumbnailConcept, syncThumbnailConceptDraftFromConcept]);
 
   useEffect(() => {
     const logoWorkpieceId = selectedThumbnailBrandLogoWorkpieceId ?? (workpieceId?.trim() ?? "");
@@ -5875,187 +5660,6 @@ export default function HearthShell({
   ]);
 
   useEffect(() => {
-    if (launchVariants.length === 0) {
-      setSelectedLaunchVariantId(null);
-      return;
-    }
-    if (selectedLaunchVariantId && launchVariants.some((variant) => variant.id === selectedLaunchVariantId)) {
-      return;
-    }
-    setSelectedLaunchVariantId(null);
-  }, [launchVariants, selectedLaunchVariantId]);
-
-  useEffect(() => {
-    if (!selectedLaunchVariant) {
-      setLaunchVariantStatusDraft("draft");
-      setLaunchVariantNotesDraft("");
-      return;
-    }
-    setLaunchVariantStatusDraft(selectedLaunchVariant.status);
-    setLaunchVariantNotesDraft(selectedLaunchVariant.notes ?? "");
-  }, [selectedLaunchVariant]);
-
-  useEffect(() => {
-    if (thumbnailTitleOptions.length === 0) {
-      setSelectedThumbnailTitleId(null);
-      return;
-    }
-    if (selectedThumbnailTitleId && thumbnailTitleOptions.some((title) => title.id === selectedThumbnailTitleId)) {
-      return;
-    }
-    setSelectedThumbnailTitleId(resolvePrimarySeoTitle(thumbnailTitleOptions)?.id ?? thumbnailTitleOptions[0]?.id ?? null);
-  }, [selectedThumbnailTitleId, thumbnailTitleOptions]);
-
-  useEffect(() => {
-    if (thumbnailVersions.length === 0) {
-      setSelectedThumbnailVersionId(null);
-      return;
-    }
-    const eligibleVersions = selectedThumbnailConceptId
-      ? thumbnailVersions.filter((version) => version.concept_id === selectedThumbnailConceptId)
-      : thumbnailVersions;
-    if (selectedThumbnailConceptId && eligibleVersions.length === 0) {
-      setSelectedThumbnailVersionId(null);
-      return;
-    }
-    if (
-      selectedThumbnailVersionId
-      && eligibleVersions.some((version) => version.id === selectedThumbnailVersionId)
-    ) {
-      return;
-    }
-    const nextVersionId = (primaryThumbnailVersionId && eligibleVersions.some((version) => version.id === primaryThumbnailVersionId))
-      ? primaryThumbnailVersionId
-      : eligibleVersions
-        .slice()
-        .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.id
-      ?? null;
-    setSelectedThumbnailVersionId(nextVersionId);
-  }, [primaryThumbnailVersionId, selectedThumbnailConceptId, selectedThumbnailVersionId, thumbnailVersions]);
-
-  useEffect(() => {
-    setThumbnailPromptOverride("");
-    setThumbnailAspect("16:9");
-    setThumbnailSafeZoneEnabled(false);
-    setThumbnailPairingError(null);
-    setThumbnailPreviewState("idle");
-    setThumbnailPreviewDataUrl(null);
-    setThumbnailPreviewError(null);
-  }, [workpieceId]);
-
-  useEffect(() => {
-    setSelectedMediaMapEntryId(null);
-    setMediaMapSaveState("saved");
-    setMediaMapSaveError(null);
-    setMediaMapMessage(null);
-    setSelectedBrollBeatId(null);
-    setBrollSaveState("saved");
-    setBrollSaveError(null);
-    setBrollMessage(null);
-  }, [workpieceId]);
-
-  useEffect(() => {
-    setSelectedReferenceClipEntryId(null);
-    setReferenceClipSaveState("saved");
-    setReferenceClipSaveError(null);
-    setReferenceClipMessage(null);
-  }, [workpieceId]);
-
-  useEffect(() => {
-    const episodeId = workpieceId?.trim() ?? "";
-    const previewSeq = thumbnailPreviewRequestSeqRef.current + 1;
-    thumbnailPreviewRequestSeqRef.current = previewSeq;
-    if (!episodeId || !selectedThumbnailVersion) {
-      setThumbnailPreviewState("idle");
-      setThumbnailPreviewDataUrl(null);
-      setThumbnailPreviewError(null);
-      return;
-    }
-
-    if (selectedThumbnailVersion.status === "failed") {
-      setThumbnailPreviewState("error");
-      setThumbnailPreviewDataUrl(null);
-      setThumbnailPreviewError(selectedThumbnailVersion.error ?? "This version failed.");
-      return;
-    }
-
-    let cancelled = false;
-    setThumbnailPreviewState("loading");
-    setThumbnailPreviewError(null);
-
-    void loadThumbnailPreviewDataUrl({
-      workpieceId: episodeId,
-      version: selectedThumbnailVersion,
-    }).then((result) => {
-      if (
-        cancelled
-        || thumbnailPreviewRequestSeqRef.current !== previewSeq
-        || (workpieceId?.trim() ?? "") !== episodeId
-        || selectedThumbnailVersionId !== selectedThumbnailVersion.id
-      ) {
-        return;
-      }
-      if (!result.ok) {
-        setThumbnailPreviewState("error");
-        setThumbnailPreviewDataUrl(null);
-        setThumbnailPreviewError(result.error);
-        return;
-      }
-      setThumbnailPreviewState("ready");
-      setThumbnailPreviewDataUrl(result.dataUrl);
-      setThumbnailPreviewError(null);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedThumbnailVersion, selectedThumbnailVersionId, workpieceId]);
-
-  useEffect(() => {
-    if (mediaMapEntries.length === 0) {
-      setSelectedMediaMapEntryId(null);
-      return;
-    }
-    if (selectedMediaMapEntryId && mediaMapEntries.some((entry) => entry.id === selectedMediaMapEntryId)) {
-      return;
-    }
-    setSelectedMediaMapEntryId(mediaMapEntries[0]?.id ?? null);
-  }, [mediaMapEntries, selectedMediaMapEntryId]);
-
-  useEffect(() => {
-    if (!selectedMediaMapEntry) {
-      setMediaMapTypeDraft("image");
-      setMediaMapAnchorModeDraft("phrase_match");
-      setMediaMapAnchorTargetDraft("");
-      setMediaMapInOffsetDraft("0");
-      setMediaMapDurationDraft("6");
-      setMediaMapDescriptionDraft("");
-      setMediaMapIntentDraft("");
-      setMediaMapSourceStatusDraft("unresolved");
-      setMediaMapSourceAssetIdDraft("");
-      setMediaMapConfidenceDraft("medium");
-      setMediaMapOptionalDraft(false);
-      setMediaMapCriticalDraft(false);
-      setMediaMapSaveState("saved");
-      return;
-    }
-    setMediaMapTypeDraft(selectedMediaMapEntry.final_media_kind);
-    setMediaMapAnchorModeDraft(selectedMediaMapEntry.anchor.mode);
-    setMediaMapAnchorTargetDraft(selectedMediaMapEntry.anchor.target);
-    setMediaMapInOffsetDraft(String(selectedMediaMapEntry.timing.in_offset_sec));
-    setMediaMapDurationDraft(String(selectedMediaMapEntry.timing.duration_sec));
-    setMediaMapDescriptionDraft(selectedMediaMapEntry.description);
-    setMediaMapIntentDraft(selectedMediaMapEntry.intent);
-    setMediaMapSourceStatusDraft(selectedMediaMapEntry.source.status);
-    setMediaMapSourceAssetIdDraft(selectedMediaMapEntry.source.asset_id ?? "");
-    setMediaMapConfidenceDraft(selectedMediaMapEntry.confidence);
-    setMediaMapOptionalDraft(selectedMediaMapEntry.optional);
-    setMediaMapCriticalDraft(selectedMediaMapEntry.critical);
-    setMediaMapSaveState("saved");
-    setMediaMapSaveError(null);
-  }, [selectedMediaMapEntry]);
-
-  useEffect(() => {
     if (!episodePackage) return;
     const currentScriptVersion = approvedScriptVersion ? String(approvedScriptVersion) : null;
     if (episodePackage.media_map.script_version_id === currentScriptVersion) return;
@@ -6072,326 +5676,6 @@ export default function HearthShell({
       };
     });
   }, [approvedScriptVersion, episodePackage]);
-
-  useEffect(() => {
-    if (imageMapEntries.length === 0) {
-      setSelectedImageMapEntryId(null);
-      setIsImageMapReanchorMode(false);
-      setIsImageMapReanchorSaving(false);
-      setImageMapReanchorError(null);
-      return;
-    }
-    if (selectedImageMapEntryId && imageMapEntries.some((entry) => entry.id === selectedImageMapEntryId)) {
-      return;
-    }
-    setSelectedImageMapEntryId(imageMapEntries[0]?.id ?? null);
-  }, [imageMapEntries, selectedImageMapEntryId]);
-
-  useEffect(() => {
-    if (!selectedImageMapEntry) {
-      setImageMapAnchorDraft("");
-      setImageMapDescriptionDraft("");
-      setImageMapStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
-      setImageMapIntentDraft("cutaway");
-      setImageMapSourceTypeDraft("stock");
-      setImageMapAnchorScopeDraft("attached");
-      setImageMapVisualPriorityDraft("supporting");
-      setImageMapVisualTypeDraft("still_image");
-      setImageMapSectionIntentNoteDraft("");
-      setImageMapPlacementHintDraft("");
-      setImageMapSaveState("saved");
-      return;
-    }
-    setImageMapAnchorDraft(selectedImageMapEntry.anchor);
-    setImageMapDescriptionDraft(selectedImageMapEntry.description);
-    setImageMapStyleDraft(normalizeHearthVisualStyle(selectedImageMapEntry.style_preset));
-    setImageMapIntentDraft(selectedImageMapEntry.intent || "cutaway");
-    setImageMapSourceTypeDraft(selectedImageMapEntry.source_type || "stock");
-    setImageMapAnchorScopeDraft(selectedImageMapEntry.anchor_scope ?? (selectedImageMapEntry.script_anchor ? "attached" : "orphaned"));
-    setImageMapVisualPriorityDraft(selectedImageMapEntry.visual_priority ?? "supporting");
-    setImageMapVisualTypeDraft(selectedImageMapEntry.visual_type ?? "still_image");
-    setImageMapSectionIntentNoteDraft(selectedImageMapEntry.section_intent_note ?? "");
-    setImageMapPlacementHintDraft(selectedImageMapEntry.placement_hint ?? "");
-    setImageMapSaveState("saved");
-    setImageMapCandidateError(null);
-    setImageMapCandidateSelectionError(null);
-  }, [selectedImageMapEntry]);
-
-  useEffect(() => {
-    if (brollBeats.length === 0) {
-      setSelectedBrollBeatId(null);
-      return;
-    }
-    if (selectedBrollBeatId && brollBeats.some((beat) => beat.id === selectedBrollBeatId)) {
-      return;
-    }
-    setSelectedBrollBeatId(brollBeats[0]?.id ?? null);
-  }, [brollBeats, selectedBrollBeatId]);
-
-  useEffect(() => {
-    if (!selectedBrollBeat) {
-      setBrollAnchorDraft("");
-      setBrollDescriptionDraft("");
-      setBrollMotionIntentDraft("broll");
-      setBrollAssetCategoryDraft("stock_video");
-      setBrollPriorityDraft("supporting");
-      setBrollKeywordsDraft("");
-      setBrollMoodDraft("");
-      setBrollShotTypeDraft("mixed");
-      setBrollMotionSuggestionDraft("");
-      setBrollSuggestedDurationDraft("");
-      setBrollPlacementHintDraft("first_occurrence");
-      setBrollDataChartTypeDraft("bar");
-      setBrollDataTitleDraft("");
-      setBrollDataLabelsDraft("");
-      setBrollDataValuesDraft("");
-      setBrollDataEmphasisKeyDraft("");
-      setBrollDataAnimationStyleDraft("");
-      setBrollProviderIdDraft("");
-      setBrollSourceLabelDraft("");
-      setBrollSourceUrlDraft("");
-      setBrollProviderNoteDraft("");
-      setBrollUsageNoteDraft("");
-      setBrollResultMetadataDraft("");
-      setBrollSaveState("saved");
-      return;
-    }
-    setBrollAnchorDraft(selectedBrollBeat.anchor_text);
-    setBrollDescriptionDraft(selectedBrollBeat.description);
-    setBrollMotionIntentDraft(selectedBrollBeat.motion_intent);
-    setBrollAssetCategoryDraft(selectedBrollBeat.asset_category ?? "stock_video");
-    setBrollPriorityDraft(selectedBrollBeat.priority);
-    setBrollKeywordsDraft((selectedBrollBeat.keywords ?? []).join(", "));
-    setBrollMoodDraft(selectedBrollBeat.mood ?? "");
-    setBrollShotTypeDraft(selectedBrollBeat.shot_type ?? "mixed");
-    setBrollMotionSuggestionDraft(selectedBrollBeat.motion_suggestion ?? "");
-    setBrollSuggestedDurationDraft(
-      selectedBrollBeat.suggested_duration_ms != null ? String(selectedBrollBeat.suggested_duration_ms) : "",
-    );
-    setBrollPlacementHintDraft(selectedBrollBeat.placement_hint ?? "first_occurrence");
-    setBrollDataChartTypeDraft(selectedBrollBeat.data_visual_spec?.chart_type ?? "bar");
-    setBrollDataTitleDraft(selectedBrollBeat.data_visual_spec?.title ?? "");
-    setBrollDataLabelsDraft((selectedBrollBeat.data_visual_spec?.labels ?? []).join(", "));
-    setBrollDataValuesDraft((selectedBrollBeat.data_visual_spec?.values ?? []).map((value) => String(value)).join(", "));
-    setBrollDataEmphasisKeyDraft(selectedBrollBeat.data_visual_spec?.emphasis_key ?? "");
-    setBrollDataAnimationStyleDraft(selectedBrollBeat.data_visual_spec?.animation_style ?? "");
-    setBrollProviderIdDraft(selectedBrollBeat.external_request?.provider_id ?? "");
-    setBrollSourceLabelDraft(
-      (selectedBrollBeat.selected_asset_id
-        ? (selectedBrollBeat.candidate_assets ?? []).find((asset) => asset.asset_id === selectedBrollBeat.selected_asset_id)?.source_label
-        : null) ?? "",
-    );
-    setBrollSourceUrlDraft(selectedBrollBeat.external_request?.source_url ?? "");
-    setBrollProviderNoteDraft(selectedBrollBeat.external_request?.provider_note ?? "");
-    setBrollUsageNoteDraft(selectedBrollBeat.external_request?.usage_note ?? "");
-    setBrollResultMetadataDraft(selectedBrollBeat.external_request?.result_metadata ?? "");
-    setBrollSaveState("saved");
-    setBrollSaveError(null);
-  }, [selectedBrollBeat]);
-
-  useEffect(() => {
-    if (referenceClipEntries.length === 0) {
-      setSelectedReferenceClipEntryId(null);
-      return;
-    }
-    if (selectedReferenceClipEntryId && referenceClipEntries.some((entry) => entry.id === selectedReferenceClipEntryId)) {
-      return;
-    }
-    setSelectedReferenceClipEntryId(referenceClipEntries[0]?.id ?? null);
-  }, [referenceClipEntries, selectedReferenceClipEntryId]);
-
-  useEffect(() => {
-    if (!selectedReferenceClipEntry) {
-      setReferenceClipAnchorDraft("");
-      setReferenceClipDescriptionDraft("");
-      setReferenceClipPlacementHintDraft("first_occurrence");
-      setReferenceClipFormatDraft("still");
-      setReferenceClipDataTypeDraft("quantitative");
-      setReferenceClipContextTypeDraft("historical");
-      setReferenceClipToneDraft("neutral");
-      setReferenceClipMotionLevelDraft("static");
-      setReferenceClipBackgroundContextDraft("");
-      setReferenceClipForegroundDataDraft("");
-      setReferenceClipVisualStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
-      setReferenceClipChartTypeDraft("line");
-      setReferenceClipTitleDraft("");
-      setReferenceClipLabelsDraft("");
-      setReferenceClipValuesDraft("");
-      setReferenceClipEmphasisKeyDraft("");
-      setReferenceClipSourceTypeDraft("planned");
-      setReferenceClipProviderIdDraft("");
-      setReferenceClipSourceLabelDraft("");
-      setReferenceClipSourceUrlDraft("");
-      setReferenceClipProviderNoteDraft("");
-      setReferenceClipUsageNoteDraft("");
-      setReferenceClipResultMetadataDraft("");
-      setReferenceClipSaveState("saved");
-      return;
-    }
-    setReferenceClipAnchorDraft(selectedReferenceClipEntry.anchor_text);
-    setReferenceClipDescriptionDraft(selectedReferenceClipEntry.description);
-    setReferenceClipPlacementHintDraft(selectedReferenceClipEntry.placement_hint ?? "first_occurrence");
-    setReferenceClipFormatDraft(selectedReferenceClipEntry.format);
-    setReferenceClipDataTypeDraft(selectedReferenceClipEntry.data_type);
-    setReferenceClipContextTypeDraft(selectedReferenceClipEntry.context_type);
-    setReferenceClipToneDraft(selectedReferenceClipEntry.tone);
-    setReferenceClipMotionLevelDraft(selectedReferenceClipEntry.motion_level);
-    setReferenceClipBackgroundContextDraft(selectedReferenceClipEntry.background_context_description ?? "");
-    setReferenceClipForegroundDataDraft(selectedReferenceClipEntry.foreground_data_description ?? "");
-    setReferenceClipVisualStyleDraft(normalizeHearthVisualStyle(selectedReferenceClipEntry.visual_style ?? null));
-    setReferenceClipChartTypeDraft(selectedReferenceClipEntry.chart_type ?? "line");
-    setReferenceClipTitleDraft(selectedReferenceClipEntry.title ?? "");
-    setReferenceClipLabelsDraft((selectedReferenceClipEntry.labels ?? []).join(", "));
-    setReferenceClipValuesDraft((selectedReferenceClipEntry.values ?? []).map((value) => String(value)).join(", "));
-    setReferenceClipEmphasisKeyDraft(selectedReferenceClipEntry.emphasis_key ?? "");
-    setReferenceClipSourceTypeDraft(selectedReferenceClipEntry.source_type ?? "planned");
-    setReferenceClipProviderIdDraft(selectedReferenceClipEntry.external_request?.provider_id ?? "");
-    setReferenceClipSourceLabelDraft(
-      (selectedReferenceClipEntry.selected_asset_id
-        ? (selectedReferenceClipEntry.candidate_assets ?? []).find((asset) => asset.asset_id === selectedReferenceClipEntry.selected_asset_id)?.source_label
-        : null) ?? "",
-    );
-    setReferenceClipSourceUrlDraft(selectedReferenceClipEntry.external_request?.source_url ?? "");
-    setReferenceClipProviderNoteDraft(selectedReferenceClipEntry.external_request?.provider_note ?? "");
-    setReferenceClipUsageNoteDraft(selectedReferenceClipEntry.external_request?.usage_note ?? "");
-    setReferenceClipResultMetadataDraft(selectedReferenceClipEntry.external_request?.result_metadata ?? "");
-    setReferenceClipSaveState("saved");
-    setReferenceClipSaveError(null);
-  }, [selectedReferenceClipEntry]);
-
-  useEffect(() => {
-    setIsVisualScriptMode(false);
-    setIsImageMapReanchorMode(false);
-    setIsImageMapReanchorSaving(false);
-    setImageMapReanchorError(null);
-  }, [workpieceId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!selectedImageMapEntry || !workpieceId) {
-      setCanonicalImageMapScriptState({
-        status: "idle",
-        text: null,
-        source: null,
-        includesUnsavedLocalEdits: false,
-        error: null,
-      });
-      return;
-    }
-
-    setCanonicalImageMapScriptState((current) => ({
-      status: "loading",
-      text: current.text,
-      source: current.source,
-      includesUnsavedLocalEdits: current.includesUnsavedLocalEdits,
-      error: null,
-    }));
-
-    void readCanonicalScriptForImageMapGeneration().then((result) => {
-      if (cancelled) return;
-      if (!result.ok) {
-        setCanonicalImageMapScriptState({
-          status: "error",
-          text: null,
-          source: null,
-          includesUnsavedLocalEdits: false,
-          error: result.message,
-        });
-        return;
-      }
-      setCanonicalImageMapScriptState({
-        status: "ready",
-        text: result.text,
-        source: result.source,
-        includesUnsavedLocalEdits: result.includesUnsavedLocalEdits,
-        error: null,
-      });
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedImageMapEntry, workpieceId]);
-
-  useEffect(() => {
-    const episodeId = workpieceId?.trim() ?? "";
-    const previewSeq = imageMapCandidatePreviewRequestSeqRef.current + 1;
-    imageMapCandidatePreviewRequestSeqRef.current = previewSeq;
-
-    if (!episodeId || !selectedImageMapEntry) {
-      setImageMapCandidatePreviewStateById({});
-      setImageMapCandidatePreviewUrlById({});
-      setImageMapCandidatePreviewErrorById({});
-      return;
-    }
-
-    const candidates = selectedImageMapEntry.candidate_assets.filter((asset) => asset.asset_id && asset.path);
-    if (candidates.length === 0) {
-      setImageMapCandidatePreviewStateById({});
-      setImageMapCandidatePreviewUrlById({});
-      setImageMapCandidatePreviewErrorById({});
-      return;
-    }
-
-    const loadingState = Object.fromEntries(candidates.map((asset) => [asset.asset_id, "loading"] as const));
-    setImageMapCandidatePreviewStateById(loadingState);
-    setImageMapCandidatePreviewUrlById({});
-    setImageMapCandidatePreviewErrorById({});
-
-    let cancelled = false;
-    void Promise.all(candidates.map(async (asset) => {
-      const result = await loadImageMapCandidatePreviewDataUrl({
-        workpieceId: episodeId,
-        path: asset.path,
-        mimeType: asset.mime_type ?? null,
-      });
-      return { assetId: asset.asset_id, result };
-    })).then((results) => {
-      if (
-        cancelled
-        || imageMapCandidatePreviewRequestSeqRef.current !== previewSeq
-        || (workpieceId?.trim() ?? "") !== episodeId
-        || selectedImageMapEntryId !== selectedImageMapEntry.id
-      ) {
-        return;
-      }
-
-      const nextState: Record<string, "loading" | "ready" | "error"> = {};
-      const nextUrls: Record<string, string> = {};
-      const nextErrors: Record<string, string> = {};
-      for (const { assetId, result } of results) {
-        if (result.ok) {
-          nextState[assetId] = "ready";
-          nextUrls[assetId] = result.dataUrl;
-        } else {
-          nextState[assetId] = "error";
-          nextErrors[assetId] = result.error;
-        }
-      }
-      setImageMapCandidatePreviewStateById(nextState);
-      setImageMapCandidatePreviewUrlById(nextUrls);
-      setImageMapCandidatePreviewErrorById(nextErrors);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedImageMapEntry, selectedImageMapEntryId, workpieceId]);
-
-  useEffect(() => {
-    if (!workpieceId) {
-      setImageMapMetadataUpdatedAt(null);
-      setImageMapSaveState("saved");
-      setImageMapSaveError(null);
-      setImageMapExportMessage(null);
-      setImageMapCandidateError(null);
-      setImageMapCandidateSelectionError(null);
-      setImageMapCandidatePreviewStateById({});
-      setImageMapCandidatePreviewUrlById({});
-      setImageMapCandidatePreviewErrorById({});
-    }
-  }, [workpieceId]);
 
   useEffect(() => {
     if (imageMapSaveState !== "editing") return;
@@ -6419,7 +5703,7 @@ export default function HearthShell({
       || normalizeHearthVisualStyle(current.style_preset) !== nextStylePreset
       || current.intent !== nextIntent
       || current.source_type !== nextSourceType
-      || (current.anchor_scope ?? (current.script_anchor ? "attached" : "orphaned")) !== nextAnchorScope
+      || resolveImageMapEntryAnchorScope(current) !== nextAnchorScope
       || (current.visual_priority ?? "supporting") !== nextVisualPriority
       || (current.visual_type ?? "still_image") !== nextVisualType
       || (current.section_intent_note ?? null) !== nextSectionIntentNote
@@ -6462,8 +5746,9 @@ export default function HearthShell({
             selected_asset_id: null,
             status: nextAnchorScope === "global"
               ? "draft"
-              : (current.script_anchor ? "mapped" : "draft"),
+              : (hasStructuredImageMapAnchor(current) ? "mapped" : "draft"),
             script_anchor: nextAnchorScope === "global" ? null : current.script_anchor,
+            beat_anchor: nextAnchorScope === "global" ? null : current.beat_anchor,
             placement_hint: nextPlacementHint,
           },
         );
@@ -6537,131 +5822,6 @@ export default function HearthShell({
   useEffect(() => {
     writeWorkpieceWorkspaceTab(workpieceId, workspaceId, activeWorkpieceTab);
   }, [activeWorkpieceTab, workpieceId, workspaceId]);
-
-  useEffect(() => {
-    setMetadataSaveState("saved");
-    setMetadataSaveError(null);
-    setMetadataTagInputDraft("");
-  }, [workpieceId]);
-
-  useEffect(() => {
-    if (!episodePackage) {
-      setMetadataTitlesDraft([]);
-      setMetadataTagsDraft([]);
-      setMetadataTagInputDraft("");
-      setMetadataDescriptionShortDraft("");
-      setMetadataDescriptionLongDraft("");
-      setMetadataSaveState("saved");
-      setMetadataSaveError(null);
-      return;
-    }
-    if (metadataSaveState === "editing" || metadataSaveState === "saving") {
-      return;
-    }
-
-    const normalized = ensureSeoV2(episodePackage);
-    setMetadataTitlesDraft(normalized.seo.titles);
-    setMetadataTagsDraft(normalized.seo.tags);
-    setMetadataDescriptionShortDraft(normalized.seo.description_short ?? "");
-    setMetadataDescriptionLongDraft(normalized.seo.description_long ?? "");
-    setMetadataSaveState("saved");
-    setMetadataSaveError(null);
-  }, [episodePackage, metadataSaveState]);
-
-  useEffect(() => {
-    if (metadataSaveState !== "editing") return;
-    if (!episodePackage) return;
-
-    const current = ensureSeoV2(episodePackage);
-    const normalizedTitles = metadataTitlesDraft.map((title, index) => ({
-      id: title.id,
-      label: (title.label || ["A", "B", "C"][index] || `V${index + 1}`).toUpperCase(),
-      text: title.text ?? "",
-      thumbnail_text: resolveHearthThumbnailOverlayText(title),
-      is_primary: Boolean(title.is_primary),
-    }));
-    const primaryId = normalizedTitles.find((title) => title.is_primary)?.id ?? normalizedTitles[0]?.id ?? null;
-    const titles = normalizedTitles.map((title) => ({
-      ...title,
-      is_primary: primaryId != null && title.id === primaryId,
-    }));
-    const nextSeo = {
-      ...current.seo,
-      titles,
-      tags: normalizeSeoTags(metadataTagsDraft),
-      description_short: metadataDescriptionShortDraft.trim() || null,
-      description_long: metadataDescriptionLongDraft.trim() || null,
-    };
-
-    const hasChanges = JSON.stringify(nextSeo) !== JSON.stringify(current.seo);
-    if (!hasChanges) {
-      setMetadataSaveState("saved");
-      setMetadataSaveError(null);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        setMetadataSaveState("saving");
-        setMetadataSaveError(null);
-
-        const workspace = workspaceId?.trim() ?? "";
-        const workpiece = workpieceId?.trim() ?? "";
-        if (!workspace || !workpiece) {
-          if (cancelled) return;
-          setMetadataSaveState("error");
-          setMetadataSaveError("Workspace or workpiece is missing.");
-          return;
-        }
-
-        const nextEpisodePackage: EpisodePackageV2 = {
-          ...current,
-          seo: nextSeo,
-        };
-
-        const saved = await saveEpisodePackageForWorkpiece({
-          workpieceId: workpiece,
-          workspaceId: workspace,
-          episodePackage: nextEpisodePackage,
-          eventName: "hearth.metadata.autosave.v1",
-          eventPayload: {
-            section: "seo",
-          },
-        });
-        if (cancelled) return;
-        if (!saved.ok) {
-          const online = typeof navigator === "undefined" ? true : navigator.onLine;
-          if (!online) {
-            setMetadataSaveState("offline");
-            setMetadataSaveError("Offline. Metadata edits are waiting to sync.");
-          } else {
-            setMetadataSaveState("error");
-            setMetadataSaveError(saved.error);
-          }
-          return;
-        }
-        setEpisodePackage(saved.episodePackage);
-        setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
-        setMetadataSaveState("saved");
-        setMetadataSaveError(null);
-      })();
-    }, 450);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [
-    episodePackage,
-    metadataDescriptionLongDraft,
-    metadataDescriptionShortDraft,
-    metadataSaveState,
-    metadataTagsDraft,
-    metadataTitlesDraft,
-    workpieceId,
-    workspaceId,
-  ]);
 
   useEffect(() => {
     const stored = readScriptApprovalState(workpieceId);
@@ -6819,52 +5979,65 @@ export default function HearthShell({
     };
   }, [activeDraft?.id, cursorPosition, focusTab, mode, persistSession, revisionView, scrollTop]);
 
-  useEffect(() => {
-    if (!hasAnyUnsavedTab) return;
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = TAB_SWITCH_UNSAVED_WARNING;
-      return TAB_SWITCH_UNSAVED_WARNING;
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, [hasAnyUnsavedTab]);
+  const {
+    requestWorkpieceTabChange,
+    openRevisionPanel,
+    closeRevisionPanel,
+  } = useHearthWorkpieceTabLifecycle({
+    activeWorkpieceTab,
+    tabDirtyById,
+    hasAnyUnsavedTab,
+    hasActiveEpisode,
+    hasActiveDraft: Boolean(activeDraft),
+    revisionModalOpen,
+    focusTab,
+    activeDraftId: activeDraft?.id ?? null,
+    workpieceWorkspaceTabs: WORKPIECE_WORKSPACE_TABS,
+    tabSwitchUnsavedWarning: TAB_SWITCH_UNSAVED_WARNING,
+    searchRef,
+    setActiveWorkpieceTab,
+    setFocusTab,
+    setMode,
+    normalizeWorkpieceWorkspaceTab,
+    persistSession,
+    resetRevisionSelection,
+    openRevisionModal,
+    onSaveDraft,
+  });
 
-  useEffect(() => {
-    function handleKey(event: KeyboardEvent) {
-      const key = event.key.toLowerCase();
-      if ((event.ctrlKey || event.metaKey) && key === "s") {
-        event.preventDefault();
-        if (event.shiftKey) {
-          if (!revisionModalOpen && activeDraft) {
-            openRevisionModal();
-          }
-          return;
-        }
-        void onSaveDraft();
-      }
-
-      if ((event.ctrlKey || event.metaKey) && key === "k") {
-        event.preventDefault();
-        searchRef.current?.focus();
-        searchRef.current?.select();
-      }
-
-      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
-        const tabIndex = Number(key);
-        if (Number.isInteger(tabIndex) && tabIndex >= 1 && tabIndex <= WORKPIECE_WORKSPACE_TABS.length) {
-          event.preventDefault();
-          if (!hasActiveEpisode) return;
-          requestWorkpieceTabChange(WORKPIECE_WORKSPACE_TABS[tabIndex - 1]!);
-        }
-      }
-    }
-
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [activeDraft, hasActiveEpisode, onSaveDraft, openRevisionModal, revisionModalOpen, requestWorkpieceTabChange]);
+  const { persistDraft: persistDraftImpl, saveDraftMeta: saveDraftMetaImpl } = useHearthDraftPersistenceActions({
+    mode,
+    focusTab,
+    revisionView,
+    activeDraftId: activeDraft?.id ?? null,
+    hearthUser,
+    evaluateScriptValidation,
+    buildValidationReport,
+    normalizeTitle,
+    buildDraftAttribution,
+    buildPersistedValidationMeta,
+    resolveRevisionWorkpieceId: () => resolveRevisionWorkpieceId(),
+    reportRevisionPersistenceWarning,
+    refreshRevisions,
+    persistSession,
+    syncSources: () => sourcesState.syncSources(),
+    syncSessionToTongs,
+    dedupeDraftListById,
+    draftEditVersionRef,
+    activeDraftRef,
+    store,
+    setIsSaving,
+    setDraftConflictState,
+    setError,
+    setScriptValidation,
+    setAiAutosaveWarning,
+    setAiRuntimeWarning,
+    setActiveDraft,
+    setDraftSnapshot,
+    setDrafts,
+    setSelectedRevision,
+    setRevisionView,
+  });
 
   async function persistDraft(args: {
     draft: Draft;
@@ -6877,163 +6050,11 @@ export default function HearthShell({
     quietFailure?: boolean;
     saveReason?: string;
   }): Promise<boolean> {
-    const showSavingState = args.showSavingState ?? true;
-    const quietFailure = args.quietFailure ?? false;
-    if (showSavingState) {
-      setIsSaving(true);
-    }
-    if (!quietFailure) {
-      setDraftConflictState(null);
-      setError(null);
-    }
-    const shouldValidateForAnvil = args.validateForAnvil === true;
-    const { normalizedText, validation } = evaluateScriptValidation(args.draft.body);
-    const hasAnvilTagWarning = !validation.ok;
-    if (hasAnvilTagWarning) {
-      setScriptValidation({
-        source: shouldValidateForAnvil ? "save_gate" : "save_notice",
-        result: validation,
-      });
-      if (shouldValidateForAnvil) {
-        setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(validation)}`);
-        if (showSavingState) setIsSaving(false);
-        return false;
-      }
-    } else {
-      setScriptValidation(null);
-    }
-    const editVersionAtStart = draftEditVersionRef.current;
-    try {
-      let revisionCount = args.draft.revisionCount;
-      let lastRevisionAt = args.draft.lastRevisionAt;
-      let createdRevision: Revision | null = null;
-      let refreshedRevisions: Revision[] | null = null;
-
-      if (args.createRevision) {
-        createdRevision = createRevision({
-          draftId: args.draft.id,
-          title: normalizeTitle(args.draft.title),
-          body: args.draft.body,
-          kind: args.createRevision.kind,
-          note: args.createRevision.note,
-        });
-        const activeRevisionWorkpieceId = resolveRevisionWorkpieceId();
-        if (!activeRevisionWorkpieceId) {
-          reportRevisionPersistenceWarning(
-            args.createRevision.kind,
-            "Saved draft, but revision history is unavailable until this draft is attached to an Episode.",
-          );
-        } else {
-          try {
-            await store.saveRevision(activeRevisionWorkpieceId, createdRevision);
-            if (args.createRevision.kind === "autosave") {
-              setAiAutosaveWarning(null);
-            } else {
-              setAiRuntimeWarning(null);
-            }
-          } catch (err) {
-            const message = err instanceof Error && err.message === "revision_snapshot_sync_failed"
-              ? "Saved draft, but revision history was kept locally and not synced to cloud."
-              : "Saved draft, but revision history could not be synced.";
-            reportRevisionPersistenceWarning(args.createRevision.kind, message);
-          }
-
-          refreshedRevisions = await refreshRevisions(activeRevisionWorkpieceId, args.draft.id);
-          revisionCount = refreshedRevisions.length;
-          lastRevisionAt = refreshedRevisions[0]?.createdAt;
-        }
-      }
-
-      const toSave: Draft = {
-        ...args.draft,
-        title: normalizeTitle(args.draft.title),
-        body: normalizedText,
-        updatedAt: args.updatedAt,
-        revisionCount,
-        lastRevisionAt,
-        createdBy: args.draft.createdBy ?? buildDraftAttribution(hearthUser),
-        updatedBy: buildDraftAttribution(hearthUser),
-        scriptValidationMeta: buildPersistedValidationMeta(validation),
-      };
-
-      await store.saveDraft(toSave, { reason: args.saveReason });
-
-      const latestActiveDraft = activeDraftRef.current;
-      const hasNewerEdits = latestActiveDraft?.id === toSave.id
-        && draftEditVersionRef.current !== editVersionAtStart;
-
-      if (!hasNewerEdits) {
-        setActiveDraft(toSave);
-        setDraftSnapshot({ title: toSave.title, body: toSave.body, updatedAt: toSave.updatedAt });
-      }
-      setDrafts((prev) => {
-        const exists = prev.some((d) => d.id === toSave.id);
-        const next = exists
-          ? prev.map((d) => (d.id === toSave.id ? toSave : d))
-          : [toSave, ...prev];
-        return dedupeDraftListById(next);
-      });
-
-      if (createdRevision && refreshedRevisions) {
-        const selected = refreshedRevisions.find((revision) => revision.id === createdRevision?.id) ?? null;
-        setSelectedRevision(selected);
-        setRevisionView("preview");
-      }
-
-      const tab = mode === "focus"
-        ? (focusTab === "revisions" ? revisionView : focusTab)
-        : mode;
-      await persistSession(toSave.id, tab);
-      if (args.syncSources) {
-        sourcesState.syncSources();
-      }
-      if (args.syncSession) {
-        void syncSessionToTongs();
-      }
-      setDraftConflictState(null);
-      return true;
-    } catch (err) {
-      const conflict = parseDraftConflictError(err);
-      if (conflict) {
-        if (!quietFailure) {
-          const withLocalBody: DraftConflictState = {
-            ...conflict,
-            localBody: args.draft.body,
-          };
-          setDraftConflictState(withLocalBody);
-          setError(withLocalBody.message);
-        }
-        return false;
-      }
-      if (!quietFailure) {
-        const message = err instanceof Error ? err.message : "Failed to save draft.";
-        setError(message);
-      }
-      return false;
-    } finally {
-      if (showSavingState) {
-        setIsSaving(false);
-      }
-    }
+    return persistDraftImpl(args);
   }
 
   async function saveDraftMeta(draft: Draft, updates: Partial<Draft>) {
-    const now = Date.now();
-    const toSave: Draft = {
-      ...draft,
-      ...updates,
-      title: normalizeTitle(updates.title ?? draft.title),
-      updatedAt: now,
-      createdBy: draft.createdBy ?? buildDraftAttribution(hearthUser),
-      updatedBy: buildDraftAttribution(hearthUser),
-    };
-    setScriptValidation(null);
-    await store.saveDraft(toSave);
-    setDrafts((prev) => dedupeDraftListById(prev.map((d) => (d.id === toSave.id ? toSave : d))));
-    if (activeDraft?.id === toSave.id) {
-      setActiveDraft(toSave);
-      setDraftSnapshot({ title: toSave.title, body: toSave.body, updatedAt: toSave.updatedAt });
-    }
+    await saveDraftMetaImpl(draft, updates);
   }
 
   async function onCreateDraft() {
@@ -7074,6 +6095,8 @@ export default function HearthShell({
       await openWorkpieceInFocus(linkedWorkpieceId, {
         workspaceId,
         preferredDraftId: spark.links?.hearthDraftId ?? null,
+        preferredWorkspaceTab: "script",
+        preferredEditorPanel: "script",
       });
       return;
     }
@@ -7128,188 +6151,30 @@ export default function HearthShell({
     }));
   }
 
-  async function onDeleteDraft(draft: Draft) {
-    const draftTitle = draft.title.trim() || "Untitled Draft";
-    const confirmDelete = window.confirm(`Delete draft buffer "${draftTitle}"? This cannot be undone.`);
-    if (!confirmDelete) return;
-    setError(null);
-    try {
-      const deletingActiveDraft = activeDraft?.id === draft.id;
-      await store.deleteDraft(draft.id);
-      const nextDrafts = dedupeDraftListById(await store.listDrafts());
-      setDrafts(nextDrafts);
-
-      if (deletingActiveDraft) {
-        const activeWorkpieceId = normalizeUuid(workpieceId);
-        if (activeWorkpieceId) {
-          const replacementDraft = selectDraftForWorkpiece({
-            workpieceId: activeWorkpieceId,
-            drafts: nextDrafts,
-            sparks,
-            preferredDraftId: activeWorkpieceId,
-          });
-          if (replacementDraft) {
-            await selectDraft(replacementDraft, { revisionWorkpieceId: activeWorkpieceId });
-          } else {
-            await openWorkpieceInFocus(activeWorkpieceId, {
-              drafts: nextDrafts,
-              preferredDraftId: activeWorkpieceId,
-            });
-          }
-          if (mode === "focus") {
-            setFocusTab("draft");
-          }
-          return;
-        }
-
-        const replacementDraft = nextDrafts.find((candidate) => !candidate.archived) ?? nextDrafts[0] ?? null;
-        if (replacementDraft) {
-          await selectDraft(replacementDraft);
-          if (mode === "focus") {
-            setFocusTab("draft");
-          }
-          return;
-        }
-
-        await selectDraft(null);
-        await persistSession(null, "draft");
-        setFocusTab("draft");
-        setMode("episodes");
-        if (isMobile && mobileOverlayView === "editor") {
-          setMobileOverlayView(null);
-        }
-      }
-
-      await persistSession(activeDraft?.id ?? null, "draft");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to delete draft buffer.";
-      setError(message);
-    }
-  }
-
-  const onArchiveWorkpiece = useCallback(async (targetWorkpieceId: string) => {
-    const normalizedWorkspaceId = normalizeUuid(workspaceId);
-    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
-    if (!normalizedWorkspaceId || !normalizedWorkpieceId || archivingWorkpieceIds.includes(normalizedWorkpieceId)) {
-      return;
-    }
-
-    setError(null);
-    setArchivingWorkpieceIds((prev) => (
-      prev.includes(normalizedWorkpieceId) ? prev : [...prev, normalizedWorkpieceId]
-    ));
-
-    try {
-      await archiveHearthWorkpiece({
-        workspaceId: normalizedWorkspaceId,
-        workpieceId: normalizedWorkpieceId,
-      });
-
-      const archivingActiveWorkpiece = workpieceId === normalizedWorkpieceId;
-      if (archivingActiveWorkpiece) {
-        await selectDraft(null);
-        await persistSession(null, "draft");
-        if (!showArchived) {
-          setWorkpieceId(null);
-          setMode("episodes");
-          setFocusTab("draft");
-          if (isMobile && mobileOverlayView === "editor") {
-            setMobileOverlayView(null);
-          }
-        }
-      }
-
-      await refreshWorkpieces(normalizedWorkspaceId, { includeArchived: showArchived });
-    } catch {
-      setError("Failed to archive workpiece.");
-    } finally {
-      setArchivingWorkpieceIds((prev) => prev.filter((id) => id !== normalizedWorkpieceId));
-    }
-  }, [
+  const {
     archivingWorkpieceIds,
+    restoringWorkpieceIds,
+    onArchiveWorkpiece,
+    onRestoreWorkpiece,
+  } = useHearthWorkpieceArchiveActions({
+    workspaceId,
+    workpieceId,
+    showArchived,
     isMobile,
     mobileOverlayView,
+    activeDraftId: activeDraft?.id ?? null,
+    normalizeUuid,
+    setError,
+    setAiRuntimeWarning,
+    setWorkpieceId,
+    setMode,
+    setFocusTab,
+    setMobileOverlayView,
+    selectDraft: async () => selectDraft(null),
     persistSession,
     refreshWorkpieces,
-    selectDraft,
-    showArchived,
-    workpieceId,
-    workspaceId,
-  ]);
-
-  const onRestoreWorkpiece = useCallback(async (
-    targetWorkpieceId: string,
-    options?: { openAfterRestore?: boolean },
-  ) => {
-    const normalizedWorkspaceId = normalizeUuid(workspaceId);
-    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
-    if (!normalizedWorkspaceId || !normalizedWorkpieceId || restoringWorkpieceIds.includes(normalizedWorkpieceId)) {
-      return;
-    }
-
-    setError(null);
-    setRestoringWorkpieceIds((prev) => (
-      prev.includes(normalizedWorkpieceId) ? prev : [...prev, normalizedWorkpieceId]
-    ));
-
-    try {
-      await restoreHearthWorkpiece({
-        workspaceId: normalizedWorkspaceId,
-        workpieceId: normalizedWorkpieceId,
-      });
-      setAiRuntimeWarning("Restored. Review and re-ready before recording.");
-      await refreshWorkpieces(normalizedWorkspaceId, {
-        includeArchived: showArchived || Boolean(options?.openAfterRestore),
-      });
-
-      if (options?.openAfterRestore) {
-        await openWorkpieceInFocus(normalizedWorkpieceId, {
-          workspaceId: normalizedWorkspaceId,
-          preferredDraftId: activeDraft?.id ?? normalizedWorkpieceId,
-        });
-      }
-    } catch {
-      setError("Failed to restore workpiece.");
-    } finally {
-      setRestoringWorkpieceIds((prev) => prev.filter((id) => id !== normalizedWorkpieceId));
-    }
-  }, [
-    activeDraft?.id,
     openWorkpieceInFocus,
-    refreshWorkpieces,
-    restoringWorkpieceIds,
-    showArchived,
-    workspaceId,
-  ]);
-
-  function openRevisionPanel() {
-    setFocusTab("revisions");
-    if (!requestWorkpieceTabChange("history")) return;
-    setMode("focus");
-    resetRevisionSelection();
-    void persistSession(activeDraft?.id ?? null, "list");
-  }
-
-  function closeRevisionPanel() {
-    setFocusTab("draft");
-    requestWorkpieceTabChange("script");
-    setMode("focus");
-    resetRevisionSelection();
-    void persistSession(activeDraft?.id ?? null, "draft");
-  }
-
-  function requestWorkpieceTabChange(nextTab: WorkpieceWorkspaceTab): boolean {
-    const normalizedNextTab = normalizeWorkpieceWorkspaceTab(nextTab);
-    if (normalizedNextTab === activeWorkpieceTab) return true;
-    if (tabDirtyById[activeWorkpieceTab]) {
-      const shouldContinue = typeof window === "undefined"
-        ? true
-        : window.confirm(TAB_SWITCH_UNSAVED_WARNING);
-      if (!shouldContinue) return false;
-    }
-    setActiveWorkpieceTab(normalizedNextTab);
-    return true;
-  }
+  });
 
   function findNextBodyFromOps(baseBody: string, ops: HearthOp[]): string {
     let next = baseBody;
@@ -7319,161 +6184,6 @@ export default function HearthShell({
       }
     }
     return next;
-  }
-
-  async function onFixScriptFormattingNoAi() {
-    if (!activeDraft) return;
-    const normalized = normalizeScriptTags(activeDraft.body);
-    const repaired = repairScriptTags(normalized);
-    const validation = validateScriptTags(repaired.text);
-    if (!validation.ok) {
-      setScriptValidation({
-        source: "save_gate",
-        result: validation,
-      });
-      setError(
-        `Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(validation)}`,
-      );
-    }
-
-    const now = Date.now();
-    const saved = await persistDraft({
-      draft: { ...activeDraft, body: repaired.text, updatedAt: now },
-      updatedAt: now,
-      createRevision: null,
-      syncSources: false,
-      syncSession: false,
-      saveReason: "repair:deterministic",
-    });
-    if (saved) {
-      const fixedCount = repaired.repairedIssues.length;
-      const remainingCount = validation.issues.length;
-      if (remainingCount > 0) {
-        setError(`${fixedCount} issues fixed automatically. ${remainingCount} issues remain and need manual correction.`);
-      } else {
-        setError(`${fixedCount} issues fixed automatically.`);
-      }
-      setScriptValidation(validation.ok ? null : {
-        source: "save_notice",
-        result: validation,
-      });
-    }
-  }
-
-  async function onAskAiRepairScript() {
-    if (isRepairingScript || isAiProcessing) return;
-    if (!activeDraft) return;
-
-    const episodeContext = buildActiveEpisodeContext();
-    if (!episodeContext) {
-      setChatError("Select an Episode or Spark to start.");
-      return;
-    }
-
-    const lane = resolveAiLaneFromStorage();
-    setAiBillingMode(lane);
-    if (lane === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
-      setChatError("No AI credits remaining.");
-      return;
-    }
-
-    setChatError(null);
-    setAiRuntimeWarning(null);
-    setIsRepairingScript(true);
-
-    const repairMessage = [
-      "Repair this script to satisfy the canonical Anvil tag contract.",
-      "Do NOT rewrite meaning, style, or wording except where required to fix markup.",
-      "Return a set_body op with the repaired script.",
-      "Also include script_text and tag_audit.",
-      "",
-      "SCRIPT TO REPAIR:",
-      activeDraft.body,
-    ].join("\n");
-
-    const controller = new AbortController();
-    aiRequestControllerRef.current = controller;
-    setIsAiProcessing(true);
-
-    try {
-      const result = await requestHearthChatReply(
-        [{ role: "user", content: repairMessage }],
-        episodeContext,
-        { signal: controller.signal },
-      );
-
-      setAiBillingMode(result.runtime.billingMode);
-      if (result.runtime.billingMode === "byo") {
-        setAiTokenBalance(null);
-      }
-
-      if (!result.ok) {
-        if (!result.cancelled) {
-          setChatError(result.error);
-        }
-        return;
-      }
-
-      const opBody = result.ops.find((op) => op.op === "set_body");
-      const aiText = result.scriptText ?? (opBody && opBody.op === "set_body" ? opBody.value : "");
-      const normalized = normalizeScriptTags(aiText);
-      const repaired = repairScriptTags(normalized);
-      const repairedBody = repaired.text;
-      const validation = validateScriptTags(repairedBody);
-      if (!validation.ok) {
-        setScriptValidation({
-          source: "ai_repair",
-          result: validation,
-        });
-        setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(validation)}`);
-        return;
-      }
-
-      const previousBody = activeDraft.body;
-      const bodyChanged = repairedBody !== previousBody;
-      if (bodyChanged) {
-        const now = Date.now();
-        const nextDraft: Draft = { ...activeDraft, body: repairedBody, updatedAt: now };
-        draftEditVersionRef.current += 1;
-        activeDraftRef.current = nextDraft;
-        setActiveDraft((prev) => (prev && prev.id === nextDraft.id ? nextDraft : prev));
-        setDrafts((prev) => {
-          const exists = prev.some((draft) => draft.id === nextDraft.id);
-          const next = exists
-            ? prev.map((draft) => (draft.id === nextDraft.id ? nextDraft : draft))
-            : [nextDraft, ...prev];
-          return dedupeDraftListById(next);
-        });
-        queueAiAutosave({
-          draft: nextDraft,
-          previousBody,
-          reasonCode: "ai_repair",
-        });
-      }
-      setScriptValidation(null);
-
-      const assistantMessage: HearthChatMessage = {
-        role: "assistant",
-        content: result.assistantText || "Applied repaired script tags.",
-      };
-      setChatMessages((prev) => [...prev, assistantMessage].slice(-CHAT_HISTORY_MAX_MESSAGES));
-
-      if (result.creditsWarning) {
-        setAiRuntimeWarning(result.creditsWarning);
-      }
-
-      const refreshedCredits = await refreshMyAiCredits();
-      if (refreshedCredits.ok) {
-        setAiBillingMode(refreshedCredits.runtime.billingMode);
-        setAiTokenBalance(refreshedCredits.runtime.tokenBalance);
-      }
-    } finally {
-      if (aiRequestControllerRef.current === controller) {
-        aiRequestControllerRef.current = null;
-        setIsAiProcessing(false);
-      }
-      setIsRepairingScript(false);
-    }
   }
 
   function graduateLinkedSpark(episodeId: string): string | null {
@@ -7516,546 +6226,40 @@ export default function HearthShell({
     scriptVersion: number;
     assistantText: string;
   }) {
-    const episodeId = workpieceId?.trim();
-    if (!episodeId) return;
-
-    const generatedAt = new Date().toISOString();
-    const artifactKind = PRODUCTION_ACTION_ARTIFACT_KIND[args.action];
-    const payload = args.action === "image_beat_sheet"
-      ? {
-          script_version: args.scriptVersion,
-          generated_at: generatedAt,
-          action: args.action,
-          raw_text: args.assistantText,
-          entries: parseImageBeatSheetEntries(args.assistantText),
-        }
-      : {
-          script_version: args.scriptVersion,
-          generated_at: generatedAt,
-          action: args.action,
-          raw_text: args.assistantText,
-        };
-
-    try {
-      const committed = await commitWorkpieceProductionArtifact({
-        workpieceId: episodeId,
-        workspaceId,
-        scriptVersion: args.scriptVersion,
-        kind: artifactKind,
-        payload,
-      });
-
-      if (!committed.ok) {
-        setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
-        return;
-      }
-      if (args.action === "release_prep_pack") {
-        await loadLatestReleasePrepPack(args.scriptVersion);
-      }
-      if (args.action === "thumbnails") {
-        void refreshEpisodePackage();
-      }
-    } catch {
-      setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
-    }
+    await persistHearthProductionArtifact({
+      action: args.action,
+      scriptVersion: args.scriptVersion,
+      assistantText: args.assistantText,
+      workpieceId,
+      workspaceId,
+      refreshEpisodePackage,
+      loadLatestReleasePrepPack,
+      setAiRuntimeWarning,
+      setMetadataTitlesDraft,
+      setMetadataDescriptionShortDraft,
+      setMetadataDescriptionLongDraft,
+      setMetadataTagsDraft,
+    });
   }
 
   async function onRunProductionAction(action: ProductionAction) {
-    if (isAiProcessing || isApprovingScript) return;
-    if (!activeDraft) return;
-    if (!hasApprovedScript || !approvedScriptVersion) {
-      setChatError("Approve a Script Version before using production actions.");
-      return;
-    }
-    if (!activeDraft.body.trim()) {
-      setChatError("Approved script body is empty.");
-      return;
-    }
-    if (action === "image_beat_sheet") {
-      setChatError("Image Beat Sheet has been replaced by Episode Media Map. Use Generate Episode Media Map in the media panel.");
-      return;
-    }
-
-    const prompt = buildProductionPrompt({
+    await runProductionAction({
       action,
-      scriptVersion: approvedScriptVersion,
-      scriptText: activeDraft.body,
-      episodeTitle: activeDraft.title || planningSession?.title || "",
+      isAiProcessing,
+      isApprovingScript,
+      hasApprovedScript,
+      approvedScriptVersion,
+      activeDraft: activeDraft
+        ? {
+            body: activeDraft.body,
+            title: activeDraft.title,
+          }
+        : null,
+      planningSessionTitle: planningSession?.title ?? null,
+      setChatError,
+      setActiveProductionAction,
+      sendChatMessage,
     });
-    const displayContent = `${PRODUCTION_ACTION_LABEL[action]} for Script Version ${approvedScriptVersion}.`;
-    setActiveProductionAction(action);
-    try {
-      await sendChatMessage({
-        requestContent: prompt,
-        displayContent,
-        productionAction: action,
-        productionScriptVersion: approvedScriptVersion,
-      });
-    } finally {
-      setActiveProductionAction(null);
-    }
-  }
-
-  async function persistThumbnailEpisodePackage(
-    nextEpisodePackage: EpisodePackageV2,
-    eventName: string,
-    eventPayload: Record<string, unknown>,
-  ): Promise<EpisodePackageV2 | null> {
-    const episodeId = workpieceId?.trim() ?? "";
-    const workspace = workspaceId?.trim() ?? "";
-    if (!episodeId || !workspace) {
-      setThumbnailGenerateError("Select an Episode before editing visuals.");
-      return null;
-    }
-    const normalizedEpisodePackage = ensureLaunchVariantsV2(nextEpisodePackage);
-    const saved = await saveEpisodePackageForWorkpiece({
-      workpieceId: episodeId,
-      workspaceId: workspace,
-      episodePackage: normalizedEpisodePackage,
-      eventName,
-      eventPayload,
-    });
-    if (!saved.ok) {
-      setThumbnailGenerateError(saved.error);
-      return null;
-    }
-    setEpisodePackage(saved.episodePackage);
-    setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
-    return saved.episodePackage;
-  }
-
-  async function persistImageMapEntries(args: {
-    entries: EpisodeImageMapEntry[];
-  }): Promise<
-    | { ok: true; episodePackage: EpisodePackageV2; metadataUpdatedAt: string | null }
-    | { ok: false; error: string }
-  > {
-    if (!episodePackage) {
-      return {
-        ok: false,
-        error: "Unable to save image map for this episode.",
-      };
-    }
-
-    const workspace = workspaceId?.trim() ?? "";
-    const workpiece = workpieceId?.trim() ?? "";
-    if (!workspace || !workpiece) {
-      return {
-        ok: false,
-        error: "Workspace or workpiece is missing.",
-      };
-    }
-
-    const saved = await saveWorkpieceImageMap({
-      workpieceId: workpiece,
-      workspaceId: workspace,
-      entries: args.entries,
-      expectedMetadataUpdatedAt: imageMapMetadataUpdatedAt,
-    });
-
-    if (!saved.ok) {
-      if (saved.reason === "conflict" && saved.latest) {
-        const latest = saved.latest;
-        setEpisodePackage((prev) => (
-          prev ? replaceEpisodePackageImageMap(prev, latest.entries) : prev
-        ));
-        setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
-        return {
-          ok: false,
-          error: "Image map changed on another client. Latest entries have been reloaded.",
-        };
-      }
-
-      return {
-        ok: false,
-        error: saved.reason === "invalid_response"
-          ? "Image map save returned an invalid response."
-          : saved.error ?? "Unable to save image map.",
-      };
-    }
-
-    const nextEpisodePackage = replaceEpisodePackageImageMap(episodePackage, saved.imageMap.entries);
-    setEpisodePackage(nextEpisodePackage);
-    setImageMapMetadataUpdatedAt(saved.imageMap.metadataUpdatedAt);
-    return {
-      ok: true,
-      episodePackage: nextEpisodePackage,
-      metadataUpdatedAt: saved.imageMap.metadataUpdatedAt,
-    };
-  }
-
-  async function persistBrollPlan(args: {
-    plan: EpisodeBrollPlan;
-    eventName: string;
-    eventPayload: Record<string, unknown>;
-  }): Promise<
-    | { ok: true; episodePackage: EpisodePackageV2 }
-    | { ok: false; error: string }
-  > {
-    if (!episodePackage) {
-      return { ok: false, error: "Unable to save B-roll plan for this episode." };
-    }
-    const episodeId = workpieceId?.trim() ?? "";
-    const workspace = workspaceId?.trim() ?? "";
-    if (!episodeId || !workspace) {
-      return { ok: false, error: "Workspace or workpiece is missing." };
-    }
-    const nextEpisodePackage = ensureBrollPlanV2({
-      ...episodePackage,
-      broll_plan: {
-        ...args.plan,
-        workpiece_id: episodeId,
-      },
-    });
-    const saved = await saveEpisodePackageForWorkpiece({
-      workpieceId: episodeId,
-      workspaceId: workspace,
-      episodePackage: ensureLaunchVariantsV2(nextEpisodePackage),
-      eventName: args.eventName,
-      eventPayload: args.eventPayload,
-    });
-    if (!saved.ok) {
-      return { ok: false, error: saved.error };
-    }
-    setEpisodePackage(saved.episodePackage);
-    setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
-    return { ok: true, episodePackage: saved.episodePackage };
-  }
-
-  async function persistMediaMap(args: {
-    map: EpisodeMediaMap;
-    eventName: string;
-    eventPayload: Record<string, unknown>;
-  }): Promise<
-    | { ok: true; episodePackage: EpisodePackageV2 }
-    | { ok: false; error: string }
-  > {
-    if (!episodePackage) {
-      return { ok: false, error: "Unable to save Episode Media Map for this episode." };
-    }
-    const episodeId = workpieceId?.trim() ?? "";
-    const workspace = workspaceId?.trim() ?? "";
-    if (!episodeId || !workspace) {
-      return { ok: false, error: "Workspace or workpiece is missing." };
-    }
-    const nextEpisodePackage: EpisodePackageV2 = {
-      ...episodePackage,
-      media_map: {
-        ...args.map,
-        workpiece_id: episodeId,
-      },
-    };
-    const savedEpisode = await saveEpisodePackageForWorkpiece({
-      workpieceId: episodeId,
-      workspaceId: workspace,
-      episodePackage: ensureLaunchVariantsV2(nextEpisodePackage),
-      eventName: args.eventName,
-      eventPayload: args.eventPayload,
-    });
-    if (!savedEpisode.ok) {
-      return { ok: false, error: savedEpisode.error };
-    }
-    const mediaMapSaved = await saveWorkpieceEpisodeMediaMap({
-      workpieceId: episodeId,
-      mediaMap: savedEpisode.episodePackage.media_map,
-      eventName: "hearth.media_map.artifact.saved.v1",
-      eventPayload: {
-        entry_count: savedEpisode.episodePackage.media_map.entries.length,
-        script_version_id: savedEpisode.episodePackage.media_map.script_version_id,
-      },
-    });
-    if (!mediaMapSaved.ok) {
-      return { ok: false, error: mediaMapSaved.error };
-    }
-    setEpisodePackage(savedEpisode.episodePackage);
-    setImageMapMetadataUpdatedAt(savedEpisode.metadataUpdatedAt);
-    return { ok: true, episodePackage: savedEpisode.episodePackage };
-  }
-
-  function setMediaMapDraftEditing<T extends string | boolean>(fieldSetter: (value: T) => void, value: T): void {
-    fieldSetter(value);
-    if (mediaMapSaveState !== "editing") {
-      setMediaMapSaveState("editing");
-    }
-    setMediaMapSaveError(null);
-  }
-
-  function createMediaMapEntryId(): string {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return `mm_${crypto.randomUUID()}`;
-    }
-    return `mm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-  }
-
-  function normalizeMediaMapNumber(text: string, fallback: number): number {
-    const parsed = Number(text);
-    if (!Number.isFinite(parsed)) return fallback;
-    return Math.max(0, parsed);
-  }
-
-  function mapImageEntriesToMediaMapEntries(
-    entries: EpisodeImageMapEntry[],
-    nowIso: string,
-    idPrefix: string,
-  ): EpisodeMediaMapEntry[] {
-    return entries.map((entry) => ({
-      id: `${idPrefix}${entry.id}`,
-      final_media_kind: "image",
-      anchor: {
-        mode: entry.anchor_scope === "global"
-          ? "section_marker"
-          : (entry.placement_hint === "exact_timestamp" ? "absolute_time" : "phrase_match"),
-        target: entry.anchor_scope === "global"
-          ? (entry.section_intent_note?.trim() || "global:image")
-          : (entry.anchor || entry.prompt_basis || entry.description || "image:beat"),
-      },
-      timing: {
-        in_offset_sec: 0,
-        duration_sec: 6,
-      },
-      description: entry.description || entry.visual_intent || entry.prompt_basis || "Image map visual beat",
-      intent: entry.intent || "visual_support",
-      source: {
-        status: entry.selected_asset_id ? "selected" : "unresolved",
-        asset_id: entry.selected_asset_id ?? null,
-      },
-      confidence: entry.status === "selected" ? "high" : "medium",
-      fulfillment_status: entry.selected_asset_id ? "resolved" : "planned",
-      fulfillment_path: entry.selected_asset_id ? "image" : null,
-      optional: entry.visual_priority === "supporting",
-      critical: entry.visual_priority === "primary",
-      stale: false,
-      created_at: nowIso,
-      updated_at: nowIso,
-    }));
-  }
-
-  function buildMediaMapFromExistingPlans(
-    current: EpisodePackageV2,
-    scriptVersionId: string | null,
-    scope: MediaMapGenerationScope,
-    imageEntriesOverride?: EpisodeImageMapEntry[] | null,
-    scriptTextOverride?: string | null,
-  ): EpisodeMediaMap {
-    const nowIso = new Date().toISOString();
-    const fallbackScriptText = scriptTextOverride?.trim() ?? "";
-    const hasFallbackScript = fallbackScriptText.length > 0;
-    const fallbackWorkpieceId = current.media_map.workpiece_id?.trim() || workpieceId?.trim() || "";
-    const splitFallbackScriptMoments = (): string[] => fallbackScriptText
-      .replace(/\r\n?/g, "\n")
-      .split(/\n+/g)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .flatMap((line) => line.split(/(?<=[.!?])\s+/g).map((segment) => segment.trim()))
-      .filter((segment) => segment.length >= 22);
-    const isLikelyReferenceClipMoment = (text: string): boolean => {
-      const signals = inferReferenceClipSuitabilitySignals(text);
-      const lower = text.toLowerCase();
-      const hasNumeric = /\d/.test(lower);
-      const hasComparison = /\b(vs\.?|versus|compared to|comparison|higher|lower|increase|decrease|percent|percentage)\b/.test(lower);
-      const hasTimeOrGeo = /\b(year|years|month|months|timeline|since|before|after|state|county|city|region|country|map)\b/.test(lower);
-      const strength = signals.length + (hasNumeric ? 1 : 0) + (hasComparison ? 1 : 0) + (hasTimeOrGeo ? 1 : 0);
-      return strength >= 3;
-    };
-    const thumbnailVersionByConceptId = new Map<string, EpisodeThumbnailVersion>();
-    for (const version of current.thumbnail.versions) {
-      if (!thumbnailVersionByConceptId.has(version.concept_id)) {
-        thumbnailVersionByConceptId.set(version.concept_id, version);
-      }
-    }
-    const fromThumbnailPrompts: EpisodeMediaMapEntry[] = current.thumbnail.concepts.map((concept) => {
-      const conceptLabel = concept.label.trim();
-      const promptText = concept.prompt_text.trim();
-      const supportingVersion = thumbnailVersionByConceptId.get(concept.id);
-      return {
-        id: `mm_thumbnail_${concept.id}`,
-        final_media_kind: "image",
-        anchor: {
-          mode: "section_marker",
-          target: conceptLabel ? `thumbnail:${conceptLabel}` : "thumbnail:concept",
-        },
-        timing: {
-          in_offset_sec: 0,
-          duration_sec: 6,
-        },
-        description: promptText || conceptLabel || "Thumbnail concept prompt",
-        intent: "thumbnail_concept",
-        source: {
-          status: supportingVersion?.asset_id ? "selected" : "unresolved",
-          asset_id: supportingVersion?.asset_id ?? null,
-        },
-        confidence: "medium",
-        fulfillment_status: supportingVersion?.asset_id ? "resolved" : "planned",
-        fulfillment_path: supportingVersion?.asset_id ? "image" : null,
-        optional: false,
-        critical: true,
-        stale: false,
-        created_at: nowIso,
-        updated_at: nowIso,
-      };
-    });
-    const imageSourceEntries = imageEntriesOverride ?? current.image_map.entries;
-    const fromImageMap = mapImageEntriesToMediaMapEntries(imageSourceEntries, nowIso, "mm_imap_");
-    const fallbackBrollBeats = (
-      current.broll_plan.beats.length === 0
-      && hasFallbackScript
-      && fallbackWorkpieceId
-    )
-      ? buildBrollPlanFromScript({
-        workpieceId: fallbackWorkpieceId,
-        scriptText: fallbackScriptText,
-      }).beats.filter((beat) => !isLikelyReferenceClipMoment(beat.description || beat.anchor_text))
-      : [];
-    const brollSourceBeats = current.broll_plan.beats.length > 0
-      ? current.broll_plan.beats
-      : fallbackBrollBeats;
-    const fromBroll: EpisodeMediaMapEntry[] = brollSourceBeats.map((beat) => ({
-      id: `mm_broll_${beat.id}`,
-      final_media_kind: "b_roll",
-      anchor: {
-        mode: beat.placement_hint === "exact_timestamp" ? "absolute_time" : "phrase_match",
-        target: beat.placement_hint === "exact_timestamp"
-          ? String((beat.timestamp_ms ?? 0) / 1000)
-          : beat.anchor_text,
-      },
-      timing: {
-        in_offset_sec: 0,
-        duration_sec: Math.max(1, (beat.suggested_duration_ms ?? 6000) / 1000),
-      },
-      description: beat.description,
-      intent: beat.motion_intent,
-      source: {
-        status: beat.selected_asset_id ? "selected" : "unresolved",
-        asset_id: beat.selected_asset_id ?? null,
-      },
-      confidence: "medium",
-      fulfillment_status: beat.selected_asset_id ? "resolved" : "planned",
-      fulfillment_path: beat.selected_asset_id ? "motion_broll" : null,
-      optional: beat.priority === "background",
-      critical: beat.priority === "primary",
-      stale: false,
-      created_at: beat.created_at,
-      updated_at: beat.updated_at,
-    }));
-    const fallbackReferenceClipEntries = (
-      current.cdc_plan.entries.length === 0
-      && hasFallbackScript
-      && fallbackWorkpieceId
-    )
-      ? (() => {
-        const selected = splitFallbackScriptMoments()
-          .filter((segment) => isLikelyReferenceClipMoment(segment))
-          .slice(0, 8);
-        return selected.map((segment) => createReferenceClipPlan({
-          workpieceId: fallbackWorkpieceId,
-          anchorText: segment,
-          description: segment,
-        }));
-      })()
-      : [];
-    const referenceClipSourceEntries = current.cdc_plan.entries.length > 0
-      ? current.cdc_plan.entries
-      : fallbackReferenceClipEntries;
-    const fromReferenceClips: EpisodeMediaMapEntry[] = referenceClipSourceEntries.map((entry) => ({
-      id: `mm_reference_clip_${entry.id}`,
-      final_media_kind: "contextual_data_composite",
-      anchor: {
-        mode: entry.placement_hint === "exact_timestamp" ? "absolute_time" : "phrase_match",
-        target: entry.placement_hint === "exact_timestamp"
-          ? String((entry.timestamp_ms ?? 0) / 1000)
-          : entry.anchor_text,
-      },
-      timing: {
-        in_offset_sec: 0,
-        duration_sec: 6,
-      },
-      description: entry.description,
-      intent: entry.data_type,
-      source: {
-        status: entry.selected_asset_id ? "selected" : "unresolved",
-        asset_id: entry.selected_asset_id ?? null,
-      },
-      confidence: "medium",
-      fulfillment_status: entry.selected_asset_id ? "resolved" : "planned",
-      fulfillment_path: entry.selected_asset_id ? "reference_clip" : null,
-      optional: false,
-      critical: true,
-      stale: false,
-      created_at: entry.created_at,
-      updated_at: entry.updated_at,
-    }));
-    const includeImages = true;
-    const includeBroll = scope === "images_broll" || scope === "full_media_plan";
-    const includeReferenceClips = scope === "images_reference_clips" || scope === "full_media_plan";
-    const merged = [
-      ...(includeImages ? fromThumbnailPrompts : []),
-      ...(includeImages ? fromImageMap : []),
-      ...(includeBroll ? fromBroll : []),
-      ...(includeReferenceClips ? fromReferenceClips : []),
-    ];
-    return {
-      id: current.media_map.id || "media-map-v1",
-      workpiece_id: current.media_map.workpiece_id,
-      script_version_id: scriptVersionId,
-      status: "review",
-      version: Math.max(1, current.media_map.version + 1),
-      entries: merged,
-      generated_at: nowIso,
-    };
-  }
-
-  async function persistReferenceClipPlan(args: {
-    plan: EpisodeReferenceClipPlan;
-    eventName: string;
-    eventPayload: Record<string, unknown>;
-  }): Promise<
-    | { ok: true; episodePackage: EpisodePackageV2 }
-    | { ok: false; error: string }
-  > {
-    if (!episodePackage) {
-      return { ok: false, error: "Unable to save Reference Clip plan for this episode." };
-    }
-    const episodeId = workpieceId?.trim() ?? "";
-    const workspace = workspaceId?.trim() ?? "";
-    if (!episodeId || !workspace) {
-      return { ok: false, error: "Workspace or workpiece is missing." };
-    }
-    const nextEpisodePackage = ensureReferenceClipPlanV2({
-      ...episodePackage,
-      cdc_plan: {
-        ...args.plan,
-        workpiece_id: episodeId,
-      },
-    });
-    const saved = await saveEpisodePackageForWorkpiece({
-      workpieceId: episodeId,
-      workspaceId: workspace,
-      episodePackage: ensureLaunchVariantsV2(nextEpisodePackage),
-      eventName: args.eventName,
-      eventPayload: args.eventPayload,
-    });
-    if (!saved.ok) {
-      return { ok: false, error: saved.error };
-    }
-    setEpisodePackage(saved.episodePackage);
-    setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
-    return { ok: true, episodePackage: saved.episodePackage };
-  }
-
-  function setBrollDraftEditing(fieldSetter: (value: string) => void, value: string): void {
-    fieldSetter(value);
-    if (brollSaveState !== "editing") {
-      setBrollSaveState("editing");
-    }
-    setBrollSaveError(null);
-  }
-
-  function setReferenceClipDraftEditing(fieldSetter: (value: string) => void, value: string): void {
-    fieldSetter(value);
-    if (referenceClipSaveState !== "editing") {
-      setReferenceClipSaveState("editing");
-    }
-    setReferenceClipSaveError(null);
   }
 
   function resolveBrollDataVisualSpecFromDraft(intent: EpisodeBrollPlanBeat["motion_intent"]): EpisodeBrollDataVisualSpec | null {
@@ -8096,2909 +6300,6 @@ export default function HearthShell({
         const numeric = Number(value);
         return Number.isFinite(numeric) ? numeric : value;
       });
-  }
-
-  async function onGenerateBrollPlan() {
-    if (isApprovingScript || isAiProcessing || isBrollBusy) return;
-    if (!episodePackage) return;
-    const canonicalScript = await readCanonicalScriptForImageMapGeneration();
-    if (!canonicalScript.ok) {
-      setBrollSaveError(canonicalScript.message);
-      setBrollSaveState("error");
-      return;
-    }
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId) {
-      setBrollSaveError("Select an Episode before generating a B-roll plan.");
-      setBrollSaveState("error");
-      return;
-    }
-    setIsBrollBusy(true);
-    setBrollSaveState("saving");
-    setBrollSaveError(null);
-    try {
-      const plan = buildBrollPlanFromScript({
-        workpieceId: episodeId,
-        scriptText: canonicalScript.text,
-        previousPlan: episodePackage.broll_plan,
-      });
-      const saved = await persistBrollPlan({
-        plan,
-        eventName: "hearth.broll_plan.generated.v1",
-        eventPayload: {
-          beat_count: plan.beats.length,
-          coverage_strength: plan.coverage_strength ?? null,
-          source: canonicalScript.source,
-        },
-      });
-      if (!saved.ok) {
-        setBrollSaveError(saved.error);
-        setBrollSaveState("error");
-        return;
-      }
-      setSelectedBrollBeatId(plan.beats[0]?.id ?? null);
-      setBrollSaveState("saved");
-      setBrollMessage(`Generated ${plan.beats.length} B-roll beats from the canonical script.`);
-    } finally {
-      setIsBrollBusy(false);
-    }
-  }
-
-  async function onSaveBrollBeat() {
-    if (!episodePackage || !selectedBrollBeat) return;
-    if (isBrollBusy) return;
-    const nextMotionIntent = brollMotionIntentDraft as EpisodeBrollPlanBeat["motion_intent"];
-    const nextDataVisualSpec = resolveBrollDataVisualSpecFromDraft(nextMotionIntent);
-    const nextKeywords = brollKeywordsDraft
-      .split(",")
-      .map((entry) => entry.trim().toLowerCase())
-      .filter(Boolean);
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      anchor_text: brollAnchorDraft.trim(),
-      description: brollDescriptionDraft.trim(),
-      motion_intent: nextMotionIntent,
-      asset_category: brollAssetCategoryDraft,
-      priority: brollPriorityDraft as EpisodeBrollPlanBeat["priority"],
-      keywords: nextKeywords,
-      mood: brollMoodDraft.trim() || null,
-      shot_type: (brollShotTypeDraft.trim() || "mixed") as EpisodeBrollPlanBeat["shot_type"],
-      motion_suggestion: brollMotionSuggestionDraft.trim() || null,
-      suggested_duration_ms: Number.isFinite(Number(brollSuggestedDurationDraft))
-        ? Math.max(0, Math.trunc(Number(brollSuggestedDurationDraft)))
-        : null,
-      data_visual_spec: nextDataVisualSpec,
-      placement_hint: (brollPlacementHintDraft.trim() || "first_occurrence") as EpisodeBrollPlanBeat["placement_hint"],
-      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, selectedBrollBeat.external_request?.state ?? "planned", {
-        providerId: brollProviderIdDraft,
-        sourceUrl: brollSourceUrlDraft,
-        providerNote: brollProviderNoteDraft,
-        usageNote: brollUsageNoteDraft,
-        resultMetadata: brollResultMetadataDraft,
-        attachedAssetId: selectedBrollBeat.selected_asset_id ?? null,
-      }),
-      updated_at: new Date().toISOString(),
-      fulfillment_state: selectedBrollBeat.selected_asset_id ? "stale" : selectedBrollBeat.fulfillment_state,
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    setIsBrollBusy(true);
-    setBrollSaveState("saving");
-    setBrollSaveError(null);
-    try {
-      const saved = await persistBrollPlan({
-        plan: nextPlan,
-        eventName: "hearth.broll_plan.beat_updated.v1",
-        eventPayload: { beat_id: selectedBrollBeat.id },
-      });
-      if (!saved.ok) {
-        setBrollSaveError(saved.error);
-        setBrollSaveState("error");
-        return;
-      }
-      setBrollSaveState("saved");
-      setBrollMessage("B-roll beat saved.");
-    } catch {
-      setBrollSaveError("Unable to save this B-roll beat.");
-      setBrollSaveState("error");
-    } finally {
-      setIsBrollBusy(false);
-    }
-  }
-
-  async function onDeleteBrollBeat() {
-    if (!episodePackage || !selectedBrollBeat) return;
-    if (isBrollBusy) return;
-    const confirmed = window.confirm("Delete this B-roll beat?");
-    if (!confirmed) return;
-    const nextBeats = episodePackage.broll_plan.beats.filter((beat) => beat.id !== selectedBrollBeat.id);
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: nextBeats,
-      generated_at: new Date().toISOString(),
-    };
-    setIsBrollBusy(true);
-    setBrollSaveState("saving");
-    setBrollSaveError(null);
-    try {
-      const saved = await persistBrollPlan({
-        plan: nextPlan,
-        eventName: "hearth.broll_plan.beat_deleted.v1",
-        eventPayload: { beat_id: selectedBrollBeat.id },
-      });
-      if (!saved.ok) {
-        setBrollSaveError(saved.error);
-        setBrollSaveState("error");
-        return;
-      }
-      setSelectedBrollBeatId(nextBeats[0]?.id ?? null);
-      setBrollSaveState("saved");
-      setBrollMessage("B-roll beat removed.");
-    } catch {
-      setBrollSaveError("Unable to delete this B-roll beat.");
-      setBrollSaveState("error");
-    } finally {
-      setIsBrollBusy(false);
-    }
-  }
-
-  async function onRegenerateBrollBeat() {
-    if (!episodePackage || !selectedBrollBeat) return;
-    if (isBrollBusy) return;
-    const regenerated = regenerateBrollBeatFromDescription({
-      ...selectedBrollBeat,
-      description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
-    });
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? regenerated : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    setIsBrollBusy(true);
-    setBrollSaveState("saving");
-    setBrollSaveError(null);
-    try {
-      const saved = await persistBrollPlan({
-        plan: nextPlan,
-        eventName: "hearth.broll_plan.beat_regenerated.v1",
-        eventPayload: { beat_id: selectedBrollBeat.id },
-      });
-      if (!saved.ok) {
-        setBrollSaveError(saved.error);
-        setBrollSaveState("error");
-        return;
-      }
-      setBrollSaveState("saved");
-      setBrollMessage("B-roll beat regenerated.");
-    } catch {
-      setBrollSaveError("Unable to regenerate this B-roll beat.");
-      setBrollSaveState("error");
-    } finally {
-      setIsBrollBusy(false);
-    }
-  }
-
-  async function onCopyBrollPrompt() {
-    if (!episodePackage || !selectedBrollBeat) return;
-    const brief = buildBrollBeatBrief({
-      beat: {
-        ...selectedBrollBeat,
-        anchor_text: brollAnchorDraft.trim() || selectedBrollBeat.anchor_text,
-        description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
-      },
-      workpieceId: workpieceId?.trim() ?? "",
-      workpieceTitle: activeDraft?.title ?? null,
-    });
-    const text = formatVisualBriefAsText(brief);
-    const copied = await writeTextToClipboard(text);
-    if (!copied) {
-      setBrollSaveError("Unable to copy prompt to clipboard.");
-      setBrollSaveState("error");
-      return;
-    }
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "brief_exported", {
-        providerId: brollProviderIdDraft,
-        sourceUrl: brollSourceUrlDraft,
-        providerNote: brollProviderNoteDraft,
-        usageNote: brollUsageNoteDraft,
-        resultMetadata: brollResultMetadataDraft,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.brief_copied.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id },
-    });
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
-      setBrollSaveState("error");
-      return;
-    }
-    setBrollMessage("Prompt copied. Manual bridge state updated.");
-    setBrollSaveState("saved");
-  }
-
-  async function onDownloadBrollBrief(format: "text" | "json") {
-    if (!episodePackage || !selectedBrollBeat) return;
-    const brief = buildBrollBeatBrief({
-      beat: {
-        ...selectedBrollBeat,
-        anchor_text: brollAnchorDraft.trim() || selectedBrollBeat.anchor_text,
-        description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
-      },
-      workpieceId: workpieceId?.trim() ?? "",
-      workpieceTitle: activeDraft?.title ?? null,
-    });
-    const suffix = (workpieceId?.slice(0, 8) ?? "episode").toLowerCase();
-    if (format === "json") {
-      downloadTextFile({
-        text: JSON.stringify(brief, null, 2),
-        filename: `broll-brief-${suffix}-${selectedBrollBeat.id}.json`,
-        mimeType: "application/json;charset=utf-8",
-      });
-    } else {
-      downloadTextFile({
-        text: formatVisualBriefAsText(brief),
-        filename: `broll-brief-${suffix}-${selectedBrollBeat.id}.txt`,
-      });
-    }
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "brief_exported", {
-        providerId: brollProviderIdDraft,
-        sourceUrl: brollSourceUrlDraft,
-        providerNote: brollProviderNoteDraft,
-        usageNote: brollUsageNoteDraft,
-        resultMetadata: brollResultMetadataDraft,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.brief_downloaded.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id, format },
-    });
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
-      setBrollSaveState("error");
-      return;
-    }
-    setBrollMessage(format === "json" ? "JSON brief downloaded." : "Brief downloaded.");
-    setBrollSaveState("saved");
-  }
-
-  async function onOpenBrollProvider() {
-    if (!selectedBrollBeat) return;
-    const provider = brollProviders.find((entry) => entry.id === brollProviderIdDraft) ?? null;
-    if (!provider) {
-      setBrollSaveError("Choose a provider before opening a manual bridge.");
-      setBrollSaveState("error");
-      return;
-    }
-    const brief = buildBrollBeatBrief({
-      beat: {
-        ...selectedBrollBeat,
-        anchor_text: brollAnchorDraft.trim() || selectedBrollBeat.anchor_text,
-        description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
-      },
-      workpieceId: workpieceId?.trim() ?? "",
-      workpieceTitle: activeDraft?.title ?? null,
-    });
-    await writeTextToClipboard(formatVisualBriefAsText(brief));
-    if (typeof window !== "undefined") {
-      window.open(provider.launchUrl, "_blank", "noopener,noreferrer");
-    }
-    await onMarkBrollRequestState("sent_external");
-    setBrollMessage(`Opened ${provider.name}. Prompt copied for manual paste.`);
-  }
-
-  async function onMarkBrollRequestState(nextState: EpisodeExternalRequestState) {
-    if (!episodePackage || !selectedBrollBeat) return;
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, nextState, {
-        providerId: brollProviderIdDraft,
-        sourceUrl: brollSourceUrlDraft,
-        providerNote: brollProviderNoteDraft,
-        usageNote: brollUsageNoteDraft,
-        resultMetadata: brollResultMetadataDraft,
-        attachedAssetId: selectedBrollBeat.selected_asset_id ?? null,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.request_state.updated.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id, request_state: nextState },
-    });
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
-      setBrollSaveState("error");
-      return;
-    }
-    setBrollSaveState("saved");
-  }
-
-  async function onClearBrollRequestState() {
-    if (!episodePackage || !selectedBrollBeat) return;
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      external_request: {
-        state: "planned",
-        updated_at: new Date().toISOString(),
-      },
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.request_state.cleared.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id },
-    });
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
-      setBrollSaveState("error");
-      return;
-    }
-    setBrollSaveState("saved");
-    setBrollMessage("Request state cleared.");
-  }
-
-  async function onAttachBrollResultFromUrl() {
-    if (!episodePackage || !selectedBrollBeat) return;
-    const sourceUrl = brollSourceUrlDraft.trim();
-    if (!sourceUrl) {
-      setBrollSaveError("Add a source URL before attaching a result.");
-      setBrollSaveState("error");
-      return;
-    }
-    const candidate = createManualResultCandidate({
-      assetClass: "broll",
-      beatId: selectedBrollBeat.id,
-      sourceLabel: brollSourceLabelDraft || "External provider",
-      sourceUrl,
-      title: brollDescriptionDraft || selectedBrollBeat.description,
-      providerNote: brollProviderNoteDraft,
-      usageNote: brollUsageNoteDraft,
-    });
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      source_type: "external",
-      candidate_assets: [
-        ...(selectedBrollBeat.candidate_assets ?? []).filter((asset) => asset.asset_id !== candidate.asset_id),
-        candidate,
-      ],
-      selected_asset_id: candidate.asset_id,
-      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "asset_attached", {
-        providerId: brollProviderIdDraft,
-        sourceUrl: brollSourceUrlDraft,
-        providerNote: brollProviderNoteDraft,
-        usageNote: brollUsageNoteDraft,
-        resultMetadata: brollResultMetadataDraft,
-        attachedAssetId: candidate.asset_id,
-      }),
-      fulfillment_state: "resolved",
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistBrollPlan({
-      plan: nextPlan,
-      eventName: "hearth.broll_plan.result_url_attached.v1",
-      eventPayload: { beat_id: selectedBrollBeat.id },
-    });
-    if (!saved.ok) {
-      setBrollSaveError(saved.error);
-      setBrollSaveState("error");
-      return;
-    }
-    setBrollSaveState("saved");
-    setBrollMessage("Result URL attached as a classed B-roll candidate.");
-  }
-
-  async function onFindStockForBrollBeat() {
-    if (!episodePackage || !selectedBrollBeat) return;
-    if (isBrollBusy) return;
-    const nextMotionIntent = brollMotionIntentDraft as EpisodeBrollPlanBeat["motion_intent"];
-    const baseBeat = {
-      ...selectedBrollBeat,
-      description: brollDescriptionDraft.trim() || selectedBrollBeat.description,
-      keywords: brollKeywordsDraft
-        .split(",")
-        .map((entry) => entry.trim().toLowerCase())
-        .filter(Boolean),
-      motion_intent: nextMotionIntent,
-      asset_category: brollAssetCategoryDraft,
-      mood: brollMoodDraft.trim() || selectedBrollBeat.mood,
-      data_visual_spec: resolveBrollDataVisualSpecFromDraft(nextMotionIntent),
-    };
-    const stockCandidates = buildStockCandidatesForBrollBeat(baseBeat);
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...baseBeat,
-      source_type: "stock",
-      candidate_assets: stockCandidates,
-      selected_asset_id: stockCandidates[0]?.asset_id ?? null,
-      fulfillment_state: stockCandidates.length > 0 ? "resolved" : "unresolved",
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    setIsBrollBusy(true);
-    setBrollSaveState("saving");
-    setBrollSaveError(null);
-    try {
-      const saved = await persistBrollPlan({
-        plan: nextPlan,
-        eventName: "hearth.broll_plan.stock_candidates.generated.v1",
-        eventPayload: { beat_id: selectedBrollBeat.id, candidate_count: stockCandidates.length },
-      });
-      if (!saved.ok) {
-        setBrollSaveError(saved.error);
-        setBrollSaveState("error");
-        return;
-      }
-      setBrollSaveState("saved");
-      setBrollMessage(`Attached ${stockCandidates.length} stock candidate links.`);
-    } catch {
-      setBrollSaveError("Unable to attach stock candidates for this B-roll beat.");
-      setBrollSaveState("error");
-    } finally {
-      setIsBrollBusy(false);
-    }
-  }
-
-  async function onUploadBrollBeatAsset(file: File) {
-    if (!episodePackage || !selectedBrollBeat) return;
-    if (isBrollBusy) return;
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId) {
-      setBrollSaveError("Select an Episode before uploading B-roll assets.");
-      setBrollSaveState("error");
-      return;
-    }
-    setIsBrollBusy(true);
-    setBrollSaveState("saving");
-    setBrollSaveError(null);
-    try {
-    const uploaded = await uploadBrollBeatAsset({
-      workpieceId: episodeId,
-      beatId: selectedBrollBeat.id,
-      file,
-      source: "upload",
-      assetClass: "broll",
-      sourceLabel: brollSourceLabelDraft,
-      sourceUrl: brollSourceUrlDraft,
-      providerNote: brollProviderNoteDraft,
-      usageNote: brollUsageNoteDraft,
-    });
-      if (!uploaded.ok) {
-        setBrollSaveError(uploaded.error);
-        setBrollSaveState("error");
-        return;
-      }
-    const uploadedCategory: EpisodeBrollMotionAssetCategory = file.type.startsWith("video/")
-      ? "uploaded_video"
-      : "animated_graphic";
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      source_type: "upload",
-      asset_category: uploadedCategory,
-      origin: selectedBrollBeat.origin === "hammer" ? "mixed" : "hearth",
-      candidate_assets: [
-        ...(selectedBrollBeat.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
-        uploaded.candidateAsset,
-      ],
-        external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "asset_attached", {
-          providerId: brollProviderIdDraft,
-          sourceUrl: brollSourceUrlDraft,
-          providerNote: brollProviderNoteDraft,
-          usageNote: brollUsageNoteDraft,
-          resultMetadata: brollResultMetadataDraft,
-          attachedAssetId: uploaded.candidateAsset.asset_id,
-        }),
-        selected_asset_id: uploaded.candidateAsset.asset_id,
-        fulfillment_state: "resolved",
-        updated_at: new Date().toISOString(),
-      };
-      const nextPlan: EpisodeBrollPlan = {
-        ...episodePackage.broll_plan,
-        version: Math.max(1, episodePackage.broll_plan.version + 1),
-        beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-        generated_at: new Date().toISOString(),
-      };
-      const saved = await persistBrollPlan({
-        plan: nextPlan,
-        eventName: "hearth.broll_plan.asset_uploaded.v1",
-        eventPayload: { beat_id: selectedBrollBeat.id, source: "upload" },
-      });
-      if (!saved.ok) {
-        setBrollSaveError(saved.error);
-        setBrollSaveState("error");
-        return;
-      }
-      setBrollSaveState("saved");
-      setBrollMessage("Uploaded asset selected for this B-roll beat.");
-    } catch {
-      setBrollSaveError("Unable to upload this B-roll asset.");
-      setBrollSaveState("error");
-    } finally {
-      setIsBrollBusy(false);
-    }
-  }
-
-  async function onSelectBrollCandidate(candidateId: string) {
-    if (!episodePackage || !selectedBrollBeat) return;
-    if (isBrollBusy) return;
-    if (selectedBrollBeat.selected_asset_id === candidateId) return;
-    const candidate = (selectedBrollBeat.candidate_assets ?? []).find((asset) => asset.asset_id === candidateId) ?? null;
-    if (!candidate) {
-      setBrollSaveError("Selected candidate is no longer attached to this beat.");
-      setBrollSaveState("error");
-      return;
-    }
-    const nextBeat: EpisodeBrollPlanBeat = {
-      ...selectedBrollBeat,
-      source_type: candidate.source,
-      asset_category: candidate.asset_category ?? selectedBrollBeat.asset_category,
-      data_visual_spec: candidate.data_visual_spec ?? selectedBrollBeat.data_visual_spec ?? null,
-      external_request: advanceExternalRequestTracker(selectedBrollBeat.external_request, "resolved", {
-        providerId: brollProviderIdDraft,
-        sourceUrl: candidate.source_url ?? brollSourceUrlDraft,
-        providerNote: candidate.provider_note ?? brollProviderNoteDraft,
-        usageNote: candidate.usage_note ?? brollUsageNoteDraft,
-        resultMetadata: brollResultMetadataDraft,
-        attachedAssetId: candidate.asset_id,
-      }),
-      selected_asset_id: candidate.asset_id,
-      fulfillment_state: "resolved",
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeBrollPlan = {
-      ...episodePackage.broll_plan,
-      version: Math.max(1, episodePackage.broll_plan.version + 1),
-      beats: episodePackage.broll_plan.beats.map((beat) => (beat.id === selectedBrollBeat.id ? nextBeat : beat)),
-      generated_at: new Date().toISOString(),
-    };
-    setIsBrollBusy(true);
-    setBrollSaveState("saving");
-    setBrollSaveError(null);
-    try {
-      const saved = await persistBrollPlan({
-        plan: nextPlan,
-        eventName: "hearth.broll_plan.asset_selected.v1",
-        eventPayload: { beat_id: selectedBrollBeat.id, candidate_id: candidate.asset_id },
-      });
-      if (!saved.ok) {
-        setBrollSaveError(saved.error);
-        setBrollSaveState("error");
-        return;
-      }
-      setBrollSaveState("saved");
-      setBrollMessage("Selected asset attached to B-roll beat.");
-    } catch {
-      setBrollSaveError("Unable to select this B-roll candidate.");
-      setBrollSaveState("error");
-    } finally {
-      setIsBrollBusy(false);
-    }
-  }
-
-  async function onCreateReferenceClipEntry() {
-    if (isReferenceClipBusy) return;
-    if (!episodePackage) return;
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId) {
-      setReferenceClipSaveError("Select an Episode before creating Reference Clips.");
-      setReferenceClipSaveState("error");
-      return;
-    }
-    const baseAnchor = (
-      selectedImageMapEntry?.anchor
-      || selectedBrollBeat?.anchor_text
-      || activeDraft?.title
-      || "New reference clip"
-    ).trim();
-    const created = createReferenceClipPlan({
-      workpieceId: episodeId,
-      anchorText: baseAnchor,
-      description: baseAnchor,
-      format: (referenceClipFormatDraft.trim() || "still") as EpisodeReferenceClipFormat,
-    });
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: [...episodePackage.cdc_plan.entries, created],
-      generated_at: new Date().toISOString(),
-    };
-    setIsReferenceClipBusy(true);
-    setReferenceClipSaveState("saving");
-    setReferenceClipSaveError(null);
-    try {
-      const saved = await persistReferenceClipPlan({
-        plan: nextPlan,
-        eventName: "hearth.cdc_plan.entry_created.v1",
-        eventPayload: {
-          cdc_id: created.id,
-          format: created.format,
-          data_type: created.data_type,
-        },
-      });
-      if (!saved.ok) {
-        setReferenceClipSaveError(saved.error);
-        setReferenceClipSaveState("error");
-        return;
-      }
-      setSelectedReferenceClipEntryId(created.id);
-      setReferenceClipSaveState("saved");
-      setReferenceClipMessage("Reference Clip created.");
-    } catch {
-      setReferenceClipSaveError("Unable to create this reference clip.");
-      setReferenceClipSaveState("error");
-    } finally {
-      setIsReferenceClipBusy(false);
-    }
-  }
-
-  async function onSaveReferenceClipEntry() {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    if (isReferenceClipBusy) return;
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      anchor_text: referenceClipAnchorDraft.trim(),
-      placement_hint: (referenceClipPlacementHintDraft.trim() || "first_occurrence") as EpisodeContextualDataCompositePlan["placement_hint"],
-      format: (referenceClipFormatDraft.trim() || "still") as EpisodeReferenceClipFormat,
-      data_type: (referenceClipDataTypeDraft.trim() || "quantitative") as EpisodeReferenceClipDataType,
-      context_type: (referenceClipContextTypeDraft.trim() || "historical") as EpisodeReferenceClipContextType,
-      tone: (referenceClipToneDraft.trim() || "neutral") as EpisodeReferenceClipTone,
-      motion_level: (referenceClipMotionLevelDraft.trim() || "static") as EpisodeReferenceClipMotionLevel,
-      description: referenceClipDescriptionDraft.trim(),
-      background_context_description: referenceClipBackgroundContextDraft.trim(),
-      foreground_data_description: referenceClipForegroundDataDraft.trim(),
-      visual_style: normalizeHearthVisualStyle(referenceClipVisualStyleDraft),
-      chart_type: (referenceClipChartTypeDraft.trim() || "line") as EpisodeReferenceClipChartType,
-      title: referenceClipTitleDraft.trim() || null,
-      labels: referenceClipLabelsDraft
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean),
-      values: resolveReferenceClipValuesFromDraft(),
-      emphasis_key: referenceClipEmphasisKeyDraft.trim() || null,
-      source_type: referenceClipSourceTypeDraft as EpisodeContextualDataCompositePlan["source_type"],
-      external_request: advanceExternalRequestTracker(
-        selectedReferenceClipEntry.external_request,
-        selectedReferenceClipEntry.external_request?.state ?? "planned",
-        {
-          providerId: referenceClipProviderIdDraft,
-          sourceUrl: referenceClipSourceUrlDraft,
-          providerNote: referenceClipProviderNoteDraft,
-          usageNote: referenceClipUsageNoteDraft,
-          resultMetadata: referenceClipResultMetadataDraft,
-          attachedAssetId: selectedReferenceClipEntry.selected_asset_id ?? null,
-        },
-      ),
-      origin: referenceClipSourceTypeDraft === "hammer_upload" && selectedReferenceClipEntry.origin === "hearth"
-        ? "mixed"
-        : selectedReferenceClipEntry.origin,
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    setIsReferenceClipBusy(true);
-    setReferenceClipSaveState("saving");
-    setReferenceClipSaveError(null);
-    try {
-      const saved = await persistReferenceClipPlan({
-        plan: nextPlan,
-        eventName: "hearth.cdc_plan.entry_updated.v1",
-        eventPayload: { cdc_id: selectedReferenceClipEntry.id },
-      });
-      if (!saved.ok) {
-        setReferenceClipSaveError(saved.error);
-        setReferenceClipSaveState("error");
-        return;
-      }
-      setReferenceClipSaveState("saved");
-      setReferenceClipMessage("Reference Clip saved.");
-    } catch {
-      setReferenceClipSaveError("Unable to save this reference clip.");
-      setReferenceClipSaveState("error");
-    } finally {
-      setIsReferenceClipBusy(false);
-    }
-  }
-
-  async function onDeleteReferenceClipEntry() {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    if (isReferenceClipBusy) return;
-    const confirmed = window.confirm("Delete this Reference Clip?");
-    if (!confirmed) return;
-    const nextEntries = episodePackage.cdc_plan.entries.filter((entry) => entry.id !== selectedReferenceClipEntry.id);
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: nextEntries,
-      generated_at: new Date().toISOString(),
-    };
-    setIsReferenceClipBusy(true);
-    setReferenceClipSaveState("saving");
-    setReferenceClipSaveError(null);
-    try {
-      const saved = await persistReferenceClipPlan({
-        plan: nextPlan,
-        eventName: "hearth.cdc_plan.entry_deleted.v1",
-        eventPayload: { cdc_id: selectedReferenceClipEntry.id },
-      });
-      if (!saved.ok) {
-        setReferenceClipSaveError(saved.error);
-        setReferenceClipSaveState("error");
-        return;
-      }
-      setSelectedReferenceClipEntryId(nextEntries[0]?.id ?? null);
-      setReferenceClipSaveState("saved");
-      setReferenceClipMessage("Reference Clip removed.");
-    } catch {
-      setReferenceClipSaveError("Unable to delete this reference clip.");
-      setReferenceClipSaveState("error");
-    } finally {
-      setIsReferenceClipBusy(false);
-    }
-  }
-
-  async function onRegenerateReferenceClipEntryStub() {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    if (isReferenceClipBusy) return;
-    const nextDescription = referenceClipDescriptionDraft.trim() || selectedReferenceClipEntry.description || selectedReferenceClipEntry.anchor_text;
-    const signals = inferReferenceClipSuitabilitySignals(nextDescription);
-    const inferredDataType: EpisodeReferenceClipDataType = signals.includes("geographic")
-      ? "geographic"
-      : signals.includes("over_time")
-        ? "timeline"
-        : signals.includes("comparison")
-          ? "comparison"
-          : signals.includes("statistics")
-            ? "quantitative"
-            : "categorical";
-    const inferredContextType: EpisodeReferenceClipContextType = signals.includes("geographic") ? "location" : "historical";
-    const inferredChartType: EpisodeReferenceClipChartType = inferredDataType === "timeline"
-      ? "timeline"
-      : inferredDataType === "geographic"
-        ? "map"
-        : inferredDataType === "comparison"
-          ? "comparison"
-          : inferredDataType === "categorical"
-            ? "bar"
-            : "line";
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      description: nextDescription,
-      data_type: inferredDataType,
-      context_type: inferredContextType,
-      chart_type: inferredChartType,
-      tone: signals.includes("policy_impact") ? "investigative" : (signals.includes("trend") ? "analytical" : selectedReferenceClipEntry.tone),
-      motion_level: (referenceClipFormatDraft === "animated" || referenceClipFormatDraft === "hybrid") ? "full_animation" : "static",
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    setIsReferenceClipBusy(true);
-    setReferenceClipSaveState("saving");
-    setReferenceClipSaveError(null);
-    try {
-      const saved = await persistReferenceClipPlan({
-        plan: nextPlan,
-        eventName: "hearth.cdc_plan.entry_regenerated_stub.v1",
-        eventPayload: {
-          cdc_id: selectedReferenceClipEntry.id,
-          signal_count: signals.length,
-        },
-      });
-      if (!saved.ok) {
-        setReferenceClipSaveError(saved.error);
-        setReferenceClipSaveState("error");
-        return;
-      }
-      setReferenceClipSaveState("saved");
-      setReferenceClipMessage("Reference Clip guidance refreshed.");
-    } catch {
-      setReferenceClipSaveError("Unable to regenerate reference clip guidance.");
-      setReferenceClipSaveState("error");
-    } finally {
-      setIsReferenceClipBusy(false);
-    }
-  }
-
-  async function onCopyReferenceClipPrompt() {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    const brief = buildReferenceClipBrief({
-      entry: {
-        ...selectedReferenceClipEntry,
-        anchor_text: referenceClipAnchorDraft.trim() || selectedReferenceClipEntry.anchor_text,
-        description: referenceClipDescriptionDraft.trim() || selectedReferenceClipEntry.description,
-      },
-      workpieceId: workpieceId?.trim() ?? "",
-      workpieceTitle: activeDraft?.title ?? null,
-    });
-    const text = formatVisualBriefAsText(brief);
-    const copied = await writeTextToClipboard(text);
-    if (!copied) {
-      setReferenceClipSaveError("Unable to copy prompt to clipboard.");
-      setReferenceClipSaveState("error");
-      return;
-    }
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "brief_exported", {
-        providerId: referenceClipProviderIdDraft,
-        sourceUrl: referenceClipSourceUrlDraft,
-        providerNote: referenceClipProviderNoteDraft,
-        usageNote: referenceClipUsageNoteDraft,
-        resultMetadata: referenceClipResultMetadataDraft,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistReferenceClipPlan({
-      plan: nextPlan,
-      eventName: "hearth.cdc_plan.brief_copied.v1",
-      eventPayload: { cdc_id: selectedReferenceClipEntry.id },
-    });
-    if (!saved.ok) {
-      setReferenceClipSaveError(saved.error);
-      setReferenceClipSaveState("error");
-      return;
-    }
-    setReferenceClipSaveState("saved");
-    setReferenceClipMessage("Prompt copied. Manual bridge state updated.");
-  }
-
-  async function onDownloadReferenceClipBrief(format: "text" | "json") {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    const brief = buildReferenceClipBrief({
-      entry: {
-        ...selectedReferenceClipEntry,
-        anchor_text: referenceClipAnchorDraft.trim() || selectedReferenceClipEntry.anchor_text,
-        description: referenceClipDescriptionDraft.trim() || selectedReferenceClipEntry.description,
-      },
-      workpieceId: workpieceId?.trim() ?? "",
-      workpieceTitle: activeDraft?.title ?? null,
-    });
-    const suffix = (workpieceId?.slice(0, 8) ?? "episode").toLowerCase();
-    if (format === "json") {
-      downloadTextFile({
-        text: JSON.stringify(brief, null, 2),
-        filename: `reference-clip-brief-${suffix}-${selectedReferenceClipEntry.id}.json`,
-        mimeType: "application/json;charset=utf-8",
-      });
-    } else {
-      downloadTextFile({
-        text: formatVisualBriefAsText(brief),
-        filename: `reference-clip-brief-${suffix}-${selectedReferenceClipEntry.id}.txt`,
-      });
-    }
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "brief_exported", {
-        providerId: referenceClipProviderIdDraft,
-        sourceUrl: referenceClipSourceUrlDraft,
-        providerNote: referenceClipProviderNoteDraft,
-        usageNote: referenceClipUsageNoteDraft,
-        resultMetadata: referenceClipResultMetadataDraft,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistReferenceClipPlan({
-      plan: nextPlan,
-      eventName: "hearth.cdc_plan.brief_downloaded.v1",
-      eventPayload: { cdc_id: selectedReferenceClipEntry.id, format },
-    });
-    if (!saved.ok) {
-      setReferenceClipSaveError(saved.error);
-      setReferenceClipSaveState("error");
-      return;
-    }
-    setReferenceClipSaveState("saved");
-    setReferenceClipMessage(format === "json" ? "JSON brief downloaded." : "Brief downloaded.");
-  }
-
-  async function onOpenReferenceClipProvider() {
-    if (!selectedReferenceClipEntry) return;
-    const provider = referenceClipProviders.find((entry) => entry.id === referenceClipProviderIdDraft) ?? null;
-    if (!provider) {
-      setReferenceClipSaveError("Choose a provider before opening a manual bridge.");
-      setReferenceClipSaveState("error");
-      return;
-    }
-    const brief = buildReferenceClipBrief({
-      entry: {
-        ...selectedReferenceClipEntry,
-        anchor_text: referenceClipAnchorDraft.trim() || selectedReferenceClipEntry.anchor_text,
-        description: referenceClipDescriptionDraft.trim() || selectedReferenceClipEntry.description,
-      },
-      workpieceId: workpieceId?.trim() ?? "",
-      workpieceTitle: activeDraft?.title ?? null,
-    });
-    await writeTextToClipboard(formatVisualBriefAsText(brief));
-    if (typeof window !== "undefined") {
-      window.open(provider.launchUrl, "_blank", "noopener,noreferrer");
-    }
-    await onMarkReferenceClipRequestState("sent_external");
-    setReferenceClipMessage(`Opened ${provider.name}. Prompt copied for manual paste.`);
-  }
-
-  async function onMarkReferenceClipRequestState(nextState: EpisodeExternalRequestState) {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, nextState, {
-        providerId: referenceClipProviderIdDraft,
-        sourceUrl: referenceClipSourceUrlDraft,
-        providerNote: referenceClipProviderNoteDraft,
-        usageNote: referenceClipUsageNoteDraft,
-        resultMetadata: referenceClipResultMetadataDraft,
-        attachedAssetId: selectedReferenceClipEntry.selected_asset_id ?? null,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistReferenceClipPlan({
-      plan: nextPlan,
-      eventName: "hearth.cdc_plan.request_state.updated.v1",
-      eventPayload: { cdc_id: selectedReferenceClipEntry.id, request_state: nextState },
-    });
-    if (!saved.ok) {
-      setReferenceClipSaveError(saved.error);
-      setReferenceClipSaveState("error");
-      return;
-    }
-    setReferenceClipSaveState("saved");
-  }
-
-  async function onClearReferenceClipRequestState() {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      external_request: {
-        state: "planned",
-        updated_at: new Date().toISOString(),
-      },
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistReferenceClipPlan({
-      plan: nextPlan,
-      eventName: "hearth.cdc_plan.request_state.cleared.v1",
-      eventPayload: { cdc_id: selectedReferenceClipEntry.id },
-    });
-    if (!saved.ok) {
-      setReferenceClipSaveError(saved.error);
-      setReferenceClipSaveState("error");
-      return;
-    }
-    setReferenceClipSaveState("saved");
-    setReferenceClipMessage("Request state cleared.");
-  }
-
-  async function onAttachReferenceClipResultFromUrl() {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    const sourceUrl = referenceClipSourceUrlDraft.trim();
-    if (!sourceUrl) {
-      setReferenceClipSaveError("Add a source URL before attaching a result.");
-      setReferenceClipSaveState("error");
-      return;
-    }
-    const candidate = createManualResultCandidate({
-      assetClass: "reference_clip",
-      beatId: selectedReferenceClipEntry.id,
-      sourceLabel: referenceClipSourceLabelDraft || "External provider",
-      sourceUrl,
-      title: referenceClipTitleDraft || selectedReferenceClipEntry.description,
-      providerNote: referenceClipProviderNoteDraft,
-      usageNote: referenceClipUsageNoteDraft,
-    });
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      source_type: "external",
-      candidate_assets: [
-        ...(selectedReferenceClipEntry.candidate_assets ?? []).filter((asset) => asset.asset_id !== candidate.asset_id),
-        candidate,
-      ],
-      selected_asset_id: candidate.asset_id,
-      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "asset_attached", {
-        providerId: referenceClipProviderIdDraft,
-        sourceUrl: referenceClipSourceUrlDraft,
-        providerNote: referenceClipProviderNoteDraft,
-        usageNote: referenceClipUsageNoteDraft,
-        resultMetadata: referenceClipResultMetadataDraft,
-        attachedAssetId: candidate.asset_id,
-      }),
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    const saved = await persistReferenceClipPlan({
-      plan: nextPlan,
-      eventName: "hearth.cdc_plan.result_url_attached.v1",
-      eventPayload: { cdc_id: selectedReferenceClipEntry.id },
-    });
-    if (!saved.ok) {
-      setReferenceClipSaveError(saved.error);
-      setReferenceClipSaveState("error");
-      return;
-    }
-    setReferenceClipSaveState("saved");
-    setReferenceClipMessage("Result URL attached as a classed reference clip candidate.");
-  }
-
-  async function onUploadReferenceClipAsset(file: File) {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    if (isReferenceClipBusy) return;
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId) {
-      setReferenceClipSaveError("Select an Episode before uploading Reference Clip assets.");
-      setReferenceClipSaveState("error");
-      return;
-    }
-    setIsReferenceClipBusy(true);
-    setReferenceClipSaveState("saving");
-    setReferenceClipSaveError(null);
-    try {
-      const uploaded = await uploadBrollBeatAsset({
-        workpieceId: episodeId,
-        beatId: selectedReferenceClipEntry.id,
-        file,
-        source: "upload",
-        assetClass: "reference_clip",
-        sourceLabel: referenceClipSourceLabelDraft,
-        sourceUrl: referenceClipSourceUrlDraft,
-        providerNote: referenceClipProviderNoteDraft,
-        usageNote: referenceClipUsageNoteDraft,
-      });
-      if (!uploaded.ok) {
-        setReferenceClipSaveError(uploaded.error);
-        setReferenceClipSaveState("error");
-        return;
-      }
-      const nextEntry: EpisodeContextualDataCompositePlan = {
-        ...selectedReferenceClipEntry,
-        source_type: "upload",
-        origin: selectedReferenceClipEntry.origin === "hammer" ? "mixed" : "hearth",
-        candidate_assets: [
-          ...(selectedReferenceClipEntry.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
-          uploaded.candidateAsset,
-        ],
-        external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "asset_attached", {
-          providerId: referenceClipProviderIdDraft,
-          sourceUrl: referenceClipSourceUrlDraft,
-          providerNote: referenceClipProviderNoteDraft,
-          usageNote: referenceClipUsageNoteDraft,
-          resultMetadata: referenceClipResultMetadataDraft,
-          attachedAssetId: uploaded.candidateAsset.asset_id,
-        }),
-        selected_asset_id: uploaded.candidateAsset.asset_id,
-        updated_at: new Date().toISOString(),
-      };
-      const nextPlan: EpisodeReferenceClipPlan = {
-        ...episodePackage.cdc_plan,
-        version: Math.max(1, episodePackage.cdc_plan.version + 1),
-        entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-        generated_at: new Date().toISOString(),
-      };
-      const saved = await persistReferenceClipPlan({
-        plan: nextPlan,
-        eventName: "hearth.cdc_plan.asset_uploaded.v1",
-        eventPayload: { cdc_id: selectedReferenceClipEntry.id, source: "upload" },
-      });
-      if (!saved.ok) {
-        setReferenceClipSaveError(saved.error);
-        setReferenceClipSaveState("error");
-        return;
-      }
-      setReferenceClipSaveState("saved");
-      setReferenceClipMessage("Uploaded asset selected for this reference clip.");
-    } catch {
-      setReferenceClipSaveError("Unable to upload this reference clip asset.");
-      setReferenceClipSaveState("error");
-    } finally {
-      setIsReferenceClipBusy(false);
-    }
-  }
-
-  async function onSelectReferenceClipCandidate(candidateId: string) {
-    if (!episodePackage || !selectedReferenceClipEntry) return;
-    if (isReferenceClipBusy) return;
-    if (selectedReferenceClipEntry.selected_asset_id === candidateId) return;
-    const candidate = (selectedReferenceClipEntry.candidate_assets ?? []).find((asset) => asset.asset_id === candidateId) ?? null;
-    if (!candidate) {
-      setReferenceClipSaveError("Selected candidate is no longer attached to this reference clip.");
-      setReferenceClipSaveState("error");
-      return;
-    }
-    const nextEntry: EpisodeContextualDataCompositePlan = {
-      ...selectedReferenceClipEntry,
-      source_type: candidate.source,
-      origin: candidate.source === "hammer_upload" && selectedReferenceClipEntry.origin === "hearth"
-        ? "mixed"
-        : selectedReferenceClipEntry.origin,
-      external_request: advanceExternalRequestTracker(selectedReferenceClipEntry.external_request, "resolved", {
-        providerId: referenceClipProviderIdDraft,
-        sourceUrl: candidate.source_url ?? referenceClipSourceUrlDraft,
-        providerNote: candidate.provider_note ?? referenceClipProviderNoteDraft,
-        usageNote: candidate.usage_note ?? referenceClipUsageNoteDraft,
-        resultMetadata: referenceClipResultMetadataDraft,
-        attachedAssetId: candidate.asset_id,
-      }),
-      selected_asset_id: candidate.asset_id,
-      updated_at: new Date().toISOString(),
-    };
-    const nextPlan: EpisodeReferenceClipPlan = {
-      ...episodePackage.cdc_plan,
-      version: Math.max(1, episodePackage.cdc_plan.version + 1),
-      entries: episodePackage.cdc_plan.entries.map((entry) => (entry.id === selectedReferenceClipEntry.id ? nextEntry : entry)),
-      generated_at: new Date().toISOString(),
-    };
-    setIsReferenceClipBusy(true);
-    setReferenceClipSaveState("saving");
-    setReferenceClipSaveError(null);
-    try {
-      const saved = await persistReferenceClipPlan({
-        plan: nextPlan,
-        eventName: "hearth.cdc_plan.asset_selected.v1",
-        eventPayload: { cdc_id: selectedReferenceClipEntry.id, candidate_id: candidate.asset_id },
-      });
-      if (!saved.ok) {
-        setReferenceClipSaveError(saved.error);
-        setReferenceClipSaveState("error");
-        return;
-      }
-      setReferenceClipSaveState("saved");
-      setReferenceClipMessage("Selected asset attached to reference clip.");
-    } catch {
-      setReferenceClipSaveError("Unable to select this reference clip candidate.");
-      setReferenceClipSaveState("error");
-    } finally {
-      setIsReferenceClipBusy(false);
-    }
-  }
-
-  async function onGenerateEpisodeMediaMapFromPlans() {
-    if (!episodePackage) return;
-    if (isMediaMapBusy) return;
-    const scriptVersionId = approvedScriptVersion ? String(approvedScriptVersion) : null;
-    let fallbackImageEntries: EpisodeImageMapEntry[] | null = null;
-    let fallbackCanonicalScriptText: string | null = null;
-    let fallbackImageMode = false;
-    const needsTypeFallback = (
-      mediaMapGenerationScope === "full_media_plan"
-      || mediaMapGenerationScope === "images_broll"
-      || mediaMapGenerationScope === "images_reference_clips"
-    ) && (
-      (mediaMapGenerationScope !== "images_reference_clips" && episodePackage.broll_plan.beats.length === 0)
-      || (mediaMapGenerationScope !== "images_broll" && episodePackage.cdc_plan.entries.length === 0)
-    );
-    if (episodePackage.image_map.entries.length === 0 || needsTypeFallback) {
-      const canonicalScript = await readCanonicalScriptForImageMapGeneration();
-      if (canonicalScript.ok) {
-        fallbackCanonicalScriptText = canonicalScript.text;
-        if (episodePackage.image_map.entries.length === 0) {
-          const generated = generateImageMapEntriesFromScript(canonicalScript.text);
-          if (generated.length > 0) {
-            fallbackImageEntries = generated;
-            fallbackImageMode = true;
-          }
-        }
-      }
-    }
-    const nextMap = buildMediaMapFromExistingPlans(
-      episodePackage,
-      scriptVersionId,
-      mediaMapGenerationScope,
-      fallbackImageEntries,
-      fallbackCanonicalScriptText,
-    );
-    setIsMediaMapBusy(true);
-    setMediaMapSaveState("saving");
-    setMediaMapSaveError(null);
-    try {
-      const saved = await persistMediaMap({
-        map: nextMap,
-        eventName: "hearth.media_map.generated_from_plans.v1",
-        eventPayload: {
-          entry_count: nextMap.entries.length,
-          script_version_id: scriptVersionId,
-          scope: mediaMapGenerationScope,
-        },
-      });
-      if (!saved.ok) {
-        setMediaMapSaveError(saved.error);
-        setMediaMapSaveState("error");
-        return;
-      }
-      setSelectedMediaMapEntryId(nextMap.entries[0]?.id ?? null);
-      setMediaMapSaveState("saved");
-      const brollCount = nextMap.entries.filter((entry) => entry.final_media_kind === "b_roll").length;
-      const referenceClipCount = nextMap.entries.filter((entry) => entry.final_media_kind === "contextual_data_composite").length;
-      setMediaMapMessage(
-        `${fallbackImageMode ? "Bootstrapped from canonical script. " : ""}Generated ${nextMap.entries.length} media map entries using scope: ${mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}).`,
-      );
-    } catch {
-      setMediaMapSaveError("Unable to generate Episode Media Map.");
-      setMediaMapSaveState("error");
-    } finally {
-      setIsMediaMapBusy(false);
-    }
-  }
-
-  async function onAddMediaMapEntry() {
-    if (!episodePackage) return;
-    if (isMediaMapBusy) return;
-    const nowIso = new Date().toISOString();
-    const entry: EpisodeMediaMapEntry = {
-      id: createMediaMapEntryId(),
-      final_media_kind: "image",
-      anchor: {
-        mode: "phrase_match",
-        target: "",
-      },
-      timing: {
-        in_offset_sec: 0,
-        duration_sec: 6,
-      },
-      description: "",
-      intent: "establish_context",
-      source: {
-        status: "unresolved",
-        asset_id: null,
-      },
-      confidence: "medium",
-      fulfillment_status: "planned",
-      fulfillment_path: null,
-      optional: false,
-      critical: false,
-      stale: false,
-      created_at: nowIso,
-      updated_at: nowIso,
-    };
-    const nextMap: EpisodeMediaMap = {
-      ...episodePackage.media_map,
-      script_version_id: approvedScriptVersion ? String(approvedScriptVersion) : episodePackage.media_map.script_version_id,
-      status: "draft",
-      version: Math.max(1, episodePackage.media_map.version + 1),
-      entries: [...episodePackage.media_map.entries, entry],
-      generated_at: nowIso,
-    };
-    setIsMediaMapBusy(true);
-    setMediaMapSaveState("saving");
-    setMediaMapSaveError(null);
-    try {
-      const saved = await persistMediaMap({
-        map: nextMap,
-        eventName: "hearth.media_map.entry_created.v1",
-        eventPayload: { entry_id: entry.id },
-      });
-      if (!saved.ok) {
-        setMediaMapSaveError(saved.error);
-        setMediaMapSaveState("error");
-        return;
-      }
-      setSelectedMediaMapEntryId(entry.id);
-      setMediaMapSaveState("saved");
-      setMediaMapMessage("Media map entry created.");
-    } catch {
-      setMediaMapSaveError("Unable to create media map entry.");
-      setMediaMapSaveState("error");
-    } finally {
-      setIsMediaMapBusy(false);
-    }
-  }
-
-  async function onSaveMediaMapEntry() {
-    if (!episodePackage || !selectedMediaMapEntry) return;
-    if (isMediaMapBusy) return;
-    const nowIso = new Date().toISOString();
-    const nextEntry: EpisodeMediaMapEntry = {
-      ...selectedMediaMapEntry,
-      final_media_kind: (
-        mediaMapTypeDraft === "b_roll" || mediaMapTypeDraft === "contextual_data_composite"
-          ? mediaMapTypeDraft
-          : "image"
-      ),
-      anchor: {
-        mode: (
-          mediaMapAnchorModeDraft === "line_anchor"
-          || mediaMapAnchorModeDraft === "phrase_match"
-          || mediaMapAnchorModeDraft === "speaker_turn"
-          || mediaMapAnchorModeDraft === "section_marker"
-          || mediaMapAnchorModeDraft === "absolute_time"
-            ? mediaMapAnchorModeDraft
-            : "phrase_match"
-        ),
-        target: mediaMapAnchorTargetDraft.trim(),
-      },
-      timing: {
-        in_offset_sec: normalizeMediaMapNumber(mediaMapInOffsetDraft, selectedMediaMapEntry.timing.in_offset_sec),
-        duration_sec: normalizeMediaMapNumber(mediaMapDurationDraft, selectedMediaMapEntry.timing.duration_sec),
-      },
-      description: mediaMapDescriptionDraft.trim(),
-      intent: mediaMapIntentDraft.trim(),
-      source: {
-        status: (
-          mediaMapSourceStatusDraft === "selected"
-          || mediaMapSourceStatusDraft === "attached"
-            ? mediaMapSourceStatusDraft
-            : "unresolved"
-        ),
-        asset_id: mediaMapSourceAssetIdDraft.trim() || null,
-      },
-      confidence: (
-        mediaMapConfidenceDraft === "high"
-        || mediaMapConfidenceDraft === "low"
-          ? mediaMapConfidenceDraft
-          : "medium"
-      ),
-      fulfillment_status: (
-        mediaMapSourceStatusDraft === "selected" || mediaMapSourceStatusDraft === "attached"
-          ? "resolved"
-          : selectedMediaMapEntry.fulfillment_status
-      ),
-      fulfillment_path: (
-        mediaMapTypeDraft === "b_roll"
-          ? "motion_broll"
-          : mediaMapTypeDraft === "contextual_data_composite"
-            ? "reference_clip"
-            : "image"
-      ),
-      optional: mediaMapOptionalDraft,
-      critical: mediaMapCriticalDraft,
-      stale: false,
-      updated_at: nowIso,
-    };
-    const nextMap: EpisodeMediaMap = {
-      ...episodePackage.media_map,
-      script_version_id: approvedScriptVersion ? String(approvedScriptVersion) : episodePackage.media_map.script_version_id,
-      status: (
-        episodePackage.media_map.status === "activated"
-        || episodePackage.media_map.status === "fulfilling"
-        || episodePackage.media_map.status === "fulfilled"
-      )
-        ? "needs_attention"
-        : episodePackage.media_map.status,
-      version: Math.max(1, episodePackage.media_map.version + 1),
-      entries: episodePackage.media_map.entries.map((entry) => (entry.id === selectedMediaMapEntry.id ? nextEntry : entry)),
-      generated_at: nowIso,
-    };
-    setIsMediaMapBusy(true);
-    setMediaMapSaveState("saving");
-    setMediaMapSaveError(null);
-    try {
-      const saved = await persistMediaMap({
-        map: nextMap,
-        eventName: "hearth.media_map.entry_updated.v1",
-        eventPayload: { entry_id: selectedMediaMapEntry.id },
-      });
-      if (!saved.ok) {
-        setMediaMapSaveError(saved.error);
-        setMediaMapSaveState("error");
-        return;
-      }
-      setMediaMapSaveState("saved");
-      setMediaMapMessage("Media map entry saved.");
-    } catch {
-      setMediaMapSaveError("Unable to save media map entry.");
-      setMediaMapSaveState("error");
-    } finally {
-      setIsMediaMapBusy(false);
-    }
-  }
-
-  async function onDeleteMediaMapEntry() {
-    if (!episodePackage || !selectedMediaMapEntry) return;
-    if (isMediaMapBusy) return;
-    if (!window.confirm("Delete this media map entry?")) return;
-    const nextEntries = episodePackage.media_map.entries.filter((entry) => entry.id !== selectedMediaMapEntry.id);
-    const nextMap: EpisodeMediaMap = {
-      ...episodePackage.media_map,
-      status: (
-        episodePackage.media_map.status === "activated"
-        || episodePackage.media_map.status === "fulfilling"
-        || episodePackage.media_map.status === "fulfilled"
-      )
-        ? "needs_attention"
-        : episodePackage.media_map.status,
-      version: Math.max(1, episodePackage.media_map.version + 1),
-      entries: nextEntries,
-      generated_at: new Date().toISOString(),
-    };
-    setIsMediaMapBusy(true);
-    setMediaMapSaveState("saving");
-    setMediaMapSaveError(null);
-    try {
-      const saved = await persistMediaMap({
-        map: nextMap,
-        eventName: "hearth.media_map.entry_deleted.v1",
-        eventPayload: { entry_id: selectedMediaMapEntry.id },
-      });
-      if (!saved.ok) {
-        setMediaMapSaveError(saved.error);
-        setMediaMapSaveState("error");
-        return;
-      }
-      setSelectedMediaMapEntryId(nextEntries[0]?.id ?? null);
-      setMediaMapSaveState("saved");
-      setMediaMapMessage("Media map entry removed.");
-    } catch {
-      setMediaMapSaveError("Unable to delete media map entry.");
-      setMediaMapSaveState("error");
-    } finally {
-      setIsMediaMapBusy(false);
-    }
-  }
-
-  async function onActivateEpisodeMediaMap() {
-    if (!episodePackage) return;
-    if (isMediaMapBusy) return;
-    const activated = activateEpisodeMediaMapForFulfillment({
-      ...episodePackage.media_map,
-      script_version_id: approvedScriptVersion ? String(approvedScriptVersion) : episodePackage.media_map.script_version_id,
-    });
-    setIsMediaMapBusy(true);
-    setMediaMapSaveState("saving");
-    setMediaMapSaveError(null);
-    try {
-      const saved = await persistMediaMap({
-        map: activated,
-        eventName: "hearth.media_map.activated.v1",
-        eventPayload: {
-          entry_count: activated.entries.length,
-          script_version_id: activated.script_version_id,
-          queued_count: activated.entries.filter((entry) => entry.fulfillment_status === "queued").length,
-        },
-      });
-      if (!saved.ok) {
-        setMediaMapSaveError(saved.error);
-        setMediaMapSaveState("error");
-        return;
-      }
-      setMediaMapSaveState("saved");
-      setMediaMapMessage("Media plan activated. Beats routed to image, motion B-roll, and Reference Clip fulfillment paths.");
-    } catch {
-      setMediaMapSaveError("Unable to activate Episode Media Map.");
-      setMediaMapSaveState("error");
-    } finally {
-      setIsMediaMapBusy(false);
-    }
-  }
-
-  async function onCreateThumbnailConcept() {
-    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
-    if (!episodePackage) return;
-
-    const label = thumbnailConceptLabelDraft.trim();
-    const promptText = thumbnailConceptPromptDraft.trim();
-    if (!label || !promptText) {
-      setThumbnailGenerateError("Concept label and prompt are required.");
-      return;
-    }
-
-    const concept: EpisodeThumbnailConcept = {
-      id: createThumbnailClientId("thumb-concept"),
-      label,
-      prompt_text: promptText,
-      style_preset: normalizeHearthVisualStyle(thumbnailConceptStyleDraft),
-      title_style: normalizeEpisodeThumbnailTitleStyle(thumbnailTitleStyleDraft),
-      brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? defaultThumbnailBrandTemplateId,
-    };
-
-    const nextEpisodePackage: EpisodePackageV2 = {
-      ...episodePackage,
-      thumbnail: {
-        ...episodePackage.thumbnail,
-        concepts: [...episodePackage.thumbnail.concepts, concept],
-      },
-    };
-
-    setIsThumbnailConceptSaving(true);
-    setThumbnailGenerateError(null);
-    try {
-      const saved = await persistThumbnailEpisodePackage(
-        nextEpisodePackage,
-        "hearth.thumbnail.concept.created.v1",
-        { concept_id: concept.id },
-      );
-      if (!saved) return;
-      setSelectedThumbnailConceptId(concept.id);
-      setThumbnailPromptOverride("");
-    } finally {
-      setIsThumbnailConceptSaving(false);
-    }
-  }
-
-  async function onSaveSelectedThumbnailConcept() {
-    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
-    if (!episodePackage || !selectedThumbnailConceptId) return;
-
-    const label = thumbnailConceptLabelDraft.trim();
-    const promptText = thumbnailConceptPromptDraft.trim();
-    if (!label || !promptText) {
-      setThumbnailGenerateError("Concept label and prompt are required.");
-      return;
-    }
-
-    const nextConcepts = episodePackage.thumbnail.concepts.map((concept) => (
-      concept.id === selectedThumbnailConceptId
-        ? {
-            ...concept,
-            label,
-            prompt_text: promptText,
-            style_preset: normalizeHearthVisualStyle(thumbnailConceptStyleDraft),
-            title_style: normalizeEpisodeThumbnailTitleStyle(thumbnailTitleStyleDraft),
-            brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? null,
-          }
-        : concept
-    ));
-
-    const nextEpisodePackage: EpisodePackageV2 = {
-      ...episodePackage,
-      thumbnail: {
-        ...episodePackage.thumbnail,
-        concepts: nextConcepts,
-      },
-    };
-
-    setIsThumbnailConceptSaving(true);
-    setThumbnailGenerateError(null);
-    try {
-      await persistThumbnailEpisodePackage(
-        nextEpisodePackage,
-        "hearth.thumbnail.concept.updated.v1",
-        { concept_id: selectedThumbnailConceptId },
-      );
-    } finally {
-      setIsThumbnailConceptSaving(false);
-    }
-  }
-
-  async function onDeleteSelectedThumbnailConcept() {
-    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
-    if (!episodePackage || !selectedThumbnailConceptId) return;
-    const confirmed = window.confirm("Delete this concept and its linked versions?");
-    if (!confirmed) return;
-
-    const nextConcepts = episodePackage.thumbnail.concepts.filter((concept) => concept.id !== selectedThumbnailConceptId);
-    const nextVersions = episodePackage.thumbnail.versions.filter((version) => version.concept_id !== selectedThumbnailConceptId);
-    const nextPrimary = nextVersions.some((version) => version.id === episodePackage.thumbnail.primary_version_id)
-      ? episodePackage.thumbnail.primary_version_id
-      : nextVersions[0]?.id ?? null;
-    const nextSelectedConceptId = nextConcepts[0]?.id ?? "";
-    const nextSelectedVersionId = nextPrimary ?? nextVersions[0]?.id ?? null;
-
-    const nextEpisodePackage: EpisodePackageV2 = {
-      ...episodePackage,
-      thumbnail: {
-        ...episodePackage.thumbnail,
-        concepts: nextConcepts,
-        versions: nextVersions,
-        primary_version_id: nextPrimary,
-      },
-    };
-
-    setIsThumbnailConceptSaving(true);
-    setThumbnailGenerateError(null);
-    try {
-      const saved = await persistThumbnailEpisodePackage(
-        nextEpisodePackage,
-        "hearth.thumbnail.concept.deleted.v1",
-        { concept_id: selectedThumbnailConceptId },
-      );
-      if (!saved) return;
-      setSelectedThumbnailConceptId(nextSelectedConceptId);
-      setSelectedThumbnailVersionId(nextSelectedVersionId);
-    } finally {
-      setIsThumbnailConceptSaving(false);
-    }
-  }
-
-  async function onSetPrimaryThumbnailVersion(versionId: string) {
-    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
-    if (!episodePackage) return;
-    const version = episodePackage.thumbnail.versions.find((entry) => entry.id === versionId);
-    if (!version || version.status !== "ready") return;
-
-    const nextEpisodePackage: EpisodePackageV2 = {
-      ...episodePackage,
-      thumbnail: {
-        ...episodePackage.thumbnail,
-        primary_version_id: versionId,
-      },
-    };
-
-    const saved = await persistThumbnailEpisodePackage(
-      nextEpisodePackage,
-      "hearth.thumbnail.primary.set.v1",
-      { version_id: versionId },
-    );
-    if (!saved) return;
-    setSelectedThumbnailConceptId(version.concept_id);
-    setSelectedThumbnailVersionId(versionId);
-  }
-
-  function onSelectThumbnailTitle(titleId: string): void {
-    setSelectedThumbnailTitleId(titleId);
-    setThumbnailPairingError(null);
-  }
-
-  function onSelectThumbnailVersion(versionId: string): void {
-    const version = thumbnailVersions.find((entry) => entry.id === versionId) ?? null;
-    if (version) {
-      setSelectedThumbnailConceptId(version.concept_id);
-    }
-    setSelectedThumbnailVersionId(versionId);
-    setThumbnailPairingError(null);
-  }
-
-  function onCreateLaunchVariant(): void {
-    setSelectedLaunchVariantId(null);
-    setThumbnailPairingError(null);
-  }
-
-  function onSelectLaunchVariant(variantId: string): void {
-    const variant = launchVariants.find((entry) => entry.id === variantId) ?? null;
-    if (!variant) return;
-    const version = thumbnailVersions.find((entry) => entry.id === variant.thumbnail_version_id) ?? null;
-    if (version) {
-      setSelectedThumbnailConceptId(version.concept_id);
-      setSelectedThumbnailVersionId(version.id);
-    }
-    setSelectedThumbnailTitleId(variant.title_id);
-    setSelectedLaunchVariantId(variant.id);
-    setThumbnailPairingError(null);
-  }
-
-  async function onSaveLaunchVariant() {
-    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
-    if (!episodePackage) return;
-
-    const titleId = selectedThumbnailTitleId?.trim() ?? "";
-    const versionId = selectedThumbnailVersionId?.trim() ?? "";
-    if (!titleId || !versionId) {
-      setThumbnailPairingError("Choose both a title and a thumbnail version before saving a launch variant.");
-      return;
-    }
-
-    const title = metadataTitlesDraft.find((entry) => entry.id === titleId) ?? null;
-    if (!title || !title.text.trim()) {
-      setThumbnailPairingError("Choose a populated title before saving a launch variant.");
-      return;
-    }
-
-    const version = thumbnailVersions.find((entry) => entry.id === versionId) ?? null;
-    if (!version) {
-      setThumbnailPairingError("Select a valid thumbnail version before saving a launch variant.");
-      return;
-    }
-
-    const existingVariant = selectedLaunchVariantId
-      ? episodePackage.launch_variants.find((entry) => entry.id === selectedLaunchVariantId) ?? null
-      : null;
-    const nowIso = new Date().toISOString();
-    const status = launchVariantStatusDraft;
-    const notes = launchVariantNotesDraft.trim() || null;
-    const lastTestedAt = status === "tested" || status === "winner"
-      ? existingVariant?.last_tested_at ?? nowIso
-      : existingVariant?.last_tested_at ?? null;
-    const winnerSelectedAt = status === "winner"
-      ? existingVariant?.winner_selected_at ?? nowIso
-      : null;
-    const nextVariant: EpisodeLaunchVariant = existingVariant
-      ? {
-          ...existingVariant,
-          title_id: titleId,
-          thumbnail_version_id: versionId,
-          updated_at: nowIso,
-          status,
-          notes,
-          last_tested_at: lastTestedAt,
-          winner_selected_at: winnerSelectedAt,
-        }
-      : {
-          id: createThumbnailClientId("launch-variant"),
-          title_id: titleId,
-          thumbnail_version_id: versionId,
-          created_at: nowIso,
-          updated_at: nowIso,
-          status,
-          notes,
-          last_tested_at: lastTestedAt,
-          winner_selected_at: winnerSelectedAt,
-        };
-
-    const nextEpisodePackage: EpisodePackageV2 = {
-      ...episodePackage,
-      launch_variants: existingVariant
-        ? episodePackage.launch_variants.map((entry) => (entry.id === nextVariant.id ? nextVariant : entry))
-        : [...episodePackage.launch_variants, nextVariant],
-    };
-
-    setThumbnailPairingError(null);
-    const saved = await persistThumbnailEpisodePackage(
-      nextEpisodePackage,
-      existingVariant ? "hearth.launch.variant.updated.v1" : "hearth.launch.variant.created.v1",
-      {
-        launch_variant_id: nextVariant.id,
-        title_id: titleId,
-        thumbnail_version_id: versionId,
-        status,
-      },
-    );
-    if (!saved) {
-      setThumbnailPairingError("Unable to save launch variant.");
-      return;
-    }
-    setSelectedLaunchVariantId(nextVariant.id);
-  }
-
-  async function onGenerateThumbnailVersion(options?: {
-    forceConceptId?: string | null;
-    forcePrompt?: string | null;
-  }) {
-    if (isAiProcessing || isApprovingScript || isThumbnailGenerating || isThumbnailUploading) return;
-
-    const episodeId = workpieceId?.trim() ?? "";
-    const workspace = workspaceId?.trim() ?? "";
-    if (!episodeId || !workspace || !episodePackage) {
-      setThumbnailGenerateError("Select an Episode before generating thumbnails.");
-      return;
-    }
-    if (aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
-      setThumbnailGenerateError("No AI credits remaining.");
-      return;
-    }
-
-    const conceptId = options?.forceConceptId ?? (selectedThumbnailConceptId.trim() || null);
-    const resolvedConcept = conceptId
-      ? episodePackage.thumbnail.concepts.find((concept) => concept.id === conceptId) ?? null
-      : null;
-    const promptOverride = options?.forcePrompt ?? (thumbnailPromptOverride.trim() || null);
-    const effectiveStylePreset = conceptId && conceptId === selectedThumbnailConceptId
-      ? normalizeHearthVisualStyle(thumbnailConceptStyleDraft)
-      : normalizeHearthVisualStyle(resolvedConcept?.style_preset ?? null);
-    const usedPrompt = (promptOverride || resolvedConcept?.prompt_text || "").trim();
-    if (!conceptId && !promptOverride) {
-      setThumbnailGenerateError("Select a concept or provide a prompt override.");
-      return;
-    }
-    if (!usedPrompt) {
-      setThumbnailGenerateError("Prompt is empty.");
-      return;
-    }
-
-    const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
-    const confirmed = alwaysApproveSpend
-      ? true
-      : window.confirm("Generate thumbnail? This will spend credits.");
-    if (!confirmed) return;
-
-    setIsThumbnailGenerating(true);
-    setThumbnailGenerateError(null);
-    setThumbnailUploadError(null);
-    setAiRuntimeWarning(null);
-    try {
-      const generated = await generateEpisodeThumbnail({
-        workspaceId: workspace,
-        workpieceId: episodeId,
-        conceptId,
-        prompt: promptOverride,
-        preset: effectiveStylePreset,
-        aspect: thumbnailAspect,
-        confirmSpend: confirmed,
-        alwaysApproveAiSpend: alwaysApproveSpend,
-      });
-      if (!generated.ok) {
-        setThumbnailGenerateError(generated.error);
-        const failedVersionId = createThumbnailClientId("thumb-failed-version");
-        const failedVersion: EpisodeThumbnailVersion = {
-          id: failedVersionId,
-          concept_id: conceptId ?? resolvedConcept?.id ?? "concept-failed",
-          created_at: new Date().toISOString(),
-          provider: "openai",
-          prompt: usedPrompt,
-          asset_id: `failed:${failedVersionId}`,
-          status: "failed",
-          error: generated.error,
-          provider_request_id: null,
-          asset_path: null,
-          mime_type: null,
-        };
-        const failedEpisodePackage: EpisodePackageV2 = {
-          ...episodePackage,
-          thumbnail: {
-            ...episodePackage.thumbnail,
-            versions: [...episodePackage.thumbnail.versions, failedVersion],
-          },
-        };
-        const savedFailed = await persistThumbnailEpisodePackage(
-          failedEpisodePackage,
-          "hearth.thumbnail.version.failed.v1",
-          { version_id: failedVersion.id, concept_id: failedVersion.concept_id },
-        );
-        if (savedFailed) {
-          setSelectedThumbnailVersionId(failedVersion.id);
-        }
-        publishForgeNotice({
-          job: "job-failed",
-          title: "Thumbnail generation failed",
-          message: generated.error,
-          severity: "error",
-        });
-        return;
-      }
-
-      let nextEpisodePackage = generated.updatedEpisodePackage;
-      const refreshedImageMap = await getWorkpieceImageMap(episodeId);
-      if (refreshedImageMap.ok) {
-        nextEpisodePackage = replaceEpisodePackageImageMap(
-          generated.updatedEpisodePackage,
-          refreshedImageMap.imageMap.entries,
-        );
-        setImageMapMetadataUpdatedAt(refreshedImageMap.imageMap.metadataUpdatedAt);
-      }
-      setEpisodePackage(nextEpisodePackage);
-      setSelectedThumbnailConceptId(generated.version.concept_id);
-      setSelectedThumbnailVersionId(generated.version.id);
-      setThumbnailPromptOverride("");
-      if (typeof generated.tokenBalance === "number") {
-        setAiTokenBalance(generated.tokenBalance);
-      }
-      if (generated.creditsWarning) {
-        setAiRuntimeWarning(generated.creditsWarning);
-      }
-      publishForgeNotice({
-        job: "image-generated",
-        title: "Thumbnail ready",
-        message: "Hearth finished generating a thumbnail for this episode.",
-        severity: "success",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Thumbnail generation failed.";
-      setThumbnailGenerateError(message);
-      publishForgeNotice({
-        job: "job-failed",
-        title: "Thumbnail generation failed",
-        message,
-        severity: "error",
-      });
-    } finally {
-      setIsThumbnailGenerating(false);
-    }
-  }
-
-  async function onRetryFailedThumbnailVersion(version: EpisodeThumbnailVersion) {
-    await onGenerateThumbnailVersion({
-      forceConceptId: version.concept_id,
-      forcePrompt: version.prompt,
-    });
-  }
-
-  async function onUploadThumbnailBrandLogo(file: File) {
-    const template = selectedThumbnailBrandTemplate;
-    const workspace = template?.workspaceId?.trim() ?? "";
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!workspace || !episodeId || !template) {
-      setThumbnailBrandLogoError("Select a brand template before uploading a logo.");
-      return;
-    }
-
-    setIsThumbnailBrandLogoUploading(true);
-    setThumbnailBrandLogoError(null);
-    setThumbnailBrandLogoStatus(null);
-    try {
-      const uploaded = await uploadWorkspaceThumbnailBrandLogo({
-        workpieceId: episodeId,
-        templateId: template.id,
-        file,
-      });
-      if (!uploaded.ok) {
-        setThumbnailBrandLogoError(uploaded.error);
-        return;
-      }
-
-      const updatedTemplateJson = {
-        ...template.templateJson,
-        logo: {
-          ...template.templateJson.logo,
-          workpiece_id: episodeId,
-          asset_path: uploaded.assetPath,
-          mime_type: uploaded.mimeType,
-        },
-      };
-
-      const updated = await updateWorkspaceThumbnailBrandTemplate(workspace, template.id, {
-        templateJson: updatedTemplateJson,
-      });
-      if (!updated.ok) {
-        setThumbnailBrandLogoError(updated.error);
-        return;
-      }
-
-      setThumbnailBrandTemplates((prev) => prev.map((item) => (
-        item.id === updated.data.id ? updated.data : item
-      )));
-      setThumbnailBrandLogoError(null);
-      setThumbnailBrandLogoStatus(`Logo uploaded for "${updated.data.name}".`);
-      publishForgeNotice({
-        job: "image-generated",
-        title: "Brand logo uploaded",
-        message: "Thumbnail branding logo was saved successfully.",
-        severity: "success",
-      });
-    } finally {
-      setIsThumbnailBrandLogoUploading(false);
-    }
-  }
-
-  async function onRemoveThumbnailBrandLogo() {
-    const template = selectedThumbnailBrandTemplate;
-    const workspace = template?.workspaceId?.trim() ?? "";
-    if (!workspace || !template) {
-      setThumbnailBrandLogoError("Select a brand template before removing a logo.");
-      return;
-    }
-
-    setIsThumbnailBrandLogoUploading(true);
-    setThumbnailBrandLogoError(null);
-    setThumbnailBrandLogoStatus(null);
-    try {
-      const updated = await updateWorkspaceThumbnailBrandTemplate(workspace, template.id, {
-        templateJson: {
-          ...template.templateJson,
-          logo: {
-            ...template.templateJson.logo,
-            workpiece_id: null,
-            asset_path: null,
-            mime_type: null,
-          },
-        },
-      });
-      if (!updated.ok) {
-        setThumbnailBrandLogoError(updated.error);
-        return;
-      }
-
-      setThumbnailBrandTemplates((prev) => prev.map((item) => (
-        item.id === updated.data.id ? updated.data : item
-      )));
-      setThumbnailBrandLogoDataUrl(null);
-      setThumbnailBrandLogoError(null);
-      setThumbnailBrandLogoStatus(`Logo removed from "${updated.data.name}".`);
-    } finally {
-      setIsThumbnailBrandLogoUploading(false);
-    }
-  }
-
-  async function onUploadThumbnailImage(file: File) {
-    if (isThumbnailUploading || isThumbnailGenerating || isThumbnailConceptSaving) return;
-    if (!episodePackage) return;
-
-    const episodeId = workpieceId?.trim() ?? "";
-    const workspace = workspaceId?.trim() ?? "";
-    if (!episodeId || !workspace) {
-      setThumbnailUploadError("Select an Episode before uploading.");
-      return;
-    }
-
-    const selectedConcept = selectedThumbnailConceptId
-      ? episodePackage.thumbnail.concepts.find((concept) => concept.id === selectedThumbnailConceptId) ?? null
-      : null;
-
-    let effectiveConcept = selectedConcept;
-    let workingEpisodePackage = episodePackage;
-    if (!effectiveConcept) {
-      effectiveConcept = {
-        id: createThumbnailClientId("thumb-concept-upload"),
-        label: "Uploaded",
-        prompt_text: "Uploaded image",
-        style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
-        title_style: DEFAULT_TITLE_STYLE,
-        brand_template_id: defaultThumbnailBrandTemplateId,
-      };
-      workingEpisodePackage = {
-        ...episodePackage,
-        thumbnail: {
-          ...episodePackage.thumbnail,
-          concepts: [...episodePackage.thumbnail.concepts, effectiveConcept],
-        },
-      };
-    }
-
-    setIsThumbnailUploading(true);
-    setThumbnailUploadError(null);
-    setThumbnailGenerateError(null);
-    try {
-      const uploaded = await uploadThumbnailImageVersion({
-        workpieceId: episodeId,
-        concept: effectiveConcept,
-        file,
-      });
-      if (!uploaded.ok) {
-        setThumbnailUploadError(uploaded.error);
-        return;
-      }
-
-      const nextEpisodePackage: EpisodePackageV2 = {
-        ...workingEpisodePackage,
-        thumbnail: {
-          ...workingEpisodePackage.thumbnail,
-          versions: [...workingEpisodePackage.thumbnail.versions, uploaded.version],
-          primary_version_id: uploaded.version.id,
-        },
-      };
-
-      const saved = await persistThumbnailEpisodePackage(
-        nextEpisodePackage,
-        "hearth.thumbnail.upload.version.saved.v1",
-        { version_id: uploaded.version.id, concept_id: uploaded.version.concept_id },
-      );
-      if (!saved) return;
-      setSelectedThumbnailConceptId(uploaded.version.concept_id);
-      setSelectedThumbnailVersionId(uploaded.version.id);
-    } finally {
-      setIsThumbnailUploading(false);
-    }
-  }
-
-  function resolveImageMapEntriesForExport(): EpisodeImageMapEntry[] {
-    if (!episodePackage) return [];
-    if (!selectedImageMapEntryId) return episodePackage.image_map.entries;
-    const selected = episodePackage.image_map.entries.find((entry) => entry.id === selectedImageMapEntryId);
-    if (!selected) return episodePackage.image_map.entries;
-    if (imageMapSaveState !== "editing" && imageMapSaveState !== "saving") {
-      return episodePackage.image_map.entries;
-    }
-
-    const nextAnchor = imageMapAnchorDraft.trim();
-    if (!nextAnchor) return episodePackage.image_map.entries;
-    return episodePackage.image_map.entries.map((entry) => {
-      if (entry.id !== selectedImageMapEntryId) return entry;
-      return {
-        ...entry,
-        anchor: nextAnchor,
-        description: imageMapDescriptionDraft,
-        visual_intent: imageMapDescriptionDraft,
-        prompt_basis: imageMapDescriptionDraft,
-        style_preset: normalizeHearthVisualStyle(imageMapStyleDraft),
-        intent: imageMapIntentDraft.trim().toLowerCase(),
-        source_type: imageMapSourceTypeDraft.trim().toLowerCase(),
-        anchor_scope: imageMapAnchorScopeDraft,
-        visual_priority: imageMapVisualPriorityDraft,
-        visual_type: imageMapVisualTypeDraft,
-        section_intent_note: imageMapSectionIntentNoteDraft.trim() || null,
-        placement_hint: imageMapPlacementHintDraft.trim() || null,
-      };
-    });
-  }
-
-  async function readCanonicalScriptForImageMapGeneration(): Promise<{
-    ok: true;
-    text: string;
-    source: "primary_script" | "saved_draft";
-    includesUnsavedLocalEdits: boolean;
-  } | {
-    ok: false;
-    message: string;
-  }> {
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId) {
-      return { ok: false, message: "Select an Episode before generating visuals." };
-    }
-
-    const primaryScript = await readHearthPrimaryScript(episodeId);
-    const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(episodeId));
-    const preferredDraft = activeDraft?.id
-      ? canonicalDrafts.find((draft) => draft.id === activeDraft.id) ?? null
-      : null;
-    const latestDraft = preferredDraft ?? canonicalDrafts
-      .slice()
-      .sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0))[0]
-      ?? null;
-    const canonicalChoice = chooseCanonicalImageMapScriptSource({
-      primaryText: primaryScript.ok ? primaryScript.data.text : null,
-      primaryUpdatedAtMs: primaryScript.ok ? (parseIsoTimestamp(primaryScript.data.updatedAt) ?? 0) : null,
-      drafts: canonicalDrafts,
-      preferredDraftId: activeDraft?.id ?? null,
-    });
-
-    if (canonicalChoice) {
-      return {
-        ok: true,
-        text: canonicalChoice.text,
-        source: canonicalChoice.source,
-        includesUnsavedLocalEdits: Boolean(
-          activeDraft?.body
-          && activeDraft.body.trim()
-          && activeDraft.body !== canonicalChoice.text
-        ),
-      };
-    }
-
-    if (!latestDraft?.body.trim()) {
-      return { ok: false, message: "No canonical script found for this workpiece yet." };
-    }
-
-    return {
-      ok: true,
-      text: latestDraft.body,
-      source: "saved_draft",
-      includesUnsavedLocalEdits: Boolean(
-        activeDraft?.body && activeDraft.body.trim() && activeDraft.body !== latestDraft.body,
-      ),
-    };
-  }
-
-  function onStartImageMapReanchor() {
-    if (imageMapReanchorDisabledReason) {
-      setImageMapReanchorError(imageMapReanchorDisabledReason);
-      return;
-    }
-    setMode("focus");
-    setShowManualDraft(false);
-    setShowScriptPanel(true);
-    setImageMapReanchorError(null);
-    setImageMapCandidateError(null);
-    setIsImageMapReanchorMode(true);
-  }
-
-  function onToggleVisualScriptMode() {
-    if (!hasApprovedScript || !approvedScriptVersion) return;
-    setIsVisualScriptMode((prev) => {
-      const next = !prev;
-      if (next) {
-        setMode("focus");
-        setShowManualDraft(false);
-        setShowScriptPanel(true);
-      }
-      return next;
-    });
-  }
-
-  function onCancelImageMapReanchor() {
-    if (isImageMapReanchorSaving) return;
-    setIsImageMapReanchorMode(false);
-    setImageMapReanchorError(null);
-  }
-
-  async function onRepairImageMapNearestParagraph() {
-    if (!episodePackage || !selectedImageMapEntry) return;
-    if (canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
-      setImageMapReanchorError("Current canonical script is not ready to repair anchors.");
-      return;
-    }
-    const selection = resolveNearestParagraphSelection(
-      canonicalImageMapScriptState.text,
-      selectedImageMapEntry.script_anchor,
-    );
-    if (!selection) {
-      setImageMapReanchorError("No deterministic nearest paragraph repair target is available.");
-      return;
-    }
-    await onPickImageMapReanchor(selection);
-  }
-
-  async function onConvertImageMapToGlobalVisual() {
-    if (!episodePackage || !selectedImageMapEntry) return;
-    setImageMapSaveState("saving");
-    setImageMapSaveError(null);
-    setImageMapReanchorError(null);
-    const saved = await persistImageMapEntries({
-      entries: episodePackage.image_map.entries.map((entry) => (
-        entry.id === selectedImageMapEntry.id
-          ? {
-              ...entry,
-              anchor_scope: "global",
-              script_anchor: null,
-              status: "draft",
-            }
-          : entry
-      )),
-    });
-    if (!saved.ok) {
-      setImageMapSaveState("error");
-      setImageMapSaveError(saved.error);
-      return;
-    }
-    setImageMapSaveState("saved");
-    setImageMapExportMessage("Visual anchor converted to global intent.");
-  }
-
-  async function onLeaveImageMapOrphaned() {
-    if (!episodePackage || !selectedImageMapEntry) return;
-    setImageMapSaveState("saving");
-    setImageMapSaveError(null);
-    setImageMapReanchorError(null);
-    const saved = await persistImageMapEntries({
-      entries: episodePackage.image_map.entries.map((entry) => (
-        entry.id === selectedImageMapEntry.id
-          ? {
-              ...entry,
-              anchor_scope: "orphaned",
-              script_anchor: null,
-              status: "draft",
-            }
-          : entry
-      )),
-    });
-    if (!saved.ok) {
-      setImageMapSaveState("error");
-      setImageMapSaveError(saved.error);
-      return;
-    }
-    setImageMapSaveState("saved");
-    setImageMapExportMessage("Visual anchor left orphaned for manual review.");
-  }
-
-  async function onPickImageMapReanchor(selection: {
-    paragraphId: string;
-    sentenceStart: number;
-    sentenceEnd: number;
-  }) {
-    if (!episodePackage || !selectedImageMapEntry) return;
-    if (imageMapReanchorDisabledReason) {
-      setImageMapReanchorError(imageMapReanchorDisabledReason);
-      return;
-    }
-    if (canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
-      setImageMapReanchorError("Current canonical script is not ready to re-anchor yet.");
-      return;
-    }
-
-    const nextAnchor = buildExactScriptAnchorFromSelection(canonicalImageMapScriptState.text, selection);
-    if (!nextAnchor) {
-      setImageMapReanchorError("Unable to build an exact anchor from that script selection.");
-      return;
-    }
-
-    const nextEntry = reanchorImageMapEntry(selectedImageMapEntry, canonicalImageMapScriptState.text, selection);
-    if (!nextEntry) {
-      setImageMapReanchorError("Unable to re-anchor this visual beat.");
-      return;
-    }
-
-    setIsImageMapReanchorSaving(true);
-    setImageMapSaveState("saving");
-    setImageMapSaveError(null);
-    setImageMapReanchorError(null);
-    try {
-      const saved = await persistImageMapEntries({
-        entries: episodePackage.image_map.entries.map((entry) => (
-          entry.id === selectedImageMapEntry.id
-            ? {
-                ...nextEntry,
-                anchor_scope: "attached",
-                script_anchor: nextAnchor,
-              }
-            : entry
-        )),
-      });
-
-      if (!saved.ok) {
-        setImageMapSaveState("error");
-        setImageMapSaveError(saved.error);
-        setImageMapReanchorError(saved.error);
-        return;
-      }
-
-      setImageMapSaveState("saved");
-      setImageMapCandidateError(null);
-      setImageMapCandidateSelectionError(null);
-      setImageMapExportMessage("Visual beat re-anchored to the current canonical script.");
-      setIsImageMapReanchorMode(false);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to re-anchor this visual beat.";
-      setImageMapSaveState("error");
-      setImageMapSaveError(message);
-      setImageMapReanchorError(message);
-    } finally {
-      setIsImageMapReanchorSaving(false);
-    }
-  }
-
-  async function onGenerateImageMapCandidates(mode: "ai" | "stock" = "ai") {
-    if (isAiProcessing || isApprovingScript || isImageMapCandidateGenerating) return;
-    if (!episodePackage || !selectedImageMapEntry) return;
-
-    const episodeId = workpieceId?.trim() ?? "";
-    const workspace = workspaceId?.trim() ?? "";
-    if (!episodeId || !workspace) {
-      setImageMapCandidateError("Select an Episode before generating still candidates.");
-      return;
-    }
-    if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
-      setImageMapCandidateError("Save the image-map entry before generating candidates.");
-      return;
-    }
-    if (aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
-      setImageMapCandidateError("No AI credits remaining.");
-      return;
-    }
-
-    let expectedMetadataUpdatedAt = imageMapMetadataUpdatedAt;
-
-    const canonicalScript = await readCanonicalScriptForImageMapGeneration();
-    if (!canonicalScript.ok) {
-      setImageMapCandidateError(canonicalScript.message);
-      return;
-    }
-
-    const exactAnchorAssessment = assessImageMapScriptAnchor(canonicalScript.text, selectedImageMapEntry.script_anchor);
-    const effectiveScriptAnchor = exactAnchorAssessment.exactAnchor;
-    if (!effectiveScriptAnchor) {
-      setMode("focus");
-      setShowManualDraft(false);
-      setShowScriptPanel(true);
-      setIsImageMapReanchorMode(true);
-      setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation. Use Re-anchor to bind it to the current canonical script.");
-      return;
-    }
-
-    const context = resolveImageMapAnchorContext(canonicalScript.text, effectiveScriptAnchor);
-
-    const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
-    const confirmed = alwaysApproveSpend
-      ? true
-      : window.confirm(
-          mode === "stock"
-            ? "Find stock-style still candidates for this visual beat? This will spend AI credits."
-            : "Generate two still candidates for this visual beat? This will spend AI credits.",
-        );
-    if (!confirmed) return;
-
-    const requestedSourceType = mode === "stock" ? "stock" : "ai";
-    if (selectedImageMapEntry.source_type !== requestedSourceType) {
-      const updatedEntries = episodePackage.image_map.entries.map((entry) => (
-        entry.id === selectedImageMapEntry.id
-          ? {
-              ...entry,
-              source_type: requestedSourceType,
-              origin: "hearth" as const,
-            }
-          : entry
-      ));
-      const sourceSaved = await persistImageMapEntries({ entries: updatedEntries });
-      if (!sourceSaved.ok) {
-        setImageMapCandidateError(sourceSaved.error);
-        return;
-      }
-      expectedMetadataUpdatedAt = sourceSaved.metadataUpdatedAt;
-      setImageMapSourceTypeDraft(requestedSourceType);
-    }
-
-    setIsImageMapCandidateGenerating(true);
-    setImageMapCandidateError(null);
-    setImageMapCandidateSelectionError(null);
-    setAiRuntimeWarning(null);
-    try {
-      const requestCandidateGeneration = (metadataUpdatedAt: string | null | undefined) => (
-        generateWorkpieceImageMapCandidates({
-          workpieceId: episodeId,
-          workspaceId: workspace,
-          imageMapEntryId: selectedImageMapEntry.id,
-          expectedMetadataUpdatedAt: metadataUpdatedAt,
-          contextBefore: context.before,
-          contextAfter: context.after,
-          aspect: thumbnailAspect,
-          confirmSpend: confirmed,
-          alwaysApproveAiSpend: alwaysApproveSpend,
-        })
-      );
-
-      let generated = await requestCandidateGeneration(expectedMetadataUpdatedAt);
-
-      // Resolve one stale-write race automatically by retrying against the latest
-      // metadata stamp after we refresh the canonical image map snapshot.
-      if (!generated.ok && generated.reason === "conflict" && generated.latest) {
-        if (episodePackage) {
-          setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.latest.entries));
-        }
-        setImageMapMetadataUpdatedAt(generated.latest.metadataUpdatedAt);
-        generated = await requestCandidateGeneration(generated.latest.metadataUpdatedAt);
-      }
-
-      if (!generated.ok) {
-        const failureMessage = generated.error
-          ?? (generated.reason === "conflict"
-            ? "Image map changed since last load. Reloaded the latest canonical state."
-            : "Still-candidate generation failed.");
-        if (generated.reason === "conflict" && generated.latest && episodePackage) {
-          setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.latest.entries));
-          setImageMapMetadataUpdatedAt(generated.latest.metadataUpdatedAt);
-        }
-        setImageMapCandidateError(failureMessage);
-        publishForgeNotice({
-          job: "job-failed",
-          title: "Timeline image generation failed",
-          message: failureMessage,
-          severity: generated.reason === "conflict" ? "warning" : "error",
-        });
-        return;
-      }
-
-      if (episodePackage) {
-        setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.imageMap.entries));
-      }
-      setImageMapMetadataUpdatedAt(generated.imageMap.metadataUpdatedAt);
-      setImageMapCandidateSelectionError(null);
-      setImageMapExportMessage(
-        mode === "stock"
-          ? `Found ${generated.generatedAssets.length} stock-style still candidates for the selected visual beat.`
-          : `Generated ${generated.generatedAssets.length} still candidates for the selected visual beat.`,
-      );
-      if (typeof generated.tokenBalance === "number") {
-        setAiTokenBalance(generated.tokenBalance);
-      }
-      if (generated.creditsWarning) {
-        setAiRuntimeWarning(generated.creditsWarning);
-      }
-      publishForgeNotice({
-        job: "image-generated",
-        title: mode === "stock" ? "Stock candidates ready" : "Timeline images ready",
-        message: `${mode === "stock" ? "Found" : "Generated"} ${generated.generatedAssets.length} still candidate${generated.generatedAssets.length === 1 ? "" : "s"} for the selected visual beat.`,
-        severity: "success",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Still-candidate generation failed.";
-      setImageMapCandidateError(message);
-      publishForgeNotice({
-        job: "job-failed",
-        title: "Timeline image generation failed",
-        message,
-        severity: "error",
-      });
-    } finally {
-      setIsImageMapCandidateGenerating(false);
-    }
-  }
-
-  async function onSelectImageMapCandidate(candidateAssetId: string) {
-    if (!episodePackage || !selectedImageMapEntry) return;
-    if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
-      setImageMapCandidateSelectionError("Save or finish editing this visual beat before selecting a still candidate.");
-      return;
-    }
-
-    const workspace = workspaceId?.trim() ?? "";
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!workspace || !episodeId) {
-      setImageMapCandidateSelectionError("Workspace or workpiece is missing.");
-      return;
-    }
-
-    if (selectedImageMapEntry.selected_asset_id === candidateAssetId) {
-      setImageMapCandidateSelectionError(null);
-      return;
-    }
-
-    setIsImageMapCandidateSelecting(true);
-    setImageMapCandidateSelectionError(null);
-    try {
-      const selected = await selectWorkpieceImageMapCandidate({
-        workpieceId: episodeId,
-        workspaceId: workspace,
-        imageMapEntryId: selectedImageMapEntry.id,
-        candidateAssetId,
-        expectedMetadataUpdatedAt: imageMapMetadataUpdatedAt,
-        currentImageMap: {
-          workpieceId: episodeId,
-          workspaceId: workspace,
-          entries: episodePackage.image_map.entries,
-          metadataUpdatedAt: imageMapMetadataUpdatedAt,
-          asset: null,
-        },
-      });
-
-      if (!selected.ok) {
-        const latest = selected.reason === "conflict" ? selected.latest ?? null : null;
-        if (latest) {
-          setEpisodePackage((prev) => (
-            prev ? replaceEpisodePackageImageMap(prev, latest.entries) : prev
-          ));
-          setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
-        }
-        setImageMapCandidateSelectionError(
-          selected.error
-            ?? (selected.reason === "candidate_not_attached"
-              ? "That still candidate is no longer attached to this visual beat."
-              : selected.reason === "entry_not_found"
-                ? "This visual beat no longer exists in the canonical image map."
-                : selected.reason === "conflict"
-                  ? "Image map changed since last load. Reloaded the latest canonical state."
-                  : "Unable to save the selected still candidate.")
-        );
-        return;
-      }
-
-      setEpisodePackage((prev) => (
-        prev ? replaceEpisodePackageImageMap(prev, selected.imageMap.entries) : prev
-      ));
-      setImageMapMetadataUpdatedAt(selected.imageMap.metadataUpdatedAt);
-      setImageMapCandidateSelectionError(null);
-      setImageMapExportMessage("Selected still candidate saved canonically for this visual beat.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to save the selected still candidate.";
-      setImageMapCandidateSelectionError(message);
-    } finally {
-      setIsImageMapCandidateSelecting(false);
-    }
-  }
-
-  async function onUploadImageMapAsset(file: File) {
-    if (!episodePackage || !selectedImageMapEntry) return;
-    if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
-      setImageMapCandidateSelectionError("Save or finish editing this visual beat before uploading an asset.");
-      return;
-    }
-    const workspace = workspaceId?.trim() ?? "";
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!workspace || !episodeId) {
-      setImageMapCandidateSelectionError("Workspace or workpiece is missing.");
-      return;
-    }
-
-    setIsImageMapCandidateSelecting(true);
-    setImageMapCandidateSelectionError(null);
-    setImageMapCandidateError(null);
-    try {
-      const uploaded = await uploadWorkpieceImageMapCandidateAsset({
-        workpieceId: episodeId,
-        entryId: selectedImageMapEntry.id,
-        file,
-        source: "upload",
-      });
-      if (!uploaded.ok) {
-        setImageMapCandidateSelectionError(uploaded.error);
-        return;
-      }
-
-      const updatedEntries = episodePackage.image_map.entries.map((entry) => {
-        if (entry.id !== selectedImageMapEntry.id) return entry;
-        const existing = entry.candidate_assets.filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id);
-        const nextOrigin: "hearth" | "mixed" = entry.origin === "hammer" ? "mixed" : "hearth";
-        return {
-          ...entry,
-          source_type: "upload",
-          origin: nextOrigin,
-          candidate_assets: [...existing, uploaded.candidateAsset],
-          selected_asset_id: uploaded.candidateAsset.asset_id,
-          status: "selected" as const,
-        };
-      });
-
-      const saved = await persistImageMapEntries({ entries: updatedEntries });
-      if (!saved.ok) {
-        setImageMapCandidateSelectionError(saved.error);
-        return;
-      }
-      setImageMapSourceTypeDraft("upload");
-      setImageMapExportMessage("Uploaded visual asset attached and selected for this beat.");
-      publishForgeNotice({
-        job: "image-generated",
-        title: "Visual asset uploaded",
-        message: "Uploaded asset is now selected for this visual beat.",
-        severity: "success",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to upload this visual asset.";
-      setImageMapCandidateSelectionError(message);
-    } finally {
-      setIsImageMapCandidateSelecting(false);
-    }
-  }
-
-  async function onCreateImageMapEntry() {
-    if (!episodePackage) return;
-    const nextAnchor = `manual:p${episodePackage.image_map.entries.length + 1}`;
-    const nextEpisodePackage = addImageMapEntry(episodePackage, {
-      anchor: nextAnchor,
-      description: "",
-      visual_intent: "",
-      prompt_basis: "",
-      anchor_scope: "orphaned",
-      style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
-      intent: "cutaway",
-      source_type: "stock",
-      visual_priority: "supporting",
-      visual_type: "still_image",
-      section_intent_note: null,
-      beat_order: episodePackage.image_map.entries.length + 1,
-      paragraph_beat_order: 1,
-      candidate_assets: [],
-      selected_asset_id: null,
-      status: "draft",
-      placement_hint: null,
-    });
-    const newEntry = nextEpisodePackage.image_map.entries[nextEpisodePackage.image_map.entries.length - 1] ?? null;
-    if (!newEntry) {
-      setImageMapSaveState("error");
-      setImageMapSaveError("Unable to create entry in current episode.");
-      return;
-    }
-
-    setImageMapSaveState("saving");
-    setImageMapSaveError(null);
-    const saved = await persistImageMapEntries({
-      entries: nextEpisodePackage.image_map.entries,
-    });
-    if (!saved.ok) {
-      setImageMapSaveState("error");
-      setImageMapSaveError(saved.error);
-      return;
-    }
-    setSelectedImageMapEntryId(newEntry.id);
-    setImageMapSaveState("saved");
-  }
-
-  async function onDuplicateImageMapEntry() {
-    if (!episodePackage || !selectedImageMapEntry) return;
-    const nextEpisodePackage = addImageMapEntry(episodePackage, {
-      anchor: selectedImageMapEntry.anchor,
-      script_anchor: selectedImageMapEntry.script_anchor,
-      anchor_scope: selectedImageMapEntry.anchor_scope ?? (selectedImageMapEntry.script_anchor ? "attached" : "orphaned"),
-      description: selectedImageMapEntry.description,
-      visual_intent: selectedImageMapEntry.visual_intent,
-      prompt_basis: selectedImageMapEntry.prompt_basis,
-      style_preset: normalizeHearthVisualStyle(selectedImageMapEntry.style_preset),
-      intent: selectedImageMapEntry.intent,
-      source_type: selectedImageMapEntry.source_type,
-      visual_priority: selectedImageMapEntry.visual_priority ?? "supporting",
-      visual_type: selectedImageMapEntry.visual_type ?? "still_image",
-      section_intent_note: selectedImageMapEntry.section_intent_note ?? null,
-      beat_order: selectedImageMapEntry.beat_order,
-      paragraph_beat_order: selectedImageMapEntry.paragraph_beat_order,
-      candidate_assets: [],
-      selected_asset_id: null,
-      status: selectedImageMapEntry.script_anchor ? "mapped" : "draft",
-      placement_hint: selectedImageMapEntry.placement_hint ?? null,
-    });
-    const duplicated = nextEpisodePackage.image_map.entries[nextEpisodePackage.image_map.entries.length - 1] ?? null;
-    if (!duplicated) {
-      setImageMapSaveState("error");
-      setImageMapSaveError("Unable to duplicate entry.");
-      return;
-    }
-
-    setImageMapSaveState("saving");
-    setImageMapSaveError(null);
-    const saved = await persistImageMapEntries({
-      entries: nextEpisodePackage.image_map.entries,
-    });
-    if (!saved.ok) {
-      setImageMapSaveState("error");
-      setImageMapSaveError(saved.error);
-      return;
-    }
-    setSelectedImageMapEntryId(duplicated.id);
-    setImageMapSaveState("saved");
-  }
-
-  async function onDeleteImageMapEntry() {
-    if (!episodePackage || !selectedImageMapEntryId) return;
-    const confirmed = window.confirm("Delete this image map entry?");
-    if (!confirmed) return;
-
-    const nextEpisodePackage = removeImageMapEntry(episodePackage, selectedImageMapEntryId);
-    setImageMapSaveState("saving");
-    setImageMapSaveError(null);
-    const saved = await persistImageMapEntries({
-      entries: nextEpisodePackage.image_map.entries,
-    });
-    if (!saved.ok) {
-      setImageMapSaveState("error");
-      setImageMapSaveError(saved.error);
-      return;
-    }
-    setSelectedImageMapEntryId(saved.episodePackage.image_map.entries[0]?.id ?? null);
-    setImageMapSaveState("saved");
-  }
-
-  async function onSeedImageMapFromScript() {
-    if (!episodePackage) return;
-    if (episodePackage.image_map.entries.length > 0) {
-      const confirmed = window.confirm(
-        "Generate a new image map from the canonical script? This replaces the current visual beats.",
-      );
-      if (!confirmed) return;
-    }
-    const canonicalScript = await readCanonicalScriptForImageMapGeneration();
-    if (!canonicalScript.ok) {
-      setImageMapExportMessage(canonicalScript.message);
-      return;
-    }
-
-    const generatedEntries = generateImageMapEntriesFromScript(canonicalScript.text);
-    if (generatedEntries.length === 0) {
-      setImageMapExportMessage("No visually meaningful beats found in the canonical script.");
-      return;
-    }
-
-    setImageMapSaveState("saving");
-    setImageMapSaveError(null);
-    const saved = await persistImageMapEntries({
-      entries: generatedEntries,
-    });
-    if (!saved.ok) {
-      setImageMapSaveState("error");
-      setImageMapSaveError(saved.error);
-      return;
-    }
-    setSelectedImageMapEntryId(saved.episodePackage.image_map.entries[0]?.id ?? null);
-    setImageMapSaveState("saved");
-    const sourceLabel = canonicalScript.source === "primary_script" ? "published script" : "saved draft";
-    const note = canonicalScript.includesUnsavedLocalEdits ? " Save the draft first to include unsaved local edits." : "";
-    setImageMapExportMessage(`Generated ${generatedEntries.length} visual beats from the canonical ${sourceLabel}.${note}`);
-  }
-
-  async function onCopyImageMapExportJson() {
-    const entries = resolveImageMapEntriesForExport();
-    const payload = buildVisualScriptIntentExportDocument(workpieceId?.trim() ?? null, entries);
-    const text = JSON.stringify(payload, null, 2);
-    const copied = await writeTextToClipboard(text);
-    setImageMapExportMessage(copied ? "Visual script intent JSON copied." : "Clipboard write failed.");
-  }
-
-  function onDownloadImageMapExportJson() {
-    const entries = resolveImageMapEntriesForExport();
-    const payload = buildVisualScriptIntentExportDocument(workpieceId?.trim() ?? null, entries);
-    const text = JSON.stringify(payload, null, 2);
-    const blob = new Blob([text], { type: "application/json;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    const suffix = (workpieceId?.slice(0, 8) ?? "episode").toLowerCase();
-    anchor.href = url;
-    anchor.download = `visual-script-intent-${suffix}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    setImageMapExportMessage("Visual script intent JSON downloaded.");
-  }
-
-  function markMetadataEditing(): void {
-    if (metadataSaveState !== "editing") {
-      setMetadataSaveState("editing");
-    }
-    setMetadataSaveError(null);
-  }
-
-  function onMetadataTitleChange(titleId: string, nextText: string): void {
-    setMetadataTitlesDraft((prev) => prev.map((title) => (
-      title.id === titleId
-        ? {
-          ...title,
-          text: nextText,
-          thumbnail_text: deriveHearthThumbnailOverlayText(nextText),
-        }
-        : title
-    )));
-    markMetadataEditing();
-  }
-
-  function onMetadataSetPrimaryTitle(titleId: string): void {
-    setMetadataTitlesDraft((prev) => prev.map((title) => ({
-      ...title,
-      is_primary: title.id === titleId,
-    })));
-    markMetadataEditing();
-  }
-
-  function onMetadataAddTagFromInput(): void {
-    const parsed = parseMetadataTagInput(metadataTagInputDraft);
-    if (parsed.length === 0) return;
-    setMetadataTagsDraft((prev) => normalizeSeoTags([...prev, ...parsed]));
-    setMetadataTagInputDraft("");
-    markMetadataEditing();
-  }
-
-  function onMetadataRemoveTag(tag: string): void {
-    setMetadataTagsDraft((prev) => prev.filter((entry) => entry !== tag));
-    markMetadataEditing();
-  }
-
-  function onMetadataAddTagSuggestion(tag: string): void {
-    const normalized = normalizeMetadataTag(tag);
-    if (!normalized) return;
-    setMetadataTagsDraft((prev) => normalizeSeoTags([...prev, normalized]));
-    markMetadataEditing();
-  }
-
-  function onMetadataDescriptionShortChange(nextValue: string): void {
-    setMetadataDescriptionShortDraft(nextValue);
-    markMetadataEditing();
-  }
-
-  function onMetadataDescriptionLongChange(nextValue: string): void {
-    setMetadataDescriptionLongDraft(nextValue);
-    markMetadataEditing();
-  }
-
-  function onMetadataPreviewModeChange(mode: "youtube" | "rss" | "plain"): void {
-    setMetadataPreviewMode(mode);
-  }
-
-  function onSelectImageMapEntry(entryId: string) {
-    if (entryId !== selectedImageMapEntryId) {
-      setIsImageMapReanchorMode(false);
-      setIsImageMapReanchorSaving(false);
-      setImageMapReanchorError(null);
-    }
-    setSelectedImageMapEntryId(entryId);
   }
 
   function onUseChatShortcut(prompt: string) {
@@ -11159,54 +6460,19 @@ export default function HearthShell({
     );
   }
 
-  const onOpenReadyScriptInHearth = useCallback(async (entry: HearthReadyScript) => {
-    setError(null);
-    try {
-      await openWorkpieceInFocus(entry.workpieceId, {
-        workspaceId: entry.workspaceId,
-        preferredDraftId: activeDraft?.id ?? null,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to open approved script in Hearth.";
-      setError(message);
-    }
-  }, [activeDraft?.id, openWorkpieceInFocus]);
-
-  const onSendBackToEdit = useCallback(async (entry: HearthReadyScript) => {
-    if (!entry.id || sendingBackReadyIds.includes(entry.id)) return;
-
-    setError(null);
-    setReadyScriptsError(null);
-    setSendingBackReadyIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
-
-    try {
-      await openWorkpieceInFocus(entry.workpieceId, {
-        workspaceId: entry.workspaceId,
-        preferredDraftId: entry.workpieceId,
-      });
-
-      const result = await removeHearthReadyScripts({
-        workpieceId: entry.workpieceId,
-        paths: entry.scriptPaths.length ? entry.scriptPaths : [entry.primaryScriptPath || entry.path],
-      });
-      if (!result.ok) {
-        setError("Failed to remove the workpiece from Ready. It is still marked ready.");
-        setReadyScriptsError("Failed to remove the workpiece from Ready.");
-        await refreshReadyScripts();
-        return;
-      }
-
-      setReadyScripts((prev) => prev.filter((row) => row.workpieceId !== entry.workpieceId));
-      await refreshReadyScripts();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to send the workpiece back to editing.";
-      setError(message);
-      setReadyScriptsError("Failed to send the workpiece back to editing.");
-      await refreshReadyScripts();
-    } finally {
-      setSendingBackReadyIds((prev) => prev.filter((id) => id !== entry.id));
-    }
-  }, [openWorkpieceInFocus, refreshReadyScripts, sendingBackReadyIds]);
+  const {
+    onOpenReadyScriptInHearth,
+    onSendBackToEdit,
+  } = useHearthReadyNavigationActions({
+    activeDraftId: activeDraft?.id ?? null,
+    sendingBackReadyIds,
+    openWorkpieceInFocus,
+    refreshReadyScripts,
+    setError,
+    setReadyScriptsError,
+    setReadyScripts,
+    setSendingBackReadyIds,
+  });
 
   const openReadyInMobileOverlay = useCallback(() => {
     setMode("ready");
@@ -11237,222 +6503,78 @@ export default function HearthShell({
   }, [editingPeers.length, viewingPeers.length, workpieceId]);
 
   const renderSparksView = () => {
-    const resumeWorkpieceId = normalizeUuid(session?.activeWorkpieceId ?? null)
-      ?? resolveWorkpieceIdForDraftId(session?.activeDraftId ?? null);
-    const resumeWorkpiece = resumeWorkpieceId
-      ? workpieceSummaries.find((entry) => entry.workpieceId === resumeWorkpieceId) ?? null
-      : null;
-    const resumeDraft = session?.activeDraftId
-      ? drafts.find((draft) => draft.id === session.activeDraftId) ?? null
-      : null;
-    const canResumeLast = Boolean(resumeWorkpieceId);
-    const selectedSparkStatus = selectedSpark ? formatSparkStatus(selectedSpark) : null;
-    const selectedSparkPreview = selectedSpark ? buildSparkPreview(selectedSpark.body) : "";
-    const isFreshSession = !hasActiveEpisode && !workpieceId;
-    const isProjectIntake = Boolean(routeProjectId);
-    const sparksSubtext = isProjectIntake
-      ? "Forge this Project into an Episode."
-      : isFreshSession
-      ? `Hello ${forgeGreetingName}, what would you like to forge today?`
-      : "Pick a spark, then start forging in conversation.";
-
     return (
-      <section className="hs-home hs-sparks-landing">
-        <header className="hs-home-header">
-          <h2 className="hs-home-title">Hearth</h2>
-          <p className="hs-home-subtext">{sparksSubtext}</p>
-        </header>
-
-        {isProjectIntake ? (
-          <div className="hs-resume-context hs-project-intake">
-            <div>
-              Project: <b>{routeProjectLabel ?? "Untitled Project"}</b>
-              {workpieceId ? ` · Episode ${workpieceId.slice(0, 8)}` : " · Resolving episode..."}
-            </div>
-            <div className="hs-project-intake-actions">
-              <button
-                type="button"
-                onClick={() => void forgeProjectIntoEpisode()}
-                disabled={isForging || routeProjectSparks.length === 0 || !workpieceId}
-              >
-                Forge this Project into an Episode
-              </button>
-              <span className="hs-project-intake-meta">
-                Spark Stack: {routeProjectSparks.length}
-              </span>
-            </div>
-            {routeProjectSparks.length > 0 ? (
-              <div className="hs-project-intake-stack">
-                {routeProjectSparks.map((spark) => (
-                  <div key={spark.id} className="hs-project-intake-spark">
-                    {deriveSparkTitle(spark)}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="hs-project-intake-meta">
-                No sparks attached to this Project yet.
-              </div>
-            )}
-          </div>
-        ) : null}
-
-        <div className="hs-home-actions">
-          <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
-            New project
-          </button>
-          <button type="button" onClick={() => void onResumeLastProject()} disabled={!canResumeLast}>
-            Resume last project
-          </button>
-        </div>
-        {resumeWorkpieceId ? (
-          <div className="hs-resume-context">
-            Last: {resumeWorkpiece?.title ?? resumeDraft?.title ?? "Untitled Episode"} · updated {" "}
-            {formatRelativeUpdatedAt(
-              resumeWorkpiece?.updatedAtMs
-              ?? resumeDraft?.updatedAt
-              ?? Date.now(),
-            )}
-          </div>
-        ) : null}
-
-        {forgeError ? (
-          <div className="hs-error-text-small">{forgeError}</div>
-        ) : null}
-
-        <div className="hs-sparks-layout">
-          <section className="hs-home-barstock">
-            <h3 className="hs-home-section-title">Sparks</h3>
-            <div className="hs-home-spark-list">
-              <div className="hs-spark-card hs-spark-card-new">
-                <div className="hs-spark-header">
-                  <div className="hs-spark-title">New project</div>
-                </div>
-                <div className="hs-spark-preview">
-                  Start from scratch without a Spark.
-                </div>
-                <div className="hs-spark-footer">
-                  <div className="hs-spark-status">Fresh workpiece</div>
-                  <button
-                    type="button"
-                    onClick={() => void startFromScratch()}
-                    disabled={isForging}
-                  >
-                    Start forging
-                  </button>
-                </div>
-              </div>
-
-              {visibleSparks.length === 0 ? (
-                <p className="hs-home-empty">
-                  {isSparksLoading
-                    ? "Loading sparks from Bar Stock..."
-                    : "No sparks yet. Capture ideas in Bar Stock first."}
-                </p>
-              ) : (
-                visibleSparks.map((spark) => {
-                  const status = formatSparkStatus(spark);
-                  const preview = buildSparkPreview(spark.body);
-                  const isSelected = selectedSpark?.id === spark.id;
-                  const actionLabel = resolveSparkActionLabel(spark);
-                  return (
-                    <div
-                      key={spark.id}
-                      className={`hs-spark-card${isSelected ? " is-selected" : ""}`}
-                      onMouseEnter={() => setSelectedSparkId(spark.id)}
-                    >
-                      <button
-                        type="button"
-                        className="hs-spark-select"
-                        disabled={isForging}
-                        onFocus={() => setSelectedSparkId(spark.id)}
-                        onClick={() => void onActivateSpark(spark)}
-                      >
-                        <div className="hs-spark-header">
-                          <div className="hs-spark-title">{deriveSparkTitle(spark)}</div>
-                          <div className="hs-spark-date">
-                            {formatSparkDate(spark.createdAt)}
-                          </div>
-                        </div>
-                        <div className="hs-spark-preview">
-                          {preview || "No preview available yet."}
-                        </div>
-                      </button>
-                      <div className="hs-spark-footer">
-                        <div className="hs-spark-status">
-                          Status: {status.label}{status.detail ? ` · ${status.detail}` : ""}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => void onActivateSpark(spark)}
-                          disabled={isForging}
-                        >
-                          {actionLabel}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </section>
-
-          <aside className="hs-spark-detail-panel">
-            <div className="hs-spark-detail-title">
-              {selectedSpark ? deriveSparkTitle(selectedSpark) : "Select a spark"}
-            </div>
-            {selectedSpark ? (
-              <>
-                <div className="hs-spark-detail-meta">
-                  {formatSparkDate(selectedSpark.createdAt)}
-                  {selectedSparkStatus ? ` · ${selectedSparkStatus.label}` : ""}
-                </div>
-                <div className="hs-spark-detail-preview">
-                  {selectedSparkPreview || selectedSpark.body || "No preview available yet."}
-                </div>
-                <div className="hs-spark-detail-actions">
-                  <button
-                    type="button"
-                    onClick={() => void onStartForgingSelectedSpark()}
-                    disabled={isForging}
-                  >
-                    {selectedSpark ? resolveSparkActionLabel(selectedSpark) : "Start forging"}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <p className="hs-home-empty">
-                Choose a spark to preview it before forging.
-              </p>
-            )}
-          </aside>
-        </div>
-      </section>
+      <HearthSparksMode
+        sessionActiveWorkpieceId={session?.activeWorkpieceId}
+        sessionActiveDraftId={session?.activeDraftId}
+        resolveWorkpieceIdForDraftId={resolveWorkpieceIdForDraftId}
+        normalizeUuid={normalizeUuid}
+        workpieceSummaries={workpieceSummaries}
+        drafts={drafts}
+        hasActiveEpisode={hasActiveEpisode}
+        workpieceId={workpieceId}
+        routeProjectId={routeProjectId}
+        forgeGreetingName={forgeGreetingName}
+        selectedSpark={selectedSpark}
+        formatSparkStatus={formatSparkStatus}
+        buildSparkPreview={buildSparkPreview}
+        routeProjectLabel={routeProjectLabel}
+        forgeProjectIntoEpisode={forgeProjectIntoEpisode}
+        isForging={isForging}
+        routeProjectSparks={routeProjectSparks}
+        deriveSparkTitle={deriveSparkTitle}
+        startFromScratch={startFromScratch}
+        onResumeLastProject={onResumeLastProject}
+        formatRelativeUpdatedAt={formatRelativeUpdatedAt}
+        forgeError={forgeError}
+        visibleSparks={visibleSparks}
+        isSparksLoading={isSparksLoading}
+        setSelectedSparkId={setSelectedSparkId}
+        onActivateSpark={onActivateSpark}
+        formatSparkDate={formatSparkDate}
+        resolveSparkActionLabel={resolveSparkActionLabel}
+        onStartForgingSelectedSpark={onStartForgingSelectedSpark}
+      />
     );
   };
 
   const renderSparkRouteBootstrapView = () => {
-    const sparkTitle = routeSpark ? deriveSparkTitle(routeSpark) : "Opening spark";
     return (
-      <section className="hs-home hs-sparks-landing">
-        <header className="hs-home-header">
-          <h2 className="hs-home-title">Lighting the forge...</h2>
-          <p className="hs-home-subtext">
-            {routeSpark
-              ? `Opening ${sparkTitle} from Bar Stock.`
-              : "Opening your spark from Bar Stock."}
-          </p>
-        </header>
-        {forgeError ? (
-          <div className="hs-error-text-small">{forgeError}</div>
-        ) : (
-          <div className="hs-resume-context">
-            Preparing the workpiece and dropping you into the fire.
-          </div>
-        )}
-      </section>
+      <HearthSparkBootstrapMode
+        routeSpark={routeSpark}
+        deriveSparkTitle={deriveSparkTitle}
+        forgeError={forgeError}
+      />
     );
   };
+
+  const hearthVisualsWorkspace = useHearthVisualsWorkspace({
+    status: {
+      hasApprovedScript,
+      approvedScriptVersion,
+      mediaMapStatus: mediaMap?.status ?? null,
+      mediaMapCoverageLevel,
+      mediaMapScopeLabel,
+      activeVisualProviderBanner: activeVisualProvider.bannerLabel,
+      activeVisualProviderHelperText: activeVisualProvider.helperText,
+      aiCreditsDepleted,
+      isAiProcessing,
+      activeProductionAction,
+      releasePrepScriptVersion,
+      latestReleasePrepRawText,
+      releasePrepLoadState,
+      latestReleasePrepSections,
+    },
+    commands: {
+      onGenerateTitles: () => void onRunProductionAction("seo"),
+      onGenerateTags: () => void onRunProductionAction("tags"),
+      onGenerateFramingPack: () => void onRunProductionAction("release_prep_pack"),
+      onRefreshFramingPack: () => {
+        if (!approvedScriptVersion) return;
+        void loadLatestReleasePrepPack(approvedScriptVersion);
+      },
+    },
+  });
 
   function onChangeTonePreset(nextTonePresetRaw: string) {
     const nextTonePreset = normalizeTonePreset(nextTonePresetRaw);
@@ -11469,27 +6591,27 @@ export default function HearthShell({
   }
 
   const renderDraftView = () => {
-    const sourcesSummary = missingSourcesCount > 0
-      ? `${missingSourcesCount} missing citation${missingSourcesCount === 1 ? "" : "s"}`
-      : "No missing citations";
-    const unusedSummary = unusedSourcesCount > 0
-      ? ` · ${unusedSourcesCount} unused`
-      : "";
     const hasScript = Boolean((activeDraft?.body ?? "").trim());
     const displayedValidation = scriptValidation?.result ?? hearthScriptState?.validation ?? null;
     const validationIssueCount = displayedValidation?.issues.length ?? 0;
-    const showScriptEditor = showManualDraft || showScriptPanel;
-    const scriptPanelTitle = isCanonicalImageMapScriptPanel
-      ? "Canonical Script"
-      : (showScriptPanel && hasScript ? "Script" : "Manual Draft");
-    const scriptPanelMetaText = isCanonicalImageMapScriptPanel
-      ? (scriptPanelSourceLabel ?? "Source: canonical script")
-      : `Sources: ${sourcesSummary}${unusedSummary}`;
-    const scriptPanelPlaceholder = isCanonicalImageMapScriptPanel
-      ? (canonicalImageMapScriptState.status === "loading"
-        ? "Loading current canonical script..."
-        : canonicalImageMapScriptState.error ?? "Current canonical script is unavailable.")
-      : "Start writing...";
+    const {
+      sourcesSummary,
+      unusedSummary,
+      showScriptEditor,
+      scriptPanelTitle,
+      scriptPanelMetaText,
+      scriptPanelPlaceholder,
+    } = buildHearthDraftScriptPanelState({
+      missingSourcesCount,
+      unusedSourcesCount,
+      showManualDraft,
+      showScriptPanel,
+      isCanonicalImageMapScriptPanel,
+      hasScript,
+      scriptPanelSourceLabel,
+      canonicalImageMapScriptStateStatus: canonicalImageMapScriptState.status,
+      canonicalImageMapScriptStateError: canonicalImageMapScriptState.error ?? null,
+    });
     const composeModeLabel = effectiveComposeSetup
       ? (effectiveComposeSetup.mode === "outline_by_speaker"
         ? "Outline by speaker"
@@ -11507,7 +6629,7 @@ export default function HearthShell({
     const isMetadataWorkspaceTab = activeWorkpieceTab === "metadata";
     const isReleaseWorkspaceTab = activeWorkpieceTab === "release";
     const isHistoryWorkspaceTab = activeWorkpieceTab === "history";
-    const thumbnailPanelProps = {
+    const thumbnailPanelProps = buildHearthThumbnailPanelProps({
       concepts: thumbnailConcepts,
       versions: thumbnailVersions,
       titleOptions: thumbnailTitleOptions,
@@ -11534,8 +6656,10 @@ export default function HearthShell({
       brandLogoUploading: isThumbnailBrandLogoUploading,
       brandLogoError: thumbnailBrandLogoError,
       brandLogoStatus: thumbnailBrandLogoStatus,
-      promptOverride: thumbnailPromptOverride,
       aspect: thumbnailAspect,
+      activeVisualProvider,
+      visualProviderOptions,
+      visualProviderOverride: planningSession?.visual_provider_override ?? null,
       safeZoneEnabled: thumbnailSafeZoneEnabled,
       previewDataUrl: thumbnailPreviewDataUrl,
       previewState: thumbnailPreviewState,
@@ -11543,50 +6667,30 @@ export default function HearthShell({
       generateError: thumbnailGenerateError,
       uploadError: thumbnailUploadError,
       pairingError: thumbnailPairingError,
-      canGenerateConcepts: !aiCreditsDepleted,
+      canGenerateConcepts: !aiCreditsDepleted && thumbnailTitleOptions.length > 0,
       isGeneratingConcepts: activeProductionAction === "thumbnails" && isAiProcessing,
+      canGenerateTitles: !aiCreditsDepleted,
+      isGeneratingTitles: activeProductionAction === "seo" && isAiProcessing,
       isGenerating: isThumbnailGenerating,
       isSavingConcept: isThumbnailConceptSaving,
       isUploading: isThumbnailUploading,
+      setSelectedConceptId: setSelectedThumbnailConceptId,
+      setSelectedConceptLabel: setThumbnailConceptLabelDraft,
+      setSelectedConceptPrompt: setThumbnailConceptPromptDraft,
+      setSelectedConceptStyle: (value: string) => setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(value)),
+      setSelectedConceptTitleStyle: setThumbnailTitleStyleDraft,
+      setSelectedConceptBrandTemplate: setThumbnailConceptBrandTemplateIdDraft,
+      setAspect: setThumbnailAspect,
+      setSafeZoneEnabled: setThumbnailSafeZoneEnabled,
+      onGenerateTitles: () => void onRunProductionAction("seo"),
       onSelectTitle: onSelectThumbnailTitle,
-      onSelectConcept: setSelectedThumbnailConceptId,
-      onSelectedConceptLabelChange: setThumbnailConceptLabelDraft,
-      onSelectedConceptPromptChange: setThumbnailConceptPromptDraft,
-      onSelectedConceptStylePresetChange: (value: string) => setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(value)),
-      onSelectedConceptTitleFontPresetChange: (value: string) => setThumbnailTitleStyleDraft((prev) => ({
-        ...normalizeEpisodeThumbnailTitleStyle(prev),
-        font_preset: value as TitleFontPreset,
-      })),
-      onSelectedConceptTitleColorChange: (value: string) => setThumbnailTitleStyleDraft((prev) => ({
-        ...normalizeEpisodeThumbnailTitleStyle(prev),
-        text_color: value.toUpperCase(),
-      })),
-      onSelectedConceptTitleShadowEnabledChange: (value: boolean) => setThumbnailTitleStyleDraft((prev) => ({
-        ...normalizeEpisodeThumbnailTitleStyle(prev),
-        shadow: {
-          ...normalizeEpisodeThumbnailTitleStyle(prev).shadow,
-          enabled: value,
-        },
-      })),
-      onSelectedConceptTitleShadowStrengthChange: (value: string) => setThumbnailTitleStyleDraft((prev) => ({
-        ...normalizeEpisodeThumbnailTitleStyle(prev),
-        shadow: {
-          ...normalizeEpisodeThumbnailTitleStyle(prev).shadow,
-          strength: value as TitleShadowStrength,
-        },
-      })),
-      onSelectedConceptBrandTemplateChange: setThumbnailConceptBrandTemplateIdDraft,
       onUploadBrandLogo: (file: File) => void onUploadThumbnailBrandLogo(file),
       onRemoveBrandLogo: () => void onRemoveThumbnailBrandLogo(),
       onGenerateConcepts: () => void onRunProductionAction("thumbnails"),
       onCreateConcept: () => void onCreateThumbnailConcept(),
       onSaveConcept: () => void onSaveSelectedThumbnailConcept(),
       onDeleteConcept: () => void onDeleteSelectedThumbnailConcept(),
-      onPromptOverrideChange: setThumbnailPromptOverride,
-      onAspectChange: setThumbnailAspect,
-      onGenerate: () => void onGenerateThumbnailVersion(),
-      onRegenerate: () => void onGenerateThumbnailVersion({ forceConceptId: selectedThumbnailConceptId || null }),
-      onToggleSafeZone: () => setThumbnailSafeZoneEnabled((prev) => !prev),
+      onVisualProviderOverrideChange: handleVisualProviderOverrideChange,
       onUploadImage: (file: File) => void onUploadThumbnailImage(file),
       onSelectVersion: onSelectThumbnailVersion,
       onSetPrimary: (versionId: string) => void onSetPrimaryThumbnailVersion(versionId),
@@ -11596,17 +6700,12 @@ export default function HearthShell({
       onSelectedLaunchVariantStatusChange: setLaunchVariantStatusDraft,
       onSelectedLaunchVariantNotesChange: setLaunchVariantNotesDraft,
       onSaveLaunchVariant: () => void onSaveLaunchVariant(),
-    };
-    const mediaMapPanelProps = {
+    });
+    const mediaMapPanelProps = buildHearthMediaMapPanelProps({
       entries: mediaMapEntries,
       selectedEntryId: selectedMediaMapEntryId,
-      scriptVersionLabel: approvedScriptVersion ? `v${approvedScriptVersion}` : "none",
-      mapStatus: mediaMap?.status ?? "draft",
-      stale: Boolean(
-        mediaMap?.script_version_id
-        && approvedScriptVersion
-        && mediaMap.script_version_id !== String(approvedScriptVersion)
-      ),
+      approvedScriptVersion,
+      mediaMap,
       saveState: mediaMapSaveState,
       saveError: mediaMapSaveError,
       message: mediaMapMessage,
@@ -11626,36 +6725,20 @@ export default function HearthShell({
         optional: mediaMapOptionalDraft,
         critical: mediaMapCriticalDraft,
       },
+      conversationState: mediaMapConversationState,
+      conversationSeed: mediaMapConversationSeed,
+      conversationError: mediaMapConversationError,
+      onBuildAndApply: onBuildAndApplyMediaMapFromConversation,
       onSelectEntry: setSelectedMediaMapEntryId,
-      onDraftChange: (field: string, value: unknown) => {
-        if (field === "type") setMediaMapDraftEditing(setMediaMapTypeDraft, String(value));
-        else if (field === "anchorMode") setMediaMapDraftEditing(setMediaMapAnchorModeDraft, String(value));
-        else if (field === "anchorTarget") setMediaMapDraftEditing(setMediaMapAnchorTargetDraft, String(value));
-        else if (field === "inOffsetSec") setMediaMapDraftEditing(setMediaMapInOffsetDraft, String(value));
-        else if (field === "durationSec") setMediaMapDraftEditing(setMediaMapDurationDraft, String(value));
-        else if (field === "description") setMediaMapDraftEditing(setMediaMapDescriptionDraft, String(value));
-        else if (field === "intent") setMediaMapDraftEditing(setMediaMapIntentDraft, String(value));
-        else if (field === "sourceStatus") setMediaMapDraftEditing(setMediaMapSourceStatusDraft, String(value));
-        else if (field === "sourceAssetId") setMediaMapDraftEditing(setMediaMapSourceAssetIdDraft, String(value));
-        else if (field === "confidence") setMediaMapDraftEditing(setMediaMapConfidenceDraft, String(value));
-        else if (field === "optional") setMediaMapDraftEditing(setMediaMapOptionalDraft, Boolean(value));
-        else if (field === "critical") setMediaMapDraftEditing(setMediaMapCriticalDraft, Boolean(value));
-      },
-      onGenerationScopeChange: (value: string) => setMediaMapGenerationScope(normalizeMediaMapGenerationScope(value)),
+      onDraftChange: onMediaMapDraftChange,
+      onGenerationScopeChange: onMediaMapGenerationScopeChange,
       onGenerateFromPlans: () => void onGenerateEpisodeMediaMapFromPlans(),
       onActivateMap: () => void onActivateEpisodeMediaMap(),
       onAddEntry: () => void onAddMediaMapEntry(),
       onSaveEntry: () => void onSaveMediaMapEntry(),
       onDeleteEntry: () => void onDeleteMediaMapEntry(),
-    };
-    const setImageMapDraftEditing = <T,>(setter: (value: T) => void, value: T) => {
-      setter(value);
-      if (imageMapSaveState !== "editing") {
-        setImageMapSaveState("editing");
-      }
-      setImageMapSaveError(null);
-    };
-    const imageMapPanelProps = {
+    });
+    const imageMapPanelProps = buildHearthImageMapPanelProps({
       panelTitle: "Timeline Images",
       manualOnly: false,
       entries: imageMapEntries,
@@ -11672,6 +6755,9 @@ export default function HearthShell({
       saveState: imageMapSaveState,
       saveError: imageMapSaveError,
       exportMessage: imageMapExportMessage,
+      activeVisualProvider,
+      visualProviderOptions,
+      visualProviderOverride: planningSession?.visual_provider_override ?? null,
       candidateCards: imageMapCandidateCards,
       candidateGenerateBusy: isImageMapCandidateGenerating,
       candidateGenerateError: imageMapCandidateError,
@@ -11692,15 +6778,15 @@ export default function HearthShell({
       activeAnchorLabel: imageMapActiveAnchorLabel,
       disabled: isApprovingScript || !episodePackage,
       onSelectEntry: setSelectedImageMapEntryId,
-      onDraftAnchorChange: (value: string) => setImageMapDraftEditing(setImageMapAnchorDraft, value),
-      onDraftDescriptionChange: (value: string) => setImageMapDraftEditing(setImageMapDescriptionDraft, value),
-      onDraftStylePresetChange: (value: string) => setImageMapDraftEditing(setImageMapStyleDraft, normalizeHearthVisualStyle(value)),
-      onDraftIntentChange: (value: string) => setImageMapDraftEditing(setImageMapIntentDraft, value),
-      onDraftSourceTypeChange: (value: string) => setImageMapDraftEditing(setImageMapSourceTypeDraft, value),
-      onDraftVisualPriorityChange: (value: string) => setImageMapDraftEditing(setImageMapVisualPriorityDraft, value as EpisodeImageMapVisualPriority),
-      onDraftVisualTypeChange: (value: string) => setImageMapDraftEditing(setImageMapVisualTypeDraft, value as EpisodeImageMapVisualType),
-      onDraftSectionIntentNoteChange: (value: string) => setImageMapDraftEditing(setImageMapSectionIntentNoteDraft, value),
-      onDraftPlacementHintChange: (value: string) => setImageMapDraftEditing(setImageMapPlacementHintDraft, value),
+      onDraftAnchorChange: onImageMapDraftAnchorChange,
+      onDraftDescriptionChange: onImageMapDraftDescriptionChange,
+      onDraftStylePresetChange: onImageMapDraftStylePresetChange,
+      onDraftIntentChange: onImageMapDraftIntentChange,
+      onDraftSourceTypeChange: onImageMapDraftSourceTypeChange,
+      onDraftVisualPriorityChange: onImageMapDraftVisualPriorityChange,
+      onDraftVisualTypeChange: onImageMapDraftVisualTypeChange,
+      onDraftSectionIntentNoteChange: onImageMapDraftSectionIntentNoteChange,
+      onDraftPlacementHintChange: onImageMapDraftPlacementHintChange,
       onCreateEntry: () => void onCreateImageMapEntry(),
       onDuplicateEntry: () => void onDuplicateImageMapEntry(),
       onDeleteEntry: () => void onDeleteImageMapEntry(),
@@ -11708,16 +6794,22 @@ export default function HearthShell({
       onGenerateCandidates: (mode?: "ai" | "stock") => void onGenerateImageMapCandidates(mode ?? "ai"),
       onUploadAsset: (file: File) => void onUploadImageMapAsset(file),
       onSelectCandidate: (candidateId: string) => void onSelectImageMapCandidate(candidateId),
-      onCopyExport: () => void onCopyImageMapExportJson(),
+      onCopyExport: () => {
+        void onCopyImageMapExportJson().then((copied) => {
+          if (copied) acknowledgeCopy("image-map.export");
+        });
+      },
+      copyExportAcknowledged: isCopyAcknowledged("image-map.export"),
       onDownloadExport: () => void onDownloadImageMapExportJson(),
+      onVisualProviderOverrideChange: handleVisualProviderOverrideChange,
       onStartReanchor: onStartImageMapReanchor,
       onRepairNearestParagraph: () => void onRepairImageMapNearestParagraph(),
       onConvertToGlobalVisual: () => void onConvertImageMapToGlobalVisual(),
       onLeaveOrphaned: () => void onLeaveImageMapOrphaned(),
       onCancelReanchor: onCancelImageMapReanchor,
       onPickReanchor: (selection: ImageMapScriptSelection) => void onPickImageMapReanchor(selection),
-    };
-    const brollPlanPanelProps = {
+    });
+    const brollPlanPanelProps = buildHearthBrollPanelProps({
       beats: brollBeats,
       selectedBeatId: selectedBrollBeatId,
       coverageStrength: brollPlan?.coverage_strength ?? null,
@@ -11754,31 +6846,7 @@ export default function HearthShell({
       providers: brollProviders,
       selectedCandidateId: selectedBrollBeat?.selected_asset_id ?? null,
       onSelectBeat: setSelectedBrollBeatId,
-      onDraftChange: (field: string, value: string) => {
-        if (field === "anchorText") setBrollDraftEditing(setBrollAnchorDraft, value);
-        else if (field === "description") setBrollDraftEditing(setBrollDescriptionDraft, value);
-        else if (field === "motionIntent") setBrollDraftEditing(setBrollMotionIntentDraft, value);
-        else if (field === "assetCategory") setBrollDraftEditing((next) => setBrollAssetCategoryDraft(next as EpisodeBrollMotionAssetCategory), value);
-        else if (field === "priority") setBrollDraftEditing(setBrollPriorityDraft, value);
-        else if (field === "keywords") setBrollDraftEditing(setBrollKeywordsDraft, value);
-        else if (field === "mood") setBrollDraftEditing(setBrollMoodDraft, value);
-        else if (field === "shotType") setBrollDraftEditing(setBrollShotTypeDraft, value);
-        else if (field === "motionSuggestion") setBrollDraftEditing(setBrollMotionSuggestionDraft, value);
-        else if (field === "suggestedDurationMs") setBrollDraftEditing(setBrollSuggestedDurationDraft, value);
-        else if (field === "placementHint") setBrollDraftEditing(setBrollPlacementHintDraft, value);
-        else if (field === "dataChartType") setBrollDraftEditing(setBrollDataChartTypeDraft, value);
-        else if (field === "dataTitle") setBrollDraftEditing(setBrollDataTitleDraft, value);
-        else if (field === "dataLabels") setBrollDraftEditing(setBrollDataLabelsDraft, value);
-        else if (field === "dataValues") setBrollDraftEditing(setBrollDataValuesDraft, value);
-        else if (field === "dataEmphasisKey") setBrollDraftEditing(setBrollDataEmphasisKeyDraft, value);
-        else if (field === "dataAnimationStyle") setBrollDraftEditing(setBrollDataAnimationStyleDraft, value);
-        else if (field === "providerId") setBrollDraftEditing(setBrollProviderIdDraft, value);
-        else if (field === "sourceLabel") setBrollDraftEditing(setBrollSourceLabelDraft, value);
-        else if (field === "sourceUrl") setBrollDraftEditing(setBrollSourceUrlDraft, value);
-        else if (field === "providerNote") setBrollDraftEditing(setBrollProviderNoteDraft, value);
-        else if (field === "usageNote") setBrollDraftEditing(setBrollUsageNoteDraft, value);
-        else if (field === "resultMetadata") setBrollDraftEditing(setBrollResultMetadataDraft, value);
-      },
+      onDraftChange: onBrollDraftChange,
       onSaveBeat: () => void onSaveBrollBeat(),
       onDeleteBeat: () => void onDeleteBrollBeat(),
       onRegenerateBeat: () => void onRegenerateBrollBeat(),
@@ -11786,7 +6854,12 @@ export default function HearthShell({
       onFindStock: () => void onFindStockForBrollBeat(),
       onUploadAsset: (file: File) => void onUploadBrollBeatAsset(file),
       onSelectCandidate: (candidateId: string) => void onSelectBrollCandidate(candidateId),
-      onCopyPrompt: () => void onCopyBrollPrompt(),
+      onCopyPrompt: () => {
+        void onCopyBrollPrompt().then((copied) => {
+          if (copied) acknowledgeCopy("broll.prompt");
+        });
+      },
+      copyPromptAcknowledged: isCopyAcknowledged("broll.prompt"),
       onDownloadBrief: () => void onDownloadBrollBrief("text"),
       onDownloadBriefJson: () => void onDownloadBrollBrief("json"),
       onOpenProvider: () => void onOpenBrollProvider(),
@@ -11794,14 +6867,15 @@ export default function HearthShell({
       onMarkAwaitingResult: () => void onMarkBrollRequestState("awaiting_result"),
       onClearRequestState: () => void onClearBrollRequestState(),
       onAttachResultFromUrl: () => void onAttachBrollResultFromUrl(),
-    };
-    const referenceClipPlanPanelProps = {
+    });
+    const referenceClipPlanPanelProps = buildHearthReferenceClipPanelProps({
       entries: referenceClipEntries,
       selectedEntryId: selectedReferenceClipEntryId,
       saveState: referenceClipSaveState,
       saveError: referenceClipSaveError,
       message: referenceClipMessage,
       disabled: isApprovingScript || isReferenceClipBusy || !episodePackage,
+      workpieceId,
       draft: {
         anchorText: referenceClipAnchorDraft,
         description: referenceClipDescriptionDraft,
@@ -11829,40 +6903,33 @@ export default function HearthShell({
       },
       requestState: referenceClipRequestStateLabel,
       providers: referenceClipProviders,
+      activeVisualProviderLabel: activeVisualProvider.label,
+      activeVisualProviderBanner: activeVisualProvider.bannerLabel,
+      activeVisualProviderHelperText: activeVisualProvider.helperText,
+      activePromptPack: activeVisualPromptPackForReferenceClip?.pack ?? null,
       selectedCandidateId: selectedReferenceClipEntry?.selected_asset_id ?? null,
       onSelectEntry: setSelectedReferenceClipEntryId,
-      onDraftChange: (field: string, value: string) => {
-        if (field === "anchorText") setReferenceClipDraftEditing(setReferenceClipAnchorDraft, value);
-        else if (field === "description") setReferenceClipDraftEditing(setReferenceClipDescriptionDraft, value);
-        else if (field === "placementHint") setReferenceClipDraftEditing(setReferenceClipPlacementHintDraft, value);
-        else if (field === "format") setReferenceClipDraftEditing(setReferenceClipFormatDraft, value);
-        else if (field === "dataType") setReferenceClipDraftEditing(setReferenceClipDataTypeDraft, value);
-        else if (field === "contextType") setReferenceClipDraftEditing(setReferenceClipContextTypeDraft, value);
-        else if (field === "tone") setReferenceClipDraftEditing(setReferenceClipToneDraft, value);
-        else if (field === "motionLevel") setReferenceClipDraftEditing(setReferenceClipMotionLevelDraft, value);
-        else if (field === "backgroundContextDescription") setReferenceClipDraftEditing(setReferenceClipBackgroundContextDraft, value);
-        else if (field === "foregroundDataDescription") setReferenceClipDraftEditing(setReferenceClipForegroundDataDraft, value);
-        else if (field === "visualStyle") setReferenceClipDraftEditing((next) => setReferenceClipVisualStyleDraft(normalizeHearthVisualStyle(next)), value);
-        else if (field === "chartType") setReferenceClipDraftEditing(setReferenceClipChartTypeDraft, value);
-        else if (field === "title") setReferenceClipDraftEditing(setReferenceClipTitleDraft, value);
-        else if (field === "labels") setReferenceClipDraftEditing(setReferenceClipLabelsDraft, value);
-        else if (field === "values") setReferenceClipDraftEditing(setReferenceClipValuesDraft, value);
-        else if (field === "emphasisKey") setReferenceClipDraftEditing(setReferenceClipEmphasisKeyDraft, value);
-        else if (field === "sourceType") setReferenceClipDraftEditing(setReferenceClipSourceTypeDraft, value);
-        else if (field === "providerId") setReferenceClipDraftEditing(setReferenceClipProviderIdDraft, value);
-        else if (field === "sourceLabel") setReferenceClipDraftEditing(setReferenceClipSourceLabelDraft, value);
-        else if (field === "sourceUrl") setReferenceClipDraftEditing(setReferenceClipSourceUrlDraft, value);
-        else if (field === "providerNote") setReferenceClipDraftEditing(setReferenceClipProviderNoteDraft, value);
-        else if (field === "usageNote") setReferenceClipDraftEditing(setReferenceClipUsageNoteDraft, value);
-        else if (field === "resultMetadata") setReferenceClipDraftEditing(setReferenceClipResultMetadataDraft, value);
-      },
+      onDraftChange: onReferenceClipDraftChange,
       onCreateReferenceClip: () => void onCreateReferenceClipEntry(),
       onSaveEntry: () => void onSaveReferenceClipEntry(),
       onDeleteEntry: () => void onDeleteReferenceClipEntry(),
+      onGenerateInForge: () => void onGenerateReferenceClipInForge(),
       onRegenerateStub: () => void onRegenerateReferenceClipEntryStub(),
       onUploadAsset: (file: File) => void onUploadReferenceClipAsset(file),
       onSelectCandidate: (candidateId: string) => void onSelectReferenceClipCandidate(candidateId),
-      onCopyPrompt: () => void onCopyReferenceClipPrompt(),
+      onCopyPrompt: () => {
+        void onCopyReferenceClipPrompt().then((copied) => {
+          if (copied) acknowledgeCopy("reference-clip.prompt");
+        });
+      },
+      onCopyNegativePrompt: () => {
+        void onCopyReferenceClipNegativePrompt().then((copied) => {
+          if (copied) acknowledgeCopy("reference-clip.negative");
+        });
+      },
+      copyPromptAcknowledged: isCopyAcknowledged("reference-clip.prompt"),
+      copyNegativeAcknowledged: isCopyAcknowledged("reference-clip.negative"),
+      onDownloadPromptPack: () => void onDownloadReferenceClipPromptPack(),
       onDownloadBrief: () => void onDownloadReferenceClipBrief("text"),
       onDownloadBriefJson: () => void onDownloadReferenceClipBrief("json"),
       onOpenProvider: () => void onOpenReferenceClipProvider(),
@@ -11870,7 +6937,7 @@ export default function HearthShell({
       onMarkAwaitingResult: () => void onMarkReferenceClipRequestState("awaiting_result"),
       onClearRequestState: () => void onClearReferenceClipRequestState(),
       onAttachResultFromUrl: () => void onAttachReferenceClipResultFromUrl(),
-    };
+    });
     const metadataPanelProps = {
       titles: metadataTitlesDraft,
       tags: metadataTagsDraft,
@@ -11892,860 +6959,389 @@ export default function HearthShell({
       onDescriptionLongChange: onMetadataDescriptionLongChange,
       onPreviewModeChange: onMetadataPreviewModeChange,
     };
+    const visualsPanelContracts = hearthVisualsWorkspace.composePanels({
+      thumbnailPanelMeta,
+      mediaMapPanelMeta,
+      imageMapPanelMeta,
+      brollPanelMeta,
+      referenceClipPanelMeta,
+      metadataPanelMeta,
+      thumbnailPanelProps,
+      mediaMapPanelProps,
+      imageMapPanelProps,
+      brollPlanPanelProps,
+      referenceClipPlanPanelProps,
+      metadataPanelProps,
+    });
 
     return (
-      <section className="hs-draft hs-draft-chat-first">
-        {isScriptWorkspaceTab ? (
-          <>
-        <header className="hs-draft-header hs-draft-header-chat-first">
-          <div className="hs-draft-title-wrap">
-            <div className="hs-draft-title">Project</div>
-            <div className="hs-draft-updated">
-              Last updated {formatUpdatedAt(activeDraft?.updatedAt)}
-            </div>
-            <div className="hs-draft-updated">
-              Editing as {activeUserDisplayName} · Last edited by {resolveDraftEditorName(activeDraft)}
-            </div>
-            <div className="hs-draft-updated">
-              Mode: {composeModeLabel} · Badge: {completionBadgeLabel}
-              {scriptCompletionReasons.length > 0 ? ` · ${scriptCompletionReasons.join(" ")}` : ""}
-            </div>
-          </div>
-          <label className="hs-project-title">
-            <span className="hs-field-label">Project title</span>
-            <input
-              type="text"
-              value={activeDraft?.title ?? ""}
-              placeholder="Project title"
-              onChange={(event) => onDraftTitleChange(event.target.value)}
-              disabled={!activeDraft}
-            />
-          </label>
-        </header>
-
-        <div className="hs-toolbar">
-          <button onClick={onCreateDraft}>New Draft</button>
-          <button onClick={onSaveDraft} disabled={!activeDraft || isSaving}>
-            {isSaving ? "Saving..." : "Save draft"}
-          </button>
-          <button onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
-            Delete Draft Buffer
-          </button>
-          <button onClick={openRevisionModal} disabled={!activeDraft || isSaving}>
-            Create Revision
-          </button>
-          <button onClick={openRevisionPanel} disabled={!activeDraft}>
-            Revisions
-          </button>
-          <button
-            type="button"
-            onClick={() => void onApproveScript()}
-            disabled={!activeDraft || !hasScript || isSaving || isAiProcessing || isApprovingScript || approvalBlocked}
-          >
-            {isApprovingScript ? "Approving..." : "Approve Script"}
-          </button>
-          <label className="hs-tone-control">
-            <span>Tone</span>
-            <select
-              value={activeTonePreset}
-              onChange={(event) => onChangeTonePreset(event.target.value)}
-              disabled={!activeDraft}
-            >
-              {TONE_PRESET_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <span className="hs-status-text">{statusText}</span>
-          <span className="hs-count-text">{wordCount} words · {charCount} chars</span>
-          {aiAutosaveWarning ? (
-            <span className="hs-autosave-warning" role="status" aria-live="polite">
-              {aiAutosaveWarning}
-              <button type="button" onClick={onRetryAiAutosave}>
-                Retry
-              </button>
-              <button type="button" onClick={() => void onSaveDraft()}>
-                Save now
-              </button>
-            </span>
-          ) : null}
-        </div>
-
-        {editingPeers.length > 0 ? (
-          <div className="hs-error-text-small">{activeEditorName} is editing this right now.</div>
-        ) : viewingPeers.length > 0 ? (
-          <div className="hs-muted-text-subtle">Viewed by {activeViewerName} (active)</div>
-        ) : null}
-
-        {error ? (
-          <div className="hs-error-text">{error}</div>
-        ) : null}
-
-        {draftConflictState ? (
-          <section className="hs-script-validation" aria-label="Draft conflict">
-            <div className="hs-script-validation-title">Draft changed elsewhere</div>
-            <div className="hs-script-validation-subtitle">{draftConflictState.message}</div>
-            <div className="hs-script-validation-actions">
-              <button type="button" onClick={() => void onReloadLatestDraftAfterConflict()}>
-                Reload latest
-              </button>
-              <button type="button" onClick={() => void onCopyConflictLocalText()}>
-                Copy my local text
-              </button>
-              <button type="button" onClick={() => setDraftConflictState(null)}>
-                Dismiss
-              </button>
-            </div>
-          </section>
-        ) : null}
-
-        {displayedValidation && !displayedValidation.ok ? (
-          <section className="hs-script-validation" aria-label="Anvil tag validation">
-            <div className="hs-script-validation-title">Tag Validation</div>
-            <div className="hs-script-validation-subtitle">
-              Script tags must be valid before approval.
-              Fix the issues below to continue.
-            </div>
-            <div className="hs-script-validation-subtitle">{validationIssueCount} errors</div>
-            <pre className="hs-script-validation-report">{buildValidationReport(displayedValidation)}</pre>
-            <ul className="hs-script-validation-issues">
-              {displayedValidation.issues.map((issue, index) => (
-                <li key={`${issue.code}-${issue.line}-${issue.column}-${index}`}>
-                  <button
-                    type="button"
-                    onClick={() => onJumpToValidationIssue(issue)}
-                    className="hs-script-validation-jump"
-                  >
-                    line {issue.line}: {issue.message}
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <div className="hs-script-validation-actions">
-              <button
-                type="button"
-                onClick={() => void onFixScriptFormattingNoAi()}
-                disabled={!activeDraft || isSaving || isRepairingScript}
-              >
-                Fix Tag Structure
-              </button>
-              <button
-                type="button"
-                onClick={() => void onAskAiRepairScript()}
-                disabled={!activeDraft || !aiEpisodeReady || aiCreditsDepleted || isAiProcessing || isRepairingScript}
-              >
-                {isRepairingScript ? "Repairing..." : "Ask AI to repair"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setScriptValidation(null)}
-                disabled={isRepairingScript}
-              >
-                Dismiss
-              </button>
-            </div>
-          </section>
-        ) : null}
-
-        <div className="hs-chat-stage-controls">
-          <div className="hs-manual-draft-controls">
-            <button
-              type="button"
-              onClick={() => setShowManualDraft((prev) => !prev)}
-              disabled={!activeDraft}
-            >
-              {showManualDraft ? "Hide Manual Draft" : "Manual Draft (no AI)"}
-            </button>
-            {hasScript ? (
-              <button
-                type="button"
-                onClick={() => setShowScriptPanel((prev) => !prev)}
-                disabled={!activeDraft}
-              >
-                {showScriptPanel ? "Hide Script panel" : "Script panel"}
-              </button>
-            ) : null}
-            {hasApprovedScript && approvedScriptVersion ? (
-              <button
-                type="button"
-                onClick={onToggleVisualScriptMode}
-              >
-                {isVisualScriptMode ? "Exit Visual Mode" : "Visual Mode"}
-              </button>
-            ) : null}
-          </div>
-          <div className="hs-field-label-muted">Write without AI (just a text editor)</div>
-        </div>
-          </>
-        ) : null}
-
-        <WorkpieceTabBar
-          activeTab={activeWorkpieceTab}
-          tabSummaryById={tabSummaryById}
-          tabDirtyById={tabDirtyById}
-          onChangeTab={requestWorkpieceTabChange}
-        />
-
-        <div className={`hs-draft-stage${(isHistoryWorkspaceTab || (isScriptWorkspaceTab && showScriptEditor)) ? " has-script-panel" : ""}`}>
-          <div className="hs-focus-stack">
-            <ChatSurface {...chatWorkspace.chatSurfaceProps} />
-
-            {isReleaseWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
-              <ReleaseSurface
-                hasApprovedScript={hasApprovedScript}
-                approvedScriptVersion={approvedScriptVersion}
-                aiCreditsDepleted={aiCreditsDepleted}
-                isAiProcessing={isAiProcessing}
-                activeProductionAction={activeProductionAction}
-                releasePrepScriptVersion={releasePrepScriptVersion}
-                latestReleasePrepRawText={latestReleasePrepRawText}
-                releasePrepLoadState={releasePrepLoadState}
-                latestReleasePrepSections={latestReleasePrepSections}
-                onGenerateSeo={() => void onRunProductionAction("seo")}
-                onGenerateTags={() => void onRunProductionAction("tags")}
-                onGenerateReleasePrepPack={() => void onRunProductionAction("release_prep_pack")}
-                onOpenVisualsTab={() => requestWorkpieceTabChange("visuals")}
-                onRefreshReleasePrepPack={() => void loadLatestReleasePrepPack(approvedScriptVersion)}
-                hasMetadataComplete={metadataComplete}
-                hasThumbnailsSelected={thumbnailsSelected}
-                mediaMapStatus={mediaMap?.status ?? null}
-                releaseReadinessCompleteCount={releaseReadiness.completeCount}
-                releaseReadinessTotalCount={releaseReadiness.totalCount}
-              />
-            ) : null}
-
-            <VisualsSurface
-              visible={isVisualsWorkspaceTab}
-              hasApprovedScript={hasApprovedScript}
-              approvedScriptVersion={approvedScriptVersion}
-              mediaMapStatus={mediaMap?.status ?? null}
-              mediaMapCoverageLevel={mediaMapCoverageLevel}
-              mediaMapScopeLabel={mediaMapScopeLabel}
-              thumbnailPanelMeta={thumbnailPanelMeta}
-              mediaMapPanelMeta={mediaMapPanelMeta}
-              imageMapPanelMeta={imageMapPanelMeta}
-              brollPanelMeta={brollPanelMeta}
-              referenceClipPanelMeta={referenceClipPanelMeta}
-              thumbnailPanelProps={thumbnailPanelProps}
-              mediaMapPanelProps={mediaMapPanelProps}
-              imageMapPanelProps={imageMapPanelProps}
-              brollPlanPanelProps={brollPlanPanelProps}
-              referenceClipPlanPanelProps={referenceClipPlanPanelProps}
-            />
-            <MetadataSurface
-              visible={isMetadataWorkspaceTab}
-              hasApprovedScript={hasApprovedScript}
-              approvedScriptVersion={approvedScriptVersion}
-              metadataPanelMeta={metadataPanelMeta}
-              metadataPanelProps={metadataPanelProps}
-            />
-          </div>
-
-          <HistorySurface visible={isHistoryWorkspaceTab}>
-            {renderRevisionsView()}
-          </HistorySurface>
-
-          <ScriptSurface
-            visible={isScriptWorkspaceTab}
-            showScriptEditor={showScriptEditor}
-            scriptPanelTitle={scriptPanelTitle}
-            scriptPanelCopyMessage={scriptPanelCopyMessage}
-            scriptPanelHint={scriptPanelHint}
-            scriptPanelMetaText={scriptPanelMetaText}
-            scriptPanelBodyText={scriptPanelBodyText}
-            scriptPanelPlaceholder={scriptPanelPlaceholder}
+      <HearthDraftMode
+        scriptHeader={(
+          <HearthDraftScriptHeader
+            isScriptWorkspaceTab={isScriptWorkspaceTab}
+            activeDraft={activeDraft}
+            formatUpdatedAt={formatUpdatedAt}
+            activeUserDisplayName={activeUserDisplayName}
+            resolveDraftEditorName={resolveDraftEditorName}
+            composeModeLabel={composeModeLabel}
+            completionBadgeLabel={completionBadgeLabel}
+            scriptCompletionReasons={scriptCompletionReasons}
+            onDraftTitleChange={onDraftTitleChange}
+            onCreateDraft={onCreateDraft}
+            onSaveDraft={onSaveDraft}
+            isSaving={isSaving}
+            onDeleteDraft={onDeleteDraft}
+            openRevisionModal={openRevisionModal}
+            openRevisionPanel={openRevisionPanel}
+            onApproveScript={onApproveScript}
+            hasScript={hasScript}
+            isAiProcessing={isAiProcessing}
+            isApprovingScript={isApprovingScript}
+            approvalBlocked={approvalBlocked}
+            activeTonePreset={activeTonePreset}
+            onChangeTonePreset={onChangeTonePreset}
+            tonePresetOptions={TONE_PRESET_OPTIONS}
+            statusText={statusText}
+            wordCount={wordCount}
+            charCount={charCount}
+            aiAutosaveWarning={aiAutosaveWarning}
+            onRetryAiAutosave={onRetryAiAutosave}
+            editingPeersCount={editingPeers.length}
+            viewingPeersCount={viewingPeers.length}
+            activeEditorName={activeEditorName}
+            activeViewerName={activeViewerName}
+            error={error}
+            draftConflictState={draftConflictState}
+            onReloadLatestDraftAfterConflict={onReloadLatestDraftAfterConflict}
+            onCopyConflictLocalText={onCopyConflictLocalText}
+            acknowledgeCopy={acknowledgeCopy}
+            isCopyAcknowledged={isCopyAcknowledged}
+            onDismissDraftConflict={() => setDraftConflictState(null)}
+            displayedValidation={displayedValidation}
+            validationIssueCount={validationIssueCount}
+            buildValidationReport={buildValidationReport}
+            onJumpToValidationIssue={onJumpToValidationIssue}
+            onFixScriptFormattingNoAi={onFixScriptFormattingNoAi}
+            onAskAiRepairScript={onAskAiRepairScript}
+            aiEpisodeReady={aiEpisodeReady}
+            aiCreditsDepleted={aiCreditsDepleted}
+            isRepairingScript={isRepairingScript}
+            onDismissValidation={() => setScriptValidation(null)}
+            showManualDraft={showManualDraft}
+            onToggleShowManualDraft={() => setShowManualDraft((prev) => !prev)}
+            showScriptPanel={showScriptPanel}
+            onToggleShowScriptPanel={() => setShowScriptPanel((prev) => !prev)}
+            hasApprovedScript={hasApprovedScript}
+            approvedScriptVersion={approvedScriptVersion}
             isVisualScriptMode={isVisualScriptMode}
-            visualScriptParagraphRail={visualScriptParagraphRail}
-            isCanonicalImageMapScriptPanel={isCanonicalImageMapScriptPanel}
-            activeDraftExists={Boolean(activeDraft)}
-            sourcesSummary={sourcesSummary}
-            unusedSummary={unusedSummary}
-            canReviewSources={Boolean(workpieceId)}
-            bodyRef={bodyRef}
-            copyIcon={<CopyIcon />}
-            onCopyScriptPanelText={() => void onCopyScriptPanelText()}
-            onBodyChange={(nextBody) => {
-              onDraftBodyChange(nextBody);
-            }}
-            onBodyCompositionStart={() => setIsBodyComposing(true)}
-            onBodyCompositionEnd={() => setIsBodyComposing(false)}
-            onBodyCursorChange={(cursor) => setCursorPosition(cursor)}
-            onBodyScrollChange={(nextScrollTop) => setScrollTop(nextScrollTop)}
-            onReviewSources={() => {
-              setFocusTab("sources");
-              setMode("focus");
-            }}
+            onToggleVisualScriptMode={onToggleVisualScriptMode}
           />
-        </div>
-      </section>
+        )}
+        workpieceTabProps={{
+          activeTab: activeWorkpieceTab,
+          tabSummaryById,
+          tabDirtyById,
+          onChangeTab: requestWorkpieceTabChange,
+        }}
+        draftStageClassName={`hs-draft-stage${(isHistoryWorkspaceTab || (isScriptWorkspaceTab && showScriptEditor)) ? " has-script-panel" : ""}`}
+        chatSurfaceProps={chatWorkspace.chatSurfaceProps}
+        releaseSurfaceProps={
+          isReleaseWorkspaceTab && hasApprovedScript && approvedScriptVersion
+            ? {
+              hasApprovedScript,
+              approvedScriptVersion,
+              hasFramingComplete: metadataComplete,
+              hasThumbnailsSelected: thumbnailsSelected,
+              mediaMapStatus: mediaMap?.status ?? null,
+              releaseReadinessCompleteCount: releaseReadiness.completeCount,
+              releaseReadinessTotalCount: releaseReadiness.totalCount,
+            }
+            : null
+        }
+        metadataSurfaceProps={{
+          visible: isMetadataWorkspaceTab,
+          hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
+          approvedScriptVersion: hearthVisualsWorkspace.status.approvedScriptVersion,
+          metadataPanelMeta: visualsPanelContracts.metadata.meta,
+          metadataPanelProps: visualsPanelContracts.metadata.panelProps,
+          aiCreditsDepleted: hearthVisualsWorkspace.status.aiCreditsDepleted,
+          isAiProcessing: hearthVisualsWorkspace.status.isAiProcessing,
+          activeProductionAction: hearthVisualsWorkspace.status.activeProductionAction,
+          releasePrepScriptVersion: hearthVisualsWorkspace.status.releasePrepScriptVersion,
+          latestReleasePrepRawText: hearthVisualsWorkspace.status.latestReleasePrepRawText,
+          releasePrepLoadState: hearthVisualsWorkspace.status.releasePrepLoadState,
+          latestReleasePrepSections: hearthVisualsWorkspace.status.latestReleasePrepSections,
+          onGenerateTitles: hearthVisualsWorkspace.commands.onGenerateTitles,
+          onGenerateTags: hearthVisualsWorkspace.commands.onGenerateTags,
+          onGenerateFramingPack: hearthVisualsWorkspace.commands.onGenerateFramingPack,
+          onRefreshFramingPack: hearthVisualsWorkspace.commands.onRefreshFramingPack,
+        }}
+        visualsSurfaceProps={{
+          visible: isVisualsWorkspaceTab,
+          hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
+          approvedScriptVersion: hearthVisualsWorkspace.status.approvedScriptVersion,
+          mediaMapStatus: hearthVisualsWorkspace.status.mediaMapStatus,
+          mediaMapCoverageLevel: hearthVisualsWorkspace.status.mediaMapCoverageLevel,
+          mediaMapScopeLabel: hearthVisualsWorkspace.status.mediaMapScopeLabel,
+          thumbnailPanelMeta: visualsPanelContracts.thumbnail.meta,
+          mediaMapPanelMeta: visualsPanelContracts.mediaMap.meta,
+          imageMapPanelMeta: visualsPanelContracts.imageMap.meta,
+          brollPanelMeta: visualsPanelContracts.broll.meta,
+          referenceClipPanelMeta: visualsPanelContracts.referenceClips.meta,
+          activeVisualProviderBanner: hearthVisualsWorkspace.status.activeVisualProviderBanner,
+          activeVisualProviderHelperText: hearthVisualsWorkspace.status.activeVisualProviderHelperText,
+          thumbnailPanelProps: visualsPanelContracts.thumbnail.panelProps,
+          mediaMapPanelProps: visualsPanelContracts.mediaMap.panelProps,
+          imageMapPanelProps: visualsPanelContracts.imageMap.panelProps,
+          brollPlanPanelProps: visualsPanelContracts.broll.panelProps,
+          referenceClipPlanPanelProps: visualsPanelContracts.referenceClips.panelProps,
+        }}
+        historyVisible={isHistoryWorkspaceTab}
+        revisionsContent={renderRevisionsView()}
+        scriptSurfaceProps={buildHearthDraftScriptSurfaceProps({
+          visible: isScriptWorkspaceTab,
+          showScriptEditor,
+          scriptPanelTitle,
+          scriptPanelCopyMessage,
+          scriptPanelCopyAcknowledged: isCopyAcknowledged("script-panel.copy"),
+          scriptPanelHint,
+          scriptPanelMetaText,
+          scriptPanelBodyText,
+          scriptPanelPlaceholder,
+          isVisualScriptMode,
+          visualScriptParagraphRail,
+          isCanonicalImageMapScriptPanel,
+          activeDraftExists: Boolean(activeDraft),
+          sourcesSummary,
+          unusedSummary,
+          canReviewSources: Boolean(workpieceId),
+          sttLane,
+          sttTarget,
+          sttState,
+          hasBrowserSpeech,
+          sttNotice,
+          sttError,
+          bodyRef,
+          copyIcon: <CopyIcon />,
+          listeningIndicator: <OscilloscopeFill stream={mediaStreamRef.current} active />,
+          onSetSttLane: (lane) => setSttLane(lane),
+          onToggleScriptMic: () => onToggleMic("script"),
+          onCopyScriptPanelText: () => {
+            void onCopyScriptPanelText().then((copied) => {
+              if (copied) acknowledgeCopy("script-panel.copy");
+            });
+          },
+          onBodyChange: (nextBody) => {
+            onDraftBodyChange(nextBody);
+          },
+          onBodyCompositionStart: () => setIsBodyComposing(true),
+          onBodyCompositionEnd: () => setIsBodyComposing(false),
+          onBodyCursorChange: (cursor) => setCursorPosition(cursor),
+          onBodyScrollChange: (nextScrollTop) => setScrollTop(nextScrollTop),
+          onReviewSources: () => {
+            setFocusTab("sources");
+            setMode("focus");
+          },
+        })}
+      />
     );
   };
 
   const renderPlanningView = () => (
-    <section className="hs-planning">
-      <header className="hs-planning-header">
-        <div className="hs-planning-title">Planning Board</div>
-        <div className="hs-planning-meta">
-          {sessionIntent ? `Intent: ${sessionIntent === "from_spark" ? "From Spark" : "New Idea"}` : "Intent: —"}
-          {sessionSparkId ? ` · Spark ${sessionSparkId.slice(0, 8)}` : ""}
-        </div>
-      </header>
-
-      <div className="hs-toolbar">
-        <button
-          type="button"
-          onClick={() => void syncSessionToTongs()}
-          disabled={!planningSession || !workpieceId}
-        >
-          Save Planning
-        </button>
-        <span className="hs-status-text">
-          {sessionTouched ? "Unsaved changes" : "Saved"}
-        </span>
-      </div>
-
-      <label className="hs-field">
-        <span className="hs-field-label">Title</span>
-        <input
-          type="text"
-          value={sessionTitle}
-          placeholder="Episode title seed"
-          onChange={(event) => {
-            updatePlanningSession((prev) => ({
-              ...prev,
-              title: event.target.value,
-            }));
-          }}
-        />
-      </label>
-      <label className="hs-field">
-        <span className="hs-field-label">Goals</span>
-        <textarea
-          value={sessionGoalsText}
-          placeholder="One per line"
-          onChange={(event) => {
-            const nextGoals = parsePlanningLines(event.target.value);
-            updatePlanningSession((prev) => ({
-              ...prev,
-              goals: nextGoals,
-            }));
-          }}
-          className="hs-textarea-small"
-        />
-      </label>
-      <label className="hs-field">
-        <span className="hs-field-label">Outline</span>
-        <textarea
-          value={sessionOutlineText}
-          placeholder="Bullet outline, one per line"
-          onChange={(event) => {
-            const nextOutline = parsePlanningLines(event.target.value);
-            updatePlanningSession((prev) => ({
-              ...prev,
-              outline: nextOutline,
-            }));
-          }}
-          className="hs-textarea-medium"
-        />
-      </label>
-      <div className="hs-decision-section">
-        <span className="hs-decision-title">Decision notes</span>
-        <div className="hs-decision-input-row">
-          <input
-            type="text"
-            aria-label="Decision draft"
-            value={decisionDraft}
-            placeholder="Add a decision"
-            onChange={(event) => setDecisionDraft(event.target.value)}
-            className="hs-decision-input"
-          />
-          <button type="button" onClick={onAddDecision} disabled={!decisionDraft.trim()}>
-            Add
-          </button>
-        </div>
-        {sessionDecisions.length === 0 ? (
-          <p className="hs-muted-text-small">No decisions logged yet.</p>
-        ) : (
-          <div className="hs-decision-list">
-            {sessionDecisions.map((decision, idx) => (
-              <div
-                key={`${decision.at}-${idx}`}
-                className="hs-decision-card"
-              >
-                <div className="hs-decision-time">
-                  {formatDecisionAt(decision.at)}
-                </div>
-                <input
-                  type="text"
-                  aria-label={`Decision note ${idx + 1}`}
-                  value={decision.text}
-                  onChange={(event) => onUpdateDecision(idx, event.target.value)}
-                />
-                <div className="hs-decision-actions">
-                  <button type="button" onClick={() => onRemoveDecision(idx)}>
-                    Remove
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </section>
+    <HearthPlanningMode
+      sessionIntent={sessionIntent}
+      sessionSparkId={sessionSparkId}
+      syncSessionToTongs={syncSessionToTongs}
+      planningSession={planningSession}
+      workpieceId={workpieceId}
+      sessionTouched={sessionTouched}
+      sessionTitle={sessionTitle}
+      onSessionTitleChange={(value) => {
+        updatePlanningSession((prev) => ({
+          ...prev,
+          title: value,
+        }));
+      }}
+      sessionGoalsText={sessionGoalsText}
+      onSessionGoalsChange={(value) => {
+        const nextGoals = parsePlanningLines(value);
+        updatePlanningSession((prev) => ({
+          ...prev,
+          goals: nextGoals,
+        }));
+      }}
+      sessionOutlineText={sessionOutlineText}
+      onSessionOutlineChange={(value) => {
+        const nextOutline = parsePlanningLines(value);
+        updatePlanningSession((prev) => ({
+          ...prev,
+          outline: nextOutline,
+        }));
+      }}
+      decisionDraft={decisionDraft}
+      onDecisionDraftChange={setDecisionDraft}
+      onAddDecision={onAddDecision}
+      sessionDecisions={sessionDecisions}
+      formatDecisionAt={formatDecisionAt}
+      onUpdateDecision={onUpdateDecision}
+      onRemoveDecision={onRemoveDecision}
+    />
   );
 
   const renderSourcesView = () => (
     <section className="hs-sources-view">
-      <SourcesView state={sourcesState} workspaceId={workspaceId} workpieceId={workpieceId} />
+      <SourcesView
+        state={sourcesState}
+        workspaceId={workspaceId}
+        workpieceId={workpieceId}
+        researchResult={latestResearchResult}
+      />
     </section>
   );
 
   const renderRevisionsView = () => (
-    <section className="hs-revisions">
-      <header className="hs-revisions-header">
-        <div className="hs-revisions-title">Revisions</div>
-        <button type="button" onClick={closeRevisionPanel}>
-          Back to Draft
-        </button>
-      </header>
-
-      {revisions.length === 0 ? (
-        <p className="hs-muted-text">No revisions yet.</p>
-      ) : (
-        <div className="hs-revisions-grid">
-          <div className="hs-revision-list">
-            {revisions.map((revision) => (
-              <div
-                key={revision.id}
-                className={`hs-revision-card${selectedRevision?.id === revision.id ? " is-active" : ""}`}
-              >
-                <div className="hs-revision-card-header">
-                  <span>{formatUpdatedAt(revision.createdAt)}</span>
-                  <span className="hs-revision-kind">
-                    {revision.kind}
-                  </span>
-                </div>
-                <div className="hs-revision-note">
-                  {revision.note || "No note"}
-                </div>
-                <div className="hs-revision-actions">
-                  <button
-                    type="button"
-                    onClick={() => selectRevisionPreview(revision)}
-                  >
-                    Preview
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => selectRevisionCompare(revision)}
-                  >
-                    Compare
-                  </button>
-                  <button type="button" onClick={() => void onRestoreRevision(revision)}>
-                    Restore
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {selectedRevision ? (
-            <div className="hs-revision-detail">
-              <div className="hs-revision-detail-title">
-                {revisionView === "preview" ? "Preview" : "Compare"}
-              </div>
-              <div className="hs-revision-meta">
-                {formatUpdatedAt(selectedRevision.createdAt)} · {selectedRevision.kind}
-              </div>
-              <label className="hs-revision-label">
-                <span className="hs-revision-label-text">Revision note</span>
-                <input
-                  value={selectedRevision.note ?? ""}
-                  onChange={(event) => updateSelectedRevisionDraftNote(event.target.value)}
-                  onBlur={(event) => void onUpdateRevisionNote(selectedRevision, event.target.value)}
-                />
-              </label>
-              {revisionView === "preview" ? (
-                <div className="hs-revision-preview">
-                  <div className="hs-revision-preview-title">{selectedRevision.titleSnapshot}</div>
-                  {renderSectionedBody(selectedRevision.bodySnapshot)}
-                </div>
-              ) : (
-                <div className="hs-revision-diff-section">
-                  <div className="hs-revision-diff-block">
-                    <span className="hs-diff-label">Diff</span>
-                    <div className="hs-diff-list">
-                      {diffLines.map((line, idx) => {
-                        const isSeparator = line.status === "separator";
-                        if (isSeparator) {
-                          return (
-                            <div key={`diff-${idx}`} className="hs-diff-separator">
-                              <hr className="hs-divider" />
-                            </div>
-                          );
-                        }
-                        return (
-                          <div
-                            key={`diff-${idx}`}
-                            className="hs-diff-row"
-                          >
-                            <div className={diffCellClass("left", line.status)}>{line.left || " "}</div>
-                            <div className={diffCellClass("right", line.status)}>{line.right || " "}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => void onUpdateRevisionNote(selectedRevision, selectedRevision.note ?? "")}
-                disabled={isSavingRevision}
-              >
-                {isSavingRevision ? "Saving note..." : "Save note"}
-              </button>
-            </div>
-          ) : (
-            <div className="hs-muted-text-subtle">Select a revision to preview.</div>
-          )}
-        </div>
-      )}
-    </section>
+    <HearthRevisionsMode
+      closeRevisionPanel={closeRevisionPanel}
+      revisions={revisions}
+      selectedRevision={selectedRevision}
+      revisionView={revisionView}
+      formatUpdatedAt={formatUpdatedAt}
+      selectRevisionPreview={selectRevisionPreview}
+      selectRevisionCompare={selectRevisionCompare}
+      onRestoreRevision={onRestoreRevision}
+      updateSelectedRevisionDraftNote={updateSelectedRevisionDraftNote}
+      onUpdateRevisionNote={onUpdateRevisionNote}
+      renderSectionedBody={renderSectionedBody}
+      diffLines={diffLines}
+      diffCellClass={diffCellClass}
+      isSavingRevision={isSavingRevision}
+    />
   );
 
   const renderEpisodesView = () => (
-    <section className="hs-home">
-      <header className="hs-home-header">
-        <h2 className="hs-home-title">{isMobile ? "Workspace Projects" : "Episodes (In Progress)"}</h2>
-        <p className="hs-home-subtext">
-          {isMobile ? "Tap a project to open the mobile editor." : "Open an Episode to enter Focus Mode."}
-        </p>
-      </header>
-      <div className="hs-home-actions">
-        <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
-          New Workpiece
-        </button>
-        <button type="button" onClick={onCreateDraft}>
-          New Draft
-        </button>
-        {isMobile ? (
-          <button type="button" onClick={openReadyInMobileOverlay}>
-            Ready to Record
-          </button>
-        ) : null}
-      </div>
-      <div className="hs-rail-section">
-        <label className="hs-rail-label">Search Episodes</label>
-        <input
-          aria-label="Search episodes"
-          ref={searchRef}
-          type="search"
-          value={searchText}
-          onChange={(event) => setSearchText(event.target.value)}
-          placeholder="Search Episode titles"
-        />
-        <div className="hs-rail-sort">
-          <label className="hs-rail-label">Sort</label>
-          <select aria-label="Sort episodes" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
-            <option value="updated">Recently updated</option>
-            <option value="title">Title A-Z</option>
-          </select>
-        </div>
-      </div>
-      <ul className="hs-workpieces-list">
-        {filteredWorkpieceNavItems.map((item) => {
-          const draft = item.draftId ? draftsById.get(item.draftId) ?? null : null;
-          const isActive = workpieceId === item.workpieceId;
-          const updatedAt = item.updatedAtMs || draft?.updatedAt || Date.now();
-          const isArchiving = archivingWorkpieceIds.includes(item.workpieceId);
-          const isRestoring = restoringWorkpieceIds.includes(item.workpieceId);
-          return (
-          <li key={item.workpieceId}>
-            <div className={`hs-workpiece-card${isActive ? " is-active" : ""}`}>
-              <button
-                type="button"
-                className="hs-workpiece-button"
-                onClick={() => void openWorkpieceInFocus(item.workpieceId, {
-                  preferredDraftId: item.draftId,
-                })}
-              >
-                <div className="hs-workpiece-title-row">
-                  <div className="hs-workpiece-title">{item.title}</div>
-                  <span className={`hs-workpiece-presence ${resolveWorkpiecePresenceClass(item.workpieceId)}`}>
-                    {resolveWorkpiecePresenceBadge(item.workpieceId)}
-                  </span>
-                </div>
-                <div className="hs-workpiece-updated">Updated {formatUpdatedAt(updatedAt)}</div>
-                <div className="hs-workpiece-updated">
-                  {draft ? `Last edited by ${resolveDraftEditorName(draft)}` : "No attached draft buffer yet"}
-                </div>
-              </button>
-              <div className="hs-workpiece-actions">
-                {draft && !item.isArchived ? (
-                  <button type="button" onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}>
-                    {draft.pinned ? "Unpin" : "Pin"}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => void (
-                    item.isArchived
-                      ? onRestoreWorkpiece(item.workpieceId)
-                      : onArchiveWorkpiece(item.workpieceId)
-                  )}
-                  disabled={isArchiving || isRestoring}
-                >
-                  {item.isArchived
-                    ? isRestoring ? "Restoring..." : "Restore Workpiece"
-                    : isArchiving ? "Archiving..." : "Archive Workpiece"}
-                </button>
-                {draft ? (
-                  <button type="button" onClick={() => void onDeleteDraft(draft)}>
-                    Delete Draft Buffer
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          </li>
-        );
-        })}
-      </ul>
-    </section>
+    <HearthEpisodesMode
+      isMobile={isMobile}
+      startFromScratch={startFromScratch}
+      isForging={isForging}
+      onCreateDraft={onCreateDraft}
+      openReadyInMobileOverlay={openReadyInMobileOverlay}
+      searchRef={searchRef}
+      searchText={searchText}
+      setSearchText={setSearchText}
+      sortKey={sortKey}
+      setSortKey={setSortKey}
+      filteredWorkpieceNavItems={filteredWorkpieceNavItems}
+      draftsById={draftsById}
+      workpieceId={workpieceId}
+      archivingWorkpieceIds={archivingWorkpieceIds}
+      restoringWorkpieceIds={restoringWorkpieceIds}
+      openWorkpieceInFocus={openWorkpieceInFocus}
+      resolveWorkpiecePresenceClass={resolveWorkpiecePresenceClass}
+      resolveWorkpiecePresenceBadge={resolveWorkpiecePresenceBadge}
+      formatUpdatedAt={formatUpdatedAt}
+      resolveDraftEditorName={resolveDraftEditorName}
+      saveDraftMeta={saveDraftMeta}
+      onRestoreWorkpiece={onRestoreWorkpiece}
+      onArchiveWorkpiece={onArchiveWorkpiece}
+      onDeleteDraft={onDeleteDraft}
+    />
   );
 
   const renderReadyView = () => (
-    <section className="hs-home">
-      <header className="hs-home-header">
-        <h2 className="hs-home-title">Ready</h2>
-        <p className="hs-home-subtext">Session List curated by Hearth.</p>
-      </header>
-      <div className="hs-ready-record-header">
-        <div className="hs-rail-heading">
-          Ready Items
-          <span className="hs-ready-record-count">{readyTotalCount}</span>
-        </div>
-        <button type="button" onClick={() => void refreshReadyScripts()} disabled={isReadyScriptsLoading}>
-          {isReadyScriptsLoading ? "Refreshing..." : "Refresh"}
-        </button>
-      </div>
-      {removedReadyCount > 0 ? (
-        <button type="button" onClick={() => void onRestoreRemovedReady()} disabled={isRestoringReady}>
-          {isRestoringReady ? "Restoring..." : `Restore hidden (${removedReadyCount})`}
-        </button>
-      ) : null}
-      {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
-      <ul className="hs-ready-record-list">
-        {orderedReadyScripts.map((entry) => {
-          const anvilHref = resolveReadyOpenHref(entry);
-          const label = resolveReadyLabel(entry);
-          return (
-            <li
-              key={entry.id}
-              className="hs-ready-record-item"
-              draggable
-              onDragStart={() => setDraggingReadyId(entry.id)}
-              onDragEnd={() => setDraggingReadyId(null)}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={() => {
-                if (draggingReadyId) onReorderReady(draggingReadyId, entry.id);
-                setDraggingReadyId(null);
-              }}
-            >
-              <div className="hs-ready-record-title">{entry.title}</div>
-              <div className="hs-ready-record-meta">{resolveReadyAttribution(entry)}</div>
-              <label className="hs-ready-record-label">
-                <span>Label</span>
-                <select
-                  value={label}
-                  disabled={updatingReadyCategoryId === entry.id}
-                  onChange={(event) => onReadyLabelChange(entry, event.target.value as ReadyLabel)}
-                >
-                  <option value="hot">Hot</option>
-                  <option value="evergreen">Evergreen</option>
-                  <option value="series">Series</option>
-                </select>
-              </label>
-              <div className="hs-workpiece-actions">
-                <button
-                  type="button"
-                  onClick={() => void onOpenReadyScriptInHearth(entry)}
-                >
-                  Open in Hearth
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void onSendBackToEdit(entry)}
-                  disabled={sendingBackReadyIds.includes(entry.id)}
-                >
-                  {sendingBackReadyIds.includes(entry.id) ? "Sending back..." : "Send Back to Edit"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!anvilHref) return;
-                    window.location.assign(anvilHref);
-                  }}
-                  disabled={!anvilHref}
-                >
-                  Send to Anvil
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void onRemoveFromReady(entry)}
-                  disabled={removingReadyIds.includes(entry.id) || sendingBackReadyIds.includes(entry.id)}
-                >
-                  {removingReadyIds.includes(entry.id) ? "Hiding..." : "Hide from Ready"}
-                </button>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
+    <HearthReadyMode
+      readyTotalCount={readyTotalCount}
+      isReadyScriptsLoading={isReadyScriptsLoading}
+      refreshReadyScripts={refreshReadyScripts}
+      removedReadyCount={removedReadyCount}
+      onRestoreRemovedReady={onRestoreRemovedReady}
+      isRestoringReady={isRestoringReady}
+      readyScriptsError={readyScriptsError}
+      orderedReadyScripts={orderedReadyScripts}
+      draggingReadyId={draggingReadyId}
+      onStartDraggingReady={setDraggingReadyId}
+      onStopDraggingReady={() => setDraggingReadyId(null)}
+      onDropReadyOnEntry={(targetId) => {
+        if (draggingReadyId) onReorderReady(draggingReadyId, targetId);
+        setDraggingReadyId(null);
+      }}
+      updatingReadyCategoryId={updatingReadyCategoryId}
+      onReadyLabelChange={onReadyLabelChange}
+      onOpenReadyScriptInHearth={onOpenReadyScriptInHearth}
+      onSendBackToEdit={onSendBackToEdit}
+      sendingBackReadyIds={sendingBackReadyIds}
+      resolveReadyOpenHref={resolveReadyOpenHref}
+      onRemoveFromReady={onRemoveFromReady}
+      removingReadyIds={removingReadyIds}
+      resolveReadyAttribution={resolveReadyAttribution}
+      resolveReadyLabel={resolveReadyLabel}
+    />
   );
 
   const renderSeriesView = () => {
     const seriesEntries = orderedReadyScripts.filter((entry) => resolveReadyLabel(entry) === "series");
     return (
-      <section className="hs-home">
-        <header className="hs-home-header">
-          <h2 className="hs-home-title">Series</h2>
-          <p className="hs-home-subtext">Series-focused queue.</p>
-        </header>
-        {seriesEntries.length === 0 ? (
-          <p className="hs-home-empty">No series-labeled Episodes yet.</p>
-        ) : (
-          <ul className="hs-ready-record-list">
-            {seriesEntries.map((entry) => (
-              <li key={entry.id} className="hs-ready-record-item">
-                <button
-                  type="button"
-                  className="hs-ready-record-link"
-                  onClick={() => void openWorkpieceInFocus(entry.workpieceId, {
-                    workspaceId: entry.workspaceId,
-                    preferredDraftId: entry.workpieceId,
-                  })}
-                >
-                  <div className="hs-ready-record-title">{entry.title}</div>
-                </button>
-                <div className="hs-ready-record-meta">{resolveReadyAttribution(entry)}</div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <HearthSeriesMode
+        seriesEntries={seriesEntries}
+        resolveReadyAttribution={resolveReadyAttribution}
+        onOpenSeriesEntry={(entry) => void openWorkpieceInFocus(entry.workpieceId, {
+          workspaceId: entry.workspaceId,
+          preferredDraftId: entry.workpieceId,
+        })}
+      />
     );
   };
 
   const renderFocusEditor = () => {
-    if (!hasActiveEpisode) {
-      return (
-        <section className="hs-home">
-          <header className="hs-home-header">
-            <h2 className="hs-home-title">Focus Mode</h2>
-            <p className="hs-home-subtext">Open an Episode from Episodes (In Progress) first.</p>
-          </header>
-          <div className="hs-home-actions">
-            <button type="button" onClick={() => setMode("episodes")}>
-              Go to Episodes
-            </button>
-          </div>
-        </section>
-      );
-    }
-
-    if (activeWorkpieceContext.workpiece?.isArchived) {
-      const archivedWorkpiece = activeWorkpieceContext.workpiece;
-      const isRestoringArchivedWorkpiece = restoringWorkpieceIds.includes(archivedWorkpiece.workpieceId);
-      return (
-        <section className="hs-home">
-          <header className="hs-home-header">
-            <h2 className="hs-home-title">{archivedWorkpiece.title}</h2>
-            <p className="hs-home-subtext">This workpiece is archived. Restore it to review, then re-ready it before recording.</p>
-          </header>
-          {archivedWorkpiece.archiveReason ? (
-            <div className="hs-rail-meta">Archive reason: {archivedWorkpiece.archiveReason}</div>
-          ) : null}
-          <div className="hs-home-actions">
-            <button
-              type="button"
-              onClick={() => void onRestoreWorkpiece(archivedWorkpiece.workpieceId, { openAfterRestore: true })}
-              disabled={isRestoringArchivedWorkpiece}
-            >
-              {isRestoringArchivedWorkpiece ? "Restoring..." : "Restore Workpiece"}
-            </button>
-            <button type="button" onClick={() => setMode("episodes")}>
-              Back to Episodes
-            </button>
-          </div>
-        </section>
-      );
-    }
-
-    if (!activeDraft) {
-      return (
-        <section className="hs-home">
-          <header className="hs-home-header">
-            <h2 className="hs-home-title">{activeWorkpieceContext.workpiece?.title ?? "Episode"}</h2>
-            <p className="hs-home-subtext">Hydrating the attached draft buffer for this Episode.</p>
-          </header>
-          <div className="hs-home-actions">
-            <button
-              type="button"
-              onClick={() => {
-                if (!workpieceId) return;
-                void openWorkpieceInFocus(workpieceId, {
-                  preferredDraftId: session?.activeDraftId ?? null,
-                });
-              }}
-              disabled={!workpieceId}
-            >
-              Retry draft hydration
-            </button>
-            <button type="button" onClick={() => setMode("episodes")}>
-              Back to Episodes
-            </button>
-          </div>
-        </section>
-      );
-    }
-
-    switch (focusTab) {
-      case "planning":
-        return renderPlanningView();
-      case "sources":
-        return renderSourcesView();
-      case "revisions":
-        return renderRevisionsView();
-      case "draft":
-      default:
-        return renderDraftView();
-    }
+    return (
+      <HearthFocusMode
+        hasActiveEpisode={hasActiveEpisode}
+        onGoToEpisodes={() => setMode("episodes")}
+        activeWorkpieceIsArchived={Boolean(activeWorkpieceContext.workpiece?.isArchived)}
+        activeWorkpieceTitle={activeWorkpieceContext.workpiece?.title ?? "Episode"}
+        activeWorkpieceArchiveReason={activeWorkpieceContext.workpiece?.archiveReason ?? null}
+        activeWorkpieceId={activeWorkpieceContext.workpiece?.workpieceId ?? null}
+        isRestoringArchivedWorkpiece={Boolean(
+          activeWorkpieceContext.workpiece
+          && restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId),
+        )}
+        onRestoreArchivedWorkpiece={() => {
+          const archivedWorkpieceId = activeWorkpieceContext.workpiece?.workpieceId;
+          if (!archivedWorkpieceId) return;
+          return onRestoreWorkpiece(archivedWorkpieceId, { openAfterRestore: true });
+        }}
+        hasActiveDraft={Boolean(activeDraft)}
+        onRetryDraftHydration={() => {
+          if (!workpieceId) return;
+          return openWorkpieceInFocus(workpieceId, {
+            preferredDraftId: session?.activeDraftId ?? null,
+          });
+        }}
+        workpieceId={workpieceId}
+        focusTab={focusTab}
+        renderPlanningView={renderPlanningView}
+        renderSourcesView={renderSourcesView}
+        renderRevisionsView={renderRevisionsView}
+        renderDraftView={renderDraftView}
+      />
+    );
   };
 
   const showSparkRouteBootstrap = Boolean(
     incomingBarStockIntakeRoute && routeSparkId && !routeProjectId && !hasActiveEpisode && !forgeError,
   );
 
-  const mainContent = (() => {
-    if (showSparkRouteBootstrap) {
-      return renderSparkRouteBootstrapView();
-    }
-    switch (mode) {
-      case "sparks":
-        return renderSparksView();
-      case "episodes":
-        return renderEpisodesView();
-      case "ready":
-        return renderReadyView();
-      case "series":
-        return renderSeriesView();
-      case "focus":
-      default:
-        return renderFocusEditor();
-    }
-  })();
+  const mainContent = (
+    <HearthMainContentSwitch
+      showSparkRouteBootstrap={showSparkRouteBootstrap}
+      mode={mode}
+      renderSparkRouteBootstrapView={renderSparkRouteBootstrapView}
+      renderSparksView={renderSparksView}
+      renderEpisodesView={renderEpisodesView}
+      renderReadyView={renderReadyView}
+      renderSeriesView={renderSeriesView}
+      renderFocusEditor={renderFocusEditor}
+    />
+  );
   const mobileMainContent = renderEpisodesView();
 
   const sourcesBadge = missingSourcesCount > 0 ? String(missingSourcesCount) : null;
@@ -12754,6 +7350,58 @@ export default function HearthShell({
     : unusedSourcesCount > 0
       ? `Unused refs: ${unusedSourcesCount}`
       : "Sources";
+  const shouldShowWorkpieceId = useCallback(
+    (title: string) => duplicateRailTitleKeys.has(normalizeRailTitleKey(title)),
+    [duplicateRailTitleKeys],
+  );
+  const onOpenReadyView = useCallback(() => {
+    setMode("ready");
+  }, []);
+  const onFocusDraft = useCallback(() => {
+    setFocusTab("draft");
+    setMode("focus");
+  }, []);
+  const onFocusPlanning = useCallback(() => {
+    setFocusTab("planning");
+    setMode("focus");
+  }, []);
+  const onFocusSources = useCallback(() => {
+    setFocusTab("sources");
+    setMode("focus");
+  }, []);
+  const onFocusRevisions = useCallback(() => {
+    setFocusTab("revisions");
+    setMode("focus");
+  }, []);
+  const onOpenApiLedger = useCallback(() => {
+    if (!hasActiveEpisode) {
+      setMode("episodes");
+      return;
+    }
+    setFocusTab("sources");
+    setMode("focus");
+  }, [hasActiveEpisode]);
+  const onRestoreActiveWorkpiece = useCallback(() => {
+    if (!activeWorkpiece) return;
+    return onRestoreWorkpiece(activeWorkpiece.workpieceId, { openAfterRestore: true });
+  }, [activeWorkpiece, onRestoreWorkpiece]);
+  const onRestoreMobileWorkpiece = useCallback(() => {
+    const targetWorkpiece = activeWorkpieceContext.workpiece;
+    if (!targetWorkpiece) return;
+    return onRestoreWorkpiece(targetWorkpiece.workpieceId, { openAfterRestore: true });
+  }, [activeWorkpieceContext.workpiece, onRestoreWorkpiece]);
+  const onDeleteActiveDraftBuffer = useCallback(() => {
+    if (!activeDraft) return;
+    return onDeleteDraft(activeDraft);
+  }, [activeDraft, onDeleteDraft]);
+  const mobileRestoreButtonLabel = activeWorkpieceContext.workpiece
+    && restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId)
+    ? "Restoring..."
+    : "Restore Workpiece";
+  const mobileRestoreButtonDisabled = Boolean(
+    !activeWorkpieceContext.workpiece
+    || restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId),
+  );
 
   return (
     <section className={`hs-shell hs-density-${uiDensity}${isMobile ? " hs-shell--mobile" : ""}`}>
@@ -12762,548 +7410,127 @@ export default function HearthShell({
           {mobileMainContent}
         </main>
       ) : (
-        <div className="hs-shell-grid">
-        <aside
-          className="hs-rail"
-        >
-          <div className="hs-rail-header">
-            <div className="hs-rail-title">Hearth</div>
-            {devMode ? (
-              <div className="hs-rail-meta">Dev store: {storeKind}</div>
-            ) : null}
-            {workpieceId ? (
-              <div className="hs-rail-meta">
-                Workpiece {workpieceId.slice(0, 8)}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="hs-rail-section">
-            <div className="hs-rail-heading">Primary actions</div>
-            <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
-              New Workpiece
-            </button>
-            <button type="button" onClick={onCreateDraft}>
-              New Draft
-            </button>
-          </div>
-
-          <div className="hs-rail-section">
-            <div className="hs-rail-heading">Modes</div>
-            <button
-              type="button"
-              className={`hs-mode-button${mode === "sparks" ? " is-active" : ""}`}
-              onClick={() => setMode("sparks")}
-            >
-              Sparks
-            </button>
-            <button
-              type="button"
-              className={`hs-mode-button${mode === "episodes" ? " is-active" : ""}`}
-              onClick={() => setMode("episodes")}
-            >
-              Episodes (In Progress)
-            </button>
-            <button
-              type="button"
-              className={`hs-mode-button${mode === "ready" ? " is-active" : ""}`}
-              onClick={() => setMode("ready")}
-            >
-              Ready
-            </button>
-            <button
-              type="button"
-              className={`hs-mode-button${mode === "series" ? " is-active" : ""}`}
-              onClick={() => setMode("series")}
-            >
-              Series
-            </button>
-          </div>
-
-          <div className="hs-rail-section">
-            <label className="hs-rail-label" htmlFor="hs-density-select">Density</label>
-            <select
-              id="hs-density-select"
-              aria-label="UI density"
-              value={uiDensity}
-              onChange={(event) => setUiDensity(event.target.value === "compact" ? "compact" : "comfortable")}
-            >
-              <option value="comfortable">Comfortable</option>
-              <option value="compact">Compact</option>
-            </select>
-          </div>
-
-          {deferDesktopRailCollections ? (
-            <div className="hs-rail-section">
-              <div className="hs-rail-heading">Workspace Queue</div>
-              <div className="hs-rail-meta">
-                Ready items and workspace projects load after you open or start an Episode.
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="hs-rail-section">
-                <div className="hs-ready-record-header">
-                  <div className="hs-rail-heading">
-                    Ready to Record
-                    <span className="hs-ready-record-count">{readyTotalCount}</span>
-                  </div>
-                  <button type="button" onClick={() => void refreshReadyScripts()} disabled={isReadyScriptsLoading}>
-                    {isReadyScriptsLoading ? "Refreshing..." : "Refresh"}
-                  </button>
-                </div>
-                {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
-                {readyCategoryError ? <div className="hs-error-text-small">{readyCategoryError}</div> : null}
-                <div className="hs-rail-meta">
-                  Each episode appears once in Projects. Ready state lives on the project row; queue management lives in the Ready view.
-                </div>
-                {isReadyScriptsLoading ? <p>Loading queue...</p> : null}
-                {!isReadyScriptsLoading ? (
-                  <div className="hs-ready-record-summary">
-                    <div className="hs-ready-record-summary-row">
-                      <span>Ready episodes</span>
-                      <strong>{readyTotalCount}</strong>
-                    </div>
-                    <div className="hs-ready-record-summary-row">
-                      <span>{READY_URGENCY_LABEL.fresh}</span>
-                      <strong>{readyUrgencyCounts.fresh}</strong>
-                    </div>
-                    <div className="hs-ready-record-summary-row">
-                      <span>{READY_URGENCY_LABEL.cooling}</span>
-                      <strong>{readyUrgencyCounts.cooling}</strong>
-                    </div>
-                    <div className="hs-ready-record-summary-row">
-                      <span>{READY_URGENCY_LABEL.cold}</span>
-                      <strong>{readyUrgencyCounts.cold}</strong>
-                    </div>
-                    <div className="hs-ready-record-summary-row">
-                      <span>Hidden</span>
-                      <strong>{removedReadyCount}</strong>
-                    </div>
-                  </div>
-                ) : null}
-                <div className="hs-workpiece-actions">
-                  <button
-                    type="button"
-                    className="hs-mode-button"
-                    onClick={() => setMode("ready")}
-                  >
-                    Open Ready View
-                  </button>
-                  {removedReadyCount > 0 ? (
-                    <button type="button" onClick={() => void onRestoreRemovedReady()} disabled={isRestoringReady}>
-                      {isRestoringReady ? "Restoring..." : `Restore hidden (${removedReadyCount})`}
-                    </button>
-                  ) : null}
-                </div>
-                {!isReadyScriptsLoading && readyTotalCount === 0 && removedReadyCount === 0 ? (
-                  <p className="hs-rail-meta">No items yet. Approve a script to populate Ready.</p>
-                ) : null}
-              </div>
-
-              <div className="hs-rail-section">
-                <label className="hs-rail-label">Search workspace projects</label>
-                <input
-                  aria-label="Search workspace projects"
-                  ref={searchRef}
-                  type="search"
-                  value={searchText}
-                  onChange={(event) => setSearchText(event.target.value)}
-                  placeholder="Search Episode titles"
-                />
-                <div className="hs-rail-sort">
-                  <label className="hs-rail-label">Sort</label>
-                  <select aria-label="Sort workspace projects" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
-                    <option value="updated">Recently updated</option>
-                    <option value="title">Title A-Z</option>
-                  </select>
-                </div>
-                <label className="hs-rail-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={showArchived}
-                    onChange={(event) => setShowArchived(event.target.checked)}
-                  />
-                  Show archived
-                </label>
-              </div>
-
-              <div className="hs-rail-section">
-                <div className="hs-rail-heading">Workspace Projects</div>
-                {isLoading || isWorkpiecesLoading ? <p>Loading workspace projects...</p> : null}
-                {workpiecesError ? <div className="hs-error-text-small">{workpiecesError}</div> : null}
-                {!isLoading && !isWorkpiecesLoading && filteredWorkpieceNavItems.length === 0
-                  ? <p>No workspace projects yet.</p>
-                  : null}
-                <ul className="hs-workpieces-list">
-                  {filteredWorkpieceNavItems.map((item) => {
-                    const draft = item.draftId ? draftsById.get(item.draftId) ?? null : null;
-                    const draftId = draft?.id ?? null;
-                    const isActive = workpieceId === item.workpieceId;
-                    const isEditing = Boolean(draftId) && editingDraftId === draftId;
-                    const updatedAt = item.updatedAtMs || draft?.updatedAt || Date.now();
-                    const draftLabel = readTrimmedString(draft?.title ?? null);
-                    const showDraftLabel = Boolean(draftLabel && draftLabel !== item.title);
-                    const showWorkpieceId = duplicateRailTitleKeys.has(normalizeRailTitleKey(item.title));
-                    const workpieceBadges = [
-                      item.readyEntry ? { label: "Ready", tone: "ready" } : null,
-                      draft ? { label: "Draft", tone: "draft" } : null,
-                      draft?.revisionCount ? { label: `Revisions ${draft.revisionCount}`, tone: "count" } : null,
-                      item.sparkCount > 0
-                        ? { label: `${item.sparkCount} Spark${item.sparkCount === 1 ? "" : "s"}`, tone: "count" }
-                        : null,
-                      draft?.pinned ? { label: "Pinned", tone: "neutral" } : null,
-                      item.isArchived ? { label: "Archived", tone: "archived" } : null,
-                    ].filter((badge): badge is { label: string; tone: "ready" | "draft" | "count" | "neutral" | "archived" } => Boolean(badge));
-                    const isArchiving = archivingWorkpieceIds.includes(item.workpieceId);
-                    const isRestoring = restoringWorkpieceIds.includes(item.workpieceId);
-                    return (
-                      <li key={item.workpieceId}>
-                        <div
-                          className={`hs-workpiece-card${isActive ? " is-active" : ""}`}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => void openWorkpieceInFocus(item.workpieceId, {
-                              preferredDraftId: item.draftId,
-                            })}
-                            className="hs-workpiece-button"
-                          >
-                            <div className="hs-workpiece-title-row">
-                              <div className="hs-workpiece-title-stack">
-                                <div className="hs-workpiece-title">{item.title}</div>
-                                {showWorkpieceId ? (
-                                  <div className="hs-workpiece-secondary">ID {item.workpieceId.slice(0, 8)}</div>
-                                ) : null}
-                              </div>
-                            </div>
-                            {workpieceBadges.length > 0 ? (
-                              <div className="hs-workpiece-badges" aria-label="Project status">
-                                {workpieceBadges.map((badge) => (
-                                  <span
-                                    key={`${item.workpieceId}:${badge.label}`}
-                                    className={`hs-workpiece-badge is-${badge.tone}`}
-                                  >
-                                    {badge.label}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : null}
-                            <div className="hs-workpiece-updated">
-                              Updated {formatUpdatedAt(updatedAt)}
-                            </div>
-                            <div className="hs-workpiece-updated">
-                              {draft ? `Last edited by ${resolveDraftEditorName(draft)}` : "No attached draft buffer yet"}
-                            </div>
-                            {showDraftLabel ? (
-                              <div className="hs-workpiece-updated">Draft label: {draftLabel}</div>
-                            ) : null}
-                          </button>
-                          {draft && isEditing ? (
-                            <label className="hs-workpiece-draft-label-editor">
-                              <span className="hs-rail-label">Draft label</span>
-                              <input
-                                aria-label="Edit draft label"
-                                value={editingTitle}
-                                onChange={(event) => setEditingTitle(event.target.value)}
-                                onKeyDown={(event) => {
-                                  if (!draft) return;
-                                  if (event.key === "Enter") {
-                                    event.preventDefault();
-                                    void saveDraftMeta(draft, { title: editingTitle });
-                                    setEditingDraftId(null);
-                                  }
-                                  if (event.key === "Escape") {
-                                    setEditingDraftId(null);
-                                  }
-                                }}
-                                onBlur={() => {
-                                  if (draft && editingDraftId === draft.id) {
-                                    void saveDraftMeta(draft, { title: editingTitle });
-                                    setEditingDraftId(null);
-                                  }
-                                }}
-                              />
-                              <span className="hs-rail-meta">
-                                Draft label only. Project title stays synced to Tongs.
-                              </span>
-                            </label>
-                          ) : null}
-                          {draft && !item.isArchived ? (
-                            <div className="hs-workpiece-actions">
-                              <button
-                                type="button"
-                                onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}
-                              >
-                                {draft.pinned ? "Unpin" : "Pin"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (editingDraftId === draft.id) {
-                                    setEditingDraftId(null);
-                                    return;
-                                  }
-                                  setEditingDraftId(draft.id);
-                                  setEditingTitle(draft.title);
-                                }}
-                              >
-                                {editingDraftId === draft.id ? "Close Draft Label" : "Edit Draft Label"}
-                              </button>
-                            </div>
-                          ) : null}
-                          <div className="hs-workpiece-actions">
-                            <button
-                              type="button"
-                              onClick={() => void (
-                                item.isArchived
-                                  ? onRestoreWorkpiece(item.workpieceId)
-                                  : onArchiveWorkpiece(item.workpieceId)
-                              )}
-                              disabled={isArchiving || isRestoring}
-                            >
-                              {item.isArchived
-                                ? isRestoring ? "Restoring..." : "Restore Workpiece"
-                                : isArchiving ? "Archiving..." : "Archive Workpiece"}
-                            </button>
-                            {draft ? (
-                              <button type="button" onClick={() => void onDeleteDraft(draft)}>
-                                Delete Draft Buffer
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            </>
+        <HearthDesktopFrame
+          devMode={devMode}
+          storeKind={storeKind}
+          workpieceId={workpieceId}
+          isForging={isForging}
+          onStartFromScratch={startFromScratch}
+          onCreateDraft={onCreateDraft}
+          mode={mode}
+          onModeChange={setMode}
+          uiDensity={uiDensity}
+          onUiDensityChange={setUiDensity}
+          railContent={(
+            <HearthDesktopRail
+              deferDesktopRailCollections={deferDesktopRailCollections}
+              readyTotalCount={readyTotalCount}
+              refreshReadyScripts={refreshReadyScripts}
+              isReadyScriptsLoading={isReadyScriptsLoading}
+              readyScriptsError={readyScriptsError}
+              readyCategoryError={readyCategoryError}
+              readyUrgencyLabelFresh={READY_URGENCY_LABEL.fresh}
+              readyUrgencyLabelCooling={READY_URGENCY_LABEL.cooling}
+              readyUrgencyLabelCold={READY_URGENCY_LABEL.cold}
+              readyUrgencyFreshCount={readyUrgencyCounts.fresh}
+              readyUrgencyCoolingCount={readyUrgencyCounts.cooling}
+              readyUrgencyColdCount={readyUrgencyCounts.cold}
+              removedReadyCount={removedReadyCount}
+              onOpenReadyView={onOpenReadyView}
+              onRestoreRemovedReady={onRestoreRemovedReady}
+              isRestoringReady={isRestoringReady}
+              searchRef={searchRef}
+              searchText={searchText}
+              onSearchTextChange={setSearchText}
+              sortKey={sortKey}
+              onSortKeyChange={setSortKey}
+              showArchived={showArchived}
+              onShowArchivedChange={setShowArchived}
+              isLoading={isLoading}
+              isWorkpiecesLoading={isWorkpiecesLoading}
+              workpiecesError={workpiecesError}
+              filteredWorkpieceNavItems={filteredWorkpieceNavItems}
+              draftsById={draftsById}
+              workpieceId={workpieceId}
+              editingDraftId={editingDraftId}
+              setEditingDraftId={setEditingDraftId}
+              editingTitle={editingTitle}
+              setEditingTitle={setEditingTitle}
+              shouldShowWorkpieceId={shouldShowWorkpieceId}
+              archivingWorkpieceIds={archivingWorkpieceIds}
+              restoringWorkpieceIds={restoringWorkpieceIds}
+              openWorkpieceInFocus={openWorkpieceInFocus}
+              formatUpdatedAt={formatUpdatedAt}
+              resolveDraftEditorName={resolveDraftEditorName}
+              saveDraftMeta={saveDraftMeta}
+              onRestoreWorkpiece={onRestoreWorkpiece}
+              onArchiveWorkpiece={onArchiveWorkpiece}
+              onDeleteDraft={onDeleteDraft}
+              hasActiveEpisode={hasActiveEpisode}
+              activeEpisodeReadyStatus={activeEpisodeReadyStatus}
+              activeWorkpieceIsArchived={activeWorkpieceIsArchived}
+              activeWorkpieceArchiveReason={activeWorkpiece?.archiveReason ?? null}
+              isRestoringActiveWorkpiece={Boolean(
+                activeWorkpiece && restoringWorkpieceIds.includes(activeWorkpiece.workpieceId),
+              )}
+              onRestoreActiveWorkpiece={onRestoreActiveWorkpiece}
+              openInAnvilHref={openInAnvilHref}
+              handoffBlocked={handoffBlocked}
+              onOpenInAnvil={onOpenInAnvil}
+              anvilStepModeHint={anvilStepModeHint}
+              mode={mode}
+              focusTab={focusTab}
+              wordCount={wordCount}
+              revisionsCount={revisions.length}
+              sourcesBadgeTitle={sourcesBadgeTitle}
+              sourcesBadge={sourcesBadge}
+              devMode={devMode}
+              onFocusDraft={onFocusDraft}
+              onFocusPlanning={onFocusPlanning}
+              onFocusSources={onFocusSources}
+              onFocusRevisions={onFocusRevisions}
+              onOpenApiLedger={onOpenApiLedger}
+            />
           )}
-
-          <div className={`hs-active-workpiece${hasActiveEpisode ? "" : " is-empty"}`}>
-            <div className="hs-rail-heading">Active workpiece</div>
-            {hasActiveEpisode ? (
-              <>
-                <div className="hs-active-workpiece-status">
-                  <span className={`hs-episode-ready-pill is-${activeEpisodeReadyStatus.tone}`}>
-                    {activeEpisodeReadyStatus.label}
-                  </span>
-                  <div className="hs-rail-meta">{activeEpisodeReadyStatus.detail}</div>
-                </div>
-                {activeWorkpieceIsArchived && activeWorkpiece ? (
-                  <>
-                    <div className="hs-rail-meta">Archived workpieces are hidden records. Restore to review, then re-ready before recording.</div>
-                    {activeWorkpiece.archiveReason ? (
-                      <div className="hs-rail-meta">Archive reason: {activeWorkpiece.archiveReason}</div>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => void onRestoreWorkpiece(activeWorkpiece.workpieceId, { openAfterRestore: true })}
-                      disabled={restoringWorkpieceIds.includes(activeWorkpiece.workpieceId)}
-                      className="hs-mode-button"
-                    >
-                      {restoringWorkpieceIds.includes(activeWorkpiece.workpieceId) ? "Restoring..." : "Restore Workpiece"}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void onOpenInAnvil()}
-                      disabled={!openInAnvilHref || handoffBlocked}
-                      className="hs-mode-button"
-                    >
-                      Start Recording
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusTab("draft");
-                        setMode("focus");
-                      }}
-                      className={`hs-mode-button${mode === "focus" && focusTab === "draft" ? " is-active" : ""}`}
-                    >
-                      Draft
-                      <span className="hs-mode-meta">{wordCount} words</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusTab("planning");
-                        setMode("focus");
-                      }}
-                      className={`hs-mode-button${mode === "focus" && focusTab === "planning" ? " is-active" : ""}`}
-                    >
-                      Planning Board
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusTab("sources");
-                        setMode("focus");
-                      }}
-                      className={`hs-mode-button${mode === "focus" && focusTab === "sources" ? " is-active" : ""}`}
-                      title={sourcesBadgeTitle}
-                    >
-                      Sources
-                      {sourcesBadge ? (
-                        <span className={`hs-sources-badge${devMode ? " is-dev" : ""}`}>{sourcesBadge}</span>
-                      ) : null}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusTab("revisions");
-                        setMode("focus");
-                      }}
-                      className={`hs-mode-button${mode === "focus" && focusTab === "revisions" ? " is-active" : ""}`}
-                    >
-                      Revisions
-                      <span className="hs-mode-meta">{revisions.length}</span>
-                    </button>
-                  </>
-                )}
-              </>
-            ) : (
-              <div className="hs-rail-meta">Select an episode to unlock recording and focus tools.</div>
-            )}
-          </div>
-
-          <div className="hs-rail-section">
-            <div className="hs-rail-heading">Tools</div>
-            <button
-              type="button"
-              className="hs-mode-button"
-              title={sourcesBadgeTitle}
-              onClick={() => {
-                if (!hasActiveEpisode) {
-                  setMode("episodes");
-                  return;
-                }
-                setFocusTab("sources");
-                setMode("focus");
-              }}
-            >
-              API / Ledger
-              {sourcesBadge ? (
-                <span className={`hs-sources-badge${devMode ? " is-dev" : ""}`}>{sourcesBadge}</span>
-              ) : null}
-            </button>
-          </div>
-        </aside>
-
-          <main className="hs-main">
-            {mainContent}
-          </main>
-        </div>
+          mainContent={mainContent}
+        />
       )}
 
-      {isMobile && mobileOverlayView === "editor" ? (
-        <div className="hs-mobile-overlay">
-          <MobilePage
-            title={activeDraft?.title?.trim() || "Project Editor"}
-            onBack={closeMobileOverlay}
-            rightAction={
-              <button type="button" onClick={openReadyInMobileOverlay}>
-                Ready
-              </button>
-            }
-            bottomBar={
-              activeWorkpieceContext.workpiece?.isArchived ? (
-                <div className="hs-mobile-overlay-actions">
-                  <button
-                    type="button"
-                    onClick={() => activeWorkpieceContext.workpiece && void onRestoreWorkpiece(activeWorkpieceContext.workpiece.workpieceId, { openAfterRestore: true })}
-                    disabled={!activeWorkpieceContext.workpiece || restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId)}
-                  >
-                    {activeWorkpieceContext.workpiece && restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId)
-                      ? "Restoring..."
-                      : "Restore Workpiece"}
-                  </button>
-                </div>
-              ) : (
-                <div className="hs-mobile-overlay-actions">
-                  <button type="button" onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
-                    Delete Draft Buffer
-                  </button>
-                  <button type="button" onClick={() => void onSaveDraft()} disabled={!activeDraft || isSaving}>
-                    {isSaving ? "Saving..." : "Save"}
-                  </button>
-                </div>
-              )
-            }
-          >
-            <div className="hs-mobile-overlay-body">
-              {renderFocusEditor()}
-            </div>
-          </MobilePage>
-        </div>
-      ) : null}
-
-      {isMobile && mobileOverlayView === "ready" ? (
-        <div className="hs-mobile-overlay">
-          <MobilePage
-            title="Ready to Record"
-            onBack={closeMobileOverlay}
-            rightAction={
-              <button type="button" onClick={() => void refreshReadyScripts()} disabled={isReadyScriptsLoading}>
-                {isReadyScriptsLoading ? "..." : "Refresh"}
-              </button>
-            }
-          >
-            <div className="hs-mobile-overlay-body">
-              {renderReadyView()}
-            </div>
-          </MobilePage>
-        </div>
-      ) : null}
-
-      <ComposeSetupModal
-        open={composeModalOpen}
-        defaults={productionDefaults}
-        onClose={() => setComposeModalOpen(false)}
-        onCompose={onComposeSetupSubmit}
+      <HearthMobileOverlays
+        isMobile={isMobile}
+        mobileOverlayView={mobileOverlayView}
+        activeDraftTitle={activeDraft?.title ?? null}
+        closeMobileOverlay={closeMobileOverlay}
+        openReadyInMobileOverlay={openReadyInMobileOverlay}
+        isActiveWorkpieceArchived={Boolean(activeWorkpieceContext.workpiece?.isArchived)}
+        hasActiveWorkpiece={Boolean(activeWorkpieceContext.workpiece)}
+        restoreButtonLabel={mobileRestoreButtonLabel}
+        restoreButtonDisabled={mobileRestoreButtonDisabled}
+        onRestoreWorkpiece={onRestoreMobileWorkpiece}
+        hasActiveDraft={Boolean(activeDraft)}
+        isSaving={isSaving}
+        onDeleteDraftBuffer={onDeleteActiveDraftBuffer}
+        onSaveDraft={onSaveDraft}
+        refreshReadyScripts={refreshReadyScripts}
+        isReadyScriptsLoading={isReadyScriptsLoading}
+        renderFocusContent={renderFocusEditor}
+        renderReadyContent={renderReadyView}
       />
 
-      {revisionModalOpen ? (
-        <div
-          className="hs-modal-overlay"
-        >
-          <div
-            className="hs-modal"
-          >
-            <div className="hs-modal-title">Create Revision</div>
-            <label className="hs-field">
-              <span className="hs-field-label-muted">Kind</span>
-              <select value={revisionKind} onChange={(event) => setRevisionKind(event.target.value as RevisionKind)}>
-                <option value="manual">Manual</option>
-                <option value="milestone">Milestone</option>
-              </select>
-            </label>
-            <label className="hs-field">
-              <span className="hs-field-label-muted">Note (optional)</span>
-              <textarea
-                value={revisionNote}
-                onChange={(event) => setRevisionNote(event.target.value)}
-                placeholder="Why this change?"
-                className="hs-textarea-modal"
-              />
-            </label>
-            <div className="hs-modal-actions">
-              <button
-                type="button"
-                onClick={closeRevisionModal}
-              >
-                Cancel
-              </button>
-              <button type="button" onClick={() => void onConfirmRevision()} disabled={!activeDraft}>
-                Create
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <HearthShellModals
+        composeModalOpen={composeModalOpen}
+        productionDefaults={productionDefaults}
+        onCloseComposeModal={() => setComposeModalOpen(false)}
+        onComposeSetupSubmit={onComposeSetupSubmit}
+        revisionModalOpen={revisionModalOpen}
+        revisionKind={revisionKind}
+        onRevisionKindChange={setRevisionKind}
+        revisionNote={revisionNote}
+        onRevisionNoteChange={setRevisionNote}
+        closeRevisionModal={closeRevisionModal}
+        onConfirmRevision={onConfirmRevision}
+        hasActiveDraft={Boolean(activeDraft)}
+      />
     </section>
   );
 }

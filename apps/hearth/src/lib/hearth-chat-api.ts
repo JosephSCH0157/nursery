@@ -15,11 +15,17 @@ import {
   type HearthChatMessage,
   type HearthOp,
 } from "./hearth-ai-runtime-contract";
+import type { HearthResearchResult } from "./hearth-research-contract";
 import {
   AI_REASON_CODES,
   getAiReasonMessage,
   type AiReasonCode,
 } from "@forge/tongs/ai-policy";
+import { evaluateHearthScriptValidation } from "./hearth-script-tag-policy";
+import {
+  normalizeVisualProviderId,
+  type VisualProviderId,
+} from "./hearth-visual-provider-profiles";
 
 export type {
   HearthAiBehavior,
@@ -41,6 +47,7 @@ export type HearthChatResult =
       ops: HearthOp[];
       scriptText?: string;
       tagAudit?: Record<string, unknown>;
+      researchResult?: HearthResearchResult;
       gate?: "clarify";
       runtime: HearthAiRuntimeSnapshot;
       totalTokens: number | null;
@@ -110,6 +117,7 @@ type AiSettingsSnapshot = {
   behavior: HearthAiBehavior;
   autoApproveImageSpend: boolean;
   policyTestOverride: "rpc" | "allow" | "soft_deny" | "hard_deny";
+  defaultVisualProvider: VisualProviderId;
 };
 
 const DEFAULT_AI_SETTINGS: AiSettingsSnapshot = {
@@ -117,6 +125,7 @@ const DEFAULT_AI_SETTINGS: AiSettingsSnapshot = {
   behavior: "careful",
   autoApproveImageSpend: false,
   policyTestOverride: "rpc",
+  defaultVisualProvider: "generic",
 };
 
 type AiPolicyDecisionType = "ALLOW" | "SOFT_DENY" | "HARD_DENY";
@@ -607,6 +616,7 @@ function resolveAiSettingsFromStorage(): AiSettingsSnapshot {
       behavior?: unknown;
       autoApproveImageSpend?: unknown;
       policyTestOverride?: unknown;
+      defaultVisualProvider?: unknown;
     };
     return {
       lane: isLane(parsed.lane) ? parsed.lane : "forge",
@@ -618,6 +628,7 @@ function resolveAiSettingsFromStorage(): AiSettingsSnapshot {
         || parsed.policyTestOverride === "hard_deny"
           ? parsed.policyTestOverride
           : "rpc",
+      defaultVisualProvider: normalizeVisualProviderId(parsed.defaultVisualProvider) ?? "generic",
     };
   } catch {
     return DEFAULT_AI_SETTINGS;
@@ -634,6 +645,10 @@ export async function resolveForgeUserAccessToken(): Promise<string | null> {
 
 export function resolveAiThumbnailAutoApproveFromStorage(): boolean {
   return resolveAiSettingsFromStorage().autoApproveImageSpend === true;
+}
+
+export function resolveDefaultVisualProviderFromStorage(): VisualProviderId {
+  return resolveAiSettingsFromStorage().defaultVisualProvider;
 }
 
 function parseCreditsPayload(payload: unknown, fallbackLane: HearthAiLane): HearthAiRuntimeSnapshot {
@@ -660,6 +675,45 @@ function coalesceScriptTextIntoOps(
   if (!scriptText?.trim()) return ops;
   if (ops.some((op) => op.op === "set_body")) return ops;
   return [...ops, { op: "set_body", value: scriptText }];
+}
+
+function resolveValidatedAssistantScriptCandidate(candidate: string): string | undefined {
+  const trimmed = candidate.trim();
+  if (!trimmed) return undefined;
+
+  const { normalizedText, tagMode, validation } = evaluateHearthScriptValidation(trimmed);
+  if (tagMode !== "present" || !validation.ok) return undefined;
+  return normalizedText.trim();
+}
+
+function inferScriptTextFromAssistantText(assistantText: string): string | undefined {
+  const trimmed = assistantText.trim();
+  if (!trimmed) return undefined;
+
+  const directCandidate = resolveValidatedAssistantScriptCandidate(trimmed);
+  if (directCandidate) return directCandidate;
+
+  const firstSpeakerOpen = trimmed.match(/\[(?:s\d+|g\d+)\]/i);
+  const speakerCloseMatches = [...trimmed.matchAll(/\[\/(?:s\d+|g\d+)\]/ig)];
+  const firstSpeakerIndex = firstSpeakerOpen?.index ?? -1;
+  const lastSpeakerClose = speakerCloseMatches[speakerCloseMatches.length - 1];
+  const lastSpeakerCloseIndex = lastSpeakerClose?.index ?? -1;
+  if (firstSpeakerIndex < 0 || lastSpeakerCloseIndex < firstSpeakerIndex || !lastSpeakerClose) {
+    return undefined;
+  }
+
+  const lastSpeakerCloseEnd = lastSpeakerCloseIndex + lastSpeakerClose[0].length;
+  return resolveValidatedAssistantScriptCandidate(trimmed.slice(firstSpeakerIndex, lastSpeakerCloseEnd));
+}
+
+export function resolveScriptTextFromChatPayload(args: {
+  assistantText: string;
+  ops: HearthOp[];
+  scriptText: string | undefined;
+}): string | undefined {
+  if (args.scriptText?.trim()) return args.scriptText;
+  if (args.ops.some((op) => op.op === "set_body")) return undefined;
+  return inferScriptTextFromAssistantText(args.assistantText);
 }
 
 function createStorageObjectPath(parts: string[]): string {
@@ -1187,7 +1241,11 @@ export async function requestHearthChatReply(
 
   const assistantText = parsed?.assistant_text ?? "";
   const gate = parsed?.gate;
-  const scriptText = parsed?.script_text ?? undefined;
+  const scriptText = resolveScriptTextFromChatPayload({
+    assistantText,
+    ops: parsed?.ops ?? [],
+    scriptText: parsed?.script_text ?? undefined,
+  });
   const ops = coalesceScriptTextIntoOps(parsed?.ops ?? [], scriptText);
   if (!assistantText && ops.length === 0) {
     return {
@@ -1205,6 +1263,7 @@ export async function requestHearthChatReply(
     ops,
     scriptText,
     tagAudit: parsed?.tag_audit ?? undefined,
+    researchResult: parsed?.research_result ?? undefined,
     gate,
     runtime,
     totalTokens: parsed?.total_tokens ?? null,

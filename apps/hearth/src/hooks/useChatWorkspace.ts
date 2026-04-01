@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
+import {
+  getBrowserSttFatalErrorMessage,
+  shouldRestartBrowserSttSession,
+} from "../lib/browser-stt";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
+import type { HearthResearchResult } from "../lib/hearth-research-contract";
+import {
+  buildNoScriptChangesExplanation,
+  type HearthScriptMutationIntent,
+  resolveHearthScriptMutationRouting,
+} from "../lib/hearth-script-mutation";
 import type { ChatSurfaceProps } from "../views/surfaces/ChatSurface";
 
 type UseChatWorkspaceArgs = {
@@ -17,6 +27,7 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
   const [chatDraft, setChatDraft] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
   const [sttLane, setSttLane] = useState<"browser" | "ai">("browser");
+  const [sttTarget, setSttTarget] = useState<"chat" | "script">("chat");
   const [sttState, setSttState] = useState<"idle" | "listening" | "transcribing">("idle");
   const [sttError, setSttError] = useState<string | null>(null);
   const [sttNotice, setSttNotice] = useState<string | null>(null);
@@ -40,6 +51,7 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
   const aiSttTranscribeControllerRef = useRef<AbortController | null>(null);
   const sttNoticeTimerRef = useRef<number | null>(null);
   const sttPreviewTimerRef = useRef<number | null>(null);
+  const browserSttStopTimerRef = useRef<number | null>(null);
   const chatPersistTimerRef = useRef<number | null>(null);
   const chatMessagesRef = useRef<HearthChatMessage[]>([]);
   const latestChatHistoryKeyRef = useRef<string | null>(null);
@@ -57,6 +69,8 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
     setChatError,
     sttLane,
     setSttLane,
+    sttTarget,
+    setSttTarget,
     sttState,
     setSttState,
     sttError,
@@ -87,6 +101,7 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
     aiSttTranscribeControllerRef,
     sttNoticeTimerRef,
     sttPreviewTimerRef,
+    browserSttStopTimerRef,
     chatPersistTimerRef,
     chatMessagesRef,
     latestChatHistoryKeyRef,
@@ -318,18 +333,32 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>
   gateAwaitingAnswersRef: MutableRefObject<boolean>;
   pendingShortcutIntentRef: MutableRefObject<"outline" | "script" | null>;
   chatHistoryMaxMessages: number;
+  getSelectedWritingFormat: () => string;
+  resolveChatRequestWritingFormat: (args: {
+    requestContent: string;
+    pendingShortcutIntent: "outline" | "script" | null;
+    selectedFormat: string;
+  }) => {
+    requestContent: string;
+    appliedFormat: string;
+    source: "message" | "shortcut" | "default";
+  };
+  rememberWritingFormat: (format: string) => void;
   buildActiveEpisodeContext: () => TEpisodeContext | null;
   detectChatIntentSignals: (text: string) => {
     hasDeliverable: boolean;
     requestedOutline: boolean;
     requestedScript: boolean;
     explicitDraftNow: boolean;
+    scriptMutationIntent: HearthScriptMutationIntent;
   };
   detectAiAutosaveReasonCode: (text: string) => any;
   buildAssistantMessageContent: (args: {
     assistantText: string;
     ops: THearthOp[];
     autosaveReasonCode: any;
+    scriptMutationRequested: boolean;
+    scriptMutationReady: boolean;
   }) => string;
   countProducerQuestions: (text: string) => number;
   readLatestOutlineFromOps: (ops: THearthOp[]) => string | null;
@@ -352,6 +381,7 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>
     error?: string;
     assistantText?: string;
     ops?: THearthOp[];
+    researchResult?: HearthResearchResult;
     gate?: "clarify";
     creditsWarning?: string;
     runtime: {
@@ -377,6 +407,7 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>
     message?: string;
     severity: any;
   }) => void;
+  onResearchResult?: (result: HearthResearchResult | null) => void;
 };
 
 export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THearthOp>(
@@ -392,20 +423,20 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
 
   const sendChatMessage = useCallback(async (params: SendChatMessageArgs) => {
     if (args.isAiProcessing) return;
-    const requestContent = params.requestContent.trim();
-    if (!requestContent) return;
+    const rawRequestContent = params.requestContent.trim();
+    if (!rawRequestContent) return;
 
-    const displayContent = (params.displayContent ?? requestContent).trim();
+    const displayContent = (params.displayContent ?? rawRequestContent).trim();
     const episodeContext = args.buildActiveEpisodeContext();
     if (!episodeContext) {
-      args.setChatError("Select an Episode or Spark to start.");
+      args.setChatError("Pick an Episode or Spark and I’ll work from there.");
       return;
     }
 
     const lane = args.resolveAiLaneFromStorage();
     args.setAiBillingMode(lane);
     if (lane === "forge" && args.aiTokenBalance != null && args.aiTokenBalance <= 0) {
-      args.setChatError("No AI credits remaining.");
+      args.setChatError("You are out of AI credits for now.");
       return;
     }
     if (lane === "byo") {
@@ -414,17 +445,27 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
 
     const source = params.source ?? "typed";
     const isProductionRequest = Boolean(params.productionAction);
-    const intentSignals = args.detectChatIntentSignals(requestContent);
-    const autosaveReasonCode = args.detectAiAutosaveReasonCode(requestContent);
+    const intentSignals = args.detectChatIntentSignals(rawRequestContent);
+    const autosaveReasonCode = args.detectAiAutosaveReasonCode(rawRequestContent);
     const pendingShortcutIntent = args.pendingShortcutIntentRef.current;
     args.pendingShortcutIntentRef.current = null;
+    const selectedWritingFormat = args.getSelectedWritingFormat();
+    const resolvedWritingFormat = args.resolveChatRequestWritingFormat({
+      requestContent: rawRequestContent,
+      pendingShortcutIntent,
+      selectedFormat: selectedWritingFormat,
+    });
+    const requestContent = resolvedWritingFormat.requestContent;
+    args.rememberWritingFormat(resolvedWritingFormat.appliedFormat);
 
     args.recordInteractionEvent("chat_sent", {
       source,
-      chars: requestContent.length,
+      chars: rawRequestContent.length,
       lane,
       has_deliverable: intentSignals.hasDeliverable,
       production_action: params.productionAction ?? null,
+      writing_format: resolvedWritingFormat.appliedFormat,
+      writing_format_source: resolvedWritingFormat.source,
     });
 
     if (!isProductionRequest) {
@@ -467,6 +508,7 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
         args.setAiTokenBalance(null);
       }
       if (!result.ok) {
+        args.onResearchResult?.(null);
         if (!result.cancelled) {
           const message = result.error ?? "AI request failed.";
           args.setChatError(message);
@@ -482,6 +524,13 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
 
       const ops = result.ops ?? [];
       const assistantText = result.assistantText ?? "";
+      args.onResearchResult?.(result.researchResult ?? null);
+      const scriptMutationRouting = resolveHearthScriptMutationRouting({
+        productionAction: Boolean(params.productionAction),
+        autosaveReasonCode,
+        ops: ops as Array<{ op: string }>,
+        intent: intentSignals.scriptMutationIntent,
+      });
 
       if (result.gate === "clarify") {
         args.gateAwaitingAnswersRef.current = true;
@@ -491,11 +540,12 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
         });
       }
 
-      const keepOutlineInChatOnly = !params.productionAction && autosaveReasonCode === "ai_outline";
       const assistantContent = args.buildAssistantMessageContent({
         assistantText,
         ops,
         autosaveReasonCode,
+        scriptMutationRequested: intentSignals.scriptMutationIntent.targetsScriptBody,
+        scriptMutationReady: scriptMutationRouting.hasScriptBodyProposal,
       });
       const assistantMessage: HearthChatMessage = { role: "assistant", content: assistantContent };
       args.setChatMessages((prev) => [...prev, assistantMessage].slice(-args.chatHistoryMaxMessages));
@@ -508,8 +558,8 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
         });
       }
 
-      const proposalOps = keepOutlineInChatOnly ? [] : ops;
-      if (keepOutlineInChatOnly) {
+      const proposalOps = scriptMutationRouting.proposalOps as THearthOp[];
+      if (scriptMutationRouting.keepOutlineInChatOnly) {
         args.recordInteractionEvent("outline_generated", {
           source,
           has_outline: Boolean(args.readLatestOutlineFromOps(ops)),
@@ -535,21 +585,30 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
       if (!params.productionAction) {
         const scriptUpdated = proposalOps.some((op: any) => op.op === "set_body");
         const sourceAdditions = proposalOps.filter((op: any) => op.op === "add_source").length;
-        if (scriptUpdated) {
+        if (scriptMutationRouting.missingScriptBodyMutation) {
+          const message = buildNoScriptChangesExplanation(intentSignals.scriptMutationIntent);
+          args.setChatError(message);
+          args.publishForgeNotice({
+            job: "script-completed",
+            title: "No script changes made",
+            message,
+            severity: "warning",
+          });
+        } else if (scriptUpdated) {
           const sourceSuffix = sourceAdditions > 0
             ? ` and added ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"}`
             : "";
           args.publishForgeNotice({
             job: "script-completed",
-            title: "Script draft ready",
-            message: `Hearth finished a script draft${sourceSuffix}.`,
+            title: "Script changes ready to review",
+            message: `Hearth staged a proposed script update${sourceSuffix}.`,
             severity: "success",
           });
         } else if (sourceAdditions > 0) {
           args.publishForgeNotice({
             job: "sources-found",
-            title: "Sources ready",
-            message: `Hearth added ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"} to this episode.`,
+            title: "Sources lined up",
+            message: `Hearth lined up ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"} for this episode.`,
             severity: "success",
           });
         }
@@ -606,8 +665,10 @@ type UseChatWorkspaceSttArgs = {
   isAiProcessing: boolean;
   aiTokenBalance: number | null;
   sttLane: "browser" | "ai";
+  sttTarget: "chat" | "script";
   sttState: "idle" | "listening" | "transcribing";
   setSttLane: (lane: "browser" | "ai") => void;
+  setSttTarget: (target: "chat" | "script") => void;
   setSttState: (state: "idle" | "listening" | "transcribing") => void;
   setSttError: (value: string | null) => void;
   setSttNotice: (value: string | null) => void;
@@ -627,6 +688,7 @@ type UseChatWorkspaceSttArgs = {
   aiSttTranscribeControllerRef: MutableRefObject<AbortController | null>;
   sttNoticeTimerRef: MutableRefObject<number | null>;
   sttPreviewTimerRef: MutableRefObject<number | null>;
+  browserSttStopTimerRef: MutableRefObject<number | null>;
   sttInlineFeedbackMs: number;
   sttPreviewMaxChars: number;
   aiSttMaxDurationMs: number;
@@ -641,11 +703,20 @@ type UseChatWorkspaceSttArgs = {
     signal: AbortSignal;
   }) => Promise<any>;
   sendChatMessage: (args: { requestContent: string; source?: "voice" | "typed" | "shortcut" }) => Promise<void>;
+  commitScriptTranscript: (text: string) => Promise<boolean>;
+  getSttStartError?: (target: "chat" | "script") => string | null;
 };
 
 export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
-  onToggleMic: () => void;
+  onToggleMic: (target?: "chat" | "script") => void;
 } {
+  const clearBrowserSttStopTimer = useCallback(() => {
+    if (args.browserSttStopTimerRef.current) {
+      window.clearTimeout(args.browserSttStopTimerRef.current);
+      args.browserSttStopTimerRef.current = null;
+    }
+  }, [args.browserSttStopTimerRef]);
+
   const clearSttNoticeTimer = useCallback(() => {
     if (args.sttNoticeTimerRef.current) {
       window.clearTimeout(args.sttNoticeTimerRef.current);
@@ -694,6 +765,13 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       return;
     }
     showSttPreviewLine(text);
+    if (args.sttTarget === "script") {
+      const committed = await args.commitScriptTranscript(text);
+      if (committed) {
+        showSttNotice("Added to script.");
+      }
+      return;
+    }
     await args.sendChatMessage({ requestContent: text, source: "voice" });
   }, [args, showSttNotice, showSttPreviewLine]);
 
@@ -838,6 +916,14 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
     clearSttPreviewTimer();
     args.setSttPreview(null);
     args.setSttError(null);
+    clearBrowserSttStopTimer();
+    try {
+      args.speechRecognitionRef.current?.abort?.();
+    } catch {
+      // ignore browser recognition abort errors
+    }
+    args.speechRecognitionRef.current = null;
+    stopAiSttStream();
 
     let stream: MediaStream;
     try {
@@ -971,9 +1057,14 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.setSttState("idle");
       args.setSttError(message);
     }
-  }, [args, clearAiSttStopTimer, clearSttNoticeTimer, clearSttPreviewTimer, commitAiSttBlob, commitVoiceTranscript, stopAiStt, stopAiSttStream]);
+  }, [args, clearAiSttStopTimer, clearBrowserSttStopTimer, clearSttNoticeTimer, clearSttPreviewTimer, commitAiSttBlob, commitVoiceTranscript, stopAiStt, stopAiSttStream]);
 
   const startBrowserStt = useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      args.setSttError("Microphone capture is not supported in this browser.");
+      args.setSttState("idle");
+      return;
+    }
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       args.setSttError("Browser speech not supported.");
@@ -981,54 +1072,120 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
-    let finalTranscript = "";
-
-    recognition.onresult = (event: any) => {
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          const chunk = result[0]?.transcript;
-          if (typeof chunk === "string" && chunk.trim()) {
-            finalTranscript += `${chunk.trim()} `;
-          }
-        }
-      }
-    };
-
-    recognition.onerror = () => {
-      args.speechRecognitionRef.current = null;
-      stopAiSttStream();
-      args.setSttState("idle");
-      args.setSttError("Speech recognition error.");
-    };
-
-    recognition.onend = async () => {
-      args.speechRecognitionRef.current = null;
-      stopAiSttStream();
-      args.setSttState("idle");
-      await commitVoiceTranscript(finalTranscript);
-    };
-
-    stopAiSttStream();
-    if (navigator.mediaDevices?.getUserMedia) {
-      try {
-        const previewStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        args.mediaStreamRef.current = previewStream;
-      } catch {
-        args.mediaStreamRef.current = null;
-      }
-    }
-
-    args.speechRecognitionRef.current = recognition;
+    clearBrowserSttStopTimer();
     clearSttNoticeTimer();
     args.setSttNotice(null);
     clearSttPreviewTimer();
     args.setSttPreview(null);
     args.setSttError(null);
+    try {
+      args.speechRecognitionRef.current?.abort?.();
+    } catch {
+      // ignore stale recognition abort errors
+    }
+    args.speechRecognitionRef.current = null;
+    stopAiSttStream();
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to access microphone.";
+      args.setSttError(message);
+      args.setSttState("idle");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    const session = {
+      fatalErrorMessage: null as string | null,
+      heardSpeech: false,
+      manualStopRequested: false,
+      restartAttempts: 0,
+      finalTranscript: "",
+      interimTranscript: "",
+      settled: false,
+    };
+    const settleBrowserSession = async () => {
+      if (session.settled) return;
+      session.settled = true;
+      clearBrowserSttStopTimer();
+      stopAiSttStream();
+      args.setSttState("idle");
+      if (session.fatalErrorMessage) {
+        args.setSttError(session.fatalErrorMessage);
+        return;
+      }
+      const transcript = `${session.finalTranscript} ${session.interimTranscript}`.trim();
+      await commitVoiceTranscript(transcript);
+    };
+    (recognition as any).__hearthBrowserSttSession = session;
+    (recognition as any).__hearthBrowserSttSettle = settleBrowserSession;
+    const isCurrentRecognition = () => args.speechRecognitionRef.current === recognition;
+
+    recognition.onresult = (event: any) => {
+      if (!isCurrentRecognition()) return;
+      session.interimTranscript = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        const chunk = result[0]?.transcript;
+        if (typeof chunk === "string" && chunk.trim()) {
+          session.heardSpeech = true;
+          if (result.isFinal) {
+            session.finalTranscript += `${chunk.trim()} `;
+            session.interimTranscript = "";
+            session.restartAttempts = 0;
+          } else {
+            session.interimTranscript = chunk.trim();
+          }
+        }
+      }
+      const previewTranscript = `${session.finalTranscript} ${session.interimTranscript}`.trim();
+      if (previewTranscript) {
+        showSttPreviewLine(previewTranscript);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      if (!isCurrentRecognition()) return;
+      const errorCode = typeof event?.error === "string" ? event.error : "";
+      if (errorCode === "aborted" && session.manualStopRequested) {
+        return;
+      }
+      if (errorCode === "no-speech") {
+        return;
+      }
+      const fatalErrorMessage = getBrowserSttFatalErrorMessage(errorCode);
+      if (fatalErrorMessage) {
+        session.fatalErrorMessage = fatalErrorMessage;
+      }
+    };
+
+    recognition.onend = async () => {
+      if (!isCurrentRecognition() && !session.manualStopRequested) return;
+      if (shouldRestartBrowserSttSession(session)) {
+        session.restartAttempts += 1;
+        try {
+          recognition.start();
+          args.setSttState("listening");
+          showSttNotice("Still listening...");
+          return;
+        } catch {
+          // Fall through and settle to idle below.
+        }
+      }
+
+      if (isCurrentRecognition()) {
+        args.speechRecognitionRef.current = null;
+      }
+      await settleBrowserSession();
+    };
+
+    args.mediaStreamRef.current = stream;
+    args.speechRecognitionRef.current = recognition;
     args.setSttState("listening");
     try {
       recognition.start();
@@ -1038,20 +1195,50 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.setSttState("idle");
       args.setSttError("Unable to start speech recognition.");
     }
-  }, [args, clearSttNoticeTimer, clearSttPreviewTimer, commitVoiceTranscript, stopAiSttStream]);
+  }, [args, clearBrowserSttStopTimer, clearSttNoticeTimer, clearSttPreviewTimer, commitVoiceTranscript, showSttNotice, showSttPreviewLine, stopAiSttStream]);
 
   const stopBrowserStt = useCallback(() => {
-    stopAiSttStream();
-    try {
-      args.speechRecognitionRef.current?.stop();
-    } catch {
-      // onend will settle state
+    const recognition = args.speechRecognitionRef.current as any;
+    if (!recognition) {
+      clearBrowserSttStopTimer();
+      stopAiSttStream();
+      args.setSttState("idle");
+      return;
     }
-  }, [args.speechRecognitionRef, stopAiSttStream]);
+    const settle = recognition.__hearthBrowserSttSettle as (() => Promise<void>) | undefined;
+    if (recognition.__hearthBrowserSttSession) {
+      recognition.__hearthBrowserSttSession.manualStopRequested = true;
+    }
+    args.speechRecognitionRef.current = null;
+    clearBrowserSttStopTimer();
+    stopAiSttStream();
+    args.setSttState("idle");
+    args.browserSttStopTimerRef.current = window.setTimeout(() => {
+      args.browserSttStopTimerRef.current = null;
+      void settle?.();
+    }, 250);
+    try {
+      recognition.stop?.();
+    } catch {
+      try {
+        recognition.abort?.();
+      } catch {
+        // ignore browser recognition stop errors
+      }
+    }
+  }, [args, clearBrowserSttStopTimer, stopAiSttStream]);
 
-  const onToggleMic = useCallback(() => {
+  const onToggleMic = useCallback((target: "chat" | "script" = "chat") => {
     if (args.sttState === "transcribing") return;
     if (args.sttState === "idle") {
+      const startError = args.getSttStartError?.(target) ?? null;
+      if (startError) {
+        args.setSttTarget(target);
+        args.setSttError(startError);
+        args.setSttState("idle");
+        return;
+      }
+      args.setSttTarget(target);
       args.setSttError(null);
       clearSttNoticeTimer();
       args.setSttNotice(null);
@@ -1088,6 +1275,7 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.speechRecognitionRef.current = null;
       args.aiSttTranscribeControllerRef.current?.abort();
       args.aiSttTranscribeControllerRef.current = null;
+      clearBrowserSttStopTimer();
       clearSttNoticeTimer();
       clearSttPreviewTimer();
       clearAiSttStopTimer();
@@ -1106,7 +1294,9 @@ export function useChatWorkspaceStt(args: UseChatWorkspaceSttArgs): {
       args.aiSttEpisodeIdRef.current = null;
       stopAiSttStream();
     };
-  }, [args, clearAiSttStopTimer, clearSttNoticeTimer, clearSttPreviewTimer, stopAiSttStream]);
+  // Cleanup should only run when the hook unmounts. If it runs on rerender, it will
+  // tear down an active mic session the moment STT flips state and the component rerenders.
+  }, []);
 
   return { onToggleMic };
 }

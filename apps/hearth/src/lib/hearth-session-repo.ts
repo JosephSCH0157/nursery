@@ -5,6 +5,7 @@ import type {
   HearthTitleVariants,
 } from "../domain/hearth-session";
 import { HEARTH_SESSION_PATH, HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
+import { normalizeVisualProviderId } from "./hearth-visual-provider-profiles";
 import { resolveWorkspaceId } from "./sources-repo";
 import { tongsFetch } from "./tongs-fetch";
 
@@ -83,7 +84,7 @@ function normalizeTitleVariants(value: unknown): HearthTitleVariants | null {
   };
 }
 
-function normalizeSession(raw: unknown): HearthPlanningSession | null {
+export function normalizeHearthPlanningSessionDocument(raw: unknown): HearthPlanningSession | null {
   if (!isRecord(raw)) return null;
   const schema = readString(raw.schema);
   if (schema !== HEARTH_SESSION_SCHEMA) return null;
@@ -105,6 +106,7 @@ function normalizeSession(raw: unknown): HearthPlanningSession | null {
     outline: normalizeStringArray(raw.outline),
     audience: readNullableString(raw.audience),
     tone_preset: readNullableString(raw.tone_preset),
+    visual_provider_override: normalizeVisualProviderId(raw.visual_provider_override),
     links: isRecord(raw.links) ? (raw.links as HearthPlanningSession["links"]) : undefined,
     decisions: normalizeDecisions(raw.decisions),
   };
@@ -207,7 +209,8 @@ function isSessionEmpty(session: HearthPlanningSession): boolean {
   const hasDecisions = (session.decisions ?? []).length > 0;
   const hasAudience = Boolean(session.audience && session.audience.trim());
   const hasTone = Boolean(session.tone_preset && session.tone_preset.trim());
-  return !(hasTitle || hasTitleVariants || hasGoals || hasOutline || hasDecisions || hasAudience || hasTone);
+  const hasVisualProviderOverride = Boolean(session.visual_provider_override);
+  return !(hasTitle || hasTitleVariants || hasGoals || hasOutline || hasDecisions || hasAudience || hasTone || hasVisualProviderOverride);
 }
 
 function deriveIntent(session: HearthPlanningSession): HearthSessionIntent | null {
@@ -218,7 +221,7 @@ function deriveIntent(session: HearthPlanningSession): HearthSessionIntent | nul
   return null;
 }
 
-function buildSessionDocument(
+export function buildHearthPlanningSessionDocument(
   session: HearthPlanningSession,
   workspaceId: string,
   workpieceId: string,
@@ -242,6 +245,7 @@ function buildSessionDocument(
     outline: session.outline ?? [],
     audience: session.audience ?? null,
     tone_preset: session.tone_preset ?? null,
+    visual_provider_override: normalizeVisualProviderId(session.visual_provider_override),
     links: session.links ?? null,
     decisions: session.decisions ?? [],
   };
@@ -263,6 +267,7 @@ function buildEmptySession(workpieceId: string): HearthPlanningSession {
     outline: [],
     audience: null,
     tone_preset: null,
+    visual_provider_override: null,
     links: null,
     decisions: [],
   };
@@ -275,7 +280,7 @@ export async function readHearthSession(workpieceId: string): Promise<HearthPlan
   const result = await readJsonFromTongs(url);
   if (!result.ok) return null;
   if (result.data == null) return buildEmptySession(workpieceId);
-  return normalizeSession(result.data);
+  return normalizeHearthPlanningSessionDocument(result.data);
 }
 
 export async function commitHearthSession(
@@ -286,7 +291,7 @@ export async function commitHearthSession(
   const workspaceId = session.workspace_id ?? resolveWorkspaceId();
   if (!workspaceId) return { ok: false, reason: "missing_workspace" };
 
-  const document = buildSessionDocument(session, workspaceId, workpieceId);
+  const document = buildHearthPlanningSessionDocument(session, workspaceId, workpieceId);
   if (!options?.allowEmpty && isSessionEmpty(document)) {
     return { ok: true, skipped: true };
   }

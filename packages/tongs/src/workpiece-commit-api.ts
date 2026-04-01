@@ -52,6 +52,7 @@ const BOOTSTRAP_WORKPIECE_PATHS = new Set([
   "script/script.sources.json",
   "hearth/drafts.v1.json",
   "hearth/chat.v1.json",
+  "hearth/media_map.v1.json",
   "hearth/revisions.v1.json",
   "hammer/session/intro-outro.v1.json",
   "hammer/snapshots/manifest.v1.json",
@@ -105,6 +106,12 @@ const IMAGE_MAP_SOURCE_TYPE_VALUES = ["ai", "stock", "archival", "custom"] as co
 const IMAGE_MAP_SOURCE_TYPE_SET = new Set<string>(IMAGE_MAP_SOURCE_TYPE_VALUES);
 const IMAGE_MAP_STATUS_VALUES = ["draft", "mapped", "candidates_generated", "selected"] as const;
 const IMAGE_MAP_STATUS_SET = new Set<string>(IMAGE_MAP_STATUS_VALUES);
+const IMAGE_MAP_BEAT_SPEAKER_VALUES = ["s1", "s2", "g1", "g2"] as const;
+const IMAGE_MAP_BEAT_SPEAKER_SET = new Set<string>(IMAGE_MAP_BEAT_SPEAKER_VALUES);
+const IMAGE_MAP_BEAT_FORMAT_VALUES = ["bullet_outline"] as const;
+const IMAGE_MAP_BEAT_FORMAT_SET = new Set<string>(IMAGE_MAP_BEAT_FORMAT_VALUES);
+const HEARTH_VISUAL_PURPOSE_VALUES = ["coverage", "explanation", "emphasis"] as const;
+const HEARTH_VISUAL_PURPOSE_SET = new Set<string>(HEARTH_VISUAL_PURPOSE_VALUES);
 const IMAGE_MAP_VISUAL_MODE_VALUES = [
   "comparison",
   "map",
@@ -510,6 +517,34 @@ export type EpisodeImageMapScriptAnchorRecord = {
   speaker_block_id?: string | null;
 };
 
+export type EpisodeSpokenBeatSpeakerRecord = "s1" | "s2" | "g1" | "g2";
+export type EpisodeSpokenBeatFormatRecord = "bullet_outline";
+export type HearthVisualPurposeRecord = "coverage" | "explanation" | "emphasis";
+
+export type EpisodeSpokenBeatRecord = {
+  id: string;
+  speaker: EpisodeSpokenBeatSpeakerRecord;
+  format: EpisodeSpokenBeatFormatRecord;
+  order: number;
+  speaker_order: number;
+  speaker_turn: number;
+  text: string;
+  normalized_label: string;
+  cue_phrase: string | null;
+};
+
+export type EpisodeBulletBeatAnchorRecord = {
+  mode: "bullet_beat";
+  beat_id: string;
+  speaker: EpisodeSpokenBeatSpeakerRecord;
+  beat_index: number;
+  speaker_order: number;
+  speaker_turn: number;
+  beat_label: string | null;
+  cue_phrase: string | null;
+  purpose: HearthVisualPurposeRecord;
+};
+
 export type EpisodeImageMapAssetRefRecord = {
   asset_id: string;
   path?: string | null;
@@ -523,6 +558,7 @@ export type EpisodeImageMapEntryRecord = {
   id: string;
   anchor: string;
   script_anchor: EpisodeImageMapScriptAnchorRecord | null;
+  beat_anchor?: EpisodeBulletBeatAnchorRecord | null;
   description: string;
   visual_intent: string;
   prompt_basis: string;
@@ -552,6 +588,7 @@ export type EpisodePackageRecord = {
     primary_version_id: string | null;
   };
   launch_variants: JsonValue[];
+  spoken_beats: EpisodeSpokenBeatRecord[];
   image_map: {
     entries: EpisodeImageMapEntryRecord[];
   };
@@ -578,6 +615,7 @@ export type WorkpieceImageMapResponseData = {
     workpiece_id: string;
     workspace_id: string;
     entries: EpisodeImageMapEntryRecord[];
+    spoken_beats: EpisodeSpokenBeatRecord[];
     metadata_updated_at: string | null;
   };
   asset: ImageMapAssetSummary | null;
@@ -603,6 +641,7 @@ export type WorkpieceVisualPackageVisual = {
   paragraph_beat_order: number;
   status: string;
   script_anchor: EpisodeImageMapScriptAnchorRecord | null;
+  beat_anchor?: EpisodeBulletBeatAnchorRecord | null;
   visual_mode: string | null;
   source_provider?: string | null;
   source_label?: string | null;
@@ -617,12 +656,14 @@ export type WorkpieceVisualPackageResponseData = {
   script_updated_at: string | null;
   image_map_updated_at: string | null;
   image_map_asset_updated_at: string | null;
+  spoken_beats?: EpisodeSpokenBeatRecord[];
   visuals: WorkpieceVisualPackageVisual[];
 };
 
 export type SaveWorkpieceImageMapRequest = {
   workspace_id: string;
   entries: EpisodeImageMapEntryRecord[];
+  spoken_beats?: EpisodeSpokenBeatRecord[];
   expected_metadata_updated_at?: string | null;
 };
 
@@ -2687,6 +2728,162 @@ function normalizeImageMapScriptAnchor(
   };
 }
 
+function normalizeHearthVisualPurposeRecord(
+  value: unknown,
+  fallback: HearthVisualPurposeRecord = "coverage",
+): HearthVisualPurposeRecord {
+  const normalized = readStringField({ value }, "value")?.toLowerCase() ?? null;
+  if (!normalized) return fallback;
+  return HEARTH_VISUAL_PURPOSE_SET.has(normalized)
+    ? normalized as HearthVisualPurposeRecord
+    : fallback;
+}
+
+function normalizeSpokenBeatSpeaker(
+  value: unknown,
+  field: string,
+): EpisodeSpokenBeatSpeakerRecord {
+  const normalized = readStringField({ value }, "value")?.toLowerCase() ?? null;
+  if (!normalized || !IMAGE_MAP_BEAT_SPEAKER_SET.has(normalized)) {
+    throw new HttpError(400, "invalid_spoken_beats", `${field} must be one of s1, s2, g1, g2`);
+  }
+  return normalized as EpisodeSpokenBeatSpeakerRecord;
+}
+
+function normalizeSpokenBeatFormat(
+  value: unknown,
+  field: string,
+): EpisodeSpokenBeatFormatRecord {
+  const normalized = readStringField({ value }, "value")?.toLowerCase() ?? null;
+  if (!normalized || !IMAGE_MAP_BEAT_FORMAT_SET.has(normalized)) {
+    throw new HttpError(400, "invalid_spoken_beats", `${field} must be bullet_outline`);
+  }
+  return normalized as EpisodeSpokenBeatFormatRecord;
+}
+
+function normalizePositiveIndex(
+  value: unknown,
+  field: string,
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new HttpError(400, "invalid_number", `${field} must be a number`);
+  }
+  const normalized = Math.max(1, Math.trunc(value));
+  return normalized;
+}
+
+function normalizeEpisodeSpokenBeat(
+  value: unknown,
+  index: number,
+): EpisodeSpokenBeatRecord {
+  if (!isRecord(value)) {
+    throw new HttpError(400, "invalid_spoken_beats", `spoken_beats[${index}] must be an object`);
+  }
+
+  const id = readStringField(value, "id");
+  if (!id) {
+    throw new HttpError(400, "invalid_spoken_beats", `spoken_beats[${index}].id must be a non-empty string`);
+  }
+  const text = readStringField(value, "text");
+  if (!text) {
+    throw new HttpError(400, "invalid_spoken_beats", `spoken_beats[${index}].text must be a non-empty string`);
+  }
+
+  return {
+    id,
+    speaker: normalizeSpokenBeatSpeaker(value.speaker, `spoken_beats[${index}].speaker`),
+    format: normalizeSpokenBeatFormat(value.format, `spoken_beats[${index}].format`),
+    order: normalizePositiveIndex(value.order, `spoken_beats[${index}].order`),
+    speaker_order: normalizePositiveIndex(value.speaker_order, `spoken_beats[${index}].speaker_order`),
+    speaker_turn: normalizePositiveIndex(value.speaker_turn, `spoken_beats[${index}].speaker_turn`),
+    text,
+    normalized_label: readStringField(value, "normalized_label")
+      ?? text.toLowerCase().replace(/\s+/g, " ").trim(),
+    cue_phrase: readStringField(value, "cue_phrase"),
+  };
+}
+
+function normalizeEpisodeSpokenBeats(value: unknown): EpisodeSpokenBeatRecord[] {
+  if (!Array.isArray(value)) return [];
+  const out: EpisodeSpokenBeatRecord[] = [];
+  const seenIds = new Set<string>();
+  for (let index = 0; index < value.length; index += 1) {
+    const beat = normalizeEpisodeSpokenBeat(value[index], index);
+    if (seenIds.has(beat.id)) continue;
+    seenIds.add(beat.id);
+    out.push(beat);
+  }
+  return out;
+}
+
+function buildBulletBeatAnchorLabel(anchor: EpisodeBulletBeatAnchorRecord | null): string {
+  if (!anchor) return "";
+  const beatLabel = anchor.beat_label?.trim() || anchor.cue_phrase?.trim() || null;
+  return beatLabel
+    ? `${anchor.speaker} beat ${anchor.beat_index}: ${beatLabel}`
+    : `${anchor.speaker} beat ${anchor.beat_index}`;
+}
+
+function normalizeEpisodeBulletBeatAnchor(
+  value: unknown,
+  field: string,
+  fallbackPurpose: HearthVisualPurposeRecord = "coverage",
+): EpisodeBulletBeatAnchorRecord | null {
+  if (value == null) return null;
+  if (!isRecord(value)) {
+    throw new HttpError(400, "invalid_entries", `${field} must be an object`);
+  }
+
+  const beatId = readStringField(value, "beat_id");
+  if (!beatId) {
+    throw new HttpError(400, "invalid_entries", `${field}.beat_id must be a non-empty string`);
+  }
+
+  return {
+    mode: "bullet_beat",
+    beat_id: beatId,
+    speaker: normalizeSpokenBeatSpeaker(value.speaker, `${field}.speaker`),
+    beat_index: normalizePositiveIndex(value.beat_index, `${field}.beat_index`),
+    speaker_order: normalizePositiveIndex(value.speaker_order ?? value.beat_index, `${field}.speaker_order`),
+    speaker_turn: normalizePositiveIndex(value.speaker_turn ?? 1, `${field}.speaker_turn`),
+    beat_label: readStringField(value, "beat_label"),
+    cue_phrase: readStringField(value, "cue_phrase"),
+    purpose: normalizeHearthVisualPurposeRecord(value.purpose, fallbackPurpose),
+  };
+}
+
+function resolveBeatAnchorContext(args: {
+  beatAnchor: EpisodeBulletBeatAnchorRecord | null | undefined;
+  spokenBeats: readonly EpisodeSpokenBeatRecord[];
+}): {
+  before: string | null;
+  focus: string | null;
+  after: string | null;
+} {
+  if (!args.beatAnchor) {
+    return { before: null, focus: null, after: null };
+  }
+
+  const beats = args.spokenBeats
+    .slice()
+    .sort((left, right) => left.order - right.order);
+  const focusIndex = beats.findIndex((beat) => beat.id === args.beatAnchor?.beat_id);
+  const fallbackFocus = args.beatAnchor.beat_label ?? args.beatAnchor.cue_phrase ?? null;
+  if (focusIndex < 0) {
+    return {
+      before: null,
+      focus: fallbackFocus,
+      after: null,
+    };
+  }
+
+  return {
+    before: focusIndex > 0 ? beats[focusIndex - 1]?.text ?? null : null,
+    focus: beats[focusIndex]?.text ?? fallbackFocus,
+    after: focusIndex < beats.length - 1 ? beats[focusIndex + 1]?.text ?? null : null,
+  };
+}
+
 function normalizeEpisodeImageMapEntry(
   value: unknown,
   index: number,
@@ -2698,12 +2895,16 @@ function normalizeEpisodeImageMapEntry(
   const fallbackId = `image-map-${String(index + 1).padStart(2, "0")}`;
   const id = readStringField(value, "id") ?? fallbackId;
   const scriptAnchor = normalizeImageMapScriptAnchor(value.script_anchor, `entries[${index}].script_anchor`);
+  const beatAnchor = normalizeEpisodeBulletBeatAnchor(
+    value.beat_anchor,
+    `entries[${index}].beat_anchor`,
+  );
   const anchor = readStringField(value, "anchor")
     ?? (scriptAnchor
       ? `${scriptAnchor.paragraph_id}#${scriptAnchor.sentence_start === scriptAnchor.sentence_end
         ? `sent${scriptAnchor.sentence_start}`
         : `sent${scriptAnchor.sentence_start}-${scriptAnchor.sentence_end}`}`
-      : null);
+      : (beatAnchor ? buildBulletBeatAnchorLabel(beatAnchor) : null));
   if (!anchor) {
     throw new HttpError(400, "invalid_entries", `entries[${index}].anchor must be a non-empty string`);
   }
@@ -2727,19 +2928,21 @@ function normalizeEpisodeImageMapEntry(
       },
     );
   }
-  const normalizedStatus = normalizeImageMapStatus(value.status ?? (scriptAnchor ? "mapped" : "draft"));
+  const hasStructuredAnchor = Boolean(scriptAnchor || beatAnchor);
+  const normalizedStatus = normalizeImageMapStatus(value.status ?? (hasStructuredAnchor ? "mapped" : "draft"));
   const status = selectedAssetId
     ? "selected"
     : candidateAssets.length > 0
       ? "candidates_generated"
       : normalizedStatus === "selected"
-        ? (scriptAnchor ? "mapped" : "draft")
+        ? (hasStructuredAnchor ? "mapped" : "draft")
         : normalizedStatus;
 
   return {
     id,
     anchor,
     script_anchor: scriptAnchor,
+    beat_anchor: beatAnchor,
     description,
     visual_intent: readStringField(value, "visual_intent") ?? description,
     prompt_basis: readStringField(value, "prompt_basis") ?? description,
@@ -2789,6 +2992,9 @@ function normalizeSaveWorkpieceImageMapRequest(
   return {
     workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
     entries,
+    ...(Object.prototype.hasOwnProperty.call(body, "spoken_beats")
+      ? { spoken_beats: normalizeEpisodeSpokenBeats(body.spoken_beats) }
+      : {}),
     ...(Object.prototype.hasOwnProperty.call(body, "expected_metadata_updated_at")
       ? {
         expected_metadata_updated_at: body.expected_metadata_updated_at === null
@@ -2856,10 +3062,12 @@ function normalizeRestoreWorkpieceRequest(body: Record<string, unknown>): Restor
 function buildImageMapAssetDocument(
   workpieceId: string,
   entries: EpisodeImageMapEntryRecord[],
+  spokenBeats: readonly EpisodeSpokenBeatRecord[] = [],
 ): Record<string, unknown> {
   return {
     schema: IMAGE_MAP_ASSET_SCHEMA,
     workpiece_id: workpieceId,
+    spoken_beats: spokenBeats,
     entries,
   };
 }
@@ -2876,8 +3084,24 @@ function buildImageMapCandidateAssetPath(args: {
   return `${IMAGE_MAP_CANDIDATE_ASSET_PREFIX}/${args.workpieceId}/${args.entryId}/${args.assetId}-${variantSlug}.${extension}`;
 }
 
-function inferImageMapVisualMode(entry: EpisodeImageMapEntryRecord, contextText: string): string {
-  const text = `${entry.visual_intent} ${entry.prompt_basis} ${entry.script_anchor?.span_text ?? ""} ${contextText}`.toLowerCase();
+function inferImageMapVisualMode(
+  entry: EpisodeImageMapEntryRecord,
+  contextText: string,
+  spokenBeats: readonly EpisodeSpokenBeatRecord[] = [],
+): string {
+  const beatContext = resolveBeatAnchorContext({
+    spokenBeats,
+    beatAnchor: entry.beat_anchor,
+  });
+  const text = [
+    entry.visual_intent,
+    entry.prompt_basis,
+    entry.script_anchor?.span_text ?? "",
+    beatContext.focus,
+    beatContext.before,
+    beatContext.after,
+    contextText,
+  ].filter(Boolean).join(" ").toLowerCase();
   if (/\b(map|route|territory|delta|river|coast|atlantic|mississippi|new orleans|geography|location)\b/.test(text)) {
     return /\b(location|city|port|new orleans|mississippi)\b/.test(text) ? "location" : "map";
   }
@@ -2902,12 +3126,22 @@ function buildImageMapCandidatePrompt(args: {
   variantLabel: string;
   contextBefore: string | null;
   contextAfter: string | null;
+  spokenBeats?: readonly EpisodeSpokenBeatRecord[];
   divergenceHint?: string | null;
 }): string {
-  const spanText = args.entry.script_anchor?.span_text ?? args.entry.description;
+  const beatContext = resolveBeatAnchorContext({
+    spokenBeats: args.spokenBeats ?? [],
+    beatAnchor: args.entry.beat_anchor,
+  });
+  const spanText = args.entry.script_anchor?.span_text ?? beatContext.focus ?? args.entry.description;
   const contextLines = [
+    beatContext.before ? `Editorial beat before: ${beatContext.before}` : null,
     args.contextBefore ? `Previous context: ${args.contextBefore}` : null,
-    spanText ? `Exact beat span: ${spanText}` : null,
+    args.entry.script_anchor?.span_text
+      ? `Exact beat span: ${spanText}`
+      : (spanText ? `Editorial beat focus: ${spanText}` : null),
+    args.entry.beat_anchor ? `Beat anchor: ${buildBulletBeatAnchorLabel(args.entry.beat_anchor)}` : null,
+    beatContext.after ? `Editorial beat after: ${beatContext.after}` : null,
     args.contextAfter ? `Following context: ${args.contextAfter}` : null,
   ].filter(Boolean);
 
@@ -2971,6 +3205,7 @@ function buildImageMapCandidateAssetMetadata(args: {
     visual_intent: args.entry.visual_intent,
     prompt_basis: args.entry.prompt_basis,
     script_anchor: args.entry.script_anchor as unknown as Json,
+    beat_anchor: (args.entry.beat_anchor ?? null) as unknown as Json,
     aspect: args.aspect,
     size: args.size,
   } as Json;
@@ -3250,6 +3485,11 @@ function normalizeEpisodePackageRecord(metadata: Record<string, unknown>): Episo
     : Array.isArray(metadata.launch_variants)
       ? metadata.launch_variants as JsonValue[]
       : [];
+  const spokenBeats = normalizeEpisodeSpokenBeats(
+    Array.isArray(episodeRoot.spoken_beats)
+      ? episodeRoot.spoken_beats
+      : metadata.spoken_beats,
+  );
 
   const concepts = Array.isArray(thumbnailRoot.concepts)
     ? thumbnailRoot.concepts.map((entry) => normalizeThumbnailConcept(entry)).filter(Boolean) as EpisodeThumbnailConceptRecord[]
@@ -3280,6 +3520,7 @@ function normalizeEpisodePackageRecord(metadata: Record<string, unknown>): Episo
       primary_version_id: readStringField(thumbnailRoot, "primary_version_id"),
     },
     launch_variants: launchVariants,
+    spoken_beats: spokenBeats,
     image_map: {
       entries: normalizeEpisodeImageMapEntries(imageMapRoot.entries),
     },
@@ -3301,6 +3542,7 @@ function mirrorEpisodePackageToMetadata(
     thumbnail_versions: episodePackage.thumbnail.versions,
     primary_thumbnail_version_id: episodePackage.thumbnail.primary_version_id,
     launch_variants: episodePackage.launch_variants,
+    spoken_beats: episodePackage.spoken_beats,
     image_map_entries: episodePackage.image_map.entries,
   };
 }
@@ -4423,6 +4665,7 @@ export class TongsCommitService {
     workpieceId: string;
     workspaceId: string;
     entries: EpisodeImageMapEntryRecord[];
+    spokenBeats: EpisodeSpokenBeatRecord[];
     metadataUpdatedAt: string | null;
     assetRow: AssetRow | null;
   }): WorkpieceImageMapResponseData {
@@ -4431,6 +4674,7 @@ export class TongsCommitService {
         workpiece_id: args.workpieceId,
         workspace_id: args.workspaceId,
         entries: args.entries,
+        spoken_beats: args.spokenBeats,
         metadata_updated_at: args.metadataUpdatedAt,
       },
       asset: normalizeImageMapAssetSummary(args.assetRow),
@@ -4483,6 +4727,7 @@ export class TongsCommitService {
     imageMapUpdatedAt: string | null;
     imageMapAssetRow: AssetRow | null;
     entries: EpisodeImageMapEntryRecord[];
+    spokenBeats: EpisodeSpokenBeatRecord[];
     selectedAssetRows: AssetRow[];
   }): WorkpieceVisualPackageResponseData {
     const selectedAssetById = new Map(args.selectedAssetRows.map((row) => [row.id, row] as const));
@@ -4518,6 +4763,7 @@ export class TongsCommitService {
           paragraph_beat_order: entry.paragraph_beat_order,
           status: entry.status,
           script_anchor: entry.script_anchor,
+          beat_anchor: entry.beat_anchor ?? null,
           visual_mode: visualMode,
           source_provider: selectedAssetRef?.source ?? null,
           source_label: selectedAsset?.variant_label ?? null,
@@ -4533,6 +4779,7 @@ export class TongsCommitService {
       script_updated_at: args.scriptUpdatedAt,
       image_map_updated_at: args.imageMapUpdatedAt,
       image_map_asset_updated_at: args.imageMapAssetRow?.updated_at ?? null,
+      spoken_beats: args.spokenBeats,
       visuals,
     };
   }
@@ -6980,6 +7227,7 @@ export class TongsCommitService {
       workpieceId,
       workspaceId: cradle.workspace_id,
       entries: state.episodePackage.image_map.entries,
+      spokenBeats: state.episodePackage.spoken_beats,
       metadataUpdatedAt: state.metadataUpdatedAt,
       assetRow,
     });
@@ -7005,6 +7253,7 @@ export class TongsCommitService {
       imageMapUpdatedAt: state.metadataUpdatedAt,
       imageMapAssetRow,
       entries: state.episodePackage.image_map.entries,
+      spokenBeats: state.episodePackage.spoken_beats,
       selectedAssetRows,
     });
   }
@@ -7046,14 +7295,15 @@ export class TongsCommitService {
     if (!entry) {
       throw new HttpError(404, "image_map_entry_not_found", "Image map entry was not found");
     }
-    if (!entry.script_anchor?.span_text?.trim()) {
-      throw new HttpError(400, "image_map_anchor_required", "Image map entry must have a structured script anchor before generating candidates");
+    if (!entry.script_anchor?.span_text?.trim() && !entry.beat_anchor) {
+      throw new HttpError(400, "image_map_anchor_required", "Image map entry must have a structured anchor before generating candidates");
     }
 
     const priorCandidateAssets = await this.listReadyImageMapCandidateAssets(input.workspace_id, workpieceId, entry.id);
     const visualMode = inferImageMapVisualMode(
       entry,
       `${input.context_before ?? ""}\n${input.context_after ?? ""}`,
+      current.episodePackage.spoken_beats,
     );
     const aspect = input.aspect?.trim() || "16:9";
     const size = input.size?.trim() || null;
@@ -7079,6 +7329,7 @@ export class TongsCommitService {
         variantLabel: variant.label,
         contextBefore: input.context_before ?? null,
         contextAfter: input.context_after ?? null,
+        spokenBeats: current.episodePackage.spoken_beats,
         divergenceHint: variant.divergenceHint,
       });
       const imageCall = await this.runAIRequest({
@@ -7125,6 +7376,7 @@ export class TongsCommitService {
         variantLabel: generatedOutputs[1].variantLabel,
         contextBefore: input.context_before ?? null,
         contextAfter: input.context_after ?? null,
+        spokenBeats: current.episodePackage.spoken_beats,
         divergenceHint: "The prior variant was too similar. Produce a substantially different visual take with different framing, subject arrangement, and editorial emphasis.",
       });
       const retryCall = await this.runAIRequest({
@@ -7334,6 +7586,7 @@ export class TongsCommitService {
 
     const nextEpisodePackage: EpisodePackageRecord = {
       ...current.episodePackage,
+      spoken_beats: input.spoken_beats ?? current.episodePackage.spoken_beats,
       image_map: {
         entries: input.entries,
       },
@@ -7383,7 +7636,7 @@ export class TongsCommitService {
       path: IMAGE_MAP_ASSET_PATH,
       content_type: "application/json",
       file_type: "json",
-      json: buildImageMapAssetDocument(workpieceId, input.entries),
+      json: buildImageMapAssetDocument(workpieceId, input.entries, nextEpisodePackage.spoken_beats),
       written_by: writtenBy,
       event_name: "hearth.image_map.asset.saved.v1",
       event_payload: {
@@ -7458,6 +7711,7 @@ export class TongsCommitService {
       workpieceId,
       workspaceId: input.workspace_id,
       entries: nextEpisodePackage.image_map.entries,
+      spokenBeats: nextEpisodePackage.spoken_beats,
       metadataUpdatedAt: normalizeComparableIsoTimestampOrNull(
         metadataCommit.file_row.updated_at ?? current.metadata.updated_at ?? null,
       ),

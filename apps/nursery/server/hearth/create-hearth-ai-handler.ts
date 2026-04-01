@@ -24,6 +24,13 @@ import {
   type HearthOp,
 } from "../../../hearth/src/lib/hearth-ai-runtime-contract";
 import {
+  buildEmptyHearthResearchResult,
+  buildHearthResearchRequest,
+  type HearthResearchResult,
+  type HearthResearchRequest,
+} from "../../../hearth/src/lib/hearth-research-contract";
+import { createHearthResearchRuntime } from "./hearth-research-runtime";
+import {
   FORGE_ALLOWED_CHAT_MODELS,
 } from "./ai-pricing";
 import {
@@ -92,6 +99,13 @@ type ScriptExcerpt = {
   excerpt: string;
 };
 
+type CrossProjectReferenceResolution = {
+  detected: boolean;
+  level: "clear" | "ambiguous" | "unanchored";
+  resolvedTitle: string | null;
+  candidateTitles: string[];
+};
+
 type ReqBody = {
   messages?: unknown;
   episode_context?: unknown;
@@ -123,6 +137,8 @@ const SOURCING_NUDGE_RE = /\b(source|sources|sourcing|citation|citations|cite|ev
 const RISK_NUDGE_RE = /\b(risk|risky|legal|defamation|liability|compliance|sensitive claim|hot take)\b/i;
 const RECORD_ANYWAY_RE = /\b(record anyway|record now anyway|ok to record anyway|okay to record anyway|go ahead and record)\b/i;
 const CDC_REQUEST_RE = /\b(cdc|contextual data composite|chart|graph|plot|dataset|bar chart|line chart|pie chart)\b/i;
+const RESEARCH_INTENT_RE = /\b(browse|look up|lookup|find(?: me)?|search|news|reports?|reporting|examples?|case studies?|incidents?|breach(?:es)?|source|sources|citations?|evidence)\b/i;
+const CROSS_PROJECT_REFERENCE_RE = /\b(use|pull in|bring in|remember|recall|like|from)\b[\s\S]{0,120}\b(script|episode|project|conversation|workspace|last week|other chat|that)\b/i;
 const ALLOWED_CHAT_MODELS = new Set<string>(FORGE_ALLOWED_CHAT_MODELS);
 const DEFAULT_CREATOR_PROFILE: CreatorProfile = {
   userId: null,
@@ -396,6 +412,143 @@ function detectReadinessNudgeCategory(text: string): ReadinessNudgeCategory | nu
   return null;
 }
 
+function isResearchIntentRequest(text: string): boolean {
+  const normalized = compactSpaces(text);
+  if (!normalized) return false;
+  if (RESEARCH_INTENT_RE.test(normalized)) return true;
+  return /\breach\b/.test(normalized) && /\breport(?:ing|s)?\b/.test(normalized);
+}
+
+function isCrossProjectReferenceRequest(text: string): boolean {
+  const normalized = compactSpaces(text);
+  if (!normalized) return false;
+  if (!CROSS_PROJECT_REFERENCE_RE.test(normalized)) return false;
+  if (/\bthis script\b/.test(normalized) || /\bthis episode\b/.test(normalized) || /\bthis project\b/.test(normalized)) {
+    return false;
+  }
+  return /\bthat\b/.test(normalized)
+    || /\banother\b/.test(normalized)
+    || /\bother\b/.test(normalized)
+    || /\blast week\b/.test(normalized)
+    || /\bfrom\b/.test(normalized)
+    || /\bremember\b/.test(normalized)
+    || /\brecall\b/.test(normalized)
+    || /\bworkspace\b/.test(normalized);
+}
+
+function tokenizeReferenceText(value: string): string[] {
+  const stop = new Set([
+    "the",
+    "that",
+    "this",
+    "with",
+    "from",
+    "into",
+    "for",
+    "and",
+    "our",
+    "your",
+    "script",
+    "episode",
+    "project",
+    "conversation",
+    "workspace",
+    "week",
+    "last",
+    "like",
+    "use",
+    "pull",
+    "bring",
+    "remember",
+    "recall",
+  ]);
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 3 && !stop.has(token));
+}
+
+function resolveCrossProjectReference(args: {
+  requestText: string;
+  currentWorkpieceId: string;
+  references: RecentScriptReference[];
+}): CrossProjectReferenceResolution {
+  if (!isCrossProjectReferenceRequest(args.requestText)) {
+    return {
+      detected: false,
+      level: "unanchored",
+      resolvedTitle: null,
+      candidateTitles: [],
+    };
+  }
+  const candidates = args.references.filter((ref) => ref.workpieceId !== args.currentWorkpieceId);
+  if (candidates.length === 0) {
+    return {
+      detected: true,
+      level: "unanchored",
+      resolvedTitle: null,
+      candidateTitles: [],
+    };
+  }
+
+  const requestNormalized = compactSpaces(args.requestText).toLowerCase();
+  const requestTokens = new Set(tokenizeReferenceText(args.requestText));
+  const scored = candidates.map((ref) => {
+    const title = ref.title.trim();
+    const titleNormalized = compactSpaces(title).toLowerCase();
+    const titleTokens = tokenizeReferenceText(title);
+    let score = 0;
+    if (titleNormalized && requestNormalized.includes(titleNormalized)) {
+      score += 100;
+    }
+    for (const token of titleTokens) {
+      if (requestTokens.has(token)) score += 1;
+    }
+    return { ref, score };
+  }).sort((left, right) => right.score - left.score);
+
+  const top = scored[0];
+  const second = scored[1];
+  if (!top || top.score <= 0) {
+    return {
+      detected: true,
+      level: "unanchored",
+      resolvedTitle: null,
+      candidateTitles: [],
+    };
+  }
+
+  if (top.score >= 100 || (top.score >= 3 && (!second || top.score - second.score >= 2))) {
+    return {
+      detected: true,
+      level: "clear",
+      resolvedTitle: top.ref.title,
+      candidateTitles: [top.ref.title],
+    };
+  }
+
+  const ambiguousTitles = scored
+    .filter((entry) => entry.score > 0)
+    .slice(0, 2)
+    .map((entry) => entry.ref.title);
+  if (ambiguousTitles.length >= 2) {
+    return {
+      detected: true,
+      level: "ambiguous",
+      resolvedTitle: null,
+      candidateTitles: ambiguousTitles,
+    };
+  }
+
+  return {
+    detected: true,
+    level: "clear",
+    resolvedTitle: top.ref.title,
+    candidateTitles: [top.ref.title],
+  };
+}
+
 function splitAssistantSentences(text: string): string[] {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (!normalized) return [];
@@ -520,6 +673,8 @@ function shouldAskClarifyingQuestions(args: {
   profile: CreatorProfile;
   chatHistory: ChatMessage[];
 }): boolean {
+  if (isResearchIntentRequest(args.requestText)) return false;
+  if (isCrossProjectReferenceRequest(args.requestText)) return false;
   const requestWordCount = compactSpaces(args.requestText)
     .split(/\s+/)
     .filter(Boolean)
@@ -642,6 +797,9 @@ function buildSystemPrompt(
     readinessCheck?: boolean;
     allowRepeatedReadinessNudge?: boolean;
     priorReadinessNudge?: ReadinessNudgeCategory | null;
+    researchMode?: boolean;
+    researchRequest?: HearthResearchRequest | null;
+    researchResult?: HearthResearchResult | null;
   },
 ): string {
   const baseLines = [
@@ -871,6 +1029,37 @@ function buildSystemPrompt(
     if (options.priorReadinessNudge && !options.allowRepeatedReadinessNudge) {
       baseLines.push(
         `- Prior assistant nudge already covered: ${options.priorReadinessNudge}. Do not repeat it unless user explicitly asks for strict re-review.`,
+      );
+    }
+  }
+
+  if (options?.researchMode) {
+    baseLines.push(
+      "Research mode behavior (hard rule):",
+      "- Always attempt a first-pass answer before limitations.",
+      "- Never lead with inability, missing browsing, or uncertainty statements.",
+      "- Start with immediate known examples relevant to the user's angle (target: 2-5 examples).",
+      "- Organize examples into clear buckets/categories.",
+      "- Tie examples back to the user's thesis or production angle in one concise pattern statement.",
+      "- Include verification gaps only as a lightweight follow-up section; do not block delivery on them.",
+      "- Prefer fast producer momentum: first pass now, deeper sourcing next.",
+      "Research response shape:",
+      "1) Brief angle confirmation.",
+      "2) Immediate examples.",
+      "3) Categorized buckets.",
+      "4) Optional verification gaps.",
+      "5) One concrete next step (expand list, script spine, or source-backed pass).",
+    );
+    if (options.researchRequest) {
+      baseLines.push(
+        "Canonical research request:",
+        JSON.stringify(options.researchRequest),
+      );
+    }
+    if (options.researchResult) {
+      baseLines.push(
+        "Canonical research runtime result:",
+        JSON.stringify(options.researchResult),
       );
     }
   }
@@ -1105,7 +1294,184 @@ function normalizeStructuredReply(raw: string): StructuredReply | null {
   };
 }
 
+function summarizeResearchResult(result: HearthResearchResult): Record<string, number | string> {
+  let extracted = 0;
+  let partial = 0;
+  let failed = 0;
+  let skipped = 0;
+  let pending = 0;
+  let dated = 0;
+  let undated = 0;
+
+  for (const source of result.sources) {
+    if (source.extractionStatus === "extracted") extracted += 1;
+    else if (source.extractionStatus === "partial") partial += 1;
+    else if (source.extractionStatus === "failed") failed += 1;
+    else if (source.extractionStatus === "skipped") skipped += 1;
+    else if (source.extractionStatus === "pending") pending += 1;
+    if (source.publishedAt) dated += 1;
+    else undated += 1;
+  }
+
+  return {
+    mode: result.mode,
+    runtime_status: result.runtimeStatus,
+    source_count: result.sources.length,
+    extracted_count: extracted,
+    partial_count: partial,
+    failed_count: failed,
+    skipped_count: skipped,
+    pending_count: pending,
+    dated_count: dated,
+    undated_count: undated,
+  };
+}
+
+function formatResearchSourceArtifact(source: { title: string | null; domain: string | null; url: string }): string {
+  const label = readOptionalString(source.title) ?? readOptionalString(source.domain) ?? source.url;
+  return label;
+}
+
+const RESEARCH_REPLY_INTERNAL_MARKERS: RegExp[] = [
+  /\bresponse tone\s*:/i,
+  /\bthe user prefers\b/i,
+  /\bif helpful,\s*ask whether\b/i,
+  /\breturn only valid json\b/i,
+  /\ballowed ops\s*:/i,
+  /\btag contract\b/i,
+  /\bvoice examples\b/i,
+  /\bdo not ask follow-up questions\b/i,
+  /\bdo not behave as if each message is a new conversation\b/i,
+];
+
+function hasInternalLeakMarker(line: string): boolean {
+  const text = line.trim();
+  if (!text) return false;
+  return RESEARCH_REPLY_INTERNAL_MARKERS.some((pattern) => pattern.test(text));
+}
+
+function fallbackResearchBodyFromResult(result: HearthResearchResult): string {
+  const summary = readOptionalString(result.synthesis.summary);
+  if (summary) return summary;
+  if (result.runtimeStatus === "no_results") {
+    return "No strong source evidence surfaced in this pass.";
+  }
+  if (result.runtimeStatus === "error" || result.mode === "knowledge_first") {
+    return "This response stays in knowledge-first mode for now.";
+  }
+  if (result.mode === "partial_retrieval" || result.runtimeStatus === "partial") {
+    return "Some source evidence was recovered, but coverage is incomplete.";
+  }
+  return "Source-backed findings are available from this run.";
+}
+
+function sanitizeResearchReplyBody(rawBody: string, result: HearthResearchResult): string {
+  const lines = rawBody
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const filtered = lines.filter((line) => !hasInternalLeakMarker(line));
+  const compact = filtered.join("\n").trim();
+  if (compact) return compact;
+  return fallbackResearchBodyFromResult(result);
+}
+
+function buildResearchOutcomeLead(args: {
+  request: HearthResearchRequest;
+  result: HearthResearchResult;
+}): string {
+  const query = args.request.query.trim() || "this query";
+  const sourceCount = args.result.sources.length;
+  const topArtifacts = args.result.sources
+    .slice(0, 3)
+    .map((source) => formatResearchSourceArtifact(source))
+    .filter(Boolean);
+  const keyPoints = args.result.synthesis.keyPoints
+    .map((point) => point.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+
+  if (args.result.runtimeStatus === "no_results") {
+    return `Research outcome: No strong retrieval results were found for "${query}".`;
+  }
+
+  if (args.result.runtimeStatus === "error" || args.result.mode === "knowledge_first") {
+    return `Research outcome: Live retrieval was unavailable in this run, so this answer is a knowledge-first fallback for "${query}".`;
+  }
+
+  if (args.result.mode === "partial_retrieval" || args.result.runtimeStatus === "partial") {
+    const artifactLine = topArtifacts.length
+      ? `Recovered sources (${sourceCount}): ${topArtifacts.join("; ")}.`
+      : `Recovered sources (${sourceCount}): none surfaced in this pass.`;
+    const findingsLine = keyPoints.length
+      ? `Recovered findings: ${keyPoints.join(" ")}`
+      : "Recovered findings are limited in this pass.";
+    return `Research outcome: Retrieval was partial for "${query}". ${artifactLine} ${findingsLine}`;
+  }
+
+  const artifactLine = topArtifacts.length
+    ? `Sources found (${sourceCount}): ${topArtifacts.join("; ")}.`
+    : `Sources found (${sourceCount}).`;
+  const findingsLine = keyPoints.length
+    ? `Retrieved findings: ${keyPoints.join(" ")}`
+    : readOptionalString(args.result.synthesis.summary)
+      ? `Retrieved findings: ${args.result.synthesis.summary}`
+      : "Retrieved findings are available from the runtime source set.";
+  return `Research outcome: Retrieval found sources for "${query}". ${artifactLine} ${findingsLine}`;
+}
+
+function enforceResearchOutcomeReply(args: {
+  assistantText: string;
+  request: HearthResearchRequest;
+  result: HearthResearchResult;
+}): string {
+  const lead = buildResearchOutcomeLead({
+    request: args.request,
+    result: args.result,
+  });
+  const body = sanitizeResearchReplyBody(args.assistantText.trim(), args.result);
+  if (!body) return lead;
+  const normalizedLead = lead.trim().toLowerCase();
+  const normalizedBody = body.toLowerCase();
+  if (normalizedBody.startsWith(normalizedLead)) return body;
+  return `${lead}\n\n${body}`;
+}
+
+function buildCrossProjectScopeLead(resolution: CrossProjectReferenceResolution): string | null {
+  if (!resolution.detected) return null;
+  if (resolution.level === "clear" && resolution.resolvedTitle) {
+    return `Scope note: I resolved this to the workspace artifact "${resolution.resolvedTitle}" via Tongs. I am using it as a reference while keeping the current episode as the active working fire.`;
+  }
+  if (resolution.level === "ambiguous" && resolution.candidateTitles.length >= 2) {
+    const [first, second] = resolution.candidateTitles;
+    return `Scope note: I found multiple workspace artifact matches via Tongs. I can anchor this to "${first}" or "${second}" once you pick one.`;
+  }
+  return "Scope note: This sounds like a reference to another workspace artifact, but I do not have a reliable anchor yet. Name the episode/project (or paste one line) and I will resolve it through Tongs.";
+}
+
+function enforceCrossProjectScopeReply(args: {
+  assistantText: string;
+  resolution: CrossProjectReferenceResolution;
+}): string {
+  const lead = buildCrossProjectScopeLead(args.resolution);
+  if (!lead) return args.assistantText;
+  const body = args.assistantText.trim();
+  if (!body) return lead;
+  const normalizedLead = lead.trim().toLowerCase();
+  const normalizedBody = body.toLowerCase();
+  if (normalizedBody.startsWith(normalizedLead)) return body;
+  return `${lead}\n\n${body}`;
+}
+
 export function createHearthAiHandler(config: HearthRuntimeConfig) {
+  const researchApiKey = (
+    config.researchApiKey
+    || process.env.HEARTH_RESEARCH_API_KEY
+    || process.env.HEARTH_RESEARCH_BRAVE_API_KEY
+    || process.env.BRAVE_SEARCH_API_KEY
+    || null
+  );
+  const researchRuntime = createHearthResearchRuntime({ braveApiKey: researchApiKey });
   const textApiKey = config.textApiKey ?? config.apiKey ?? null;
   const {
     model,
@@ -1857,7 +2223,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           const estimatedCostUsd = accounting.estimatedCostUsd;
           const billableTokens = accounting.billableTokens;
           const openAiRequestId = upstream.headers.get("x-request-id");
-          let creditsWarning: string | null = null;
+          const creditsWarning: string | null = null;
 
           await recordAiUsageEvent({
             userId,
@@ -2026,6 +2392,42 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const priorMessages = typeof latestUserMessageIndex === "number"
         ? messages.filter((_, index) => index !== latestUserMessageIndex)
         : messages;
+      const researchModeRequested = isResearchIntentRequest(requestText);
+      const researchRequest = researchModeRequested
+        ? buildHearthResearchRequest({ query: requestText })
+        : null;
+      let researchResult: HearthResearchResult | null = null;
+      if (researchRequest) {
+        try {
+          researchResult = await researchRuntime.run({
+            request: researchRequest,
+            workspaceId: episodeContext.workspaceId,
+            workpieceId: episodeContext.episodeId,
+            signal: request.signal,
+          });
+        } catch {
+          researchResult = buildEmptyHearthResearchResult({
+            mode: "knowledge_first",
+            runtimeStatus: "error",
+            summary: "Research runtime failed before synthesis.",
+          });
+        }
+        await recordHearthEventForToken({
+          accessToken: bearerToken,
+          episodeId: episodeContext.episodeId,
+          eventType: "research_runtime_result",
+          payload: {
+            source: "middleware",
+            query: researchRequest.query,
+            intent: researchRequest.intent,
+            recency: researchRequest.recencyPreference,
+            max_sources: researchRequest.maxSources,
+            require_dates: researchRequest.requireDates,
+            require_full_extraction: researchRequest.requireFullExtraction,
+            ...summarizeResearchResult(researchResult),
+          },
+        });
+      }
       const readinessCheckRequested = isReadinessCheckRequest(requestText);
       const allowRepeatedReadinessNudge = requestedDeepReadinessReview(requestText);
       const priorAssistantMessage = [...priorMessages]
@@ -2080,6 +2482,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const styleSamples = await loadStyleSamplesForToken(bearerToken, episodeContext.workspaceId);
       const recentScriptRefs = await loadRecentScriptReferencesForToken(bearerToken, episodeContext.workspaceId);
       const recentScriptExcerpts = await loadRecentScriptExcerpts(recentScriptRefs);
+      const crossProjectReference = resolveCrossProjectReference({
+        requestText,
+        currentWorkpieceId: episodeContext.episodeId,
+        references: recentScriptRefs,
+      });
       const styleCorpusSnippet = buildStyleCorpusSnippet({
         styleSamples,
         recentScriptExcerpts,
@@ -2097,6 +2504,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             readinessCheck: readinessCheckRequested,
             allowRepeatedReadinessNudge,
             priorReadinessNudge,
+            researchMode: researchModeRequested,
+            researchRequest,
+            researchResult,
           },
         ),
       };
@@ -2255,6 +2665,21 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           structured.ops = [];
         }
 
+        if (researchModeRequested && researchRequest && researchResult) {
+          structured.assistantText = enforceResearchOutcomeReply({
+            assistantText: structured.assistantText,
+            request: researchRequest,
+            result: researchResult,
+          });
+        }
+
+        if (crossProjectReference.detected) {
+          structured.assistantText = enforceCrossProjectScopeReply({
+            assistantText: structured.assistantText,
+            resolution: crossProjectReference,
+          });
+        }
+
         if (!structured.assistantText && structured.ops.length === 0) {
           return jsonResponse(502, {
             ok: false,
@@ -2302,7 +2727,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const estimatedCostUsd = accounting.estimatedCostUsd;
         const billableTokens = accounting.billableTokens;
         const openAiRequestId = upstream.headers.get("x-request-id");
-        let creditsWarning: string | null = null;
+        const creditsWarning: string | null = null;
 
         await recordAiUsageEvent({
           userId,
@@ -2367,6 +2792,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ops: structured.ops,
           script_text: structured.scriptText,
           tag_audit: structured.tagAudit,
+          ...(researchResult ? { research_result: researchResult } : {}),
           total_tokens: spent,
           actual_cost_usd: estimatedCostUsd,
           billable_tokens: billableTokens,

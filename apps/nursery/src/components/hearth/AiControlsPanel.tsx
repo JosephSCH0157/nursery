@@ -1,5 +1,9 @@
 import * as React from "react";
-import type { AiBehavior, AiLane, AiPolicyTestOverride } from "../../lib/hearth/ai-settings";
+import type {
+  AiBehavior,
+  AiLane,
+  AiPolicyTestOverride,
+} from "../../lib/hearth/ai-settings";
 import { supabase } from "../../lib/supabase";
 import {
   loadAiSettings,
@@ -7,6 +11,10 @@ import {
   clearByoKey,
   hasByoKey,
 } from "../../lib/hearth/ai-settings";
+import {
+  listVisualProviderOptions,
+  type VisualProviderId,
+} from "../../../../hearth/src/lib/hearth-visual-provider-profiles";
 import {
   addMyStyleSamples,
   getStyleInsights,
@@ -625,6 +633,7 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
 
   const todayCostDriverSummary = React.useMemo(() => buildCostDriverSummary(todaySpendRollupRows), [todaySpendRollupRows]);
   const weekCostDriverSummary = React.useMemo(() => buildCostDriverSummary(weekSpendRollupRows), [weekSpendRollupRows]);
+  const visualProviderOptions = React.useMemo(() => listVisualProviderOptions(), []);
 
   function updateLane(lane: AiLane) {
     const next = { ...settings, lane };
@@ -646,6 +655,12 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
 
   function updatePolicyTestOverride(policyTestOverride: AiPolicyTestOverride) {
     const next = { ...settings, policyTestOverride };
+    setSettings(next);
+    saveAiSettings(next);
+  }
+
+  function updateDefaultVisualProvider(defaultVisualProvider: VisualProviderId) {
+    const next = { ...settings, defaultVisualProvider };
     setSettings(next);
     saveAiSettings(next);
   }
@@ -1027,6 +1042,27 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
             <option value="deterministic">Deterministic</option>
             <option value="creative">Creative</option>
           </select>
+        </div>
+      </div>
+
+      <div className="forge-ai-panel__section">
+        <div className="forge-ai-panel__label">Default Visual Provider</div>
+        <div className="forge-ai-panel__row">
+          <select
+            aria-label="Default visual provider"
+            value={settings.defaultVisualProvider}
+            onChange={(event) => updateDefaultVisualProvider(event.target.value as VisualProviderId)}
+          >
+            {visualProviderOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <div className="forge-ai-panel__hint">
+            {visualProviderOptions.find((option) => option.id === settings.defaultVisualProvider)?.helperText
+              ?? "Generic fallback for manual bridge prompt export."}
+          </div>
         </div>
       </div>
 

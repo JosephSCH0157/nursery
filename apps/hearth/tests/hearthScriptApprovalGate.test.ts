@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeScriptTags, validateScriptTags } from "@forge/shared/script-tags";
 import { getScriptReadiness } from "../src/lib/hearth-script-readiness";
+import { evaluateHearthScriptValidation } from "../src/lib/hearth-script-tag-policy";
 
 test("hearthScriptApprovalGate: invalid script blocks readiness", () => {
   const validation = validateScriptTags(normalizeScriptTags("Narration without tags"));
@@ -34,4 +35,16 @@ test("hearthScriptApprovalGate: valid script is ready", () => {
   });
   assert.equal(readiness.ready, true);
   assert.equal(readiness.reasons.length, 0);
+});
+
+test("hearthScriptApprovalGate: plain text without tags can still be ready", () => {
+  const validation = evaluateHearthScriptValidation("Plain text script with no tags.");
+  const readiness = getScriptReadiness({
+    hasScriptText: true,
+    tagValidationOk: validation.validation.ok,
+    composeSetup: null,
+    contentValidationOk: true,
+    completionBadge: "approval_ready",
+  });
+  assert.equal(readiness.ready, true);
 });

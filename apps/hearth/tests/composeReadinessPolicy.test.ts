@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getScriptReadiness } from "../src/lib/hearth-script-readiness";
 
-test("composeReadinessPolicy: outline badge stays blocked for approval", () => {
+test("composeReadinessPolicy: complete outline badge allows approval", () => {
   const readiness = getScriptReadiness({
     hasScriptText: true,
     tagValidationOk: true,
@@ -15,6 +15,24 @@ test("composeReadinessPolicy: outline badge stays blocked for approval", () => {
       isOverrideFromProductionDefault: false,
     },
     contentValidationOk: true,
+    completionBadge: "approval_ready",
+  });
+  assert.equal(readiness.ready, true);
+});
+
+test("composeReadinessPolicy: incomplete outline badge stays blocked for approval", () => {
+  const readiness = getScriptReadiness({
+    hasScriptText: true,
+    tagValidationOk: true,
+    composeSetup: {
+      speakerCount: 2,
+      speakers: ["s1", "s2"],
+      mode: "outline_by_speaker",
+      targetSpeaker: null,
+      usesProductionDefault: true,
+      isOverrideFromProductionDefault: false,
+    },
+    contentValidationOk: false,
     completionBadge: "outline_draft",
   });
   assert.equal(readiness.ready, false);

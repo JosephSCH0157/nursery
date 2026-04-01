@@ -7,6 +7,7 @@ import type {
   HearthTitleVariants,
 } from "../domain/hearth-session";
 import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
+import { normalizeVisualProviderId } from "./hearth-visual-provider-profiles";
 
 const SESSION_PREFIX = "hearth:script:session:v2:";
 const SESSION_FALLBACK_KEY = "hearth:script:session:v2";
@@ -118,6 +119,7 @@ function normalizeSession(raw: unknown): HearthPlanningSession | null {
     outline: normalizeStringArray(raw.outline),
     audience: readNullableString(raw.audience),
     tone_preset: readNullableString(raw.tone_preset),
+    visual_provider_override: normalizeVisualProviderId(raw.visual_provider_override),
     links: normalizeLinks(raw.links),
     decisions: normalizeDecisions(raw.decisions),
   };

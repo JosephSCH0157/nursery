@@ -115,9 +115,9 @@ export default function MetadataPanel({
   });
 
   return (
-    <section className="hs-meta-panel" aria-label="Metadata panel">
+    <section className="hs-meta-panel" aria-label="Framing panel">
       <header className="hs-meta-header">
-        <div className="hs-meta-title">Metadata</div>
+        <div className="hs-meta-title">Framing</div>
         <div className={`hs-meta-save-state is-${saveState}`}>{formatSaveState(saveState)}</div>
       </header>
 
@@ -236,6 +236,7 @@ export default function MetadataPanel({
         <div className="hs-meta-preview-header">
           <div className="hs-meta-section-title">Preview</div>
           <select
+            aria-label="Preview format"
             value={previewMode}
             onChange={(event) => onPreviewModeChange(event.target.value as MetadataPreviewMode)}
             disabled={disabled}

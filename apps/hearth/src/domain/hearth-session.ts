@@ -1,3 +1,5 @@
+import type { VisualProviderId } from "../lib/hearth-visual-provider-profiles";
+
 export type HearthSessionIntent = "new_idea" | "from_spark";
 
 export type HearthSessionOrigin = {
@@ -35,6 +37,7 @@ export type HearthPlanningSession = {
   outline?: string[];
   audience?: string | null;
   tone_preset?: string | null;
+  visual_provider_override?: VisualProviderId | null;
   links?: HearthSessionLinks | null;
   decisions?: HearthSessionDecision[];
 };

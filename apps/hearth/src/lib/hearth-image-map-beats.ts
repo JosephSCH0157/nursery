@@ -7,6 +7,7 @@ import {
   type EpisodeImageMapEntry,
   type EpisodeImageMapScriptAnchor,
 } from "./episode-package-v2";
+import { classifyVisualBeatPurpose } from "./hearth-visual-purpose";
 
 type ScriptSentenceSpan = {
   text: string;
@@ -306,19 +307,21 @@ function buildEntry(args: {
   beatOrder: number;
   anchor: EpisodeImageMapScriptAnchor;
 }): EpisodeImageMapEntry {
+  const purpose = classifyVisualBeatPurpose(args.anchor.span_text);
   return {
     id: args.id,
     anchor: resolveImageMapDisplayAnchor(null, args.anchor),
     script_anchor: args.anchor,
     anchor_scope: "attached",
+    purpose,
     description: args.anchor.span_text,
     visual_intent: args.anchor.span_text,
     prompt_basis: args.anchor.span_text,
     style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
-    intent: "cutaway",
+    intent: purpose === "explanation" ? "graphic" : "cutaway",
     source_type: "stock",
-    visual_priority: "supporting",
-    visual_type: "still_image",
+    visual_priority: purpose === "emphasis" ? "primary" : "supporting",
+    visual_type: purpose === "explanation" ? "diagram" : "still_image",
     section_intent_note: null,
     beat_order: args.beatOrder,
     paragraph_beat_order: args.paragraphBeatOrder,

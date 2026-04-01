@@ -1,3 +1,8 @@
+import {
+  normalizeVisualProviderId,
+  type VisualProviderId,
+} from "../../../../hearth/src/lib/hearth-visual-provider-profiles";
+
 export type AiLane = "forge" | "byo";
 export type AiProvider = "openai";
 export type AiBehavior = "fast" | "careful" | "deterministic" | "creative";
@@ -9,6 +14,7 @@ export type AiSettings = {
   behavior: AiBehavior;
   autoApproveImageSpend: boolean;
   policyTestOverride: AiPolicyTestOverride;
+  defaultVisualProvider: VisualProviderId;
   byoKey?: string;
 };
 
@@ -20,6 +26,7 @@ const DEFAULTS: AiSettings = {
   behavior: "careful",
   autoApproveImageSpend: false,
   policyTestOverride: "rpc",
+  defaultVisualProvider: "generic",
 };
 
 function readStorage(): string | null {
@@ -49,29 +56,37 @@ function emitSettingsEvent(): void {
   }
 }
 
+export function normalizeAiSettings(
+  value: Partial<AiSettings> & { byoKey?: unknown; defaultVisualProvider?: unknown } | null | undefined,
+): AiSettings {
+  const parsed = value ?? {};
+  return {
+    lane: parsed.lane === "byo" ? "byo" : "forge",
+    provider: "openai",
+    behavior:
+      parsed.behavior === "fast" ||
+      parsed.behavior === "deterministic" ||
+      parsed.behavior === "creative"
+        ? parsed.behavior
+        : "careful",
+    autoApproveImageSpend: parsed.autoApproveImageSpend === true,
+    policyTestOverride:
+      parsed.policyTestOverride === "allow"
+      || parsed.policyTestOverride === "soft_deny"
+      || parsed.policyTestOverride === "hard_deny"
+        ? parsed.policyTestOverride
+        : "rpc",
+    defaultVisualProvider: normalizeVisualProviderId(parsed.defaultVisualProvider) ?? "generic",
+    byoKey: typeof parsed.byoKey === "string" ? parsed.byoKey : undefined,
+  };
+}
+
 export function loadAiSettings(): AiSettings {
   try {
     const raw = readStorage();
     if (!raw) return DEFAULTS;
-    const parsed = JSON.parse(raw) as Partial<AiSettings> & { byoKey?: unknown };
-    return {
-      lane: parsed.lane === "byo" ? "byo" : "forge",
-      provider: "openai",
-      behavior:
-        parsed.behavior === "fast" ||
-        parsed.behavior === "deterministic" ||
-        parsed.behavior === "creative"
-          ? parsed.behavior
-          : "careful",
-      autoApproveImageSpend: parsed.autoApproveImageSpend === true,
-      policyTestOverride:
-        parsed.policyTestOverride === "allow"
-        || parsed.policyTestOverride === "soft_deny"
-        || parsed.policyTestOverride === "hard_deny"
-          ? parsed.policyTestOverride
-          : "rpc",
-      byoKey: typeof parsed.byoKey === "string" ? parsed.byoKey : undefined,
-    };
+    const parsed = JSON.parse(raw) as Partial<AiSettings> & { byoKey?: unknown; defaultVisualProvider?: unknown };
+    return normalizeAiSettings(parsed);
   } catch {
     return DEFAULTS;
   }

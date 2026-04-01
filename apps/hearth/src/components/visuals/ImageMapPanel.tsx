@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useClipboardButtonAcks } from "../../hooks/useClipboardButtonAcks";
 import {
   EPISODE_IMAGE_MAP_VISUAL_PRIORITY_VALUES,
   EPISODE_IMAGE_MAP_VISUAL_TYPE_VALUES,
@@ -12,6 +13,13 @@ import type {
   ImageMapAnchorPickerParagraph,
   ImageMapScriptSelection,
 } from "../../lib/hearth-image-map-beats";
+import { resolveImageMapWorkflowGuidance } from "../../lib/hearth-image-map-workflow";
+import {
+  buildTimelineImagePromptPack,
+  type PromptPack,
+  type ResolvedVisualProvider,
+  type VisualProviderId,
+} from "../../lib/hearth-visual-provider-profiles";
 
 type ImageMapSaveState = "saved" | "editing" | "saving" | "error" | "offline";
 
@@ -42,6 +50,9 @@ type ImageMapPanelProps = {
   saveState: ImageMapSaveState;
   saveError: string | null;
   exportMessage: string | null;
+  activeVisualProvider: ResolvedVisualProvider;
+  visualProviderOptions: ReadonlyArray<{ id: VisualProviderId; label: string }>;
+  visualProviderOverride: VisualProviderId | null;
   candidateCards: ImageMapCandidateCard[];
   candidateGenerateBusy: boolean;
   candidateGenerateError: string | null;
@@ -79,7 +90,9 @@ type ImageMapPanelProps = {
   onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
   onCopyExport: () => void;
+  copyExportAcknowledged?: boolean;
   onDownloadExport: () => void;
+  onVisualProviderOverrideChange: (providerId: VisualProviderId | null) => void;
   onStartReanchor: () => void;
   onRepairNearestParagraph: () => void;
   onConvertToGlobalVisual: () => void;
@@ -109,6 +122,51 @@ function resolveInitialPreviewCandidateId(candidateCards: ImageMapCandidateCard[
     ?? null;
 }
 
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall back when direct clipboard access is blocked.
+    }
+  }
+
+  if (typeof document === "undefined") return false;
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  textarea.style.left = "-1000px";
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+function downloadPromptPack(pack: PromptPack, filename: string): void {
+  if (typeof document === "undefined" || typeof URL === "undefined") return;
+  const blob = new Blob([JSON.stringify(pack, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(href);
+}
+
 export default function ImageMapPanel({
   panelTitle,
   manualOnly = false,
@@ -126,6 +184,9 @@ export default function ImageMapPanel({
   saveState,
   saveError,
   exportMessage,
+  activeVisualProvider,
+  visualProviderOptions,
+  visualProviderOverride,
   candidateCards,
   candidateGenerateBusy,
   candidateGenerateError,
@@ -163,7 +224,9 @@ export default function ImageMapPanel({
   onUploadAsset,
   onSelectCandidate,
   onCopyExport,
+  copyExportAcknowledged = false,
   onDownloadExport,
+  onVisualProviderOverrideChange,
   onStartReanchor,
   onRepairNearestParagraph,
   onConvertToGlobalVisual,
@@ -174,10 +237,21 @@ export default function ImageMapPanel({
   const resolvedPanelTitle = panelTitle?.trim() || (manualOnly ? "Visual Beats" : "Image Map");
   const entryLabel = manualOnly ? "Anchor" : "Entry";
   const hasSelection = Boolean(selectedEntryId);
+  const selectedEntry = entries.find((entry) => entry.id === selectedEntryId) ?? null;
   const selectedCandidateId = candidateCards.find((candidate) => candidate.isSelected)?.id ?? null;
+  const workflowGuidance = resolveImageMapWorkflowGuidance({
+    manualOnly,
+    entryCount: entries.length,
+    hasSelection,
+    candidateCount: candidateCards.length,
+    hasSelectedCandidate: Boolean(selectedCandidateId),
+    sourceType: draftSourceType,
+  });
   const [previewCandidateId, setPreviewCandidateId] = useState<string | null>(
     () => resolveInitialPreviewCandidateId(candidateCards),
   );
+  const [activePromptPack, setActivePromptPack] = useState<PromptPack | null>(null);
+  const { acknowledgeCopy, isCopyAcknowledged } = useClipboardButtonAcks();
 
   useEffect(() => {
     if (candidateCards.length === 0) {
@@ -196,67 +270,218 @@ export default function ImageMapPanel({
     setPreviewCandidateId(resolveInitialPreviewCandidateId(candidateCards));
   }, [candidateCards, previewCandidateId, selectedCandidateId]);
 
+  useEffect(() => {
+    setActivePromptPack(null);
+  }, [
+    activeVisualProvider.id,
+    activeVisualProvider.usedFallback,
+    draftAnchor,
+    draftDescription,
+    draftIntent,
+    draftPlacementHint,
+    draftSectionIntentNote,
+    draftStylePreset,
+    selectedEntryId,
+  ]);
+
   const previewCandidate = candidateCards.find((candidate) => candidate.id === previewCandidateId) ?? null;
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const newEntryLabel = manualOnly ? "New Beat" : "New Entry";
+  const seedFromScriptLabel = "Pull Beats from Script";
+  const canGeneratePromptPack = Boolean(
+    selectedEntry
+    && (draftDescription.trim().length > 0 || selectedEntry.prompt_basis.trim().length > 0),
+  );
+  const promptPackButtonLabel = activePromptPack ? "Generate Prompt Pack Again" : "Generate Prompt Pack";
+  const onGeneratePromptPack = useCallback(() => {
+    if (!selectedEntry) return;
+    const result = buildTimelineImagePromptPack({
+      entry: selectedEntry,
+      description: draftDescription,
+      anchor: draftAnchor,
+      stylePreset: draftStylePreset,
+      intent: draftIntent,
+      sectionIntentNote: draftSectionIntentNote,
+      placementHint: draftPlacementHint,
+      resolvedProvider: activeVisualProvider,
+      aspectRatio: "16:9",
+    });
+    setActivePromptPack(result.pack);
+  }, [
+    activeVisualProvider,
+    draftAnchor,
+    draftDescription,
+    draftIntent,
+    draftPlacementHint,
+    draftSectionIntentNote,
+    draftStylePreset,
+    selectedEntry,
+  ]);
+  const onCopyPromptPack = useCallback(() => {
+    if (!activePromptPack) return;
+    void copyTextToClipboard(activePromptPack.prompt).then((copied) => {
+      if (copied) acknowledgeCopy("image-map-panel.prompt");
+    });
+  }, [acknowledgeCopy, activePromptPack]);
+  const onCopyNegativePrompt = useCallback(() => {
+    if (!activePromptPack?.negative) return;
+    void copyTextToClipboard(activePromptPack.negative).then((copied) => {
+      if (copied) acknowledgeCopy("image-map-panel.negative");
+    });
+  }, [acknowledgeCopy, activePromptPack]);
+  const onDownloadPromptPack = useCallback(() => {
+    if (!activePromptPack || !selectedEntry) return;
+    downloadPromptPack(
+      activePromptPack,
+      `timeline-image-prompt-pack-${selectedEntry.id.slice(0, 8).toLowerCase()}.json`,
+    );
+  }, [activePromptPack, selectedEntry]);
+  let primaryActionButton: ReactNode = null;
+
+  if (workflowGuidance.primaryAction === "seed_from_script" && !manualOnly) {
+    primaryActionButton = (
+      <button
+        type="button"
+        className="hs-imap-primary-action"
+        onClick={onSeedFromScript}
+        disabled={disabled}
+      >
+        {workflowGuidance.primaryActionLabel}
+      </button>
+    );
+  } else if (workflowGuidance.primaryAction === "new_entry") {
+    primaryActionButton = (
+      <button
+        type="button"
+        className="hs-imap-primary-action"
+        onClick={onCreateEntry}
+        disabled={disabled}
+      >
+        {workflowGuidance.primaryActionLabel}
+      </button>
+    );
+  } else if (workflowGuidance.primaryAction === "find_stock") {
+    primaryActionButton = (
+      <button
+        type="button"
+        className="hs-imap-primary-action"
+        onClick={() => onGenerateCandidates("stock")}
+        disabled={disabled || candidateGenerateBusy}
+      >
+        {candidateGenerateBusy ? "Searching..." : workflowGuidance.primaryActionLabel}
+      </button>
+    );
+  } else if (workflowGuidance.primaryAction === "upload_asset") {
+    primaryActionButton = (
+      <button
+        type="button"
+        className="hs-imap-primary-action"
+        onClick={() => uploadInputRef.current?.click()}
+        disabled={disabled || candidateSelectBusy}
+      >
+        {candidateSelectBusy ? "Saving..." : workflowGuidance.primaryActionLabel}
+      </button>
+    );
+  } else if (workflowGuidance.primaryAction === "select_candidate" && previewCandidate) {
+    primaryActionButton = (
+      <button
+        type="button"
+        className="hs-imap-primary-action"
+        onClick={() => onSelectCandidate(previewCandidate.id)}
+        disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
+      >
+        {candidateSelectBusy ? "Saving..." : workflowGuidance.primaryActionLabel}
+      </button>
+    );
+  }
 
   return (
     <section className="hs-imap-panel" aria-label={`${resolvedPanelTitle} panel`}>
       <header className="hs-imap-header">
-        <div className="hs-imap-title">{resolvedPanelTitle}</div>
+        <div>
+          <div className="hs-imap-title">{resolvedPanelTitle}</div>
+          <div className="hs-imap-subtitle">{workflowGuidance.stateCue}</div>
+        </div>
         <div className={`hs-imap-save-state is-${saveState}`}>{formatSaveState(saveState)}</div>
       </header>
 
-      <div className="hs-imap-toolbar">
-        <button
-          type="button"
-          onClick={onCreateEntry}
-          disabled={disabled}
-        >
-          New {entryLabel}
-        </button>
-        <button
-          type="button"
-          onClick={onDuplicateEntry}
-          disabled={disabled || !hasSelection}
-        >
-          Duplicate
-        </button>
-        <button
-          type="button"
-          onClick={onDeleteEntry}
-          disabled={disabled || !hasSelection}
-        >
-          Delete
-        </button>
-        {!manualOnly ? (
+      <section className="hs-imap-workspace-band" aria-label="Timeline image workspace guidance">
+        <section className="hs-imap-next-card" aria-label="Next step guidance">
+          <div className="hs-imap-next-eyebrow">{workflowGuidance.cardTitle}</div>
+          <div className="hs-imap-next-copy">{workflowGuidance.cardLead}</div>
+          <ol className="hs-imap-next-steps">
+            {workflowGuidance.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          <div className="hs-imap-next-note">{workflowGuidance.note}</div>
+        </section>
+
+        {primaryActionButton ? (
+          <div className="hs-imap-primary-row">
+            <div className="hs-imap-primary-row-label">Do this next</div>
+            {primaryActionButton}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="hs-imap-tools-band" aria-label="Timeline image tools">
+        <div className="hs-imap-tools-label">Tools</div>
+        <div className="hs-imap-toolbar hs-imap-toolbar-secondary">
+          {workflowGuidance.primaryAction !== "new_entry" ? (
+            <button
+              type="button"
+              onClick={onCreateEntry}
+              disabled={disabled}
+            >
+              {newEntryLabel}
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={onSeedFromScript}
+            onClick={onDuplicateEntry}
+            disabled={disabled || !hasSelection}
+          >
+            Duplicate
+          </button>
+          <button
+            type="button"
+            onClick={onDeleteEntry}
+            disabled={disabled || !hasSelection}
+          >
+            Delete
+          </button>
+          {!manualOnly && workflowGuidance.primaryAction !== "seed_from_script" ? (
+            <button
+              type="button"
+              onClick={onSeedFromScript}
+              disabled={disabled}
+            >
+              {seedFromScriptLabel}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className={copyExportAcknowledged ? "hs-copy-ack" : undefined}
+            onClick={onCopyExport}
             disabled={disabled}
           >
-            Generate from Script
+            Copy JSON
           </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={onCopyExport}
-          disabled={disabled}
-        >
-          Copy JSON
-        </button>
-        <button
-          type="button"
-          onClick={onDownloadExport}
-          disabled={disabled}
-        >
-          Download JSON
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={onDownloadExport}
+            disabled={disabled}
+          >
+            Download JSON
+          </button>
+        </div>
+      </section>
 
       <div className="hs-imap-layout">
         <section className="hs-imap-list" aria-label={`${resolvedPanelTitle} entries list`}>
           {entries.length === 0 ? (
-            <div className="hs-imap-empty">No entries yet.</div>
+            <div className="hs-imap-empty">{manualOnly ? "No beats yet." : "No image beats yet."}</div>
           ) : (
             entries.map((entry) => (
               <button
@@ -280,7 +505,11 @@ export default function ImageMapPanel({
 
         <section className="hs-imap-editor" aria-label={`${resolvedPanelTitle} entry editor`}>
           {!hasSelection ? (
-            <div className="hs-imap-empty">Select or create an {entryLabel.toLowerCase()} to edit.</div>
+            <div className="hs-imap-empty">
+              {entries.length > 0
+                ? `Pick an ${entryLabel.toLowerCase()} on the left to shape it here.`
+                : `Create an ${entryLabel.toLowerCase()} to start.`}
+            </div>
           ) : (
             <>
               {/* ── CUE CARD SUMMARY ─────────────────────────────────── */}
@@ -312,7 +541,7 @@ export default function ImageMapPanel({
                 <div className="hs-imap-beat-section-title">Visual Beat</div>
                 <label className="hs-field hs-imap-description-field">
                   <span className="hs-field-label">What viewers see</span>
-                  <div className="hs-thumb-field-helper">Describe the image, framing, emotional tone, and subject.</div>
+                  <div className="hs-thumb-field-helper">Describe the image clearly enough that the next sourcing step is obvious.</div>
                   <textarea
                     value={draftDescription}
                     onChange={(event) => onDraftDescriptionChange(event.target.value)}
@@ -322,6 +551,103 @@ export default function ImageMapPanel({
                     className="hs-imap-description-input"
                   />
                 </label>
+                <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
+                  <div className="hs-imap-candidate-action-group">
+                    <label className="hs-field">
+                      <span className="hs-field-label">Provider</span>
+                      <select
+                        value={visualProviderOverride ?? ""}
+                        onChange={(event) => onVisualProviderOverrideChange((event.target.value || null) as VisualProviderId | null)}
+                        disabled={disabled}
+                      >
+                        <option value="">Use Global Default</option>
+                        {visualProviderOptions.map((option) => (
+                          <option key={option.id} value={option.id}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={onGeneratePromptPack}
+                      disabled={disabled || !canGeneratePromptPack}
+                    >
+                      {promptPackButtonLabel}
+                    </button>
+                  </div>
+                  <span className="hs-field-label-muted">
+                    Choose the active provider Hearth should speak to, then generate a prompt pack you can paste straight into that outside tool.
+                  </span>
+                </div>
+                <section className="hs-imap-provider-pack" aria-label="Provider-aware prompt pack">
+                  <div className="hs-imap-provider-pack-header">
+                    <div>
+                      <div className="hs-field-label">Prompt Pack</div>
+                      <div className="hs-imap-help-text">{activeVisualProvider.bannerLabel}</div>
+                    </div>
+                    <div className="hs-imap-help-text">{activeVisualProvider.helperText}</div>
+                  </div>
+                  <div className="hs-imap-help-text">
+                    Hearth shapes this pack for the active visual provider. Use it in your outside tool, then come back here to source or attach the final asset.
+                  </div>
+                  {activePromptPack ? (
+                    <>
+                      <textarea
+                        value={activePromptPack.prompt}
+                        readOnly
+                        rows={5}
+                        aria-label="Generated prompt"
+                        className="hs-thumb-prompt-card-text"
+                      />
+                      {activePromptPack.negative ? (
+                        <textarea
+                          value={activePromptPack.negative}
+                          readOnly
+                          rows={3}
+                          aria-label="Generated negative prompt"
+                          className="hs-thumb-prompt-card-text is-secondary"
+                        />
+                      ) : null}
+                      <div className="hs-imap-help-text">
+                        Aspect: {activePromptPack.aspectRatio ?? "16:9"} · Provider: {activeVisualProvider.label}
+                      </div>
+                      {activePromptPack.styleTags?.length ? (
+                        <div className="hs-thumb-prompt-card-tags">
+                          {activePromptPack.styleTags.map((tag) => (
+                            <span key={tag} className="hs-thumb-prompt-card-tag">{tag}</span>
+                          ))}
+                        </div>
+                      ) : null}
+                      {activePromptPack.notes ? (
+                        <div className="hs-thumb-prompt-card-note">{activePromptPack.notes}</div>
+                      ) : null}
+                      <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
+                        <div className="hs-imap-candidate-action-group">
+                          <button
+                            type="button"
+                            className={isCopyAcknowledged("image-map-panel.prompt") ? "hs-copy-ack" : undefined}
+                            onClick={onCopyPromptPack}
+                            disabled={disabled}
+                          >
+                            Copy Prompt
+                          </button>
+                          <button
+                            type="button"
+                            className={isCopyAcknowledged("image-map-panel.negative") ? "hs-copy-ack" : undefined}
+                            onClick={onCopyNegativePrompt}
+                            disabled={disabled || !activePromptPack.negative}
+                          >
+                            Copy Negative
+                          </button>
+                          <button type="button" onClick={onDownloadPromptPack} disabled={disabled}>Download Prompt Pack</button>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="hs-imap-empty">
+                      Use <strong>Generate Prompt Pack</strong> to create the active provider pack for this beat.
+                    </div>
+                  )}
+                </section>
                 <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
                   <div className="hs-imap-candidate-action-group">
                     <button
@@ -336,7 +662,7 @@ export default function ImageMapPanel({
                       onClick={() => uploadInputRef.current?.click()}
                       disabled={disabled || candidateSelectBusy}
                     >
-                      {candidateSelectBusy ? "Saving..." : "Upload Asset"}
+                      {candidateSelectBusy ? "Saving..." : "Use Your Own Image"}
                     </button>
                     <input
                       ref={uploadInputRef}
@@ -355,7 +681,7 @@ export default function ImageMapPanel({
                     />
                   </div>
                   <span className="hs-field-label-muted">
-                    Hearth authors the visual asset plan. Hammer consumes selected assets for deterministic placement.
+                    If you already know the exact image, bring it in here. Otherwise, pull stock and see what's close.
                   </span>
                 </div>
                 <div className="hs-imap-beat-selects">
@@ -621,7 +947,7 @@ export default function ImageMapPanel({
                     {previewCandidate ? (
                       <div className="hs-imap-preview-actions">
                         <span className="hs-field-label-muted">
-                          Preview a candidate below, then use the button to assign it to this visual beat.
+                          Preview a candidate below, then use the one that feels right on this beat.
                         </span>
                         <button
                           type="button"

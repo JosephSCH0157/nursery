@@ -29,6 +29,26 @@ import {
   updateSegmentGain,
   updateSegmentInTimeline,
 } from "../src/editor/hammerWorkspaceTimeline";
+import {
+  doesTimeRangeOverlapCuts,
+  getEffectiveCutRegions,
+  getNextPlayableTime,
+  isTimeRangeFullyCoveredByCuts,
+  isTimeInsideCut,
+  normalizeCutOperations,
+  resolveNextAudiblePlaybackTime,
+} from "../src/editor/hammerAudioEditPlayback";
+import {
+  commitAudioCutSelection,
+  normalizeAudioCutSelection,
+} from "../src/editor/hammerAudioEditOperations";
+import {
+  buildSilenceCutSuggestions,
+  DEFAULT_SILENCE_CUT_SUGGESTION_MIN_DURATION_SEC,
+  filterDismissedSilenceCutSuggestions,
+} from "../src/editor/hammerSilenceCutSuggestions";
+import { resolveWaveformCutOverlaySpans } from "../src/editor/hammerWaveformCutOverlay";
+import type { HammerPersistedAudioPolish } from "../src/persistence/hammerPersistenceContract";
 
 function buildSegment(overrides?: Partial<HammerTranscriptSegment>): HammerTranscriptSegment {
   return {
@@ -38,6 +58,32 @@ function buildSegment(overrides?: Partial<HammerTranscriptSegment>): HammerTrans
     start_sec: 10,
     end_sec: 12,
     confidence: 0.95,
+    ...overrides,
+  };
+}
+
+function buildPreparedAudioPolish(overrides?: Partial<HammerPersistedAudioPolish>): HammerPersistedAudioPolish {
+  return {
+    schema_version: 1,
+    status: "prepared",
+    prepared_passes: ["studio_sound"],
+    source_artifact_paths: ["workpiece/audio.wav"],
+    settings_summary: {},
+    analysis: null,
+    audio_edit: {
+      version: "v1",
+      operations: [],
+    },
+    source_media_id: "media_001",
+    source_media_signature: "sig_001",
+    processor_version: "test",
+    prepared_at: "2026-03-29T00:00:00.000Z",
+    output_local_relpath: null,
+    output_workpiece_path: null,
+    output_mime_type: null,
+    output_duration_ms: null,
+    failure_code: null,
+    failure_reason: null,
     ...overrides,
   };
 }
@@ -220,6 +266,536 @@ async function testDisabledSegmentsExcludedFromEffectivePlaybackTime() {
   assert.equal(resolveEffectivePlaybackTime(segments, 1.4), 2);
 }
 
+async function testAudioEditCutNormalization() {
+  const normalized = normalizeCutOperations([
+    { id: "cut_start", type: "cut", start_sec: -2, end_sec: 0.8 },
+    { id: "cut_outer", type: "cut", start_sec: 2, end_sec: 3.5 },
+    { id: "cut_overlap", type: "cut", start_sec: 3.4, end_sec: 4.5 },
+    { id: "cut_nested", type: "cut", start_sec: 2.4, end_sec: 2.9 },
+    { id: "cut_adjacent", type: "cut", start_sec: 4.5004, end_sec: 5 },
+    { id: "cut_tiny_gap", type: "cut", start_sec: 5.0008, end_sec: 5.6 },
+    { id: "cut_separate_gap", type: "cut", start_sec: 5.6022, end_sec: 6.1 },
+    { id: "cut_duplicate", type: "cut", start_sec: 2, end_sec: 3.5 },
+    { id: "cut_tail", type: "cut", start_sec: 8.2, end_sec: 15 },
+    { id: "cut_zero", type: "cut", start_sec: 6, end_sec: 6 },
+  ], 10);
+
+  assert.deepEqual(normalized, [
+    { startSec: 0, endSec: 0.8 },
+    { startSec: 2, endSec: 5.6 },
+    { startSec: 5.6022, endSec: 6.1 },
+    { startSec: 8.2, endSec: 10 },
+  ]);
+
+  assert.deepEqual(normalizeCutOperations([
+    { id: "cut_all", type: "cut", start_sec: -5, end_sec: 20 },
+    { id: "cut_duplicate", type: "cut", start_sec: 0, end_sec: 10 },
+  ], 10), [
+    { startSec: 0, endSec: 10 },
+  ]);
+}
+
+async function testAudioCutSelectionCommitFlow() {
+  assert.equal(normalizeAudioCutSelection({
+    selection: {
+      startSec: null,
+      endSec: 2,
+    },
+    durationSec: 10,
+  }), null);
+  assert.equal(normalizeAudioCutSelection({
+    selection: {
+      startSec: 3,
+      endSec: 3,
+    },
+    durationSec: 10,
+  }), null);
+  assert.deepEqual(normalizeAudioCutSelection({
+    selection: {
+      startSec: 6.4,
+      endSec: 2.2,
+    },
+    durationSec: 5,
+  }), {
+    startSec: 2.2,
+    endSec: 5,
+  });
+
+  const committed = commitAudioCutSelection({
+    audioPolish: buildPreparedAudioPolish({
+      audio_edit: {
+        version: "v1",
+        operations: [
+          { id: "cut_existing", type: "cut", start_sec: 1, end_sec: 1.5 },
+        ],
+      },
+    }),
+    selection: {
+      startSec: 4.2,
+      endSec: 2.8,
+    },
+    durationSec: 6,
+    operationId: "cut_new",
+  });
+
+  assert.ok(committed);
+  assert.equal(committed?.operation.id, "cut_new");
+  assert.equal(committed?.operation.start_sec, 2.8);
+  assert.equal(committed?.operation.end_sec, 4.2);
+  assert.deepEqual(committed?.clearedSelection, {
+    startSec: null,
+    endSec: null,
+  });
+  assert.deepEqual(committed?.audioPolish.audio_edit, {
+    version: "v1",
+    operations: [
+      { id: "cut_existing", type: "cut", start_sec: 1, end_sec: 1.5 },
+      { id: "cut_new", type: "cut", start_sec: 2.8, end_sec: 4.2 },
+    ],
+  });
+
+  const overlappingCommit = commitAudioCutSelection({
+    audioPolish: buildPreparedAudioPolish({
+      audio_edit: {
+        version: "v1",
+        operations: [
+          { id: "cut_existing", type: "cut", start_sec: 1, end_sec: 3.5 },
+        ],
+      },
+    }),
+    selection: {
+      startSec: 3.2,
+      endSec: 4.2,
+    },
+    durationSec: 6,
+    operationId: "cut_overlap_tail",
+  });
+  assert.ok(overlappingCommit);
+  assert.deepEqual(overlappingCommit?.audioPolish.audio_edit, {
+    version: "v1",
+    operations: [
+      { id: "cut_existing", type: "cut", start_sec: 1, end_sec: 3.5 },
+      { id: "cut_overlap_tail", type: "cut", start_sec: 3.2, end_sec: 4.2 },
+    ],
+  });
+
+  const fullyCoveredCommit = commitAudioCutSelection({
+    audioPolish: buildPreparedAudioPolish({
+      audio_edit: {
+        version: "v1",
+        operations: [
+          { id: "cut_existing", type: "cut", start_sec: 1, end_sec: 5 },
+        ],
+      },
+    }),
+    selection: {
+      startSec: 2.5,
+      endSec: 3,
+    },
+    durationSec: 6,
+    operationId: "cut_duplicate",
+  });
+  assert.equal(fullyCoveredCommit, null);
+}
+
+async function testAudioEditNextPlayableTimeResolution() {
+  const effectiveCutRegions = getEffectiveCutRegions({
+    version: "v1",
+    operations: [
+      { id: "cut_start", type: "cut", start_sec: 0, end_sec: 1 },
+      { id: "cut_mid_a", type: "cut", start_sec: 2, end_sec: 3 },
+      { id: "cut_mid_b", type: "cut", start_sec: 3, end_sec: 4 },
+      { id: "cut_mid_c", type: "cut", start_sec: 4.0005, end_sec: 4.4 },
+      { id: "cut_tail", type: "cut", start_sec: 7.5, end_sec: 9 },
+    ],
+  }, 9);
+
+  assert.equal(getNextPlayableTime({ effectiveCutRegions, timeSec: 1.4, durationSec: 9 }), 1.4);
+  assert.equal(getNextPlayableTime({ effectiveCutRegions, timeSec: 0.2, durationSec: 9 }), 1);
+  assert.equal(getNextPlayableTime({ effectiveCutRegions, timeSec: 2.2, durationSec: 9 }), 4.4);
+  assert.equal(getNextPlayableTime({ effectiveCutRegions, timeSec: 8.1, durationSec: 9 }), null);
+
+  const startResolved = getNextPlayableTime({ effectiveCutRegions, timeSec: 0, durationSec: 9 });
+  assert.equal(startResolved, 1);
+  assert.equal(startResolved != null && isTimeInsideCut(effectiveCutRegions, startResolved), false);
+  assert.equal(isTimeInsideCut(effectiveCutRegions, 2.5), true);
+  assert.equal(isTimeInsideCut(effectiveCutRegions, 4.2), true);
+  assert.equal(isTimeInsideCut(effectiveCutRegions, 4.4), false);
+  assert.equal(doesTimeRangeOverlapCuts({
+    effectiveCutRegions,
+    startSec: 3.9,
+    endSec: 4.6,
+  }), true);
+  assert.equal(doesTimeRangeOverlapCuts({
+    effectiveCutRegions,
+    startSec: 4.4,
+    endSec: 5.2,
+  }), false);
+  assert.equal(isTimeRangeFullyCoveredByCuts({
+    effectiveCutRegions,
+    startSec: 2.2,
+    endSec: 4.1,
+  }), true);
+  assert.equal(isTimeRangeFullyCoveredByCuts({
+    effectiveCutRegions,
+    startSec: 1.8,
+    endSec: 4.1,
+  }), false);
+
+  const fullyCut = getEffectiveCutRegions({
+    version: "v1",
+    operations: [
+      { id: "cut_all", type: "cut", start_sec: 0, end_sec: 20 },
+    ],
+  }, 9);
+  assert.deepEqual(fullyCut, [{ startSec: 0, endSec: 9 }]);
+  assert.equal(getNextPlayableTime({ effectiveCutRegions: fullyCut, timeSec: 0, durationSec: 9 }), null);
+
+  const tinyPlayableTail = getEffectiveCutRegions({
+    version: "v1",
+    operations: [
+      { id: "cut_almost_all", type: "cut", start_sec: 0, end_sec: 9.999 },
+    ],
+  }, 10);
+  const tinyTailTime = getNextPlayableTime({
+    effectiveCutRegions: tinyPlayableTail,
+    timeSec: 0,
+    durationSec: 10,
+  });
+  assert.equal(tinyTailTime, 9.999);
+  assert.equal(tinyTailTime != null && isTimeInsideCut(tinyPlayableTail, tinyTailTime), false);
+
+  const almostFullyCut = getEffectiveCutRegions({
+    version: "v1",
+    operations: [
+      { id: "cut_all_but_epsilon", type: "cut", start_sec: 0, end_sec: 9.99995 },
+    ],
+  }, 10);
+  assert.equal(getNextPlayableTime({
+    effectiveCutRegions: almostFullyCut,
+    timeSec: 0,
+    durationSec: 10,
+  }), null);
+}
+
+async function testResolveNextAudiblePlaybackTimeWithCuts() {
+  const segments = [
+    buildSegment({ segment_id: "a", start_sec: 0, end_sec: 2 }),
+    buildSegment({ segment_id: "b", start_sec: 2, end_sec: 4, is_disabled: true }),
+    buildSegment({ segment_id: "c", start_sec: 4, end_sec: 8 }),
+  ];
+  const effectiveCutRegions = getEffectiveCutRegions({
+    version: "v1",
+    operations: [
+      { id: "cut_start", type: "cut", start_sec: 0, end_sec: 0.6 },
+      { id: "cut_mid_a", type: "cut", start_sec: 4, end_sec: 5 },
+      { id: "cut_mid_b", type: "cut", start_sec: 5, end_sec: 6 },
+      { id: "cut_tail", type: "cut", start_sec: 7.5, end_sec: 8 },
+    ],
+  }, 8);
+
+  assert.equal(resolveNextAudiblePlaybackTime({
+    requestedTimeSec: 0.2,
+    durationSec: 8,
+    effectiveCutRegions,
+    transcriptSegments: segments,
+  }), 0.6);
+  assert.equal(resolveNextAudiblePlaybackTime({
+    requestedTimeSec: 0.5,
+    durationSec: 8,
+    effectiveCutRegions,
+    transcriptSegments: segments,
+  }), 0.6);
+  assert.equal(resolveNextAudiblePlaybackTime({
+    requestedTimeSec: 2.2,
+    durationSec: 8,
+    effectiveCutRegions,
+    transcriptSegments: segments,
+  }), 6);
+  assert.equal(resolveNextAudiblePlaybackTime({
+    requestedTimeSec: 4.4,
+    durationSec: 8,
+    effectiveCutRegions,
+    transcriptSegments: segments,
+  }), 6);
+  assert.equal(resolveNextAudiblePlaybackTime({
+    requestedTimeSec: 7.7,
+    durationSec: 8,
+    effectiveCutRegions,
+    transcriptSegments: segments,
+  }), null);
+
+  const committed = commitAudioCutSelection({
+    audioPolish: buildPreparedAudioPolish(),
+    selection: {
+      startSec: 0,
+      endSec: 1.2,
+    },
+    durationSec: 8,
+    operationId: "cut_from_selection",
+  });
+  assert.ok(committed);
+  assert.equal(resolveNextAudiblePlaybackTime({
+    requestedTimeSec: 0.2,
+    durationSec: 8,
+    audioEdit: committed?.audioPolish.audio_edit ?? null,
+    transcriptSegments: segments,
+  }), 1.2);
+}
+
+async function testWaveformCutOverlaySpanMapping() {
+  assert.deepEqual(resolveWaveformCutOverlaySpans({
+    cutRegions: null,
+    durationSec: 10,
+  }), []);
+  assert.deepEqual(resolveWaveformCutOverlaySpans({
+    cutRegions: [
+      { startSec: 5, endSec: 6 },
+      { startSec: 0.5, endSec: 1.5 },
+      { startSec: 8, endSec: 12 },
+    ],
+    durationSec: 10,
+  }), [
+    {
+      startSec: 0.5,
+      endSec: 1.5,
+      startRatio: 0.05,
+      endRatio: 0.15,
+      startPct: 5,
+      widthPct: 10,
+    },
+    {
+      startSec: 5,
+      endSec: 6,
+      startRatio: 0.5,
+      endRatio: 0.6,
+      startPct: 50,
+      widthPct: 10,
+    },
+    {
+      startSec: 8,
+      endSec: 10,
+      startRatio: 0.8,
+      endRatio: 1,
+      startPct: 80,
+      widthPct: 20,
+    },
+  ]);
+
+  const normalizedOverlaySpans = resolveWaveformCutOverlaySpans({
+    cutRegions: normalizeCutOperations([
+      { id: "cut_a", type: "cut", start_sec: 2, end_sec: 3 },
+      { id: "cut_b", type: "cut", start_sec: 3, end_sec: 4.5 },
+      { id: "cut_c", type: "cut", start_sec: 6.2, end_sec: 6.7 },
+    ], 8),
+    durationSec: 8,
+  });
+  assert.deepEqual(normalizedOverlaySpans, [
+    {
+      startSec: 2,
+      endSec: 4.5,
+      startRatio: 0.25,
+      endRatio: 0.5625,
+      startPct: 25,
+      widthPct: 31.25,
+    },
+    {
+      startSec: 6.2,
+      endSec: 6.7,
+      startRatio: 0.775,
+      endRatio: 0.8375,
+      startPct: 77.5,
+      widthPct: 6.25,
+    },
+  ]);
+}
+
+async function testBuildSilenceCutSuggestions() {
+  assert.deepEqual(buildSilenceCutSuggestions({
+    segmentation: null,
+    durationSec: 12,
+  }), []);
+
+  const suggestions = buildSilenceCutSuggestions({
+    segmentation: {
+      strategy: "ffmpeg_silencedetect_v1",
+      noise_floor_db: -40,
+      min_silence_sec: 0.3,
+      speech_region_count: 2,
+      silence_region_count: 5,
+      regions: [
+        { id: "speech_a", start_sec: 0, end_sec: 2, kind: "speech", confidence: 0.9 },
+        { id: "silence_short", start_sec: 2, end_sec: 2.8, kind: "silence", confidence: 0.95 },
+        { id: "silence_middle", start_sec: 6.2, end_sec: 8.1, kind: "silence", confidence: 0.99 },
+        { id: "silence_start", start_sec: 0, end_sec: 1.6, kind: "silence", confidence: 0.8 },
+        { id: "silence_end", start_sec: 10.5, end_sec: 13, kind: "silence", confidence: 0.75 },
+        { id: "silence_covered", start_sec: 4, end_sec: 5.8, kind: "silence", confidence: 0.88 },
+        { id: "silence_overlap", start_sec: 5.6, end_sec: 7.4, kind: "silence", confidence: 0.92 },
+      ],
+    },
+    durationSec: 12,
+    effectiveCutRegions: [
+      { startSec: 4, endSec: 5.8 },
+    ],
+  });
+
+  assert.deepEqual(suggestions, [
+    {
+      id: "silence-cut:silence_start",
+      startSec: 0,
+      endSec: 1.6,
+      durationSec: 1.6,
+      reason: "long_silence",
+      sourceRegionId: "silence_start",
+    },
+    {
+      id: "silence-cut:silence_middle",
+      startSec: 6.2,
+      endSec: 8.1,
+      durationSec: 1.9,
+      reason: "long_silence",
+      sourceRegionId: "silence_middle",
+    },
+    {
+      id: "silence-cut:silence_end",
+      startSec: 10.5,
+      endSec: 12,
+      durationSec: 1.5,
+      reason: "long_silence",
+      sourceRegionId: "silence_end",
+    },
+  ]);
+  assert.deepEqual(filterDismissedSilenceCutSuggestions({
+    suggestions,
+    dismissedSuggestionIds: new Set(["silence-cut:silence_middle"]),
+  }).map((suggestion) => suggestion.id), [
+    "silence-cut:silence_start",
+    "silence-cut:silence_end",
+  ]);
+
+  assert.deepEqual(buildSilenceCutSuggestions({
+    segmentation: {
+      strategy: "ffmpeg_silencedetect_v1",
+      noise_floor_db: -40,
+      min_silence_sec: 0.3,
+      speech_region_count: 1,
+      silence_region_count: 2,
+      regions: [
+        { id: "silence_a", start_sec: 4, end_sec: 5.6, kind: "silence", confidence: 0.9 },
+        { id: "silence_b", start_sec: 1, end_sec: 2.6, kind: "silence", confidence: 0.85 },
+      ],
+    },
+    durationSec: 8,
+    minDurationSec: DEFAULT_SILENCE_CUT_SUGGESTION_MIN_DURATION_SEC,
+  }).map((suggestion) => suggestion.id), [
+    "silence-cut:silence_b",
+    "silence-cut:silence_a",
+  ]);
+}
+
+async function testAcceptedSilenceSuggestionCommitsRealCut() {
+  const suggestions = buildSilenceCutSuggestions({
+    segmentation: {
+      strategy: "ffmpeg_silencedetect_v1",
+      noise_floor_db: -42,
+      min_silence_sec: 0.3,
+      speech_region_count: 2,
+      silence_region_count: 1,
+      regions: [
+        { id: "speech_a", start_sec: 0, end_sec: 3, kind: "speech", confidence: 0.9 },
+        { id: "silence_candidate", start_sec: 3, end_sec: 4.8, kind: "silence", confidence: 0.98 },
+        { id: "speech_b", start_sec: 4.8, end_sec: 8, kind: "speech", confidence: 0.9 },
+      ],
+    },
+    durationSec: 8,
+  });
+  assert.equal(suggestions.length, 1);
+
+  const accepted = commitAudioCutSelection({
+    audioPolish: buildPreparedAudioPolish(),
+    selection: {
+      startSec: suggestions[0]?.startSec ?? null,
+      endSec: suggestions[0]?.endSec ?? null,
+    },
+    durationSec: 8,
+    operationId: "accepted_silence_cut",
+  });
+  assert.ok(accepted);
+  assert.deepEqual(accepted?.audioPolish.audio_edit, {
+    version: "v1",
+    operations: [
+      { id: "accepted_silence_cut", type: "cut", start_sec: 3, end_sec: 4.8 },
+    ],
+  });
+
+  const effectiveCuts = getEffectiveCutRegions(accepted?.audioPolish.audio_edit ?? null, 8);
+  assert.equal(resolveNextAudiblePlaybackTime({
+    requestedTimeSec: 3.2,
+    durationSec: 8,
+    effectiveCutRegions: effectiveCuts,
+    transcriptSegments: [
+      buildSegment({ segment_id: "seg_a", start_sec: 0, end_sec: 8 }),
+    ],
+  }), 4.8);
+  assert.deepEqual(buildSilenceCutSuggestions({
+    segmentation: {
+      strategy: "ffmpeg_silencedetect_v1",
+      noise_floor_db: -42,
+      min_silence_sec: 0.3,
+      speech_region_count: 2,
+      silence_region_count: 1,
+      regions: [
+        { id: "speech_a", start_sec: 0, end_sec: 3, kind: "speech", confidence: 0.9 },
+        { id: "silence_candidate", start_sec: 3, end_sec: 4.8, kind: "silence", confidence: 0.98 },
+        { id: "speech_b", start_sec: 4.8, end_sec: 8, kind: "speech", confidence: 0.9 },
+      ],
+    },
+    durationSec: 8,
+    effectiveCutRegions: effectiveCuts,
+  }), []);
+  assert.deepEqual(resolveWaveformCutOverlaySpans({
+    cutRegions: effectiveCuts,
+    durationSec: 8,
+  }), [
+    {
+      startSec: 3,
+      endSec: 4.8,
+      startRatio: 0.375,
+      endRatio: 0.6,
+      startPct: 37.5,
+      widthPct: 22.5,
+    },
+  ]);
+
+  const duplicateAccept = commitAudioCutSelection({
+    audioPolish: accepted?.audioPolish ?? null,
+    selection: {
+      startSec: suggestions[0]?.startSec ?? null,
+      endSec: suggestions[0]?.endSec ?? null,
+    },
+    durationSec: 8,
+    operationId: "accepted_silence_cut_duplicate",
+  });
+  assert.equal(duplicateAccept, null);
+
+  const overlappingSuppressed = buildSilenceCutSuggestions({
+    segmentation: {
+      strategy: "ffmpeg_silencedetect_v1",
+      noise_floor_db: -42,
+      min_silence_sec: 0.3,
+      speech_region_count: 2,
+      silence_region_count: 2,
+      regions: [
+        { id: "silence_overlap_left", start_sec: 2.8, end_sec: 4.1, kind: "silence", confidence: 0.95 },
+        { id: "silence_overlap_right", start_sec: 4.6, end_sec: 6.2, kind: "silence", confidence: 0.95 },
+      ],
+    },
+    durationSec: 8,
+    effectiveCutRegions: effectiveCuts,
+  });
+  assert.deepEqual(overlappingSuppressed, []);
+}
+
 async function testResolveTranscriptRange() {
   const segments = [
     buildSegment({ segment_id: "a", start_sec: 0, end_sec: 1 }),
@@ -345,6 +921,13 @@ async function run() {
   await testDeleteSelectionHandoff();
   await testDisableAndGainEdits();
   await testDisabledSegmentsExcludedFromEffectivePlaybackTime();
+  await testAudioEditCutNormalization();
+  await testAudioCutSelectionCommitFlow();
+  await testAudioEditNextPlayableTimeResolution();
+  await testResolveNextAudiblePlaybackTimeWithCuts();
+  await testWaveformCutOverlaySpanMapping();
+  await testBuildSilenceCutSuggestions();
+  await testAcceptedSilenceSuggestionCommitsRealCut();
   await testResolveTranscriptRange();
   await testCutRangeAndRipple();
   await testRippleDeletePlacementRemapMatrix();

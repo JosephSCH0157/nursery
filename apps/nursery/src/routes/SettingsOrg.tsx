@@ -36,6 +36,21 @@ type MemberPolicyRow = {
   allow_heavy_tasks: boolean;
 };
 
+type TongsSelectQuery = {
+  eq: (column: string, value: string) => TongsSelectQuery;
+  maybeSingle: () => Promise<{ data: unknown; error: unknown }>;
+};
+
+type TongsTableClient = {
+  from: (table: string) => {
+    select: (columns: string) => TongsSelectQuery;
+    upsert: (
+      values: Record<string, unknown>,
+      options: { onConflict: string },
+    ) => Promise<{ error: unknown }>;
+  };
+};
+
 const AI_MODE_OPTIONS: Array<{ value: AiMode; label: string }> = [
   { value: "AI_DISABLED", label: "AI Disabled" },
   { value: "ORG_ONLY", label: "Org Only" },
@@ -126,7 +141,7 @@ export default function SettingsOrg() {
     [],
   );
   const tongsTableClient = useMemo(
-    () => supabase.schema("tongs") as unknown as { from: (table: string) => any },
+    () => supabase.schema("tongs") as unknown as TongsTableClient,
     [],
   );
 
