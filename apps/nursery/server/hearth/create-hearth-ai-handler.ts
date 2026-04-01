@@ -1193,6 +1193,50 @@ function formatResearchSourceArtifact(source: { title: string | null; domain: st
   return label;
 }
 
+const RESEARCH_REPLY_INTERNAL_MARKERS: RegExp[] = [
+  /\bresponse tone\s*:/i,
+  /\bthe user prefers\b/i,
+  /\bif helpful,\s*ask whether\b/i,
+  /\breturn only valid json\b/i,
+  /\ballowed ops\s*:/i,
+  /\btag contract\b/i,
+  /\bvoice examples\b/i,
+  /\bdo not ask follow-up questions\b/i,
+  /\bdo not behave as if each message is a new conversation\b/i,
+];
+
+function hasInternalLeakMarker(line: string): boolean {
+  const text = line.trim();
+  if (!text) return false;
+  return RESEARCH_REPLY_INTERNAL_MARKERS.some((pattern) => pattern.test(text));
+}
+
+function fallbackResearchBodyFromResult(result: HearthResearchResult): string {
+  const summary = readOptionalString(result.synthesis.summary);
+  if (summary) return summary;
+  if (result.runtimeStatus === "no_results") {
+    return "No strong source evidence surfaced in this pass.";
+  }
+  if (result.runtimeStatus === "error" || result.mode === "knowledge_first") {
+    return "This response stays in knowledge-first mode for now.";
+  }
+  if (result.mode === "partial_retrieval" || result.runtimeStatus === "partial") {
+    return "Some source evidence was recovered, but coverage is incomplete.";
+  }
+  return "Source-backed findings are available from this run.";
+}
+
+function sanitizeResearchReplyBody(rawBody: string, result: HearthResearchResult): string {
+  const lines = rawBody
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const filtered = lines.filter((line) => !hasInternalLeakMarker(line));
+  const compact = filtered.join("\n").trim();
+  if (compact) return compact;
+  return fallbackResearchBodyFromResult(result);
+}
+
 function buildResearchOutcomeLead(args: {
   request: HearthResearchRequest;
   result: HearthResearchResult;
@@ -1246,7 +1290,7 @@ function enforceResearchOutcomeReply(args: {
     request: args.request,
     result: args.result,
   });
-  const body = args.assistantText.trim();
+  const body = sanitizeResearchReplyBody(args.assistantText.trim(), args.result);
   if (!body) return lead;
   const normalizedLead = lead.trim().toLowerCase();
   const normalizedBody = body.toLowerCase();

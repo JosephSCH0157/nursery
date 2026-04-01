@@ -739,6 +739,66 @@ test("createHearthAiHandler labels retrieval errors as knowledge-first fallback 
   }
 });
 
+test("createHearthAiHandler strips internal prompt markers from research fallback replies", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as {
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    const systemPrompt = body.messages?.[0]?.content ?? "";
+    if (!/Research mode behavior \(hard rule\):/i.test(systemPrompt)) {
+      throw new Error("Expected research mode prompt");
+    }
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantText: [
+                "Response tone: Sound like a capable creative operations partner.",
+                "The user prefers a full script when they explicitly ask for one.",
+                "If helpful, ask whether they want a deeper pass.",
+              ].join("\n"),
+              ops: [],
+              script_text: null,
+              tag_audit: null,
+            }),
+          },
+        },
+      ],
+      usage: { total_tokens: 61 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Find breach-related reporting examples." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    const assistantText = String(payload.assistant_text ?? "");
+    assert.match(assistantText, /Research outcome: Live retrieval was unavailable in this run/i);
+    assert.doesNotMatch(assistantText, /Response tone:/i);
+    assert.doesNotMatch(assistantText, /The user prefers/i);
+    assert.doesNotMatch(assistantText, /If helpful, ask whether/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("createHearthAiHandler acceptance prompts route to drafting flow instead of checklist gating", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;
