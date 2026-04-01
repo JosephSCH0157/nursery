@@ -1839,7 +1839,7 @@ export async function handleHammerAudioPolishRequest(
             analysis_chunk_count: transcriptPrepAnalysis.chunk_count,
             analysis_channel_count: channelCharacterization?.channel_count ?? parsedWave.channelData.length,
             analysis_dual_mono: channelCharacterization?.dual_mono ?? false,
-            analysis_waveform_bucket_count: waveformProxy.bucket_count,
+            analysis_waveform_bucket_count: waveformProxy?.bucket_count ?? 0,
             analysis_phase: activePhase,
             chain: "dc_remove,high_pass,presence_lift,gentle_noise_reduction,light_compression,peak_normalize",
           },

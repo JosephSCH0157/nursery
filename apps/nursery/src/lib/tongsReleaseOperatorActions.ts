@@ -115,7 +115,10 @@ async function regenerateVisualPlacements(args: {
     };
   }
 
-  const visualPackageResult = await loadHammerWorkpieceVisualPackage(args.target.workpieceId);
+  const visualPackageResult = await loadHammerWorkpieceVisualPackage(
+    args.target.workpieceId,
+    args.target.workspaceId,
+  );
   if (!visualPackageResult.ok) {
     return {
       result: "failed",

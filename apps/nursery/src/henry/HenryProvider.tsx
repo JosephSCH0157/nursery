@@ -223,6 +223,7 @@ export function HenryProvider({ children }: { children: ReactNode }) {
   ]);
 
   useEffect(() => {
+    const currentObservation = observation;
     const observationKey = observation
       ? `${routeContext.workspaceId ?? "none"}:${routeContext.workpieceId ?? "none"}:${observation.id}`
       : null;
@@ -234,10 +235,10 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     trackedObservationKeyRef.current = observationKey;
 
     const workspaceId = routeContext.workspaceId;
-    if (!workspaceId) return;
+    if (!workspaceId || !currentObservation) return;
     void upsertHenryMessageState({
       workspaceId,
-      messageId: observation.id,
+      messageId: currentObservation.id,
       lastSeenAt: new Date().toISOString(),
     }).catch(() => {
       // non-fatal in ambient assistant surface
@@ -247,7 +248,7 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       workpieceId: routeContext.workpieceId,
       eventName: "observation_shown",
       surface: henryContext.surface,
-      metadata: { messageId: observation.id },
+      metadata: { messageId: currentObservation.id },
     }).catch(() => {
       // non-fatal in ambient assistant surface
     });
@@ -366,11 +367,13 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     if (!prompt) return;
     const nowIso = new Date().toISOString();
     const answer = buildHenryChatAnswer(prompt, henryContext);
-    setConversation((prev) => [
-      ...prev,
-      { role: "user", text: prompt, timestampIso: nowIso },
-      { role: "assistant", text: answer, timestampIso: new Date().toISOString() },
-    ].slice(-20));
+    const userTurn: HenryConversationTurn = { role: "user", text: prompt, timestampIso: nowIso };
+    const assistantTurn: HenryConversationTurn = {
+      role: "assistant",
+      text: answer,
+      timestampIso: new Date().toISOString(),
+    };
+    setConversation((prev): HenryConversationTurn[] => [...prev, userTurn, assistantTurn].slice(-20));
     setChatDraft("");
     setActionAnswer(answer);
     void trackHenryEvent({

@@ -67,7 +67,7 @@ function ModeButton({
 export default function TongsRoute() {
   const location = useLocation();
   const routeMode = readModeFromSearch(location.search);
-  const [mode, setMode] = useState<TongsMode>(() => routeMode ?? readStoredMode());
+  const [mode, setMode] = useState<TongsMode>(() => (routeMode === "team" ? "sessions" : (routeMode ?? readStoredMode())));
   const activeMode = routeMode === "team" ? "sessions" : (routeMode ?? mode);
 
   const orgTeamsHref = (() => {

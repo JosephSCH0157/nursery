@@ -81,10 +81,10 @@ var init_tslib_es6 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/helper.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.100.1/node_modules/@supabase/functions-js/dist/module/helper.js
 var resolveFetch;
 var init_helper = __esm({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/helper.js"() {
+  "../../node_modules/.pnpm/@supabase+functions-js@2.100.1/node_modules/@supabase/functions-js/dist/module/helper.js"() {
     resolveFetch = (customFetch) => {
       if (customFetch) {
         return (...args) => customFetch(...args);
@@ -94,10 +94,10 @@ var init_helper = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/types.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.100.1/node_modules/@supabase/functions-js/dist/module/types.js
 var FunctionsError, FunctionsFetchError, FunctionsRelayError, FunctionsHttpError, FunctionRegion;
 var init_types = __esm({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/types.js"() {
+  "../../node_modules/.pnpm/@supabase+functions-js@2.100.1/node_modules/@supabase/functions-js/dist/module/types.js"() {
     FunctionsError = class extends Error {
       constructor(message, name = "FunctionsError", context) {
         super(message);
@@ -140,10 +140,10 @@ var init_types = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.100.1/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js
 var FunctionsClient;
 var init_FunctionsClient = __esm({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js"() {
+  "../../node_modules/.pnpm/@supabase+functions-js@2.100.1/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js"() {
     init_tslib_es6();
     init_helper();
     init_types();
@@ -152,6 +152,18 @@ var init_FunctionsClient = __esm({
        * Creates a new Functions client bound to an Edge Functions URL.
        *
        * @example
+       * ```ts
+       * import { FunctionsClient, FunctionRegion } from '@supabase/functions-js'
+       *
+       * const functions = new FunctionsClient('https://xyzcompany.supabase.co/functions/v1', {
+       *   headers: { apikey: 'public-anon-key' },
+       *   region: FunctionRegion.UsEast1,
+       * })
+       * ```
+       *
+       * @category Functions
+       *
+       * @example Creating a Functions client
        * ```ts
        * import { FunctionsClient, FunctionRegion } from '@supabase/functions-js'
        *
@@ -170,7 +182,10 @@ var init_FunctionsClient = __esm({
       /**
        * Updates the authorization header
        * @param token - the new jwt token sent in the authorisation header
-       * @example
+       *
+       * @category Functions
+       *
+       * @example Setting the authorization header
        * ```ts
        * functions.setAuth(session.access_token)
        * ```
@@ -183,6 +198,120 @@ var init_FunctionsClient = __esm({
        * @param functionName - The name of the Function to invoke.
        * @param options - Options for invoking the Function.
        * @example
+       * ```ts
+       * const { data, error } = await functions.invoke('hello-world', {
+       *   body: { name: 'Ada' },
+       * })
+       * ```
+       *
+       * @category Functions
+       *
+       * @remarks
+       * - Requires an Authorization header.
+       * - Invoke params generally match the [Fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API) spec.
+       * - When you pass in a body to your function, we automatically attach the Content-Type header for `Blob`, `ArrayBuffer`, `File`, `FormData` and `String`. If it doesn't match any of these types we assume the payload is `json`, serialize it and attach the `Content-Type` header as `application/json`. You can override this behavior by passing in a `Content-Type` header of your own.
+       * - Responses are automatically parsed as `json`, `blob` and `form-data` depending on the `Content-Type` header sent by your function. Responses are parsed as `text` by default.
+       *
+       * @example Basic invocation
+       * ```js
+       * const { data, error } = await supabase.functions.invoke('hello', {
+       *   body: { foo: 'bar' }
+       * })
+       * ```
+       *
+       * @exampleDescription Error handling
+       * A `FunctionsHttpError` error is returned if your function throws an error, `FunctionsRelayError` if the Supabase Relay has an error processing your function and `FunctionsFetchError` if there is a network error in calling your function.
+       *
+       * @example Error handling
+       * ```js
+       * import { FunctionsHttpError, FunctionsRelayError, FunctionsFetchError } from "@supabase/supabase-js";
+       *
+       * const { data, error } = await supabase.functions.invoke('hello', {
+       *   headers: {
+       *     "my-custom-header": 'my-custom-header-value'
+       *   },
+       *   body: { foo: 'bar' }
+       * })
+       *
+       * if (error instanceof FunctionsHttpError) {
+       *   const errorMessage = await error.context.json()
+       *   console.log('Function returned an error', errorMessage)
+       * } else if (error instanceof FunctionsRelayError) {
+       *   console.log('Relay error:', error.message)
+       * } else if (error instanceof FunctionsFetchError) {
+       *   console.log('Fetch error:', error.message)
+       * }
+       * ```
+       *
+       * @exampleDescription Passing custom headers
+       * You can pass custom headers to your function. Note: supabase-js automatically passes the `Authorization` header with the signed in user's JWT.
+       *
+       * @example Passing custom headers
+       * ```js
+       * const { data, error } = await supabase.functions.invoke('hello', {
+       *   headers: {
+       *     "my-custom-header": 'my-custom-header-value'
+       *   },
+       *   body: { foo: 'bar' }
+       * })
+       * ```
+       *
+       * @exampleDescription Calling with DELETE HTTP verb
+       * You can also set the HTTP verb to `DELETE` when calling your Edge Function.
+       *
+       * @example Calling with DELETE HTTP verb
+       * ```js
+       * const { data, error } = await supabase.functions.invoke('hello', {
+       *   headers: {
+       *     "my-custom-header": 'my-custom-header-value'
+       *   },
+       *   body: { foo: 'bar' },
+       *   method: 'DELETE'
+       * })
+       * ```
+       *
+       * @exampleDescription Invoking a Function in the UsEast1 region
+       * Here are the available regions:
+       * - `FunctionRegion.Any`
+       * - `FunctionRegion.ApNortheast1`
+       * - `FunctionRegion.ApNortheast2`
+       * - `FunctionRegion.ApSouth1`
+       * - `FunctionRegion.ApSoutheast1`
+       * - `FunctionRegion.ApSoutheast2`
+       * - `FunctionRegion.CaCentral1`
+       * - `FunctionRegion.EuCentral1`
+       * - `FunctionRegion.EuWest1`
+       * - `FunctionRegion.EuWest2`
+       * - `FunctionRegion.EuWest3`
+       * - `FunctionRegion.SaEast1`
+       * - `FunctionRegion.UsEast1`
+       * - `FunctionRegion.UsWest1`
+       * - `FunctionRegion.UsWest2`
+       *
+       * @example Invoking a Function in the UsEast1 region
+       * ```js
+       * import { createClient, FunctionRegion } from '@supabase/supabase-js'
+       *
+       * const { data, error } = await supabase.functions.invoke('hello', {
+       *   body: { foo: 'bar' },
+       *   region: FunctionRegion.UsEast1
+       * })
+       * ```
+       *
+       * @exampleDescription Calling with GET HTTP verb
+       * You can also set the HTTP verb to `GET` when calling your Edge Function.
+       *
+       * @example Calling with GET HTTP verb
+       * ```js
+       * const { data, error } = await supabase.functions.invoke('hello', {
+       *   headers: {
+       *     "my-custom-header": 'my-custom-header-value'
+       *   },
+       *   method: 'GET'
+       * })
+       * ```
+       *
+       * @example Example 7
        * ```ts
        * const { data, error } = await functions.invoke('hello-world', {
        *   body: { name: 'Ada' },
@@ -288,14 +417,14 @@ var init_FunctionsClient = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/index.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.100.1/node_modules/@supabase/functions-js/dist/module/index.js
 var init_module = __esm({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/index.js"() {
+  "../../node_modules/.pnpm/@supabase+functions-js@2.100.1/node_modules/@supabase/functions-js/dist/module/index.js"() {
     init_FunctionsClient();
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+postgrest-js@2.98.0/node_modules/@supabase/postgrest-js/dist/index.mjs
+// ../../node_modules/.pnpm/@supabase+postgrest-js@2.100.1/node_modules/@supabase/postgrest-js/dist/index.mjs
 function _typeof(o) {
   "@babel/helpers - typeof";
   return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
@@ -349,7 +478,7 @@ function _objectSpread2(e) {
 }
 var PostgrestError, PostgrestBuilder, PostgrestTransformBuilder, PostgrestReservedCharsRegexp, PostgrestFilterBuilder, PostgrestQueryBuilder, PostgrestClient;
 var init_dist = __esm({
-  "../../node_modules/.pnpm/@supabase+postgrest-js@2.98.0/node_modules/@supabase/postgrest-js/dist/index.mjs"() {
+  "../../node_modules/.pnpm/@supabase+postgrest-js@2.100.1/node_modules/@supabase/postgrest-js/dist/index.mjs"() {
     PostgrestError = class extends Error {
       /**
       * @example
@@ -378,7 +507,19 @@ var init_dist = __esm({
       *
       * @example
       * ```ts
-      * import PostgrestQueryBuilder from '@supabase/postgrest-js'
+      * import { PostgrestQueryBuilder } from '@supabase/postgrest-js'
+      *
+      * const builder = new PostgrestQueryBuilder(
+      *   new URL('https://xyzcompany.supabase.co/rest/v1/users'),
+      *   { headers: new Headers({ apikey: 'public-anon-key' }) }
+      * )
+      * ```
+      *
+      * @category Database
+      *
+      * @example Creating a Postgrest query builder
+      * ```ts
+      * import { PostgrestQueryBuilder } from '@supabase/postgrest-js'
       *
       * const builder = new PostgrestQueryBuilder(
       *   new URL('https://xyzcompany.supabase.co/rest/v1/users'),
@@ -406,6 +547,8 @@ var init_dist = __esm({
       * throwing the error instead of returning it as part of a successful response.
       *
       * {@link https://github.com/supabase/supabase-js/issues/92}
+      *
+      * @category Database
       */
       throwOnError() {
         this.shouldThrowOnError = true;
@@ -413,12 +556,17 @@ var init_dist = __esm({
       }
       /**
       * Set an HTTP header for the request.
+      *
+      * @category Database
       */
       setHeader(name, value) {
         this.headers = new Headers(this.headers);
         this.headers.set(name, value);
         return this;
       }
+      /**  *
+      * @category Database
+      */
       then(onfulfilled, onrejected) {
         var _this = this;
         if (this.schema === void 0) {
@@ -450,7 +598,7 @@ var init_dist = __esm({
             const countHeader = (_this$headers$get2 = _this.headers.get("Prefer")) === null || _this$headers$get2 === void 0 ? void 0 : _this$headers$get2.match(/count=(exact|planned|estimated)/);
             const contentRange = (_res$headers$get = res$1.headers.get("content-range")) === null || _res$headers$get === void 0 ? void 0 : _res$headers$get.split("/");
             if (countHeader && contentRange && contentRange.length > 1) count = parseInt(contentRange[1]);
-            if (_this.isMaybeSingle && _this.method === "GET" && Array.isArray(data)) if (data.length > 1) {
+            if (_this.isMaybeSingle && Array.isArray(data)) if (data.length > 1) {
               error = {
                 code: "PGRST116",
                 details: `Results contain ${data.length} rows, application/vnd.pgrst.object+json requires 1 row`,
@@ -464,7 +612,6 @@ var init_dist = __esm({
             } else if (data.length === 1) data = data[0];
             else data = null;
           } else {
-            var _error$details;
             const body = await res$1.text();
             try {
               error = JSON.parse(body);
@@ -479,11 +626,6 @@ var init_dist = __esm({
                 status2 = 204;
                 statusText = "No Content";
               } else error = { message: body };
-            }
-            if (error && _this.isMaybeSingle && (error === null || error === void 0 || (_error$details = error.details) === null || _error$details === void 0 ? void 0 : _error$details.includes("0 rows"))) {
-              error = null;
-              status2 = 200;
-              statusText = "OK";
             }
             if (error && _this.shouldThrowOnError) throw new PostgrestError(error);
           }
@@ -546,6 +688,8 @@ ${cause.stack}`;
       *
       * @typeParam NewResult - The new result type to override with
       * @deprecated Use overrideTypes<yourType, { merge: false }>() method at the end of your call chain instead
+      *
+      * @category Database
       */
       returns() {
         return this;
@@ -571,6 +715,77 @@ ${cause.stack}`;
       *   .overrideTypes<{ id: number; name: string }, { merge: false }>()
       * ```
       * @returns A PostgrestBuilder instance with the new type
+      *
+      * @category Database
+      *
+      * @example Complete Override type of successful response
+      * ```ts
+      * const { data } = await supabase
+      *   .from('countries')
+      *   .select()
+      *   .overrideTypes<Array<MyType>, { merge: false }>()
+      * ```
+      *
+      * @exampleResponse Complete Override type of successful response
+      * ```ts
+      * let x: typeof data // MyType[]
+      * ```
+      *
+      * @example Complete Override type of object response
+      * ```ts
+      * const { data } = await supabase
+      *   .from('countries')
+      *   .select()
+      *   .maybeSingle()
+      *   .overrideTypes<MyType, { merge: false }>()
+      * ```
+      *
+      * @exampleResponse Complete Override type of object response
+      * ```ts
+      * let x: typeof data // MyType | null
+      * ```
+      *
+      * @example Partial Override type of successful response
+      * ```ts
+      * const { data } = await supabase
+      *   .from('countries')
+      *   .select()
+      *   .overrideTypes<Array<{ status: "A" | "B" }>>()
+      * ```
+      *
+      * @exampleResponse Partial Override type of successful response
+      * ```ts
+      * let x: typeof data // Array<CountryRowProperties & { status: "A" | "B" }>
+      * ```
+      *
+      * @example Partial Override type of object response
+      * ```ts
+      * const { data } = await supabase
+      *   .from('countries')
+      *   .select()
+      *   .maybeSingle()
+      *   .overrideTypes<{ status: "A" | "B" }>()
+      * ```
+      *
+      * @exampleResponse Partial Override type of object response
+      * ```ts
+      * let x: typeof data // CountryRowProperties & { status: "A" | "B" } | null
+      * ```
+      *
+      * @example Example 5
+      * ```typescript
+      * // Merge with existing types (default behavior)
+      * const query = supabase
+      *   .from('users')
+      *   .select()
+      *   .overrideTypes<{ custom_field: string }>()
+      *
+      * // Replace existing types completely
+      * const replaceQuery = supabase
+      *   .from('users')
+      *   .select()
+      *   .overrideTypes<{ id: number; name: string }, { merge: false }>()
+      * ```
       */
       overrideTypes() {
         return this;
@@ -585,6 +800,41 @@ ${cause.stack}`;
       * `data`.
       *
       * @param columns - The columns to retrieve, separated by commas
+      *
+      * @category Database
+      *
+      * @example With `upsert()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .upsert({ id: 1, name: 'Han Solo' })
+      *   .select()
+      * ```
+      *
+      * @exampleSql With `upsert()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Han');
+      * ```
+      *
+      * @exampleResponse With `upsert()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "name": "Han Solo"
+      *     }
+      *   ],
+      *   "status": 201,
+      *   "statusText": "Created"
+      * }
+      * ```
       */
       select(columns) {
         let quoted = false;
@@ -614,6 +864,176 @@ ${cause.stack}`;
       * its columns
       * @param options.foreignTable - Deprecated, use `options.referencedTable`
       * instead
+      *
+      * @category Database
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select('id, name')
+      *   .order('id', { ascending: false })
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 3,
+      *       "name": "Han"
+      *     },
+      *     {
+      *       "id": 2,
+      *       "name": "Leia"
+      *     },
+      *     {
+      *       "id": 1,
+      *       "name": "Luke"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription On a referenced table
+      * Ordering with `referencedTable` doesn't affect the ordering of the
+      * parent table.
+      *
+      * @example On a referenced table
+      * ```ts
+      *   const { data, error } = await supabase
+      *     .from('orchestral_sections')
+      *     .select(`
+      *       name,
+      *       instruments (
+      *         name
+      *       )
+      *     `)
+      *     .order('name', { referencedTable: 'instruments', ascending: false })
+      *
+      * ```
+      *
+      * @exampleSql On a referenced table
+      * ```sql
+      * create table
+      *   orchestral_sections (id int8 primary key, name text);
+      * create table
+      *   instruments (
+      *     id int8 primary key,
+      *     section_id int8 not null references orchestral_sections,
+      *     name text
+      *   );
+      *
+      * insert into
+      *   orchestral_sections (id, name)
+      * values
+      *   (1, 'strings'),
+      *   (2, 'woodwinds');
+      * insert into
+      *   instruments (id, section_id, name)
+      * values
+      *   (1, 1, 'harp'),
+      *   (2, 1, 'violin');
+      * ```
+      *
+      * @exampleResponse On a referenced table
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "strings",
+      *       "instruments": [
+      *         {
+      *           "name": "violin"
+      *         },
+      *         {
+      *           "name": "harp"
+      *         }
+      *       ]
+      *     },
+      *     {
+      *       "name": "woodwinds",
+      *       "instruments": []
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription Order parent table by a referenced table
+      * Ordering with `referenced_table(col)` affects the ordering of the
+      * parent table.
+      *
+      * @example Order parent table by a referenced table
+      * ```ts
+      *   const { data, error } = await supabase
+      *     .from('instruments')
+      *     .select(`
+      *       name,
+      *       section:orchestral_sections (
+      *         name
+      *       )
+      *     `)
+      *     .order('section(name)', { ascending: true })
+      *
+      * ```
+      *
+      * @exampleSql Order parent table by a referenced table
+      * ```sql
+      * create table
+      *   orchestral_sections (id int8 primary key, name text);
+      * create table
+      *   instruments (
+      *     id int8 primary key,
+      *     section_id int8 not null references orchestral_sections,
+      *     name text
+      *   );
+      *
+      * insert into
+      *   orchestral_sections (id, name)
+      * values
+      *   (1, 'strings'),
+      *   (2, 'woodwinds');
+      * insert into
+      *   instruments (id, section_id, name)
+      * values
+      *   (1, 2, 'flute'),
+      *   (2, 1, 'violin');
+      * ```
+      *
+      * @exampleResponse Order parent table by a referenced table
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "violin",
+      *       "orchestral_sections": {"name": "strings"}
+      *     },
+      *     {
+      *       "name": "flute",
+      *       "orchestral_sections": {"name": "woodwinds"}
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       order(column, { ascending = true, nullsFirst, foreignTable, referencedTable = foreignTable } = {}) {
         const key = referencedTable ? `${referencedTable}.order` : "order";
@@ -630,6 +1050,95 @@ ${cause.stack}`;
       * tables instead of the parent table
       * @param options.foreignTable - Deprecated, use `options.referencedTable`
       * instead
+      *
+      * @category Database
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select('name')
+      *   .limit(1)
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "Luke"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @example On a referenced table
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('orchestral_sections')
+      *   .select(`
+      *     name,
+      *     instruments (
+      *       name
+      *     )
+      *   `)
+      *   .limit(1, { referencedTable: 'instruments' })
+      * ```
+      *
+      * @exampleSql On a referenced table
+      * ```sql
+      * create table
+      *   orchestral_sections (id int8 primary key, name text);
+      * create table
+      *   instruments (
+      *     id int8 primary key,
+      *     section_id int8 not null references orchestral_sections,
+      *     name text
+      *   );
+      *
+      * insert into
+      *   orchestral_sections (id, name)
+      * values
+      *   (1, 'strings');
+      * insert into
+      *   instruments (id, section_id, name)
+      * values
+      *   (1, 1, 'harp'),
+      *   (2, 1, 'violin');
+      * ```
+      *
+      * @exampleResponse On a referenced table
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "strings",
+      *       "instruments": [
+      *         {
+      *           "name": "violin"
+      *         }
+      *       ]
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       limit(count, { foreignTable, referencedTable = foreignTable } = {}) {
         const key = typeof referencedTable === "undefined" ? "limit" : `${referencedTable}.limit`;
@@ -650,6 +1159,45 @@ ${cause.stack}`;
       * tables instead of the parent table
       * @param options.foreignTable - Deprecated, use `options.referencedTable`
       * instead
+      *
+      * @category Database
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select('name')
+      *   .range(0, 1)
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "Luke"
+      *     },
+      *     {
+      *       "name": "Leia"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       range(from, to, { foreignTable, referencedTable = foreignTable } = {}) {
         const keyOffset = typeof referencedTable === "undefined" ? "offset" : `${referencedTable}.offset`;
@@ -662,6 +1210,66 @@ ${cause.stack}`;
       * Set the AbortSignal for the fetch request.
       *
       * @param signal - The AbortSignal to use for the fetch request
+      *
+      * @category Database
+      *
+      * @remarks
+      * You can use this to set a timeout for the request.
+      *
+      * @exampleDescription Aborting requests in-flight
+      * You can use an [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController) to abort requests.
+      * Note that `status` and `statusText` don't mean anything for aborted requests as the request wasn't fulfilled.
+      *
+      * @example Aborting requests in-flight
+      * ```ts
+      * const ac = new AbortController()
+      *
+      * const { data, error } = await supabase
+      *   .from('very_big_table')
+      *   .select()
+      *   .abortSignal(ac.signal)
+      *
+      * // Abort the request after 100 ms
+      * setTimeout(() => ac.abort(), 100)
+      * ```
+      *
+      * @exampleResponse Aborting requests in-flight
+      * ```json
+      *   {
+      *     "error": {
+      *       "message": "AbortError: The user aborted a request.",
+      *       "details": "",
+      *       "hint": "The request was aborted locally via the provided AbortSignal.",
+      *       "code": ""
+      *     },
+      *     "status": 0,
+      *     "statusText": ""
+      *   }
+      *
+      * ```
+      *
+      * @example Set a timeout
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('very_big_table')
+      *   .select()
+      *   .abortSignal(AbortSignal.timeout(1000 /* ms *\/))
+      * ```
+      *
+      * @exampleResponse Set a timeout
+      * ```json
+      *   {
+      *     "error": {
+      *       "message": "FetchError: The user aborted a request.",
+      *       "details": "",
+      *       "hint": "",
+      *       "code": ""
+      *     },
+      *     "status": 400,
+      *     "statusText": "Bad Request"
+      *   }
+      *
+      * ```
       */
       abortSignal(signal) {
         this.signal = signal;
@@ -672,6 +1280,41 @@ ${cause.stack}`;
       *
       * Query result must be one row (e.g. using `.limit(1)`), otherwise this
       * returns an error.
+      *
+      * @category Database
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select('name')
+      *   .limit(1)
+      *   .single()
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": {
+      *     "name": "Luke"
+      *   },
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       single() {
         this.headers.set("Accept", "application/vnd.pgrst.object+json");
@@ -682,15 +1325,80 @@ ${cause.stack}`;
       *
       * Query result must be zero or one row (e.g. using `.limit(1)`), otherwise
       * this returns an error.
+      *
+      * @category Database
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      *   .eq('name', 'Katniss')
+      *   .maybeSingle()
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       maybeSingle() {
-        if (this.method === "GET") this.headers.set("Accept", "application/json");
-        else this.headers.set("Accept", "application/vnd.pgrst.object+json");
         this.isMaybeSingle = true;
         return this;
       }
       /**
       * Return `data` as a string in CSV format.
+      *
+      * @category Database
+      *
+      * @exampleDescription Return data as CSV
+      * By default, the data is returned in JSON format, but can also be returned as Comma Separated Values.
+      *
+      * @example Return data as CSV
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      *   .csv()
+      * ```
+      *
+      * @exampleSql Return data as CSV
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse Return data as CSV
+      * ```json
+      * {
+      *   "data": "id,name\n1,Luke\n2,Leia\n3,Han",
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       csv() {
         this.headers.set("Accept", "text/csv");
@@ -698,6 +1406,8 @@ ${cause.stack}`;
       }
       /**
       * Return `data` as an object in [GeoJSON](https://geojson.org) format.
+      *
+      * @category Database
       */
       geojson() {
         this.headers.set("Accept", "application/geo+json");
@@ -727,6 +1437,76 @@ ${cause.stack}`;
       *
       * @param options.format - The format of the output, can be `"text"` (default)
       * or `"json"`
+      *
+      * @category Database
+      *
+      * @exampleDescription Get the execution plan
+      * By default, the data is returned in TEXT format, but can also be returned as JSON by using the `format` parameter.
+      *
+      * @example Get the execution plan
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      *   .explain()
+      * ```
+      *
+      * @exampleSql Get the execution plan
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse Get the execution plan
+      * ```js
+      * Aggregate  (cost=33.34..33.36 rows=1 width=112)
+      *   ->  Limit  (cost=0.00..18.33 rows=1000 width=40)
+      *         ->  Seq Scan on characters  (cost=0.00..22.00 rows=1200 width=40)
+      * ```
+      *
+      * @exampleDescription Get the execution plan with analyze and verbose
+      * By default, the data is returned in TEXT format, but can also be returned as JSON by using the `format` parameter.
+      *
+      * @example Get the execution plan with analyze and verbose
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      *   .explain({analyze:true,verbose:true})
+      * ```
+      *
+      * @exampleSql Get the execution plan with analyze and verbose
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse Get the execution plan with analyze and verbose
+      * ```js
+      * Aggregate  (cost=33.34..33.36 rows=1 width=112) (actual time=0.041..0.041 rows=1 loops=1)
+      *   Output: NULL::bigint, count(ROW(characters.id, characters.name)), COALESCE(json_agg(ROW(characters.id, characters.name)), '[]'::json), NULLIF(current_setting('response.headers'::text, true), ''::text), NULLIF(current_setting('response.status'::text, true), ''::text)
+      *   ->  Limit  (cost=0.00..18.33 rows=1000 width=40) (actual time=0.005..0.006 rows=3 loops=1)
+      *         Output: characters.id, characters.name
+      *         ->  Seq Scan on public.characters  (cost=0.00..22.00 rows=1200 width=40) (actual time=0.004..0.005 rows=3 loops=1)
+      *               Output: characters.id, characters.name
+      * Query Identifier: -4730654291623321173
+      * Planning Time: 0.407 ms
+      * Execution Time: 0.119 ms
+      * ```
       */
       explain({ analyze = false, verbose = false, settings: settings2 = false, buffers = false, wal = false, format = "text" } = {}) {
         var _this$headers$get;
@@ -746,6 +1526,8 @@ ${cause.stack}`;
       * Rollback the query.
       *
       * `data` will still be returned, but the query is not committed.
+      *
+      * @category Database
       */
       rollback() {
         this.headers.append("Prefer", "tx=rollback");
@@ -756,6 +1538,38 @@ ${cause.stack}`;
       *
       * @typeParam NewResult - The new result type to override with
       * @deprecated Use overrideTypes<yourType, { merge: false }>() method at the end of your call chain instead
+      *
+      * @category Database
+      *
+      * @remarks
+      * - Deprecated: use overrideTypes method instead
+      *
+      * @example Override type of successful response
+      * ```ts
+      * const { data } = await supabase
+      *   .from('countries')
+      *   .select()
+      *   .returns<Array<MyType>>()
+      * ```
+      *
+      * @exampleResponse Override type of successful response
+      * ```js
+      * let x: typeof data // MyType[]
+      * ```
+      *
+      * @example Override type of object response
+      * ```ts
+      * const { data } = await supabase
+      *   .from('countries')
+      *   .select()
+      *   .maybeSingle()
+      *   .returns<MyType>()
+      * ```
+      *
+      * @exampleResponse Override type of object response
+      * ```js
+      * let x: typeof data // MyType | null
+      * ```
       */
       returns() {
         return this;
@@ -765,6 +1579,8 @@ ${cause.stack}`;
       * Only available in PostgREST v13+ and only works with PATCH and DELETE methods.
       *
       * @param value - The maximum number of rows that can be affected
+      *
+      * @category Database
       */
       maxAffected(value) {
         this.headers.append("Prefer", "handling=strict");
@@ -781,6 +1597,43 @@ ${cause.stack}`;
       *
       * @param column - The column to filter on
       * @param value - The value to filter with
+      *
+      * @category Database
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      *   .eq('name', 'Leia')
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 2,
+      *       "name": "Leia"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       eq(column, value) {
         this.url.searchParams.append(column, `eq.${value}`);
@@ -791,6 +1644,47 @@ ${cause.stack}`;
       *
       * @param column - The column to filter on
       * @param value - The value to filter with
+      *
+      * @category Database
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      *   .neq('name', 'Leia')
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "name": "Luke"
+      *     },
+      *     {
+      *       "id": 3,
+      *       "name": "Han"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       neq(column, value) {
         this.url.searchParams.append(column, `neq.${value}`);
@@ -801,6 +1695,47 @@ ${cause.stack}`;
       *
       * @param column - The column to filter on
       * @param value - The value to filter with
+      *
+      * @category Database
+      *
+      * @exampleDescription With `select()`
+      * When using [reserved words](https://www.postgresql.org/docs/current/sql-keywords-appendix.html) for column names you need
+      * to add double quotes e.g. `.gt('"order"', 2)`
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      *   .gt('id', 2)
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 3,
+      *       "name": "Han"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       gt(column, value) {
         this.url.searchParams.append(column, `gt.${value}`);
@@ -811,6 +1746,47 @@ ${cause.stack}`;
       *
       * @param column - The column to filter on
       * @param value - The value to filter with
+      *
+      * @category Database
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      *   .gte('id', 2)
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 2,
+      *       "name": "Leia"
+      *     },
+      *     {
+      *       "id": 3,
+      *       "name": "Han"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       gte(column, value) {
         this.url.searchParams.append(column, `gte.${value}`);
@@ -821,6 +1797,43 @@ ${cause.stack}`;
       *
       * @param column - The column to filter on
       * @param value - The value to filter with
+      *
+      * @category Database
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      *   .lt('id', 2)
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "name": "Luke"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       lt(column, value) {
         this.url.searchParams.append(column, `lt.${value}`);
@@ -831,6 +1844,47 @@ ${cause.stack}`;
       *
       * @param column - The column to filter on
       * @param value - The value to filter with
+      *
+      * @category Database
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      *   .lte('id', 2)
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "name": "Luke"
+      *     },
+      *     {
+      *       "id": 2,
+      *       "name": "Leia"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       lte(column, value) {
         this.url.searchParams.append(column, `lte.${value}`);
@@ -841,6 +1895,43 @@ ${cause.stack}`;
       *
       * @param column - The column to filter on
       * @param pattern - The pattern to match with
+      *
+      * @category Database
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      *   .like('name', '%Lu%')
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "name": "Luke"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       like(column, pattern) {
         this.url.searchParams.append(column, `like.${pattern}`);
@@ -851,6 +1942,8 @@ ${cause.stack}`;
       *
       * @param column - The column to filter on
       * @param patterns - The patterns to match with
+      *
+      * @category Database
       */
       likeAllOf(column, patterns) {
         this.url.searchParams.append(column, `like(all).{${patterns.join(",")}}`);
@@ -861,6 +1954,8 @@ ${cause.stack}`;
       *
       * @param column - The column to filter on
       * @param patterns - The patterns to match with
+      *
+      * @category Database
       */
       likeAnyOf(column, patterns) {
         this.url.searchParams.append(column, `like(any).{${patterns.join(",")}}`);
@@ -871,6 +1966,43 @@ ${cause.stack}`;
       *
       * @param column - The column to filter on
       * @param pattern - The pattern to match with
+      *
+      * @category Database
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      *   .ilike('name', '%lu%')
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "name": "Luke"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       ilike(column, pattern) {
         this.url.searchParams.append(column, `ilike.${pattern}`);
@@ -881,6 +2013,8 @@ ${cause.stack}`;
       *
       * @param column - The column to filter on
       * @param patterns - The patterns to match with
+      *
+      * @category Database
       */
       ilikeAllOf(column, patterns) {
         this.url.searchParams.append(column, `ilike(all).{${patterns.join(",")}}`);
@@ -891,6 +2025,8 @@ ${cause.stack}`;
       *
       * @param column - The column to filter on
       * @param patterns - The patterns to match with
+      *
+      * @category Database
       */
       ilikeAnyOf(column, patterns) {
         this.url.searchParams.append(column, `ilike(any).{${patterns.join(",")}}`);
@@ -929,6 +2065,47 @@ ${cause.stack}`;
       *
       * @param column - The column to filter on
       * @param value - The value to filter with
+      *
+      * @category Database
+      *
+      * @exampleDescription Checking for nullness, true or false
+      * Using the `eq()` filter doesn't work when filtering for `null`.
+      *
+      * Instead, you need to use `is()`.
+      *
+      * @example Checking for nullness, true or false
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('countries')
+      *   .select()
+      *   .is('name', null)
+      * ```
+      *
+      * @exampleSql Checking for nullness, true or false
+      * ```sql
+      * create table
+      *   countries (id int8 primary key, name text);
+      *
+      * insert into
+      *   countries (id, name)
+      * values
+      *   (1, 'null'),
+      *   (2, null);
+      * ```
+      *
+      * @exampleResponse Checking for nullness, true or false
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 2,
+      *       "name": "null"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       is(column, value) {
         this.url.searchParams.append(column, `is.${value}`);
@@ -953,6 +2130,47 @@ ${cause.stack}`;
       *
       * @param column - The column to filter on
       * @param values - The values array to filter with
+      *
+      * @category Database
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      *   .in('name', ['Leia', 'Han'])
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 2,
+      *       "name": "Leia"
+      *     },
+      *     {
+      *       "id": 3,
+      *       "name": "Han"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       in(column, values) {
         const cleanedValues = Array.from(new Set(values)).map((s) => {
@@ -982,6 +2200,127 @@ ${cause.stack}`;
       *
       * @param column - The jsonb, array, or range column to filter on
       * @param value - The jsonb, array, or range value to filter with
+      *
+      * @category Database
+      *
+      * @example On array columns
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('issues')
+      *   .select()
+      *   .contains('tags', ['is:open', 'priority:low'])
+      * ```
+      *
+      * @exampleSql On array columns
+      * ```sql
+      * create table
+      *   issues (
+      *     id int8 primary key,
+      *     title text,
+      *     tags text[]
+      *   );
+      *
+      * insert into
+      *   issues (id, title, tags)
+      * values
+      *   (1, 'Cache invalidation is not working', array['is:open', 'severity:high', 'priority:low']),
+      *   (2, 'Use better names', array['is:open', 'severity:low', 'priority:medium']);
+      * ```
+      *
+      * @exampleResponse On array columns
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "title": "Cache invalidation is not working"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription On range columns
+      * Postgres supports a number of [range
+      * types](https://www.postgresql.org/docs/current/rangetypes.html). You
+      * can filter on range columns using the string representation of range
+      * values.
+      *
+      * @example On range columns
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('reservations')
+      *   .select()
+      *   .contains('during', '[2000-01-01 13:00, 2000-01-01 13:30)')
+      * ```
+      *
+      * @exampleSql On range columns
+      * ```sql
+      * create table
+      *   reservations (
+      *     id int8 primary key,
+      *     room_name text,
+      *     during tsrange
+      *   );
+      *
+      * insert into
+      *   reservations (id, room_name, during)
+      * values
+      *   (1, 'Emerald', '[2000-01-01 13:00, 2000-01-01 15:00)'),
+      *   (2, 'Topaz', '[2000-01-02 09:00, 2000-01-02 10:00)');
+      * ```
+      *
+      * @exampleResponse On range columns
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "room_name": "Emerald",
+      *       "during": "[\"2000-01-01 13:00:00\",\"2000-01-01 15:00:00\")"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @example On `jsonb` columns
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('users')
+      *   .select('name')
+      *   .contains('address', { postcode: 90210 })
+      * ```
+      *
+      * @exampleSql On `jsonb` columns
+      * ```sql
+      * create table
+      *   users (
+      *     id int8 primary key,
+      *     name text,
+      *     address jsonb
+      *   );
+      *
+      * insert into
+      *   users (id, name, address)
+      * values
+      *   (1, 'Michael', '{ "postcode": 90210, "street": "Melrose Place" }'),
+      *   (2, 'Jane', '{}');
+      * ```
+      *
+      * @exampleResponse On `jsonb` columns
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "Michael"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       contains(column, value) {
         if (typeof value === "string") this.url.searchParams.append(column, `cs.${value}`);
@@ -995,6 +2334,128 @@ ${cause.stack}`;
       *
       * @param column - The jsonb, array, or range column to filter on
       * @param value - The jsonb, array, or range value to filter with
+      *
+      * @category Database
+      *
+      * @example On array columns
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('classes')
+      *   .select('name')
+      *   .containedBy('days', ['monday', 'tuesday', 'wednesday', 'friday'])
+      * ```
+      *
+      * @exampleSql On array columns
+      * ```sql
+      * create table
+      *   classes (
+      *     id int8 primary key,
+      *     name text,
+      *     days text[]
+      *   );
+      *
+      * insert into
+      *   classes (id, name, days)
+      * values
+      *   (1, 'Chemistry', array['monday', 'friday']),
+      *   (2, 'History', array['monday', 'wednesday', 'thursday']);
+      * ```
+      *
+      * @exampleResponse On array columns
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "Chemistry"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription On range columns
+      * Postgres supports a number of [range
+      * types](https://www.postgresql.org/docs/current/rangetypes.html). You
+      * can filter on range columns using the string representation of range
+      * values.
+      *
+      * @example On range columns
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('reservations')
+      *   .select()
+      *   .containedBy('during', '[2000-01-01 00:00, 2000-01-01 23:59)')
+      * ```
+      *
+      * @exampleSql On range columns
+      * ```sql
+      * create table
+      *   reservations (
+      *     id int8 primary key,
+      *     room_name text,
+      *     during tsrange
+      *   );
+      *
+      * insert into
+      *   reservations (id, room_name, during)
+      * values
+      *   (1, 'Emerald', '[2000-01-01 13:00, 2000-01-01 15:00)'),
+      *   (2, 'Topaz', '[2000-01-02 09:00, 2000-01-02 10:00)');
+      * ```
+      *
+      * @exampleResponse On range columns
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "room_name": "Emerald",
+      *       "during": "[\"2000-01-01 13:00:00\",\"2000-01-01 15:00:00\")"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @example On `jsonb` columns
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('users')
+      *   .select('name')
+      *   .containedBy('address', {})
+      * ```
+      *
+      * @exampleSql On `jsonb` columns
+      * ```sql
+      * create table
+      *   users (
+      *     id int8 primary key,
+      *     name text,
+      *     address jsonb
+      *   );
+      *
+      * insert into
+      *   users (id, name, address)
+      * values
+      *   (1, 'Michael', '{ "postcode": 90210, "street": "Melrose Place" }'),
+      *   (2, 'Jane', '{}');
+      * ```
+      *
+      * @exampleResponse On `jsonb` columns
+      * ```json
+      *   {
+      *     "data": [
+      *       {
+      *         "name": "Jane"
+      *       }
+      *     ],
+      *     "status": 200,
+      *     "statusText": "OK"
+      *   }
+      *
+      * ```
       */
       containedBy(column, value) {
         if (typeof value === "string") this.url.searchParams.append(column, `cd.${value}`);
@@ -1008,6 +2469,54 @@ ${cause.stack}`;
       *
       * @param column - The range column to filter on
       * @param range - The range to filter with
+      *
+      * @category Database
+      *
+      * @exampleDescription With `select()`
+      * Postgres supports a number of [range
+      * types](https://www.postgresql.org/docs/current/rangetypes.html). You
+      * can filter on range columns using the string representation of range
+      * values.
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('reservations')
+      *   .select()
+      *   .rangeGt('during', '[2000-01-02 08:00, 2000-01-02 09:00)')
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   reservations (
+      *     id int8 primary key,
+      *     room_name text,
+      *     during tsrange
+      *   );
+      *
+      * insert into
+      *   reservations (id, room_name, during)
+      * values
+      *   (1, 'Emerald', '[2000-01-01 13:00, 2000-01-01 15:00)'),
+      *   (2, 'Topaz', '[2000-01-02 09:00, 2000-01-02 10:00)');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      *   {
+      *     "data": [
+      *       {
+      *         "id": 2,
+      *         "room_name": "Topaz",
+      *         "during": "[\"2000-01-02 09:00:00\",\"2000-01-02 10:00:00\")"
+      *       }
+      *     ],
+      *     "status": 200,
+      *     "statusText": "OK"
+      *   }
+      *
+      * ```
       */
       rangeGt(column, range) {
         this.url.searchParams.append(column, `sr.${range}`);
@@ -1020,6 +2529,54 @@ ${cause.stack}`;
       *
       * @param column - The range column to filter on
       * @param range - The range to filter with
+      *
+      * @category Database
+      *
+      * @exampleDescription With `select()`
+      * Postgres supports a number of [range
+      * types](https://www.postgresql.org/docs/current/rangetypes.html). You
+      * can filter on range columns using the string representation of range
+      * values.
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('reservations')
+      *   .select()
+      *   .rangeGte('during', '[2000-01-02 08:30, 2000-01-02 09:30)')
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   reservations (
+      *     id int8 primary key,
+      *     room_name text,
+      *     during tsrange
+      *   );
+      *
+      * insert into
+      *   reservations (id, room_name, during)
+      * values
+      *   (1, 'Emerald', '[2000-01-01 13:00, 2000-01-01 15:00)'),
+      *   (2, 'Topaz', '[2000-01-02 09:00, 2000-01-02 10:00)');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      *   {
+      *     "data": [
+      *       {
+      *         "id": 2,
+      *         "room_name": "Topaz",
+      *         "during": "[\"2000-01-02 09:00:00\",\"2000-01-02 10:00:00\")"
+      *       }
+      *     ],
+      *     "status": 200,
+      *     "statusText": "OK"
+      *   }
+      *
+      * ```
       */
       rangeGte(column, range) {
         this.url.searchParams.append(column, `nxl.${range}`);
@@ -1031,6 +2588,53 @@ ${cause.stack}`;
       *
       * @param column - The range column to filter on
       * @param range - The range to filter with
+      *
+      * @category Database
+      *
+      * @exampleDescription With `select()`
+      * Postgres supports a number of [range
+      * types](https://www.postgresql.org/docs/current/rangetypes.html). You
+      * can filter on range columns using the string representation of range
+      * values.
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('reservations')
+      *   .select()
+      *   .rangeLt('during', '[2000-01-01 15:00, 2000-01-01 16:00)')
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   reservations (
+      *     id int8 primary key,
+      *     room_name text,
+      *     during tsrange
+      *   );
+      *
+      * insert into
+      *   reservations (id, room_name, during)
+      * values
+      *   (1, 'Emerald', '[2000-01-01 13:00, 2000-01-01 15:00)'),
+      *   (2, 'Topaz', '[2000-01-02 09:00, 2000-01-02 10:00)');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "room_name": "Emerald",
+      *       "during": "[\"2000-01-01 13:00:00\",\"2000-01-01 15:00:00\")"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       rangeLt(column, range) {
         this.url.searchParams.append(column, `sl.${range}`);
@@ -1043,6 +2647,54 @@ ${cause.stack}`;
       *
       * @param column - The range column to filter on
       * @param range - The range to filter with
+      *
+      * @category Database
+      *
+      * @exampleDescription With `select()`
+      * Postgres supports a number of [range
+      * types](https://www.postgresql.org/docs/current/rangetypes.html). You
+      * can filter on range columns using the string representation of range
+      * values.
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('reservations')
+      *   .select()
+      *   .rangeLte('during', '[2000-01-01 14:00, 2000-01-01 16:00)')
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   reservations (
+      *     id int8 primary key,
+      *     room_name text,
+      *     during tsrange
+      *   );
+      *
+      * insert into
+      *   reservations (id, room_name, during)
+      * values
+      *   (1, 'Emerald', '[2000-01-01 13:00, 2000-01-01 15:00)'),
+      *   (2, 'Topaz', '[2000-01-02 09:00, 2000-01-02 10:00)');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      *   {
+      *     "data": [
+      *       {
+      *         "id": 1,
+      *         "room_name": "Emerald",
+      *         "during": "[\"2000-01-01 13:00:00\",\"2000-01-01 15:00:00\")"
+      *       }
+      *     ],
+      *     "status": 200,
+      *     "statusText": "OK"
+      *   }
+      *
+      * ```
       */
       rangeLte(column, range) {
         this.url.searchParams.append(column, `nxr.${range}`);
@@ -1055,6 +2707,53 @@ ${cause.stack}`;
       *
       * @param column - The range column to filter on
       * @param range - The range to filter with
+      *
+      * @category Database
+      *
+      * @exampleDescription With `select()`
+      * Postgres supports a number of [range
+      * types](https://www.postgresql.org/docs/current/rangetypes.html). You
+      * can filter on range columns using the string representation of range
+      * values.
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('reservations')
+      *   .select()
+      *   .rangeAdjacent('during', '[2000-01-01 12:00, 2000-01-01 13:00)')
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   reservations (
+      *     id int8 primary key,
+      *     room_name text,
+      *     during tsrange
+      *   );
+      *
+      * insert into
+      *   reservations (id, room_name, during)
+      * values
+      *   (1, 'Emerald', '[2000-01-01 13:00, 2000-01-01 15:00)'),
+      *   (2, 'Topaz', '[2000-01-02 09:00, 2000-01-02 10:00)');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "room_name": "Emerald",
+      *       "during": "[\"2000-01-01 13:00:00\",\"2000-01-01 15:00:00\")"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       rangeAdjacent(column, range) {
         this.url.searchParams.append(column, `adj.${range}`);
@@ -1066,6 +2765,90 @@ ${cause.stack}`;
       *
       * @param column - The array or range column to filter on
       * @param value - The array or range value to filter with
+      *
+      * @category Database
+      *
+      * @example On array columns
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('issues')
+      *   .select('title')
+      *   .overlaps('tags', ['is:closed', 'severity:high'])
+      * ```
+      *
+      * @exampleSql On array columns
+      * ```sql
+      * create table
+      *   issues (
+      *     id int8 primary key,
+      *     title text,
+      *     tags text[]
+      *   );
+      *
+      * insert into
+      *   issues (id, title, tags)
+      * values
+      *   (1, 'Cache invalidation is not working', array['is:open', 'severity:high', 'priority:low']),
+      *   (2, 'Use better names', array['is:open', 'severity:low', 'priority:medium']);
+      * ```
+      *
+      * @exampleResponse On array columns
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "title": "Cache invalidation is not working"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription On range columns
+      * Postgres supports a number of [range
+      * types](https://www.postgresql.org/docs/current/rangetypes.html). You
+      * can filter on range columns using the string representation of range
+      * values.
+      *
+      * @example On range columns
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('reservations')
+      *   .select()
+      *   .overlaps('during', '[2000-01-01 12:45, 2000-01-01 13:15)')
+      * ```
+      *
+      * @exampleSql On range columns
+      * ```sql
+      * create table
+      *   reservations (
+      *     id int8 primary key,
+      *     room_name text,
+      *     during tsrange
+      *   );
+      *
+      * insert into
+      *   reservations (id, room_name, during)
+      * values
+      *   (1, 'Emerald', '[2000-01-01 13:00, 2000-01-01 15:00)'),
+      *   (2, 'Topaz', '[2000-01-02 09:00, 2000-01-02 10:00)');
+      * ```
+      *
+      * @exampleResponse On range columns
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "room_name": "Emerald",
+      *       "during": "[\"2000-01-01 13:00:00\",\"2000-01-01 15:00:00\")"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       overlaps(column, value) {
         if (typeof value === "string") this.url.searchParams.append(column, `ov.${value}`);
@@ -1081,6 +2864,99 @@ ${cause.stack}`;
       * @param options - Named parameters
       * @param options.config - The text search configuration to use
       * @param options.type - Change how the `query` text is interpreted
+      *
+      * @category Database
+      *
+      * @remarks
+      * - For more information, see [Postgres full text search](/docs/guides/database/full-text-search).
+      *
+      * @example Text search
+      * ```ts
+      * const result = await supabase
+      *   .from("texts")
+      *   .select("content")
+      *   .textSearch("content", `'eggs' & 'ham'`, {
+      *     config: "english",
+      *   });
+      * ```
+      *
+      * @exampleSql Text search
+      * ```sql
+      * create table texts (
+      *   id      bigint
+      *           primary key
+      *           generated always as identity,
+      *   content text
+      * );
+      *
+      * insert into texts (content) values
+      *     ('Four score and seven years ago'),
+      *     ('The road goes ever on and on'),
+      *     ('Green eggs and ham')
+      * ;
+      * ```
+      *
+      * @exampleResponse Text search
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "content": "Green eggs and ham"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription Basic normalization
+      * Uses PostgreSQL's `plainto_tsquery` function.
+      *
+      * @example Basic normalization
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('quotes')
+      *   .select('catchphrase')
+      *   .textSearch('catchphrase', `'fat' & 'cat'`, {
+      *     type: 'plain',
+      *     config: 'english'
+      *   })
+      * ```
+      *
+      * @exampleDescription Full normalization
+      * Uses PostgreSQL's `phraseto_tsquery` function.
+      *
+      * @example Full normalization
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('quotes')
+      *   .select('catchphrase')
+      *   .textSearch('catchphrase', `'fat' & 'cat'`, {
+      *     type: 'phrase',
+      *     config: 'english'
+      *   })
+      * ```
+      *
+      * @exampleDescription Websearch
+      * Uses PostgreSQL's `websearch_to_tsquery` function.
+      * This function will never raise syntax errors, which makes it possible to use raw user-supplied input for search, and can be used
+      * with advanced operators.
+      *
+      * - `unquoted text`: text not inside quote marks will be converted to terms separated by & operators, as if processed by plainto_tsquery.
+      * - `"quoted text"`: text inside quote marks will be converted to terms separated by `<->` operators, as if processed by phraseto_tsquery.
+      * - `OR`: the word “or” will be converted to the | operator.
+      * - `-`: a dash will be converted to the ! operator.
+      *
+      * @example Websearch
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('quotes')
+      *   .select('catchphrase')
+      *   .textSearch('catchphrase', `'fat or cat'`, {
+      *     type: 'websearch',
+      *     config: 'english'
+      *   })
+      * ```
       */
       textSearch(column, query, { config, type } = {}) {
         let typePart = "";
@@ -1097,9 +2973,45 @@ ${cause.stack}`;
       *
       * @param query - The object to filter with, with column names as keys mapped
       * to their filter values
+      *
+      * @category Database
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select('name')
+      *   .match({ id: 2, name: 'Leia' })
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "Leia"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       match(query) {
-        Object.entries(query).forEach(([column, value]) => {
+        Object.entries(query).filter(([_, value]) => value !== void 0).forEach(([column, value]) => {
           this.url.searchParams.append(column, `eq.${value}`);
         });
         return this;
@@ -1116,6 +3028,51 @@ ${cause.stack}`;
       * @param operator - The operator to be negated to filter with, following
       * PostgREST syntax
       * @param value - The value to filter with, following PostgREST syntax
+      *
+      * @category Database
+      *
+      * @remarks
+      * not() expects you to use the raw PostgREST syntax for the filter values.
+      *
+      * ```ts
+      * .not('id', 'in', '(5,6,7)')  // Use `()` for `in` filter
+      * .not('arraycol', 'cs', '{"a","b"}')  // Use `cs` for `contains()`, `{}` for array values
+      * ```
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('countries')
+      *   .select()
+      *   .not('name', 'is', null)
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   countries (id int8 primary key, name text);
+      *
+      * insert into
+      *   countries (id, name)
+      * values
+      *   (1, 'null'),
+      *   (2, null);
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      *   {
+      *     "data": [
+      *       {
+      *         "id": 1,
+      *         "name": "null"
+      *       }
+      *     ],
+      *     "status": 200,
+      *     "statusText": "OK"
+      *   }
+      *
+      * ```
       */
       not(column, operator, value) {
         this.url.searchParams.append(column, `not.${operator}.${value}`);
@@ -1135,6 +3092,141 @@ ${cause.stack}`;
       * @param options.referencedTable - Set this to filter on referenced tables
       * instead of the parent table
       * @param options.foreignTable - Deprecated, use `referencedTable` instead
+      *
+      * @category Database
+      *
+      * @remarks
+      * or() expects you to use the raw PostgREST syntax for the filter names and values.
+      *
+      * ```ts
+      * .or('id.in.(5,6,7), arraycol.cs.{"a","b"}')  // Use `()` for `in` filter, `{}` for array values and `cs` for `contains()`.
+      * .or('id.in.(5,6,7), arraycol.cd.{"a","b"}')  // Use `cd` for `containedBy()`
+      * ```
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select('name')
+      *   .or('id.eq.2,name.eq.Han')
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "Leia"
+      *     },
+      *     {
+      *       "name": "Han"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @example Use `or` with `and`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select('name')
+      *   .or('id.gt.3,and(id.eq.1,name.eq.Luke)')
+      * ```
+      *
+      * @exampleSql Use `or` with `and`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse Use `or` with `and`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "Luke"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @example Use `or` on referenced tables
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('orchestral_sections')
+      *   .select(`
+      *     name,
+      *     instruments!inner (
+      *       name
+      *     )
+      *   `)
+      *   .or('section_id.eq.1,name.eq.guzheng', { referencedTable: 'instruments' })
+      * ```
+      *
+      * @exampleSql Use `or` on referenced tables
+      * ```sql
+      * create table
+      *   orchestral_sections (id int8 primary key, name text);
+      * create table
+      *   instruments (
+      *     id int8 primary key,
+      *     section_id int8 not null references orchestral_sections,
+      *     name text
+      *   );
+      *
+      * insert into
+      *   orchestral_sections (id, name)
+      * values
+      *   (1, 'strings'),
+      *   (2, 'woodwinds');
+      * insert into
+      *   instruments (id, section_id, name)
+      * values
+      *   (1, 2, 'flute'),
+      *   (2, 1, 'violin');
+      * ```
+      *
+      * @exampleResponse Use `or` on referenced tables
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "strings",
+      *       "instruments": [
+      *         {
+      *           "name": "violin"
+      *         }
+      *       ]
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       or(filters, { foreignTable, referencedTable = foreignTable } = {}) {
         const key = referencedTable ? `${referencedTable}.or` : "or";
@@ -1153,6 +3245,105 @@ ${cause.stack}`;
       * @param column - The column to filter on
       * @param operator - The operator to filter with, following PostgREST syntax
       * @param value - The value to filter with, following PostgREST syntax
+      *
+      * @category Database
+      *
+      * @remarks
+      * filter() expects you to use the raw PostgREST syntax for the filter values.
+      *
+      * ```ts
+      * .filter('id', 'in', '(5,6,7)')  // Use `()` for `in` filter
+      * .filter('arraycol', 'cs', '{"a","b"}')  // Use `cs` for `contains()`, `{}` for array values
+      * ```
+      *
+      * @example With `select()`
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      *   .filter('name', 'in', '("Han","Yoda")')
+      * ```
+      *
+      * @exampleSql With `select()`
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse With `select()`
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 3,
+      *       "name": "Han"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @example On a referenced table
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('orchestral_sections')
+      *   .select(`
+      *     name,
+      *     instruments!inner (
+      *       name
+      *     )
+      *   `)
+      *   .filter('instruments.name', 'eq', 'flute')
+      * ```
+      *
+      * @exampleSql On a referenced table
+      * ```sql
+      * create table
+      *   orchestral_sections (id int8 primary key, name text);
+      * create table
+      *    instruments (
+      *     id int8 primary key,
+      *     section_id int8 not null references orchestral_sections,
+      *     name text
+      *   );
+      *
+      * insert into
+      *   orchestral_sections (id, name)
+      * values
+      *   (1, 'strings'),
+      *   (2, 'woodwinds');
+      * insert into
+      *   instruments (id, section_id, name)
+      * values
+      *   (1, 2, 'flute'),
+      *   (2, 1, 'violin');
+      * ```
+      *
+      * @exampleResponse On a referenced table
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "woodwinds",
+      *       "instruments": [
+      *         {
+      *           "name": "flute"
+      *         }
+      *       ]
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       filter(column, operator, value) {
         this.url.searchParams.append(column, `${operator}.${value}`);
@@ -1163,9 +3354,11 @@ ${cause.stack}`;
       /**
       * Creates a query builder scoped to a Postgres table or view.
       *
-      * @example
+      * @category Database
+      *
+      * @example Creating a Postgrest query builder
       * ```ts
-      * import PostgrestQueryBuilder from '@supabase/postgrest-js'
+      * import { PostgrestQueryBuilder } from '@supabase/postgrest-js'
       *
       * const query = new PostgrestQueryBuilder(
       *   new URL('https://xyzcompany.supabase.co/rest/v1/users'),
@@ -1213,6 +3406,760 @@ ${cause.stack}`;
       * @remarks
       * When using `count` with `.range()` or `.limit()`, the returned `count` is the total number of rows
       * that match your filters, not the number of rows in the current page. Use this to build pagination UI.
+      
+      * - By default, Supabase projects return a maximum of 1,000 rows. This setting can be changed in your project's [API settings](/dashboard/project/_/settings/api). It's recommended that you keep it low to limit the payload size of accidental or malicious requests. You can use `range()` queries to paginate through your data.
+      * - `select()` can be combined with [Filters](/docs/reference/javascript/using-filters)
+      * - `select()` can be combined with [Modifiers](/docs/reference/javascript/using-modifiers)
+      * - `apikey` is a reserved keyword if you're using the [Supabase Platform](/docs/guides/platform) and [should be avoided as a column name](https://github.com/supabase/supabase/issues/5465). *
+      * @category Database
+      *
+      * @example Getting your data
+      * ```js
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select()
+      * ```
+      *
+      * @exampleSql Getting your data
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Harry'),
+      *   (2, 'Frodo'),
+      *   (3, 'Katniss');
+      * ```
+      *
+      * @exampleResponse Getting your data
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "name": "Harry"
+      *     },
+      *     {
+      *       "id": 2,
+      *       "name": "Frodo"
+      *     },
+      *     {
+      *       "id": 3,
+      *       "name": "Katniss"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @example Selecting specific columns
+      * ```js
+      * const { data, error } = await supabase
+      *   .from('characters')
+      *   .select('name')
+      * ```
+      *
+      * @exampleSql Selecting specific columns
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Frodo'),
+      *   (2, 'Harry'),
+      *   (3, 'Katniss');
+      * ```
+      *
+      * @exampleResponse Selecting specific columns
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "Frodo"
+      *     },
+      *     {
+      *       "name": "Harry"
+      *     },
+      *     {
+      *       "name": "Katniss"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription Query referenced tables
+      * If your database has foreign key relationships, you can query related tables too.
+      *
+      * @example Query referenced tables
+      * ```js
+      * const { data, error } = await supabase
+      *   .from('orchestral_sections')
+      *   .select(`
+      *     name,
+      *     instruments (
+      *       name
+      *     )
+      *   `)
+      * ```
+      *
+      * @exampleSql Query referenced tables
+      * ```sql
+      * create table
+      *   orchestral_sections (id int8 primary key, name text);
+      * create table
+      *   instruments (
+      *     id int8 primary key,
+      *     section_id int8 not null references orchestral_sections,
+      *     name text
+      *   );
+      *
+      * insert into
+      *   orchestral_sections (id, name)
+      * values
+      *   (1, 'strings'),
+      *   (2, 'woodwinds');
+      * insert into
+      *   instruments (id, section_id, name)
+      * values
+      *   (1, 2, 'flute'),
+      *   (2, 1, 'violin');
+      * ```
+      *
+      * @exampleResponse Query referenced tables
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "strings",
+      *       "instruments": [
+      *         {
+      *           "name": "violin"
+      *         }
+      *       ]
+      *     },
+      *     {
+      *       "name": "woodwinds",
+      *       "instruments": [
+      *         {
+      *           "name": "flute"
+      *         }
+      *       ]
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription Query referenced tables with spaces in their names
+      * If your table name contains spaces, you must use double quotes in the `select` statement to reference the table.
+      *
+      * @example Query referenced tables with spaces in their names
+      * ```js
+      * const { data, error } = await supabase
+      *   .from('orchestral sections')
+      *   .select(`
+      *     name,
+      *     "musical instruments" (
+      *       name
+      *     )
+      *   `)
+      * ```
+      *
+      * @exampleSql Query referenced tables with spaces in their names
+      * ```sql
+      * create table
+      *   "orchestral sections" (id int8 primary key, name text);
+      * create table
+      *   "musical instruments" (
+      *     id int8 primary key,
+      *     section_id int8 not null references "orchestral sections",
+      *     name text
+      *   );
+      *
+      * insert into
+      *   "orchestral sections" (id, name)
+      * values
+      *   (1, 'strings'),
+      *   (2, 'woodwinds');
+      * insert into
+      *   "musical instruments" (id, section_id, name)
+      * values
+      *   (1, 2, 'flute'),
+      *   (2, 1, 'violin');
+      * ```
+      *
+      * @exampleResponse Query referenced tables with spaces in their names
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "strings",
+      *       "musical instruments": [
+      *         {
+      *           "name": "violin"
+      *         }
+      *       ]
+      *     },
+      *     {
+      *       "name": "woodwinds",
+      *       "musical instruments": [
+      *         {
+      *           "name": "flute"
+      *         }
+      *       ]
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription Query referenced tables through a join table
+      * If you're in a situation where your tables are **NOT** directly
+      * related, but instead are joined by a _join table_, you can still use
+      * the `select()` method to query the related data. The join table needs
+      * to have the foreign keys as part of its composite primary key.
+      *
+      * @example Query referenced tables through a join table
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('users')
+      *   .select(`
+      *     name,
+      *     teams (
+      *       name
+      *     )
+      *   `)
+      *   
+      * ```
+      *
+      * @exampleSql Query referenced tables through a join table
+      * ```sql
+      * create table
+      *   users (
+      *     id int8 primary key,
+      *     name text
+      *   );
+      * create table
+      *   teams (
+      *     id int8 primary key,
+      *     name text
+      *   );
+      * -- join table
+      * create table
+      *   users_teams (
+      *     user_id int8 not null references users,
+      *     team_id int8 not null references teams,
+      *     -- both foreign keys must be part of a composite primary key
+      *     primary key (user_id, team_id)
+      *   );
+      *
+      * insert into
+      *   users (id, name)
+      * values
+      *   (1, 'Kiran'),
+      *   (2, 'Evan');
+      * insert into
+      *   teams (id, name)
+      * values
+      *   (1, 'Green'),
+      *   (2, 'Blue');
+      * insert into
+      *   users_teams (user_id, team_id)
+      * values
+      *   (1, 1),
+      *   (1, 2),
+      *   (2, 2);
+      * ```
+      *
+      * @exampleResponse Query referenced tables through a join table
+      * ```json
+      *   {
+      *     "data": [
+      *       {
+      *         "name": "Kiran",
+      *         "teams": [
+      *           {
+      *             "name": "Green"
+      *           },
+      *           {
+      *             "name": "Blue"
+      *           }
+      *         ]
+      *       },
+      *       {
+      *         "name": "Evan",
+      *         "teams": [
+      *           {
+      *             "name": "Blue"
+      *           }
+      *         ]
+      *       }
+      *     ],
+      *     "status": 200,
+      *     "statusText": "OK"
+      *   }
+      *   
+      * ```
+      *
+      * @exampleDescription Query the same referenced table multiple times
+      * If you need to query the same referenced table twice, use the name of the
+      * joined column to identify which join to use. You can also give each
+      * column an alias.
+      *
+      * @example Query the same referenced table multiple times
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('messages')
+      *   .select(`
+      *     content,
+      *     from:sender_id(name),
+      *     to:receiver_id(name)
+      *   `)
+      *
+      * // To infer types, use the name of the table (in this case `users`) and
+      * // the name of the foreign key constraint.
+      * const { data, error } = await supabase
+      *   .from('messages')
+      *   .select(`
+      *     content,
+      *     from:users!messages_sender_id_fkey(name),
+      *     to:users!messages_receiver_id_fkey(name)
+      *   `)
+      * ```
+      *
+      * @exampleSql Query the same referenced table multiple times
+      * ```sql
+      *  create table
+      *  users (id int8 primary key, name text);
+      *
+      *  create table
+      *    messages (
+      *      sender_id int8 not null references users,
+      *      receiver_id int8 not null references users,
+      *      content text
+      *    );
+      *
+      *  insert into
+      *    users (id, name)
+      *  values
+      *    (1, 'Kiran'),
+      *    (2, 'Evan');
+      *
+      *  insert into
+      *    messages (sender_id, receiver_id, content)
+      *  values
+      *    (1, 2, '👋');
+      *  ```
+      * ```
+      *
+      * @exampleResponse Query the same referenced table multiple times
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "content": "👋",
+      *       "from": {
+      *         "name": "Kiran"
+      *       },
+      *       "to": {
+      *         "name": "Evan"
+      *       }
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription Query nested foreign tables through a join table
+      * You can use the result of a joined table to gather data in
+      * another foreign table. With multiple references to the same foreign
+      * table you must specify the column on which to conduct the join.
+      *
+      * @example Query nested foreign tables through a join table
+      * ```ts
+      *   const { data, error } = await supabase
+      *     .from('games')
+      *     .select(`
+      *       game_id:id,
+      *       away_team:teams!games_away_team_fkey (
+      *         users (
+      *           id,
+      *           name
+      *         )
+      *       )
+      *     `)
+      *   
+      * ```
+      *
+      * @exampleSql Query nested foreign tables through a join table
+      * ```sql
+      * ```sql
+      * create table
+      *   users (
+      *     id int8 primary key,
+      *     name text
+      *   );
+      * create table
+      *   teams (
+      *     id int8 primary key,
+      *     name text
+      *   );
+      * -- join table
+      * create table
+      *   users_teams (
+      *     user_id int8 not null references users,
+      *     team_id int8 not null references teams,
+      *
+      *     primary key (user_id, team_id)
+      *   );
+      * create table
+      *   games (
+      *     id int8 primary key,
+      *     home_team int8 not null references teams,
+      *     away_team int8 not null references teams,
+      *     name text
+      *   );
+      *
+      * insert into users (id, name)
+      * values
+      *   (1, 'Kiran'),
+      *   (2, 'Evan');
+      * insert into
+      *   teams (id, name)
+      * values
+      *   (1, 'Green'),
+      *   (2, 'Blue');
+      * insert into
+      *   users_teams (user_id, team_id)
+      * values
+      *   (1, 1),
+      *   (1, 2),
+      *   (2, 2);
+      * insert into
+      *   games (id, home_team, away_team, name)
+      * values
+      *   (1, 1, 2, 'Green vs Blue'),
+      *   (2, 2, 1, 'Blue vs Green');
+      * ```
+      *
+      * @exampleResponse Query nested foreign tables through a join table
+      * ```json
+      *   {
+      *     "data": [
+      *       {
+      *         "game_id": 1,
+      *         "away_team": {
+      *           "users": [
+      *             {
+      *               "id": 1,
+      *               "name": "Kiran"
+      *             },
+      *             {
+      *               "id": 2,
+      *               "name": "Evan"
+      *             }
+      *           ]
+      *         }
+      *       },
+      *       {
+      *         "game_id": 2,
+      *         "away_team": {
+      *           "users": [
+      *             {
+      *               "id": 1,
+      *               "name": "Kiran"
+      *             }
+      *           ]
+      *         }
+      *       }
+      *     ],
+      *     "status": 200,
+      *     "statusText": "OK"
+      *   }
+      *   
+      * ```
+      *
+      * @exampleDescription Filtering through referenced tables
+      * If the filter on a referenced table's column is not satisfied, the referenced
+      * table returns `[]` or `null` but the parent table is not filtered out.
+      * If you want to filter out the parent table rows, use the `!inner` hint
+      *
+      * @example Filtering through referenced tables
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('instruments')
+      *   .select('name, orchestral_sections(*)')
+      *   .eq('orchestral_sections.name', 'percussion')
+      * ```
+      *
+      * @exampleSql Filtering through referenced tables
+      * ```sql
+      * create table
+      *   orchestral_sections (id int8 primary key, name text);
+      * create table
+      *   instruments (
+      *     id int8 primary key,
+      *     section_id int8 not null references orchestral_sections,
+      *     name text
+      *   );
+      *
+      * insert into
+      *   orchestral_sections (id, name)
+      * values
+      *   (1, 'strings'),
+      *   (2, 'woodwinds');
+      * insert into
+      *   instruments (id, section_id, name)
+      * values
+      *   (1, 2, 'flute'),
+      *   (2, 1, 'violin');
+      * ```
+      *
+      * @exampleResponse Filtering through referenced tables
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "flute",
+      *       "orchestral_sections": null
+      *     },
+      *     {
+      *       "name": "violin",
+      *       "orchestral_sections": null
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription Querying referenced table with count
+      * You can get the number of rows in a related table by using the
+      * **count** property.
+      *
+      * @example Querying referenced table with count
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('orchestral_sections')
+      *   .select(`*, instruments(count)`)
+      * ```
+      *
+      * @exampleSql Querying referenced table with count
+      * ```sql
+      * create table orchestral_sections (
+      *   "id" "uuid" primary key default "extensions"."uuid_generate_v4"() not null,
+      *   "name" text
+      * );
+      *
+      * create table characters (
+      *   "id" "uuid" primary key default "extensions"."uuid_generate_v4"() not null,
+      *   "name" text,
+      *   "section_id" "uuid" references public.orchestral_sections on delete cascade
+      * );
+      *
+      * with section as (
+      *   insert into orchestral_sections (name)
+      *   values ('strings') returning id
+      * )
+      * insert into instruments (name, section_id) values
+      * ('violin', (select id from section)),
+      * ('viola', (select id from section)),
+      * ('cello', (select id from section)),
+      * ('double bass', (select id from section));
+      * ```
+      *
+      * @exampleResponse Querying referenced table with count
+      * ```json
+      * [
+      *   {
+      *     "id": "693694e7-d993-4360-a6d7-6294e325d9b6",
+      *     "name": "strings",
+      *     "instruments": [
+      *       {
+      *         "count": 4
+      *       }
+      *     ]
+      *   }
+      * ]
+      * ```
+      *
+      * @exampleDescription Querying with count option
+      * You can get the number of rows by using the
+      * [count](/docs/reference/javascript/select#parameters) option.
+      *
+      * @example Querying with count option
+      * ```ts
+      * const { count, error } = await supabase
+      *   .from('characters')
+      *   .select('*', { count: 'exact', head: true })
+      * ```
+      *
+      * @exampleSql Querying with count option
+      * ```sql
+      * create table
+      *   characters (id int8 primary key, name text);
+      *
+      * insert into
+      *   characters (id, name)
+      * values
+      *   (1, 'Luke'),
+      *   (2, 'Leia'),
+      *   (3, 'Han');
+      * ```
+      *
+      * @exampleResponse Querying with count option
+      * ```json
+      * {
+      *   "count": 3,
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription Querying JSON data
+      * You can select and filter data inside of
+      * [JSON](/docs/guides/database/json) columns. Postgres offers some
+      * [operators](/docs/guides/database/json#query-the-jsonb-data) for
+      * querying JSON data.
+      *
+      * @example Querying JSON data
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('users')
+      *   .select(`
+      *     id, name,
+      *     address->city
+      *   `)
+      * ```
+      *
+      * @exampleSql Querying JSON data
+      * ```sql
+      * create table
+      *   users (
+      *     id int8 primary key,
+      *     name text,
+      *     address jsonb
+      *   );
+      *
+      * insert into
+      *   users (id, name, address)
+      * values
+      *   (1, 'Frodo', '{"city":"Hobbiton"}');
+      * ```
+      *
+      * @exampleResponse Querying JSON data
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "name": "Frodo",
+      *       "city": "Hobbiton"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription Querying referenced table with inner join
+      * If you don't want to return the referenced table contents, you can leave the parenthesis empty.
+      * Like `.select('name, orchestral_sections!inner()')`.
+      *
+      * @example Querying referenced table with inner join
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('instruments')
+      *   .select('name, orchestral_sections!inner(name)')
+      *   .eq('orchestral_sections.name', 'woodwinds')
+      *   .limit(1)
+      * ```
+      *
+      * @exampleSql Querying referenced table with inner join
+      * ```sql
+      * create table orchestral_sections (
+      *   "id" "uuid" primary key default "extensions"."uuid_generate_v4"() not null,
+      *   "name" text
+      * );
+      *
+      * create table instruments (
+      *   "id" "uuid" primary key default "extensions"."uuid_generate_v4"() not null,
+      *   "name" text,
+      *   "section_id" "uuid" references public.orchestral_sections on delete cascade
+      * );
+      *
+      * with section as (
+      *   insert into orchestral_sections (name)
+      *   values ('woodwinds') returning id
+      * )
+      * insert into instruments (name, section_id) values
+      * ('flute', (select id from section)),
+      * ('clarinet', (select id from section)),
+      * ('bassoon', (select id from section)),
+      * ('piccolo', (select id from section));
+      * ```
+      *
+      * @exampleResponse Querying referenced table with inner join
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "name": "flute",
+      *       "orchestral_sections": {"name": "woodwinds"}
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription Switching schemas per query
+      * In addition to setting the schema during initialization, you can also switch schemas on a per-query basis.
+      * Make sure you've set up your [database privileges and API settings](/docs/guides/api/using-custom-schemas).
+      *
+      * @example Switching schemas per query
+      * ```ts
+      * const { data, error } = await supabase
+      *   .schema('myschema')
+      *   .from('mytable')
+      *   .select()
+      * ```
+      *
+      * @exampleSql Switching schemas per query
+      * ```sql
+      * create schema myschema;
+      *
+      * create table myschema.mytable (
+      *   id uuid primary key default gen_random_uuid(),
+      *   data text
+      * );
+      *
+      * insert into myschema.mytable (data) values ('mydata');
+      * ```
+      *
+      * @exampleResponse Switching schemas per query
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": "4162e008-27b0-4c0f-82dc-ccaeee9a624d",
+      *       "data": "mydata"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       select(columns, options) {
         const { head: head2 = false, count } = options !== null && options !== void 0 ? options : {};
@@ -1260,6 +4207,91 @@ ${cause.stack}`;
       * @param options.defaultToNull - Make missing fields default to `null`.
       * Otherwise, use the default value for the column. Only applies for bulk
       * inserts.
+      *
+      * @category Database
+      *
+      * @example Create a record
+      * ```ts
+      * const { error } = await supabase
+      *   .from('countries')
+      *   .insert({ id: 1, name: 'Mordor' })
+      * ```
+      *
+      * @exampleSql Create a record
+      * ```sql
+      * create table
+      *   countries (id int8 primary key, name text);
+      * ```
+      *
+      * @exampleResponse Create a record
+      * ```json
+      * {
+      *   "status": 201,
+      *   "statusText": "Created"
+      * }
+      * ```
+      *
+      * @example Create a record and return it
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('countries')
+      *   .insert({ id: 1, name: 'Mordor' })
+      *   .select()
+      * ```
+      *
+      * @exampleSql Create a record and return it
+      * ```sql
+      * create table
+      *   countries (id int8 primary key, name text);
+      * ```
+      *
+      * @exampleResponse Create a record and return it
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "name": "Mordor"
+      *     }
+      *   ],
+      *   "status": 201,
+      *   "statusText": "Created"
+      * }
+      * ```
+      *
+      * @exampleDescription Bulk create
+      * A bulk create operation is handled in a single transaction.
+      * If any of the inserts fail, none of the rows are inserted.
+      *
+      * @example Bulk create
+      * ```ts
+      * const { error } = await supabase
+      *   .from('countries')
+      *   .insert([
+      *     { id: 1, name: 'Mordor' },
+      *     { id: 1, name: 'The Shire' },
+      *   ])
+      * ```
+      *
+      * @exampleSql Bulk create
+      * ```sql
+      * create table
+      *   countries (id int8 primary key, name text);
+      * ```
+      *
+      * @exampleResponse Bulk create
+      * ```json
+      * {
+      *   "error": {
+      *     "code": "23505",
+      *     "details": "Key (id)=(1) already exists.",
+      *     "hint": null,
+      *     "message": "duplicate key value violates unique constraint \"countries_pkey\""
+      *   },
+      *   "status": 409,
+      *   "statusText": "Conflict"
+      * }
+      * ```
       */
       insert(values, { count, defaultToNull = true } = {}) {
         var _this$fetch;
@@ -1368,6 +4400,129 @@ ${cause.stack}`;
       * //   error: null
       * // }
       * ```
+      *
+      * @category Database
+      *
+      * @remarks
+      * - Primary keys must be included in `values` to use upsert.
+      *
+      * @example Upsert your data
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('instruments')
+      *   .upsert({ id: 1, name: 'piano' })
+      *   .select()
+      * ```
+      *
+      * @exampleSql Upsert your data
+      * ```sql
+      * create table
+      *   instruments (id int8 primary key, name text);
+      *
+      * insert into
+      *   instruments (id, name)
+      * values
+      *   (1, 'harpsichord');
+      * ```
+      *
+      * @exampleResponse Upsert your data
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "name": "piano"
+      *     }
+      *   ],
+      *   "status": 201,
+      *   "statusText": "Created"
+      * }
+      * ```
+      *
+      * @example Bulk Upsert your data
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('instruments')
+      *   .upsert([
+      *     { id: 1, name: 'piano' },
+      *     { id: 2, name: 'harp' },
+      *   ])
+      *   .select()
+      * ```
+      *
+      * @exampleSql Bulk Upsert your data
+      * ```sql
+      * create table
+      *   instruments (id int8 primary key, name text);
+      *
+      * insert into
+      *   instruments (id, name)
+      * values
+      *   (1, 'harpsichord');
+      * ```
+      *
+      * @exampleResponse Bulk Upsert your data
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "name": "piano"
+      *     },
+      *     {
+      *       "id": 2,
+      *       "name": "harp"
+      *     }
+      *   ],
+      *   "status": 201,
+      *   "statusText": "Created"
+      * }
+      * ```
+      *
+      * @exampleDescription Upserting into tables with constraints
+      * In the following query, `upsert()` implicitly uses the `id`
+      * (primary key) column to determine conflicts. If there is no existing
+      * row with the same `id`, `upsert()` inserts a new row, which
+      * will fail in this case as there is already a row with `handle` `"saoirse"`.
+      * Using the `onConflict` option, you can instruct `upsert()` to use
+      * another column with a unique constraint to determine conflicts.
+      *
+      * @example Upserting into tables with constraints
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('users')
+      *   .upsert({ id: 42, handle: 'saoirse', display_name: 'Saoirse' })
+      *   .select()
+      * ```
+      *
+      * @exampleSql Upserting into tables with constraints
+      * ```sql
+      * create table
+      *   users (
+      *     id int8 generated by default as identity primary key,
+      *     handle text not null unique,
+      *     display_name text
+      *   );
+      *
+      * insert into
+      *   users (id, handle, display_name)
+      * values
+      *   (1, 'saoirse', null);
+      * ```
+      *
+      * @exampleResponse Upserting into tables with constraints
+      * ```json
+      * {
+      *   "error": {
+      *     "code": "23505",
+      *     "details": "Key (handle)=(saoirse) already exists.",
+      *     "hint": null,
+      *     "message": "duplicate key value violates unique constraint \"users_handle_key\""
+      *   },
+      *   "status": 409,
+      *   "statusText": "Conflict"
+      * }
+      * ```
       */
       upsert(values, { onConflict, ignoreDuplicates = false, count, defaultToNull = true } = {}) {
         var _this$fetch2;
@@ -1414,6 +4569,124 @@ ${cause.stack}`;
       *
       * `"estimated"`: Uses exact count for low numbers and planned count for high
       * numbers.
+      *
+      * @category Database
+      *
+      * @remarks
+      * - `update()` should always be combined with [Filters](/docs/reference/javascript/using-filters) to target the item(s) you wish to update.
+      *
+      * @example Updating your data
+      * ```ts
+      * const { error } = await supabase
+      *   .from('instruments')
+      *   .update({ name: 'piano' })
+      *   .eq('id', 1)
+      * ```
+      *
+      * @exampleSql Updating your data
+      * ```sql
+      * create table
+      *   instruments (id int8 primary key, name text);
+      *
+      * insert into
+      *   instruments (id, name)
+      * values
+      *   (1, 'harpsichord');
+      * ```
+      *
+      * @exampleResponse Updating your data
+      * ```json
+      * {
+      *   "status": 204,
+      *   "statusText": "No Content"
+      * }
+      * ```
+      *
+      * @example Update a record and return it
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('instruments')
+      *   .update({ name: 'piano' })
+      *   .eq('id', 1)
+      *   .select()
+      * ```
+      *
+      * @exampleSql Update a record and return it
+      * ```sql
+      * create table
+      *   instruments (id int8 primary key, name text);
+      *
+      * insert into
+      *   instruments (id, name)
+      * values
+      *   (1, 'harpsichord');
+      * ```
+      *
+      * @exampleResponse Update a record and return it
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "name": "piano"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription Updating JSON data
+      * Postgres offers some
+      * [operators](/docs/guides/database/json#query-the-jsonb-data) for
+      * working with JSON data. Currently, it is only possible to update the entire JSON document.
+      *
+      * @example Updating JSON data
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('users')
+      *   .update({
+      *     address: {
+      *       street: 'Melrose Place',
+      *       postcode: 90210
+      *     }
+      *   })
+      *   .eq('address->postcode', 90210)
+      *   .select()
+      * ```
+      *
+      * @exampleSql Updating JSON data
+      * ```sql
+      * create table
+      *   users (
+      *     id int8 primary key,
+      *     name text,
+      *     address jsonb
+      *   );
+      *
+      * insert into
+      *   users (id, name, address)
+      * values
+      *   (1, 'Michael', '{ "postcode": 90210 }');
+      * ```
+      *
+      * @exampleResponse Updating JSON data
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "name": "Michael",
+      *       "address": {
+      *         "street": "Melrose Place",
+      *         "postcode": 90210
+      *       }
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       update(values, { count } = {}) {
         var _this$fetch3;
@@ -1448,6 +4721,105 @@ ${cause.stack}`;
       *
       * `"estimated"`: Uses exact count for low numbers and planned count for high
       * numbers.
+      *
+      * @category Database
+      *
+      * @remarks
+      * - `delete()` should always be combined with [filters](/docs/reference/javascript/using-filters) to target the item(s) you wish to delete.
+      * - If you use `delete()` with filters and you have
+      *   [RLS](/docs/learn/auth-deep-dive/auth-row-level-security) enabled, only
+      *   rows visible through `SELECT` policies are deleted. Note that by default
+      *   no rows are visible, so you need at least one `SELECT`/`ALL` policy that
+      *   makes the rows visible.
+      * - When using `delete().in()`, specify an array of values to target multiple rows with a single query. This is particularly useful for batch deleting entries that share common criteria, such as deleting users by their IDs. Ensure that the array you provide accurately represents all records you intend to delete to avoid unintended data removal.
+      *
+      * @example Delete a single record
+      * ```ts
+      * const response = await supabase
+      *   .from('countries')
+      *   .delete()
+      *   .eq('id', 1)
+      * ```
+      *
+      * @exampleSql Delete a single record
+      * ```sql
+      * create table
+      *   countries (id int8 primary key, name text);
+      *
+      * insert into
+      *   countries (id, name)
+      * values
+      *   (1, 'Mordor');
+      * ```
+      *
+      * @exampleResponse Delete a single record
+      * ```json
+      * {
+      *   "status": 204,
+      *   "statusText": "No Content"
+      * }
+      * ```
+      *
+      * @example Delete a record and return it
+      * ```ts
+      * const { data, error } = await supabase
+      *   .from('countries')
+      *   .delete()
+      *   .eq('id', 1)
+      *   .select()
+      * ```
+      *
+      * @exampleSql Delete a record and return it
+      * ```sql
+      * create table
+      *   countries (id int8 primary key, name text);
+      *
+      * insert into
+      *   countries (id, name)
+      * values
+      *   (1, 'Mordor');
+      * ```
+      *
+      * @exampleResponse Delete a record and return it
+      * ```json
+      * {
+      *   "data": [
+      *     {
+      *       "id": 1,
+      *       "name": "Mordor"
+      *     }
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @example Delete multiple records
+      * ```ts
+      * const response = await supabase
+      *   .from('countries')
+      *   .delete()
+      *   .in('id', [1, 2, 3])
+      * ```
+      *
+      * @exampleSql Delete multiple records
+      * ```sql
+      * create table
+      *   countries (id int8 primary key, name text);
+      *
+      * insert into
+      *   countries (id, name)
+      * values
+      *   (1, 'Rohan'), (2, 'The Shire'), (3, 'Mordor');
+      * ```
+      *
+      * @exampleResponse Delete multiple records
+      * ```json
+      * {
+      *   "status": 204,
+      *   "statusText": "No Content"
+      * }
+      * ```
       */
       delete({ count } = {}) {
         var _this$fetch4;
@@ -1477,7 +4849,34 @@ ${cause.stack}`;
       * @param options.urlLengthLimit - Maximum URL length in characters before warnings/errors are triggered. Defaults to 8000.
       * @example
       * ```ts
-      * import PostgrestClient from '@supabase/postgrest-js'
+      * import { PostgrestClient } from '@supabase/postgrest-js'
+      *
+      * const postgrest = new PostgrestClient('https://xyzcompany.supabase.co/rest/v1', {
+      *   headers: { apikey: 'public-anon-key' },
+      *   schema: 'public',
+      *   timeout: 30000, // 30 second timeout
+      * })
+      * ```
+      *
+      * @category Database
+      *
+      * @remarks
+      * - A `timeout` option (in milliseconds) can be set to automatically abort requests that take too long.
+      * - A `urlLengthLimit` option (default: 8000) can be set to control when URL length warnings are included in error messages for aborted requests.
+      *
+      * @example Creating a Postgrest client
+      * ```ts
+      * import { PostgrestClient } from '@supabase/postgrest-js'
+      *
+      * const postgrest = new PostgrestClient('https://xyzcompany.supabase.co/rest/v1', {
+      *   headers: { apikey: 'public-anon-key' },
+      *   schema: 'public',
+      * })
+      * ```
+      *
+      * @example With timeout
+      * ```ts
+      * import { PostgrestClient } from '@supabase/postgrest-js'
       *
       * const postgrest = new PostgrestClient('https://xyzcompany.supabase.co/rest/v1', {
       *   headers: { apikey: 'public-anon-key' },
@@ -1519,6 +4918,8 @@ ${cause.stack}`;
       * Perform a query on a table or a view.
       *
       * @param relation - The table or view name to query
+      *
+      * @category Database
       */
       from(relation) {
         if (!relation || typeof relation !== "string" || relation.trim() === "") throw new Error("Invalid relation name: relation must be a non-empty string.");
@@ -1535,6 +4936,8 @@ ${cause.stack}`;
       * The schema needs to be on the list of exposed schemas inside Supabase.
       *
       * @param schema - The schema to query
+      *
+      * @category Database
       */
       schema(schema) {
         return new PostgrestClient2(this.url, {
@@ -1575,6 +4978,139 @@ ${cause.stack}`;
       *   .rpc('function_a', {})
       *   .overrideTypes<{ id: string; user_id: string }[]>()
       * ```
+      *
+      * @category Database
+      *
+      * @example Call a Postgres function without arguments
+      * ```ts
+      * const { data, error } = await supabase.rpc('hello_world')
+      * ```
+      *
+      * @exampleSql Call a Postgres function without arguments
+      * ```sql
+      * create function hello_world() returns text as $$
+      *   select 'Hello world';
+      * $$ language sql;
+      * ```
+      *
+      * @exampleResponse Call a Postgres function without arguments
+      * ```json
+      * {
+      *   "data": "Hello world",
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @example Call a Postgres function with arguments
+      * ```ts
+      * const { data, error } = await supabase.rpc('echo', { say: '👋' })
+      * ```
+      *
+      * @exampleSql Call a Postgres function with arguments
+      * ```sql
+      * create function echo(say text) returns text as $$
+      *   select say;
+      * $$ language sql;
+      * ```
+      *
+      * @exampleResponse Call a Postgres function with arguments
+      * ```json
+      *   {
+      *     "data": "👋",
+      *     "status": 200,
+      *     "statusText": "OK"
+      *   }
+      *
+      * ```
+      *
+      * @exampleDescription Bulk processing
+      * You can process large payloads by passing in an array as an argument.
+      *
+      * @example Bulk processing
+      * ```ts
+      * const { data, error } = await supabase.rpc('add_one_each', { arr: [1, 2, 3] })
+      * ```
+      *
+      * @exampleSql Bulk processing
+      * ```sql
+      * create function add_one_each(arr int[]) returns int[] as $$
+      *   select array_agg(n + 1) from unnest(arr) as n;
+      * $$ language sql;
+      * ```
+      *
+      * @exampleResponse Bulk processing
+      * ```json
+      * {
+      *   "data": [
+      *     2,
+      *     3,
+      *     4
+      *   ],
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @exampleDescription Call a Postgres function with filters
+      * Postgres functions that return tables can also be combined with [Filters](/docs/reference/javascript/using-filters) and [Modifiers](/docs/reference/javascript/using-modifiers).
+      *
+      * @example Call a Postgres function with filters
+      * ```ts
+      * const { data, error } = await supabase
+      *   .rpc('list_stored_countries')
+      *   .eq('id', 1)
+      *   .single()
+      * ```
+      *
+      * @exampleSql Call a Postgres function with filters
+      * ```sql
+      * create table
+      *   countries (id int8 primary key, name text);
+      *
+      * insert into
+      *   countries (id, name)
+      * values
+      *   (1, 'Rohan'),
+      *   (2, 'The Shire');
+      *
+      * create function list_stored_countries() returns setof countries as $$
+      *   select * from countries;
+      * $$ language sql;
+      * ```
+      *
+      * @exampleResponse Call a Postgres function with filters
+      * ```json
+      * {
+      *   "data": {
+      *     "id": 1,
+      *     "name": "Rohan"
+      *   },
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
+      *
+      * @example Call a read-only Postgres function
+      * ```ts
+      * const { data, error } = await supabase.rpc('hello_world', undefined, { get: true })
+      * ```
+      *
+      * @exampleSql Call a read-only Postgres function
+      * ```sql
+      * create function hello_world() returns text as $$
+      *   select 'Hello world';
+      * $$ language sql;
+      * ```
+      *
+      * @exampleResponse Call a read-only Postgres function
+      * ```json
+      * {
+      *   "data": "Hello world",
+      *   "status": 200,
+      *   "statusText": "OK"
+      * }
+      * ```
       */
       rpc(fn, args = {}, { head: head2 = false, get: get4 = false, count } = {}) {
         var _this$fetch;
@@ -1612,10 +5148,10 @@ ${cause.stack}`;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js
 var WebSocketFactory, websocket_factory_default;
 var init_websocket_factory = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js"() {
     WebSocketFactory = class {
       /**
        * Static-only utility – prevent instantiation.
@@ -1679,10 +5215,16 @@ var init_websocket_factory = __esm({
       /**
        * Returns the best available WebSocket constructor for the current runtime.
        *
-       * @example
+       * @category Realtime
+       *
+       * @example Example with error handling
        * ```ts
-       * const WS = WebSocketFactory.getWebSocketConstructor()
-       * const socket = new WS('wss://realtime.supabase.co/socket')
+       * try {
+       *   const WS = WebSocketFactory.getWebSocketConstructor()
+       *   const socket = new WS('wss://example.com/socket')
+       * } catch (error) {
+       *   console.error('WebSocket not available in this environment.', error)
+       * }
        * ```
        */
       static getWebSocketConstructor() {
@@ -1699,24 +5241,15 @@ Suggested solution: ${env.workaround}`;
         throw new Error(errorMessage);
       }
       /**
-       * Creates a WebSocket using the detected constructor.
-       *
-       * @example
-       * ```ts
-       * const socket = WebSocketFactory.createWebSocket('wss://realtime.supabase.co/socket')
-       * ```
-       */
-      static createWebSocket(url, protocols) {
-        const WS = this.getWebSocketConstructor();
-        return new WS(url, protocols);
-      }
-      /**
        * Detects whether the runtime can establish WebSocket connections.
        *
-       * @example
+       * @category Realtime
+       *
+       * @example Example in a Node.js script
        * ```ts
        * if (!WebSocketFactory.isWebSocketSupported()) {
-       *   console.warn('Falling back to long polling')
+       *   console.error('WebSockets are required for this script.')
+       *   process.exitCode = 1
        * }
        * ```
        */
@@ -1733,63 +5266,53 @@ Suggested solution: ${env.workaround}`;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/version.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/lib/version.js
 var version;
 var init_version = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/version.js"() {
-    version = "2.98.0";
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/lib/version.js"() {
+    version = "2.100.1";
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/constants.js
-var DEFAULT_VERSION, VSN_1_0_0, VSN_2_0_0, DEFAULT_VSN, DEFAULT_TIMEOUT, WS_CLOSE_NORMAL, MAX_PUSH_BUFFER_SIZE, SOCKET_STATES, CHANNEL_STATES, CHANNEL_EVENTS, TRANSPORTS, CONNECTION_STATE;
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/lib/constants.js
+var DEFAULT_VERSION, VSN_1_0_0, VSN_2_0_0, DEFAULT_VSN, DEFAULT_TIMEOUT, MAX_PUSH_BUFFER_SIZE, CHANNEL_STATES, CHANNEL_EVENTS, CONNECTION_STATE;
 var init_constants = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/constants.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/lib/constants.js"() {
     init_version();
     DEFAULT_VERSION = `realtime-js/${version}`;
     VSN_1_0_0 = "1.0.0";
     VSN_2_0_0 = "2.0.0";
     DEFAULT_VSN = VSN_2_0_0;
     DEFAULT_TIMEOUT = 1e4;
-    WS_CLOSE_NORMAL = 1e3;
     MAX_PUSH_BUFFER_SIZE = 100;
-    (function(SOCKET_STATES2) {
-      SOCKET_STATES2[SOCKET_STATES2["connecting"] = 0] = "connecting";
-      SOCKET_STATES2[SOCKET_STATES2["open"] = 1] = "open";
-      SOCKET_STATES2[SOCKET_STATES2["closing"] = 2] = "closing";
-      SOCKET_STATES2[SOCKET_STATES2["closed"] = 3] = "closed";
-    })(SOCKET_STATES || (SOCKET_STATES = {}));
-    (function(CHANNEL_STATES2) {
-      CHANNEL_STATES2["closed"] = "closed";
-      CHANNEL_STATES2["errored"] = "errored";
-      CHANNEL_STATES2["joined"] = "joined";
-      CHANNEL_STATES2["joining"] = "joining";
-      CHANNEL_STATES2["leaving"] = "leaving";
-    })(CHANNEL_STATES || (CHANNEL_STATES = {}));
-    (function(CHANNEL_EVENTS2) {
-      CHANNEL_EVENTS2["close"] = "phx_close";
-      CHANNEL_EVENTS2["error"] = "phx_error";
-      CHANNEL_EVENTS2["join"] = "phx_join";
-      CHANNEL_EVENTS2["reply"] = "phx_reply";
-      CHANNEL_EVENTS2["leave"] = "phx_leave";
-      CHANNEL_EVENTS2["access_token"] = "access_token";
-    })(CHANNEL_EVENTS || (CHANNEL_EVENTS = {}));
-    (function(TRANSPORTS2) {
-      TRANSPORTS2["websocket"] = "websocket";
-    })(TRANSPORTS || (TRANSPORTS = {}));
-    (function(CONNECTION_STATE2) {
-      CONNECTION_STATE2["Connecting"] = "connecting";
-      CONNECTION_STATE2["Open"] = "open";
-      CONNECTION_STATE2["Closing"] = "closing";
-      CONNECTION_STATE2["Closed"] = "closed";
-    })(CONNECTION_STATE || (CONNECTION_STATE = {}));
+    CHANNEL_STATES = {
+      closed: "closed",
+      errored: "errored",
+      joined: "joined",
+      joining: "joining",
+      leaving: "leaving"
+    };
+    CHANNEL_EVENTS = {
+      close: "phx_close",
+      error: "phx_error",
+      join: "phx_join",
+      reply: "phx_reply",
+      leave: "phx_leave",
+      access_token: "access_token"
+    };
+    CONNECTION_STATE = {
+      connecting: "connecting",
+      open: "open",
+      closing: "closing",
+      closed: "closed"
+    };
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js
 var Serializer;
 var init_serializer = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js"() {
     Serializer = class {
       constructor(allowedMetadataKeys) {
         this.HEADER_LENGTH = 1;
@@ -1931,40 +5454,10 @@ var init_serializer = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/timer.js
-var Timer;
-var init_timer = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/timer.js"() {
-    Timer = class {
-      constructor(callback, timerCalc) {
-        this.callback = callback;
-        this.timerCalc = timerCalc;
-        this.timer = void 0;
-        this.tries = 0;
-        this.callback = callback;
-        this.timerCalc = timerCalc;
-      }
-      reset() {
-        this.tries = 0;
-        clearTimeout(this.timer);
-        this.timer = void 0;
-      }
-      // Cancels any previous scheduleTimeout and schedules callback
-      scheduleTimeout() {
-        clearTimeout(this.timer);
-        this.timer = setTimeout(() => {
-          this.tries = this.tries + 1;
-          this.callback();
-        }, this.timerCalc(this.tries + 1));
-      }
-    };
-  }
-});
-
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js
 var PostgresTypes, convertChangeData, convertColumn, convertCell, noop, toBoolean, toNumber, toJson, toArray, toTimestampString, httpEndpointURL;
 var init_transformers = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js"() {
     (function(PostgresTypes2) {
       PostgresTypes2["abstime"] = "abstime";
       PostgresTypes2["bool"] = "bool";
@@ -2128,43 +5621,92 @@ var init_transformers = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/push.js
-var Push;
-var init_push = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/push.js"() {
-    init_constants();
+// ../../node_modules/.pnpm/@supabase+phoenix@0.4.0/node_modules/@supabase/phoenix/priv/static/phoenix.mjs
+var closure, globalSelf, phxWindow, global2, DEFAULT_VSN2, DEFAULT_TIMEOUT2, WS_CLOSE_NORMAL, SOCKET_STATES, CHANNEL_STATES2, CHANNEL_EVENTS2, TRANSPORTS, XHR_STATES, AUTH_TOKEN_PREFIX, Push, Timer, Channel, Ajax, arrayBufferToBase64, LongPoll, Presence, serializer_default, Socket;
+var init_phoenix = __esm({
+  "../../node_modules/.pnpm/@supabase+phoenix@0.4.0/node_modules/@supabase/phoenix/priv/static/phoenix.mjs"() {
+    closure = (value) => {
+      if (typeof value === "function") {
+        return (
+          /** @type {() => T} */
+          value
+        );
+      } else {
+        let closure2 = function() {
+          return value;
+        };
+        return closure2;
+      }
+    };
+    globalSelf = typeof self !== "undefined" ? self : null;
+    phxWindow = typeof window !== "undefined" ? window : null;
+    global2 = globalSelf || phxWindow || globalThis;
+    DEFAULT_VSN2 = "2.0.0";
+    DEFAULT_TIMEOUT2 = 1e4;
+    WS_CLOSE_NORMAL = 1e3;
+    SOCKET_STATES = /** @type {const} */
+    { connecting: 0, open: 1, closing: 2, closed: 3 };
+    CHANNEL_STATES2 = /** @type {const} */
+    {
+      closed: "closed",
+      errored: "errored",
+      joined: "joined",
+      joining: "joining",
+      leaving: "leaving"
+    };
+    CHANNEL_EVENTS2 = /** @type {const} */
+    {
+      close: "phx_close",
+      error: "phx_error",
+      join: "phx_join",
+      reply: "phx_reply",
+      leave: "phx_leave"
+    };
+    TRANSPORTS = /** @type {const} */
+    {
+      longpoll: "longpoll",
+      websocket: "websocket"
+    };
+    XHR_STATES = /** @type {const} */
+    {
+      complete: 4
+    };
+    AUTH_TOKEN_PREFIX = "base64url.bearer.phx.";
     Push = class {
       /**
        * Initializes the Push
-       *
-       * @param channel The Channel
-       * @param event The event, for example `"phx_join"`
-       * @param payload The payload, for example `{user_id: 123}`
-       * @param timeout The push timeout in milliseconds
+       * @param {Channel} channel - The Channel
+       * @param {ChannelEvent} event - The event, for example `"phx_join"`
+       * @param {() => Record<string, unknown>} payload - The payload, for example `{user_id: 123}`
+       * @param {number} timeout - The push timeout in milliseconds
        */
-      constructor(channel, event, payload = {}, timeout = DEFAULT_TIMEOUT) {
+      constructor(channel, event, payload, timeout) {
         this.channel = channel;
         this.event = event;
-        this.payload = payload;
-        this.timeout = timeout;
-        this.sent = false;
-        this.timeoutTimer = void 0;
-        this.ref = "";
+        this.payload = payload || function() {
+          return {};
+        };
         this.receivedResp = null;
+        this.timeout = timeout;
+        this.timeoutTimer = null;
         this.recHooks = [];
-        this.refEvent = null;
+        this.sent = false;
+        this.ref = void 0;
       }
+      /**
+       *
+       * @param {number} timeout
+       */
       resend(timeout) {
         this.timeout = timeout;
-        this._cancelRefEvent();
-        this.ref = "";
-        this.refEvent = null;
-        this.receivedResp = null;
-        this.sent = false;
+        this.reset();
         this.send();
       }
+      /**
+       *
+       */
       send() {
-        if (this._hasReceived("timeout")) {
+        if (this.hasReceived("timeout")) {
           return;
         }
         this.startTimeout();
@@ -2172,245 +5714,1725 @@ var init_push = __esm({
         this.channel.socket.push({
           topic: this.channel.topic,
           event: this.event,
-          payload: this.payload,
+          payload: this.payload(),
           ref: this.ref,
-          join_ref: this.channel._joinRef()
+          join_ref: this.channel.joinRef()
         });
       }
-      updatePayload(payload) {
-        this.payload = Object.assign(Object.assign({}, this.payload), payload);
-      }
+      /**
+       *
+       * @param {string} status
+       * @param {(response: any) => void} callback
+       */
       receive(status2, callback) {
-        var _a;
-        if (this._hasReceived(status2)) {
-          callback((_a = this.receivedResp) === null || _a === void 0 ? void 0 : _a.response);
+        if (this.hasReceived(status2)) {
+          callback(this.receivedResp.response);
         }
         this.recHooks.push({ status: status2, callback });
         return this;
       }
-      startTimeout() {
-        if (this.timeoutTimer) {
+      reset() {
+        this.cancelRefEvent();
+        this.ref = null;
+        this.refEvent = null;
+        this.receivedResp = null;
+        this.sent = false;
+      }
+      destroy() {
+        this.cancelRefEvent();
+        this.cancelTimeout();
+      }
+      /**
+       * @private
+       */
+      matchReceive({ status: status2, response, _ref }) {
+        this.recHooks.filter((h) => h.status === status2).forEach((h) => h.callback(response));
+      }
+      /**
+       * @private
+       */
+      cancelRefEvent() {
+        if (!this.refEvent) {
           return;
         }
-        this.ref = this.channel.socket._makeRef();
-        this.refEvent = this.channel._replyEventName(this.ref);
-        const callback = (payload) => {
-          this._cancelRefEvent();
-          this._cancelTimeout();
+        this.channel.off(this.refEvent);
+      }
+      cancelTimeout() {
+        clearTimeout(this.timeoutTimer);
+        this.timeoutTimer = null;
+      }
+      startTimeout() {
+        if (this.timeoutTimer) {
+          this.cancelTimeout();
+        }
+        this.ref = this.channel.socket.makeRef();
+        this.refEvent = this.channel.replyEventName(this.ref);
+        this.channel.on(this.refEvent, (payload) => {
+          this.cancelRefEvent();
+          this.cancelTimeout();
           this.receivedResp = payload;
-          this._matchReceive(payload);
-        };
-        this.channel._on(this.refEvent, {}, callback);
+          this.matchReceive(payload);
+        });
         this.timeoutTimer = setTimeout(() => {
           this.trigger("timeout", {});
         }, this.timeout);
       }
-      trigger(status2, response) {
-        if (this.refEvent)
-          this.channel._trigger(this.refEvent, { status: status2, response });
-      }
-      destroy() {
-        this._cancelRefEvent();
-        this._cancelTimeout();
-      }
-      _cancelRefEvent() {
-        if (!this.refEvent) {
-          return;
-        }
-        this.channel._off(this.refEvent, {});
-      }
-      _cancelTimeout() {
-        clearTimeout(this.timeoutTimer);
-        this.timeoutTimer = void 0;
-      }
-      _matchReceive({ status: status2, response }) {
-        this.recHooks.filter((h) => h.status === status2).forEach((h) => h.callback(response));
-      }
-      _hasReceived(status2) {
+      /**
+       * @private
+       */
+      hasReceived(status2) {
         return this.receivedResp && this.receivedResp.status === status2;
       }
+      trigger(status2, response) {
+        this.channel.trigger(this.refEvent, { status: status2, response });
+      }
     };
-  }
-});
-
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js
-var REALTIME_PRESENCE_LISTEN_EVENTS, RealtimePresence;
-var init_RealtimePresence = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js"() {
-    (function(REALTIME_PRESENCE_LISTEN_EVENTS2) {
-      REALTIME_PRESENCE_LISTEN_EVENTS2["SYNC"] = "sync";
-      REALTIME_PRESENCE_LISTEN_EVENTS2["JOIN"] = "join";
-      REALTIME_PRESENCE_LISTEN_EVENTS2["LEAVE"] = "leave";
-    })(REALTIME_PRESENCE_LISTEN_EVENTS || (REALTIME_PRESENCE_LISTEN_EVENTS = {}));
-    RealtimePresence = class _RealtimePresence {
+    Timer = class {
       /**
-       * Creates a Presence helper that keeps the local presence state in sync with the server.
+      * @param {() => void} callback
+      * @param {(tries: number) => number} timerCalc
+      */
+      constructor(callback, timerCalc) {
+        this.callback = callback;
+        this.timerCalc = timerCalc;
+        this.timer = void 0;
+        this.tries = 0;
+      }
+      reset() {
+        this.tries = 0;
+        clearTimeout(this.timer);
+      }
+      /**
+       * Cancels any previous scheduleTimeout and schedules callback
+       */
+      scheduleTimeout() {
+        clearTimeout(this.timer);
+        this.timer = setTimeout(() => {
+          this.tries = this.tries + 1;
+          this.callback();
+        }, this.timerCalc(this.tries + 1));
+      }
+    };
+    Channel = class {
+      /**
+       * @param {string} topic
+       * @param {Params | (() => Params)} params
+       * @param {Socket} socket
+       */
+      constructor(topic, params, socket2) {
+        this.state = CHANNEL_STATES2.closed;
+        this.topic = topic;
+        this.params = closure(params || {});
+        this.socket = socket2;
+        this.bindings = [];
+        this.bindingRef = 0;
+        this.timeout = this.socket.timeout;
+        this.joinedOnce = false;
+        this.joinPush = new Push(this, CHANNEL_EVENTS2.join, this.params, this.timeout);
+        this.pushBuffer = [];
+        this.stateChangeRefs = [];
+        this.rejoinTimer = new Timer(() => {
+          if (this.socket.isConnected()) {
+            this.rejoin();
+          }
+        }, this.socket.rejoinAfterMs);
+        this.stateChangeRefs.push(this.socket.onError(() => this.rejoinTimer.reset()));
+        this.stateChangeRefs.push(
+          this.socket.onOpen(() => {
+            this.rejoinTimer.reset();
+            if (this.isErrored()) {
+              this.rejoin();
+            }
+          })
+        );
+        this.joinPush.receive("ok", () => {
+          this.state = CHANNEL_STATES2.joined;
+          this.rejoinTimer.reset();
+          this.pushBuffer.forEach((pushEvent) => pushEvent.send());
+          this.pushBuffer = [];
+        });
+        this.joinPush.receive("error", (reason) => {
+          this.state = CHANNEL_STATES2.errored;
+          if (this.socket.hasLogger()) this.socket.log("channel", `error ${this.topic}`, reason);
+          if (this.socket.isConnected()) {
+            this.rejoinTimer.scheduleTimeout();
+          }
+        });
+        this.onClose(() => {
+          this.rejoinTimer.reset();
+          if (this.socket.hasLogger()) this.socket.log("channel", `close ${this.topic}`);
+          this.state = CHANNEL_STATES2.closed;
+          this.socket.remove(this);
+        });
+        this.onError((reason) => {
+          if (this.socket.hasLogger()) this.socket.log("channel", `error ${this.topic}`, reason);
+          if (this.isJoining()) {
+            this.joinPush.reset();
+          }
+          this.state = CHANNEL_STATES2.errored;
+          if (this.socket.isConnected()) {
+            this.rejoinTimer.scheduleTimeout();
+          }
+        });
+        this.joinPush.receive("timeout", () => {
+          if (this.socket.hasLogger()) this.socket.log("channel", `timeout ${this.topic}`, this.joinPush.timeout);
+          let leavePush = new Push(this, CHANNEL_EVENTS2.leave, closure({}), this.timeout);
+          leavePush.send();
+          this.state = CHANNEL_STATES2.errored;
+          this.joinPush.reset();
+          if (this.socket.isConnected()) {
+            this.rejoinTimer.scheduleTimeout();
+          }
+        });
+        this.on(CHANNEL_EVENTS2.reply, (payload, ref) => {
+          this.trigger(this.replyEventName(ref), payload);
+        });
+      }
+      /**
+       * Join the channel
+       * @param {number} timeout
+       * @returns {Push}
+       */
+      join(timeout = this.timeout) {
+        if (this.joinedOnce) {
+          throw new Error("tried to join multiple times. 'join' can only be called a single time per channel instance");
+        } else {
+          this.timeout = timeout;
+          this.joinedOnce = true;
+          this.rejoin();
+          return this.joinPush;
+        }
+      }
+      /**
+       * Teardown the channel.
        *
-       * @param channel - The realtime channel to bind to.
-       * @param opts - Optional custom event names, e.g. `{ events: { state: 'state', diff: 'diff' } }`.
+       * Destroys and stops related timers.
+       */
+      teardown() {
+        this.pushBuffer.forEach((push) => push.destroy());
+        this.pushBuffer = [];
+        this.rejoinTimer.reset();
+        this.joinPush.destroy();
+        this.state = CHANNEL_STATES2.closed;
+        this.bindings = [];
+      }
+      /**
+       * Hook into channel close
+       * @param {ChannelBindingCallback} callback
+       */
+      onClose(callback) {
+        this.on(CHANNEL_EVENTS2.close, callback);
+      }
+      /**
+       * Hook into channel errors
+       * @param {ChannelOnErrorCallback} callback
+       * @return {number}
+       */
+      onError(callback) {
+        return this.on(CHANNEL_EVENTS2.error, (reason) => callback(reason));
+      }
+      /**
+       * Subscribes on channel events
+       *
+       * Subscription returns a ref counter, which can be used later to
+       * unsubscribe the exact event listener
        *
        * @example
-       * ```ts
-       * const presence = new RealtimePresence(channel)
+       * const ref1 = channel.on("event", do_stuff)
+       * const ref2 = channel.on("event", do_other_stuff)
+       * channel.off("event", ref1)
+       * // Since unsubscription, do_stuff won't fire,
+       * // while do_other_stuff will keep firing on the "event"
        *
-       * channel.on('presence', ({ event, key }) => {
-       *   console.log(`Presence ${event} on ${key}`)
-       * })
-       * ```
+       * @param {string} event
+       * @param {ChannelBindingCallback} callback
+       * @returns {number} ref
        */
-      constructor(channel, opts) {
-        this.channel = channel;
-        this.state = {};
-        this.pendingDiffs = [];
-        this.joinRef = null;
-        this.enabled = false;
-        this.caller = {
-          onJoin: () => {
-          },
-          onLeave: () => {
-          },
-          onSync: () => {
+      on(event, callback) {
+        let ref = this.bindingRef++;
+        this.bindings.push({ event, ref, callback });
+        return ref;
+      }
+      /**
+       * Unsubscribes off of channel events
+       *
+       * Use the ref returned from a channel.on() to unsubscribe one
+       * handler, or pass nothing for the ref to unsubscribe all
+       * handlers for the given event.
+       *
+       * @example
+       * // Unsubscribe the do_stuff handler
+       * const ref1 = channel.on("event", do_stuff)
+       * channel.off("event", ref1)
+       *
+       * // Unsubscribe all handlers from event
+       * channel.off("event")
+       *
+       * @param {string} event
+       * @param {number} [ref]
+       */
+      off(event, ref) {
+        this.bindings = this.bindings.filter((bind) => {
+          return !(bind.event === event && (typeof ref === "undefined" || ref === bind.ref));
+        });
+      }
+      /**
+       * @private
+       */
+      canPush() {
+        return this.socket.isConnected() && this.isJoined();
+      }
+      /**
+       * Sends a message `event` to phoenix with the payload `payload`.
+       * Phoenix receives this in the `handle_in(event, payload, socket)`
+       * function. if phoenix replies or it times out (default 10000ms),
+       * then optionally the reply can be received.
+       *
+       * @example
+       * channel.push("event")
+       *   .receive("ok", payload => console.log("phoenix replied:", payload))
+       *   .receive("error", err => console.log("phoenix errored", err))
+       *   .receive("timeout", () => console.log("timed out pushing"))
+       * @param {string} event
+       * @param {Object} payload
+       * @param {number} [timeout]
+       * @returns {Push}
+       */
+      push(event, payload, timeout = this.timeout) {
+        payload = payload || {};
+        if (!this.joinedOnce) {
+          throw new Error(`tried to push '${event}' to '${this.topic}' before joining. Use channel.join() before pushing events`);
+        }
+        let pushEvent = new Push(this, event, function() {
+          return payload;
+        }, timeout);
+        if (this.canPush()) {
+          pushEvent.send();
+        } else {
+          pushEvent.startTimeout();
+          this.pushBuffer.push(pushEvent);
+        }
+        return pushEvent;
+      }
+      /** Leaves the channel
+       *
+       * Unsubscribes from server events, and
+       * instructs channel to terminate on server
+       *
+       * Triggers onClose() hooks
+       *
+       * To receive leave acknowledgements, use the `receive`
+       * hook to bind to the server ack, ie:
+       *
+       * @example
+       * channel.leave().receive("ok", () => alert("left!") )
+       *
+       * @param {number} timeout
+       * @returns {Push}
+       */
+      leave(timeout = this.timeout) {
+        this.rejoinTimer.reset();
+        this.joinPush.cancelTimeout();
+        this.state = CHANNEL_STATES2.leaving;
+        let onClose = () => {
+          if (this.socket.hasLogger()) this.socket.log("channel", `leave ${this.topic}`);
+          this.trigger(CHANNEL_EVENTS2.close, "leave");
+        };
+        let leavePush = new Push(this, CHANNEL_EVENTS2.leave, closure({}), timeout);
+        leavePush.receive("ok", () => onClose()).receive("timeout", () => onClose());
+        leavePush.send();
+        if (!this.canPush()) {
+          leavePush.trigger("ok", {});
+        }
+        return leavePush;
+      }
+      /**
+       * Overridable message hook
+       *
+       * Receives all events for specialized message handling
+       * before dispatching to the channel callbacks.
+       *
+       * Must return the payload, modified or unmodified
+       * @type{ChannelOnMessage}
+       */
+      onMessage(_event, payload, _ref) {
+        return payload;
+      }
+      /**
+       * Overridable filter hook
+       *
+       * If this function returns `true`, `binding`'s callback will be called.
+       *
+       * @type{ChannelFilterBindings}
+       */
+      filterBindings(_binding, _payload, _ref) {
+        return true;
+      }
+      isMember(topic, event, payload, joinRef) {
+        if (this.topic !== topic) {
+          return false;
+        }
+        if (joinRef && joinRef !== this.joinRef()) {
+          if (this.socket.hasLogger()) this.socket.log("channel", "dropping outdated message", { topic, event, payload, joinRef });
+          return false;
+        } else {
+          return true;
+        }
+      }
+      joinRef() {
+        return this.joinPush.ref;
+      }
+      /**
+       * @private
+       */
+      rejoin(timeout = this.timeout) {
+        if (this.isLeaving()) {
+          return;
+        }
+        this.socket.leaveOpenTopic(this.topic);
+        this.state = CHANNEL_STATES2.joining;
+        this.joinPush.resend(timeout);
+      }
+      /**
+       * @param {string} event
+       * @param {unknown} [payload]
+       * @param {?string} [ref]
+       * @param {?string} [joinRef]
+       */
+      trigger(event, payload, ref, joinRef) {
+        let handledPayload = this.onMessage(event, payload, ref, joinRef);
+        if (payload && !handledPayload) {
+          throw new Error("channel onMessage callbacks must return the payload, modified or unmodified");
+        }
+        let eventBindings = this.bindings.filter((bind) => bind.event === event && this.filterBindings(bind, payload, ref));
+        for (let i = 0; i < eventBindings.length; i++) {
+          let bind = eventBindings[i];
+          bind.callback(handledPayload, ref, joinRef || this.joinRef());
+        }
+      }
+      /**
+      * @param {string} ref
+      */
+      replyEventName(ref) {
+        return `chan_reply_${ref}`;
+      }
+      isClosed() {
+        return this.state === CHANNEL_STATES2.closed;
+      }
+      isErrored() {
+        return this.state === CHANNEL_STATES2.errored;
+      }
+      isJoined() {
+        return this.state === CHANNEL_STATES2.joined;
+      }
+      isJoining() {
+        return this.state === CHANNEL_STATES2.joining;
+      }
+      isLeaving() {
+        return this.state === CHANNEL_STATES2.leaving;
+      }
+    };
+    Ajax = class {
+      static request(method, endPoint, headers, body, timeout, ontimeout, callback) {
+        if (global2.XDomainRequest) {
+          let req = new global2.XDomainRequest();
+          return this.xdomainRequest(req, method, endPoint, body, timeout, ontimeout, callback);
+        } else if (global2.XMLHttpRequest) {
+          let req = new global2.XMLHttpRequest();
+          return this.xhrRequest(req, method, endPoint, headers, body, timeout, ontimeout, callback);
+        } else if (global2.fetch && global2.AbortController) {
+          return this.fetchRequest(method, endPoint, headers, body, timeout, ontimeout, callback);
+        } else {
+          throw new Error("No suitable XMLHttpRequest implementation found");
+        }
+      }
+      static fetchRequest(method, endPoint, headers, body, timeout, ontimeout, callback) {
+        let options = {
+          method,
+          headers,
+          body
+        };
+        let controller = null;
+        if (timeout) {
+          controller = new AbortController();
+          const _timeoutId = setTimeout(() => controller.abort(), timeout);
+          options.signal = controller.signal;
+        }
+        global2.fetch(endPoint, options).then((response) => response.text()).then((data) => this.parseJSON(data)).then((data) => callback && callback(data)).catch((err) => {
+          if (err.name === "AbortError" && ontimeout) {
+            ontimeout();
+          } else {
+            callback && callback(null);
+          }
+        });
+        return controller;
+      }
+      static xdomainRequest(req, method, endPoint, body, timeout, ontimeout, callback) {
+        req.timeout = timeout;
+        req.open(method, endPoint);
+        req.onload = () => {
+          let response = this.parseJSON(req.responseText);
+          callback && callback(response);
+        };
+        if (ontimeout) {
+          req.ontimeout = ontimeout;
+        }
+        req.onprogress = () => {
+        };
+        req.send(body);
+        return req;
+      }
+      static xhrRequest(req, method, endPoint, headers, body, timeout, ontimeout, callback) {
+        req.open(method, endPoint, true);
+        req.timeout = timeout;
+        for (let [key, value] of Object.entries(headers)) {
+          req.setRequestHeader(key, value);
+        }
+        req.onerror = () => callback && callback(null);
+        req.onreadystatechange = () => {
+          if (req.readyState === XHR_STATES.complete && callback) {
+            let response = this.parseJSON(req.responseText);
+            callback(response);
           }
         };
-        const events = (opts === null || opts === void 0 ? void 0 : opts.events) || {
-          state: "presence_state",
-          diff: "presence_diff"
+        if (ontimeout) {
+          req.ontimeout = ontimeout;
+        }
+        req.send(body);
+        return req;
+      }
+      static parseJSON(resp) {
+        if (!resp || resp === "") {
+          return null;
+        }
+        try {
+          return JSON.parse(resp);
+        } catch {
+          console && console.log("failed to parse JSON response", resp);
+          return null;
+        }
+      }
+      static serialize(obj, parentKey) {
+        let queryStr = [];
+        for (var key in obj) {
+          if (!Object.prototype.hasOwnProperty.call(obj, key)) {
+            continue;
+          }
+          let paramKey = parentKey ? `${parentKey}[${key}]` : key;
+          let paramVal = obj[key];
+          if (typeof paramVal === "object") {
+            queryStr.push(this.serialize(paramVal, paramKey));
+          } else {
+            queryStr.push(encodeURIComponent(paramKey) + "=" + encodeURIComponent(paramVal));
+          }
+        }
+        return queryStr.join("&");
+      }
+      static appendParams(url, params) {
+        if (Object.keys(params).length === 0) {
+          return url;
+        }
+        let prefix = url.match(/\?/) ? "&" : "?";
+        return `${url}${prefix}${this.serialize(params)}`;
+      }
+    };
+    arrayBufferToBase64 = (buffer) => {
+      let binary = "";
+      let bytes = new Uint8Array(buffer);
+      let len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    };
+    LongPoll = class {
+      constructor(endPoint, protocols) {
+        if (protocols && protocols.length === 2 && protocols[1].startsWith(AUTH_TOKEN_PREFIX)) {
+          this.authToken = atob(protocols[1].slice(AUTH_TOKEN_PREFIX.length));
+        }
+        this.endPoint = null;
+        this.token = null;
+        this.skipHeartbeat = true;
+        this.reqs = /* @__PURE__ */ new Set();
+        this.awaitingBatchAck = false;
+        this.currentBatch = null;
+        this.currentBatchTimer = null;
+        this.batchBuffer = [];
+        this.onopen = function() {
         };
-        this.channel._on(events.state, {}, (newState) => {
-          const { onJoin, onLeave, onSync } = this.caller;
-          this.joinRef = this.channel._joinRef();
-          this.state = _RealtimePresence.syncState(this.state, newState, onJoin, onLeave);
+        this.onerror = function() {
+        };
+        this.onmessage = function() {
+        };
+        this.onclose = function() {
+        };
+        this.pollEndpoint = this.normalizeEndpoint(endPoint);
+        this.readyState = SOCKET_STATES.connecting;
+        setTimeout(() => this.poll(), 0);
+      }
+      normalizeEndpoint(endPoint) {
+        return endPoint.replace("ws://", "http://").replace("wss://", "https://").replace(new RegExp("(.*)/" + TRANSPORTS.websocket), "$1/" + TRANSPORTS.longpoll);
+      }
+      endpointURL() {
+        return Ajax.appendParams(this.pollEndpoint, { token: this.token });
+      }
+      closeAndRetry(code, reason, wasClean) {
+        this.close(code, reason, wasClean);
+        this.readyState = SOCKET_STATES.connecting;
+      }
+      ontimeout() {
+        this.onerror("timeout");
+        this.closeAndRetry(1005, "timeout", false);
+      }
+      isActive() {
+        return this.readyState === SOCKET_STATES.open || this.readyState === SOCKET_STATES.connecting;
+      }
+      poll() {
+        const headers = { "Accept": "application/json" };
+        if (this.authToken) {
+          headers["X-Phoenix-AuthToken"] = this.authToken;
+        }
+        this.ajax("GET", headers, null, () => this.ontimeout(), (resp) => {
+          if (resp) {
+            var { status: status2, token, messages } = resp;
+            if (status2 === 410 && this.token !== null) {
+              this.onerror(410);
+              this.closeAndRetry(3410, "session_gone", false);
+              return;
+            }
+            this.token = token;
+          } else {
+            status2 = 0;
+          }
+          switch (status2) {
+            case 200:
+              messages.forEach((msg) => {
+                setTimeout(() => this.onmessage({ data: msg }), 0);
+              });
+              this.poll();
+              break;
+            case 204:
+              this.poll();
+              break;
+            case 410:
+              this.readyState = SOCKET_STATES.open;
+              this.onopen({});
+              this.poll();
+              break;
+            case 403:
+              this.onerror(403);
+              this.close(1008, "forbidden", false);
+              break;
+            case 0:
+            case 500:
+              this.onerror(500);
+              this.closeAndRetry(1011, "internal server error", 500);
+              break;
+            default:
+              throw new Error(`unhandled poll status ${status2}`);
+          }
+        });
+      }
+      // we collect all pushes within the current event loop by
+      // setTimeout 0, which optimizes back-to-back procedural
+      // pushes against an empty buffer
+      send(body) {
+        if (typeof body !== "string") {
+          body = arrayBufferToBase64(body);
+        }
+        if (this.currentBatch) {
+          this.currentBatch.push(body);
+        } else if (this.awaitingBatchAck) {
+          this.batchBuffer.push(body);
+        } else {
+          this.currentBatch = [body];
+          this.currentBatchTimer = setTimeout(() => {
+            this.batchSend(this.currentBatch);
+            this.currentBatch = null;
+          }, 0);
+        }
+      }
+      batchSend(messages) {
+        this.awaitingBatchAck = true;
+        this.ajax("POST", { "Content-Type": "application/x-ndjson" }, messages.join("\n"), () => this.onerror("timeout"), (resp) => {
+          this.awaitingBatchAck = false;
+          if (!resp || resp.status !== 200) {
+            this.onerror(resp && resp.status);
+            this.closeAndRetry(1011, "internal server error", false);
+          } else if (this.batchBuffer.length > 0) {
+            this.batchSend(this.batchBuffer);
+            this.batchBuffer = [];
+          }
+        });
+      }
+      close(code, reason, wasClean) {
+        for (let req of this.reqs) {
+          req.abort();
+        }
+        this.readyState = SOCKET_STATES.closed;
+        let opts = Object.assign({ code: 1e3, reason: void 0, wasClean: true }, { code, reason, wasClean });
+        this.batchBuffer = [];
+        clearTimeout(this.currentBatchTimer);
+        this.currentBatchTimer = null;
+        if (typeof CloseEvent !== "undefined") {
+          this.onclose(new CloseEvent("close", opts));
+        } else {
+          this.onclose(opts);
+        }
+      }
+      ajax(method, headers, body, onCallerTimeout, callback) {
+        let req;
+        let ontimeout = () => {
+          this.reqs.delete(req);
+          onCallerTimeout();
+        };
+        req = Ajax.request(method, this.endpointURL(), headers, body, this.timeout, ontimeout, (resp) => {
+          this.reqs.delete(req);
+          if (this.isActive()) {
+            callback(resp);
+          }
+        });
+        this.reqs.add(req);
+      }
+    };
+    Presence = class _Presence {
+      /**
+       * Initializes the Presence
+       * @param {Channel} channel - The Channel
+       * @param {PresenceOptions} [opts] - The options, for example `{events: {state: "state", diff: "diff"}}`
+       */
+      constructor(channel, opts = {}) {
+        let events = opts.events || /** @type {PresenceEvents} */
+        { state: "presence_state", diff: "presence_diff" };
+        this.state = {};
+        this.pendingDiffs = [];
+        this.channel = channel;
+        this.joinRef = null;
+        this.caller = {
+          onJoin: function() {
+          },
+          onLeave: function() {
+          },
+          onSync: function() {
+          }
+        };
+        this.channel.on(events.state, (newState) => {
+          let { onJoin, onLeave, onSync } = this.caller;
+          this.joinRef = this.channel.joinRef();
+          this.state = _Presence.syncState(this.state, newState, onJoin, onLeave);
           this.pendingDiffs.forEach((diff) => {
-            this.state = _RealtimePresence.syncDiff(this.state, diff, onJoin, onLeave);
+            this.state = _Presence.syncDiff(this.state, diff, onJoin, onLeave);
           });
           this.pendingDiffs = [];
           onSync();
         });
-        this.channel._on(events.diff, {}, (diff) => {
-          const { onJoin, onLeave, onSync } = this.caller;
+        this.channel.on(events.diff, (diff) => {
+          let { onJoin, onLeave, onSync } = this.caller;
           if (this.inPendingSyncState()) {
             this.pendingDiffs.push(diff);
           } else {
-            this.state = _RealtimePresence.syncDiff(this.state, diff, onJoin, onLeave);
+            this.state = _Presence.syncDiff(this.state, diff, onJoin, onLeave);
             onSync();
           }
         });
-        this.onJoin((key, currentPresences, newPresences) => {
-          this.channel._trigger("presence", {
-            event: "join",
-            key,
-            currentPresences,
-            newPresences
-          });
-        });
-        this.onLeave((key, currentPresences, leftPresences) => {
-          this.channel._trigger("presence", {
-            event: "leave",
-            key,
-            currentPresences,
-            leftPresences
-          });
-        });
-        this.onSync(() => {
-          this.channel._trigger("presence", { event: "sync" });
-        });
       }
       /**
-       * Used to sync the list of presences on the server with the
-       * client's state.
+       * @param {PresenceOnJoin} callback
+       */
+      onJoin(callback) {
+        this.caller.onJoin = callback;
+      }
+      /**
+       * @param {PresenceOnLeave} callback
+       */
+      onLeave(callback) {
+        this.caller.onLeave = callback;
+      }
+      /**
+       * @param {PresenceOnSync} callback
+       */
+      onSync(callback) {
+        this.caller.onSync = callback;
+      }
+      /**
+       * Returns the array of presences, with selected metadata.
        *
-       * An optional `onJoin` and `onLeave` callback can be provided to
-       * react to changes in the client's local presences across
+       * @template [T=PresenceState]
+       * @param {((key: string, obj: PresenceState) => T)} [by]
+       *
+       * @returns {T[]}
+       */
+      list(by) {
+        return _Presence.list(this.state, by);
+      }
+      inPendingSyncState() {
+        return !this.joinRef || this.joinRef !== this.channel.joinRef();
+      }
+      // lower-level public static API
+      /**
+       * Used to sync the list of presences on the server
+       * with the client's state. An optional `onJoin` and `onLeave` callback can
+       * be provided to react to changes in the client's local presences across
        * disconnects and reconnects with the server.
        *
-       * @internal
+       * @param {Record<string, PresenceState>} currentState
+       * @param {Record<string, PresenceState>} newState
+       * @param {PresenceOnJoin} onJoin
+       * @param {PresenceOnLeave} onLeave
+       *
+       * @returns {Record<string, PresenceState>}
        */
       static syncState(currentState2, newState, onJoin, onLeave) {
-        const state8 = this.cloneDeep(currentState2);
-        const transformedState = this.transformState(newState);
-        const joins = {};
-        const leaves = {};
-        this.map(state8, (key, presences) => {
-          if (!transformedState[key]) {
-            leaves[key] = presences;
+        let state8 = this.clone(currentState2);
+        let joins = {};
+        let leaves = {};
+        this.map(state8, (key, presence) => {
+          if (!newState[key]) {
+            leaves[key] = presence;
           }
         });
-        this.map(transformedState, (key, newPresences) => {
-          const currentPresences = state8[key];
-          if (currentPresences) {
-            const newPresenceRefs = newPresences.map((m) => m.presence_ref);
-            const curPresenceRefs = currentPresences.map((m) => m.presence_ref);
-            const joinedPresences = newPresences.filter((m) => curPresenceRefs.indexOf(m.presence_ref) < 0);
-            const leftPresences = currentPresences.filter((m) => newPresenceRefs.indexOf(m.presence_ref) < 0);
-            if (joinedPresences.length > 0) {
-              joins[key] = joinedPresences;
+        this.map(newState, (key, newPresence) => {
+          let currentPresence = state8[key];
+          if (currentPresence) {
+            let newRefs = newPresence.metas.map((m) => m.phx_ref);
+            let curRefs = currentPresence.metas.map((m) => m.phx_ref);
+            let joinedMetas = newPresence.metas.filter((m) => curRefs.indexOf(m.phx_ref) < 0);
+            let leftMetas = currentPresence.metas.filter((m) => newRefs.indexOf(m.phx_ref) < 0);
+            if (joinedMetas.length > 0) {
+              joins[key] = newPresence;
+              joins[key].metas = joinedMetas;
             }
-            if (leftPresences.length > 0) {
-              leaves[key] = leftPresences;
+            if (leftMetas.length > 0) {
+              leaves[key] = this.clone(currentPresence);
+              leaves[key].metas = leftMetas;
             }
           } else {
-            joins[key] = newPresences;
+            joins[key] = newPresence;
           }
         });
         return this.syncDiff(state8, { joins, leaves }, onJoin, onLeave);
       }
       /**
-       * Used to sync a diff of presence join and leave events from the
-       * server, as they happen.
        *
-       * Like `syncState`, `syncDiff` accepts optional `onJoin` and
-       * `onLeave` callbacks to react to a user joining or leaving from a
-       * device.
+       * Used to sync a diff of presence join and leave
+       * events from the server, as they happen. Like `syncState`, `syncDiff`
+       * accepts optional `onJoin` and `onLeave` callbacks to react to a user
+       * joining or leaving from a device.
        *
-       * @internal
+       * @param {Record<string, PresenceState>} state
+       * @param {PresenceDiff} diff
+       * @param {PresenceOnJoin} onJoin
+       * @param {PresenceOnLeave} onLeave
+       *
+       * @returns {Record<string, PresenceState>}
        */
       static syncDiff(state8, diff, onJoin, onLeave) {
-        const { joins, leaves } = {
-          joins: this.transformState(diff.joins),
-          leaves: this.transformState(diff.leaves)
-        };
+        let { joins, leaves } = this.clone(diff);
         if (!onJoin) {
-          onJoin = () => {
+          onJoin = function() {
           };
         }
         if (!onLeave) {
-          onLeave = () => {
+          onLeave = function() {
           };
         }
-        this.map(joins, (key, newPresences) => {
-          var _a;
-          const currentPresences = (_a = state8[key]) !== null && _a !== void 0 ? _a : [];
-          state8[key] = this.cloneDeep(newPresences);
-          if (currentPresences.length > 0) {
-            const joinedPresenceRefs = state8[key].map((m) => m.presence_ref);
-            const curPresences = currentPresences.filter((m) => joinedPresenceRefs.indexOf(m.presence_ref) < 0);
-            state8[key].unshift(...curPresences);
+        this.map(joins, (key, newPresence) => {
+          let currentPresence = state8[key];
+          state8[key] = this.clone(newPresence);
+          if (currentPresence) {
+            let joinedRefs = state8[key].metas.map((m) => m.phx_ref);
+            let curMetas = currentPresence.metas.filter((m) => joinedRefs.indexOf(m.phx_ref) < 0);
+            state8[key].metas.unshift(...curMetas);
           }
-          onJoin(key, currentPresences, newPresences);
+          onJoin(key, currentPresence, newPresence);
         });
-        this.map(leaves, (key, leftPresences) => {
-          let currentPresences = state8[key];
-          if (!currentPresences)
+        this.map(leaves, (key, leftPresence) => {
+          let currentPresence = state8[key];
+          if (!currentPresence) {
             return;
-          const presenceRefsToRemove = leftPresences.map((m) => m.presence_ref);
-          currentPresences = currentPresences.filter((m) => presenceRefsToRemove.indexOf(m.presence_ref) < 0);
-          state8[key] = currentPresences;
-          onLeave(key, currentPresences, leftPresences);
-          if (currentPresences.length === 0)
+          }
+          let refsToRemove = leftPresence.metas.map((m) => m.phx_ref);
+          currentPresence.metas = currentPresence.metas.filter((p) => {
+            return refsToRemove.indexOf(p.phx_ref) < 0;
+          });
+          onLeave(key, currentPresence, leftPresence);
+          if (currentPresence.metas.length === 0) {
             delete state8[key];
+          }
         });
         return state8;
       }
-      /** @internal */
+      /**
+       * Returns the array of presences, with selected metadata.
+       *
+       * @template [T=PresenceState]
+       * @param {Record<string, PresenceState>} presences
+       * @param {((key: string, obj: PresenceState) => T)} [chooser]
+       *
+       * @returns {T[]}
+       */
+      static list(presences, chooser) {
+        if (!chooser) {
+          chooser = function(key, pres) {
+            return pres;
+          };
+        }
+        return this.map(presences, (key, presence) => {
+          return chooser(key, presence);
+        });
+      }
+      // private
+      /**
+      * @template T
+      * @param {Record<string, PresenceState>} obj
+      * @param {(key: string, obj: PresenceState) => T} func
+      */
       static map(obj, func) {
         return Object.getOwnPropertyNames(obj).map((key) => func(key, obj[key]));
       }
       /**
+      * @template T
+      * @param {T} obj
+      * @returns {T}
+      */
+      static clone(obj) {
+        return JSON.parse(JSON.stringify(obj));
+      }
+    };
+    serializer_default = {
+      HEADER_LENGTH: 1,
+      META_LENGTH: 4,
+      KINDS: { push: 0, reply: 1, broadcast: 2 },
+      /**
+      * @template T
+      * @param {Message<Record<string, any>>} msg
+      * @param {(msg: ArrayBuffer | string) => T} callback
+      * @returns {T}
+      */
+      encode(msg, callback) {
+        if (msg.payload.constructor === ArrayBuffer) {
+          return callback(this.binaryEncode(msg));
+        } else {
+          let payload = [msg.join_ref, msg.ref, msg.topic, msg.event, msg.payload];
+          return callback(JSON.stringify(payload));
+        }
+      },
+      /**
+      * @template T
+      * @param {ArrayBuffer | string} rawPayload
+      * @param {(msg: Message<unknown>) => T} callback
+      * @returns {T}
+      */
+      decode(rawPayload, callback) {
+        if (rawPayload.constructor === ArrayBuffer) {
+          return callback(this.binaryDecode(rawPayload));
+        } else {
+          let [join_ref, ref, topic, event, payload] = JSON.parse(rawPayload);
+          return callback({ join_ref, ref, topic, event, payload });
+        }
+      },
+      /** @private */
+      binaryEncode(message) {
+        let { join_ref, ref, event, topic, payload } = message;
+        let metaLength = this.META_LENGTH + join_ref.length + ref.length + topic.length + event.length;
+        let header = new ArrayBuffer(this.HEADER_LENGTH + metaLength);
+        let view = new DataView(header);
+        let offset = 0;
+        view.setUint8(offset++, this.KINDS.push);
+        view.setUint8(offset++, join_ref.length);
+        view.setUint8(offset++, ref.length);
+        view.setUint8(offset++, topic.length);
+        view.setUint8(offset++, event.length);
+        Array.from(join_ref, (char) => view.setUint8(offset++, char.charCodeAt(0)));
+        Array.from(ref, (char) => view.setUint8(offset++, char.charCodeAt(0)));
+        Array.from(topic, (char) => view.setUint8(offset++, char.charCodeAt(0)));
+        Array.from(event, (char) => view.setUint8(offset++, char.charCodeAt(0)));
+        var combined = new Uint8Array(header.byteLength + payload.byteLength);
+        combined.set(new Uint8Array(header), 0);
+        combined.set(new Uint8Array(payload), header.byteLength);
+        return combined.buffer;
+      },
+      /**
+      * @private
+      */
+      binaryDecode(buffer) {
+        let view = new DataView(buffer);
+        let kind = view.getUint8(0);
+        let decoder = new TextDecoder();
+        switch (kind) {
+          case this.KINDS.push:
+            return this.decodePush(buffer, view, decoder);
+          case this.KINDS.reply:
+            return this.decodeReply(buffer, view, decoder);
+          case this.KINDS.broadcast:
+            return this.decodeBroadcast(buffer, view, decoder);
+        }
+      },
+      /** @private */
+      decodePush(buffer, view, decoder) {
+        let joinRefSize = view.getUint8(1);
+        let topicSize = view.getUint8(2);
+        let eventSize = view.getUint8(3);
+        let offset = this.HEADER_LENGTH + this.META_LENGTH - 1;
+        let joinRef = decoder.decode(buffer.slice(offset, offset + joinRefSize));
+        offset = offset + joinRefSize;
+        let topic = decoder.decode(buffer.slice(offset, offset + topicSize));
+        offset = offset + topicSize;
+        let event = decoder.decode(buffer.slice(offset, offset + eventSize));
+        offset = offset + eventSize;
+        let data = buffer.slice(offset, buffer.byteLength);
+        return { join_ref: joinRef, ref: null, topic, event, payload: data };
+      },
+      /** @private */
+      decodeReply(buffer, view, decoder) {
+        let joinRefSize = view.getUint8(1);
+        let refSize = view.getUint8(2);
+        let topicSize = view.getUint8(3);
+        let eventSize = view.getUint8(4);
+        let offset = this.HEADER_LENGTH + this.META_LENGTH;
+        let joinRef = decoder.decode(buffer.slice(offset, offset + joinRefSize));
+        offset = offset + joinRefSize;
+        let ref = decoder.decode(buffer.slice(offset, offset + refSize));
+        offset = offset + refSize;
+        let topic = decoder.decode(buffer.slice(offset, offset + topicSize));
+        offset = offset + topicSize;
+        let event = decoder.decode(buffer.slice(offset, offset + eventSize));
+        offset = offset + eventSize;
+        let data = buffer.slice(offset, buffer.byteLength);
+        let payload = { status: event, response: data };
+        return { join_ref: joinRef, ref, topic, event: CHANNEL_EVENTS2.reply, payload };
+      },
+      /** @private */
+      decodeBroadcast(buffer, view, decoder) {
+        let topicSize = view.getUint8(1);
+        let eventSize = view.getUint8(2);
+        let offset = this.HEADER_LENGTH + 2;
+        let topic = decoder.decode(buffer.slice(offset, offset + topicSize));
+        offset = offset + topicSize;
+        let event = decoder.decode(buffer.slice(offset, offset + eventSize));
+        offset = offset + eventSize;
+        let data = buffer.slice(offset, buffer.byteLength);
+        return { join_ref: null, ref: null, topic, event, payload: data };
+      }
+    };
+    Socket = class {
+      /** Initializes the Socket *
+       *
+       * For IE8 support use an ES5-shim (https://github.com/es-shims/es5-shim)
+       *
+       * @constructor
+       * @param {string} endPoint - The string WebSocket endpoint, ie, `"ws://example.com/socket"`,
+       *                                               `"wss://example.com"`
+       *                                               `"/socket"` (inherited host & protocol)
+       * @param {SocketOptions} [opts] - Optional configuration
+       */
+      constructor(endPoint, opts = {}) {
+        this.stateChangeCallbacks = { open: [], close: [], error: [], message: [] };
+        this.channels = [];
+        this.sendBuffer = [];
+        this.ref = 0;
+        this.fallbackRef = null;
+        this.timeout = opts.timeout || DEFAULT_TIMEOUT2;
+        this.transport = opts.transport || global2.WebSocket || LongPoll;
+        this.conn = void 0;
+        this.primaryPassedHealthCheck = false;
+        this.longPollFallbackMs = opts.longPollFallbackMs;
+        this.fallbackTimer = null;
+        this.sessionStore = opts.sessionStorage || global2 && global2.sessionStorage;
+        this.establishedConnections = 0;
+        this.defaultEncoder = serializer_default.encode.bind(serializer_default);
+        this.defaultDecoder = serializer_default.decode.bind(serializer_default);
+        this.closeWasClean = true;
+        this.disconnecting = false;
+        this.binaryType = opts.binaryType || "arraybuffer";
+        this.connectClock = 1;
+        this.pageHidden = false;
+        this.encode = void 0;
+        this.decode = void 0;
+        if (this.transport !== LongPoll) {
+          this.encode = opts.encode || this.defaultEncoder;
+          this.decode = opts.decode || this.defaultDecoder;
+        } else {
+          this.encode = this.defaultEncoder;
+          this.decode = this.defaultDecoder;
+        }
+        let awaitingConnectionOnPageShow = null;
+        if (phxWindow && phxWindow.addEventListener) {
+          phxWindow.addEventListener("pagehide", (_e) => {
+            if (this.conn) {
+              this.disconnect();
+              awaitingConnectionOnPageShow = this.connectClock;
+            }
+          });
+          phxWindow.addEventListener("pageshow", (_e) => {
+            if (awaitingConnectionOnPageShow === this.connectClock) {
+              awaitingConnectionOnPageShow = null;
+              this.connect();
+            }
+          });
+          phxWindow.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "hidden") {
+              this.pageHidden = true;
+            } else {
+              this.pageHidden = false;
+              if (!this.isConnected() && !this.closeWasClean) {
+                this.teardown(() => this.connect());
+              }
+            }
+          });
+        }
+        this.heartbeatIntervalMs = opts.heartbeatIntervalMs || 3e4;
+        this.autoSendHeartbeat = opts.autoSendHeartbeat ?? true;
+        this.heartbeatCallback = opts.heartbeatCallback ?? (() => {
+        });
+        this.rejoinAfterMs = (tries) => {
+          if (opts.rejoinAfterMs) {
+            return opts.rejoinAfterMs(tries);
+          } else {
+            return [1e3, 2e3, 5e3][tries - 1] || 1e4;
+          }
+        };
+        this.reconnectAfterMs = (tries) => {
+          if (opts.reconnectAfterMs) {
+            return opts.reconnectAfterMs(tries);
+          } else {
+            return [10, 50, 100, 150, 200, 250, 500, 1e3, 2e3][tries - 1] || 5e3;
+          }
+        };
+        this.logger = opts.logger || null;
+        if (!this.logger && opts.debug) {
+          this.logger = (kind, msg, data) => {
+            console.log(`${kind}: ${msg}`, data);
+          };
+        }
+        this.longpollerTimeout = opts.longpollerTimeout || 2e4;
+        this.params = closure(opts.params || {});
+        this.endPoint = `${endPoint}/${TRANSPORTS.websocket}`;
+        this.vsn = opts.vsn || DEFAULT_VSN2;
+        this.heartbeatTimeoutTimer = null;
+        this.heartbeatTimer = null;
+        this.heartbeatSentAt = null;
+        this.pendingHeartbeatRef = null;
+        this.reconnectTimer = new Timer(() => {
+          if (this.pageHidden) {
+            this.log("Not reconnecting as page is hidden!");
+            this.teardown();
+            return;
+          }
+          this.teardown(async () => {
+            if (opts.beforeReconnect) await opts.beforeReconnect();
+            this.connect();
+          });
+        }, this.reconnectAfterMs);
+        this.authToken = opts.authToken;
+      }
+      /**
+       * Returns the LongPoll transport reference
+       */
+      getLongPollTransport() {
+        return LongPoll;
+      }
+      /**
+       * Disconnects and replaces the active transport
+       *
+       * @param {SocketTransport} newTransport - The new transport class to instantiate
+       *
+       */
+      replaceTransport(newTransport) {
+        this.connectClock++;
+        this.closeWasClean = true;
+        clearTimeout(this.fallbackTimer);
+        this.reconnectTimer.reset();
+        if (this.conn) {
+          this.conn.close();
+          this.conn = null;
+        }
+        this.transport = newTransport;
+      }
+      /**
+       * Returns the socket protocol
+       *
+       * @returns {"wss" | "ws"}
+       */
+      protocol() {
+        return location.protocol.match(/^https/) ? "wss" : "ws";
+      }
+      /**
+       * The fully qualified socket url
+       *
+       * @returns {string}
+       */
+      endPointURL() {
+        let uri = Ajax.appendParams(
+          Ajax.appendParams(this.endPoint, this.params()),
+          { vsn: this.vsn }
+        );
+        if (uri.charAt(0) !== "/") {
+          return uri;
+        }
+        if (uri.charAt(1) === "/") {
+          return `${this.protocol()}:${uri}`;
+        }
+        return `${this.protocol()}://${location.host}${uri}`;
+      }
+      /**
+       * Disconnects the socket
+       *
+       * See https://developer.mozilla.org/en-US/docs/Web/API/CloseEvent#Status_codes for valid status codes.
+       *
+       * @param {() => void} [callback] - Optional callback which is called after socket is disconnected.
+       * @param {number} [code] - A status code for disconnection (Optional).
+       * @param {string} [reason] - A textual description of the reason to disconnect. (Optional)
+       */
+      disconnect(callback, code, reason) {
+        this.connectClock++;
+        this.disconnecting = true;
+        this.closeWasClean = true;
+        clearTimeout(this.fallbackTimer);
+        this.reconnectTimer.reset();
+        this.teardown(() => {
+          this.disconnecting = false;
+          callback && callback();
+        }, code, reason);
+      }
+      /**
+       * @param {Params} [params] - [DEPRECATED] The params to send when connecting, for example `{user_id: userToken}`
+       *
+       * Passing params to connect is deprecated; pass them in the Socket constructor instead:
+       * `new Socket("/socket", {params: {user_id: userToken}})`.
+       */
+      connect(params) {
+        if (params) {
+          console && console.log("passing params to connect is deprecated. Instead pass :params to the Socket constructor");
+          this.params = closure(params);
+        }
+        if (this.conn && !this.disconnecting) {
+          return;
+        }
+        if (this.longPollFallbackMs && this.transport !== LongPoll) {
+          this.connectWithFallback(LongPoll, this.longPollFallbackMs);
+        } else {
+          this.transportConnect();
+        }
+      }
+      /**
+       * Logs the message. Override `this.logger` for specialized logging. noops by default
+       * @param {string} kind
+       * @param {string} msg
+       * @param {Object} data
+       */
+      log(kind, msg, data) {
+        this.logger && this.logger(kind, msg, data);
+      }
+      /**
+       * Returns true if a logger has been set on this socket.
+       */
+      hasLogger() {
+        return this.logger !== null;
+      }
+      /**
+       * Registers callbacks for connection open events
+       *
+       * @example socket.onOpen(function(){ console.info("the socket was opened") })
+       *
+       * @param {SocketOnOpen} callback
+       */
+      onOpen(callback) {
+        let ref = this.makeRef();
+        this.stateChangeCallbacks.open.push([ref, callback]);
+        return ref;
+      }
+      /**
+       * Registers callbacks for connection close events
+       * @param {SocketOnClose} callback
+       * @returns {string}
+       */
+      onClose(callback) {
+        let ref = this.makeRef();
+        this.stateChangeCallbacks.close.push([ref, callback]);
+        return ref;
+      }
+      /**
+       * Registers callbacks for connection error events
+       *
+       * @example socket.onError(function(error){ alert("An error occurred") })
+       *
+       * @param {SocketOnError} callback
+       * @returns {string}
+       */
+      onError(callback) {
+        let ref = this.makeRef();
+        this.stateChangeCallbacks.error.push([ref, callback]);
+        return ref;
+      }
+      /**
+       * Registers callbacks for connection message events
+       * @param {SocketOnMessage} callback
+       * @returns {string}
+       */
+      onMessage(callback) {
+        let ref = this.makeRef();
+        this.stateChangeCallbacks.message.push([ref, callback]);
+        return ref;
+      }
+      /**
+       * Sets a callback that receives lifecycle events for internal heartbeat messages.
+       * Useful for instrumenting connection health (e.g. sent/ok/timeout/disconnected).
+       * @param {HeartbeatCallback} callback
+       */
+      onHeartbeat(callback) {
+        this.heartbeatCallback = callback;
+      }
+      /**
+       * Pings the server and invokes the callback with the RTT in milliseconds
+       * @param {(timeDelta: number) => void} callback
+       *
+       * Returns true if the ping was pushed or false if unable to be pushed.
+       */
+      ping(callback) {
+        if (!this.isConnected()) {
+          return false;
+        }
+        let ref = this.makeRef();
+        let startTime = Date.now();
+        this.push({ topic: "phoenix", event: "heartbeat", payload: {}, ref });
+        let onMsgRef = this.onMessage((msg) => {
+          if (msg.ref === ref) {
+            this.off([onMsgRef]);
+            callback(Date.now() - startTime);
+          }
+        });
+        return true;
+      }
+      /**
+       * @private
+       *
+       * @param {Function}
+       */
+      transportName(transport) {
+        switch (transport) {
+          case LongPoll:
+            return "LongPoll";
+          default:
+            return transport.name;
+        }
+      }
+      /**
+       * @private
+       */
+      transportConnect() {
+        this.connectClock++;
+        this.closeWasClean = false;
+        let protocols = void 0;
+        if (this.authToken) {
+          protocols = ["phoenix", `${AUTH_TOKEN_PREFIX}${btoa(this.authToken).replace(/=/g, "")}`];
+        }
+        this.conn = new this.transport(this.endPointURL(), protocols);
+        this.conn.binaryType = this.binaryType;
+        this.conn.timeout = this.longpollerTimeout;
+        this.conn.onopen = () => this.onConnOpen();
+        this.conn.onerror = (error) => this.onConnError(error);
+        this.conn.onmessage = (event) => this.onConnMessage(event);
+        this.conn.onclose = (event) => this.onConnClose(event);
+      }
+      getSession(key) {
+        return this.sessionStore && this.sessionStore.getItem(key);
+      }
+      storeSession(key, val) {
+        this.sessionStore && this.sessionStore.setItem(key, val);
+      }
+      connectWithFallback(fallbackTransport, fallbackThreshold = 2500) {
+        clearTimeout(this.fallbackTimer);
+        let established = false;
+        let primaryTransport = true;
+        let openRef, errorRef;
+        let fallbackTransportName = this.transportName(fallbackTransport);
+        let fallback = (reason) => {
+          this.log("transport", `falling back to ${fallbackTransportName}...`, reason);
+          this.off([openRef, errorRef]);
+          primaryTransport = false;
+          this.replaceTransport(fallbackTransport);
+          this.transportConnect();
+        };
+        if (this.getSession(`phx:fallback:${fallbackTransportName}`)) {
+          return fallback("memorized");
+        }
+        this.fallbackTimer = setTimeout(fallback, fallbackThreshold);
+        errorRef = this.onError((reason) => {
+          this.log("transport", "error", reason);
+          if (primaryTransport && !established) {
+            clearTimeout(this.fallbackTimer);
+            fallback(reason);
+          }
+        });
+        if (this.fallbackRef) {
+          this.off([this.fallbackRef]);
+        }
+        this.fallbackRef = this.onOpen(() => {
+          established = true;
+          if (!primaryTransport) {
+            let fallbackTransportName2 = this.transportName(fallbackTransport);
+            if (!this.primaryPassedHealthCheck) {
+              this.storeSession(`phx:fallback:${fallbackTransportName2}`, "true");
+            }
+            return this.log("transport", `established ${fallbackTransportName2} fallback`);
+          }
+          clearTimeout(this.fallbackTimer);
+          this.fallbackTimer = setTimeout(fallback, fallbackThreshold);
+          this.ping((rtt) => {
+            this.log("transport", "connected to primary after", rtt);
+            this.primaryPassedHealthCheck = true;
+            clearTimeout(this.fallbackTimer);
+          });
+        });
+        this.transportConnect();
+      }
+      clearHeartbeats() {
+        clearTimeout(this.heartbeatTimer);
+        clearTimeout(this.heartbeatTimeoutTimer);
+      }
+      onConnOpen() {
+        if (this.hasLogger()) this.log("transport", `connected to ${this.endPointURL()}`);
+        this.closeWasClean = false;
+        this.disconnecting = false;
+        this.establishedConnections++;
+        this.flushSendBuffer();
+        this.reconnectTimer.reset();
+        if (this.autoSendHeartbeat) {
+          this.resetHeartbeat();
+        }
+        this.triggerStateCallbacks("open");
+      }
+      /**
+       * @private
+       */
+      heartbeatTimeout() {
+        if (this.pendingHeartbeatRef) {
+          this.pendingHeartbeatRef = null;
+          this.heartbeatSentAt = null;
+          if (this.hasLogger()) {
+            this.log("transport", "heartbeat timeout. Attempting to re-establish connection");
+          }
+          try {
+            this.heartbeatCallback("timeout");
+          } catch (e) {
+            this.log("error", "error in heartbeat callback", e);
+          }
+          this.triggerChanError();
+          this.closeWasClean = false;
+          this.teardown(() => this.reconnectTimer.scheduleTimeout(), WS_CLOSE_NORMAL, "heartbeat timeout");
+        }
+      }
+      resetHeartbeat() {
+        if (this.conn && this.conn.skipHeartbeat) {
+          return;
+        }
+        this.pendingHeartbeatRef = null;
+        this.clearHeartbeats();
+        this.heartbeatTimer = setTimeout(() => this.sendHeartbeat(), this.heartbeatIntervalMs);
+      }
+      teardown(callback, code, reason) {
+        if (!this.conn) {
+          return callback && callback();
+        }
+        const connToClose = this.conn;
+        this.waitForBufferDone(connToClose, () => {
+          if (code) {
+            connToClose.close(code, reason || "");
+          } else {
+            connToClose.close();
+          }
+          this.waitForSocketClosed(connToClose, () => {
+            if (this.conn === connToClose) {
+              this.conn.onopen = function() {
+              };
+              this.conn.onerror = function() {
+              };
+              this.conn.onmessage = function() {
+              };
+              this.conn.onclose = function() {
+              };
+              this.conn = null;
+            }
+            callback && callback();
+          });
+        });
+      }
+      waitForBufferDone(conn, callback, tries = 1) {
+        if (tries === 5 || !conn.bufferedAmount) {
+          callback();
+          return;
+        }
+        setTimeout(() => {
+          this.waitForBufferDone(conn, callback, tries + 1);
+        }, 150 * tries);
+      }
+      waitForSocketClosed(conn, callback, tries = 1) {
+        if (tries === 5 || conn.readyState === SOCKET_STATES.closed) {
+          callback();
+          return;
+        }
+        setTimeout(() => {
+          this.waitForSocketClosed(conn, callback, tries + 1);
+        }, 150 * tries);
+      }
+      /**
+      * @param {CloseEvent} event
+      */
+      onConnClose(event) {
+        if (this.conn) this.conn.onclose = () => {
+        };
+        if (this.hasLogger()) this.log("transport", "close", event);
+        this.triggerChanError();
+        this.clearHeartbeats();
+        if (!this.closeWasClean) {
+          this.reconnectTimer.scheduleTimeout();
+        }
+        this.triggerStateCallbacks("close", event);
+      }
+      /**
+       * @private
+       * @param {Event} error
+       */
+      onConnError(error) {
+        if (this.hasLogger()) this.log("transport", error);
+        let transportBefore = this.transport;
+        let establishedBefore = this.establishedConnections;
+        this.triggerStateCallbacks("error", error, transportBefore, establishedBefore);
+        if (transportBefore === this.transport || establishedBefore > 0) {
+          this.triggerChanError();
+        }
+      }
+      /**
+       * @private
+       */
+      triggerChanError() {
+        this.channels.forEach((channel) => {
+          if (!(channel.isErrored() || channel.isLeaving() || channel.isClosed())) {
+            channel.trigger(CHANNEL_EVENTS2.error);
+          }
+        });
+      }
+      /**
+       * @returns {string}
+       */
+      connectionState() {
+        switch (this.conn && this.conn.readyState) {
+          case SOCKET_STATES.connecting:
+            return "connecting";
+          case SOCKET_STATES.open:
+            return "open";
+          case SOCKET_STATES.closing:
+            return "closing";
+          default:
+            return "closed";
+        }
+      }
+      /**
+       * @returns {boolean}
+       */
+      isConnected() {
+        return this.connectionState() === "open";
+      }
+      /**
+       *
+       * @param {Channel} channel
+       */
+      remove(channel) {
+        this.off(channel.stateChangeRefs);
+        this.channels = this.channels.filter((c) => c !== channel);
+      }
+      /**
+       * Removes `onOpen`, `onClose`, `onError,` and `onMessage` registrations.
+       *
+       * @param {string[]} refs - list of refs returned by calls to
+       *                 `onOpen`, `onClose`, `onError,` and `onMessage`
+       */
+      off(refs) {
+        for (let key in this.stateChangeCallbacks) {
+          this.stateChangeCallbacks[key] = this.stateChangeCallbacks[key].filter(([ref]) => {
+            return refs.indexOf(ref) === -1;
+          });
+        }
+      }
+      /**
+       * Initiates a new channel for the given topic
+       *
+       * @param {string} topic
+       * @param {Params | (() => Params)} [chanParams]- Parameters for the channel
+       * @returns {Channel}
+       */
+      channel(topic, chanParams = {}) {
+        let chan2 = new Channel(topic, chanParams, this);
+        this.channels.push(chan2);
+        return chan2;
+      }
+      /**
+       * @param {Message<Record<string, any>>} data
+       */
+      push(data) {
+        if (this.hasLogger()) {
+          let { topic, event, payload, ref, join_ref } = data;
+          this.log("push", `${topic} ${event} (${join_ref}, ${ref})`, payload);
+        }
+        if (this.isConnected()) {
+          this.encode(data, (result) => this.conn.send(result));
+        } else {
+          this.sendBuffer.push(() => this.encode(data, (result) => this.conn.send(result)));
+        }
+      }
+      /**
+       * Return the next message ref, accounting for overflows
+       * @returns {string}
+       */
+      makeRef() {
+        let newRef = this.ref + 1;
+        if (newRef === this.ref) {
+          this.ref = 0;
+        } else {
+          this.ref = newRef;
+        }
+        return this.ref.toString();
+      }
+      sendHeartbeat() {
+        if (!this.isConnected()) {
+          try {
+            this.heartbeatCallback("disconnected");
+          } catch (e) {
+            this.log("error", "error in heartbeat callback", e);
+          }
+          return;
+        }
+        if (this.pendingHeartbeatRef) {
+          this.heartbeatTimeout();
+          return;
+        }
+        this.pendingHeartbeatRef = this.makeRef();
+        this.heartbeatSentAt = Date.now();
+        this.push({ topic: "phoenix", event: "heartbeat", payload: {}, ref: this.pendingHeartbeatRef });
+        try {
+          this.heartbeatCallback("sent");
+        } catch (e) {
+          this.log("error", "error in heartbeat callback", e);
+        }
+        this.heartbeatTimeoutTimer = setTimeout(() => this.heartbeatTimeout(), this.heartbeatIntervalMs);
+      }
+      flushSendBuffer() {
+        if (this.isConnected() && this.sendBuffer.length > 0) {
+          this.sendBuffer.forEach((callback) => callback());
+          this.sendBuffer = [];
+        }
+      }
+      /**
+      * @param {MessageEvent<any>} rawMessage
+      */
+      onConnMessage(rawMessage) {
+        this.decode(rawMessage.data, (msg) => {
+          let { topic, event, payload, ref, join_ref } = msg;
+          if (ref && ref === this.pendingHeartbeatRef) {
+            const latency = this.heartbeatSentAt ? Date.now() - this.heartbeatSentAt : void 0;
+            this.clearHeartbeats();
+            try {
+              this.heartbeatCallback(payload.status === "ok" ? "ok" : "error", latency);
+            } catch (e) {
+              this.log("error", "error in heartbeat callback", e);
+            }
+            this.pendingHeartbeatRef = null;
+            this.heartbeatSentAt = null;
+            if (this.autoSendHeartbeat) {
+              this.heartbeatTimer = setTimeout(() => this.sendHeartbeat(), this.heartbeatIntervalMs);
+            }
+          }
+          if (this.hasLogger()) this.log("receive", `${payload.status || ""} ${topic} ${event} ${ref && "(" + ref + ")" || ""}`.trim(), payload);
+          for (let i = 0; i < this.channels.length; i++) {
+            const channel = this.channels[i];
+            if (!channel.isMember(topic, event, payload, join_ref)) {
+              continue;
+            }
+            channel.trigger(event, payload, ref, join_ref);
+          }
+          this.triggerStateCallbacks("message", msg);
+        });
+      }
+      /**
+       * @private
+       * @template {keyof SocketStateChangeCallbacks} K
+       * @param {K} event
+       * @param {...Parameters<SocketStateChangeCallbacks[K][number][1]>} args
+       * @returns {void}
+       */
+      triggerStateCallbacks(event, ...args) {
+        try {
+          this.stateChangeCallbacks[event].forEach(([_, callback]) => {
+            try {
+              callback(...args);
+            } catch (e) {
+              this.log("error", `error in ${event} callback`, e);
+            }
+          });
+        } catch (e) {
+          this.log("error", `error triggering ${event} callbacks`, e);
+        }
+      }
+      leaveOpenTopic(topic) {
+        let dupChannel = this.channels.find((c) => c.topic === topic && (c.isJoined() || c.isJoining()));
+        if (dupChannel) {
+          if (this.hasLogger()) this.log("transport", `leaving duplicate topic "${topic}"`);
+          dupChannel.leave();
+        }
+      }
+    };
+  }
+});
+
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/phoenix/presenceAdapter.js
+function transformState(presences) {
+  return presences.metas.map((presence) => {
+    presence["presence_ref"] = presence["phx_ref"];
+    delete presence["phx_ref"];
+    delete presence["phx_ref_prev"];
+    return presence;
+  });
+}
+function cloneState(state8) {
+  return JSON.parse(JSON.stringify(state8));
+}
+function phoenixPresenceOptions(opts) {
+  return (opts === null || opts === void 0 ? void 0 : opts.events) && { events: opts.events };
+}
+function parseCurrentPresences(currentPresences) {
+  return (currentPresences === null || currentPresences === void 0 ? void 0 : currentPresences.metas) ? transformState(currentPresences) : [];
+}
+var PresenceAdapter;
+var init_presenceAdapter = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/phoenix/presenceAdapter.js"() {
+    init_phoenix();
+    PresenceAdapter = class _PresenceAdapter {
+      constructor(channel, opts) {
+        const phoenixOptions = phoenixPresenceOptions(opts);
+        this.presence = new Presence(channel.getChannel(), phoenixOptions);
+        this.presence.onJoin((key, currentPresence, newPresence) => {
+          const onJoinPayload = _PresenceAdapter.onJoinPayload(key, currentPresence, newPresence);
+          channel.getChannel().trigger("presence", onJoinPayload);
+        });
+        this.presence.onLeave((key, currentPresence, leftPresence) => {
+          const onLeavePayload = _PresenceAdapter.onLeavePayload(key, currentPresence, leftPresence);
+          channel.getChannel().trigger("presence", onLeavePayload);
+        });
+        this.presence.onSync(() => {
+          channel.getChannel().trigger("presence", { event: "sync" });
+        });
+      }
+      get state() {
+        return _PresenceAdapter.transformState(this.presence.state);
+      }
+      /**
+       * @private
        * Remove 'metas' key
        * Change 'phx_ref' to 'presence_ref'
        * Remove 'phx_ref' and 'phx_ref_prev'
        *
-       * @example
+       * @example Transform state
        * // returns {
        *  abc123: [
        *    { presence_ref: '2', user_id: 1 },
@@ -2426,59 +7448,192 @@ var init_RealtimePresence = __esm({
        *  }
        * })
        *
-       * @internal
        */
       static transformState(state8) {
-        state8 = this.cloneDeep(state8);
+        state8 = cloneState(state8);
         return Object.getOwnPropertyNames(state8).reduce((newState, key) => {
           const presences = state8[key];
-          if ("metas" in presences) {
-            newState[key] = presences.metas.map((presence) => {
-              presence["presence_ref"] = presence["phx_ref"];
-              delete presence["phx_ref"];
-              delete presence["phx_ref_prev"];
-              return presence;
-            });
-          } else {
-            newState[key] = presences;
-          }
+          newState[key] = transformState(presences);
           return newState;
         }, {});
       }
-      /** @internal */
-      static cloneDeep(obj) {
-        return JSON.parse(JSON.stringify(obj));
+      static onJoinPayload(key, currentPresence, newPresence) {
+        const currentPresences = parseCurrentPresences(currentPresence);
+        const newPresences = transformState(newPresence);
+        return {
+          event: "join",
+          key,
+          currentPresences,
+          newPresences
+        };
       }
-      /** @internal */
-      onJoin(callback) {
-        this.caller.onJoin = callback;
-      }
-      /** @internal */
-      onLeave(callback) {
-        this.caller.onLeave = callback;
-      }
-      /** @internal */
-      onSync(callback) {
-        this.caller.onSync = callback;
-      }
-      /** @internal */
-      inPendingSyncState() {
-        return !this.joinRef || this.joinRef !== this.channel._joinRef();
+      static onLeavePayload(key, currentPresence, leftPresence) {
+        const currentPresences = parseCurrentPresences(currentPresence);
+        const leftPresences = transformState(leftPresence);
+        return {
+          event: "leave",
+          key,
+          currentPresences,
+          leftPresences
+        };
       }
     };
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js
+var REALTIME_PRESENCE_LISTEN_EVENTS, RealtimePresence;
+var init_RealtimePresence = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js"() {
+    init_presenceAdapter();
+    (function(REALTIME_PRESENCE_LISTEN_EVENTS2) {
+      REALTIME_PRESENCE_LISTEN_EVENTS2["SYNC"] = "sync";
+      REALTIME_PRESENCE_LISTEN_EVENTS2["JOIN"] = "join";
+      REALTIME_PRESENCE_LISTEN_EVENTS2["LEAVE"] = "leave";
+    })(REALTIME_PRESENCE_LISTEN_EVENTS || (REALTIME_PRESENCE_LISTEN_EVENTS = {}));
+    RealtimePresence = class {
+      get state() {
+        return this.presenceAdapter.state;
+      }
+      /**
+       * Creates a Presence helper that keeps the local presence state in sync with the server.
+       *
+       * @param channel - The realtime channel to bind to.
+       * @param opts - Optional custom event names, e.g. `{ events: { state: 'state', diff: 'diff' } }`.
+       *
+       * @category Realtime
+       *
+       * @example Example for a presence channel
+       * ```ts
+       * const presence = new RealtimePresence(channel)
+       *
+       * channel.on('presence', ({ event, key }) => {
+       *   console.log(`Presence ${event} on ${key}`)
+       * })
+       * ```
+       */
+      constructor(channel, opts) {
+        this.channel = channel;
+        this.presenceAdapter = new PresenceAdapter(this.channel.channelAdapter, opts);
+      }
+    };
+  }
+});
+
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/phoenix/channelAdapter.js
+function phoenixChannelParams(options) {
+  return {
+    config: Object.assign({
+      broadcast: { ack: false, self: false },
+      presence: { key: "", enabled: false },
+      private: false
+    }, options.config)
+  };
+}
+var ChannelAdapter;
+var init_channelAdapter = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/phoenix/channelAdapter.js"() {
+    init_constants();
+    ChannelAdapter = class {
+      constructor(socket2, topic, params) {
+        const phoenixParams = phoenixChannelParams(params);
+        this.channel = socket2.getSocket().channel(topic, phoenixParams);
+        this.socket = socket2;
+      }
+      get state() {
+        return this.channel.state;
+      }
+      set state(state8) {
+        this.channel.state = state8;
+      }
+      get joinedOnce() {
+        return this.channel.joinedOnce;
+      }
+      get joinPush() {
+        return this.channel.joinPush;
+      }
+      get rejoinTimer() {
+        return this.channel.rejoinTimer;
+      }
+      on(event, callback) {
+        return this.channel.on(event, callback);
+      }
+      off(event, refNumber) {
+        this.channel.off(event, refNumber);
+      }
+      subscribe(timeout) {
+        return this.channel.join(timeout);
+      }
+      unsubscribe(timeout) {
+        return this.channel.leave(timeout);
+      }
+      teardown() {
+        this.channel.teardown();
+      }
+      onClose(callback) {
+        this.channel.onClose(callback);
+      }
+      onError(callback) {
+        return this.channel.onError(callback);
+      }
+      push(event, payload, timeout) {
+        let push;
+        try {
+          push = this.channel.push(event, payload, timeout);
+        } catch (error) {
+          throw `tried to push '${event}' to '${this.channel.topic}' before joining. Use channel.subscribe() before pushing events`;
+        }
+        if (this.channel.pushBuffer.length > MAX_PUSH_BUFFER_SIZE) {
+          const removedPush = this.channel.pushBuffer.shift();
+          removedPush.cancelTimeout();
+          this.socket.log("channel", `discarded push due to buffer overflow: ${removedPush.event}`, removedPush.payload());
+        }
+        return push;
+      }
+      updateJoinPayload(payload) {
+        const oldPayload = this.channel.joinPush.payload();
+        this.channel.joinPush.payload = () => Object.assign(Object.assign({}, oldPayload), payload);
+      }
+      canPush() {
+        return this.socket.isConnected() && this.state === CHANNEL_STATES.joined;
+      }
+      isJoined() {
+        return this.state === CHANNEL_STATES.joined;
+      }
+      isJoining() {
+        return this.state === CHANNEL_STATES.joining;
+      }
+      isClosed() {
+        return this.state === CHANNEL_STATES.closed;
+      }
+      isLeaving() {
+        return this.state === CHANNEL_STATES.leaving;
+      }
+      updateFilterBindings(filterBindings) {
+        this.channel.filterBindings = filterBindings;
+      }
+      updatePayloadTransform(callback) {
+        this.channel.onMessage = callback;
+      }
+      /**
+       * @internal
+       */
+      getChannel() {
+        return this.channel;
+      }
+    };
+  }
+});
+
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js
 var REALTIME_POSTGRES_CHANGES_LISTEN_EVENT, REALTIME_LISTEN_TYPES, REALTIME_SUBSCRIBE_STATES, RealtimeChannel;
 var init_RealtimeChannel = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js"() {
     init_constants();
-    init_push();
-    init_timer();
     init_RealtimePresence();
     init_transformers();
     init_transformers();
+    init_channelAdapter();
     (function(REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2) {
       REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2["ALL"] = "*";
       REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2["INSERT"] = "INSERT";
@@ -2498,13 +7653,33 @@ var init_RealtimeChannel = __esm({
       REALTIME_SUBSCRIBE_STATES2["CHANNEL_ERROR"] = "CHANNEL_ERROR";
     })(REALTIME_SUBSCRIBE_STATES || (REALTIME_SUBSCRIBE_STATES = {}));
     RealtimeChannel = class _RealtimeChannel {
+      get state() {
+        return this.channelAdapter.state;
+      }
+      set state(state8) {
+        this.channelAdapter.state = state8;
+      }
+      get joinedOnce() {
+        return this.channelAdapter.joinedOnce;
+      }
+      get timeout() {
+        return this.socket.timeout;
+      }
+      get joinPush() {
+        return this.channelAdapter.joinPush;
+      }
+      get rejoinTimer() {
+        return this.channelAdapter.rejoinTimer;
+      }
       /**
        * Creates a channel that can broadcast messages, sync presence, and listen to Postgres changes.
        *
        * The topic determines which realtime stream you are subscribing to. Config options let you
        * enable acknowledgement for broadcasts, presence tracking, or private channels.
        *
-       * @example
+       * @category Realtime
+       *
+       * @example Example for a public channel
        * ```ts
        * import RealtimeClient from '@supabase/realtime-js'
        *
@@ -2520,71 +7695,34 @@ var init_RealtimeChannel = __esm({
         this.params = params;
         this.socket = socket2;
         this.bindings = {};
-        this.state = CHANNEL_STATES.closed;
-        this.joinedOnce = false;
-        this.pushBuffer = [];
         this.subTopic = topic.replace(/^realtime:/i, "");
         this.params.config = Object.assign({
           broadcast: { ack: false, self: false },
           presence: { key: "", enabled: false },
           private: false
         }, params.config);
-        this.timeout = this.socket.timeout;
-        this.joinPush = new Push(this, CHANNEL_EVENTS.join, this.params, this.timeout);
-        this.rejoinTimer = new Timer(() => this._rejoinUntilConnected(), this.socket.reconnectAfterMs);
-        this.joinPush.receive("ok", () => {
-          this.state = CHANNEL_STATES.joined;
-          this.rejoinTimer.reset();
-          this.pushBuffer.forEach((pushEvent) => pushEvent.send());
-          this.pushBuffer = [];
-        });
+        this.channelAdapter = new ChannelAdapter(this.socket.socketAdapter, topic, this.params);
+        this.presence = new RealtimePresence(this);
         this._onClose(() => {
-          this.rejoinTimer.reset();
-          this.socket.log("channel", `close ${this.topic} ${this._joinRef()}`);
-          this.state = CHANNEL_STATES.closed;
           this.socket._remove(this);
         });
-        this._onError((reason) => {
-          if (this._isLeaving() || this._isClosed()) {
-            return;
-          }
-          this.socket.log("channel", `error ${this.topic}`, reason);
-          this.state = CHANNEL_STATES.errored;
-          this.rejoinTimer.scheduleTimeout();
-        });
-        this.joinPush.receive("timeout", () => {
-          if (!this._isJoining()) {
-            return;
-          }
-          this.socket.log("channel", `timeout ${this.topic}`, this.joinPush.timeout);
-          this.state = CHANNEL_STATES.errored;
-          this.rejoinTimer.scheduleTimeout();
-        });
-        this.joinPush.receive("error", (reason) => {
-          if (this._isLeaving() || this._isClosed()) {
-            return;
-          }
-          this.socket.log("channel", `error ${this.topic}`, reason);
-          this.state = CHANNEL_STATES.errored;
-          this.rejoinTimer.scheduleTimeout();
-        });
-        this._on(CHANNEL_EVENTS.reply, {}, (payload, ref) => {
-          this._trigger(this._replyEventName(ref), payload);
-        });
-        this.presence = new RealtimePresence(this);
-        this.broadcastEndpointURL = httpEndpointURL(this.socket.endPoint);
+        this._updateFilterTransform();
+        this.broadcastEndpointURL = httpEndpointURL(this.socket.socketAdapter.endPointURL());
         this.private = this.params.config.private || false;
         if (!this.private && ((_b = (_a = this.params.config) === null || _a === void 0 ? void 0 : _a.broadcast) === null || _b === void 0 ? void 0 : _b.replay)) {
           throw `tried to use replay on public channel '${this.topic}'. It must be a private channel.`;
         }
       }
-      /** Subscribe registers your client with the server */
+      /**
+       * Subscribe registers your client with the server
+       * @category Realtime
+       */
       subscribe(callback, timeout = this.timeout) {
         var _a, _b, _c;
         if (!this.socket.isConnected()) {
           this.socket.connect();
         }
-        if (this.state == CHANNEL_STATES.closed) {
+        if (this.channelAdapter.isClosed()) {
           const { config: { broadcast: broadcast2, presence, private: isPrivate } } = this.params;
           const postgres_changes = (_b = (_a = this.bindings.postgres_changes) === null || _a === void 0 ? void 0 : _a.map((r) => r.filter)) !== null && _b !== void 0 ? _b : [];
           const presence_enabled = !!this.bindings[REALTIME_LISTEN_TYPES.PRESENCE] && this.bindings[REALTIME_LISTEN_TYPES.PRESENCE].length > 0 || ((_c = this.params.config.presence) === null || _c === void 0 ? void 0 : _c.enabled) === true;
@@ -2598,56 +7736,60 @@ var init_RealtimeChannel = __esm({
           if (this.socket.accessTokenValue) {
             accessTokenPayload.access_token = this.socket.accessTokenValue;
           }
-          this._onError((e) => callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR, e));
+          this._onError((reason) => {
+            callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR, reason);
+          });
           this._onClose(() => callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES.CLOSED));
           this.updateJoinPayload(Object.assign({ config }, accessTokenPayload));
-          this.joinedOnce = true;
-          this._rejoin(timeout);
-          this.joinPush.receive("ok", async ({ postgres_changes: postgres_changes2 }) => {
-            var _a2;
+          this._updateFilterMessage();
+          this.channelAdapter.subscribe(timeout).receive("ok", async ({ postgres_changes: postgres_changes2 }) => {
             if (!this.socket._isManualToken()) {
               this.socket.setAuth();
             }
             if (postgres_changes2 === void 0) {
               callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES.SUBSCRIBED);
               return;
-            } else {
-              const clientPostgresBindings = this.bindings.postgres_changes;
-              const bindingsLen = (_a2 = clientPostgresBindings === null || clientPostgresBindings === void 0 ? void 0 : clientPostgresBindings.length) !== null && _a2 !== void 0 ? _a2 : 0;
-              const newPostgresBindings = [];
-              for (let i = 0; i < bindingsLen; i++) {
-                const clientPostgresBinding = clientPostgresBindings[i];
-                const { filter: { event, schema, table, filter } } = clientPostgresBinding;
-                const serverPostgresFilter = postgres_changes2 && postgres_changes2[i];
-                if (serverPostgresFilter && serverPostgresFilter.event === event && _RealtimeChannel.isFilterValueEqual(serverPostgresFilter.schema, schema) && _RealtimeChannel.isFilterValueEqual(serverPostgresFilter.table, table) && _RealtimeChannel.isFilterValueEqual(serverPostgresFilter.filter, filter)) {
-                  newPostgresBindings.push(Object.assign(Object.assign({}, clientPostgresBinding), { id: serverPostgresFilter.id }));
-                } else {
-                  this.unsubscribe();
-                  this.state = CHANNEL_STATES.errored;
-                  callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR, new Error("mismatch between server and client bindings for postgres changes"));
-                  return;
-                }
-              }
-              this.bindings.postgres_changes = newPostgresBindings;
-              callback && callback(REALTIME_SUBSCRIBE_STATES.SUBSCRIBED);
-              return;
             }
+            this._updatePostgresBindings(postgres_changes2, callback);
           }).receive("error", (error) => {
             this.state = CHANNEL_STATES.errored;
             callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR, new Error(JSON.stringify(Object.values(error).join(", ") || "error")));
-            return;
           }).receive("timeout", () => {
             callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES.TIMED_OUT);
-            return;
           });
         }
         return this;
+      }
+      _updatePostgresBindings(postgres_changes, callback) {
+        var _a;
+        const clientPostgresBindings = this.bindings.postgres_changes;
+        const bindingsLen = (_a = clientPostgresBindings === null || clientPostgresBindings === void 0 ? void 0 : clientPostgresBindings.length) !== null && _a !== void 0 ? _a : 0;
+        const newPostgresBindings = [];
+        for (let i = 0; i < bindingsLen; i++) {
+          const clientPostgresBinding = clientPostgresBindings[i];
+          const { filter: { event, schema, table, filter } } = clientPostgresBinding;
+          const serverPostgresFilter = postgres_changes && postgres_changes[i];
+          if (serverPostgresFilter && serverPostgresFilter.event === event && _RealtimeChannel.isFilterValueEqual(serverPostgresFilter.schema, schema) && _RealtimeChannel.isFilterValueEqual(serverPostgresFilter.table, table) && _RealtimeChannel.isFilterValueEqual(serverPostgresFilter.filter, filter)) {
+            newPostgresBindings.push(Object.assign(Object.assign({}, clientPostgresBinding), { id: serverPostgresFilter.id }));
+          } else {
+            this.unsubscribe();
+            this.state = CHANNEL_STATES.errored;
+            callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR, new Error("mismatch between server and client bindings for postgres changes"));
+            return;
+          }
+        }
+        this.bindings.postgres_changes = newPostgresBindings;
+        if (this.state != CHANNEL_STATES.errored && callback) {
+          callback(REALTIME_SUBSCRIBE_STATES.SUBSCRIBED);
+        }
       }
       /**
        * Returns the current presence state for this channel.
        *
        * The shape is a map keyed by presence key (for example a user id) where each entry contains the
        * tracked metadata for that user.
+       *
+       * @category Realtime
        */
       presenceState() {
         return this.presence.state;
@@ -2655,6 +7797,8 @@ var init_RealtimeChannel = __esm({
       /**
        * Sends the supplied payload to the presence tracker so other subscribers can see that this
        * client is online. Use `untrack` to stop broadcasting presence for the same key.
+       *
+       * @category Realtime
        */
       async track(payload, opts = {}) {
         return await this.send({
@@ -2665,6 +7809,8 @@ var init_RealtimeChannel = __esm({
       }
       /**
        * Removes the current presence state for this client.
+       *
+       * @category Realtime
        */
       async untrack(opts = {}) {
         return await this.send({
@@ -2672,10 +7818,169 @@ var init_RealtimeChannel = __esm({
           event: "untrack"
         }, opts);
       }
+      /**
+       * Listen to realtime events on this channel.
+       * @category Realtime
+       *
+       * @remarks
+       * - By default, Broadcast and Presence are enabled for all projects.
+       * - By default, listening to database changes is disabled for new projects due to database performance and security concerns. You can turn it on by managing Realtime's [replication](/docs/guides/api#realtime-api-overview).
+       * - You can receive the "previous" data for updates and deletes by setting the table's `REPLICA IDENTITY` to `FULL` (e.g., `ALTER TABLE your_table REPLICA IDENTITY FULL;`).
+       * - Row level security is not applied to delete statements. When RLS is enabled and replica identity is set to full, only the primary key is sent to clients.
+       *
+       * @example Listen to broadcast messages
+       * ```js
+       * const channel = supabase.channel("room1")
+       *
+       * channel.on("broadcast", { event: "cursor-pos" }, (payload) => {
+       *   console.log("Cursor position received!", payload);
+       * }).subscribe((status) => {
+       *   if (status === "SUBSCRIBED") {
+       *     channel.send({
+       *       type: "broadcast",
+       *       event: "cursor-pos",
+       *       payload: { x: Math.random(), y: Math.random() },
+       *     });
+       *   }
+       * });
+       * ```
+       *
+       * @example Listen to presence sync
+       * ```js
+       * const channel = supabase.channel('room1')
+       * channel
+       *   .on('presence', { event: 'sync' }, () => {
+       *     console.log('Synced presence state: ', channel.presenceState())
+       *   })
+       *   .subscribe(async (status) => {
+       *     if (status === 'SUBSCRIBED') {
+       *       await channel.track({ online_at: new Date().toISOString() })
+       *     }
+       *   })
+       * ```
+       *
+       * @example Listen to presence join
+       * ```js
+       * const channel = supabase.channel('room1')
+       * channel
+       *   .on('presence', { event: 'join' }, ({ newPresences }) => {
+       *     console.log('Newly joined presences: ', newPresences)
+       *   })
+       *   .subscribe(async (status) => {
+       *     if (status === 'SUBSCRIBED') {
+       *       await channel.track({ online_at: new Date().toISOString() })
+       *     }
+       *   })
+       * ```
+       *
+       * @example Listen to presence leave
+       * ```js
+       * const channel = supabase.channel('room1')
+       * channel
+       *   .on('presence', { event: 'leave' }, ({ leftPresences }) => {
+       *     console.log('Newly left presences: ', leftPresences)
+       *   })
+       *   .subscribe(async (status) => {
+       *     if (status === 'SUBSCRIBED') {
+       *       await channel.track({ online_at: new Date().toISOString() })
+       *       await channel.untrack()
+       *     }
+       *   })
+       * ```
+       *
+       * @example Listen to all database changes
+       * ```js
+       * supabase
+       *   .channel('room1')
+       *   .on('postgres_changes', { event: '*', schema: '*' }, payload => {
+       *     console.log('Change received!', payload)
+       *   })
+       *   .subscribe()
+       * ```
+       *
+       * @example Listen to a specific table
+       * ```js
+       * supabase
+       *   .channel('room1')
+       *   .on('postgres_changes', { event: '*', schema: 'public', table: 'countries' }, payload => {
+       *     console.log('Change received!', payload)
+       *   })
+       *   .subscribe()
+       * ```
+       *
+       * @example Listen to inserts
+       * ```js
+       * supabase
+       *   .channel('room1')
+       *   .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'countries' }, payload => {
+       *     console.log('Change received!', payload)
+       *   })
+       *   .subscribe()
+       * ```
+       *
+       * @exampleDescription Listen to updates
+       * By default, Supabase will send only the updated record. If you want to receive the previous values as well you can
+       * enable full replication for the table you are listening to:
+       *
+       * ```sql
+       * alter table "your_table" replica identity full;
+       * ```
+       *
+       * @example Listen to updates
+       * ```js
+       * supabase
+       *   .channel('room1')
+       *   .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'countries' }, payload => {
+       *     console.log('Change received!', payload)
+       *   })
+       *   .subscribe()
+       * ```
+       *
+       * @exampleDescription Listen to deletes
+       * By default, Supabase does not send deleted records. If you want to receive the deleted record you can
+       * enable full replication for the table you are listening to:
+       *
+       * ```sql
+       * alter table "your_table" replica identity full;
+       * ```
+       *
+       * @example Listen to deletes
+       * ```js
+       * supabase
+       *   .channel('room1')
+       *   .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'countries' }, payload => {
+       *     console.log('Change received!', payload)
+       *   })
+       *   .subscribe()
+       * ```
+       *
+       * @exampleDescription Listen to multiple events
+       * You can chain listeners if you want to listen to multiple events for each table.
+       *
+       * @example Listen to multiple events
+       * ```js
+       * supabase
+       *   .channel('room1')
+       *   .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'countries' }, handleRecordInserted)
+       *   .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'countries' }, handleRecordDeleted)
+       *   .subscribe()
+       * ```
+       *
+       * @exampleDescription Listen to row level changes
+       * You can listen to individual rows using the format `{table}:{col}=eq.{val}` - where `{col}` is the column name, and `{val}` is the value which you want to match.
+       *
+       * @example Listen to row level changes
+       * ```js
+       * supabase
+       *   .channel('room1')
+       *   .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'countries', filter: 'id=eq.200' }, handleRecordUpdated)
+       *   .subscribe()
+       * ```
+       */
       on(type, filter, callback) {
-        if (this.state === CHANNEL_STATES.joined && type === REALTIME_LISTEN_TYPES.PRESENCE) {
-          this.socket.log("channel", `resubscribe to ${this.topic} due to change in presence callbacks on joined channel`);
-          this.unsubscribe().then(async () => await this.subscribe());
+        if (this.channelAdapter.isJoined() && type === REALTIME_LISTEN_TYPES.PRESENCE) {
+          this.socket.log("channel", `cannot add presence callbacks for ${this.topic} after joining.`);
+          throw new Error("cannot add presence callbacks after joining a channel");
         }
         return this._on(type, filter, callback);
       }
@@ -2689,6 +7994,8 @@ var init_RealtimeChannel = __esm({
        * @param payload Payload to be sent (required)
        * @param opts Options including timeout
        * @returns Promise resolving to object with success status, and error details if failed
+       *
+       * @category Realtime
        */
       async httpSend(event, payload, opts = {}) {
         var _a;
@@ -2736,10 +8043,43 @@ var init_RealtimeChannel = __esm({
        * @param args.event The name of the event being sent
        * @param args.payload Payload to be sent
        * @param opts Options to be used during the send process
+       *
+       * @category Realtime
+       *
+       * @remarks
+       * - When using REST you don't need to subscribe to the channel
+       * - REST calls are only available from 2.37.0 onwards
+       *
+       * @example Send a message via websocket
+       * ```js
+       * const channel = supabase.channel('room1')
+       *
+       * channel.subscribe((status) => {
+       *   if (status === 'SUBSCRIBED') {
+       *     channel.send({
+       *       type: 'broadcast',
+       *       event: 'cursor-pos',
+       *       payload: { x: Math.random(), y: Math.random() },
+       *     })
+       *   }
+       * })
+       * ```
+       *
+       * @exampleResponse Send a message via websocket
+       * ```js
+       * ok | timed out | error
+       * ```
+       *
+       * @example Send a message via REST
+       * ```js
+       * supabase
+       *   .channel('room1')
+       *   .httpSend('cursor-pos', { x: Math.random(), y: Math.random() })
+       * ```
        */
       async send(args, opts = {}) {
         var _a, _b;
-        if (!this._canPush() && args.type === "broadcast") {
+        if (!this.channelAdapter.canPush() && args.type === "broadcast") {
           console.warn("Realtime send() is automatically falling back to REST API. This behavior will be deprecated in the future. Please use httpSend() explicitly for REST delivery.");
           const { event, payload: endpoint_payload } = args;
           const headers = {
@@ -2777,7 +8117,7 @@ var init_RealtimeChannel = __esm({
         } else {
           return new Promise((resolve) => {
             var _a2, _b2, _c;
-            const push = this._push(args.type, args, opts.timeout || this.timeout);
+            const push = this.channelAdapter.push(args.type, args, opts.timeout || this.timeout);
             if (args.type === "broadcast" && !((_c = (_b2 = (_a2 = this.params) === null || _a2 === void 0 ? void 0 : _a2.config) === null || _b2 === void 0 ? void 0 : _b2.broadcast) === null || _c === void 0 ? void 0 : _c.ack)) {
               resolve("ok");
             }
@@ -2790,9 +8130,11 @@ var init_RealtimeChannel = __esm({
       /**
        * Updates the payload that will be sent the next time the channel joins (reconnects).
        * Useful for rotating access tokens or updating config without re-creating the channel.
+       *
+       * @category Realtime
        */
       updateJoinPayload(payload) {
-        this.joinPush.updatePayload(payload);
+        this.channelAdapter.updateJoinPayload(payload);
       }
       /**
        * Leaves the channel.
@@ -2802,46 +8144,21 @@ var init_RealtimeChannel = __esm({
        *
        * To receive leave acknowledgements, use the a `receive` hook to bind to the server ack, ie:
        * channel.unsubscribe().receive("ok", () => alert("left!") )
+       *
+       * @category Realtime
        */
-      unsubscribe(timeout = this.timeout) {
-        this.state = CHANNEL_STATES.leaving;
-        const onClose = () => {
-          this.socket.log("channel", `leave ${this.topic}`);
-          this._trigger(CHANNEL_EVENTS.close, "leave", this._joinRef());
-        };
-        this.joinPush.destroy();
-        let leavePush = null;
+      async unsubscribe(timeout = this.timeout) {
         return new Promise((resolve) => {
-          leavePush = new Push(this, CHANNEL_EVENTS.leave, {}, timeout);
-          leavePush.receive("ok", () => {
-            onClose();
-            resolve("ok");
-          }).receive("timeout", () => {
-            onClose();
-            resolve("timed out");
-          }).receive("error", () => {
-            resolve("error");
-          });
-          leavePush.send();
-          if (!this._canPush()) {
-            leavePush.trigger("ok", {});
-          }
-        }).finally(() => {
-          leavePush === null || leavePush === void 0 ? void 0 : leavePush.destroy();
+          this.channelAdapter.unsubscribe(timeout).receive("ok", () => resolve("ok")).receive("timeout", () => resolve("timed out")).receive("error", () => resolve("error"));
         });
       }
       /**
-       * Teardown the channel.
-       *
        * Destroys and stops related timers.
+       *
+       * @category Realtime
        */
       teardown() {
-        this.pushBuffer.forEach((push) => push.destroy());
-        this.pushBuffer = [];
-        this.rejoinTimer.reset();
-        this.joinPush.destroy();
-        this.state = CHANNEL_STATES.closed;
-        this.bindings = {};
+        this.channelAdapter.teardown();
       }
       /** @internal */
       async _fetchWithTimeout(url, options, timeout) {
@@ -2852,158 +8169,90 @@ var init_RealtimeChannel = __esm({
         return response;
       }
       /** @internal */
-      _push(event, payload, timeout = this.timeout) {
-        if (!this.joinedOnce) {
-          throw `tried to push '${event}' to '${this.topic}' before joining. Use channel.subscribe() before pushing events`;
-        }
-        let pushEvent = new Push(this, event, payload, timeout);
-        if (this._canPush()) {
-          pushEvent.send();
-        } else {
-          this._addToPushBuffer(pushEvent);
-        }
-        return pushEvent;
-      }
-      /** @internal */
-      _addToPushBuffer(pushEvent) {
-        pushEvent.startTimeout();
-        this.pushBuffer.push(pushEvent);
-        if (this.pushBuffer.length > MAX_PUSH_BUFFER_SIZE) {
-          const removedPush = this.pushBuffer.shift();
-          if (removedPush) {
-            removedPush.destroy();
-            this.socket.log("channel", `discarded push due to buffer overflow: ${removedPush.event}`, removedPush.payload);
-          }
-        }
-      }
-      /**
-       * Overridable message hook
-       *
-       * Receives all events for specialized message handling before dispatching to the channel callbacks.
-       * Must return the payload, modified or unmodified.
-       *
-       * @internal
-       */
-      _onMessage(_event, payload, _ref) {
-        return payload;
-      }
-      /** @internal */
-      _isMember(topic) {
-        return this.topic === topic;
-      }
-      /** @internal */
-      _joinRef() {
-        return this.joinPush.ref;
-      }
-      /** @internal */
-      _trigger(type, payload, ref) {
-        var _a, _b;
-        const typeLower = type.toLocaleLowerCase();
-        const { close, error, leave, join } = CHANNEL_EVENTS;
-        const events = [close, error, leave, join];
-        if (ref && events.indexOf(typeLower) >= 0 && ref !== this._joinRef()) {
-          return;
-        }
-        let handledPayload = this._onMessage(typeLower, payload, ref);
-        if (payload && !handledPayload) {
-          throw "channel onMessage callbacks must return the payload, modified or unmodified";
-        }
-        if (["insert", "update", "delete"].includes(typeLower)) {
-          (_a = this.bindings.postgres_changes) === null || _a === void 0 ? void 0 : _a.filter((bind) => {
-            var _a2, _b2, _c;
-            return ((_a2 = bind.filter) === null || _a2 === void 0 ? void 0 : _a2.event) === "*" || ((_c = (_b2 = bind.filter) === null || _b2 === void 0 ? void 0 : _b2.event) === null || _c === void 0 ? void 0 : _c.toLocaleLowerCase()) === typeLower;
-          }).map((bind) => bind.callback(handledPayload, ref));
-        } else {
-          (_b = this.bindings[typeLower]) === null || _b === void 0 ? void 0 : _b.filter((bind) => {
-            var _a2, _b2, _c, _d, _e, _f;
-            if (["broadcast", "presence", "postgres_changes"].includes(typeLower)) {
-              if ("id" in bind) {
-                const bindId = bind.id;
-                const bindEvent = (_a2 = bind.filter) === null || _a2 === void 0 ? void 0 : _a2.event;
-                return bindId && ((_b2 = payload.ids) === null || _b2 === void 0 ? void 0 : _b2.includes(bindId)) && (bindEvent === "*" || (bindEvent === null || bindEvent === void 0 ? void 0 : bindEvent.toLocaleLowerCase()) === ((_c = payload.data) === null || _c === void 0 ? void 0 : _c.type.toLocaleLowerCase()));
-              } else {
-                const bindEvent = (_e = (_d = bind === null || bind === void 0 ? void 0 : bind.filter) === null || _d === void 0 ? void 0 : _d.event) === null || _e === void 0 ? void 0 : _e.toLocaleLowerCase();
-                return bindEvent === "*" || bindEvent === ((_f = payload === null || payload === void 0 ? void 0 : payload.event) === null || _f === void 0 ? void 0 : _f.toLocaleLowerCase());
-              }
-            } else {
-              return bind.type.toLocaleLowerCase() === typeLower;
-            }
-          }).map((bind) => {
-            if (typeof handledPayload === "object" && "ids" in handledPayload) {
-              const postgresChanges = handledPayload.data;
-              const { schema, table, commit_timestamp, type: type2, errors } = postgresChanges;
-              const enrichedPayload = {
-                schema,
-                table,
-                commit_timestamp,
-                eventType: type2,
-                new: {},
-                old: {},
-                errors
-              };
-              handledPayload = Object.assign(Object.assign({}, enrichedPayload), this._getPayloadRecords(postgresChanges));
-            }
-            bind.callback(handledPayload, ref);
-          });
-        }
-      }
-      /** @internal */
-      _isClosed() {
-        return this.state === CHANNEL_STATES.closed;
-      }
-      /** @internal */
-      _isJoined() {
-        return this.state === CHANNEL_STATES.joined;
-      }
-      /** @internal */
-      _isJoining() {
-        return this.state === CHANNEL_STATES.joining;
-      }
-      /** @internal */
-      _isLeaving() {
-        return this.state === CHANNEL_STATES.leaving;
-      }
-      /** @internal */
-      _replyEventName(ref) {
-        return `chan_reply_${ref}`;
-      }
-      /** @internal */
       _on(type, filter, callback) {
         const typeLower = type.toLocaleLowerCase();
+        const ref = this.channelAdapter.on(type, callback);
         const binding = {
           type: typeLower,
           filter,
-          callback
+          callback,
+          ref
         };
         if (this.bindings[typeLower]) {
           this.bindings[typeLower].push(binding);
         } else {
           this.bindings[typeLower] = [binding];
         }
+        this._updateFilterMessage();
         return this;
       }
-      /** @internal */
-      _off(type, filter) {
-        const typeLower = type.toLocaleLowerCase();
-        if (this.bindings[typeLower]) {
-          this.bindings[typeLower] = this.bindings[typeLower].filter((bind) => {
-            var _a;
-            return !(((_a = bind.type) === null || _a === void 0 ? void 0 : _a.toLocaleLowerCase()) === typeLower && _RealtimeChannel.isEqual(bind.filter, filter));
-          });
-        }
-        return this;
+      /**
+       * Registers a callback that will be executed when the channel closes.
+       *
+       * @internal
+       */
+      _onClose(callback) {
+        this.channelAdapter.onClose(callback);
+      }
+      /**
+       * Registers a callback that will be executed when the channel encounteres an error.
+       *
+       * @internal
+       */
+      _onError(callback) {
+        this.channelAdapter.onError(callback);
       }
       /** @internal */
-      static isEqual(obj1, obj2) {
-        if (Object.keys(obj1).length !== Object.keys(obj2).length) {
-          return false;
-        }
-        for (const k in obj1) {
-          if (obj1[k] !== obj2[k]) {
+      _updateFilterMessage() {
+        this.channelAdapter.updateFilterBindings((binding, payload, ref) => {
+          var _a, _b, _c, _d, _e, _f, _g;
+          const typeLower = binding.event.toLocaleLowerCase();
+          if (this._notThisChannelEvent(typeLower, ref)) {
             return false;
           }
-        }
-        return true;
+          const bind = (_a = this.bindings[typeLower]) === null || _a === void 0 ? void 0 : _a.find((bind2) => bind2.ref === binding.ref);
+          if (!bind) {
+            return true;
+          }
+          if (["broadcast", "presence", "postgres_changes"].includes(typeLower)) {
+            if ("id" in bind) {
+              const bindId = bind.id;
+              const bindEvent = (_b = bind.filter) === null || _b === void 0 ? void 0 : _b.event;
+              return bindId && ((_c = payload.ids) === null || _c === void 0 ? void 0 : _c.includes(bindId)) && (bindEvent === "*" || (bindEvent === null || bindEvent === void 0 ? void 0 : bindEvent.toLocaleLowerCase()) === ((_d = payload.data) === null || _d === void 0 ? void 0 : _d.type.toLocaleLowerCase()));
+            } else {
+              const bindEvent = (_f = (_e = bind === null || bind === void 0 ? void 0 : bind.filter) === null || _e === void 0 ? void 0 : _e.event) === null || _f === void 0 ? void 0 : _f.toLocaleLowerCase();
+              return bindEvent === "*" || bindEvent === ((_g = payload === null || payload === void 0 ? void 0 : payload.event) === null || _g === void 0 ? void 0 : _g.toLocaleLowerCase());
+            }
+          } else {
+            return bind.type.toLocaleLowerCase() === typeLower;
+          }
+        });
+      }
+      /** @internal */
+      _notThisChannelEvent(event, ref) {
+        const { close, error, leave, join } = CHANNEL_EVENTS;
+        const events = [close, error, leave, join];
+        return ref && events.includes(event) && ref !== this.joinPush.ref;
+      }
+      /** @internal */
+      _updateFilterTransform() {
+        this.channelAdapter.updatePayloadTransform((event, payload, ref) => {
+          if (typeof payload === "object" && "ids" in payload) {
+            const postgresChanges = payload.data;
+            const { schema, table, commit_timestamp, type, errors } = postgresChanges;
+            const enrichedPayload = {
+              schema,
+              table,
+              commit_timestamp,
+              eventType: type,
+              new: {},
+              old: {},
+              errors
+            };
+            return Object.assign(Object.assign({}, enrichedPayload), this._getPayloadRecords(postgresChanges));
+          }
+          return payload;
+        });
       }
       /**
        * Compares two optional filter values for equality.
@@ -3014,46 +8263,6 @@ var init_RealtimeChannel = __esm({
         const normalizedServer = serverValue !== null && serverValue !== void 0 ? serverValue : void 0;
         const normalizedClient = clientValue !== null && clientValue !== void 0 ? clientValue : void 0;
         return normalizedServer === normalizedClient;
-      }
-      /** @internal */
-      _rejoinUntilConnected() {
-        this.rejoinTimer.scheduleTimeout();
-        if (this.socket.isConnected()) {
-          this._rejoin();
-        }
-      }
-      /**
-       * Registers a callback that will be executed when the channel closes.
-       *
-       * @internal
-       */
-      _onClose(callback) {
-        this._on(CHANNEL_EVENTS.close, {}, callback);
-      }
-      /**
-       * Registers a callback that will be executed when the channel encounteres an error.
-       *
-       * @internal
-       */
-      _onError(callback) {
-        this._on(CHANNEL_EVENTS.error, {}, (reason) => callback(reason));
-      }
-      /**
-       * Returns `true` if the socket is connected and the channel has been joined.
-       *
-       * @internal
-       */
-      _canPush() {
-        return this.socket.isConnected() && this._isJoined();
-      }
-      /** @internal */
-      _rejoin(timeout = this.timeout) {
-        if (this._isLeaving()) {
-          return;
-        }
-        this.socket._leaveOpenTopic(this.topic);
-        this.state = CHANNEL_STATES.joining;
-        this.joinPush.resend(timeout);
       }
       /** @internal */
       _getPayloadRecords(payload) {
@@ -3073,18 +8282,132 @@ var init_RealtimeChannel = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js
-var noop2, CONNECTION_TIMEOUTS, RECONNECT_INTERVALS, DEFAULT_RECONNECT_FALLBACK, WORKER_SCRIPT, RealtimeClient;
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/phoenix/socketAdapter.js
+var SocketAdapter;
+var init_socketAdapter = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/phoenix/socketAdapter.js"() {
+    init_phoenix();
+    init_constants();
+    SocketAdapter = class {
+      constructor(endPoint, options) {
+        this.socket = new Socket(endPoint, options);
+      }
+      get timeout() {
+        return this.socket.timeout;
+      }
+      get endPoint() {
+        return this.socket.endPoint;
+      }
+      get transport() {
+        return this.socket.transport;
+      }
+      get heartbeatIntervalMs() {
+        return this.socket.heartbeatIntervalMs;
+      }
+      get heartbeatCallback() {
+        return this.socket.heartbeatCallback;
+      }
+      set heartbeatCallback(callback) {
+        this.socket.heartbeatCallback = callback;
+      }
+      get heartbeatTimer() {
+        return this.socket.heartbeatTimer;
+      }
+      get pendingHeartbeatRef() {
+        return this.socket.pendingHeartbeatRef;
+      }
+      get reconnectTimer() {
+        return this.socket.reconnectTimer;
+      }
+      get vsn() {
+        return this.socket.vsn;
+      }
+      get encode() {
+        return this.socket.encode;
+      }
+      get decode() {
+        return this.socket.decode;
+      }
+      get reconnectAfterMs() {
+        return this.socket.reconnectAfterMs;
+      }
+      get sendBuffer() {
+        return this.socket.sendBuffer;
+      }
+      get stateChangeCallbacks() {
+        return this.socket.stateChangeCallbacks;
+      }
+      connect() {
+        this.socket.connect();
+      }
+      disconnect(callback, code, reason, timeout = 1e4) {
+        return new Promise((resolve) => {
+          setTimeout(() => resolve("timeout"), timeout);
+          this.socket.disconnect(() => {
+            callback();
+            resolve("ok");
+          }, code, reason);
+        });
+      }
+      push(data) {
+        this.socket.push(data);
+      }
+      log(kind, msg, data) {
+        this.socket.log(kind, msg, data);
+      }
+      makeRef() {
+        return this.socket.makeRef();
+      }
+      onOpen(callback) {
+        this.socket.onOpen(callback);
+      }
+      onClose(callback) {
+        this.socket.onClose(callback);
+      }
+      onError(callback) {
+        this.socket.onError(callback);
+      }
+      onMessage(callback) {
+        this.socket.onMessage(callback);
+      }
+      isConnected() {
+        return this.socket.isConnected();
+      }
+      isConnecting() {
+        return this.socket.connectionState() == CONNECTION_STATE.connecting;
+      }
+      isDisconnecting() {
+        return this.socket.connectionState() == CONNECTION_STATE.closing;
+      }
+      connectionState() {
+        return this.socket.connectionState();
+      }
+      endPointURL() {
+        return this.socket.endPointURL();
+      }
+      sendHeartbeat() {
+        this.socket.sendHeartbeat();
+      }
+      /**
+       * @internal
+       */
+      getSocket() {
+        return this.socket;
+      }
+    };
+  }
+});
+
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js
+var CONNECTION_TIMEOUTS, RECONNECT_INTERVALS, DEFAULT_RECONNECT_FALLBACK, WORKER_SCRIPT, RealtimeClient;
 var init_RealtimeClient = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js"() {
     init_websocket_factory();
     init_constants();
     init_serializer();
-    init_timer();
     init_transformers();
     init_RealtimeChannel();
-    noop2 = () => {
-    };
+    init_socketAdapter();
     CONNECTION_TIMEOUTS = {
       HEARTBEAT_INTERVAL: 25e3,
       RECONNECT_DELAY: 10,
@@ -3099,6 +8422,54 @@ var init_RealtimeClient = __esm({
     }
   });`;
     RealtimeClient = class {
+      get endPoint() {
+        return this.socketAdapter.endPoint;
+      }
+      get timeout() {
+        return this.socketAdapter.timeout;
+      }
+      get transport() {
+        return this.socketAdapter.transport;
+      }
+      get heartbeatCallback() {
+        return this.socketAdapter.heartbeatCallback;
+      }
+      get heartbeatIntervalMs() {
+        return this.socketAdapter.heartbeatIntervalMs;
+      }
+      get heartbeatTimer() {
+        if (this.worker) {
+          return this._workerHeartbeatTimer;
+        }
+        return this.socketAdapter.heartbeatTimer;
+      }
+      get pendingHeartbeatRef() {
+        if (this.worker) {
+          return this._pendingWorkerHeartbeatRef;
+        }
+        return this.socketAdapter.pendingHeartbeatRef;
+      }
+      get reconnectTimer() {
+        return this.socketAdapter.reconnectTimer;
+      }
+      get vsn() {
+        return this.socketAdapter.vsn;
+      }
+      get encode() {
+        return this.socketAdapter.encode;
+      }
+      get decode() {
+        return this.socketAdapter.decode;
+      }
+      get reconnectAfterMs() {
+        return this.socketAdapter.reconnectAfterMs;
+      }
+      get sendBuffer() {
+        return this.socketAdapter.sendBuffer;
+      }
+      get stateChangeCallbacks() {
+        return this.socketAdapter.stateChangeCallbacks;
+      }
       /**
        * Initializes the Socket.
        *
@@ -3118,7 +8489,10 @@ var init_RealtimeClient = __esm({
        * @param options.worker Use Web Worker to set a side flow. Defaults to false.
        * @param options.workerUrl The URL of the worker script. Defaults to https://realtime.supabase.com/worker.js that includes a heartbeat event call to keep the connection alive.
        * @param options.vsn The protocol version to use when connecting. Supported versions are "1.0.0" and "2.0.0". Defaults to "2.0.0".
-       * @example
+       *
+       * @category Realtime
+       *
+       * @example Example for a public channel
        * ```ts
        * import RealtimeClient from '@supabase/realtime-js'
        *
@@ -3130,38 +8504,19 @@ var init_RealtimeClient = __esm({
        */
       constructor(endPoint, options) {
         var _a;
-        this.accessTokenValue = null;
-        this.apiKey = null;
-        this._manuallySetToken = false;
         this.channels = new Array();
-        this.endPoint = "";
+        this.accessTokenValue = null;
+        this.accessToken = null;
+        this.apiKey = null;
         this.httpEndpoint = "";
         this.headers = {};
         this.params = {};
-        this.timeout = DEFAULT_TIMEOUT;
-        this.transport = null;
-        this.heartbeatIntervalMs = CONNECTION_TIMEOUTS.HEARTBEAT_INTERVAL;
-        this.heartbeatTimer = void 0;
-        this.pendingHeartbeatRef = null;
-        this.heartbeatCallback = noop2;
         this.ref = 0;
-        this.reconnectTimer = null;
-        this.vsn = DEFAULT_VSN;
-        this.logger = noop2;
-        this.conn = null;
-        this.sendBuffer = [];
         this.serializer = new Serializer();
-        this.stateChangeCallbacks = {
-          open: [],
-          close: [],
-          error: [],
-          message: []
-        };
-        this.accessToken = null;
-        this._connectionState = "disconnected";
-        this._wasManualDisconnect = false;
+        this._manuallySetToken = false;
         this._authPromise = null;
-        this._heartbeatSentAt = null;
+        this._workerHeartbeatTimer = void 0;
+        this._pendingWorkerHeartbeatRef = null;
         this._resolveFetch = (customFetch) => {
           if (customFetch) {
             return (...args) => customFetch(...args);
@@ -3172,33 +8527,30 @@ var init_RealtimeClient = __esm({
           throw new Error("API key is required to connect to Realtime");
         }
         this.apiKey = options.params.apikey;
-        this.endPoint = `${endPoint}/${TRANSPORTS.websocket}`;
+        const socketAdapterOptions = this._initializeOptions(options);
+        this.socketAdapter = new SocketAdapter(endPoint, socketAdapterOptions);
         this.httpEndpoint = httpEndpointURL(endPoint);
-        this._initializeOptions(options);
-        this._setupReconnectionTimer();
         this.fetch = this._resolveFetch(options === null || options === void 0 ? void 0 : options.fetch);
       }
       /**
        * Connects the socket, unless already connected.
+       *
+       * @category Realtime
        */
       connect() {
-        if (this.isConnecting() || this.isDisconnecting() || this.conn !== null && this.isConnected()) {
+        if (this.isConnecting() || this.isDisconnecting() || this.isConnected()) {
           return;
         }
-        this._setConnectionState("connecting");
         if (this.accessToken && !this._authPromise) {
           this._setAuthSafely("connect");
         }
-        if (this.transport) {
-          this.conn = new this.transport(this.endpointURL());
-        } else {
-          try {
-            this.conn = websocket_factory_default.createWebSocket(this.endpointURL());
-          } catch (error) {
-            this._setConnectionState("disconnected");
-            const errorMessage = error.message;
-            if (errorMessage.includes("Node.js")) {
-              throw new Error(`${errorMessage}
+        this._setupConnectionHandlers();
+        try {
+          this.socketAdapter.connect();
+        } catch (error) {
+          const errorMessage = error.message;
+          if (errorMessage.includes("Node.js")) {
+            throw new Error(`${errorMessage}
 
 To use Realtime in Node.js, you need to provide a WebSocket implementation:
 
@@ -3212,116 +8564,117 @@ Option 2: Install and provide the "ws" package:
     ...options,
     transport: ws
   })`);
-            }
-            throw new Error(`WebSocket not available: ${errorMessage}`);
           }
+          throw new Error(`WebSocket not available: ${errorMessage}`);
         }
-        this._setupConnectionHandlers();
+        this._handleNodeJsRaceCondition();
       }
       /**
        * Returns the URL of the websocket.
        * @returns string The URL of the websocket.
+       *
+       * @category Realtime
        */
       endpointURL() {
-        return this._appendParams(this.endPoint, Object.assign({}, this.params, { vsn: this.vsn }));
+        return this.socketAdapter.endPointURL();
       }
       /**
        * Disconnects the socket.
        *
        * @param code A numeric status code to send on disconnect.
        * @param reason A custom reason for the disconnect.
+       *
+       * @category Realtime
        */
-      disconnect(code, reason) {
+      async disconnect(code, reason) {
         if (this.isDisconnecting()) {
-          return;
+          return "ok";
         }
-        this._setConnectionState("disconnecting", true);
-        if (this.conn) {
-          const fallbackTimer = setTimeout(() => {
-            this._setConnectionState("disconnected");
-          }, 100);
-          this.conn.onclose = () => {
-            clearTimeout(fallbackTimer);
-            this._setConnectionState("disconnected");
-          };
-          if (typeof this.conn.close === "function") {
-            if (code) {
-              this.conn.close(code, reason !== null && reason !== void 0 ? reason : "");
-            } else {
-              this.conn.close();
-            }
-          }
-          this._teardownConnection();
-        } else {
-          this._setConnectionState("disconnected");
-        }
+        return await this.socketAdapter.disconnect(() => {
+          clearInterval(this._workerHeartbeatTimer);
+          this._terminateWorker();
+        }, code, reason);
       }
       /**
        * Returns all created channels
+       *
+       * @category Realtime
        */
       getChannels() {
         return this.channels;
       }
       /**
-       * Unsubscribes and removes a single channel
+       * Unsubscribes, removes and tears down a single channel
        * @param channel A RealtimeChannel instance
+       *
+       * @category Realtime
        */
       async removeChannel(channel) {
         const status2 = await channel.unsubscribe();
+        if (status2 === "ok") {
+          channel.teardown();
+        }
         if (this.channels.length === 0) {
           this.disconnect();
         }
         return status2;
       }
       /**
-       * Unsubscribes and removes all channels
+       * Unsubscribes, removes and tears down all channels
+       *
+       * @category Realtime
        */
       async removeAllChannels() {
-        const values_1 = await Promise.all(this.channels.map((channel) => channel.unsubscribe()));
-        this.channels = [];
+        const promises = this.channels.map(async (channel) => {
+          const result2 = await channel.unsubscribe();
+          channel.teardown();
+          return result2;
+        });
+        const result = await Promise.all(promises);
         this.disconnect();
-        return values_1;
+        return result;
       }
       /**
        * Logs the message.
        *
-       * For customized logging, `this.logger` can be overridden.
+       * For customized logging, `this.logger` can be overridden in Client constructor.
+       *
+       * @category Realtime
        */
       log(kind, msg, data) {
-        this.logger(kind, msg, data);
+        this.socketAdapter.log(kind, msg, data);
       }
       /**
        * Returns the current state of the socket.
+       *
+       * @category Realtime
        */
       connectionState() {
-        switch (this.conn && this.conn.readyState) {
-          case SOCKET_STATES.connecting:
-            return CONNECTION_STATE.Connecting;
-          case SOCKET_STATES.open:
-            return CONNECTION_STATE.Open;
-          case SOCKET_STATES.closing:
-            return CONNECTION_STATE.Closing;
-          default:
-            return CONNECTION_STATE.Closed;
-        }
+        return this.socketAdapter.connectionState() || CONNECTION_STATE.closed;
       }
       /**
        * Returns `true` is the connection is open.
+       *
+       * @category Realtime
        */
       isConnected() {
-        return this.connectionState() === CONNECTION_STATE.Open;
+        return this.socketAdapter.isConnected();
       }
       /**
        * Returns `true` if the connection is currently connecting.
+       *
+       * @category Realtime
        */
       isConnecting() {
-        return this._connectionState === "connecting";
+        return this.socketAdapter.isConnecting();
       }
       /**
        * Returns `true` if the connection is currently disconnecting.
+       *
+       * @category Realtime
        */
       isDisconnecting() {
-        return this._connectionState === "disconnecting";
+        return this.socketAdapter.isDisconnecting();
       }
       /**
        * Creates (or reuses) a {@link RealtimeChannel} for the provided topic.
@@ -3329,6 +8682,8 @@ Option 2: Install and provide the "ws" package:
        * Topics are automatically prefixed with `realtime:` to match the Realtime service.
        * If a channel with the same topic already exists it will be returned instead of creating
        * a duplicate connection.
+       *
+       * @category Realtime
        */
       channel(topic, params = { config: {} }) {
         const realtimeTopic = `realtime:${topic}`;
@@ -3345,21 +8700,11 @@ Option 2: Install and provide the "ws" package:
        * Push out a message if the socket is connected.
        *
        * If the socket is not connected, the message gets enqueued within a local buffer, and sent out when a connection is next established.
+       *
+       * @category Realtime
        */
       push(data) {
-        const { topic, event, payload, ref } = data;
-        const callback = () => {
-          this.encode(data, (result) => {
-            var _a;
-            (_a = this.conn) === null || _a === void 0 ? void 0 : _a.send(result);
-          });
-        };
-        this.log("push", `${topic} ${event} (${ref})`, payload);
-        if (this.isConnected()) {
-          callback();
-        } else {
-          this.sendBuffer.push(callback);
-        }
+        this.socketAdapter.push(data);
       }
       /**
        * Sets the JWT access token used for channel subscription authorization and Realtime RLS.
@@ -3374,12 +8719,14 @@ Option 2: Install and provide the "ws" package:
        *
        * @param token A JWT string to override the token set on the client.
        *
-       * @example
+       * @example Setting the authorization header
        * // Use a manual token (preserved across resubscribes, ignores accessToken callback)
        * client.realtime.setAuth('my-custom-jwt')
        *
        * // Switch back to using the accessToken callback
        * client.realtime.setAuth()
+       *
+       * @category Realtime
        */
       async setAuth(token = null) {
         this._authPromise = this._performAuth(token);
@@ -3399,66 +8746,20 @@ Option 2: Install and provide the "ws" package:
       }
       /**
        * Sends a heartbeat message if the socket is connected.
+       *
+       * @category Realtime
        */
       async sendHeartbeat() {
-        var _a;
-        if (!this.isConnected()) {
-          try {
-            this.heartbeatCallback("disconnected");
-          } catch (e) {
-            this.log("error", "error in heartbeat callback", e);
-          }
-          return;
-        }
-        if (this.pendingHeartbeatRef) {
-          this.pendingHeartbeatRef = null;
-          this._heartbeatSentAt = null;
-          this.log("transport", "heartbeat timeout. Attempting to re-establish connection");
-          try {
-            this.heartbeatCallback("timeout");
-          } catch (e) {
-            this.log("error", "error in heartbeat callback", e);
-          }
-          this._wasManualDisconnect = false;
-          (_a = this.conn) === null || _a === void 0 ? void 0 : _a.close(WS_CLOSE_NORMAL, "heartbeat timeout");
-          setTimeout(() => {
-            var _a2;
-            if (!this.isConnected()) {
-              (_a2 = this.reconnectTimer) === null || _a2 === void 0 ? void 0 : _a2.scheduleTimeout();
-            }
-          }, CONNECTION_TIMEOUTS.HEARTBEAT_TIMEOUT_FALLBACK);
-          return;
-        }
-        this._heartbeatSentAt = Date.now();
-        this.pendingHeartbeatRef = this._makeRef();
-        this.push({
-          topic: "phoenix",
-          event: "heartbeat",
-          payload: {},
-          ref: this.pendingHeartbeatRef
-        });
-        try {
-          this.heartbeatCallback("sent");
-        } catch (e) {
-          this.log("error", "error in heartbeat callback", e);
-        }
-        this._setAuthSafely("heartbeat");
+        this.socketAdapter.sendHeartbeat();
       }
       /**
        * Sets a callback that receives lifecycle events for internal heartbeat messages.
        * Useful for instrumenting connection health (e.g. sent/ok/timeout/disconnected).
+       *
+       * @category Realtime
        */
       onHeartbeat(callback) {
-        this.heartbeatCallback = callback;
-      }
-      /**
-       * Flushes send buffer
-       */
-      flushSendBuffer() {
-        if (this.isConnected() && this.sendBuffer.length > 0) {
-          this.sendBuffer.forEach((callback) => callback());
-          this.sendBuffer = [];
-        }
+        this.socketAdapter.heartbeatCallback = this._wrapHeartbeatCallback(callback);
       }
       /**
        * Return the next message ref, accounting for overflows
@@ -3466,28 +8767,10 @@ Option 2: Install and provide the "ws" package:
        * @internal
        */
       _makeRef() {
-        let newRef = this.ref + 1;
-        if (newRef === this.ref) {
-          this.ref = 0;
-        } else {
-          this.ref = newRef;
-        }
-        return this.ref.toString();
+        return this.socketAdapter.makeRef();
       }
       /**
-       * Unsubscribe from channels with the specified topic.
-       *
-       * @internal
-       */
-      _leaveOpenTopic(topic) {
-        let dupChannel = this.channels.find((c) => c.topic === topic && (c._isJoined() || c._isJoining()));
-        if (dupChannel) {
-          this.log("transport", `leaving duplicate topic "${topic}"`);
-          dupChannel.unsubscribe();
-        }
-      }
-      /**
-       * Removes a subscription from the socket.
+       * Removes a channel from RealtimeClient
        *
        * @param channel An open subscription.
        *
@@ -3495,221 +8778,6 @@ Option 2: Install and provide the "ws" package:
        */
       _remove(channel) {
         this.channels = this.channels.filter((c) => c.topic !== channel.topic);
-      }
-      /** @internal */
-      _onConnMessage(rawMessage) {
-        this.decode(rawMessage.data, (msg) => {
-          if (msg.topic === "phoenix" && msg.event === "phx_reply" && msg.ref && msg.ref === this.pendingHeartbeatRef) {
-            const latency = this._heartbeatSentAt ? Date.now() - this._heartbeatSentAt : void 0;
-            try {
-              this.heartbeatCallback(msg.payload.status === "ok" ? "ok" : "error", latency);
-            } catch (e) {
-              this.log("error", "error in heartbeat callback", e);
-            }
-            this._heartbeatSentAt = null;
-            this.pendingHeartbeatRef = null;
-          }
-          const { topic, event, payload, ref } = msg;
-          const refString = ref ? `(${ref})` : "";
-          const status2 = payload.status || "";
-          this.log("receive", `${status2} ${topic} ${event} ${refString}`.trim(), payload);
-          this.channels.filter((channel) => channel._isMember(topic)).forEach((channel) => channel._trigger(event, payload, ref));
-          this._triggerStateCallbacks("message", msg);
-        });
-      }
-      /**
-       * Clear specific timer
-       * @internal
-       */
-      _clearTimer(timer) {
-        var _a;
-        if (timer === "heartbeat" && this.heartbeatTimer) {
-          clearInterval(this.heartbeatTimer);
-          this.heartbeatTimer = void 0;
-        } else if (timer === "reconnect") {
-          (_a = this.reconnectTimer) === null || _a === void 0 ? void 0 : _a.reset();
-        }
-      }
-      /**
-       * Clear all timers
-       * @internal
-       */
-      _clearAllTimers() {
-        this._clearTimer("heartbeat");
-        this._clearTimer("reconnect");
-      }
-      /**
-       * Setup connection handlers for WebSocket events
-       * @internal
-       */
-      _setupConnectionHandlers() {
-        if (!this.conn)
-          return;
-        if ("binaryType" in this.conn) {
-          ;
-          this.conn.binaryType = "arraybuffer";
-        }
-        this.conn.onopen = () => this._onConnOpen();
-        this.conn.onerror = (error) => this._onConnError(error);
-        this.conn.onmessage = (event) => this._onConnMessage(event);
-        this.conn.onclose = (event) => this._onConnClose(event);
-        if (this.conn.readyState === SOCKET_STATES.open) {
-          this._onConnOpen();
-        }
-      }
-      /**
-       * Teardown connection and cleanup resources
-       * @internal
-       */
-      _teardownConnection() {
-        if (this.conn) {
-          if (this.conn.readyState === SOCKET_STATES.open || this.conn.readyState === SOCKET_STATES.connecting) {
-            try {
-              this.conn.close();
-            } catch (e) {
-              this.log("error", "Error closing connection", e);
-            }
-          }
-          this.conn.onopen = null;
-          this.conn.onerror = null;
-          this.conn.onmessage = null;
-          this.conn.onclose = null;
-          this.conn = null;
-        }
-        this._clearAllTimers();
-        this._terminateWorker();
-        this.channels.forEach((channel) => channel.teardown());
-      }
-      /** @internal */
-      _onConnOpen() {
-        this._setConnectionState("connected");
-        this.log("transport", `connected to ${this.endpointURL()}`);
-        const authPromise = this._authPromise || (this.accessToken && !this.accessTokenValue ? this.setAuth() : Promise.resolve());
-        authPromise.then(() => {
-          if (this.accessTokenValue) {
-            this.channels.forEach((channel) => {
-              channel.updateJoinPayload({ access_token: this.accessTokenValue });
-            });
-            this.sendBuffer = [];
-            this.channels.forEach((channel) => {
-              if (channel._isJoining()) {
-                channel.joinPush.sent = false;
-                channel.joinPush.send();
-              }
-            });
-          }
-          this.flushSendBuffer();
-        }).catch((e) => {
-          this.log("error", "error waiting for auth on connect", e);
-          this.flushSendBuffer();
-        });
-        this._clearTimer("reconnect");
-        if (!this.worker) {
-          this._startHeartbeat();
-        } else {
-          if (!this.workerRef) {
-            this._startWorkerHeartbeat();
-          }
-        }
-        this._triggerStateCallbacks("open");
-      }
-      /** @internal */
-      _startHeartbeat() {
-        this.heartbeatTimer && clearInterval(this.heartbeatTimer);
-        this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), this.heartbeatIntervalMs);
-      }
-      /** @internal */
-      _startWorkerHeartbeat() {
-        if (this.workerUrl) {
-          this.log("worker", `starting worker for from ${this.workerUrl}`);
-        } else {
-          this.log("worker", `starting default worker`);
-        }
-        const objectUrl = this._workerObjectUrl(this.workerUrl);
-        this.workerRef = new Worker(objectUrl);
-        this.workerRef.onerror = (error) => {
-          this.log("worker", "worker error", error.message);
-          this._terminateWorker();
-        };
-        this.workerRef.onmessage = (event) => {
-          if (event.data.event === "keepAlive") {
-            this.sendHeartbeat();
-          }
-        };
-        this.workerRef.postMessage({
-          event: "start",
-          interval: this.heartbeatIntervalMs
-        });
-      }
-      /**
-       * Terminate the Web Worker and clear the reference
-       * @internal
-       */
-      _terminateWorker() {
-        if (this.workerRef) {
-          this.log("worker", "terminating worker");
-          this.workerRef.terminate();
-          this.workerRef = void 0;
-        }
-      }
-      /** @internal */
-      _onConnClose(event) {
-        var _a;
-        this._setConnectionState("disconnected");
-        this.log("transport", "close", event);
-        this._triggerChanError();
-        this._clearTimer("heartbeat");
-        if (!this._wasManualDisconnect) {
-          (_a = this.reconnectTimer) === null || _a === void 0 ? void 0 : _a.scheduleTimeout();
-        }
-        this._triggerStateCallbacks("close", event);
-      }
-      /** @internal */
-      _onConnError(error) {
-        this._setConnectionState("disconnected");
-        this.log("transport", `${error}`);
-        this._triggerChanError();
-        this._triggerStateCallbacks("error", error);
-        try {
-          this.heartbeatCallback("error");
-        } catch (e) {
-          this.log("error", "error in heartbeat callback", e);
-        }
-      }
-      /** @internal */
-      _triggerChanError() {
-        this.channels.forEach((channel) => channel._trigger(CHANNEL_EVENTS.error));
-      }
-      /** @internal */
-      _appendParams(url, params) {
-        if (Object.keys(params).length === 0) {
-          return url;
-        }
-        const prefix = url.match(/\?/) ? "&" : "?";
-        const query = new URLSearchParams(params);
-        return `${url}${prefix}${query}`;
-      }
-      _workerObjectUrl(url) {
-        let result_url;
-        if (url) {
-          result_url = url;
-        } else {
-          const blob = new Blob([WORKER_SCRIPT], { type: "application/javascript" });
-          result_url = URL.createObjectURL(blob);
-        }
-        return result_url;
-      }
-      /**
-       * Set connection state with proper state management
-       * @internal
-       */
-      _setConnectionState(state8, manual = false) {
-        this._connectionState = state8;
-        if (state8 === "connecting") {
-          this._wasManualDisconnect = false;
-        } else if (state8 === "disconnecting") {
-          this._wasManualDisconnect = manual;
-        }
       }
       /**
        * Perform the actual auth operation
@@ -3744,8 +8812,8 @@ Option 2: Install and provide the "ws" package:
               version: DEFAULT_VERSION
             };
             tokenToSend && channel.updateJoinPayload(payload);
-            if (channel.joinedOnce && channel._isJoined()) {
-              channel._push(CHANNEL_EVENTS.access_token, {
+            if (channel.joinedOnce && channel.channelAdapter.isJoined()) {
+              channel.channelAdapter.push(CHANNEL_EVENTS.access_token, {
                 access_token: tokenToSend
               });
             }
@@ -3772,91 +8840,157 @@ Option 2: Install and provide the "ws" package:
           });
         }
       }
-      /**
-       * Trigger state change callbacks with proper error handling
-       * @internal
-       */
-      _triggerStateCallbacks(event, data) {
-        try {
-          this.stateChangeCallbacks[event].forEach((callback) => {
-            try {
-              callback(data);
-            } catch (e) {
-              this.log("error", `error in ${event} callback`, e);
-            }
+      /** @internal */
+      _setupConnectionHandlers() {
+        this.socketAdapter.onOpen(() => {
+          const authPromise = this._authPromise || (this.accessToken && !this.accessTokenValue ? this.setAuth() : Promise.resolve());
+          authPromise.catch((e) => {
+            this.log("error", "error waiting for auth on connect", e);
           });
-        } catch (e) {
-          this.log("error", `error triggering ${event} callbacks`, e);
+          if (this.worker && !this.workerRef) {
+            this._startWorkerHeartbeat();
+          }
+        });
+        this.socketAdapter.onClose(() => {
+          if (this.worker && this.workerRef) {
+            this._terminateWorker();
+          }
+        });
+        this.socketAdapter.onMessage((message) => {
+          if (message.ref && message.ref === this._pendingWorkerHeartbeatRef) {
+            this._pendingWorkerHeartbeatRef = null;
+          }
+        });
+      }
+      /** @internal */
+      _handleNodeJsRaceCondition() {
+        if (this.socketAdapter.isConnected()) {
+          this.socketAdapter.getSocket().onConnOpen();
         }
       }
-      /**
-       * Setup reconnection timer with proper configuration
-       * @internal
-       */
-      _setupReconnectionTimer() {
-        this.reconnectTimer = new Timer(async () => {
-          setTimeout(async () => {
-            await this._waitForAuthIfNeeded();
-            if (!this.isConnected()) {
-              this.connect();
-            }
-          }, CONNECTION_TIMEOUTS.RECONNECT_DELAY);
-        }, this.reconnectAfterMs);
+      /** @internal */
+      _wrapHeartbeatCallback(heartbeatCallback) {
+        return (status2, latency) => {
+          if (status2 == "sent")
+            this._setAuthSafely();
+          if (heartbeatCallback)
+            heartbeatCallback(status2, latency);
+        };
+      }
+      /** @internal */
+      _startWorkerHeartbeat() {
+        if (this.workerUrl) {
+          this.log("worker", `starting worker for from ${this.workerUrl}`);
+        } else {
+          this.log("worker", `starting default worker`);
+        }
+        const objectUrl = this._workerObjectUrl(this.workerUrl);
+        this.workerRef = new Worker(objectUrl);
+        this.workerRef.onerror = (error) => {
+          this.log("worker", "worker error", error.message);
+          this._terminateWorker();
+          this.disconnect();
+        };
+        this.workerRef.onmessage = (event) => {
+          if (event.data.event === "keepAlive") {
+            this.sendHeartbeat();
+          }
+        };
+        this.workerRef.postMessage({
+          event: "start",
+          interval: this.heartbeatIntervalMs
+        });
       }
       /**
-       * Initialize client options with defaults
+       * Terminate the Web Worker and clear the reference
+       * @internal
+       */
+      _terminateWorker() {
+        if (this.workerRef) {
+          this.log("worker", "terminating worker");
+          this.workerRef.terminate();
+          this.workerRef = void 0;
+        }
+      }
+      /** @internal */
+      _workerObjectUrl(url) {
+        let result_url;
+        if (url) {
+          result_url = url;
+        } else {
+          const blob = new Blob([WORKER_SCRIPT], { type: "application/javascript" });
+          result_url = URL.createObjectURL(blob);
+        }
+        return result_url;
+      }
+      /**
+       * Initialize socket options with defaults
        * @internal
        */
       _initializeOptions(options) {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
-        this.transport = (_a = options === null || options === void 0 ? void 0 : options.transport) !== null && _a !== void 0 ? _a : null;
-        this.timeout = (_b = options === null || options === void 0 ? void 0 : options.timeout) !== null && _b !== void 0 ? _b : DEFAULT_TIMEOUT;
-        this.heartbeatIntervalMs = (_c = options === null || options === void 0 ? void 0 : options.heartbeatIntervalMs) !== null && _c !== void 0 ? _c : CONNECTION_TIMEOUTS.HEARTBEAT_INTERVAL;
-        this.worker = (_d = options === null || options === void 0 ? void 0 : options.worker) !== null && _d !== void 0 ? _d : false;
-        this.accessToken = (_e = options === null || options === void 0 ? void 0 : options.accessToken) !== null && _e !== void 0 ? _e : null;
-        this.heartbeatCallback = (_f = options === null || options === void 0 ? void 0 : options.heartbeatCallback) !== null && _f !== void 0 ? _f : noop2;
-        this.vsn = (_g = options === null || options === void 0 ? void 0 : options.vsn) !== null && _g !== void 0 ? _g : DEFAULT_VSN;
-        if (options === null || options === void 0 ? void 0 : options.params)
-          this.params = options.params;
-        if (options === null || options === void 0 ? void 0 : options.logger)
-          this.logger = options.logger;
-        if ((options === null || options === void 0 ? void 0 : options.logLevel) || (options === null || options === void 0 ? void 0 : options.log_level)) {
-          this.logLevel = options.logLevel || options.log_level;
-          this.params = Object.assign(Object.assign({}, this.params), { log_level: this.logLevel });
-        }
-        this.reconnectAfterMs = (_h = options === null || options === void 0 ? void 0 : options.reconnectAfterMs) !== null && _h !== void 0 ? _h : ((tries) => {
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+        this.worker = (_a = options === null || options === void 0 ? void 0 : options.worker) !== null && _a !== void 0 ? _a : false;
+        this.accessToken = (_b = options === null || options === void 0 ? void 0 : options.accessToken) !== null && _b !== void 0 ? _b : null;
+        const result = {};
+        result.timeout = (_c = options === null || options === void 0 ? void 0 : options.timeout) !== null && _c !== void 0 ? _c : DEFAULT_TIMEOUT;
+        result.heartbeatIntervalMs = (_d = options === null || options === void 0 ? void 0 : options.heartbeatIntervalMs) !== null && _d !== void 0 ? _d : CONNECTION_TIMEOUTS.HEARTBEAT_INTERVAL;
+        result.transport = (_e = options === null || options === void 0 ? void 0 : options.transport) !== null && _e !== void 0 ? _e : websocket_factory_default.getWebSocketConstructor();
+        result.params = options === null || options === void 0 ? void 0 : options.params;
+        result.logger = options === null || options === void 0 ? void 0 : options.logger;
+        result.heartbeatCallback = this._wrapHeartbeatCallback(options === null || options === void 0 ? void 0 : options.heartbeatCallback);
+        result.reconnectAfterMs = (_f = options === null || options === void 0 ? void 0 : options.reconnectAfterMs) !== null && _f !== void 0 ? _f : ((tries) => {
           return RECONNECT_INTERVALS[tries - 1] || DEFAULT_RECONNECT_FALLBACK;
         });
-        switch (this.vsn) {
+        let defaultEncode;
+        let defaultDecode;
+        const vsn = (_g = options === null || options === void 0 ? void 0 : options.vsn) !== null && _g !== void 0 ? _g : DEFAULT_VSN;
+        switch (vsn) {
           case VSN_1_0_0:
-            this.encode = (_j = options === null || options === void 0 ? void 0 : options.encode) !== null && _j !== void 0 ? _j : ((payload, callback) => {
+            defaultEncode = (payload, callback) => {
               return callback(JSON.stringify(payload));
-            });
-            this.decode = (_k = options === null || options === void 0 ? void 0 : options.decode) !== null && _k !== void 0 ? _k : ((payload, callback) => {
+            };
+            defaultDecode = (payload, callback) => {
               return callback(JSON.parse(payload));
-            });
+            };
             break;
           case VSN_2_0_0:
-            this.encode = (_l = options === null || options === void 0 ? void 0 : options.encode) !== null && _l !== void 0 ? _l : this.serializer.encode.bind(this.serializer);
-            this.decode = (_m = options === null || options === void 0 ? void 0 : options.decode) !== null && _m !== void 0 ? _m : this.serializer.decode.bind(this.serializer);
+            defaultEncode = this.serializer.encode.bind(this.serializer);
+            defaultDecode = this.serializer.decode.bind(this.serializer);
             break;
           default:
-            throw new Error(`Unsupported serializer version: ${this.vsn}`);
+            throw new Error(`Unsupported serializer version: ${result.vsn}`);
+        }
+        result.vsn = vsn;
+        result.encode = (_h = options === null || options === void 0 ? void 0 : options.encode) !== null && _h !== void 0 ? _h : defaultEncode;
+        result.decode = (_j = options === null || options === void 0 ? void 0 : options.decode) !== null && _j !== void 0 ? _j : defaultDecode;
+        result.beforeReconnect = this._reconnectAuth.bind(this);
+        if ((options === null || options === void 0 ? void 0 : options.logLevel) || (options === null || options === void 0 ? void 0 : options.log_level)) {
+          this.logLevel = options.logLevel || options.log_level;
+          result.params = Object.assign(Object.assign({}, result.params), { log_level: this.logLevel });
         }
         if (this.worker) {
           if (typeof window !== "undefined" && !window.Worker) {
             throw new Error("Web Worker is not supported");
           }
           this.workerUrl = options === null || options === void 0 ? void 0 : options.workerUrl;
+          result.autoSendHeartbeat = !this.worker;
+        }
+        return result;
+      }
+      /** @internal */
+      async _reconnectAuth() {
+        await this._waitForAuthIfNeeded();
+        if (!this.isConnected()) {
+          this.connect();
         }
       }
     };
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/index.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/index.js
 var init_module2 = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/index.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.100.1/node_modules/@supabase/realtime-js/dist/module/index.js"() {
     init_RealtimeClient();
     init_RealtimeChannel();
     init_RealtimePresence();
@@ -4402,7 +9536,7 @@ var init_dist2 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+storage-js@2.98.0/node_modules/@supabase/storage-js/dist/index.mjs
+// ../../node_modules/.pnpm/@supabase+storage-js@2.100.1/node_modules/@supabase/storage-js/dist/index.mjs
 function isStorageError(error) {
   return typeof error === "object" && error !== null && "__isStorageError" in error;
 }
@@ -4492,7 +9626,7 @@ function createFetchApi(namespace = "storage") {
 }
 var StorageError, StorageApiError, StorageUnknownError, resolveFetch2, isPlainObject, recursiveToCamel, isValidBucketName, _getErrorMessage, handleError, _getRequestParams, defaultApi, get, post, put, head, remove, vectorsApi, BaseApiClient, StreamDownloadBuilder, _Symbol$toStringTag, BlobDownloadBuilder, DEFAULT_SEARCH_OPTIONS, DEFAULT_FILE_OPTIONS, StorageFileApi, version2, DEFAULT_HEADERS, StorageBucketApi, StorageAnalyticsClient, VectorIndexApi, VectorDataApi, VectorBucketApi, StorageVectorsClient, VectorBucketScope, VectorIndexScope, StorageClient;
 var init_dist3 = __esm({
-  "../../node_modules/.pnpm/@supabase+storage-js@2.98.0/node_modules/@supabase/storage-js/dist/index.mjs"() {
+  "../../node_modules/.pnpm/@supabase+storage-js@2.100.1/node_modules/@supabase/storage-js/dist/index.mjs"() {
     init_dist2();
     StorageError = class extends Error {
       constructor(message, namespace = "storage", status2, statusCode) {
@@ -4558,25 +9692,17 @@ var init_dist3 = __esm({
       return err.msg || err.message || err.error_description || (typeof err.error === "string" ? err.error : (_err$error = err.error) === null || _err$error === void 0 ? void 0 : _err$error.message) || JSON.stringify(err);
     };
     handleError = async (error, reject, options, namespace) => {
-      if (error && typeof error === "object" && "status" in error && "ok" in error && typeof error.status === "number" && !(options === null || options === void 0 ? void 0 : options.noResolveJson)) {
+      if (error !== null && typeof error === "object" && typeof error.json === "function") {
         const responseError = error;
-        const status2 = responseError.status || 500;
-        if (typeof responseError.json === "function") responseError.json().then((err) => {
+        let status2 = parseInt(responseError.status, 10);
+        if (!Number.isFinite(status2)) status2 = 500;
+        responseError.json().then((err) => {
           const statusCode = (err === null || err === void 0 ? void 0 : err.statusCode) || (err === null || err === void 0 ? void 0 : err.code) || status2 + "";
           reject(new StorageApiError(_getErrorMessage(err), status2, statusCode, namespace));
         }).catch(() => {
-          if (namespace === "vectors") {
-            const statusCode = status2 + "";
-            reject(new StorageApiError(responseError.statusText || `HTTP ${status2} error`, status2, statusCode, namespace));
-          } else {
-            const statusCode = status2 + "";
-            reject(new StorageApiError(responseError.statusText || `HTTP ${status2} error`, status2, statusCode, namespace));
-          }
-        });
-        else {
           const statusCode = status2 + "";
           reject(new StorageApiError(responseError.statusText || `HTTP ${status2} error`, status2, statusCode, namespace));
-        }
+        });
       } else reject(new StorageUnknownError(_getErrorMessage(error), error, namespace));
     };
     _getRequestParams = (method, options, parameters, body) => {
@@ -4646,7 +9772,7 @@ var init_dist3 = __esm({
       * @param operation - Async function that performs the API call
       * @returns Promise with { data, error } tuple
       *
-      * @example
+      * @example Handling an operation
       * ```typescript
       * async listBuckets() {
       *   return this.handleOperation(async () => {
@@ -4842,6 +9968,13 @@ var init_dist3 = __esm({
       *     contentType: 'image/png'
       *   })
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: none
+      *   - `objects` table permissions: only `insert` when you are uploading new files and `select`, `insert` and `update` when you are upserting files
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
+      * - For React Native, using either `Blob`, `File` or `FormData` does not work as intended. Upload file using `ArrayBuffer` from base64 file data instead, see example below.
       */
       async upload(path, fileBody, fileOptions) {
         return this.uploadOrUpdate("POST", path, fileBody, fileOptions);
@@ -4876,6 +10009,12 @@ var init_dist3 = __esm({
       *   "error": null
       * }
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: none
+      *   - `objects` table permissions: none
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       async uploadToSignedUrl(path, token, fileBody, fileOptions) {
         var _this3 = this;
@@ -4885,7 +10024,7 @@ var init_dist3 = __esm({
         url.searchParams.set("token", token);
         return _this3.handleOperation(async () => {
           let body;
-          const options = _objectSpread22({ upsert: DEFAULT_FILE_OPTIONS.upsert }, fileOptions);
+          const options = _objectSpread22(_objectSpread22({}, DEFAULT_FILE_OPTIONS), fileOptions);
           const headers = _objectSpread22(_objectSpread22({}, _this3.headers), { "x-upsert": String(options.upsert) });
           if (typeof Blob !== "undefined" && fileBody instanceof Blob) {
             body = new FormData();
@@ -4934,6 +10073,12 @@ var init_dist3 = __esm({
       *   "error": null
       * }
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: none
+      *   - `objects` table permissions: `insert`
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       async createSignedUploadUrl(path, options) {
         var _this4 = this;
@@ -4995,6 +10140,13 @@ var init_dist3 = __esm({
       *     contentType: 'image/png'
       *   })
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: none
+      *   - `objects` table permissions: `update` and `select`
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
+      * - For React Native, using either `Blob`, `File` or `FormData` does not work as intended. Update file using `ArrayBuffer` from base64 file data instead, see example below.
       */
       async update(path, fileBody, fileOptions) {
         return this.uploadOrUpdate("PUT", path, fileBody, fileOptions);
@@ -5025,6 +10177,12 @@ var init_dist3 = __esm({
       *   "error": null
       * }
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: none
+      *   - `objects` table permissions: `update` and `select`
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       async move(fromPath, toPath, options) {
         var _this6 = this;
@@ -5063,6 +10221,12 @@ var init_dist3 = __esm({
       *   "error": null
       * }
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: none
+      *   - `objects` table permissions: `insert` and `select`
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       async copy(fromPath, toPath, options) {
         var _this7 = this;
@@ -5125,14 +10289,22 @@ var init_dist3 = __esm({
       *     download: true,
       *   })
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: none
+      *   - `objects` table permissions: `select`
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       async createSignedUrl(path, expiresIn, options) {
         var _this8 = this;
         return _this8.handleOperation(async () => {
           let _path = _this8._getFinalPath(path);
-          let data = await post(_this8.fetch, `${_this8.url}/object/sign/${_path}`, _objectSpread22({ expiresIn }, (options === null || options === void 0 ? void 0 : options.transform) ? { transform: options.transform } : {}), { headers: _this8.headers });
+          const hasTransform = typeof (options === null || options === void 0 ? void 0 : options.transform) === "object" && options.transform !== null && Object.keys(options.transform).length > 0;
+          let data = await post(_this8.fetch, `${_this8.url}/object/sign/${_path}`, _objectSpread22({ expiresIn }, hasTransform ? { transform: options.transform } : {}), { headers: _this8.headers });
           const downloadQueryParam = (options === null || options === void 0 ? void 0 : options.download) ? `&download=${options.download === true ? "" : options.download}` : "";
-          return { signedUrl: encodeURI(`${_this8.url}${data.signedURL}${downloadQueryParam}`) };
+          const returnedPath = hasTransform && data.signedURL.includes("/object/sign/") ? data.signedURL.replace("/object/sign/", "/render/image/sign/") : data.signedURL;
+          return { signedUrl: encodeURI(`${_this8.url}${returnedPath}${downloadQueryParam}`) };
         });
       }
       /**
@@ -5172,6 +10344,12 @@ var init_dist3 = __esm({
       *   "error": null
       * }
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: none
+      *   - `objects` table permissions: `select`
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       async createSignedUrls(paths, expiresIn, options) {
         var _this9 = this;
@@ -5241,6 +10419,12 @@ var init_dist3 = __esm({
       *   .from('avatars')
       *   .download('folder/avatar1.png', {}, { signal: controller.signal })
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: none
+      *   - `objects` table permissions: `select`
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       download(path, options, parameters) {
         const renderPath = typeof (options === null || options === void 0 ? void 0 : options.transform) !== "undefined" ? "render/image/authenticated" : "object";
@@ -5256,6 +10440,9 @@ var init_dist3 = __esm({
       /**
       * Retrieves the details of an existing file.
       *
+      * Returns detailed file metadata including size, content type, and timestamps.
+      * Note: The API returns `last_modified` field, not `updated_at`.
+      *
       * @category File Buckets
       * @param path The file path, including the file name. For example `folder/image.png`.
       * @returns Promise with response containing file metadata or error
@@ -5266,6 +10453,11 @@ var init_dist3 = __esm({
       *   .storage
       *   .from('avatars')
       *   .info('folder/avatar1.png')
+      *
+      * if (data) {
+      *   console.log('Last modified:', data.lastModified)
+      *   console.log('Size:', data.size)
+      * }
       * ```
       */
       async info(path) {
@@ -5301,9 +10493,10 @@ var init_dist3 = __esm({
           };
         } catch (error) {
           if (_this11.shouldThrowOnError) throw error;
-          if (isStorageError(error) && error instanceof StorageUnknownError) {
-            const originalError = error.originalError;
-            if ([400, 404].includes(originalError === null || originalError === void 0 ? void 0 : originalError.status)) return {
+          if (isStorageError(error)) {
+            var _error$originalError;
+            const status2 = error instanceof StorageApiError ? error.status : error instanceof StorageUnknownError ? (_error$originalError = error.originalError) === null || _error$originalError === void 0 ? void 0 : _error$originalError.status : void 0;
+            if (status2 !== void 0 && [400, 404].includes(status2)) return {
               data: false,
               error
             };
@@ -5360,6 +10553,13 @@ var init_dist3 = __esm({
       *     download: true,
       *   })
       * ```
+      *
+      * @remarks
+      * - The bucket needs to be set to public, either via [updateBucket()](/docs/reference/javascript/storage-updatebucket) or by going to Storage on [supabase.com/dashboard](https://supabase.com/dashboard), clicking the overflow menu on a bucket and choosing "Make public"
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: none
+      *   - `objects` table permissions: none
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       getPublicUrl(path, options) {
         const _path = this._getFinalPath(path);
@@ -5375,6 +10575,9 @@ var init_dist3 = __esm({
       }
       /**
       * Deletes files within the same bucket
+      *
+      * Returns an array of FileObject entries for the deleted files. Note that deprecated
+      * fields like `bucket_id` may or may not be present in the response - do not rely on them.
       *
       * @category File Buckets
       * @param paths An array of files to delete, including the path and file name. For example [`'folder/image.png'`].
@@ -5395,6 +10598,12 @@ var init_dist3 = __esm({
       *   "error": null
       * }
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: none
+      *   - `objects` table permissions: `delete` and `select`
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       async remove(paths) {
         var _this12 = this;
@@ -5414,11 +10623,16 @@ var init_dist3 = __esm({
       /**
       * Lists all the files and folders within a path of the bucket.
       *
+      * **Important:** For folder entries, fields like `id`, `updated_at`, `created_at`,
+      * `last_accessed_at`, and `metadata` will be `null`. Only files have these fields populated.
+      * Additionally, deprecated fields like `bucket_id`, `owner`, and `buckets` are NOT returned
+      * by this method.
+      *
       * @category File Buckets
       * @param path The folder path.
       * @param options Search options including limit (defaults to 100), offset, sortBy, and search
       * @param parameters Optional fetch parameters including signal for cancellation
-      * @returns Promise with response containing array of files or error
+      * @returns Promise with response containing array of files/folders or error
       *
       * @example List files in a bucket
       * ```js
@@ -5430,6 +10644,17 @@ var init_dist3 = __esm({
       *     offset: 0,
       *     sortBy: { column: 'name', order: 'asc' },
       *   })
+      *
+      * // Handle files vs folders
+      * data?.forEach(item => {
+      *   if (item.id !== null) {
+      *     // It's a file
+      *     console.log('File:', item.name, 'Size:', item.metadata?.size)
+      *   } else {
+      *     // It's a folder
+      *     console.log('Folder:', item.name)
+      *   }
+      * })
       * ```
       *
       * Response:
@@ -5469,6 +10694,12 @@ var init_dist3 = __esm({
       *     search: 'jon'
       *   })
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: none
+      *   - `objects` table permissions: `select`
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       async list(path, options, parameters) {
         var _this13 = this;
@@ -5478,11 +10709,50 @@ var init_dist3 = __esm({
         });
       }
       /**
+      * Lists all the files and folders within a bucket using the V2 API with pagination support.
+      *
+      * **Important:** Folder entries in the `folders` array only contain `name` and optionally `key` —
+      * they have no `id`, timestamps, or `metadata` fields. Full file metadata is only available
+      * on entries in the `objects` array.
+      *
       * @experimental this method signature might change in the future
       *
       * @category File Buckets
-      * @param options search options
-      * @param parameters
+      * @param options Search options including prefix, cursor for pagination, limit, with_delimiter
+      * @param parameters Optional fetch parameters including signal for cancellation
+      * @returns Promise with response containing folders/objects arrays with pagination info or error
+      *
+      * @example List files with pagination
+      * ```js
+      * const { data, error } = await supabase
+      *   .storage
+      *   .from('avatars')
+      *   .listV2({
+      *     prefix: 'folder/',
+      *     limit: 100,
+      *   })
+      *
+      * // Handle pagination
+      * if (data?.hasNext) {
+      *   const nextPage = await supabase
+      *     .storage
+      *     .from('avatars')
+      *     .listV2({
+      *       prefix: 'folder/',
+      *       cursor: data.nextCursor,
+      *     })
+      * }
+      *
+      * // Handle files vs folders
+      * data?.objects.forEach(file => {
+      *   if (file.id !== null) {
+      *     console.log('File:', file.name, 'Size:', file.metadata?.size)
+      *   }
+      * })
+      * data?.folders.forEach(folder => {
+      *   console.log('Folder:', folder.name)
+      * })
+      * ```
       */
       async listV2(options, parameters) {
         var _this14 = this;
@@ -5514,7 +10784,7 @@ var init_dist3 = __esm({
         return params.join("&");
       }
     };
-    version2 = "2.98.0";
+    version2 = "2.100.1";
     DEFAULT_HEADERS = { "X-Client-Info": `storage-js/${version2}` };
     StorageBucketApi = class extends BaseApiClient {
       constructor(url, headers = {}, fetch$1, opts) {
@@ -5557,6 +10827,12 @@ var init_dist3 = __esm({
       *     search: 'prod'
       *   })
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: `select`
+      *   - `objects` table permissions: none
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       async listBuckets(options) {
         var _this = this;
@@ -5597,6 +10873,12 @@ var init_dist3 = __esm({
       *   "error": null
       * }
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: `select`
+      *   - `objects` table permissions: none
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       async getBucket(id) {
         var _this2 = this;
@@ -5640,6 +10922,12 @@ var init_dist3 = __esm({
       *   "error": null
       * }
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: `insert`
+      *   - `objects` table permissions: none
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       async createBucket(id, options = { public: false }) {
         var _this3 = this;
@@ -5688,6 +10976,12 @@ var init_dist3 = __esm({
       *   "error": null
       * }
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: `select` and `update`
+      *   - `objects` table permissions: none
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       async updateBucket(id, options) {
         var _this4 = this;
@@ -5724,6 +11018,12 @@ var init_dist3 = __esm({
       *   "error": null
       * }
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: `select`
+      *   - `objects` table permissions: `select` and `delete`
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       async emptyBucket(id) {
         var _this5 = this;
@@ -5755,6 +11055,12 @@ var init_dist3 = __esm({
       *   "error": null
       * }
       * ```
+      *
+      * @remarks
+      * - RLS policy permissions required:
+      *   - `buckets` table permissions: `select` and `delete`
+      *   - `objects` table permissions: none
+      * - Refer to the [Storage guide](/docs/guides/storage/security/access-control) on how access control works
       */
       async deleteBucket(id) {
         var _this6 = this;
@@ -5787,7 +11093,7 @@ var init_dist3 = __esm({
       * @param headers - HTTP headers to include in requests
       * @param fetch - Optional custom fetch implementation
       *
-      * @example
+      * @example Creating a StorageAnalyticsClient instance
       * ```typescript
       * const client = new StorageAnalyticsClient(url, headers)
       * ```
@@ -5830,6 +11136,10 @@ var init_dist3 = __esm({
       *   "error": null
       * }
       * ```
+      *
+      * @remarks
+      * - Creates a new analytics bucket using Iceberg tables
+      * - Analytics buckets are optimized for analytical queries and data processing
       */
       async createBucket(name) {
         var _this = this;
@@ -5882,6 +11192,10 @@ var init_dist3 = __esm({
       *   "error": null
       * }
       * ```
+      *
+      * @remarks
+      * - Retrieves the details of all Analytics Storage buckets within an existing project
+      * - Only returns buckets of type 'ANALYTICS'
       */
       async listBuckets(options) {
         var _this2 = this;
@@ -5927,6 +11241,9 @@ var init_dist3 = __esm({
       *   "error": null
       * }
       * ```
+      *
+      * @remarks
+      * - Deletes an analytics bucket
       */
       async deleteBucket(bucketName) {
         var _this3 = this;
@@ -6232,7 +11549,7 @@ var init_dist3 = __esm({
       * @param options.headers - Optional headers (for example `Authorization`) applied to every request.
       * @param options.fetch - Optional custom `fetch` implementation for non-browser runtimes.
       *
-      * @example
+      * @example Creating a StorageVectorsClient instance
       * ```typescript
       * const client = new StorageVectorsClient(url, options)
       * ```
@@ -6253,7 +11570,7 @@ var init_dist3 = __esm({
       * @param vectorBucketName - Name of the vector bucket
       * @returns Bucket-scoped client with index and vector operations
       *
-      * @example
+      * @example Accessing a vector bucket
       * ```typescript
       * const bucket = supabase.storage.vectors.from('embeddings-prod')
       * ```
@@ -6274,7 +11591,7 @@ var init_dist3 = __esm({
       * @param vectorBucketName - Unique name for the vector bucket
       * @returns Promise with empty response on success or error
       *
-      * @example
+      * @example Creating a vector bucket
       * ```typescript
       * const { data, error } = await supabase
       *   .storage
@@ -6298,7 +11615,7 @@ var init_dist3 = __esm({
       * @param vectorBucketName - Name of the vector bucket
       * @returns Promise with bucket metadata or error
       *
-      * @example
+      * @example Get bucket metadata
       * ```typescript
       * const { data, error } = await supabase
       *   .storage
@@ -6324,7 +11641,7 @@ var init_dist3 = __esm({
       * @param options - Optional filters (prefix, maxResults, nextToken)
       * @returns Promise with list of buckets or error
       *
-      * @example
+      * @example List vector buckets
       * ```typescript
       * const { data, error } = await supabase
       *   .storage
@@ -6353,7 +11670,7 @@ var init_dist3 = __esm({
       * @param vectorBucketName - Name of the vector bucket to delete
       * @returns Promise with empty response on success or error
       *
-      * @example
+      * @example Delete a vector bucket
       * ```typescript
       * const { data, error } = await supabase
       *   .storage
@@ -6375,7 +11692,7 @@ var init_dist3 = __esm({
       * **Public alpha:** This API is part of a public alpha release and may not be available to your account type.
       *
       * @category Vector Buckets
-      * @example
+      * @example Creating a vector bucket scope
       * ```typescript
       * const bucket = supabase.storage.vectors.from('embeddings-prod')
       * ```
@@ -6397,7 +11714,7 @@ var init_dist3 = __esm({
       * @param options - Index configuration (vectorBucketName is automatically set)
       * @returns Promise with empty response on success or error
       *
-      * @example
+      * @example Creating a vector index
       * ```typescript
       * const bucket = supabase.storage.vectors.from('embeddings-prod')
       * await bucket.createIndex({
@@ -6428,7 +11745,7 @@ var init_dist3 = __esm({
       * @param options - Listing options (vectorBucketName is automatically set)
       * @returns Promise with response containing indexes array and pagination token or error
       *
-      * @example
+      * @example List indexes
       * ```typescript
       * const bucket = supabase.storage.vectors.from('embeddings-prod')
       * const { data } = await bucket.listIndexes({ prefix: 'documents-' })
@@ -6451,7 +11768,7 @@ var init_dist3 = __esm({
       * @param indexName - Name of the index to retrieve
       * @returns Promise with index metadata or error
       *
-      * @example
+      * @example Get index metadata
       * ```typescript
       * const bucket = supabase.storage.vectors.from('embeddings-prod')
       * const { data } = await bucket.getIndex('documents-openai')
@@ -6475,7 +11792,7 @@ var init_dist3 = __esm({
       * @param indexName - Name of the index to delete
       * @returns Promise with empty response on success or error
       *
-      * @example
+      * @example Delete an index
       * ```typescript
       * const bucket = supabase.storage.vectors.from('embeddings-prod')
       * await bucket.deleteIndex('old-index')
@@ -6498,7 +11815,7 @@ var init_dist3 = __esm({
       * @param indexName - Name of the index
       * @returns Index-scoped client with vector data operations
       *
-      * @example
+      * @example Accessing an index
       * ```typescript
       * const index = supabase.storage.vectors.from('embeddings-prod').index('documents-openai')
       *
@@ -6530,7 +11847,7 @@ var init_dist3 = __esm({
       * **Public alpha:** This API is part of a public alpha release and may not be available to your account type.
       *
       * @category Vector Buckets
-      * @example
+      * @example Creating a vector index scope
       * ```typescript
       * const index = supabase.storage.vectors.from('embeddings-prod').index('documents-openai')
       * ```
@@ -6553,7 +11870,7 @@ var init_dist3 = __esm({
       * @param options - Vector insertion options (bucket and index names automatically set)
       * @returns Promise with empty response on success or error
       *
-      * @example
+      * @example Insert vectors into an index
       * ```typescript
       * const index = supabase.storage.vectors.from('embeddings-prod').index('documents-openai')
       * await index.putVectors({
@@ -6587,7 +11904,7 @@ var init_dist3 = __esm({
       * @param options - Vector retrieval options (bucket and index names automatically set)
       * @returns Promise with response containing vectors array or error
       *
-      * @example
+      * @example Get vectors by keys
       * ```typescript
       * const index = supabase.storage.vectors.from('embeddings-prod').index('documents-openai')
       * const { data } = await index.getVectors({
@@ -6616,7 +11933,7 @@ var init_dist3 = __esm({
       * @param options - Listing options (bucket and index names automatically set)
       * @returns Promise with response containing vectors array and pagination token or error
       *
-      * @example
+      * @example List vectors with pagination
       * ```typescript
       * const index = supabase.storage.vectors.from('embeddings-prod').index('documents-openai')
       * const { data } = await index.listVectors({
@@ -6645,7 +11962,7 @@ var init_dist3 = __esm({
       * @param options - Query options (bucket and index names automatically set)
       * @returns Promise with response containing matches array of similar vectors ordered by distance or error
       *
-      * @example
+      * @example Query similar vectors
       * ```typescript
       * const index = supabase.storage.vectors.from('embeddings-prod').index('documents-openai')
       * const { data } = await index.queryVectors({
@@ -6677,7 +11994,7 @@ var init_dist3 = __esm({
       * @param options - Deletion options (bucket and index names automatically set)
       * @returns Promise with empty response on success or error
       *
-      * @example
+      * @example Delete vectors by keys
       * ```typescript
       * const index = supabase.storage.vectors.from('embeddings-prod').index('documents-openai')
       * await index.deleteVectors({
@@ -6698,7 +12015,7 @@ var init_dist3 = __esm({
       * Creates a client for Storage buckets, files, analytics, and vectors.
       *
       * @category File Buckets
-      * @example
+      * @example Creating a Storage client
       * ```ts
       * import { StorageClient } from '@supabase/storage-js'
       *
@@ -6717,7 +12034,7 @@ var init_dist3 = __esm({
       * @category File Buckets
       * @param id The bucket id to operate on.
       *
-      * @example
+      * @example Accessing a bucket
       * ```typescript
       * const avatars = supabase.storage.from('avatars')
       * ```
@@ -6760,18 +12077,18 @@ var init_dist3 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/version.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/version.js
 var version3;
 var init_version2 = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/version.js"() {
-    version3 = "2.98.0";
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/version.js"() {
+    version3 = "2.100.1";
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/constants.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/constants.js
 var AUTO_REFRESH_TICK_DURATION_MS, AUTO_REFRESH_TICK_THRESHOLD, EXPIRY_MARGIN_MS, GOTRUE_URL, STORAGE_KEY, DEFAULT_HEADERS2, API_VERSION_HEADER_NAME, API_VERSIONS, BASE64URL_REGEX, JWKS_TTL;
 var init_constants2 = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/constants.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/constants.js"() {
     init_version2();
     AUTO_REFRESH_TICK_DURATION_MS = 30 * 1e3;
     AUTO_REFRESH_TICK_THRESHOLD = 3;
@@ -6791,7 +12108,7 @@ var init_constants2 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/errors.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/errors.js
 function isAuthError(error) {
   return typeof error === "object" && error !== null && "__isAuthError" in error;
 }
@@ -6809,7 +12126,7 @@ function isAuthRetryableFetchError(error) {
 }
 var AuthError, AuthApiError, AuthUnknownError, CustomAuthError, AuthSessionMissingError, AuthInvalidTokenResponseError, AuthInvalidCredentialsError, AuthImplicitGrantRedirectError, AuthPKCEGrantCodeExchangeError, AuthPKCECodeVerifierMissingError, AuthRetryableFetchError, AuthWeakPasswordError, AuthInvalidJwtError;
 var init_errors = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/errors.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/errors.js"() {
     AuthError = class extends Error {
       constructor(message, status2, code) {
         super(message);
@@ -6910,7 +12227,7 @@ var init_errors = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/base64url.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/base64url.js
 function byteToBase64URL(byte, state8, emit3) {
   if (byte !== null) {
     state8.queue = state8.queue << 8 | byte;
@@ -7058,7 +12375,7 @@ function bytesToBase64URL(bytes) {
 }
 var TO_BASE64URL, IGNORE_BASE64URL, FROM_BASE64URL;
 var init_base64url = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/base64url.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/base64url.js"() {
     TO_BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".split("");
     IGNORE_BASE64URL = " 	\n\r=".split("");
     FROM_BASE64URL = (() => {
@@ -7077,7 +12394,7 @@ var init_base64url = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/helpers.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/helpers.js
 function expiresAt(expiresIn) {
   const timeNow = Math.round(Date.now() / 1e3);
   return timeNow + expiresIn;
@@ -7290,7 +12607,7 @@ function deepClone(obj) {
 }
 var isBrowser, localStorageWriteTests, supportsLocalStorage, resolveFetch3, looksLikeFetchResponse, setItemAsync, getItemAsync, removeItemAsync, Deferred, API_VERSION_REGEX, UUID_REGEX;
 var init_helpers = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/helpers.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/helpers.js"() {
     init_constants2();
     init_errors();
     init_base64url();
@@ -7367,7 +12684,7 @@ var init_helpers = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/fetch.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/fetch.js
 async function handleError2(error) {
   var _a;
   if (!looksLikeFetchResponse(error)) {
@@ -7494,7 +12811,7 @@ function hasSession(data) {
 }
 var _getErrorMessage2, NETWORK_ERROR_CODES, _getRequestParams2;
 var init_fetch = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/fetch.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/fetch.js"() {
     init_tslib_es6();
     init_constants2();
     init_helpers();
@@ -7513,18 +12830,18 @@ var init_fetch = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/types.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/types.js
 var SIGN_OUT_SCOPES;
 var init_types2 = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/types.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/types.js"() {
     SIGN_OUT_SCOPES = ["global", "local", "others"];
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js
 var GoTrueAdminApi;
 var init_GoTrueAdminApi = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js"() {
     init_tslib_es6();
     init_fetch();
     init_helpers();
@@ -7560,11 +12877,20 @@ var init_GoTrueAdminApi = __esm({
           deleteClient: this._deleteOAuthClient.bind(this),
           regenerateClientSecret: this._regenerateOAuthClientSecret.bind(this)
         };
+        this.customProviders = {
+          listProviders: this._listCustomProviders.bind(this),
+          createProvider: this._createCustomProvider.bind(this),
+          getProvider: this._getCustomProvider.bind(this),
+          updateProvider: this._updateCustomProvider.bind(this),
+          deleteProvider: this._deleteCustomProvider.bind(this)
+        };
       }
       /**
        * Removes a logged-in session.
        * @param jwt A valid, logged-in JWT.
        * @param scope The logout sope.
+       *
+       * @category Auth
        */
       async signOut(jwt, scope = SIGN_OUT_SCOPES[0]) {
         if (SIGN_OUT_SCOPES.indexOf(scope) < 0) {
@@ -7588,6 +12914,64 @@ var init_GoTrueAdminApi = __esm({
        * Sends an invite link to an email address.
        * @param email The email address of the user.
        * @param options Additional options to be included when inviting.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Sends an invite link to the user's email address.
+       * - The `inviteUserByEmail()` method is typically used by administrators to invite users to join the application.
+       * - Note that PKCE is not supported when using `inviteUserByEmail`. This is because the browser initiating the invite is often different from the browser accepting the invite which makes it difficult to provide the security guarantees required of the PKCE flow.
+       *
+       * @example Invite a user
+       * ```js
+       * const { data, error } = await supabase.auth.admin.inviteUserByEmail('email@example.com')
+       * ```
+       *
+       * @exampleResponse Invite a user
+       * ```json
+       * {
+       *   "data": {
+       *     "user": {
+       *       "id": "11111111-1111-1111-1111-111111111111",
+       *       "aud": "authenticated",
+       *       "role": "authenticated",
+       *       "email": "example@email.com",
+       *       "invited_at": "2024-01-01T00:00:00Z",
+       *       "phone": "",
+       *       "confirmation_sent_at": "2024-01-01T00:00:00Z",
+       *       "app_metadata": {
+       *         "provider": "email",
+       *         "providers": [
+       *           "email"
+       *         ]
+       *       },
+       *       "user_metadata": {},
+       *       "identities": [
+       *         {
+       *           "identity_id": "22222222-2222-2222-2222-222222222222",
+       *           "id": "11111111-1111-1111-1111-111111111111",
+       *           "user_id": "11111111-1111-1111-1111-111111111111",
+       *           "identity_data": {
+       *             "email": "example@email.com",
+       *             "email_verified": false,
+       *             "phone_verified": false,
+       *             "sub": "11111111-1111-1111-1111-111111111111"
+       *           },
+       *           "provider": "email",
+       *           "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *           "created_at": "2024-01-01T00:00:00Z",
+       *           "updated_at": "2024-01-01T00:00:00Z",
+       *           "email": "example@email.com"
+       *         }
+       *       ],
+       *       "created_at": "2024-01-01T00:00:00Z",
+       *       "updated_at": "2024-01-01T00:00:00Z",
+       *       "is_anonymous": false
+       *     }
+       *   },
+       *   "error": null
+       * }
+       * ```
        */
       async inviteUserByEmail(email, options = {}) {
         try {
@@ -7610,6 +12994,115 @@ var init_GoTrueAdminApi = __esm({
        * @param options.password User password. For signup only.
        * @param options.data Optional user metadata. For signup only.
        * @param options.redirectTo The redirect url which should be appended to the generated link
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - The following types can be passed into `generateLink()`: `signup`, `magiclink`, `invite`, `recovery`, `email_change_current`, `email_change_new`, `phone_change`.
+       * - `generateLink()` only generates the email link for `email_change_email` if the **Secure email change** is enabled in your project's [email auth provider settings](/dashboard/project/_/auth/providers).
+       * - `generateLink()` handles the creation of the user for `signup`, `invite` and `magiclink`.
+       *
+       * @example Generate a signup link
+       * ```js
+       * const { data, error } = await supabase.auth.admin.generateLink({
+       *   type: 'signup',
+       *   email: 'email@example.com',
+       *   password: 'secret'
+       * })
+       * ```
+       *
+       * @exampleResponse Generate a signup link
+       * ```json
+       * {
+       *   "data": {
+       *     "properties": {
+       *       "action_link": "<LINK_TO_SEND_TO_USER>",
+       *       "email_otp": "999999",
+       *       "hashed_token": "<HASHED_TOKEN",
+       *       "redirect_to": "<REDIRECT_URL>",
+       *       "verification_type": "signup"
+       *     },
+       *     "user": {
+       *       "id": "11111111-1111-1111-1111-111111111111",
+       *       "aud": "authenticated",
+       *       "role": "authenticated",
+       *       "email": "email@example.com",
+       *       "phone": "",
+       *       "confirmation_sent_at": "2024-01-01T00:00:00Z",
+       *       "app_metadata": {
+       *         "provider": "email",
+       *         "providers": [
+       *           "email"
+       *         ]
+       *       },
+       *       "user_metadata": {},
+       *       "identities": [
+       *         {
+       *           "identity_id": "22222222-2222-2222-2222-222222222222",
+       *           "id": "11111111-1111-1111-1111-111111111111",
+       *           "user_id": "11111111-1111-1111-1111-111111111111",
+       *           "identity_data": {
+       *             "email": "email@example.com",
+       *             "email_verified": false,
+       *             "phone_verified": false,
+       *             "sub": "11111111-1111-1111-1111-111111111111"
+       *           },
+       *           "provider": "email",
+       *           "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *           "created_at": "2024-01-01T00:00:00Z",
+       *           "updated_at": "2024-01-01T00:00:00Z",
+       *           "email": "email@example.com"
+       *         }
+       *       ],
+       *       "created_at": "2024-01-01T00:00:00Z",
+       *       "updated_at": "2024-01-01T00:00:00Z",
+       *       "is_anonymous": false
+       *     }
+       *   },
+       *   "error": null
+       * }
+       * ```
+       *
+       * @example Generate an invite link
+       * ```js
+       * const { data, error } = await supabase.auth.admin.generateLink({
+       *   type: 'invite',
+       *   email: 'email@example.com'
+       * })
+       * ```
+       *
+       * @example Generate a magic link
+       * ```js
+       * const { data, error } = await supabase.auth.admin.generateLink({
+       *   type: 'magiclink',
+       *   email: 'email@example.com'
+       * })
+       * ```
+       *
+       * @example Generate a recovery link
+       * ```js
+       * const { data, error } = await supabase.auth.admin.generateLink({
+       *   type: 'recovery',
+       *   email: 'email@example.com'
+       * })
+       * ```
+       *
+       * @example Generate links to change current email address
+       * ```js
+       * // generate an email change link to be sent to the current email address
+       * const { data, error } = await supabase.auth.admin.generateLink({
+       *   type: 'email_change_current',
+       *   email: 'current.email@example.com',
+       *   newEmail: 'new.email@example.com'
+       * })
+       *
+       * // generate an email change link to be sent to the new email address
+       * const { data, error } = await supabase.auth.admin.generateLink({
+       *   type: 'email_change_new',
+       *   email: 'current.email@example.com',
+       *   newEmail: 'new.email@example.com'
+       * })
+       * ```
        */
       async generateLink(params) {
         try {
@@ -7642,6 +13135,81 @@ var init_GoTrueAdminApi = __esm({
       /**
        * Creates a new user.
        * This function should only be called on a server. Never expose your `service_role` key in the browser.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - To confirm the user's email address or phone number, set `email_confirm` or `phone_confirm` to true. Both arguments default to false.
+       * - `createUser()` will not send a confirmation email to the user. You can use [`inviteUserByEmail()`](/docs/reference/javascript/auth-admin-inviteuserbyemail) if you want to send them an email invite instead.
+       * - If you are sure that the created user's email or phone number is legitimate and verified, you can set the `email_confirm` or `phone_confirm` param to `true`.
+       *
+       * @example With custom user metadata
+       * ```js
+       * const { data, error } = await supabase.auth.admin.createUser({
+       *   email: 'user@email.com',
+       *   password: 'password',
+       *   user_metadata: { name: 'Yoda' }
+       * })
+       * ```
+       *
+       * @exampleResponse With custom user metadata
+       * ```json
+       * {
+       *   data: {
+       *     user: {
+       *       id: '1',
+       *       aud: 'authenticated',
+       *       role: 'authenticated',
+       *       email: 'example@email.com',
+       *       email_confirmed_at: '2024-01-01T00:00:00Z',
+       *       phone: '',
+       *       confirmation_sent_at: '2024-01-01T00:00:00Z',
+       *       confirmed_at: '2024-01-01T00:00:00Z',
+       *       last_sign_in_at: '2024-01-01T00:00:00Z',
+       *       app_metadata: {},
+       *       user_metadata: {},
+       *       identities: [
+       *         {
+       *           "identity_id": "22222222-2222-2222-2222-222222222222",
+       *           "id": "1",
+       *           "user_id": "1",
+       *           "identity_data": {
+       *             "email": "example@email.com",
+       *             "email_verified": true,
+       *             "phone_verified": false,
+       *             "sub": "1"
+       *           },
+       *           "provider": "email",
+       *           "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *           "created_at": "2024-01-01T00:00:00Z",
+       *           "updated_at": "2024-01-01T00:00:00Z",
+       *           "email": "email@example.com"
+       *         },
+       *       ],
+       *       created_at: '2024-01-01T00:00:00Z',
+       *       updated_at: '2024-01-01T00:00:00Z',
+       *       is_anonymous: false,
+       *     }
+       *   }
+       *   error: null
+       * }
+       * ```
+       *
+       * @example Auto-confirm the user's email
+       * ```js
+       * const { data, error } = await supabase.auth.admin.createUser({
+       *   email: 'user@email.com',
+       *   email_confirm: true
+       * })
+       * ```
+       *
+       * @example Auto-confirm the user's phone number
+       * ```js
+       * const { data, error } = await supabase.auth.admin.createUser({
+       *   phone: '1234567890',
+       *   phone_confirm: true
+       * })
+       * ```
        */
       async createUser(attributes) {
         try {
@@ -7662,6 +13230,24 @@ var init_GoTrueAdminApi = __esm({
        *
        * This function should only be called on a server. Never expose your `service_role` key in the browser.
        * @param params An object which supports `page` and `perPage` as numbers, to alter the paginated results.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Defaults to return 50 users per page.
+       *
+       * @example Get a page of users
+       * ```js
+       * const { data: { users }, error } = await supabase.auth.admin.listUsers()
+       * ```
+       *
+       * @example Paginated list of users
+       * ```js
+       * const { data: { users }, error } = await supabase.auth.admin.listUsers({
+       *   page: 1,
+       *   perPage: 1000
+       * })
+       * ```
        */
       async listUsers(params) {
         var _a, _b, _c, _d, _e, _f, _g;
@@ -7703,6 +13289,60 @@ var init_GoTrueAdminApi = __esm({
        * @param uid The user's unique identifier
        *
        * This function should only be called on a server. Never expose your `service_role` key in the browser.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Fetches the user object from the database based on the user's id.
+       * - The `getUserById()` method requires the user's id which maps to the `auth.users.id` column.
+       *
+       * @example Fetch the user object using the access_token jwt
+       * ```js
+       * const { data, error } = await supabase.auth.admin.getUserById(1)
+       * ```
+       *
+       * @exampleResponse Fetch the user object using the access_token jwt
+       * ```json
+       * {
+       *   data: {
+       *     user: {
+       *       id: '1',
+       *       aud: 'authenticated',
+       *       role: 'authenticated',
+       *       email: 'example@email.com',
+       *       email_confirmed_at: '2024-01-01T00:00:00Z',
+       *       phone: '',
+       *       confirmation_sent_at: '2024-01-01T00:00:00Z',
+       *       confirmed_at: '2024-01-01T00:00:00Z',
+       *       last_sign_in_at: '2024-01-01T00:00:00Z',
+       *       app_metadata: {},
+       *       user_metadata: {},
+       *       identities: [
+       *         {
+       *           "identity_id": "22222222-2222-2222-2222-222222222222",
+       *           "id": "1",
+       *           "user_id": "1",
+       *           "identity_data": {
+       *             "email": "example@email.com",
+       *             "email_verified": true,
+       *             "phone_verified": false,
+       *             "sub": "1"
+       *           },
+       *           "provider": "email",
+       *           "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *           "created_at": "2024-01-01T00:00:00Z",
+       *           "updated_at": "2024-01-01T00:00:00Z",
+       *           "email": "email@example.com"
+       *         },
+       *       ],
+       *       created_at: '2024-01-01T00:00:00Z',
+       *       updated_at: '2024-01-01T00:00:00Z',
+       *       is_anonymous: false,
+       *     }
+       *   }
+       *   error: null
+       * }
+       * ```
        */
       async getUserById(uid) {
         validateUUID(uid);
@@ -7749,6 +13389,117 @@ var init_GoTrueAdminApi = __esm({
        *
        * @see {@link GoTrueClient.refreshSession} for syncing admin changes to the client
        * @see {@link GoTrueClient.updateUser} for client-side user updates (triggers listeners automatically)
+       *
+       * @category Auth
+       *
+       * @example Updates a user's email
+       * ```js
+       * const { data: user, error } = await supabase.auth.admin.updateUserById(
+       *   '11111111-1111-1111-1111-111111111111',
+       *   { email: 'new@email.com' }
+       * )
+       * ```
+       *
+       * @exampleResponse Updates a user's email
+       * ```json
+       * {
+       *   "data": {
+       *     "user": {
+       *       "id": "11111111-1111-1111-1111-111111111111",
+       *       "aud": "authenticated",
+       *       "role": "authenticated",
+       *       "email": "new@email.com",
+       *       "email_confirmed_at": "2024-01-01T00:00:00Z",
+       *       "phone": "",
+       *       "confirmed_at": "2024-01-01T00:00:00Z",
+       *       "recovery_sent_at": "2024-01-01T00:00:00Z",
+       *       "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *       "app_metadata": {
+       *         "provider": "email",
+       *         "providers": [
+       *           "email"
+       *         ]
+       *       },
+       *       "user_metadata": {
+       *         "email": "example@email.com",
+       *         "email_verified": false,
+       *         "phone_verified": false,
+       *         "sub": "11111111-1111-1111-1111-111111111111"
+       *       },
+       *       "identities": [
+       *         {
+       *           "identity_id": "22222222-2222-2222-2222-222222222222",
+       *           "id": "11111111-1111-1111-1111-111111111111",
+       *           "user_id": "11111111-1111-1111-1111-111111111111",
+       *           "identity_data": {
+       *             "email": "example@email.com",
+       *             "email_verified": false,
+       *             "phone_verified": false,
+       *             "sub": "11111111-1111-1111-1111-111111111111"
+       *           },
+       *           "provider": "email",
+       *           "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *           "created_at": "2024-01-01T00:00:00Z",
+       *           "updated_at": "2024-01-01T00:00:00Z",
+       *           "email": "example@email.com"
+       *         }
+       *       ],
+       *       "created_at": "2024-01-01T00:00:00Z",
+       *       "updated_at": "2024-01-01T00:00:00Z",
+       *       "is_anonymous": false
+       *     }
+       *   },
+       *   "error": null
+       * }
+       * ```
+       *
+       * @example Updates a user's password
+       * ```js
+       * const { data: user, error } = await supabase.auth.admin.updateUserById(
+       *   '6aa5d0d4-2a9f-4483-b6c8-0cf4c6c98ac4',
+       *   { password: 'new_password' }
+       * )
+       * ```
+       *
+       * @example Updates a user's metadata
+       * ```js
+       * const { data: user, error } = await supabase.auth.admin.updateUserById(
+       *   '6aa5d0d4-2a9f-4483-b6c8-0cf4c6c98ac4',
+       *   { user_metadata: { hello: 'world' } }
+       * )
+       * ```
+       *
+       * @example Updates a user's app_metadata
+       * ```js
+       * const { data: user, error } = await supabase.auth.admin.updateUserById(
+       *   '6aa5d0d4-2a9f-4483-b6c8-0cf4c6c98ac4',
+       *   { app_metadata: { plan: 'trial' } }
+       * )
+       * ```
+       *
+       * @example Confirms a user's email address
+       * ```js
+       * const { data: user, error } = await supabase.auth.admin.updateUserById(
+       *   '6aa5d0d4-2a9f-4483-b6c8-0cf4c6c98ac4',
+       *   { email_confirm: true }
+       * )
+       * ```
+       *
+       * @example Confirms a user's phone number
+       * ```js
+       * const { data: user, error } = await supabase.auth.admin.updateUserById(
+       *   '6aa5d0d4-2a9f-4483-b6c8-0cf4c6c98ac4',
+       *   { phone_confirm: true }
+       * )
+       * ```
+       *
+       * @example Ban a user for 100 years
+       * ```js
+       * const { data: user, error } = await supabase.auth.admin.updateUserById(
+       *   '6aa5d0d4-2a9f-4483-b6c8-0cf4c6c98ac4',
+       *   { ban_duration: '876000h' }
+       * )
+       * ```
        */
       async updateUserById(uid, attributes) {
         validateUUID(uid);
@@ -7773,6 +13524,28 @@ var init_GoTrueAdminApi = __esm({
        * Defaults to false for backward compatibility.
        *
        * This function should only be called on a server. Never expose your `service_role` key in the browser.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - The `deleteUser()` method requires the user's ID, which maps to the `auth.users.id` column.
+       *
+       * @example Removes a user
+       * ```js
+       * const { data, error } = await supabase.auth.admin.deleteUser(
+       *   '715ed5db-f090-4b8c-a067-640ecee36aa0'
+       * )
+       * ```
+       *
+       * @exampleResponse Removes a user
+       * ```json
+       * {
+       *   "data": {
+       *     "user": {}
+       *   },
+       *   "error": null
+       * }
+       * ```
        */
       async deleteUser(id, shouldSoftDelete = false) {
         validateUUID(id);
@@ -7969,11 +13742,129 @@ var init_GoTrueAdminApi = __esm({
           throw error;
         }
       }
+      /**
+       * Lists all custom providers with optional type filter.
+       *
+       * This function should only be called on a server. Never expose your `service_role` key in the browser.
+       */
+      async _listCustomProviders(params) {
+        try {
+          const query = {};
+          if (params === null || params === void 0 ? void 0 : params.type) {
+            query.type = params.type;
+          }
+          return await _request(this.fetch, "GET", `${this.url}/admin/custom-providers`, {
+            headers: this.headers,
+            query,
+            xform: (data) => {
+              var _a;
+              return { data: { providers: (_a = data === null || data === void 0 ? void 0 : data.providers) !== null && _a !== void 0 ? _a : [] }, error: null };
+            }
+          });
+        } catch (error) {
+          if (isAuthError(error)) {
+            return { data: { providers: [] }, error };
+          }
+          throw error;
+        }
+      }
+      /**
+       * Creates a new custom OIDC/OAuth provider.
+       *
+       * For OIDC providers, the server fetches and validates the OpenID Connect discovery document
+       * from the issuer's well-known endpoint (or the provided `discovery_url`) at creation time.
+       * This may return a validation error (`error_code: "validation_failed"`) if the discovery
+       * document is unreachable, not valid JSON, missing required fields, or if the issuer
+       * in the document does not match the expected issuer.
+       *
+       * This function should only be called on a server. Never expose your `service_role` key in the browser.
+       */
+      async _createCustomProvider(params) {
+        try {
+          return await _request(this.fetch, "POST", `${this.url}/admin/custom-providers`, {
+            body: params,
+            headers: this.headers,
+            xform: (provider) => {
+              return { data: provider, error: null };
+            }
+          });
+        } catch (error) {
+          if (isAuthError(error)) {
+            return { data: null, error };
+          }
+          throw error;
+        }
+      }
+      /**
+       * Gets details of a specific custom provider by identifier.
+       *
+       * This function should only be called on a server. Never expose your `service_role` key in the browser.
+       */
+      async _getCustomProvider(identifier) {
+        try {
+          return await _request(this.fetch, "GET", `${this.url}/admin/custom-providers/${identifier}`, {
+            headers: this.headers,
+            xform: (provider) => {
+              return { data: provider, error: null };
+            }
+          });
+        } catch (error) {
+          if (isAuthError(error)) {
+            return { data: null, error };
+          }
+          throw error;
+        }
+      }
+      /**
+       * Updates an existing custom provider.
+       *
+       * When `issuer` or `discovery_url` is changed on an OIDC provider, the server re-fetches and
+       * validates the discovery document before persisting. This may return a validation error
+       * (`error_code: "validation_failed"`) if the discovery document is unreachable, invalid, or
+       * the issuer does not match.
+       *
+       * This function should only be called on a server. Never expose your `service_role` key in the browser.
+       */
+      async _updateCustomProvider(identifier, params) {
+        try {
+          return await _request(this.fetch, "PUT", `${this.url}/admin/custom-providers/${identifier}`, {
+            body: params,
+            headers: this.headers,
+            xform: (provider) => {
+              return { data: provider, error: null };
+            }
+          });
+        } catch (error) {
+          if (isAuthError(error)) {
+            return { data: null, error };
+          }
+          throw error;
+        }
+      }
+      /**
+       * Deletes a custom provider.
+       *
+       * This function should only be called on a server. Never expose your `service_role` key in the browser.
+       */
+      async _deleteCustomProvider(identifier) {
+        try {
+          await _request(this.fetch, "DELETE", `${this.url}/admin/custom-providers/${identifier}`, {
+            headers: this.headers,
+            noResolveJson: true
+          });
+          return { data: null, error: null };
+        } catch (error) {
+          if (isAuthError(error)) {
+            return { data: null, error };
+          }
+          throw error;
+        }
+      }
     };
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js
 function memoryLocalStorageAdapter(store3 = {}) {
   return {
     getItem: (key) => {
@@ -7988,18 +13879,19 @@ function memoryLocalStorageAdapter(store3 = {}) {
   };
 }
 var init_local_storage = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js"() {
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/locks.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/locks.js
 async function navigatorLock(name, acquireTimeout, fn) {
   if (internals.debug) {
     console.log("@supabase/gotrue-js: navigatorLock: acquire lock", name, acquireTimeout);
   }
   const abortController = new globalThis.AbortController();
+  let acquireTimeoutTimer;
   if (acquireTimeout > 0) {
-    setTimeout(() => {
+    acquireTimeoutTimer = setTimeout(() => {
       abortController.abort();
       if (internals.debug) {
         console.log("@supabase/gotrue-js: navigatorLock acquire timed out", name);
@@ -8016,6 +13908,7 @@ async function navigatorLock(name, acquireTimeout, fn) {
       signal: abortController.signal
     }, async (lock) => {
       if (lock) {
+        clearTimeout(acquireTimeoutTimer);
         if (internals.debug) {
           console.log("@supabase/gotrue-js: navigatorLock: acquired", name, lock.name);
         }
@@ -8042,43 +13935,54 @@ async function navigatorLock(name, acquireTimeout, fn) {
             }
           }
           console.warn("@supabase/gotrue-js: Navigator LockManager returned a null lock when using #request without ifAvailable set to true, it appears this browser is not following the LockManager spec https://developer.mozilla.org/en-US/docs/Web/API/LockManager/request");
+          clearTimeout(acquireTimeoutTimer);
           return await fn();
         }
       }
     });
   } catch (e) {
+    if (acquireTimeout > 0) {
+      clearTimeout(acquireTimeoutTimer);
+    }
     if ((e === null || e === void 0 ? void 0 : e.name) === "AbortError" && acquireTimeout > 0) {
-      if (internals.debug) {
-        console.log("@supabase/gotrue-js: navigatorLock: acquire timeout, recovering by stealing lock", name);
-      }
-      console.warn(`@supabase/gotrue-js: Lock "${name}" was not released within ${acquireTimeout}ms. This may indicate an orphaned lock from a component unmount (e.g., React Strict Mode). Forcefully acquiring the lock to recover.`);
-      return await Promise.resolve().then(() => globalThis.navigator.locks.request(name, {
-        mode: "exclusive",
-        steal: true
-      }, async (lock) => {
-        if (lock) {
-          if (internals.debug) {
-            console.log("@supabase/gotrue-js: navigatorLock: recovered (stolen)", name, lock.name);
-          }
-          try {
-            return await fn();
-          } finally {
-            if (internals.debug) {
-              console.log("@supabase/gotrue-js: navigatorLock: released (stolen)", name, lock.name);
-            }
-          }
-        } else {
-          console.warn("@supabase/gotrue-js: Navigator LockManager returned null lock even with steal: true");
-          return await fn();
+      if (abortController.signal.aborted) {
+        if (internals.debug) {
+          console.log("@supabase/gotrue-js: navigatorLock: acquire timeout, recovering by stealing lock", name);
         }
-      }));
+        console.warn(`@supabase/gotrue-js: Lock "${name}" was not released within ${acquireTimeout}ms. This may indicate an orphaned lock from a component unmount (e.g., React Strict Mode). Forcefully acquiring the lock to recover.`);
+        return await Promise.resolve().then(() => globalThis.navigator.locks.request(name, {
+          mode: "exclusive",
+          steal: true
+        }, async (lock) => {
+          if (lock) {
+            if (internals.debug) {
+              console.log("@supabase/gotrue-js: navigatorLock: recovered (stolen)", name, lock.name);
+            }
+            try {
+              return await fn();
+            } finally {
+              if (internals.debug) {
+                console.log("@supabase/gotrue-js: navigatorLock: released (stolen)", name, lock.name);
+              }
+            }
+          } else {
+            console.warn("@supabase/gotrue-js: Navigator LockManager returned null lock even with steal: true");
+            return await fn();
+          }
+        }));
+      } else {
+        if (internals.debug) {
+          console.log("@supabase/gotrue-js: navigatorLock: lock was stolen by another request", name);
+        }
+        throw new NavigatorLockAcquireTimeoutError(`Lock "${name}" was released because another request stole it`);
+      }
     }
     throw e;
   }
 }
 var internals, LockAcquireTimeoutError, NavigatorLockAcquireTimeoutError;
 var init_locks = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/locks.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/locks.js"() {
     init_helpers();
     internals = {
       /**
@@ -8097,7 +14001,7 @@ var init_locks = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js
 function polyfillGlobalThis() {
   if (typeof globalThis === "object")
     return;
@@ -8117,11 +14021,11 @@ function polyfillGlobalThis() {
   }
 }
 var init_polyfills = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js"() {
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js
 function getAddress(address) {
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
     throw new Error(`@supabase/auth-js: Address "${address}" is invalid.`);
@@ -8189,11 +14093,11 @@ Request ID: ${requestId}`;
 ${suffix}`;
 }
 var init_ethereum = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js"() {
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js
 function identifyRegistrationError({ error, options }) {
   var _a, _b, _c;
   const { publicKey } = options;
@@ -8342,7 +14246,7 @@ function identifyAuthenticationError({ error, options }) {
 }
 var WebAuthnError, WebAuthnUnknownError;
 var init_webauthn_errors = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js"() {
     init_webauthn();
     WebAuthnError = class extends Error {
       constructor({ message, code, cause, name }) {
@@ -8367,7 +14271,7 @@ var init_webauthn_errors = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js
 function deserializeCredentialCreationOptions(options) {
   if (!options) {
     throw new Error("Credential creation options are required");
@@ -8577,7 +14481,7 @@ function mergeCredentialRequestOptions(baseOptions, overrides) {
 }
 var WebAuthnAbortService, webAuthnAbortService, DEFAULT_CREATION_OPTIONS, DEFAULT_REQUEST_OPTIONS, WebAuthnApi;
 var init_webauthn = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js"() {
     init_tslib_es6();
     init_base64url();
     init_errors();
@@ -8900,13 +14804,13 @@ var init_webauthn = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js
 async function lockNoOp(name, acquireTimeout, fn) {
   return await fn();
 }
 var DEFAULT_OPTIONS, GLOBAL_JWKS, GoTrueClient, GoTrueClient_default;
 var init_GoTrueClient = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js"() {
     init_GoTrueAdminApi();
     init_constants2();
     init_errors();
@@ -9113,6 +15017,8 @@ var init_GoTrueClient = __esm({
        * Initializes the client session either from the url or from storage.
        * This method is automatically called when instantiating the client, but should also be called
        * manually when checking for an error from an auth redirect (oauth, magiclink, password recovery, etc).
+       *
+       * @category Auth
        */
       async initialize() {
         if (this.initializePromise) {
@@ -9186,6 +15092,74 @@ var init_GoTrueClient = __esm({
        * Creates a new anonymous user.
        *
        * @returns A session where the is_anonymous claim in the access token JWT set to true
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Returns an anonymous user
+       * - It is recommended to set up captcha for anonymous sign-ins to prevent abuse. You can pass in the captcha token in the `options` param.
+       *
+       * @example Create an anonymous user
+       * ```js
+       * const { data, error } = await supabase.auth.signInAnonymously({
+       *   options: {
+       *     captchaToken
+       *   }
+       * });
+       * ```
+       *
+       * @exampleResponse Create an anonymous user
+       * ```json
+       * {
+       *   "data": {
+       *     "user": {
+       *       "id": "11111111-1111-1111-1111-111111111111",
+       *       "aud": "authenticated",
+       *       "role": "authenticated",
+       *       "email": "",
+       *       "phone": "",
+       *       "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *       "app_metadata": {},
+       *       "user_metadata": {},
+       *       "identities": [],
+       *       "created_at": "2024-01-01T00:00:00Z",
+       *       "updated_at": "2024-01-01T00:00:00Z",
+       *       "is_anonymous": true
+       *     },
+       *     "session": {
+       *       "access_token": "<ACCESS_TOKEN>",
+       *       "token_type": "bearer",
+       *       "expires_in": 3600,
+       *       "expires_at": 1700000000,
+       *       "refresh_token": "<REFRESH_TOKEN>",
+       *       "user": {
+       *         "id": "11111111-1111-1111-1111-111111111111",
+       *         "aud": "authenticated",
+       *         "role": "authenticated",
+       *         "email": "",
+       *         "phone": "",
+       *         "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *         "app_metadata": {},
+       *         "user_metadata": {},
+       *         "identities": [],
+       *         "created_at": "2024-01-01T00:00:00Z",
+       *         "updated_at": "2024-01-01T00:00:00Z",
+       *         "is_anonymous": true
+       *       }
+       *     }
+       *   },
+       *   "error": null
+       * }
+       * ```
+       *
+       * @example Create an anonymous user with custom user metadata
+       * ```js
+       * const { data, error } = await supabase.auth.signInAnonymously({
+       *   options: {
+       *     data
+       *   }
+       * })
+       * ```
        */
       async signInAnonymously(credentials) {
         var _a, _b, _c;
@@ -9225,6 +15199,173 @@ var init_GoTrueClient = __esm({
        *
        * @returns A logged-in session if the server has "autoconfirm" ON
        * @returns A user if the server has "autoconfirm" OFF
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - By default, the user needs to verify their email address before logging in. To turn this off, disable **Confirm email** in [your project](/dashboard/project/_/auth/providers).
+       * - **Confirm email** determines if users need to confirm their email address after signing up.
+       *   - If **Confirm email** is enabled, a `user` is returned but `session` is null.
+       *   - If **Confirm email** is disabled, both a `user` and a `session` are returned.
+       * - When the user confirms their email address, they are redirected to the [`SITE_URL`](/docs/guides/auth/redirect-urls#use-wildcards-in-redirect-urls) by default. You can modify your `SITE_URL` or add additional redirect URLs in [your project](/dashboard/project/_/auth/url-configuration).
+       * - If signUp() is called for an existing confirmed user:
+       *   - When both **Confirm email** and **Confirm phone** (even when phone provider is disabled) are enabled in [your project](/dashboard/project/_/auth/providers), an obfuscated/fake user object is returned.
+       *   - When either **Confirm email** or **Confirm phone** (even when phone provider is disabled) is disabled, the error message, `User already registered` is returned.
+       * - To fetch the currently logged-in user, refer to [`getUser()`](/docs/reference/javascript/auth-getuser).
+       *
+       * @example Sign up with an email and password
+       * ```js
+       * const { data, error } = await supabase.auth.signUp({
+       *   email: 'example@email.com',
+       *   password: 'example-password',
+       * })
+       * ```
+       *
+       * @exampleResponse Sign up with an email and password
+       * ```json
+       * // Some fields may be null if "confirm email" is enabled.
+       * {
+       *   "data": {
+       *     "user": {
+       *       "id": "11111111-1111-1111-1111-111111111111",
+       *       "aud": "authenticated",
+       *       "role": "authenticated",
+       *       "email": "example@email.com",
+       *       "email_confirmed_at": "2024-01-01T00:00:00Z",
+       *       "phone": "",
+       *       "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *       "app_metadata": {
+       *         "provider": "email",
+       *         "providers": [
+       *           "email"
+       *         ]
+       *       },
+       *       "user_metadata": {},
+       *       "identities": [
+       *         {
+       *           "identity_id": "22222222-2222-2222-2222-222222222222",
+       *           "id": "11111111-1111-1111-1111-111111111111",
+       *           "user_id": "11111111-1111-1111-1111-111111111111",
+       *           "identity_data": {
+       *             "email": "example@email.com",
+       *             "email_verified": false,
+       *             "phone_verified": false,
+       *             "sub": "11111111-1111-1111-1111-111111111111"
+       *           },
+       *           "provider": "email",
+       *           "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *           "created_at": "2024-01-01T00:00:00Z",
+       *           "updated_at": "2024-01-01T00:00:00Z",
+       *           "email": "example@email.com"
+       *         }
+       *       ],
+       *       "created_at": "2024-01-01T00:00:00Z",
+       *       "updated_at": "2024-01-01T00:00:00Z"
+       *     },
+       *     "session": {
+       *       "access_token": "<ACCESS_TOKEN>",
+       *       "token_type": "bearer",
+       *       "expires_in": 3600,
+       *       "expires_at": 1700000000,
+       *       "refresh_token": "<REFRESH_TOKEN>",
+       *       "user": {
+       *         "id": "11111111-1111-1111-1111-111111111111",
+       *         "aud": "authenticated",
+       *         "role": "authenticated",
+       *         "email": "example@email.com",
+       *         "email_confirmed_at": "2024-01-01T00:00:00Z",
+       *         "phone": "",
+       *         "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *         "app_metadata": {
+       *           "provider": "email",
+       *           "providers": [
+       *             "email"
+       *           ]
+       *         },
+       *         "user_metadata": {},
+       *         "identities": [
+       *           {
+       *             "identity_id": "22222222-2222-2222-2222-222222222222",
+       *             "id": "11111111-1111-1111-1111-111111111111",
+       *             "user_id": "11111111-1111-1111-1111-111111111111",
+       *             "identity_data": {
+       *               "email": "example@email.com",
+       *               "email_verified": false,
+       *               "phone_verified": false,
+       *               "sub": "11111111-1111-1111-1111-111111111111"
+       *             },
+       *             "provider": "email",
+       *             "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *             "created_at": "2024-01-01T00:00:00Z",
+       *             "updated_at": "2024-01-01T00:00:00Z",
+       *             "email": "example@email.com"
+       *           }
+       *         ],
+       *         "created_at": "2024-01-01T00:00:00Z",
+       *         "updated_at": "2024-01-01T00:00:00Z"
+       *       }
+       *     }
+       *   },
+       *   "error": null
+       * }
+       * ```
+       *
+       * @example Sign up with a phone number and password (SMS)
+       * ```js
+       * const { data, error } = await supabase.auth.signUp({
+       *   phone: '123456789',
+       *   password: 'example-password',
+       *   options: {
+       *     channel: 'sms'
+       *   }
+       * })
+       * ```
+       *
+       * @exampleDescription Sign up with a phone number and password (whatsapp)
+       * The user will be sent a WhatsApp message which contains a OTP. By default, a given user can only request a OTP once every 60 seconds. Note that a user will need to have a valid WhatsApp account that is linked to Twilio in order to use this feature.
+       *
+       * @example Sign up with a phone number and password (whatsapp)
+       * ```js
+       * const { data, error } = await supabase.auth.signUp({
+       *   phone: '123456789',
+       *   password: 'example-password',
+       *   options: {
+       *     channel: 'whatsapp'
+       *   }
+       * })
+       * ```
+       *
+       * @example Sign up with additional user metadata
+       * ```js
+       * const { data, error } = await supabase.auth.signUp(
+       *   {
+       *     email: 'example@email.com',
+       *     password: 'example-password',
+       *     options: {
+       *       data: {
+       *         first_name: 'John',
+       *         age: 27,
+       *       }
+       *     }
+       *   }
+       * )
+       * ```
+       *
+       * @exampleDescription Sign up with a redirect URL
+       * - See [redirect URLs and wildcards](/docs/guides/auth/redirect-urls#use-wildcards-in-redirect-urls) to add additional redirect URLs to your project.
+       *
+       * @example Sign up with a redirect URL
+       * ```js
+       * const { data, error } = await supabase.auth.signUp(
+       *   {
+       *     email: 'example@email.com',
+       *     password: 'example-password',
+       *     options: {
+       *       emailRedirectTo: 'https://example.com/welcome'
+       *     }
+       *   }
+       * )
+       * ```
        */
       async signUp(credentials) {
         var _a, _b, _c;
@@ -9294,6 +15435,115 @@ var init_GoTrueClient = __esm({
        * between the cases where the account does not exist or that the
        * email/phone and password combination is wrong or that the account can only
        * be accessed via social login.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Requires either an email and password or a phone number and password.
+       *
+       * @example Sign in with email and password
+       * ```js
+       * const { data, error } = await supabase.auth.signInWithPassword({
+       *   email: 'example@email.com',
+       *   password: 'example-password',
+       * })
+       * ```
+       *
+       * @exampleResponse Sign in with email and password
+       * ```json
+       * {
+       *   "data": {
+       *     "user": {
+       *       "id": "11111111-1111-1111-1111-111111111111",
+       *       "aud": "authenticated",
+       *       "role": "authenticated",
+       *       "email": "example@email.com",
+       *       "email_confirmed_at": "2024-01-01T00:00:00Z",
+       *       "phone": "",
+       *       "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *       "app_metadata": {
+       *         "provider": "email",
+       *         "providers": [
+       *           "email"
+       *         ]
+       *       },
+       *       "user_metadata": {},
+       *       "identities": [
+       *         {
+       *           "identity_id": "22222222-2222-2222-2222-222222222222",
+       *           "id": "11111111-1111-1111-1111-111111111111",
+       *           "user_id": "11111111-1111-1111-1111-111111111111",
+       *           "identity_data": {
+       *             "email": "example@email.com",
+       *             "email_verified": false,
+       *             "phone_verified": false,
+       *             "sub": "11111111-1111-1111-1111-111111111111"
+       *           },
+       *           "provider": "email",
+       *           "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *           "created_at": "2024-01-01T00:00:00Z",
+       *           "updated_at": "2024-01-01T00:00:00Z",
+       *           "email": "example@email.com"
+       *         }
+       *       ],
+       *       "created_at": "2024-01-01T00:00:00Z",
+       *       "updated_at": "2024-01-01T00:00:00Z"
+       *     },
+       *     "session": {
+       *       "access_token": "<ACCESS_TOKEN>",
+       *       "token_type": "bearer",
+       *       "expires_in": 3600,
+       *       "expires_at": 1700000000,
+       *       "refresh_token": "<REFRESH_TOKEN>",
+       *       "user": {
+       *         "id": "11111111-1111-1111-1111-111111111111",
+       *         "aud": "authenticated",
+       *         "role": "authenticated",
+       *         "email": "example@email.com",
+       *         "email_confirmed_at": "2024-01-01T00:00:00Z",
+       *         "phone": "",
+       *         "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *         "app_metadata": {
+       *           "provider": "email",
+       *           "providers": [
+       *             "email"
+       *           ]
+       *         },
+       *         "user_metadata": {},
+       *         "identities": [
+       *           {
+       *             "identity_id": "22222222-2222-2222-2222-222222222222",
+       *             "id": "11111111-1111-1111-1111-111111111111",
+       *             "user_id": "11111111-1111-1111-1111-111111111111",
+       *             "identity_data": {
+       *               "email": "example@email.com",
+       *               "email_verified": false,
+       *               "phone_verified": false,
+       *               "sub": "11111111-1111-1111-1111-111111111111"
+       *             },
+       *             "provider": "email",
+       *             "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *             "created_at": "2024-01-01T00:00:00Z",
+       *             "updated_at": "2024-01-01T00:00:00Z",
+       *             "email": "example@email.com"
+       *           }
+       *         ],
+       *         "created_at": "2024-01-01T00:00:00Z",
+       *         "updated_at": "2024-01-01T00:00:00Z"
+       *       }
+       *     }
+       *   },
+       *   "error": null
+       * }
+       * ```
+       *
+       * @example Sign in with phone and password
+       * ```js
+       * const { data, error } = await supabase.auth.signInWithPassword({
+       *   phone: '+13334445555',
+       *   password: 'some-password',
+       * })
+       * ```
        */
       async signInWithPassword(credentials) {
         try {
@@ -9348,6 +15598,81 @@ var init_GoTrueClient = __esm({
       /**
        * Log in an existing user via a third-party provider.
        * This method supports the PKCE flow.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - This method is used for signing in using [Social Login (OAuth) providers](/docs/guides/auth#configure-third-party-providers).
+       * - It works by redirecting your application to the provider's authorization screen, before bringing back the user to your app.
+       *
+       * @example Sign in using a third-party provider
+       * ```js
+       * const { data, error } = await supabase.auth.signInWithOAuth({
+       *   provider: 'github'
+       * })
+       * ```
+       *
+       * @exampleResponse Sign in using a third-party provider
+       * ```json
+       * {
+       *   data: {
+       *     provider: 'github',
+       *     url: <PROVIDER_URL_TO_REDIRECT_TO>
+       *   },
+       *   error: null
+       * }
+       * ```
+       *
+       * @exampleDescription Sign in using a third-party provider with redirect
+       * - When the OAuth provider successfully authenticates the user, they are redirected to the URL specified in the `redirectTo` parameter. This parameter defaults to the [`SITE_URL`](/docs/guides/auth/redirect-urls#use-wildcards-in-redirect-urls). It does not redirect the user immediately after invoking this method.
+       * - See [redirect URLs and wildcards](/docs/guides/auth/redirect-urls#use-wildcards-in-redirect-urls) to add additional redirect URLs to your project.
+       *
+       * @example Sign in using a third-party provider with redirect
+       * ```js
+       * const { data, error } = await supabase.auth.signInWithOAuth({
+       *   provider: 'github',
+       *   options: {
+       *     redirectTo: 'https://example.com/welcome'
+       *   }
+       * })
+       * ```
+       *
+       * @exampleDescription Sign in with scopes and access provider tokens
+       * If you need additional access from an OAuth provider, in order to access provider specific APIs in the name of the user, you can do this by passing in the scopes the user should authorize for your application. Note that the `scopes` option takes in **a space-separated list** of scopes.
+       *
+       * Because OAuth sign-in often includes redirects, you should register an `onAuthStateChange` callback immediately after you create the Supabase client. This callback will listen for the presence of `provider_token` and `provider_refresh_token` properties on the `session` object and store them in local storage. The client library will emit these values **only once** immediately after the user signs in. You can then access them by looking them up in local storage, or send them to your backend servers for further processing.
+       *
+       * Finally, make sure you remove them from local storage on the `SIGNED_OUT` event. If the OAuth provider supports token revocation, make sure you call those APIs either from the frontend or schedule them to be called on the backend.
+       *
+       * @example Sign in with scopes and access provider tokens
+       * ```js
+       * // Register this immediately after calling createClient!
+       * // Because signInWithOAuth causes a redirect, you need to fetch the
+       * // provider tokens from the callback.
+       * supabase.auth.onAuthStateChange((event, session) => {
+       *   if (session && session.provider_token) {
+       *     window.localStorage.setItem('oauth_provider_token', session.provider_token)
+       *   }
+       *
+       *   if (session && session.provider_refresh_token) {
+       *     window.localStorage.setItem('oauth_provider_refresh_token', session.provider_refresh_token)
+       *   }
+       *
+       *   if (event === 'SIGNED_OUT') {
+       *     window.localStorage.removeItem('oauth_provider_token')
+       *     window.localStorage.removeItem('oauth_provider_refresh_token')
+       *   }
+       * })
+       *
+       * // Call this on your Sign in with GitHub button to initiate OAuth
+       * // with GitHub with the requested elevated scopes.
+       * await supabase.auth.signInWithOAuth({
+       *   provider: 'github',
+       *   options: {
+       *     scopes: 'repo gist notifications'
+       *   }
+       * })
+       * ```
        */
       async signInWithOAuth(credentials) {
         var _a, _b, _c, _d;
@@ -9360,6 +15685,173 @@ var init_GoTrueClient = __esm({
       }
       /**
        * Log in an existing user by exchanging an Auth Code issued during the PKCE flow.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Used when `flowType` is set to `pkce` in client options.
+       *
+       * @example Exchange Auth Code
+       * ```js
+       * supabase.auth.exchangeCodeForSession('34e770dd-9ff9-416c-87fa-43b31d7ef225')
+       * ```
+       *
+       * @exampleResponse Exchange Auth Code
+       * ```json
+       * {
+       *   "data": {
+       *     session: {
+       *       access_token: '<ACCESS_TOKEN>',
+       *       token_type: 'bearer',
+       *       expires_in: 3600,
+       *       expires_at: 1700000000,
+       *       refresh_token: '<REFRESH_TOKEN>',
+       *       user: {
+       *         id: '11111111-1111-1111-1111-111111111111',
+       *         aud: 'authenticated',
+       *         role: 'authenticated',
+       *         email: 'example@email.com'
+       *         email_confirmed_at: '2024-01-01T00:00:00Z',
+       *         phone: '',
+       *         confirmation_sent_at: '2024-01-01T00:00:00Z',
+       *         confirmed_at: '2024-01-01T00:00:00Z',
+       *         last_sign_in_at: '2024-01-01T00:00:00Z',
+       *         app_metadata: {
+       *           "provider": "email",
+       *           "providers": [
+       *             "email",
+       *             "<OTHER_PROVIDER>"
+       *           ]
+       *         },
+       *         user_metadata: {
+       *           email: 'email@email.com',
+       *           email_verified: true,
+       *           full_name: 'User Name',
+       *           iss: '<ISS>',
+       *           name: 'User Name',
+       *           phone_verified: false,
+       *           provider_id: '<PROVIDER_ID>',
+       *           sub: '<SUB>'
+       *         },
+       *         identities: [
+       *           {
+       *             "identity_id": "22222222-2222-2222-2222-222222222222",
+       *             "id": "11111111-1111-1111-1111-111111111111",
+       *             "user_id": "11111111-1111-1111-1111-111111111111",
+       *             "identity_data": {
+       *               "email": "example@email.com",
+       *               "email_verified": false,
+       *               "phone_verified": false,
+       *               "sub": "11111111-1111-1111-1111-111111111111"
+       *             },
+       *             "provider": "email",
+       *             "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *             "created_at": "2024-01-01T00:00:00Z",
+       *             "updated_at": "2024-01-01T00:00:00Z",
+       *             "email": "email@example.com"
+       *           },
+       *           {
+       *             "identity_id": "33333333-3333-3333-3333-333333333333",
+       *             "id": "<ID>",
+       *             "user_id": "<USER_ID>",
+       *             "identity_data": {
+       *               "email": "example@email.com",
+       *               "email_verified": true,
+       *               "full_name": "User Name",
+       *               "iss": "<ISS>",
+       *               "name": "User Name",
+       *               "phone_verified": false,
+       *               "provider_id": "<PROVIDER_ID>",
+       *               "sub": "<SUB>"
+       *             },
+       *             "provider": "<PROVIDER>",
+       *             "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *             "created_at": "2024-01-01T00:00:00Z",
+       *             "updated_at": "2024-01-01T00:00:00Z",
+       *             "email": "example@email.com"
+       *           }
+       *         ],
+       *         created_at: '2024-01-01T00:00:00Z',
+       *         updated_at: '2024-01-01T00:00:00Z',
+       *         is_anonymous: false
+       *       },
+       *       provider_token: '<PROVIDER_TOKEN>',
+       *       provider_refresh_token: '<PROVIDER_REFRESH_TOKEN>'
+       *     },
+       *     user: {
+       *       id: '11111111-1111-1111-1111-111111111111',
+       *       aud: 'authenticated',
+       *       role: 'authenticated',
+       *       email: 'example@email.com',
+       *       email_confirmed_at: '2024-01-01T00:00:00Z',
+       *       phone: '',
+       *       confirmation_sent_at: '2024-01-01T00:00:00Z',
+       *       confirmed_at: '2024-01-01T00:00:00Z',
+       *       last_sign_in_at: '2024-01-01T00:00:00Z',
+       *       app_metadata: {
+       *         provider: 'email',
+       *         providers: [
+       *           "email",
+       *           "<OTHER_PROVIDER>"
+       *         ]
+       *       },
+       *       user_metadata: {
+       *         email: 'email@email.com',
+       *         email_verified: true,
+       *         full_name: 'User Name',
+       *         iss: '<ISS>',
+       *         name: 'User Name',
+       *         phone_verified: false,
+       *         provider_id: '<PROVIDER_ID>',
+       *         sub: '<SUB>'
+       *       },
+       *       identities: [
+       *         {
+       *           "identity_id": "22222222-2222-2222-2222-222222222222",
+       *           "id": "11111111-1111-1111-1111-111111111111",
+       *           "user_id": "11111111-1111-1111-1111-111111111111",
+       *           "identity_data": {
+       *             "email": "example@email.com",
+       *             "email_verified": false,
+       *             "phone_verified": false,
+       *             "sub": "11111111-1111-1111-1111-111111111111"
+       *           },
+       *           "provider": "email",
+       *           "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *           "created_at": "2024-01-01T00:00:00Z",
+       *           "updated_at": "2024-01-01T00:00:00Z",
+       *           "email": "email@example.com"
+       *         },
+       *         {
+       *           "identity_id": "33333333-3333-3333-3333-333333333333",
+       *           "id": "<ID>",
+       *           "user_id": "<USER_ID>",
+       *           "identity_data": {
+       *             "email": "example@email.com",
+       *             "email_verified": true,
+       *             "full_name": "User Name",
+       *             "iss": "<ISS>",
+       *             "name": "User Name",
+       *             "phone_verified": false,
+       *             "provider_id": "<PROVIDER_ID>",
+       *             "sub": "<SUB>"
+       *           },
+       *           "provider": "<PROVIDER>",
+       *           "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *           "created_at": "2024-01-01T00:00:00Z",
+       *           "updated_at": "2024-01-01T00:00:00Z",
+       *           "email": "example@email.com"
+       *         }
+       *       ],
+       *       created_at: '2024-01-01T00:00:00Z',
+       *       updated_at: '2024-01-01T00:00:00Z',
+       *       is_anonymous: false
+       *     },
+       *     redirectType: null
+       *   },
+       *   "error": null
+       * }
+       * ```
        */
       async exchangeCodeForSession(authCode) {
         await this.initializePromise;
@@ -9373,6 +15865,87 @@ var init_GoTrueClient = __esm({
        * both of which derive from the EIP-4361 standard
        * With slight variation on Solana's side.
        * @reference https://eips.ethereum.org/EIPS/eip-4361
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Uses a Web3 (Ethereum, Solana) wallet to sign a user in.
+       * - Read up on the [potential for abuse](/docs/guides/auth/auth-web3#potential-for-abuse) before using it.
+       *
+       * @example Sign in with Solana or Ethereum (Window API)
+       * ```js
+       *   // uses window.ethereum for the wallet
+       *   const { data, error } = await supabase.auth.signInWithWeb3({
+       *     chain: 'ethereum',
+       *     statement: 'I accept the Terms of Service at https://example.com/tos'
+       *   })
+       *
+       *   // uses window.solana for the wallet
+       *   const { data, error } = await supabase.auth.signInWithWeb3({
+       *     chain: 'solana',
+       *     statement: 'I accept the Terms of Service at https://example.com/tos'
+       *   })
+       * ```
+       *
+       * @example Sign in with Ethereum (Message and Signature)
+       * ```js
+       *   const { data, error } = await supabase.auth.signInWithWeb3({
+       *     chain: 'ethereum',
+       *     message: '<sign in with ethereum message>',
+       *     signature: '<hex of the ethereum signature over the message>',
+       *   })
+       * ```
+       *
+       * @example Sign in with Solana (Brave)
+       * ```js
+       *   const { data, error } = await supabase.auth.signInWithWeb3({
+       *     chain: 'solana',
+       *     statement: 'I accept the Terms of Service at https://example.com/tos',
+       *     wallet: window.braveSolana
+       *   })
+       * ```
+       *
+       * @example Sign in with Solana (Wallet Adapter)
+       * ```jsx
+       *   function SignInButton() {
+       *   const wallet = useWallet()
+       *
+       *   return (
+       *     <>
+       *       {wallet.connected ? (
+       *         <button
+       *           onClick={() => {
+       *             supabase.auth.signInWithWeb3({
+       *               chain: 'solana',
+       *               statement: 'I accept the Terms of Service at https://example.com/tos',
+       *               wallet,
+       *             })
+       *           }}
+       *         >
+       *           Sign in with Solana
+       *         </button>
+       *       ) : (
+       *         <WalletMultiButton />
+       *       )}
+       *     </>
+       *   )
+       * }
+       *
+       * function App() {
+       *   const endpoint = clusterApiUrl('devnet')
+       *   const wallets = useMemo(() => [], [])
+       *
+       *   return (
+       *     <ConnectionProvider endpoint={endpoint}>
+       *       <WalletProvider wallets={wallets}>
+       *         <WalletModalProvider>
+       *           <SignInButton />
+       *         </WalletModalProvider>
+       *       </WalletProvider>
+       *     </ConnectionProvider>
+       *   )
+       * }
+       * ```
        */
       async signInWithWeb3(credentials) {
         const { chain } = credentials;
@@ -9621,6 +16194,77 @@ var init_GoTrueClient = __esm({
       /**
        * Allows signing in with an OIDC ID token. The authentication provider used
        * should be enabled and configured.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Use an ID token to sign in.
+       * - Especially useful when implementing sign in using native platform dialogs in mobile or desktop apps using Sign in with Apple or Sign in with Google on iOS and Android.
+       * - You can also use Google's [One Tap](https://developers.google.com/identity/gsi/web/guides/display-google-one-tap) and [Automatic sign-in](https://developers.google.com/identity/gsi/web/guides/automatic-sign-in-sign-out) via this API.
+       *
+       * @example Sign In using ID Token
+       * ```js
+       * const { data, error } = await supabase.auth.signInWithIdToken({
+       *   provider: 'google',
+       *   token: 'your-id-token'
+       * })
+       * ```
+       *
+       * @exampleResponse Sign In using ID Token
+       * ```json
+       * {
+       *   "data": {
+       *     "user": {
+       *       "id": "11111111-1111-1111-1111-111111111111",
+       *       "aud": "authenticated",
+       *       "role": "authenticated",
+       *       "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *       "app_metadata": {
+       *         ...
+       *       },
+       *       "user_metadata": {
+       *         ...
+       *       },
+       *       "identities": [
+       *         {
+       *           "identity_id": "22222222-2222-2222-2222-222222222222",
+       *           "provider": "google",
+       *         }
+       *       ],
+       *       "created_at": "2024-01-01T00:00:00Z",
+       *       "updated_at": "2024-01-01T00:00:00Z",
+       *     },
+       *     "session": {
+       *       "access_token": "<ACCESS_TOKEN>",
+       *       "token_type": "bearer",
+       *       "expires_in": 3600,
+       *       "expires_at": 1700000000,
+       *       "refresh_token": "<REFRESH_TOKEN>",
+       *       "user": {
+       *         "id": "11111111-1111-1111-1111-111111111111",
+       *         "aud": "authenticated",
+       *         "role": "authenticated",
+       *         "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *         "app_metadata": {
+       *           ...
+       *         },
+       *         "user_metadata": {
+       *           ...
+       *         },
+       *         "identities": [
+       *           {
+       *             "identity_id": "22222222-2222-2222-2222-222222222222",
+       *             "provider": "google",
+       *           }
+       *         ],
+       *         "created_at": "2024-01-01T00:00:00Z",
+       *         "updated_at": "2024-01-01T00:00:00Z",
+       *       }
+       *     }
+       *   },
+       *   "error": null
+       * }
+       * ```
        */
       async signInWithIdToken(credentials) {
         try {
@@ -9671,6 +16315,66 @@ var init_GoTrueClient = __esm({
        * channel is not supported on other providers
        * at this time.
        * This method supports PKCE when an email is passed.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Requires either an email or phone number.
+       * - This method is used for passwordless sign-ins where a OTP is sent to the user's email or phone number.
+       * - If the user doesn't exist, `signInWithOtp()` will signup the user instead. To restrict this behavior, you can set `shouldCreateUser` in `SignInWithPasswordlessCredentials.options` to `false`.
+       * - If you're using an email, you can configure whether you want the user to receive a magiclink or a OTP.
+       * - If you're using phone, you can configure whether you want the user to receive a OTP.
+       * - The magic link's destination URL is determined by the [`SITE_URL`](/docs/guides/auth/redirect-urls#use-wildcards-in-redirect-urls).
+       * - See [redirect URLs and wildcards](/docs/guides/auth/redirect-urls#use-wildcards-in-redirect-urls) to add additional redirect URLs to your project.
+       * - Magic links and OTPs share the same implementation. To send users a one-time code instead of a magic link, [modify the magic link email template](/dashboard/project/_/auth/templates) to include `{{ .Token }}` instead of `{{ .ConfirmationURL }}`.
+       * - See our [Twilio Phone Auth Guide](/docs/guides/auth/phone-login?showSMSProvider=Twilio) for details about configuring WhatsApp sign in.
+       *
+       * @exampleDescription Sign in with email
+       * The user will be sent an email which contains either a magiclink or a OTP or both. By default, a given user can only request a OTP once every 60 seconds.
+       *
+       * @example Sign in with email
+       * ```js
+       * const { data, error } = await supabase.auth.signInWithOtp({
+       *   email: 'example@email.com',
+       *   options: {
+       *     emailRedirectTo: 'https://example.com/welcome'
+       *   }
+       * })
+       * ```
+       *
+       * @exampleResponse Sign in with email
+       * ```json
+       * {
+       *   "data": {
+       *     "user": null,
+       *     "session": null
+       *   },
+       *   "error": null
+       * }
+       * ```
+       *
+       * @exampleDescription Sign in with SMS OTP
+       * The user will be sent a SMS which contains a OTP. By default, a given user can only request a OTP once every 60 seconds.
+       *
+       * @example Sign in with SMS OTP
+       * ```js
+       * const { data, error } = await supabase.auth.signInWithOtp({
+       *   phone: '+13334445555',
+       * })
+       * ```
+       *
+       * @exampleDescription Sign in with WhatsApp OTP
+       * The user will be sent a WhatsApp message which contains a OTP. By default, a given user can only request a OTP once every 60 seconds. Note that a user will need to have a valid WhatsApp account that is linked to Twilio in order to use this feature.
+       *
+       * @example Sign in with WhatsApp OTP
+       * ```js
+       * const { data, error } = await supabase.auth.signInWithOtp({
+       *   phone: '+13334445555',
+       *   options: {
+       *     channel:'whatsapp',
+       *   }
+       * })
+       * ```
        */
       async signInWithOtp(credentials) {
         var _a, _b, _c, _d, _e;
@@ -9725,6 +16429,140 @@ var init_GoTrueClient = __esm({
       }
       /**
        * Log in a user given a User supplied OTP or TokenHash received through mobile or email.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - The `verifyOtp` method takes in different verification types.
+       * - If a phone number is used, the type can either be:
+       *   1. `sms` – Used when verifying a one-time password (OTP) sent via SMS during sign-up or sign-in.
+       *   2. `phone_change` – Used when verifying an OTP sent to a new phone number during a phone number update process.
+       * - If an email address is used, the type can be one of the following (note: `signup` and `magiclink` types are deprecated):
+       *   1. `email` – Used when verifying an OTP sent to the user's email during sign-up or sign-in.
+       *   2. `recovery` – Used when verifying an OTP sent for account recovery, typically after a password reset request.
+       *   3. `invite` – Used when verifying an OTP sent as part of an invitation to join a project or organization.
+       *   4. `email_change` – Used when verifying an OTP sent to a new email address during an email update process.
+       * - The verification type used should be determined based on the corresponding auth method called before `verifyOtp` to sign up / sign-in a user.
+       * - The `TokenHash` is contained in the [email templates](/docs/guides/auth/auth-email-templates) and can be used to sign in.  You may wish to use the hash for the PKCE flow for Server Side Auth. Read [the Password-based Auth guide](/docs/guides/auth/passwords) for more details.
+       *
+       * @example Verify Signup One-Time Password (OTP)
+       * ```js
+       * const { data, error } = await supabase.auth.verifyOtp({ email, token, type: 'email'})
+       * ```
+       *
+       * @exampleResponse Verify Signup One-Time Password (OTP)
+       * ```json
+       * {
+       *   "data": {
+       *     "user": {
+       *       "id": "11111111-1111-1111-1111-111111111111",
+       *       "aud": "authenticated",
+       *       "role": "authenticated",
+       *       "email": "example@email.com",
+       *       "email_confirmed_at": "2024-01-01T00:00:00Z",
+       *       "phone": "",
+       *       "confirmed_at": "2024-01-01T00:00:00Z",
+       *       "recovery_sent_at": "2024-01-01T00:00:00Z",
+       *       "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *       "app_metadata": {
+       *         "provider": "email",
+       *         "providers": [
+       *           "email"
+       *         ]
+       *       },
+       *       "user_metadata": {
+       *         "email": "example@email.com",
+       *         "email_verified": false,
+       *         "phone_verified": false,
+       *         "sub": "11111111-1111-1111-1111-111111111111"
+       *       },
+       *       "identities": [
+       *         {
+       *           "identity_id": "22222222-2222-2222-2222-222222222222",
+       *           "id": "11111111-1111-1111-1111-111111111111",
+       *           "user_id": "11111111-1111-1111-1111-111111111111",
+       *           "identity_data": {
+       *             "email": "example@email.com",
+       *             "email_verified": false,
+       *             "phone_verified": false,
+       *             "sub": "11111111-1111-1111-1111-111111111111"
+       *           },
+       *           "provider": "email",
+       *           "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *           "created_at": "2024-01-01T00:00:00Z",
+       *           "updated_at": "2024-01-01T00:00:00Z",
+       *           "email": "example@email.com"
+       *         }
+       *       ],
+       *       "created_at": "2024-01-01T00:00:00Z",
+       *       "updated_at": "2024-01-01T00:00:00Z",
+       *       "is_anonymous": false
+       *     },
+       *     "session": {
+       *       "access_token": "<ACCESS_TOKEN>",
+       *       "token_type": "bearer",
+       *       "expires_in": 3600,
+       *       "expires_at": 1700000000,
+       *       "refresh_token": "<REFRESH_TOKEN>",
+       *       "user": {
+       *         "id": "11111111-1111-1111-1111-111111111111",
+       *         "aud": "authenticated",
+       *         "role": "authenticated",
+       *         "email": "example@email.com",
+       *         "email_confirmed_at": "2024-01-01T00:00:00Z",
+       *         "phone": "",
+       *         "confirmed_at": "2024-01-01T00:00:00Z",
+       *         "recovery_sent_at": "2024-01-01T00:00:00Z",
+       *         "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *         "app_metadata": {
+       *           "provider": "email",
+       *           "providers": [
+       *             "email"
+       *           ]
+       *         },
+       *         "user_metadata": {
+       *           "email": "example@email.com",
+       *           "email_verified": false,
+       *           "phone_verified": false,
+       *           "sub": "11111111-1111-1111-1111-111111111111"
+       *         },
+       *         "identities": [
+       *           {
+       *             "identity_id": "22222222-2222-2222-2222-222222222222",
+       *             "id": "11111111-1111-1111-1111-111111111111",
+       *             "user_id": "11111111-1111-1111-1111-111111111111",
+       *             "identity_data": {
+       *               "email": "example@email.com",
+       *               "email_verified": false,
+       *               "phone_verified": false,
+       *               "sub": "11111111-1111-1111-1111-111111111111"
+       *             },
+       *             "provider": "email",
+       *             "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *             "created_at": "2024-01-01T00:00:00Z",
+       *             "updated_at": "2024-01-01T00:00:00Z",
+       *             "email": "example@email.com"
+       *           }
+       *         ],
+       *         "created_at": "2024-01-01T00:00:00Z",
+       *         "updated_at": "2024-01-01T00:00:00Z",
+       *         "is_anonymous": false
+       *       }
+       *     }
+       *   },
+       *   "error": null
+       * }
+       * ```
+       *
+       * @example Verify SMS One-Time Password (OTP)
+       * ```js
+       * const { data, error } = await supabase.auth.verifyOtp({ phone, token, type: 'sms'})
+       * ```
+       *
+       * @example Verify Email Auth (Token Hash)
+       * ```js
+       * const { data, error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'email'})
+       * ```
        */
       async verifyOtp(params) {
         var _a, _b;
@@ -9775,6 +16613,45 @@ var init_GoTrueClient = __esm({
        *
        * If you have built an organization-specific login page, you can use the
        * organization's SSO Identity Provider UUID directly instead.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Before you can call this method you need to [establish a connection](/docs/guides/auth/sso/auth-sso-saml#managing-saml-20-connections) to an identity provider. Use the [CLI commands](/docs/reference/cli/supabase-sso) to do this.
+       * - If you've associated an email domain to the identity provider, you can use the `domain` property to start a sign-in flow.
+       * - In case you need to use a different way to start the authentication flow with an identity provider, you can use the `providerId` property. For example:
+       *     - Mapping specific user email addresses with an identity provider.
+       *     - Using different hints to identity the identity provider to be used by the user, like a company-specific page, IP address or other tracking information.
+       *
+       * @example Sign in with email domain
+       * ```js
+       *   // You can extract the user's email domain and use it to trigger the
+       *   // authentication flow with the correct identity provider.
+       *
+       *   const { data, error } = await supabase.auth.signInWithSSO({
+       *     domain: 'company.com'
+       *   })
+       *
+       *   if (data?.url) {
+       *     // redirect the user to the identity provider's authentication flow
+       *     window.location.href = data.url
+       *   }
+       * ```
+       *
+       * @example Sign in with provider UUID
+       * ```js
+       *   // Useful when you need to map a user's sign in request according
+       *   // to different rules that can't use email domains.
+       *
+       *   const { data, error } = await supabase.auth.signInWithSSO({
+       *     providerId: '21648a9d-8d5a-4555-a9d1-d6375dc14e92'
+       *   })
+       *
+       *   if (data?.url) {
+       *     // redirect the user to the identity provider's authentication flow
+       *     window.location.href = data.url
+       *   }
+       * ```
        */
       async signInWithSSO(params) {
         var _a, _b, _c, _d, _e;
@@ -9805,6 +16682,23 @@ var init_GoTrueClient = __esm({
       /**
        * Sends a reauthentication OTP to the user's email or phone number.
        * Requires the user to be signed-in.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - This method is used together with `updateUser()` when a user's password needs to be updated.
+       * - If you require your user to reauthenticate before updating their password, you need to enable the **Secure password change** option in your [project's email provider settings](/dashboard/project/_/auth/providers).
+       * - A user is only require to reauthenticate before updating their password if **Secure password change** is enabled and the user **hasn't recently signed in**. A user is deemed recently signed in if the session was created in the last 24 hours.
+       * - This method will send a nonce to the user's email. If the user doesn't have a confirmed email address, the method will send the nonce to the user's confirmed phone number instead.
+       * - After receiving the OTP, include it as the `nonce` in your `updateUser()` call to finalize the password change.
+       *
+       * @exampleDescription Send reauthentication nonce
+       * Sends a reauthentication nonce to the user's email or phone number.
+       *
+       * @example Send reauthentication nonce
+       * ```js
+       * const { error } = await supabase.auth.reauthenticate()
+       * ```
        */
       async reauthenticate() {
         await this.initializePromise;
@@ -9835,6 +16729,62 @@ var init_GoTrueClient = __esm({
       }
       /**
        * Resends an existing signup confirmation email, email change email, SMS OTP or phone change OTP.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Resends a signup confirmation, email change or phone change email to the user.
+       * - Passwordless sign-ins can be resent by calling the `signInWithOtp()` method again.
+       * - Password recovery emails can be resent by calling the `resetPasswordForEmail()` method again.
+       * - This method will only resend an email or phone OTP to the user if there was an initial signup, email change or phone change request being made(note: For existing users signing in with OTP, you should use `signInWithOtp()` again to resend the OTP).
+       * - You can specify a redirect url when you resend an email link using the `emailRedirectTo` option.
+       *
+       * @exampleDescription Resend an email signup confirmation
+       * Resends the email signup confirmation to the user
+       *
+       * @example Resend an email signup confirmation
+       * ```js
+       * const { error } = await supabase.auth.resend({
+       *   type: 'signup',
+       *   email: 'email@example.com',
+       *   options: {
+       *     emailRedirectTo: 'https://example.com/welcome'
+       *   }
+       * })
+       * ```
+       *
+       * @exampleDescription Resend a phone signup confirmation
+       * Resends the phone signup confirmation email to the user
+       *
+       * @example Resend a phone signup confirmation
+       * ```js
+       * const { error } = await supabase.auth.resend({
+       *   type: 'sms',
+       *   phone: '1234567890'
+       * })
+       * ```
+       *
+       * @exampleDescription Resend email change email
+       * Resends the email change email to the user
+       *
+       * @example Resend email change email
+       * ```js
+       * const { error } = await supabase.auth.resend({
+       *   type: 'email_change',
+       *   email: 'email@example.com'
+       * })
+       * ```
+       *
+       * @exampleDescription Resend phone change OTP
+       * Resends the phone change OTP to the user
+       *
+       * @example Resend phone change OTP
+       * ```js
+       * const { error } = await supabase.auth.resend({
+       *   type: 'phone_change',
+       *   phone: '1234567890'
+       * })
+       * ```
        */
       async resend(credentials) {
         try {
@@ -9884,6 +16834,80 @@ var init_GoTrueClient = __esm({
        * the values in it may not be authentic and therefore it's strongly advised
        * against using this method and its results in such circumstances. A warning
        * will be emitted if this is detected. Use {@link #getUser()} instead.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Since the introduction of [asymmetric JWT signing keys](/docs/guides/auth/signing-keys), this method is considered low-level and we encourage you to use `getClaims()` or `getUser()` instead.
+       * - Retrieves the current [user session](/docs/guides/auth/sessions) from the storage medium (local storage, cookies).
+       * - The session contains an access token (signed JWT), a refresh token and the user object.
+       * - If the session's access token is expired or is about to expire, this method will use the refresh token to refresh the session.
+       * - When using in a browser, or you've called `startAutoRefresh()` in your environment (React Native, etc.) this function always returns a valid access token without refreshing the session itself, as this is done in the background. This function returns very fast.
+       * - **IMPORTANT SECURITY NOTICE:** If using an insecure storage medium, such as cookies or request headers, the user object returned by this function **must not be trusted**. Always verify the JWT using `getClaims()` or your own JWT verification library to securely establish the user's identity and access. You can also use `getUser()` to fetch the user object directly from the Auth server for this purpose.
+       * - When using in a browser, this function is synchronized across all tabs using the [LockManager](https://developer.mozilla.org/en-US/docs/Web/API/LockManager) API. In other environments make sure you've defined a proper `lock` property, if necessary, to make sure there are no race conditions while the session is being refreshed.
+       *
+       * @example Get the session data
+       * ```js
+       * const { data, error } = await supabase.auth.getSession()
+       * ```
+       *
+       * @exampleResponse Get the session data
+       * ```json
+       * {
+       *   "data": {
+       *     "session": {
+       *       "access_token": "<ACCESS_TOKEN>",
+       *       "token_type": "bearer",
+       *       "expires_in": 3600,
+       *       "expires_at": 1700000000,
+       *       "refresh_token": "<REFRESH_TOKEN>",
+       *       "user": {
+       *         "id": "11111111-1111-1111-1111-111111111111",
+       *         "aud": "authenticated",
+       *         "role": "authenticated",
+       *         "email": "example@email.com",
+       *         "email_confirmed_at": "2024-01-01T00:00:00Z",
+       *         "phone": "",
+       *         "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *         "app_metadata": {
+       *           "provider": "email",
+       *           "providers": [
+       *             "email"
+       *           ]
+       *         },
+       *         "user_metadata": {
+       *           "email": "example@email.com",
+       *           "email_verified": false,
+       *           "phone_verified": false,
+       *           "sub": "11111111-1111-1111-1111-111111111111"
+       *         },
+       *         "identities": [
+       *           {
+       *             "identity_id": "22222222-2222-2222-2222-222222222222",
+       *             "id": "11111111-1111-1111-1111-111111111111",
+       *             "user_id": "11111111-1111-1111-1111-111111111111",
+       *             "identity_data": {
+       *               "email": "example@email.com",
+       *               "email_verified": false,
+       *               "phone_verified": false,
+       *               "sub": "11111111-1111-1111-1111-111111111111"
+       *             },
+       *             "provider": "email",
+       *             "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *             "created_at": "2024-01-01T00:00:00Z",
+       *             "updated_at": "2024-01-01T00:00:00Z",
+       *             "email": "example@email.com"
+       *           }
+       *         ],
+       *         "created_at": "2024-01-01T00:00:00Z",
+       *         "updated_at": "2024-01-01T00:00:00Z",
+       *         "is_anonymous": false
+       *       }
+       *     }
+       *   },
+       *   "error": null
+       * }
+       * ```
        */
       async getSession() {
         await this.initializePromise;
@@ -10016,6 +17040,75 @@ var init_GoTrueClient = __esm({
        * value is authentic and can be used to base authorization rules on.
        *
        * @param jwt Takes in an optional access token JWT. If no JWT is provided, the JWT from the current session is used.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - This method fetches the user object from the database instead of local session.
+       * - This method is useful for checking if the user is authorized because it validates the user's access token JWT on the server.
+       * - Should always be used when checking for user authorization on the server. On the client, you can instead use `getSession().session.user` for faster results. `getSession` is insecure on the server.
+       *
+       * @example Get the logged in user with the current existing session
+       * ```js
+       * const { data: { user } } = await supabase.auth.getUser()
+       * ```
+       *
+       * @exampleResponse Get the logged in user with the current existing session
+       * ```json
+       * {
+       *   "data": {
+       *     "user": {
+       *       "id": "11111111-1111-1111-1111-111111111111",
+       *       "aud": "authenticated",
+       *       "role": "authenticated",
+       *       "email": "example@email.com",
+       *       "email_confirmed_at": "2024-01-01T00:00:00Z",
+       *       "phone": "",
+       *       "confirmed_at": "2024-01-01T00:00:00Z",
+       *       "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *       "app_metadata": {
+       *         "provider": "email",
+       *         "providers": [
+       *           "email"
+       *         ]
+       *       },
+       *       "user_metadata": {
+       *         "email": "example@email.com",
+       *         "email_verified": false,
+       *         "phone_verified": false,
+       *         "sub": "11111111-1111-1111-1111-111111111111"
+       *       },
+       *       "identities": [
+       *         {
+       *           "identity_id": "22222222-2222-2222-2222-222222222222",
+       *           "id": "11111111-1111-1111-1111-111111111111",
+       *           "user_id": "11111111-1111-1111-1111-111111111111",
+       *           "identity_data": {
+       *             "email": "example@email.com",
+       *             "email_verified": false,
+       *             "phone_verified": false,
+       *             "sub": "11111111-1111-1111-1111-111111111111"
+       *           },
+       *           "provider": "email",
+       *           "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *           "created_at": "2024-01-01T00:00:00Z",
+       *           "updated_at": "2024-01-01T00:00:00Z",
+       *           "email": "example@email.com"
+       *         }
+       *       ],
+       *       "created_at": "2024-01-01T00:00:00Z",
+       *       "updated_at": "2024-01-01T00:00:00Z",
+       *       "is_anonymous": false
+       *     }
+       *   },
+       *   "error": null
+       * }
+       * ```
+       *
+       * @example Get the logged in user with a custom access token jwt
+       * ```js
+       * const { data: { user } } = await supabase.auth.getUser(jwt)
+       * ```
        */
       async getUser(jwt) {
         if (jwt) {
@@ -10067,6 +17160,117 @@ var init_GoTrueClient = __esm({
       }
       /**
        * Updates user data for a logged in user.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - In order to use the `updateUser()` method, the user needs to be signed in first.
+       * - By default, email updates sends a confirmation link to both the user's current and new email.
+       * To only send a confirmation link to the user's new email, disable **Secure email change** in your project's [email auth provider settings](/dashboard/project/_/auth/providers).
+       *
+       * @exampleDescription Update the email for an authenticated user
+       * Sends a "Confirm Email Change" email to the new address. If **Secure Email Change** is enabled (default), confirmation is also required from the **old email** before the change is applied. To skip dual confirmation and apply the change after only the new email is verified, disable **Secure Email Change** in the [Email Auth Provider settings](/dashboard/project/_/auth/providers?provider=Email).
+       *
+       * @example Update the email for an authenticated user
+       * ```js
+       * const { data, error } = await supabase.auth.updateUser({
+       *   email: 'new@email.com'
+       * })
+       * ```
+       *
+       * @exampleResponse Update the email for an authenticated user
+       * ```json
+       * {
+       *   "data": {
+       *     "user": {
+       *       "id": "11111111-1111-1111-1111-111111111111",
+       *       "aud": "authenticated",
+       *       "role": "authenticated",
+       *       "email": "example@email.com",
+       *       "email_confirmed_at": "2024-01-01T00:00:00Z",
+       *       "phone": "",
+       *       "confirmed_at": "2024-01-01T00:00:00Z",
+       *       "new_email": "new@email.com",
+       *       "email_change_sent_at": "2024-01-01T00:00:00Z",
+       *       "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *       "app_metadata": {
+       *         "provider": "email",
+       *         "providers": [
+       *           "email"
+       *         ]
+       *       },
+       *       "user_metadata": {
+       *         "email": "example@email.com",
+       *         "email_verified": false,
+       *         "phone_verified": false,
+       *         "sub": "11111111-1111-1111-1111-111111111111"
+       *       },
+       *       "identities": [
+       *         {
+       *           "identity_id": "22222222-2222-2222-2222-222222222222",
+       *           "id": "11111111-1111-1111-1111-111111111111",
+       *           "user_id": "11111111-1111-1111-1111-111111111111",
+       *           "identity_data": {
+       *             "email": "example@email.com",
+       *             "email_verified": false,
+       *             "phone_verified": false,
+       *             "sub": "11111111-1111-1111-1111-111111111111"
+       *           },
+       *           "provider": "email",
+       *           "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *           "created_at": "2024-01-01T00:00:00Z",
+       *           "updated_at": "2024-01-01T00:00:00Z",
+       *           "email": "example@email.com"
+       *         }
+       *       ],
+       *       "created_at": "2024-01-01T00:00:00Z",
+       *       "updated_at": "2024-01-01T00:00:00Z",
+       *       "is_anonymous": false
+       *     }
+       *   },
+       *   "error": null
+       * }
+       * ```
+       *
+       * @exampleDescription Update the phone number for an authenticated user
+       * Sends a one-time password (OTP) to the new phone number.
+       *
+       * @example Update the phone number for an authenticated user
+       * ```js
+       * const { data, error } = await supabase.auth.updateUser({
+       *   phone: '123456789'
+       * })
+       * ```
+       *
+       * @example Update the password for an authenticated user
+       * ```js
+       * const { data, error } = await supabase.auth.updateUser({
+       *   password: 'new password'
+       * })
+       * ```
+       *
+       * @exampleDescription Update the user's metadata
+       * Updates the user's custom metadata.
+       *
+       * **Note**: The `data` field maps to the `auth.users.raw_user_meta_data` column in your Supabase database. When calling `getUser()`, the data will be available as `user.user_metadata`.
+       *
+       * @example Update the user's metadata
+       * ```js
+       * const { data, error } = await supabase.auth.updateUser({
+       *   data: { hello: 'world' }
+       * })
+       * ```
+       *
+       * @exampleDescription Update the user's password with a nonce
+       * If **Secure password change** is enabled in your [project's email provider settings](/dashboard/project/_/auth/providers), updating the user's password would require a nonce if the user **hasn't recently signed in**. The nonce is sent to the user's email or phone number. A user is deemed recently signed in if the session was created in the last 24 hours.
+       *
+       * @example Update the user's password with a nonce
+       * ```js
+       * const { data, error } = await supabase.auth.updateUser({
+       *   password: 'new password',
+       *   nonce: '123456'
+       * })
+       * ```
        */
       async updateUser(attributes, options = {}) {
         await this.initializePromise;
@@ -10118,6 +17322,125 @@ var init_GoTrueClient = __esm({
        * Sets the session data from the current session. If the current session is expired, setSession will take care of refreshing it to obtain a new session.
        * If the refresh token or access token in the current session is invalid, an error will be thrown.
        * @param currentSession The current session that minimally contains an access token and refresh token.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - This method sets the session using an `access_token` and `refresh_token`.
+       * - If successful, a `SIGNED_IN` event is emitted.
+       *
+       * @exampleDescription Set the session
+       * Sets the session data from an access_token and refresh_token, then returns an auth response or error.
+       *
+       * @example Set the session
+       * ```js
+       *   const { data, error } = await supabase.auth.setSession({
+       *     access_token,
+       *     refresh_token
+       *   })
+       * ```
+       *
+       * @exampleResponse Set the session
+       * ```json
+       * {
+       *   "data": {
+       *     "user": {
+       *       "id": "11111111-1111-1111-1111-111111111111",
+       *       "aud": "authenticated",
+       *       "role": "authenticated",
+       *       "email": "example@email.com",
+       *       "email_confirmed_at": "2024-01-01T00:00:00Z",
+       *       "phone": "",
+       *       "confirmed_at": "2024-01-01T00:00:00Z",
+       *       "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *       "app_metadata": {
+       *         "provider": "email",
+       *         "providers": [
+       *           "email"
+       *         ]
+       *       },
+       *       "user_metadata": {
+       *         "email": "example@email.com",
+       *         "email_verified": false,
+       *         "phone_verified": false,
+       *         "sub": "11111111-1111-1111-1111-111111111111"
+       *       },
+       *       "identities": [
+       *         {
+       *           "identity_id": "22222222-2222-2222-2222-222222222222",
+       *           "id": "11111111-1111-1111-1111-111111111111",
+       *           "user_id": "11111111-1111-1111-1111-111111111111",
+       *           "identity_data": {
+       *             "email": "example@email.com",
+       *             "email_verified": false,
+       *             "phone_verified": false,
+       *             "sub": "11111111-1111-1111-1111-111111111111"
+       *           },
+       *           "provider": "email",
+       *           "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *           "created_at": "2024-01-01T00:00:00Z",
+       *           "updated_at": "2024-01-01T00:00:00Z",
+       *           "email": "example@email.com"
+       *         }
+       *       ],
+       *       "created_at": "2024-01-01T00:00:00Z",
+       *       "updated_at": "2024-01-01T00:00:00Z",
+       *       "is_anonymous": false
+       *     },
+       *     "session": {
+       *       "access_token": "<ACCESS_TOKEN>",
+       *       "refresh_token": "<REFRESH_TOKEN>",
+       *       "user": {
+       *         "id": "11111111-1111-1111-1111-111111111111",
+       *         "aud": "authenticated",
+       *         "role": "authenticated",
+       *         "email": "example@email.com",
+       *         "email_confirmed_at": "2024-01-01T00:00:00Z",
+       *         "phone": "",
+       *         "confirmed_at": "2024-01-01T00:00:00Z",
+       *         "last_sign_in_at": "11111111-1111-1111-1111-111111111111",
+       *         "app_metadata": {
+       *           "provider": "email",
+       *           "providers": [
+       *             "email"
+       *           ]
+       *         },
+       *         "user_metadata": {
+       *           "email": "example@email.com",
+       *           "email_verified": false,
+       *           "phone_verified": false,
+       *           "sub": "11111111-1111-1111-1111-111111111111"
+       *         },
+       *         "identities": [
+       *           {
+       *             "identity_id": "2024-01-01T00:00:00Z",
+       *             "id": "11111111-1111-1111-1111-111111111111",
+       *             "user_id": "11111111-1111-1111-1111-111111111111",
+       *             "identity_data": {
+       *               "email": "example@email.com",
+       *               "email_verified": false,
+       *               "phone_verified": false,
+       *               "sub": "11111111-1111-1111-1111-111111111111"
+       *             },
+       *             "provider": "email",
+       *             "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *             "created_at": "2024-01-01T00:00:00Z",
+       *             "updated_at": "2024-01-01T00:00:00Z",
+       *             "email": "example@email.com"
+       *           }
+       *         ],
+       *         "created_at": "2024-01-01T00:00:00Z",
+       *         "updated_at": "2024-01-01T00:00:00Z",
+       *         "is_anonymous": false
+       *       },
+       *       "token_type": "bearer",
+       *       "expires_in": 3500,
+       *       "expires_at": 1700000000
+       *     }
+       *   },
+       *   "error": null
+       * }
+       * ```
        */
       async setSession(currentSession3) {
         await this.initializePromise;
@@ -10177,6 +17500,125 @@ var init_GoTrueClient = __esm({
        * Takes in an optional current session. If not passed in, then refreshSession() will attempt to retrieve it from getSession().
        * If the current session's refresh token is invalid, an error will be thrown.
        * @param currentSession The current session. If passed in, it must contain a refresh token.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - This method will refresh and return a new session whether the current one is expired or not.
+       *
+       * @example Refresh session using the current session
+       * ```js
+       * const { data, error } = await supabase.auth.refreshSession()
+       * const { session, user } = data
+       * ```
+       *
+       * @exampleResponse Refresh session using the current session
+       * ```json
+       * {
+       *   "data": {
+       *     "user": {
+       *       "id": "11111111-1111-1111-1111-111111111111",
+       *       "aud": "authenticated",
+       *       "role": "authenticated",
+       *       "email": "example@email.com",
+       *       "email_confirmed_at": "2024-01-01T00:00:00Z",
+       *       "phone": "",
+       *       "confirmed_at": "2024-01-01T00:00:00Z",
+       *       "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *       "app_metadata": {
+       *         "provider": "email",
+       *         "providers": [
+       *           "email"
+       *         ]
+       *       },
+       *       "user_metadata": {
+       *         "email": "example@email.com",
+       *         "email_verified": false,
+       *         "phone_verified": false,
+       *         "sub": "11111111-1111-1111-1111-111111111111"
+       *       },
+       *       "identities": [
+       *         {
+       *           "identity_id": "22222222-2222-2222-2222-222222222222",
+       *           "id": "11111111-1111-1111-1111-111111111111",
+       *           "user_id": "11111111-1111-1111-1111-111111111111",
+       *           "identity_data": {
+       *             "email": "example@email.com",
+       *             "email_verified": false,
+       *             "phone_verified": false,
+       *             "sub": "11111111-1111-1111-1111-111111111111"
+       *           },
+       *           "provider": "email",
+       *           "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *           "created_at": "2024-01-01T00:00:00Z",
+       *           "updated_at": "2024-01-01T00:00:00Z",
+       *           "email": "example@email.com"
+       *         }
+       *       ],
+       *       "created_at": "2024-01-01T00:00:00Z",
+       *       "updated_at": "2024-01-01T00:00:00Z",
+       *       "is_anonymous": false
+       *     },
+       *     "session": {
+       *       "access_token": "<ACCESS_TOKEN>",
+       *       "token_type": "bearer",
+       *       "expires_in": 3600,
+       *       "expires_at": 1700000000,
+       *       "refresh_token": "<REFRESH_TOKEN>",
+       *       "user": {
+       *         "id": "11111111-1111-1111-1111-111111111111",
+       *         "aud": "authenticated",
+       *         "role": "authenticated",
+       *         "email": "example@email.com",
+       *         "email_confirmed_at": "2024-01-01T00:00:00Z",
+       *         "phone": "",
+       *         "confirmed_at": "2024-01-01T00:00:00Z",
+       *         "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *         "app_metadata": {
+       *           "provider": "email",
+       *           "providers": [
+       *             "email"
+       *           ]
+       *         },
+       *         "user_metadata": {
+       *           "email": "example@email.com",
+       *           "email_verified": false,
+       *           "phone_verified": false,
+       *           "sub": "11111111-1111-1111-1111-111111111111"
+       *         },
+       *         "identities": [
+       *           {
+       *             "identity_id": "22222222-2222-2222-2222-222222222222",
+       *             "id": "11111111-1111-1111-1111-111111111111",
+       *             "user_id": "11111111-1111-1111-1111-111111111111",
+       *             "identity_data": {
+       *               "email": "example@email.com",
+       *               "email_verified": false,
+       *               "phone_verified": false,
+       *               "sub": "11111111-1111-1111-1111-111111111111"
+       *             },
+       *             "provider": "email",
+       *             "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *             "created_at": "2024-01-01T00:00:00Z",
+       *             "updated_at": "2024-01-01T00:00:00Z",
+       *             "email": "example@email.com"
+       *           }
+       *         ],
+       *         "created_at": "2024-01-01T00:00:00Z",
+       *         "updated_at": "2024-01-01T00:00:00Z",
+       *         "is_anonymous": false
+       *       }
+       *     }
+       *   },
+       *   "error": null
+       * }
+       * ```
+       *
+       * @example Refresh session using a refresh token
+       * ```js
+       * const { data, error } = await supabase.auth.refreshSession({ refresh_token })
+       * const { session, user } = data
+       * ```
        */
       async refreshSession(currentSession3) {
         await this.initializePromise;
@@ -10322,6 +17764,28 @@ var init_GoTrueClient = __esm({
        * There is no way to revoke a user's access token jwt until it expires. It is recommended to set a shorter expiry on the jwt for this reason.
        *
        * If using `others` scope, no `SIGNED_OUT` event is fired!
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - In order to use the `signOut()` method, the user needs to be signed in first.
+       * - By default, `signOut()` uses the global scope, which signs out all other sessions that the user is logged into as well. Customize this behavior by passing a scope parameter.
+       * - Since Supabase Auth uses JWTs for authentication, the access token JWT will be valid until it's expired. When the user signs out, Supabase revokes the refresh token and deletes the JWT from the client-side. This does not revoke the JWT and it will still be valid until it expires.
+       *
+       * @example Sign out (all sessions)
+       * ```js
+       * const { error } = await supabase.auth.signOut()
+       * ```
+       *
+       * @example Sign out (current session)
+       * ```js
+       * const { error } = await supabase.auth.signOut({ scope: 'local' })
+       * ```
+       *
+       * @example Sign out (other sessions)
+       * ```js
+       * const { error } = await supabase.auth.signOut({ scope: 'others' })
+       * ```
        */
       async signOut(options = { scope: "global" }) {
         await this.initializePromise;
@@ -10352,6 +17816,193 @@ var init_GoTrueClient = __esm({
           return this._returnResult({ error: null });
         });
       }
+      /**  *
+       * @category Auth
+       *
+       * @remarks
+       * - Subscribes to important events occurring on the user's session.
+       * - Use on the frontend/client. It is less useful on the server.
+       * - Events are emitted across tabs to keep your application's UI up-to-date. Some events can fire very frequently, based on the number of tabs open. Use a quick and efficient callback function, and defer or debounce as many operations as you can to be performed outside of the callback.
+       * - **Important:** A callback can be an `async` function and it runs synchronously during the processing of the changes causing the event. You can easily create a dead-lock by using `await` on a call to another method of the Supabase library.
+       *   - Avoid using `async` functions as callbacks.
+       *   - Limit the number of `await` calls in `async` callbacks.
+       *   - Do not use other Supabase functions in the callback function. If you must, dispatch the functions once the callback has finished executing. Use this as a quick way to achieve this:
+       *     ```js
+       *     supabase.auth.onAuthStateChange((event, session) => {
+       *       setTimeout(async () => {
+       *         // await on other Supabase function here
+       *         // this runs right after the callback has finished
+       *       }, 0)
+       *     })
+       *     ```
+       * - Emitted events:
+       *   - `INITIAL_SESSION`
+       *     - Emitted right after the Supabase client is constructed and the initial session from storage is loaded.
+       *   - `SIGNED_IN`
+       *     - Emitted each time a user session is confirmed or re-established, including on user sign in and when refocusing a tab.
+       *     - Avoid making assumptions as to when this event is fired, this may occur even when the user is already signed in. Instead, check the user object attached to the event to see if a new user has signed in and update your application's UI.
+       *     - This event can fire very frequently depending on the number of tabs open in your application.
+       *   - `SIGNED_OUT`
+       *     - Emitted when the user signs out. This can be after:
+       *       - A call to `supabase.auth.signOut()`.
+       *       - After the user's session has expired for any reason:
+       *         - User has signed out on another device.
+       *         - The session has reached its timebox limit or inactivity timeout.
+       *         - User has signed in on another device with single session per user enabled.
+       *         - Check the [User Sessions](/docs/guides/auth/sessions) docs for more information.
+       *     - Use this to clean up any local storage your application has associated with the user.
+       *   - `TOKEN_REFRESHED`
+       *     - Emitted each time a new access and refresh token are fetched for the signed in user.
+       *     - It's best practice and highly recommended to extract the access token (JWT) and store it in memory for further use in your application.
+       *       - Avoid frequent calls to `supabase.auth.getSession()` for the same purpose.
+       *     - There is a background process that keeps track of when the session should be refreshed so you will always receive valid tokens by listening to this event.
+       *     - The frequency of this event is related to the JWT expiry limit configured on your project.
+       *   - `USER_UPDATED`
+       *     - Emitted each time the `supabase.auth.updateUser()` method finishes successfully. Listen to it to update your application's UI based on new profile information.
+       *   - `PASSWORD_RECOVERY`
+       *     - Emitted instead of the `SIGNED_IN` event when the user lands on a page that includes a password recovery link in the URL.
+       *     - Use it to show a UI to the user where they can [reset their password](/docs/guides/auth/passwords#resetting-a-users-password-forgot-password).
+       *
+       * @example Listen to auth changes
+       * ```js
+       * const { data } = supabase.auth.onAuthStateChange((event, session) => {
+       *   console.log(event, session)
+       *
+       *   if (event === 'INITIAL_SESSION') {
+       *     // handle initial session
+       *   } else if (event === 'SIGNED_IN') {
+       *     // handle sign in event
+       *   } else if (event === 'SIGNED_OUT') {
+       *     // handle sign out event
+       *   } else if (event === 'PASSWORD_RECOVERY') {
+       *     // handle password recovery event
+       *   } else if (event === 'TOKEN_REFRESHED') {
+       *     // handle token refreshed event
+       *   } else if (event === 'USER_UPDATED') {
+       *     // handle user updated event
+       *   }
+       * })
+       *
+       * // call unsubscribe to remove the callback
+       * data.subscription.unsubscribe()
+       * ```
+       *
+       * @exampleDescription Listen to sign out
+       * Make sure you clear out any local data, such as local and session storage, after the client library has detected the user's sign out.
+       *
+       * @example Listen to sign out
+       * ```js
+       * supabase.auth.onAuthStateChange((event, session) => {
+       *   if (event === 'SIGNED_OUT') {
+       *     console.log('SIGNED_OUT', session)
+       *
+       *     // clear local and session storage
+       *     [
+       *       window.localStorage,
+       *       window.sessionStorage,
+       *     ].forEach((storage) => {
+       *       Object.entries(storage)
+       *         .forEach(([key]) => {
+       *           storage.removeItem(key)
+       *         })
+       *     })
+       *   }
+       * })
+       * ```
+       *
+       * @exampleDescription Store OAuth provider tokens on sign in
+       * When using [OAuth (Social Login)](/docs/guides/auth/social-login) you sometimes wish to get access to the provider's access token and refresh token, in order to call provider APIs in the name of the user.
+       *
+       * For example, if you are using [Sign in with Google](/docs/guides/auth/social-login/auth-google) you may want to use the provider token to call Google APIs on behalf of the user. Supabase Auth does not keep track of the provider access and refresh token, but does return them for you once, immediately after sign in. You can use the `onAuthStateChange` method to listen for the presence of the provider tokens and store them in local storage. You can further send them to your server's APIs for use on the backend.
+       *
+       * Finally, make sure you remove them from local storage on the `SIGNED_OUT` event. If the OAuth provider supports token revocation, make sure you call those APIs either from the frontend or schedule them to be called on the backend.
+       *
+       * @example Store OAuth provider tokens on sign in
+       * ```js
+       * // Register this immediately after calling createClient!
+       * // Because signInWithOAuth causes a redirect, you need to fetch the
+       * // provider tokens from the callback.
+       * supabase.auth.onAuthStateChange((event, session) => {
+       *   if (session && session.provider_token) {
+       *     window.localStorage.setItem('oauth_provider_token', session.provider_token)
+       *   }
+       *
+       *   if (session && session.provider_refresh_token) {
+       *     window.localStorage.setItem('oauth_provider_refresh_token', session.provider_refresh_token)
+       *   }
+       *
+       *   if (event === 'SIGNED_OUT') {
+       *     window.localStorage.removeItem('oauth_provider_token')
+       *     window.localStorage.removeItem('oauth_provider_refresh_token')
+       *   }
+       * })
+       * ```
+       *
+       * @exampleDescription Use React Context for the User's session
+       * Instead of relying on `supabase.auth.getSession()` within your React components, you can use a [React Context](https://react.dev/reference/react/createContext) to store the latest session information from the `onAuthStateChange` callback and access it that way.
+       *
+       * @example Use React Context for the User's session
+       * ```js
+       * const SessionContext = React.createContext(null)
+       *
+       * function main() {
+       *   const [session, setSession] = React.useState(null)
+       *
+       *   React.useEffect(() => {
+       *     const {data: { subscription }} = supabase.auth.onAuthStateChange(
+       *       (event, session) => {
+       *         if (event === 'SIGNED_OUT') {
+       *           setSession(null)
+       *         } else if (session) {
+       *           setSession(session)
+       *         }
+       *       })
+       *
+       *     return () => {
+       *       subscription.unsubscribe()
+       *     }
+       *   }, [])
+       *
+       *   return (
+       *     <SessionContext.Provider value={session}>
+       *       <App />
+       *     </SessionContext.Provider>
+       *   )
+       * }
+       * ```
+       *
+       * @example Listen to password recovery events
+       * ```js
+       * supabase.auth.onAuthStateChange((event, session) => {
+       *   if (event === 'PASSWORD_RECOVERY') {
+       *     console.log('PASSWORD_RECOVERY', session)
+       *     // show screen to update user's password
+       *     showPasswordResetScreen(true)
+       *   }
+       * })
+       * ```
+       *
+       * @example Listen to sign in
+       * ```js
+       * supabase.auth.onAuthStateChange((event, session) => {
+       *   if (event === 'SIGNED_IN') console.log('SIGNED_IN', session)
+       * })
+       * ```
+       *
+       * @example Listen to token refresh
+       * ```js
+       * supabase.auth.onAuthStateChange((event, session) => {
+       *   if (event === 'TOKEN_REFRESHED') console.log('TOKEN_REFRESHED', session)
+       * })
+       * ```
+       *
+       * @example Listen to user updates
+       * ```js
+       * supabase.auth.onAuthStateChange((event, session) => {
+       *   if (event === 'USER_UPDATED') console.log('USER_UPDATED', session)
+       * })
+       * ```
+       */
       onAuthStateChange(callback) {
         const id = generateCallbackId();
         const subscription = {
@@ -10394,6 +18045,66 @@ var init_GoTrueClient = __esm({
        * @param email The email address of the user.
        * @param options.redirectTo The URL to send the user to after they click the password reset link.
        * @param options.captchaToken Verification token received when the user completes the captcha on the site.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - The password reset flow consist of 2 broad steps: (i) Allow the user to login via the password reset link; (ii) Update the user's password.
+       * - The `resetPasswordForEmail()` only sends a password reset link to the user's email.
+       * To update the user's password, see [`updateUser()`](/docs/reference/javascript/auth-updateuser).
+       * - A `PASSWORD_RECOVERY` event will be emitted when the password recovery link is clicked.
+       * You can use [`onAuthStateChange()`](/docs/reference/javascript/auth-onauthstatechange) to listen and invoke a callback function on these events.
+       * - When the user clicks the reset link in the email they are redirected back to your application.
+       * You can configure the URL that the user is redirected to with the `redirectTo` parameter.
+       * See [redirect URLs and wildcards](/docs/guides/auth/redirect-urls#use-wildcards-in-redirect-urls) to add additional redirect URLs to your project.
+       * - After the user has been redirected successfully, prompt them for a new password and call `updateUser()`:
+       * ```js
+       * const { data, error } = await supabase.auth.updateUser({
+       *   password: new_password
+       * })
+       * ```
+       *
+       * @example Reset password
+       * ```js
+       * const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+       *   redirectTo: 'https://example.com/update-password',
+       * })
+       * ```
+       *
+       * @exampleResponse Reset password
+       * ```json
+       * {
+       *   data: {}
+       *   error: null
+       * }
+       * ```
+       *
+       * @example Reset password (React)
+       * ```js
+       * /**
+       *  * Step 1: Send the user an email to get a password reset token.
+       *  * This email contains a link which sends the user back to your application.
+       *  *\/
+       * const { data, error } = await supabase.auth
+       *   .resetPasswordForEmail('user@email.com')
+       *
+       * /**
+       *  * Step 2: Once the user is redirected back to your application,
+       *  * ask the user to reset their password.
+       *  *\/
+       *  useEffect(() => {
+       *    supabase.auth.onAuthStateChange(async (event, session) => {
+       *      if (event == "PASSWORD_RECOVERY") {
+       *        const newPassword = prompt("What would you like your new password to be?");
+       *        const { data, error } = await supabase.auth
+       *          .updateUser({ password: newPassword })
+       *
+       *        if (data) alert("Password updated successfully!")
+       *        if (error) alert("There was an error updating your password.")
+       *      }
+       *    })
+       *  }, [])
+       * ```
        */
       async resetPasswordForEmail(email, options = {}) {
         let codeChallenge = null;
@@ -10428,6 +18139,43 @@ var init_GoTrueClient = __esm({
       }
       /**
        * Gets all the identities linked to a user.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - The user needs to be signed in to call `getUserIdentities()`.
+       *
+       * @example Returns a list of identities linked to the user
+       * ```js
+       * const { data, error } = await supabase.auth.getUserIdentities()
+       * ```
+       *
+       * @exampleResponse Returns a list of identities linked to the user
+       * ```json
+       * {
+       *   "data": {
+       *     "identities": [
+       *       {
+       *         "identity_id": "22222222-2222-2222-2222-222222222222",
+       *         "id": "2024-01-01T00:00:00Z",
+       *         "user_id": "2024-01-01T00:00:00Z",
+       *         "identity_data": {
+       *           "email": "example@email.com",
+       *           "email_verified": false,
+       *           "phone_verified": false,
+       *           "sub": "11111111-1111-1111-1111-111111111111"
+       *         },
+       *         "provider": "email",
+       *         "last_sign_in_at": "2024-01-01T00:00:00Z",
+       *         "created_at": "2024-01-01T00:00:00Z",
+       *         "updated_at": "2024-01-01T00:00:00Z",
+       *         "email": "example@email.com"
+       *       }
+       *     ]
+       *   },
+       *   "error": null
+       * }
+       * ```
        */
       async getUserIdentities() {
         var _a;
@@ -10443,6 +18191,33 @@ var init_GoTrueClient = __esm({
           throw error;
         }
       }
+      /**  *
+       * @category Auth
+       *
+       * @remarks
+       * - The **Enable Manual Linking** option must be enabled from your [project's authentication settings](/dashboard/project/_/auth/providers).
+       * - The user needs to be signed in to call `linkIdentity()`.
+       * - If the candidate identity is already linked to the existing user or another user, `linkIdentity()` will fail.
+       * - If `linkIdentity` is run in the browser, the user is automatically redirected to the returned URL. On the server, you should handle the redirect.
+       *
+       * @example Link an identity to a user
+       * ```js
+       * const { data, error } = await supabase.auth.linkIdentity({
+       *   provider: 'github'
+       * })
+       * ```
+       *
+       * @exampleResponse Link an identity to a user
+       * ```json
+       * {
+       *   data: {
+       *     provider: 'github',
+       *     url: <PROVIDER_URL_TO_REDIRECT_TO>
+       *   },
+       *   error: null
+       * }
+       * ```
+       */
       async linkIdentity(credentials) {
         if ("token" in credentials) {
           return this.linkIdentityIdToken(credentials);
@@ -10530,6 +18305,28 @@ var init_GoTrueClient = __esm({
       }
       /**
        * Unlinks an identity from a user by deleting it. The user will no longer be able to sign in with that identity once it's unlinked.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - The **Enable Manual Linking** option must be enabled from your [project's authentication settings](/dashboard/project/_/auth/providers).
+       * - The user needs to be signed in to call `unlinkIdentity()`.
+       * - The user must have at least 2 identities in order to unlink an identity.
+       * - The identity to be unlinked must belong to the user.
+       *
+       * @example Unlink an identity
+       * ```js
+       * // retrieve all identities linked to a user
+       * const identities = await supabase.auth.getUserIdentities()
+       *
+       * // find the google identity
+       * const googleIdentity = identities.find(
+       *   identity => identity.provider === 'google'
+       * )
+       *
+       * // unlink the google identity
+       * const { error } = await supabase.auth.unlinkIdentity(googleIdentity)
+       * ```
        */
       async unlinkIdentity(identity) {
         try {
@@ -10859,6 +18656,28 @@ var init_GoTrueClient = __esm({
        * appropriately to conserve resources.
        *
        * {@see #stopAutoRefresh}
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Only useful in non-browser environments such as React Native or Electron.
+       * - The Supabase Auth library automatically starts and stops proactively refreshing the session when a tab is focused or not.
+       * - On non-browser platforms, such as mobile or desktop apps built with web technologies, the library is not able to effectively determine whether the application is _focused_ or not.
+       * - To give this hint to the application, you should be calling this method when the app is in focus and calling `supabase.auth.stopAutoRefresh()` when it's out of focus.
+       *
+       * @example Start and stop auto refresh in React Native
+       * ```js
+       * import { AppState } from 'react-native'
+       *
+       * // make sure you register this only once!
+       * AppState.addEventListener('change', (state) => {
+       *   if (state === 'active') {
+       *     supabase.auth.startAutoRefresh()
+       *   } else {
+       *     supabase.auth.stopAutoRefresh()
+       *   }
+       * })
+       * ```
        */
       async startAutoRefresh() {
         this._removeVisibilityChangedCallback();
@@ -10871,6 +18690,28 @@ var init_GoTrueClient = __esm({
        * removed and you must manage visibility changes on your own.
        *
        * See {@link #startAutoRefresh} for more details.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Only useful in non-browser environments such as React Native or Electron.
+       * - The Supabase Auth library automatically starts and stops proactively refreshing the session when a tab is focused or not.
+       * - On non-browser platforms, such as mobile or desktop apps built with web technologies, the library is not able to effectively determine whether the application is _focused_ or not.
+       * - When your application goes in the background or out of focus, call this method to stop the proactive refreshing of the session.
+       *
+       * @example Start and stop auto refresh in React Native
+       * ```js
+       * import { AppState } from 'react-native'
+       *
+       * // make sure you register this only once!
+       * AppState.addEventListener('change', (state) => {
+       *   if (state === 'active') {
+       *     supabase.auth.startAutoRefresh()
+       *   } else {
+       *     supabase.auth.stopAutoRefresh()
+       *   }
+       * })
+       * ```
        */
       async stopAutoRefresh() {
         this._removeVisibilityChangedCallback();
@@ -11413,6 +19254,55 @@ var init_GoTrueClient = __esm({
        *            can obtain from {@link #getSession}.
        * @param options Various additional options that allow you to customize the
        *                behavior of this method.
+       *
+       * @category Auth
+       *
+       * @remarks
+       * - Parses the user's [access token](/docs/guides/auth/sessions#access-token-jwt-claims) as a [JSON Web Token (JWT)](/docs/guides/auth/jwts) and returns its components if valid and not expired.
+       * - If your project is using asymmetric JWT signing keys, then the verification is done locally usually without a network request using the [WebCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API).
+       * - A network request is sent to your project's JWT signing key discovery endpoint `https://project-id.supabase.co/auth/v1/.well-known/jwks.json`, which is cached locally. If your environment is ephemeral, such as a Lambda function that is destroyed after every request, a network request will be sent for each new invocation. Supabase provides a network-edge cache providing fast responses for these situations.
+       * - If the user's access token is about to expire when calling this function, the user's session will first be refreshed before validating the JWT.
+       * - If your project is using a symmetric secret to sign the JWT, it always sends a request similar to `getUser()` to validate the JWT at the server before returning the decoded token. This is also used if the WebCrypto API is not available in the environment. Make sure you polyfill it in such situations.
+       * - The returned claims can be customized per project using the [Custom Access Token Hook](/docs/guides/auth/auth-hooks/custom-access-token-hook).
+       *
+       * @example Get JWT claims, header and signature
+       * ```js
+       * const { data, error } = await supabase.auth.getClaims()
+       * ```
+       *
+       * @exampleResponse Get JWT claims, header and signature
+       * ```json
+       * {
+       *   "data": {
+       *     "claims": {
+       *       "aal": "aal1",
+       *       "amr": [{
+       *         "method": "email",
+       *         "timestamp": 1715766000
+       *       }],
+       *       "app_metadata": {},
+       *       "aud": "authenticated",
+       *       "email": "example@email.com",
+       *       "exp": 1715769600,
+       *       "iat": 1715766000,
+       *       "is_anonymous": false,
+       *       "iss": "https://project-id.supabase.co/auth/v1",
+       *       "phone": "+13334445555",
+       *       "role": "authenticated",
+       *       "session_id": "11111111-1111-1111-1111-111111111111",
+       *       "sub": "11111111-1111-1111-1111-111111111111",
+       *       "user_metadata": {}
+       *     },
+       *     "header": {
+       *       "alg": "RS256",
+       *       "typ": "JWT",
+       *       "kid": "11111111-1111-1111-1111-111111111111"
+       *     },
+       *     "signature": [/** Uint8Array *\/],
+       *   },
+       *   "error": null
+       * }
+       * ```
        */
       async getClaims(jwt, options = {}) {
         try {
@@ -11472,26 +19362,26 @@ var init_GoTrueClient = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/AuthAdminApi.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/AuthAdminApi.js
 var init_AuthAdminApi = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/AuthAdminApi.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/AuthAdminApi.js"() {
     init_GoTrueAdminApi();
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/AuthClient.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/AuthClient.js
 var AuthClient, AuthClient_default;
 var init_AuthClient = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/AuthClient.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/AuthClient.js"() {
     init_GoTrueClient();
     AuthClient = GoTrueClient_default;
     AuthClient_default = AuthClient;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/index.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/index.js
 var init_module3 = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/index.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/index.js"() {
     init_GoTrueAdminApi();
     init_GoTrueClient();
     init_AuthAdminApi();
@@ -11502,7 +19392,7 @@ var init_module3 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+supabase-js@2.98.0/node_modules/@supabase/supabase-js/dist/index.mjs
+// ../../node_modules/.pnpm/@supabase+supabase-js@2.100.1/node_modules/@supabase/supabase-js/dist/index.mjs
 function _typeof3(o) {
   "@babel/helpers - typeof";
   return _typeof3 = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
@@ -11595,7 +19485,7 @@ function shouldShowDeprecationWarning() {
 }
 var version4, JS_ENV, DEFAULT_HEADERS3, DEFAULT_GLOBAL_OPTIONS, DEFAULT_DB_OPTIONS, DEFAULT_AUTH_OPTIONS, DEFAULT_REALTIME_OPTIONS, resolveFetch4, resolveHeadersConstructor, fetchWithAuth, SupabaseAuthClient, SupabaseClient, createClient;
 var init_dist4 = __esm({
-  "../../node_modules/.pnpm/@supabase+supabase-js@2.98.0/node_modules/@supabase/supabase-js/dist/index.mjs"() {
+  "../../node_modules/.pnpm/@supabase+supabase-js@2.100.1/node_modules/@supabase/supabase-js/dist/index.mjs"() {
     init_module();
     init_dist();
     init_module2();
@@ -11603,7 +19493,7 @@ var init_dist4 = __esm({
     init_module3();
     init_module2();
     init_module3();
-    version4 = "2.98.0";
+    version4 = "2.100.1";
     JS_ENV = "";
     if (typeof Deno !== "undefined") JS_ENV = "deno";
     else if (typeof document !== "undefined") JS_ENV = "web";
@@ -11646,6 +19536,9 @@ var init_dist4 = __esm({
     SupabaseClient = class {
       /**
       * Create a new client for use in the browser.
+      *
+      * @category Initializing
+      *
       * @param supabaseUrl The unique Supabase URL which is supplied when you create a new project in your project dashboard.
       * @param supabaseKey The unique Supabase Key which is supplied when you create a new project in your project dashboard.
       * @param options.db.schema You can switch in between schemas. The schema needs to be on the list of exposed schemas inside Supabase.
@@ -11656,11 +19549,175 @@ var init_dist4 = __esm({
       * @param options.storage Options passed along to the storage-js constructor.
       * @param options.global.fetch A custom fetch implementation.
       * @param options.global.headers Any additional headers to send with each network request.
-      * @example
+      *
+      * @example Creating a client
+      * ```js
+      * import { createClient } from '@supabase/supabase-js'
+      *
+      * // Create a single supabase client for interacting with your database
+      * const supabase = createClient('https://xyzcompany.supabase.co', 'publishable-or-anon-key')
+      * ```
+      *
+      * @example With a custom domain
+      * ```js
+      * import { createClient } from '@supabase/supabase-js'
+      *
+      * // Use a custom domain as the supabase URL
+      * const supabase = createClient('https://my-custom-domain.com', 'publishable-or-anon-key')
+      * ```
+      *
+      * @example With additional parameters
+      * ```js
+      * import { createClient } from '@supabase/supabase-js'
+      *
+      * const options = {
+      *   db: {
+      *     schema: 'public',
+      *   },
+      *   auth: {
+      *     autoRefreshToken: true,
+      *     persistSession: true,
+      *     detectSessionInUrl: true
+      *   },
+      *   global: {
+      *     headers: { 'x-my-custom-header': 'my-app-name' },
+      *   },
+      * }
+      * const supabase = createClient("https://xyzcompany.supabase.co", "publishable-or-anon-key", options)
+      * ```
+      *
+      * @exampleDescription With custom schemas
+      * By default the API server points to the `public` schema. You can enable other database schemas within the Dashboard.
+      * Go to [Settings > API > Exposed schemas](/dashboard/project/_/settings/api) and add the schema which you want to expose to the API.
+      *
+      * Note: each client connection can only access a single schema, so the code above can access the `other_schema` schema but cannot access the `public` schema.
+      *
+      * @example With custom schemas
+      * ```js
+      * import { createClient } from '@supabase/supabase-js'
+      *
+      * const supabase = createClient('https://xyzcompany.supabase.co', 'publishable-or-anon-key', {
+      *   // Provide a custom schema. Defaults to "public".
+      *   db: { schema: 'other_schema' }
+      * })
+      * ```
+      *
+      * @exampleDescription Custom fetch implementation
+      * `supabase-js` uses the [`cross-fetch`](https://www.npmjs.com/package/cross-fetch) library to make HTTP requests,
+      * but an alternative `fetch` implementation can be provided as an option.
+      * This is most useful in environments where `cross-fetch` is not compatible (for instance Cloudflare Workers).
+      *
+      * @example Custom fetch implementation
+      * ```js
+      * import { createClient } from '@supabase/supabase-js'
+      *
+      * const supabase = createClient('https://xyzcompany.supabase.co', 'publishable-or-anon-key', {
+      *   global: { fetch: fetch.bind(globalThis) }
+      * })
+      * ```
+      *
+      * @exampleDescription React Native options with AsyncStorage
+      * For React Native we recommend using `AsyncStorage` as the storage implementation for Supabase Auth.
+      *
+      * @example React Native options with AsyncStorage
+      * ```js
+      * import 'react-native-url-polyfill/auto'
+      * import { createClient } from '@supabase/supabase-js'
+      * import AsyncStorage from "@react-native-async-storage/async-storage";
+      *
+      * const supabase = createClient("https://xyzcompany.supabase.co", "publishable-or-anon-key", {
+      *   auth: {
+      *     storage: AsyncStorage,
+      *     autoRefreshToken: true,
+      *     persistSession: true,
+      *     detectSessionInUrl: false,
+      *   },
+      * });
+      * ```
+      *
+      * @exampleDescription React Native options with Expo SecureStore
+      * If you wish to encrypt the user's session information, you can use `aes-js` and store the encryption key in Expo SecureStore.
+      * The `aes-js` library, a reputable JavaScript-only implementation of the AES encryption algorithm in CTR mode.
+      * A new 256-bit encryption key is generated using the `react-native-get-random-values` library.
+      * This key is stored inside Expo's SecureStore, while the value is encrypted and placed inside AsyncStorage.
+      *
+      * Please make sure that:
+      * - You keep the `expo-secure-store`, `aes-js` and `react-native-get-random-values` libraries up-to-date.
+      * - Choose the correct [`SecureStoreOptions`](https://docs.expo.dev/versions/latest/sdk/securestore/#securestoreoptions) for your app's needs.
+      *   E.g. [`SecureStore.WHEN_UNLOCKED`](https://docs.expo.dev/versions/latest/sdk/securestore/#securestorewhen_unlocked) regulates when the data can be accessed.
+      * - Carefully consider optimizations or other modifications to the above example, as those can lead to introducing subtle security vulnerabilities.
+      *
+      * @example React Native options with Expo SecureStore
+      * ```ts
+      * import 'react-native-url-polyfill/auto'
+      * import { createClient } from '@supabase/supabase-js'
+      * import AsyncStorage from '@react-native-async-storage/async-storage';
+      * import * as SecureStore from 'expo-secure-store';
+      * import * as aesjs from 'aes-js';
+      * import 'react-native-get-random-values';
+      *
+      * // As Expo's SecureStore does not support values larger than 2048
+      * // bytes, an AES-256 key is generated and stored in SecureStore, while
+      * // it is used to encrypt/decrypt values stored in AsyncStorage.
+      * class LargeSecureStore {
+      *   private async _encrypt(key: string, value: string) {
+      *     const encryptionKey = crypto.getRandomValues(new Uint8Array(256 / 8));
+      *
+      *     const cipher = new aesjs.ModeOfOperation.ctr(encryptionKey, new aesjs.Counter(1));
+      *     const encryptedBytes = cipher.encrypt(aesjs.utils.utf8.toBytes(value));
+      *
+      *     await SecureStore.setItemAsync(key, aesjs.utils.hex.fromBytes(encryptionKey));
+      *
+      *     return aesjs.utils.hex.fromBytes(encryptedBytes);
+      *   }
+      *
+      *   private async _decrypt(key: string, value: string) {
+      *     const encryptionKeyHex = await SecureStore.getItemAsync(key);
+      *     if (!encryptionKeyHex) {
+      *       return encryptionKeyHex;
+      *     }
+      *
+      *     const cipher = new aesjs.ModeOfOperation.ctr(aesjs.utils.hex.toBytes(encryptionKeyHex), new aesjs.Counter(1));
+      *     const decryptedBytes = cipher.decrypt(aesjs.utils.hex.toBytes(value));
+      *
+      *     return aesjs.utils.utf8.fromBytes(decryptedBytes);
+      *   }
+      *
+      *   async getItem(key: string) {
+      *     const encrypted = await AsyncStorage.getItem(key);
+      *     if (!encrypted) { return encrypted; }
+      *
+      *     return await this._decrypt(key, encrypted);
+      *   }
+      *
+      *   async removeItem(key: string) {
+      *     await AsyncStorage.removeItem(key);
+      *     await SecureStore.deleteItemAsync(key);
+      *   }
+      *
+      *   async setItem(key: string, value: string) {
+      *     const encrypted = await this._encrypt(key, value);
+      *
+      *     await AsyncStorage.setItem(key, encrypted);
+      *   }
+      * }
+      *
+      * const supabase = createClient("https://xyzcompany.supabase.co", "publishable-or-anon-key", {
+      *   auth: {
+      *     storage: new LargeSecureStore(),
+      *     autoRefreshToken: true,
+      *     persistSession: true,
+      *     detectSessionInUrl: false,
+      *   },
+      * });
+      * ```
+      *
+      * @example With a database query
       * ```ts
       * import { createClient } from '@supabase/supabase-js'
       *
       * const supabase = createClient('https://xyzcompany.supabase.co', 'public-anon-key')
+      *
       * const { data } = await supabase.from('profiles').select('*')
       * ```
       */
@@ -11779,6 +19836,13 @@ var init_dist4 = __esm({
       }
       /**
       * Returns all Realtime channels.
+      *
+      * @category Initializing
+      *
+      * @example Get all channels
+      * ```js
+      * const channels = supabase.getChannels()
+      * ```
       */
       getChannels() {
         return this.realtime.getChannels();
@@ -11788,12 +19852,32 @@ var init_dist4 = __esm({
       *
       * @param {RealtimeChannel} channel - The name of the Realtime channel.
       *
+      *
+      * @category Initializing
+      *
+      * @remarks
+      * - Removing a channel is a great way to maintain the performance of your project's Realtime service as well as your database if you're listening to Postgres changes. Supabase will automatically handle cleanup 30 seconds after a client is disconnected, but unused channels may cause degradation as more clients are simultaneously subscribed.
+      *
+      * @example Removes a channel
+      * ```js
+      * supabase.removeChannel(myChannel)
+      * ```
       */
       removeChannel(channel) {
         return this.realtime.removeChannel(channel);
       }
       /**
       * Unsubscribes and removes all Realtime channels from Realtime client.
+      *
+      * @category Initializing
+      *
+      * @remarks
+      * - Removing channels is a great way to maintain the performance of your project's Realtime service as well as your database if you're listening to Postgres changes. Supabase will automatically handle cleanup 30 seconds after a client is disconnected, but unused channels may cause degradation as more clients are simultaneously subscribed.
+      *
+      * @example Remove all channels
+      * ```js
+      * supabase.removeAllChannels()
+      * ```
       */
       removeAllChannels() {
         return this.realtime.removeAllChannels();
@@ -34822,10 +42906,10 @@ function ensureSpeechGlobals() {
   const win = window;
   if (!win.__tpRecognizer) {
     win.__tpRecognizer = () => ({
-      start: noop3,
-      stop: noop3,
-      abort: noop3,
-      on: noop3,
+      start: noop2,
+      stop: noop2,
+      abort: noop2,
+      on: noop2,
       onend: null,
       onerror: null
     });
@@ -34844,16 +42928,16 @@ function ensureSpeechGlobals() {
   if (!win.__tpSpeech) {
     win.__tpSpeech = {
       startRecognizer: async () => void 0,
-      stopRecognizer: noop3,
+      stopRecognizer: noop2,
       matchBatch: matchBatchStub
     };
   } else {
     if (!win.__tpSpeech.startRecognizer) win.__tpSpeech.startRecognizer = async () => void 0;
-    if (!win.__tpSpeech.stopRecognizer) win.__tpSpeech.stopRecognizer = noop3;
+    if (!win.__tpSpeech.stopRecognizer) win.__tpSpeech.stopRecognizer = noop2;
     if (!win.__tpSpeech.matchBatch) win.__tpSpeech.matchBatch = matchBatchStub;
   }
 }
-var matchBatchStub, noop3;
+var matchBatchStub, noop2;
 var init_backend_guard = __esm({
   "src/speech/backend-guard.ts"() {
     "use strict";
@@ -34863,7 +42947,7 @@ var init_backend_guard = __esm({
       topScores: [],
       reason: "matcher_unavailable"
     });
-    noop3 = () => void 0;
+    noop2 = () => void 0;
   }
 });
 
@@ -40245,7 +48329,7 @@ var init_speech_loader = __esm({
 });
 
 // src/state/recorder-settings.ts
-function cloneState(value) {
+function cloneState2(value) {
   try {
     return typeof structuredClone === "function" ? structuredClone(value) : JSON.parse(JSON.stringify(value));
   } catch {
@@ -40254,9 +48338,9 @@ function cloneState(value) {
 }
 function deepMergeDefaults(defaults, stored) {
   if (typeof stored !== "object" || stored === null) {
-    return cloneState(defaults);
+    return cloneState2(defaults);
   }
-  const result = cloneState(defaults);
+  const result = cloneState2(defaults);
   for (const [key, value] of Object.entries(stored)) {
     if (!(key in result)) continue;
     if (value && typeof value === "object" && !Array.isArray(value) && typeof result[key] === "object" && result[key] !== null) {
@@ -40270,12 +48354,12 @@ function deepMergeDefaults(defaults, stored) {
 function loadState() {
   try {
     if (typeof window === "undefined") {
-      return cloneState(DEFAULT_STATE2);
+      return cloneState2(DEFAULT_STATE2);
     }
     const raw = window.localStorage.getItem(STORAGE_KEY7);
-    if (!raw) return cloneState(DEFAULT_STATE2);
+    if (!raw) return cloneState2(DEFAULT_STATE2);
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return cloneState(DEFAULT_STATE2);
+    if (!parsed || typeof parsed !== "object") return cloneState2(DEFAULT_STATE2);
     const persisted = {
       enabled: parsed.enabled,
       configs: parsed.configs
@@ -40286,15 +48370,15 @@ function loadState() {
     merged.configs.obs.password = "";
     return merged;
   } catch {
-    return cloneState(DEFAULT_STATE2);
+    return cloneState2(DEFAULT_STATE2);
   }
 }
 function persistState(state8) {
   try {
     if (typeof window === "undefined") return;
     const toStore = {
-      enabled: cloneState(state8.enabled),
-      configs: cloneState(state8.configs)
+      enabled: cloneState2(state8.enabled),
+      configs: cloneState2(state8.configs)
     };
     toStore.configs.obs.password = "";
     window.localStorage.setItem(STORAGE_KEY7, JSON.stringify(toStore));
@@ -40302,16 +48386,16 @@ function persistState(state8) {
   }
 }
 function notify2() {
-  const frozen = Object.freeze(cloneState(currentState));
+  const frozen = Object.freeze(cloneState2(currentState));
   listeners.forEach((fn) => fn(frozen));
 }
 function getRecorderSettings() {
-  return Object.freeze(cloneState(currentState));
+  return Object.freeze(cloneState2(currentState));
 }
 function subscribeRecorderSettings(listener) {
   listeners.add(listener);
   try {
-    listener(Object.freeze(cloneState(currentState)));
+    listener(Object.freeze(cloneState2(currentState)));
   } catch {
   }
   return () => listeners.delete(listener);
@@ -42950,76 +51034,340 @@ var init_dev_drawer = __esm({
   }
 });
 
-// src/script/tag-constants.ts
-var BLOCK_TAG_NAMES, CUE_TAG_NAMES, INLINE_TAG_BASES, INLINE_TAG_NAMES, INLINE_ATTR_PATTERNS, SPEAKER_TAG_NAMES, ALLOWED_NORMALIZED_TAG_NAMES;
-var init_tag_constants = __esm({
-  "src/script/tag-constants.ts"() {
+// ../../packages/shared/dist/script-tags/anvilScriptTagTypes.js
+var SPEAKER_OPEN_TAGS, SPEAKER_CLOSE_TAGS, NOTE_OPEN_TAG, NOTE_CLOSE_TAG, PACING_TAGS, ALL_CANONICAL_TAGS;
+var init_anvilScriptTagTypes = __esm({
+  "../../packages/shared/dist/script-tags/anvilScriptTagTypes.js"() {
     "use strict";
-    BLOCK_TAG_NAMES = ["s1", "s2", "g1", "g2", "note"];
-    CUE_TAG_NAMES = ["pause", "beat", "reflective pause"];
-    INLINE_TAG_BASES = ["color", "bg", "speaker", "guest", "b", "i"];
-    INLINE_TAG_NAMES = INLINE_TAG_BASES.flatMap((tag) => [tag, `/${tag}`]);
-    INLINE_ATTR_PATTERNS = INLINE_TAG_BASES.map((tag) => `${tag}(?:=[^\\]]+)?`);
-    SPEAKER_TAG_NAMES = BLOCK_TAG_NAMES.filter((tag) => tag !== "note");
-    ALLOWED_NORMALIZED_TAG_NAMES = [
-      ...BLOCK_TAG_NAMES,
-      ...CUE_TAG_NAMES,
-      ...INLINE_TAG_NAMES
+    SPEAKER_OPEN_TAGS = ["[s1]", "[s2]", "[g1]", "[g2]"];
+    SPEAKER_CLOSE_TAGS = ["[/s1]", "[/s2]", "[/g1]", "[/g2]"];
+    NOTE_OPEN_TAG = "[note]";
+    NOTE_CLOSE_TAG = "[/note]";
+    PACING_TAGS = ["[pause]", "[beat]", "[reflective pause]"];
+    ALL_CANONICAL_TAGS = [
+      ...SPEAKER_OPEN_TAGS,
+      ...SPEAKER_CLOSE_TAGS,
+      NOTE_OPEN_TAG,
+      NOTE_CLOSE_TAG,
+      ...PACING_TAGS
     ];
+  }
+});
+
+// ../../packages/shared/dist/script-tags/anvilScriptTagNormalizer.js
+function canonicalizeBracketToken(raw) {
+  const inner = raw.slice(1, -1).trim().toLowerCase().replace(/\s+/g, " ");
+  return `[${inner}]`;
+}
+function normalizeLineEndings(input) {
+  return input.replace(/\r\n?/g, "\n");
+}
+function normalizeKnownTags(text) {
+  return text.replace(/\[[^\]]+\]/g, (raw) => {
+    const canonical = canonicalizeBracketToken(raw);
+    if (ALL_CANONICAL_TAGS.includes(canonical)) {
+      return canonical;
+    }
+    const mappedPace = PACE_ALIAS_TO_CANONICAL[canonical];
+    if (mappedPace)
+      return mappedPace;
+    return raw;
+  });
+}
+function normalizeScriptTags(input) {
+  let text = normalizeLineEndings(String(input ?? ""));
+  text = normalizeKnownTags(text);
+  text = text.replace(/[ \t]+$/gm, "");
+  if (text.length > 0 && !text.endsWith("\n")) {
+    text += "\n";
+  }
+  return text;
+}
+var PACE_ALIAS_TO_CANONICAL;
+var init_anvilScriptTagNormalizer = __esm({
+  "../../packages/shared/dist/script-tags/anvilScriptTagNormalizer.js"() {
+    "use strict";
+    init_anvilScriptTagTypes();
+    PACE_ALIAS_TO_CANONICAL = {
+      "[reflective-pause]": "[reflective pause]",
+      "[reflective_pause]": "[reflective pause]"
+    };
+  }
+});
+
+// ../../packages/shared/dist/script-tags/anvilScriptTagValidator.js
+function canonicalizeToken(raw) {
+  const inner = raw.slice(1, -1).trim().toLowerCase().replace(/\s+/g, " ");
+  return `[${inner}]`;
+}
+function indexToLineColumn(lines, lineIndex, token) {
+  const line = lines[lineIndex] ?? "";
+  const idx = Math.max(0, line.toLowerCase().indexOf(token.toLowerCase()));
+  return { line: lineIndex + 1, column: idx + 1 };
+}
+function pushIssue(issues, issue) {
+  issues.push(issue);
+}
+function expectedClose(openTag) {
+  if (openTag === "[s1]")
+    return "[/s1]";
+  if (openTag === "[s2]")
+    return "[/s2]";
+  if (openTag === "[g1]")
+    return "[/g1]";
+  return "[/g2]";
+}
+function validateScriptTags(input) {
+  const normalizedText = normalizeScriptTags(input);
+  const issues = [];
+  const lines = normalizedText.split("\n");
+  const speakerStack = [];
+  const noteStack = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    const trimmed = line.trim();
+    if (!trimmed)
+      continue;
+    const rawTokens = line.match(/\[[^\]]+\]/g) ?? [];
+    const tokens = rawTokens.map((raw) => canonicalizeToken(raw));
+    for (let j = 0; j < rawTokens.length; j += 1) {
+      const raw = rawTokens[j];
+      const token = tokens[j];
+      const position = indexToLineColumn(lines, i, raw);
+      const isSpeakerOpen = SPEAKER_OPEN_TAGS.includes(token);
+      const isSpeakerClose = SPEAKER_CLOSE_TAGS.includes(token);
+      const isNote = token === NOTE_OPEN_TAG || token === NOTE_CLOSE_TAG;
+      const isPacing = PACING_TAGS.includes(token);
+      if (isSpeakerOpen || isSpeakerClose) {
+        const normalizedLine = trimmed.toLowerCase().replace(/\s+/g, " ");
+        if (normalizedLine !== token || rawTokens.length !== 1) {
+          pushIssue(issues, {
+            code: "SPEAKER_TAG_NOT_OWN_LINE",
+            severity: "error",
+            message: "Speaker tags must be on their own line.",
+            line: position.line,
+            column: position.column,
+            tag: raw
+          });
+        }
+      }
+      if (isNote) {
+        const normalizedLine = trimmed.toLowerCase().replace(/\s+/g, " ");
+        if (normalizedLine !== token || rawTokens.length !== 1) {
+          pushIssue(issues, {
+            code: "NOTE_TAG_NOT_OWN_LINE",
+            severity: "error",
+            message: "Note tags must be on their own line.",
+            line: position.line,
+            column: position.column,
+            tag: raw
+          });
+        }
+      }
+      if (!isSpeakerOpen && !isSpeakerClose && !isNote && !isPacing) {
+        if (/^\[\/?(s\d+|g\d+|speaker\d*|guest\d*)\]$/i.test(token)) {
+          pushIssue(issues, {
+            code: "INVALID_SPEAKER_TAG",
+            severity: "error",
+            message: `Invalid speaker tag ${raw}.`,
+            line: position.line,
+            column: position.column,
+            tag: raw
+          });
+        } else if (/\bpause\b|\bbeat\b|\breflective\b/i.test(token)) {
+          pushIssue(issues, {
+            code: "INVALID_PACING_TOKEN",
+            severity: "error",
+            message: `Invalid pacing token ${raw}.`,
+            line: position.line,
+            column: position.column,
+            tag: raw
+          });
+        } else {
+          pushIssue(issues, {
+            code: "UNSUPPORTED_TAG",
+            severity: "error",
+            message: `Unsupported tag ${raw}.`,
+            line: position.line,
+            column: position.column,
+            tag: raw
+          });
+        }
+        continue;
+      }
+      if (isPacing && speakerStack.length === 0) {
+        pushIssue(issues, {
+          code: "INVALID_PACING_TOKEN",
+          severity: "error",
+          message: `${raw} must appear inside a speaker block.`,
+          line: position.line,
+          column: position.column,
+          tag: raw
+        });
+      }
+      if (isSpeakerOpen) {
+        if (speakerStack.length > 0) {
+          pushIssue(issues, {
+            code: "CROSSED_TAGS",
+            severity: "error",
+            message: `Cannot open ${raw} before closing ${speakerStack[speakerStack.length - 1].tag}.`,
+            line: position.line,
+            column: position.column,
+            tag: raw
+          });
+        }
+        speakerStack.push({ tag: token, line: i + 1, hasContent: false });
+        continue;
+      }
+      if (isSpeakerClose) {
+        const top = speakerStack[speakerStack.length - 1];
+        if (!top) {
+          pushIssue(issues, {
+            code: "UNOPENED_CLOSING_TAG",
+            severity: "error",
+            message: `Closing tag ${raw} has no opener.`,
+            line: position.line,
+            column: position.column,
+            tag: raw
+          });
+          continue;
+        }
+        const expected = expectedClose(top.tag);
+        if (token !== expected) {
+          pushIssue(issues, {
+            code: "CROSSED_TAGS",
+            severity: "error",
+            message: `Closing ${raw} crossed tags (expected ${expected}).`,
+            line: position.line,
+            column: position.column,
+            tag: raw
+          });
+          speakerStack.pop();
+          continue;
+        }
+        if (!top.hasContent) {
+          pushIssue(issues, {
+            code: "EMPTY_SPEAKER_BLOCK",
+            severity: "error",
+            message: `Speaker block ${top.tag} is empty.`,
+            line: top.line,
+            column: 1,
+            tag: top.tag
+          });
+        }
+        speakerStack.pop();
+        continue;
+      }
+      if (token === NOTE_OPEN_TAG) {
+        noteStack.push({ line: i + 1 });
+        continue;
+      }
+      if (token === NOTE_CLOSE_TAG) {
+        const top = noteStack[noteStack.length - 1];
+        if (!top) {
+          pushIssue(issues, {
+            code: "UNOPENED_CLOSING_TAG",
+            severity: "error",
+            message: `Closing tag ${raw} has no opener.`,
+            line: position.line,
+            column: position.column,
+            tag: raw
+          });
+          continue;
+        }
+        noteStack.pop();
+      }
+    }
+    const plainText = line.replace(/\[[^\]]+\]/g, "").trim();
+    if (plainText.length > 0 && speakerStack.length === 0 && noteStack.length === 0) {
+      pushIssue(issues, {
+        code: "TEXT_OUTSIDE_SPEAKER_BLOCK",
+        severity: "error",
+        message: "Text must be inside a speaker block.",
+        line: i + 1,
+        column: Math.max(1, line.search(/\S/) + 1)
+      });
+    }
+    if (plainText.length > 0 && speakerStack.length > 0) {
+      speakerStack[speakerStack.length - 1].hasContent = true;
+    }
+    if (tokens.some((token) => PACING_TAGS.includes(token)) && speakerStack.length > 0) {
+      speakerStack[speakerStack.length - 1].hasContent = true;
+    }
+  }
+  for (const openSpeaker of speakerStack) {
+    pushIssue(issues, {
+      code: "UNCLOSED_TAG",
+      severity: "error",
+      message: `Unclosed tag ${openSpeaker.tag}.`,
+      line: openSpeaker.line,
+      column: 1,
+      tag: openSpeaker.tag
+    });
+  }
+  for (const openNote of noteStack) {
+    pushIssue(issues, {
+      code: "UNCLOSED_TAG",
+      severity: "error",
+      message: `Unclosed tag ${NOTE_OPEN_TAG}.`,
+      line: openNote.line,
+      column: 1,
+      tag: NOTE_OPEN_TAG
+    });
+  }
+  return {
+    ok: !issues.some((issue) => issue.severity === "error"),
+    issues,
+    normalizedText
+  };
+}
+var init_anvilScriptTagValidator = __esm({
+  "../../packages/shared/dist/script-tags/anvilScriptTagValidator.js"() {
+    "use strict";
+    init_anvilScriptTagTypes();
+    init_anvilScriptTagNormalizer();
+  }
+});
+
+// ../../packages/shared/dist/script-tags/anvilScriptTagRepair.js
+var init_anvilScriptTagRepair = __esm({
+  "../../packages/shared/dist/script-tags/anvilScriptTagRepair.js"() {
+    "use strict";
+    init_anvilScriptTagNormalizer();
+    init_anvilScriptTagValidator();
+  }
+});
+
+// ../../packages/shared/dist/script-tags/anvilScriptTagErrorGuide.js
+var init_anvilScriptTagErrorGuide = __esm({
+  "../../packages/shared/dist/script-tags/anvilScriptTagErrorGuide.js"() {
+    "use strict";
+  }
+});
+
+// ../../packages/shared/dist/script-tags/index.js
+var init_script_tags = __esm({
+  "../../packages/shared/dist/script-tags/index.js"() {
+    "use strict";
+    init_anvilScriptTagTypes();
+    init_anvilScriptTagNormalizer();
+    init_anvilScriptTagValidator();
+    init_anvilScriptTagRepair();
+    init_anvilScriptTagErrorGuide();
   }
 });
 
 // src/script/normalize.ts
 function normalizeToStandardText(input = "") {
-  let text = String(input ?? "");
-  text = text.replace(/[\u2018\u2019\u201B]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\u00A0/g, " ");
-  text = text.replace(new RegExp(`\\[\\s*(${BLOCK_TAG_PATTERN})\\s*\\]`, "gi"), (_, tag) => `[${String(tag).toLowerCase()}]`).replace(new RegExp(`\\[\\s*\\/\\s*(${BLOCK_TAG_PATTERN})\\s*\\]`, "gi"), (_, tag) => `[/${String(tag).toLowerCase()}]`).replace(new RegExp(`\\[\\s*(${CUE_TAG_PATTERN})\\s*\\]`, "gi"), (_, tag) => `[${String(tag).toLowerCase()}]`);
-  text = text.replace(INLINE_CANONICAL_REGEXP, (_, slash, tag, attr) => {
-    const normalizedTag = String(tag).toLowerCase();
-    let attrStr = "";
-    if (attr) {
-      const eqIndex = attr.indexOf("=");
-      if (eqIndex >= 0) {
-        const value = attr.slice(eqIndex + 1).trim();
-        attrStr = "=" + value;
-      }
-    }
-    const prefix = slash ? "/" : "";
-    return `[${prefix}${normalizedTag}${attrStr}]`;
-  });
-  text = text.replace(/\[([^\]]+)\]/g, (match, inner) => {
-    const trimmed = String(inner || "").trim();
-    if (!trimmed) return "";
-    const eqIndex = trimmed.indexOf("=");
-    const head2 = eqIndex >= 0 ? trimmed.slice(0, eqIndex) : trimmed;
-    let key = head2.trim().toLowerCase();
-    if (key.startsWith("/")) key = key.slice(1).trim();
-    key = key.replace(/\s+/g, " ");
-    return ALLOWED_TAG_SET.has(key) ? match : "";
-  });
-  text = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  text = text.replace(/[ \t]+$/gm, "");
-  text = text.replace(/\n{3,}/g, "\n\n");
-  return text;
+  return normalizeScriptTags(input);
 }
 function fallbackNormalizeText(input = "") {
-  let text = String(input ?? "");
-  text = text.replace(/[\u2018\u2019\u201B]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  return text;
+  return String(input ?? "").replace(/[\u2018\u2019\u201B]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
-var BLOCK_TAG_PATTERN, CUE_TAG_PATTERN, INLINE_TAG_PATTERN, ALLOWED_TAG_SET, INLINE_CANONICAL_REGEXP;
 var init_normalize = __esm({
   "src/script/normalize.ts"() {
     "use strict";
-    init_tag_constants();
-    BLOCK_TAG_PATTERN = BLOCK_TAG_NAMES.join("|");
-    CUE_TAG_PATTERN = CUE_TAG_NAMES.join("|");
-    INLINE_TAG_PATTERN = INLINE_TAG_BASES.join("|");
-    ALLOWED_TAG_SET = new Set(ALLOWED_NORMALIZED_TAG_NAMES);
-    INLINE_CANONICAL_REGEXP = new RegExp(
-      `\\[\\s*(\\/)?\\s*(${INLINE_TAG_PATTERN})(\\s*=\\s*[^\\]]+)?\\s*\\]`,
-      "gi"
-    );
+    init_script_tags();
   }
 });
 
@@ -45157,71 +53505,20 @@ var init_display_sync = __esm({
 
 // src/script/validate.ts
 function validateStandardTagsText(input = "") {
-  const t = String(input || "");
-  const problems = [];
-  const allowedTagPattern = [
-    ...BLOCK_TAG_NAMES,
-    ...CUE_TAG_NAMES,
-    ...INLINE_ATTR_PATTERNS
-  ].join("|");
-  const badTag = t.match(new RegExp(`\\[(?!\\/?(?:${allowedTagPattern})\\b)[^\\]]+\\]`, "i"));
-  if (badTag) problems.push("Unknown tag: " + badTag[0]);
-  const speakerPattern = SPEAKER_TAG_NAMES.join("|");
-  if (new RegExp(`\\[(?:${speakerPattern})\\][ \\t]*\\S`, "i").test(t))
-    problems.push("Opening speaker tags must be on their own line.");
-  if (new RegExp(`\\S[ \\t]*\\[\\/(?:${speakerPattern})\\]`, "i").test(t))
-    problems.push("Closing speaker tags must be on their own line.");
-  const speakerEventRe = new RegExp(
-    `\\[(\\/)?(${speakerPattern})\\]|\\[note\\]|\\[\\/note\\]`,
-    "gi"
-  );
-  const speakerStack = [];
-  let speakerEventMatch;
-  while (speakerEventMatch = speakerEventRe.exec(t)) {
-    const token = speakerEventMatch[0].toLowerCase();
-    if (token === "[note]") {
-      if (speakerStack.length) {
-        problems.push("[note] blocks must be outside speaker sections.");
-        break;
-      }
-    } else if (token === "[/note]") {
-      continue;
-    } else {
-      const closing = !!speakerEventMatch[1];
-      if (!closing) {
-        speakerStack.push(speakerEventMatch[2].toLowerCase());
-      } else if (speakerStack.length) {
-        speakerStack.pop();
-      }
-    }
-  }
-  const stack = [];
-  const tagRe = new RegExp(`\\[(\\/)?(${BLOCK_TAG_NAMES.join("|")})\\]`, "gi");
-  let m;
-  while (m = tagRe.exec(t)) {
-    const closing = !!m[1];
-    const tag = m[2].toLowerCase();
-    if (!closing) {
-      stack.push(tag);
-    } else {
-      if (!stack.length) {
-        problems.push(`Unexpected closing [/${tag}]`);
-        break;
-      }
-      const last = stack.pop();
-      if (last !== tag) {
-        problems.push(`Mismatched closing [/${tag}] (expected [/${last}])`);
-        break;
-      }
-    }
-  }
-  if (stack.length) problems.push("Unclosed tag(s): " + stack.join(", "));
-  return { ok: problems.length === 0, report: problems.join("\n"), problems };
+  const result = validateScriptTags(input);
+  const problems = result.issues.map((issue) => `[line ${issue.line}, col ${issue.column}] ${issue.message}`);
+  return {
+    ok: result.ok,
+    report: problems.join("\n"),
+    problems,
+    issues: result.issues,
+    normalizedText: result.normalizedText
+  };
 }
 var init_validate = __esm({
   "src/script/validate.ts"() {
     "use strict";
-    init_tag_constants();
+    init_script_tags();
   }
 });
 

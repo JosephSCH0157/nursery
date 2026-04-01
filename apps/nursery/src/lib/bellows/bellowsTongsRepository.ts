@@ -1,4 +1,4 @@
-import type { Json, SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
 import {
   BELLOWS_TONGS_CHECKPOINT_TABLE,
@@ -130,7 +130,7 @@ type BellowsCheckpointRow = {
   integrity_flags: string[] | null;
   event_count: number;
   snapshot_schema_version: number;
-  session_snapshot: BellowsSession;
+  session_snapshot: unknown;
   delta: Record<string, unknown> | null;
   recorded_at: string;
 };
@@ -228,6 +228,8 @@ function asObject(value: unknown): Record<string, unknown> | null {
   }
   return value as Record<string, unknown>;
 }
+
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 function isNoRowsError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -507,8 +509,8 @@ class SupabaseBellowsTongsRepository
       p_co_host_participant_ids: [...input.session.authorityState.coHostParticipantIds],
       p_integrity_flags: [...input.session.integrityFlags],
       p_event_count: input.session.events.length,
-      p_session_snapshot: input.session as unknown as Json,
-      p_delta: input.delta ?? null,
+      p_session_snapshot: input.session as unknown as JsonValue,
+      p_delta: (input.delta ?? null) as JsonValue,
       p_started_at: timestamps.startedAt,
       p_ended_at: timestamps.endedAt,
       p_sealed_at: timestamps.sealedAt,

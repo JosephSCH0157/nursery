@@ -176,23 +176,22 @@ function normalizeStudioRackRenderRequest(body: unknown): NormalizedStudioRackRe
   const workpieceId = readTrimmed(row.workpiece_id);
   const mediaKind = readTrimmed(row.media_kind);
   const requestedBackend = readTrimmed(row.requested_backend);
-  const timelineSegments = Array.isArray(row.timeline_segments)
-    ? row.timeline_segments
-      .map((value) => {
-        const segment = readObject(value);
-        const segmentId = readTrimmed(segment?.segment_id);
-        const startSec = readNumber(segment?.start_sec);
-        const endSec = readNumber(segment?.end_sec);
-        if (!segmentId || startSec == null || endSec == null) return null;
-        return {
-          segment_id: segmentId,
-          start_sec: startSec,
-          end_sec: endSec,
-          is_disabled: segment?.is_disabled === true,
-          gain_db: readNumber(segment?.gain_db) ?? 0,
-        } satisfies HammerAudioTimelineSegmentInput;
-      })
-      .filter((item): item is HammerAudioTimelineSegmentInput => Boolean(item))
+  const timelineSegments: HammerAudioTimelineSegmentInput[] = Array.isArray(row.timeline_segments)
+    ? row.timeline_segments.reduce<HammerAudioTimelineSegmentInput[]>((acc, value) => {
+      const segment = readObject(value);
+      const segmentId = readTrimmed(segment?.segment_id);
+      const startSec = readNumber(segment?.start_sec);
+      const endSec = readNumber(segment?.end_sec);
+      if (!segmentId || startSec == null || endSec == null) return acc;
+      acc.push({
+        segment_id: segmentId,
+        start_sec: startSec,
+        end_sec: endSec,
+        is_disabled: segment?.is_disabled === true,
+        gain_db: readNumber(segment?.gain_db) ?? 0,
+      });
+      return acc;
+    }, [])
     : [];
   const rackState = row.rack_state;
   if (

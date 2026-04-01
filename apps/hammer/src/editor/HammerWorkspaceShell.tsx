@@ -76,7 +76,6 @@ import {
   previewSpeakerInterview,
   previewSpeakerSolo,
   previewShortenGaps,
-  previewTightenSelection,
   type HammerCleanupPreview,
   type RetakeCleanupOptions,
   type FillerCleanupOptions,
@@ -208,7 +207,6 @@ import {
   createDipToBlackInstruction,
   createFadeAudioInstruction,
   createHardCutInstruction,
-  createInsertBrollInstruction,
   createPodcastMasterPassInstruction,
   createRippleDeleteInstruction,
   remapResolvedBrollOperationsForRippleDelete,
@@ -723,14 +721,6 @@ function deriveAssetKind(args: {
     return "audio";
   }
   return "other";
-}
-
-function formatAssetKindLabel(kind: HammerSourceAssetKind): string {
-  if (kind === "broll") return "B-roll";
-  if (kind === "reference_clip") return "Reference Clip";
-  if (kind === "image") return "Image";
-  if (kind === "audio") return "Audio";
-  return "Other";
 }
 
 const NUMERIC_SIGNAL_RE = /\b(\d+([.,]\d+)?%?|\d{4}|increase|decrease|up|down|trend|timeline|year|month|week|compared|versus|vs\.?)\b/i;
@@ -5730,143 +5720,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         `logo_position:${position}`,
         `logo_size:${size}`,
       ],
-    });
-  }
-
-  function insertBrollFromLibrary(args: {
-    assetPath: string;
-    label: string;
-  }): void {
-    const placementId = createVisualPlacementId();
-
-    applyHistoryMutation({
-      label: "Insert b-roll",
-      kind: "visual_adjustment",
-      toolId: "video",
-      affectedPlacementIds: [placementId],
-      immediatePersist: true,
-      computeAfter: (before) => {
-        const current = before.visualPlacements;
-        if (!current) return before;
-        const anchorSegment = before.selectedSegmentId
-          ? before.transcriptSegments.find((segment) => segment.segment_id === before.selectedSegmentId) ?? null
-          : before.transcriptSegments[0] ?? null;
-        if (!anchorSegment) return before;
-
-        const nextStart = Math.max(0, roundToTenth(before.playheadSec));
-        const nextEnd = Math.max(nextStart + 0.5, Math.min(transcriptDurationSec, roundToTenth(nextStart + 3)));
-        const brollPlacement: HammerVisualPlacementRecord = {
-          placement_id: placementId,
-          authority_operation_id: undefined,
-          entry_id: `manual:${placementId}`,
-          anchor_segment_id: anchorSegment.segment_id,
-          matched_segment_ids: [anchorSegment.segment_id],
-          anchor_text: anchorSegment.text,
-          asset_ref: args.assetPath,
-          asset_id: null,
-          asset_path: args.assetPath,
-          storage_key: args.assetPath,
-          label: args.label,
-          visual_mode: "broll",
-          start_sec: nextStart,
-          end_sec: nextEnd,
-          confidence: null,
-          timing_source: "ordered_fallback",
-          status: "placed",
-          ingest_state: "approved",
-          uncertainty_flags: [],
-          overlay_geometry: {
-            ...DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
-            x: 0.08,
-            y: 0.08,
-            width: 0.84,
-            height: 0.84,
-          },
-          animation_preset: "none",
-          overlay_opacity: 1,
-          overlay_z_index: current.placements.length + 1,
-        };
-
-        const brollInstruction = createInsertBrollInstruction({
-          segmentId: anchorSegment.segment_id,
-          assetRef: args.assetPath,
-          startSec: nextStart,
-          endSec: nextEnd,
-          intentSource: "manual",
-          intentDescription: args.label,
-          assetBindingState: "resolved",
-          duckPreference: "auto",
-        });
-        const withBroll = appendAuthorityInstructionForState(before, brollInstruction);
-        const brollOperationId = withBroll.operations.at(-1)?.operation_id ?? null;
-        const duckInstruction = createAudioDuckInstruction({
-          segmentId: anchorSegment.segment_id,
-          startSec: nextStart,
-          endSec: nextEnd,
-          duckGainDb: -9,
-          linkedBrollOperationId: brollOperationId,
-        });
-        const withDuck = appendAuthorityInstructionToGraph({
-          graph: withBroll,
-          instruction: duckInstruction,
-          fallback: {
-            graphId: `${launchContext.workpiece_id}:authority`,
-            workspaceId: launchContext.workspace_id,
-            workpieceId: launchContext.workpiece_id,
-            sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
-            sourceTranscriptId: transcriptSourceId,
-          },
-        });
-        const duckOperationId = withDuck.operations.at(-1)?.operation_id ?? null;
-        const withLinkedDuck = brollOperationId
-          ? (updateResolvedInsertBrollOperationInGraph({
-            graph: withDuck,
-            operationId: brollOperationId,
-            changes: {
-              companion_audio_duck_operation_id: duckOperationId,
-            },
-          }) ?? withDuck)
-          : withDuck;
-
-        brollPlacement.authority_operation_id = brollOperationId ?? undefined;
-        return {
-          ...before,
-          editorialAuthorityGraph: withLinkedDuck,
-          selectedSegmentId: anchorSegment.segment_id,
-          visualPlacements: {
-            ...current,
-            placements: [...current.placements, brollPlacement],
-          },
-        };
-      },
-    });
-  }
-
-  function ingestHearthBrollSuggestion(): void {
-    const anchorSegment = selectedSegment ?? editableTranscriptSegments[0] ?? null;
-    if (!anchorSegment) {
-      setTranscriptTimingHint("Cannot ingest B-roll suggestion without transcript segments.");
-      return;
-    }
-    const suggestionStart = Math.max(0, roundToTenth(playheadSec));
-    const suggestionEnd = Math.max(suggestionStart + 0.5, Math.min(transcriptDurationSec, roundToTenth(suggestionStart + 3)));
-    const suggestion = createHearthBrollSuggestionInstruction({
-      segmentId: anchorSegment.segment_id,
-      intentRef: `hearth-suggestion:${Date.now().toString(36)}`,
-      intentDescription: `B-roll suggestion near "${anchorSegment.text.slice(0, 48)}"`,
-      startSec: suggestionStart,
-      endSec: suggestionEnd,
-      duckPreference: "auto",
-    });
-    applyHistoryMutation({
-      label: "Ingest Hearth B-roll suggestion",
-      kind: "visual_adjustment",
-      toolId: "video",
-      immediatePersist: true,
-      computeAfter: (before) => ({
-        ...before,
-        editorialAuthorityGraph: appendAuthorityInstructionForState(before, suggestion),
-      }),
     });
   }
 

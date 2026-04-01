@@ -78,10 +78,11 @@ export default function HearthReadyMode({
           const label = resolveReadyLabel(entry);
           const isSendingBack = sendingBackReadyIds.includes(entry.id);
           const isRemoving = removingReadyIds.includes(entry.id);
+          const isDragging = draggingReadyId === entry.id;
           return (
             <li
               key={entry.id}
-              className="hs-ready-record-item"
+              className={`hs-ready-record-item${isDragging ? " is-dragging" : ""}`}
               draggable
               onDragStart={() => onStartDraggingReady(entry.id)}
               onDragEnd={onStopDraggingReady}

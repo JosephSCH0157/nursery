@@ -1512,8 +1512,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     workspaceId: string | null;
     workpieceId: string | null;
     sessionId: string | null;
-    feature: string;
-    subfeature?: string | null;
+    feature: AiUsageFeature;
+    subfeature?: AiUsageSubfeature | null;
     model: string;
     reasoningEffort?: string | null;
     inputTokens: number;
@@ -1943,6 +1943,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           from: (table: string) => {
             select: (fields: string) => {
               eq: (column: string, value: string) => {
+                eq: (column: string, value: string) => {
+                  gte: (column: string, value: string) => {
+                    order: (column: string, options: { ascending: boolean }) => {
+                      limit: (value: number) => Promise<{ data: unknown; error: { message: string } | null }>;
+                    };
+                  };
+                };
                 gte: (column: string, value: string) => {
                   order: (column: string, options: { ascending: boolean }) => {
                     limit: (value: number) => Promise<{ data: unknown; error: { message: string } | null }>;

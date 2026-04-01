@@ -83,6 +83,11 @@ type QuenchPreparedReleaseState = {
   loadedPreparedAt: string | null;
 };
 
+type QuenchPreparedReleaseResolvedHandoff = QuenchPreparedReleaseHandoff & {
+  workpieceId: string;
+  packagePath: string;
+};
+
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -374,11 +379,16 @@ export default function QuenchRoute() {
         cancelled = true;
       };
     }
+    const activeHandoff: QuenchPreparedReleaseResolvedHandoff = {
+      ...handoff,
+      workpieceId: handoff.workpieceId,
+      packagePath: handoff.packagePath,
+    };
 
     queueMicrotask(() => {
       setPreparedHandoffState({
         status: "loading",
-        handoff,
+        handoff: activeHandoff,
         message: null,
         warning: null,
         loadedFingerprint: null,
@@ -389,7 +399,7 @@ export default function QuenchRoute() {
     async function loadPreparedHandoff(): Promise<void> {
       try {
         const response = await tongsFetch(
-          `/tongs/workpieces/${encodeURIComponent(handoff.workpieceId!)}/read-file?path=${encodeURIComponent(handoff.packagePath!)}`,
+          `/tongs/workpieces/${encodeURIComponent(activeHandoff.workpieceId)}/read-file?path=${encodeURIComponent(activeHandoff.packagePath)}`,
           {
             method: "GET",
             timeoutMs: 45_000,
@@ -404,7 +414,7 @@ export default function QuenchRoute() {
           setHandoffPreparedCase(null);
           setPreparedHandoffState({
             status: "error",
-            handoff,
+            handoff: activeHandoff,
             message: errorMessage,
             warning: null,
             loadedFingerprint: null,
@@ -419,7 +429,7 @@ export default function QuenchRoute() {
           setHandoffPreparedCase(null);
           setPreparedHandoffState({
             status: "error",
-            handoff,
+            handoff: activeHandoff,
             message: "The prepared release for this episode could not be found. Reopen Prepare Release from Editing.",
             warning: null,
             loadedFingerprint: null,
@@ -434,7 +444,7 @@ export default function QuenchRoute() {
           setHandoffPreparedCase(null);
           setPreparedHandoffState({
             status: "error",
-            handoff,
+            handoff: activeHandoff,
             message: "This release handoff is incompatible with the current Quench flow.",
             warning: null,
             loadedFingerprint: null,
@@ -443,12 +453,12 @@ export default function QuenchRoute() {
           return;
         }
 
-        if (pkg.workpieceId !== handoff.workpieceId) {
+        if (pkg.workpieceId !== activeHandoff.workpieceId) {
           if (cancelled) return;
           setHandoffPreparedCase(null);
           setPreparedHandoffState({
             status: "error",
-            handoff,
+            handoff: activeHandoff,
             message: "This prepared release does not match the episode in the current workflow.",
             warning: null,
             loadedFingerprint: null,
@@ -457,12 +467,12 @@ export default function QuenchRoute() {
           return;
         }
 
-        if (handoff.expectedVersion != null && pkg.version !== handoff.expectedVersion) {
+        if (activeHandoff.expectedVersion != null && pkg.version !== activeHandoff.expectedVersion) {
           if (cancelled) return;
           setHandoffPreparedCase(null);
           setPreparedHandoffState({
             status: "error",
-            handoff,
+            handoff: activeHandoff,
             message: "This release handoff is out of date. Reopen Prepare Release from Editing.",
             warning: null,
             loadedFingerprint: null,
@@ -472,21 +482,21 @@ export default function QuenchRoute() {
         }
 
         const loadedFingerprint = buildPreparedPackageIdentityFingerprint(pkg);
-        const warning = handoff.expectedFingerprint && handoff.expectedFingerprint !== loadedFingerprint
+        const warning = activeHandoff.expectedFingerprint && activeHandoff.expectedFingerprint !== loadedFingerprint
           ? "Release prep changed after Editing created this handoff. Review the latest package before publishing."
-          : handoff.workspaceId && pkg.workspaceId && handoff.workspaceId !== pkg.workspaceId
+          : activeHandoff.workspaceId && pkg.workspaceId && activeHandoff.workspaceId !== pkg.workspaceId
             ? "This prepared release belongs to a different workspace than the current route."
             : null;
         const preparedCase = buildPreparedReleaseCase({
           shellWorkspaceId: shell.workspaceId,
           pkg,
-          packagePath: handoff.packagePath,
+          packagePath: activeHandoff.packagePath,
         });
         if (cancelled) return;
         setHandoffPreparedCase(preparedCase);
         setPreparedHandoffState({
           status: "ready",
-          handoff,
+          handoff: activeHandoff,
           message: null,
           warning,
           loadedFingerprint,
@@ -500,7 +510,7 @@ export default function QuenchRoute() {
         setHandoffPreparedCase(null);
         setPreparedHandoffState({
           status: "error",
-          handoff,
+          handoff: activeHandoff,
           message,
           warning: null,
           loadedFingerprint: null,

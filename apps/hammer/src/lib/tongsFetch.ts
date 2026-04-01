@@ -1,10 +1,24 @@
 type TongsEnv = { env?: Record<string, string | undefined> };
 
-type ForgeWindow = Window &
-  typeof globalThis & {
+type ForgeWindow = typeof globalThis & {
     __forgeTongsApiToken?: unknown;
     __tpTongsApiToken?: unknown;
+    localStorage?: {
+      getItem: (key: string) => string | null;
+      key: (index: number) => string | null;
+      readonly length: number;
+    };
+    location?: {
+      search?: string;
+    };
   };
+
+function getRuntimeWindow(): ForgeWindow | null {
+  if (typeof globalThis !== "object" || globalThis == null) return null;
+  const candidate = globalThis as ForgeWindow & { window?: unknown };
+  if (!("window" in candidate)) return null;
+  return candidate;
+}
 
 const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
 const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
@@ -25,7 +39,9 @@ function sanitizeTongsApiToken(token: string | null): string | null {
 
 function readLocalStorage(key: string): string | null {
   try {
-    return readString(window.localStorage.getItem(key));
+    const runtimeWindow = getRuntimeWindow();
+    if (!runtimeWindow) return null;
+    return readString(runtimeWindow.localStorage?.getItem(key) ?? null);
   } catch {
     return null;
   }
@@ -113,10 +129,11 @@ function extractAccessTokenFromAuthPayload(value: unknown): string | null {
 }
 
 function readAccessTokenFromStorageKey(key: string): string | null {
-  if (typeof window === "undefined") return null;
+  const runtimeWindow = getRuntimeWindow();
+  if (!runtimeWindow) return null;
   let raw: string | null = null;
   try {
-    raw = window.localStorage.getItem(key);
+    raw = runtimeWindow.localStorage?.getItem(key) ?? null;
   } catch {
     return null;
   }
@@ -136,13 +153,15 @@ function readAccessTokenFromStorageKey(key: string): string | null {
 }
 
 function resolveUserAccessTokenFromStorage(): string | null {
-  if (typeof window === "undefined") return null;
+  const runtimeWindow = getRuntimeWindow();
+  if (!runtimeWindow) return null;
   const primary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
   if (primary) return primary;
 
   try {
-    for (let index = 0; index < window.localStorage.length; index += 1) {
-      const key = window.localStorage.key(index);
+    const storageLength = runtimeWindow.localStorage?.length ?? 0;
+    for (let index = 0; index < storageLength; index += 1) {
+      const key = runtimeWindow.localStorage?.key(index) ?? null;
       if (!key || key === SUPABASE_AUTH_STORAGE_KEY) continue;
       if (!SUPABASE_AUTH_KEY_RE.test(key)) continue;
       const token = readAccessTokenFromStorageKey(key);
@@ -158,9 +177,7 @@ function resolveUserAccessTokenFromStorage(): string | null {
 async function resolveUserAccessToken(): Promise<string | null> {
   const fromStorage = resolveUserAccessTokenFromStorage();
   if (fromStorage) return fromStorage;
-  if (typeof window === "undefined") return null;
-
-  const runtimeWindow = window as Window & typeof globalThis & {
+  const runtimeWindow = getRuntimeWindow() as (ForgeWindow & {
     __forge_supabase_client__?: {
       auth?: {
         getSession?: () => Promise<unknown>;
@@ -171,7 +188,8 @@ async function resolveUserAccessToken(): Promise<string | null> {
         getSession?: () => Promise<unknown>;
       };
     };
-  };
+  }) | null;
+  if (!runtimeWindow) return null;
 
   const getSessionCandidates = [
     runtimeWindow.__forge_supabase_client__?.auth?.getSession,
@@ -198,7 +216,9 @@ export async function hasTongsUserAccessToken(): Promise<boolean> {
 
 function resolveFromQuery(): string | null {
   try {
-    const params = new URLSearchParams(window.location.search);
+    const runtimeWindow = getRuntimeWindow();
+    if (!runtimeWindow) return null;
+    const params = new URLSearchParams(runtimeWindow.location?.search ?? "");
     return readString(params.get("tongs_api_token") ?? params.get("tongsApiToken"));
   } catch {
     return null;
@@ -206,13 +226,13 @@ function resolveFromQuery(): string | null {
 }
 
 function resolveRawTongsApiToken(): string | null {
-  if (typeof window !== "undefined") {
+  const runtimeWindow = getRuntimeWindow();
+  if (runtimeWindow) {
     const fromQuery = resolveFromQuery();
     if (fromQuery) return fromQuery;
 
     try {
-      const w = window as ForgeWindow;
-      const fromWindow = readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken);
+      const fromWindow = readString(runtimeWindow.__forgeTongsApiToken ?? runtimeWindow.__tpTongsApiToken);
       if (fromWindow) return fromWindow;
     } catch {
       // ignore
@@ -223,7 +243,7 @@ function resolveRawTongsApiToken(): string | null {
   const fromEnv = readString(metaEnv.env?.VITE_TONGS_API_TOKEN);
   if (fromEnv) return fromEnv;
 
-  if (typeof window !== "undefined") {
+  if (runtimeWindow) {
     return readLocalStorage("forge_tongs_api_token_v1");
   }
 

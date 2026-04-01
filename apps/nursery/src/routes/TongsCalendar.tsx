@@ -333,7 +333,7 @@ function rowToEvent(row: CalendarEventRow): CalendarEvent {
 }
 
 export default function TongsCalendar() {
-  const location = useLocation();
+  const routeLocation = useLocation();
   const shell = useOutletContext<AppShellContext>();
   const workspaceId = shell?.workspaceId ?? null;
   const session = shell?.session ?? null;
@@ -895,11 +895,11 @@ export default function TongsCalendar() {
       .sort((a, b) => a.date.getTime() - b.date.getTime());
   }, [visibleEvents]);
   const recordingSessionsHref = useMemo(() => {
-    const params = new URLSearchParams(location.search);
+    const params = new URLSearchParams(routeLocation.search);
     params.set("mode", "sessions");
     const nextSearch = params.toString();
-    return nextSearch ? `${location.pathname}?${nextSearch}` : location.pathname;
-  }, [location.pathname, location.search]);
+    return nextSearch ? `${routeLocation.pathname}?${nextSearch}` : routeLocation.pathname;
+  }, [routeLocation.pathname, routeLocation.search]);
 
   if (!workspaceId) {
     return <WorkspaceRequiredNotice toolName="Tongs Calendar" />;

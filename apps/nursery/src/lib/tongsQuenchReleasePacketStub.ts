@@ -2,6 +2,7 @@ import type {
   ReleasePacketStub,
   ReleasePacketStubAuthorityIssue,
   ReleasePacketStubBlockingReason,
+  ReleasePacketStubMacroKind,
   ReleasePacketStubMediaSourceHint,
   ReleasePacketStubReasonStatus,
   ReleasePacketStubSubtitleEntry,
@@ -89,6 +90,16 @@ function normalizeMediaSourceHint(value: string | null): ReleasePacketStubMediaS
     case "local":
     case "cloud":
     case "unknown":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function normalizeMacroKind(value: string | null): ReleasePacketStubMacroKind | null {
+  switch (value) {
+    case "filler_cleanup":
+    case "retake_tightening":
       return value;
     default:
       return null;
@@ -362,7 +373,7 @@ export function buildTongsQuenchReleasePacketStub(
       source_kind: textOutputs?.output_selection.source_kind ?? null,
       layer_id: textOutputs?.output_selection.layer_id ?? null,
       recipe_ref: textOutputs?.output_selection.recipe_ref ?? null,
-      macro_kind: textOutputs?.output_selection.macro_kind ?? null,
+      macro_kind: normalizeMacroKind(textOutputs?.output_selection.macro_kind ?? null),
       based_on_transcript_id: textOutputs?.output_selection.based_on_transcript_id ?? null,
       full_text: textOutputs?.resolved_output.full_text ?? "",
       segment_count: textOutputs?.resolved_output.segment_count ?? 0,

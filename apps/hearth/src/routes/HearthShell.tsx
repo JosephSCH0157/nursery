@@ -149,15 +149,12 @@ import {
 } from "../lib/hearth-script-authoring-meta";
 import { insertVoiceTranscriptIntoScript } from "../lib/hearth-script-dictation";
 import {
-  buildNoScriptChangesExplanation,
   detectHearthScriptMutationIntent,
 } from "../lib/hearth-script-mutation";
 import {
   parseHearthDraftConflictError,
 } from "../lib/hearth-draft-persistence";
 import {
-  normalizeScriptTags,
-  repairScriptTags,
   type ScriptValidationResult,
   type ScriptValidationIssue,
 } from "@forge/shared/script-tags";
@@ -189,13 +186,6 @@ import {
 } from "../lib/hearth-writing-format";
 import { inferSpeakersFromScript } from "../lib/compose-content-validation";
 import { buildComposePrompt } from "../lib/compose-prompt";
-import ChatSurface from "../views/surfaces/ChatSurface";
-import HistorySurface from "../views/surfaces/HistorySurface";
-import MetadataSurface from "../views/surfaces/MetadataSurface";
-import ReleaseSurface from "../views/surfaces/ReleaseSurface";
-import ScriptSurface from "../views/surfaces/ScriptSurface";
-import VisualsSurface from "../views/surfaces/VisualsSurface";
-import WorkpieceTabBar from "../views/surfaces/WorkpieceTabBar";
 import HearthReadyMode from "../views/modes/HearthReadyMode";
 import HearthSeriesMode from "../views/modes/HearthSeriesMode";
 import HearthEpisodesMode from "../views/modes/HearthEpisodesMode";
@@ -209,9 +199,6 @@ import HearthDraftMode from "../views/modes/HearthDraftMode";
 import HearthMobileOverlays from "../views/modes/HearthMobileOverlays";
 import HearthShellModals from "../views/modes/HearthShellModals";
 import HearthMainContentSwitch from "../views/modes/HearthMainContentSwitch";
-import HearthWorkspaceProjectsRail from "../views/modes/HearthWorkspaceProjectsRail";
-import HearthActiveWorkpieceRail from "../views/modes/HearthActiveWorkpieceRail";
-import HearthReadyQueueRail from "../views/modes/HearthReadyQueueRail";
 import HearthDesktopFrame from "../views/modes/HearthDesktopFrame";
 import { buildHearthDraftScriptSurfaceProps } from "../views/modes/buildHearthDraftScriptSurfaceProps";
 import { buildHearthDraftScriptPanelState } from "../views/modes/buildHearthDraftScriptPanelState";
@@ -222,7 +209,6 @@ import { buildHearthImageMapPanelProps } from "../views/modes/buildHearthImageMa
 import { buildHearthThumbnailPanelProps } from "../views/modes/buildHearthThumbnailPanelProps";
 import { buildHearthMediaMapPanelProps } from "../views/modes/buildHearthMediaMapPanelProps";
 import {
-  PRODUCTION_ACTION_LABEL,
   persistProductionArtifact as persistHearthProductionArtifact,
   runProductionAction,
   type ProductionAction,
@@ -239,9 +225,6 @@ import {
 } from "../lib/hearth-image-map-anchor";
 import { replaceEpisodePackageImageMap } from "../lib/hearth-episode-package-image-map";
 import {
-  generateImageMapEntriesFromBulletScript,
-} from "../lib/hearth-spoken-beats";
-import {
   listExternalGenerationProviders,
   type ExternalGenerationProvider,
 } from "../lib/hearth-visual-actionability";
@@ -251,9 +234,6 @@ import {
   resolveActiveVisualProvider,
   type VisualProviderId,
 } from "../lib/hearth-visual-provider-profiles";
-import {
-  type MediaMapConversationSeed,
-} from "../lib/hearth-media-map-conversation";
 import { buildMediaMapFromExistingPlans } from "../lib/hearth-media-map-builder";
 import type {
   EpisodeBrollDataVisualSpec,
@@ -266,12 +246,7 @@ import type {
   EpisodeMediaMap,
   EpisodeMediaMapEntry,
   EpisodePackageV2,
-  EpisodeSpokenBeat,
-  EpisodeLaunchVariant,
-  EpisodeLaunchVariantStatus,
-  EpisodeThumbnailConcept,
   EpisodeThumbnailVersion,
-  EpisodeImageMapEntry,
 } from "../lib/episode-package-v2";
 import {
   buildBulletBeatAnchorLabel,
@@ -281,7 +256,6 @@ import {
   updateImageMapEntry,
 } from "../lib/episode-package-v2";
 import {
-  DEFAULT_HEARTH_VISUAL_STYLE,
   normalizeHearthVisualStyle,
 } from "../lib/hearth-visual-styles";
 import {
@@ -299,13 +273,9 @@ import {
   resolveDefaultThumbnailBrandTemplate,
   seedWorkspaceThumbnailBrandTemplates,
 } from "../lib/hearth-thumbnail-brand-templates";
-import type { ThumbnailBrandTemplate } from "../lib/hearth-thumbnail-brand-templates";
 import {
   areEpisodeThumbnailTitleStylesEqual,
   normalizeEpisodeThumbnailTitleStyle,
-} from "../lib/hearth-title-fonts";
-import type {
-  EpisodeThumbnailTitleStyle,
 } from "../lib/hearth-title-fonts";
 import {
   deriveHearthThumbnailOverlayText,
@@ -353,8 +323,6 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
 type UiDensity = "comfortable" | "compact";
 type FocusTab = "draft" | "planning" | "sources" | "revisions";
-type SttLane = "browser" | "ai";
-type SttState = "idle" | "listening" | "transcribing";
 type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
 type AiAutosaveReason = `autosave:${AiAutosaveReasonCode}`;
 type ForgeNoticeSeverity = "info" | "success" | "warning" | "error";
@@ -2146,7 +2114,7 @@ export default function HearthShell({
   const [isVisualScriptMode, setIsVisualScriptMode] = useState(false);
   const [composeModalOpen, setComposeModalOpen] = useState(false);
   const [productionDefaults, setProductionDefaults] = useState<ProductionDefaults>(() => readProductionDefaults());
-  const [composeSetupDraft, setComposeSetupDraft] = useState<ComposeSetup>(() => buildSetupFromDefaults(readProductionDefaults()));
+  const [, setComposeSetupDraft] = useState<ComposeSetup>(() => buildSetupFromDefaults(readProductionDefaults()));
   const [selectedWritingFormat, setSelectedWritingFormat] = useState<HearthWritingFormat>(() => readLastHearthWritingFormat());
   const [scriptCompletionBadge, setScriptCompletionBadge] = useState<ScriptCompletionBadge | null>(null);
   const [scriptCompletionReasons, setScriptCompletionReasons] = useState<string[]>([]);
@@ -2474,7 +2442,6 @@ export default function HearthShell({
     hearthScriptState,
     effectiveComposeSetup,
     composeContentValidation,
-    scriptReadiness,
     approvalBlocked,
     handoffBlocked,
   } = useScriptWorkspaceReadModel({
@@ -3296,7 +3263,6 @@ export default function HearthShell({
     && metadataDescriptionShortDraft.trim()
     && metadataDescriptionLongDraft.trim(),
   );
-  const mediaPlanActivated = mediaMap?.status === "activated" || mediaMap?.status === "fulfilling" || mediaMap?.status === "fulfilled";
   const thumbnailsSelected = Boolean(primaryThumbnailVersionId);
   const releaseReadiness = resolveReleaseReadinessChecklist({
     hasApprovedScript,
@@ -4549,7 +4515,6 @@ export default function HearthShell({
     setThumbnailPairingError,
   });
   const {
-    onGenerateThumbnailVersion,
     onRetryFailedThumbnailVersion,
     onUploadThumbnailBrandLogo,
     onRemoveThumbnailBrandLogo,
@@ -4695,7 +4660,6 @@ export default function HearthShell({
   });
   const {
     onToggleVisualScriptMode,
-    onSelectImageMapEntry,
   } = useImageMapViewActions({
     hasApprovedScript,
     approvedScriptVersion,

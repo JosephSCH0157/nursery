@@ -5,6 +5,7 @@ import { useOptionalEpisodeWorkspace } from "../workspace/EpisodeWorkspaceContex
 import {
   formatEpisodeStatusLabel,
   getEpisodeStatusTone,
+  toEpisodeUiStatus,
 } from "../workspace/episodePresentation";
 import "./EpisodeWorkspacePrimitives.css";
 
@@ -38,8 +39,9 @@ export default function EpisodeContinuityStrip({
     : isMissing
     ? null
     : episode.title?.trim() || "Episode";
-  const statusLabel = (isLoading || isMissing) ? null : formatEpisodeStatusLabel(episode.displayStatus ?? null);
-  const statusTone = getEpisodeStatusTone(episode.displayStatus ?? null);
+  const uiStatus = toEpisodeUiStatus(episode.displayStatus);
+  const statusLabel = (isLoading || isMissing) ? null : formatEpisodeStatusLabel(uiStatus);
+  const statusTone = getEpisodeStatusTone(uiStatus);
   const workpieceRef = workpieceId ?? episode.episodeId;
   const ctaHref = ctaLabel && ctaPhase
     ? buildGoToPhaseHref(ctaPhase, { workpieceId: workpieceRef })

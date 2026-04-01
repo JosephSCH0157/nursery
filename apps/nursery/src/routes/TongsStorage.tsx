@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { Link, useLocation, useOutletContext } from "react-router-dom";
 import { useLayoutMode } from "@forge/ui-mobile";
 import {
@@ -70,7 +71,7 @@ type StorageListingPanelProps = {
   errorPlaceholder: string;
   unavailablePlaceholder: string;
   footnote?: string;
-  emptyAction?: JSX.Element | null;
+  emptyAction?: ReactNode;
 };
 
 const ROLE_POLICY_MAP = new Map(MOUNT_ROLE_POLICY.map((policy) => [policy.role, policy] as const));

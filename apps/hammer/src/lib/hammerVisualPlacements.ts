@@ -3,6 +3,7 @@ import type {
   EpisodeImageMapAssetRefRecord,
   EpisodeImageMapEntryRecord,
   EpisodeImageMapScriptAnchorRecord,
+  EpisodeSpokenBeatRecord,
   WorkpieceImageMapResponseData,
   WorkpieceVisualPackageResponseData,
   WorkpieceVisualPackageSelectedAsset,
@@ -277,6 +278,7 @@ function normalizeImageMap(payload: unknown): WorkpieceImageMapResponseData | nu
       workpiece_id: workpieceId,
       workspace_id: workspaceId,
       entries,
+      spoken_beats: Array.isArray(imageMap?.spoken_beats) ? imageMap.spoken_beats as EpisodeSpokenBeatRecord[] : [],
       metadata_updated_at: readString(imageMap?.metadata_updated_at),
     },
     asset: asset

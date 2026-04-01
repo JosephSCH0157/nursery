@@ -54,7 +54,6 @@ export type GeneratedReferenceClipPayload = {
 const WIDTH = 1920;
 const HEIGHT = 1080;
 const NUMERIC_RE = /\b\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?%?\b/g;
-const YEAR_RE = /\b(19|20)\d{2}\b/g;
 const FROM_TO_RE = /from\s+([0-9][0-9.,]*(?:\s*-\s*[0-9][0-9.,]*)?)\s+(?:[a-z]+\s+){0,6}?to\s+([0-9][0-9.,]*(?:\s*-\s*[0-9][0-9.,]*)?)/i;
 const COMPARE_RE = /\b([A-Z][a-zA-Z]+)\s+(?:vs\.?|versus|compared\s+with)\s+([A-Z][a-zA-Z]+)\b/i;
 const TREND_RE = /\b(trend|over time|timeline|from|to|increase|decrease|drop|dropped|rise|rose|fall|fell|over)\b/i;
@@ -93,7 +92,6 @@ function pickOutputType(input: ReferenceClipInput, labels: string[], values: num
   const text = `${input.anchorText} ${input.promptBasis}`.trim();
   const hasPct = /%/.test(text);
   const hasFromTo = FROM_TO_RE.test(text);
-  const yearCount = (text.match(YEAR_RE) ?? []).length;
   const hasCompare = COMPARE_RE.test(text) || /\b(vs|versus|compared)\b/i.test(text);
   const hasTrend = TREND_RE.test(text);
   const hasContext = CONTEXT_RE.test(text);

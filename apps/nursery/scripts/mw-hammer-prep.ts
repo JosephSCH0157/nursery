@@ -401,7 +401,8 @@ function normalizeCleanupAssistRequest(body: unknown): CleanupAssistRequest | nu
   const knownIds = new Set(segments.map((segment) => segment.segment_id));
   const segmentIds = segmentIdsRaw
     .map((value) => readTrimmed(value))
-    .filter((value): value is string => Boolean(value) && knownIds.has(value));
+    .filter((value): value is string => Boolean(value))
+    .filter((value) => knownIds.has(value));
   if (segmentIds.length === 0) return null;
 
   return {
