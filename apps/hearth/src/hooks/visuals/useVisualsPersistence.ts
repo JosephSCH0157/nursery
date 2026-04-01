@@ -58,6 +58,7 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
   const persistImageMapEntries = useCallback(async (input: {
     entries: EpisodeImageMapEntry[];
     spokenBeats?: EpisodeSpokenBeat[] | null;
+    expectedMetadataUpdatedAt?: string | null;
   }): Promise<
     | { ok: true; episodePackage: EpisodePackageV2; metadataUpdatedAt: string | null }
     | { ok: false; error: string }
@@ -83,12 +84,44 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
       workspaceId: workspace,
       entries: input.entries,
       spokenBeats: input.spokenBeats ?? args.episodePackage.spoken_beats,
-      expectedMetadataUpdatedAt: args.imageMapMetadataUpdatedAt,
+      expectedMetadataUpdatedAt: typeof input.expectedMetadataUpdatedAt !== "undefined"
+        ? input.expectedMetadataUpdatedAt
+        : args.imageMapMetadataUpdatedAt,
     });
 
     if (!saved.ok) {
       if (saved.reason === "conflict" && saved.latest) {
         const latest = saved.latest;
+        const retry = await saveWorkpieceImageMap({
+          workpieceId: workpiece,
+          workspaceId: workspace,
+          entries: input.entries,
+          spokenBeats: input.spokenBeats ?? args.episodePackage.spoken_beats,
+          expectedMetadataUpdatedAt: latest.metadataUpdatedAt,
+        });
+        if (retry.ok) {
+          const retriedEpisodePackage = replaceEpisodePackageImageMap(
+            args.episodePackage,
+            retry.imageMap.entries,
+            input.spokenBeats ?? args.episodePackage.spoken_beats,
+          );
+          const retriedWithMediaMap = retriedEpisodePackage.media_map.entries.length > 0
+            ? {
+              ...retriedEpisodePackage,
+              media_map: syncMediaMapImageEntriesFromImageMap({
+                mediaMap: retriedEpisodePackage.media_map,
+                imageEntries: retry.imageMap.entries,
+              }),
+            }
+            : retriedEpisodePackage;
+          args.setEpisodePackage(retriedWithMediaMap);
+          args.setImageMapMetadataUpdatedAt(retry.imageMap.metadataUpdatedAt);
+          return {
+            ok: true,
+            episodePackage: retriedWithMediaMap,
+            metadataUpdatedAt: retry.imageMap.metadataUpdatedAt,
+          };
+        }
         args.setEpisodePackage((prev) => (
           prev
             ? {
