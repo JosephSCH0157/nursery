@@ -128,7 +128,6 @@ import {
   buildBrollPlanPanelProps,
   buildImageMapPanelProps,
   buildMediaMapPanelProps,
-  buildReferenceClipPlanPanelProps,
 } from "../hooks/visuals/buildVisualsPanelProps";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
@@ -223,6 +222,7 @@ import HearthDesktopRailContent from "../views/modes/HearthDesktopRailContent";
 import { buildHearthDraftScriptSurfaceProps } from "../views/modes/buildHearthDraftScriptSurfaceProps";
 import { buildHearthDraftScriptPanelState } from "../views/modes/buildHearthDraftScriptPanelState";
 import HearthDesktopRail from "../views/modes/HearthDesktopRail";
+import { buildHearthReferenceClipPanelProps } from "../views/modes/buildHearthReferenceClipPanelProps";
 import {
   PRODUCTION_ACTION_LABEL,
   persistProductionArtifact as persistHearthProductionArtifact,
@@ -6866,7 +6866,7 @@ export default function HearthShell({
       onClearRequestState: () => void onClearBrollRequestState(),
       onAttachResultFromUrl: () => void onAttachBrollResultFromUrl(),
     });
-    const referenceClipPlanPanelProps = buildReferenceClipPlanPanelProps({
+    const referenceClipPlanPanelProps = buildHearthReferenceClipPanelProps({
       entries: referenceClipEntries,
       selectedEntryId: selectedReferenceClipEntryId,
       saveState: referenceClipSaveState,
