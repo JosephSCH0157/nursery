@@ -1,7 +1,11 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.25.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { findStripeCatalogAiPackById, findStripeCatalogPriceById } from "../_shared/stripe-catalog.ts";
+import {
+  findStripeCatalogAiPackById,
+  findStripeCatalogPriceById,
+  findStripeCatalogPriceByProductId,
+} from "../_shared/stripe-catalog.ts";
 import {
   buildForgeCheckoutMetadata,
   parseForgePurchaseMetadata,
@@ -182,6 +186,7 @@ function logCheckoutFulfillmentBranch(
 ): void {
   console.log("[stripe-webhook] checkout fulfillment branch", {
     purchaseType,
+    offerId: context.offerId,
     itemId: context.itemId,
     interval: context.interval,
     userId: context.supabaseUserId,
@@ -197,6 +202,7 @@ function logSubscriptionLifecycleBranch(args: {
   subscriptionId: string | null;
   customerId: string;
   purchaseType: ForgePurchaseMetadata["purchaseType"];
+  offerId: ForgePurchaseMetadata["offerId"];
   itemId: string;
   interval: ForgePurchaseMetadata["interval"];
   userId: string | null;
@@ -204,6 +210,7 @@ function logSubscriptionLifecycleBranch(args: {
 }): void {
   console.log("[stripe-webhook] subscription lifecycle branch", {
     purchaseType: args.purchaseType,
+    offerId: args.offerId,
     itemId: args.itemId,
     interval: args.interval,
     userId: args.userId,
@@ -295,14 +302,20 @@ function toRecurringPurchaseMetadata(
   return metadata as RecurringPurchaseMetadata;
 }
 
+function recurringStatusEntitlesAccess(status: string | null): boolean {
+  const normalized = normalizeLowerString(status);
+  return normalized === "active" || normalized === "trialing";
+}
+
 function tryBuildSubscriptionMetadataFromCatalog(
   subscription: Stripe.Subscription,
   userId: string,
 ): ForgePurchaseMetadata | null {
   const priceId = normalizeString(subscription.items.data[0]?.price?.id);
-  if (!priceId) return null;
-
-  const catalogPrice = findStripeCatalogPriceById(priceId);
+  const productId = normalizeString(subscription.items.data[0]?.price?.product);
+  const catalogPrice = priceId
+    ? findStripeCatalogPriceById(priceId)
+    : findStripeCatalogPriceByProductId(productId);
   if (!catalogPrice) return null;
 
   return parsePurchaseMetadataWithResolvedUserId({
@@ -532,6 +545,7 @@ async function upsertCanonicalSubscriptionFromStripe(
       source: "stripe_webhook",
       event_type: params.event.type,
       forge_purchase_type: params.metadata.purchaseType,
+      forge_offer_id: params.metadata.offerId,
       forge_item_id: params.metadata.itemId,
       forge_interval: params.metadata.interval,
       metadata_source: params.metadata.source,
@@ -554,9 +568,28 @@ async function upsertCanonicalSubscriptionFromStripe(
     metadata: {
       source: "stripe_webhook",
       event_type: params.event.type,
+      forge_offer_id: params.metadata.offerId,
       metadata_source: params.metadata.source,
     },
   });
+
+  const subscriptionStatus = normalizeLowerString(params.subscription.status);
+  const periodStart = normalizeUnixTimestampIso(params.subscription.current_period_start);
+  const periodEnd = normalizeUnixTimestampIso(params.subscription.current_period_end);
+  if (
+    params.metadata.purchaseType === "subscription"
+    && recurringStatusEntitlesAccess(subscriptionStatus)
+    && periodStart
+  ) {
+    await runTongsRpc(supabase, "grant_plan_cycle_ai_credits", {
+      p_user_id: params.metadata.supabaseUserId,
+      p_stripe_subscription_id: subscriptionId,
+      p_plan_item_id: params.metadata.itemId,
+      p_period_start: periodStart,
+      p_period_end: periodEnd,
+      p_source_event_id: params.event.id,
+    });
+  }
 
   await recordBillingEventRecord(supabase, {
     event: params.event,
@@ -587,6 +620,7 @@ async function fulfillAiCreditsCheckout(
       source: "stripe_webhook",
       event_type: event.type,
       forge_purchase_type: context.purchaseType,
+      forge_offer_id: context.offerId,
       forge_item_id: context.itemId,
       forge_interval: context.interval,
       metadata_source: context.source,
@@ -617,6 +651,7 @@ async function fulfillAiCreditsCheckout(
     metadata: {
       source: "stripe_webhook",
       event_type: event.type,
+      forge_offer_id: context.offerId,
       metadata_source: context.source,
     },
   });
@@ -708,6 +743,7 @@ async function handleRecurringSubscriptionUpsert(
     subscriptionId: normalizeSubscriptionId(subscription),
     customerId,
     purchaseType: metadata.purchaseType,
+    offerId: metadata.offerId,
     itemId: metadata.itemId,
     interval: metadata.interval,
     userId: metadata.supabaseUserId,
@@ -744,6 +780,7 @@ async function handleRecurringSubscriptionDelete(
     subscriptionId: normalizeSubscriptionId(subscription),
     customerId,
     purchaseType: metadata.purchaseType,
+    offerId: metadata.offerId,
     itemId: metadata.itemId,
     interval: metadata.interval,
     userId: metadata.supabaseUserId,

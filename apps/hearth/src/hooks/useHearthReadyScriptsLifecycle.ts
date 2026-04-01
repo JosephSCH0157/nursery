@@ -13,37 +13,54 @@ type UseHearthReadyScriptsLifecycleArgs = {
 
 export function useHearthReadyScriptsLifecycle(args: UseHearthReadyScriptsLifecycleArgs) {
   const readyScriptsRequestSeqRef = useRef(0);
+  const {
+    workspaceId,
+    normalizeUuid,
+    listReadyScripts,
+    setReadyScripts,
+    setReadyScriptsWorkspaceId,
+    setReadyScriptsError,
+    setIsReadyScriptsLoading,
+  } = args;
 
   const refreshReadyScripts = useCallback(async () => {
-    const workspace = args.normalizeUuid(args.workspaceId);
+    const workspace = normalizeUuid(workspaceId);
     const requestSeq = readyScriptsRequestSeqRef.current + 1;
     readyScriptsRequestSeqRef.current = requestSeq;
     if (!workspace) {
-      args.setReadyScripts([]);
-      args.setReadyScriptsWorkspaceId(null);
-      args.setReadyScriptsError(null);
-      args.setIsReadyScriptsLoading(false);
+      setReadyScripts([]);
+      setReadyScriptsWorkspaceId(null);
+      setReadyScriptsError(null);
+      setIsReadyScriptsLoading(false);
       return;
     }
 
-    args.setIsReadyScriptsLoading(true);
-    args.setReadyScriptsError(null);
+    setIsReadyScriptsLoading(true);
+    setReadyScriptsError(null);
     try {
-      const entries = await args.listReadyScripts(workspace);
+      const entries = await listReadyScripts(workspace);
       if (readyScriptsRequestSeqRef.current !== requestSeq) return;
-      args.setReadyScripts(entries);
-      args.setReadyScriptsWorkspaceId(workspace);
+      setReadyScripts(entries);
+      setReadyScriptsWorkspaceId(workspace);
     } catch {
       if (readyScriptsRequestSeqRef.current !== requestSeq) return;
-      args.setReadyScripts([]);
-      args.setReadyScriptsWorkspaceId(null);
-      args.setReadyScriptsError("Failed to load Ready to Record list.");
+      setReadyScripts([]);
+      setReadyScriptsWorkspaceId(null);
+      setReadyScriptsError("Failed to load Ready to Record list.");
     } finally {
       if (readyScriptsRequestSeqRef.current === requestSeq) {
-        args.setIsReadyScriptsLoading(false);
+        setIsReadyScriptsLoading(false);
       }
     }
-  }, [args]);
+  }, [
+    listReadyScripts,
+    normalizeUuid,
+    setIsReadyScriptsLoading,
+    setReadyScripts,
+    setReadyScriptsError,
+    setReadyScriptsWorkspaceId,
+    workspaceId,
+  ]);
 
   return {
     refreshReadyScripts,

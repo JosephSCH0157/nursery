@@ -191,6 +191,58 @@ function splitSegments(value: string | null | undefined): string[] {
     .filter(Boolean) as string[];
 }
 
+function buildDistinctPromptText(
+  parts: ReadonlyArray<string | null | undefined>,
+  fallback: string,
+): string {
+  const segments = dedupeStrings(parts.flatMap((part) => splitSegments(part)));
+  if (!segments.length) {
+    return cleanText(fallback) ?? fallback;
+  }
+  return segments.join(". ");
+}
+
+function dedupePromptSentenceRuns(value: string): string {
+  const cleaned = cleanText(value);
+  if (!cleaned) return "";
+  const segments = cleaned
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((segment) => cleanText(segment))
+    .filter(Boolean) as string[];
+  if (!segments.length) return cleaned;
+
+  const normalizeForDedup = (segment: string) => (
+    segment
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+  const tokenCount = (segment: string): number => normalizeForDedup(segment).split(" ").filter(Boolean).length;
+
+  const seen = new Set<string>();
+  const seenKeys: string[] = [];
+  const deduped: string[] = [];
+  for (const segment of segments) {
+    const key = normalizeForDedup(segment);
+    if (!key || seen.has(key)) continue;
+    const isFragmentRepeat = seenKeys.some((existing) => (
+      (existing.includes(key) || key.includes(existing))
+      && Math.min(tokenCount(existing), tokenCount(key)) <= 4
+    ));
+    if (isFragmentRepeat) continue;
+    seen.add(key);
+    seenKeys.push(key);
+    deduped.push(segment);
+  }
+
+  const joined = deduped
+    .join(" ")
+    .replace(/([.!?]){2,}/g, "$1")
+    .trim();
+  return cleanText(joined) ?? joined;
+}
+
 function limitWords(value: string, maxWords: number): string {
   const words = value.trim().split(/\s+/).filter(Boolean);
   if (words.length <= maxWords) return value.trim();
@@ -725,13 +777,21 @@ export function buildTimelineImagePromptPack(args: {
     cleanText(args.entry.purpose) ?? "",
     cleanText(args.entry.visual_intent) ?? "",
   ]).join(". ");
-  const normalizedBeat = normalizeVisualBeat({
-    primaryText: `${cleanText(args.description) ?? args.entry.description}. ${args.entry.prompt_basis}`,
-    secondaryText: [
+  const primaryPromptText = buildDistinctPromptText(
+    [cleanText(args.description) ?? args.entry.description, args.entry.prompt_basis],
+    cleanText(args.description) ?? args.entry.description ?? "Timeline beat visual",
+  );
+  const secondaryPromptText = buildDistinctPromptText(
+    [
       cleanText(args.sectionIntentNote) ?? cleanText(args.entry.section_intent_note),
       cleanText(args.placementHint) ?? cleanText(args.entry.placement_hint),
       cleanText(args.entry.visual_intent),
-    ].filter(Boolean).join(". "),
+    ],
+    "",
+  );
+  const normalizedBeat = normalizeVisualBeat({
+    primaryText: primaryPromptText,
+    secondaryText: secondaryPromptText || null,
     title: cleanText(args.anchor) ?? args.entry.anchor,
     tone: args.intent ?? args.entry.intent,
     style: args.stylePreset ?? args.entry.style_preset ?? null,
@@ -753,7 +813,13 @@ export function buildTimelineImagePromptPack(args: {
     }),
     intendedUse: "timeline_image",
   });
-  return { pack, provider };
+  return {
+    pack: {
+      ...pack,
+      prompt: dedupePromptSentenceRuns(pack.prompt),
+    },
+    provider,
+  };
 }
 
 export function serializePromptPack(pack: PromptPack): string {

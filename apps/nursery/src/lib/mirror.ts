@@ -328,7 +328,7 @@ export async function mirrorRoleSnapshot(
     return { ok: false, error: "Missing workspace id." };
   }
 
-  const { registry } = loadMountRegistry("default");
+  const { registry } = loadMountRegistry(workspaceId);
   const resolved = resolveMount(registry, role);
   const mirrorTarget = resolved.mirrorTarget;
   const baseStatus = {

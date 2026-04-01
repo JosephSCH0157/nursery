@@ -179,6 +179,24 @@ as $$
   select coalesce(lower(btrim(p_status)), '') in ('active', 'trialing');
 $$;
 
+create or replace function tongs.billing_storage_entitlement_active(
+  p_status text,
+  p_current_period_end timestamptz
+)
+returns boolean
+language sql
+stable
+as $$
+  select (
+    coalesce(lower(btrim(p_status)), '') in ('active', 'trialing')
+    and coalesce(p_current_period_end > now(), true)
+  )
+  or (
+    coalesce(lower(btrim(p_status)), '') in ('past_due', 'unpaid')
+    and coalesce(p_current_period_end > now(), false)
+  );
+$$;
+
 create or replace function tongs.billing_storage_entitled_bytes(
   p_item_id text
 )
@@ -323,12 +341,14 @@ begin
   where s.user_id = p_user_id
     and s.purchase_type = 'cloud_storage'
   order by
-    case when tongs.billing_status_entitles_access(s.status) then 0 else 1 end,
+    case when tongs.billing_storage_entitlement_active(s.status, s.current_period_end) then 0 else 1 end,
     s.current_period_end desc nulls last,
     s.updated_at desc
   limit 1;
 
-  if tongs.billing_status_entitles_access(v_storage_status) then
+  -- Recurring storage requires both billing status and period validity.
+  -- Status-only entitlement can over-grant when webhook/status transitions lag.
+  if tongs.billing_storage_entitlement_active(v_storage_status, v_storage_current_period_end) then
     v_storage_bytes_entitled := tongs.billing_storage_entitled_bytes(v_storage_item_id);
   else
     v_storage_bytes_entitled := 0;
@@ -661,7 +681,8 @@ begin
       using errcode = '22023';
   end if;
 
-  if v_purchase_type = 'cloud_storage' and tongs.billing_status_entitles_access(v_status) then
+  if v_purchase_type = 'cloud_storage'
+     and tongs.billing_storage_entitlement_active(v_status, p_current_period_end) then
     update tongs.billing_subscriptions s
     set
       status = 'replaced',
@@ -671,7 +692,7 @@ begin
     where s.user_id = p_user_id
       and s.purchase_type = 'cloud_storage'
       and s.stripe_subscription_id <> v_subscription_id
-      and tongs.billing_status_entitles_access(s.status);
+      and tongs.billing_storage_entitlement_active(s.status, s.current_period_end);
   end if;
 
   if v_purchase_type = 'subscription'
@@ -857,6 +878,7 @@ revoke all on tongs.account_balances from public;
 
 revoke all on function tongs.billing_item_is_plan(text) from public;
 revoke all on function tongs.billing_status_entitles_access(text) from public;
+revoke all on function tongs.billing_storage_entitlement_active(text, timestamptz) from public;
 revoke all on function tongs.billing_storage_entitled_bytes(text) from public;
 revoke all on function tongs.sync_legacy_profile_from_account_balance(uuid) from public;
 revoke all on function tongs.recompute_account_balance(uuid) from public;
@@ -881,6 +903,8 @@ grant execute on function tongs.billing_item_is_plan(text) to authenticated;
 grant execute on function tongs.billing_item_is_plan(text) to service_role;
 grant execute on function tongs.billing_status_entitles_access(text) to authenticated;
 grant execute on function tongs.billing_status_entitles_access(text) to service_role;
+grant execute on function tongs.billing_storage_entitlement_active(text, timestamptz) to authenticated;
+grant execute on function tongs.billing_storage_entitlement_active(text, timestamptz) to service_role;
 grant execute on function tongs.billing_storage_entitled_bytes(text) to authenticated;
 grant execute on function tongs.billing_storage_entitled_bytes(text) to service_role;
 

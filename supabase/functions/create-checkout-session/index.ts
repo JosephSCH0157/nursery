@@ -1,7 +1,10 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.25.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { findStripeCatalogPriceById } from "../_shared/stripe-catalog.ts";
+import {
+  findStripeCatalogPriceById,
+  stripeCatalogEntryHasProductId,
+} from "../_shared/stripe-catalog.ts";
 import { buildForgeCheckoutMetadata } from "../_shared/forge-billing-metadata.ts";
 
 type CreateCheckoutSessionBody = {
@@ -214,6 +217,7 @@ serve(async (req) => {
   logStage("price_catalog_resolved", {
     priceId,
     catalogKind: catalogPrice.kind,
+    forgeOfferId: catalogPrice.offerId,
     forgeItemId: chosenItemId,
     storageLevel,
   });
@@ -483,14 +487,17 @@ serve(async (req) => {
     userId: user.id,
     priceId,
     catalogKind: catalogPrice.kind,
+    forgeOfferId: catalogPrice.offerId,
     forgeItemId: chosenItemId,
     storageLevel,
     stripeProductId,
     isRecurringPrice: Boolean(price.recurring),
     recurringInterval: price.recurring?.interval ?? null,
   });
-  const matchesCatalogProduct = stripeProductId === catalogPrice.liveProductId
-    || stripeProductId === catalogPrice.testProductId;
+  const matchesCatalogProduct = stripeCatalogEntryHasProductId(
+    catalogPrice,
+    stripeProductId,
+  );
 
   if (!matchesCatalogProduct) {
     return errorResponse(400, {
@@ -501,6 +508,7 @@ serve(async (req) => {
         userId: user.id,
         priceId,
         catalogKind: catalogPrice.kind,
+        forgeOfferId: catalogPrice.offerId,
         storageLevel,
         stripeProductId,
         expectedLiveProductId: catalogPrice.liveProductId,

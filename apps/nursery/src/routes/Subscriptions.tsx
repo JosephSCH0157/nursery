@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
 import { Link, useLocation, useOutletContext } from "react-router-dom";
@@ -22,10 +23,23 @@ type PortalSessionResponse = {
 type AiBillingMode = "forge" | "byo" | "unknown";
 type StripeCatalogMode = "live" | "test";
 type AiPackKey = "base" | "mid" | "high";
+type PlanKey = "creator" | "pro" | "studio";
+type PlanInterval = "monthly" | "quarterly";
 type StorageLevel = keyof typeof STRIPE_CATALOG.storage;
+
+type PlanChoice = {
+  key: PlanKey;
+  interval: PlanInterval;
+  offerId: string;
+  label: string;
+  description: string;
+  includedCreditsLabel: string;
+  priceId: string;
+};
 
 type AiPack = {
   key: AiPackKey;
+  offerId: string;
   label: string;
   amountLabel: string;
   tokensLabel: string;
@@ -34,6 +48,7 @@ type AiPack = {
 
 type StoragePack = {
   level: StorageLevel;
+  offerId: string;
   sizeLabel: string;
   priceLabel: string;
   description: string;
@@ -167,17 +182,117 @@ function getCatalogPriceId(entry: { livePriceId: string; testPriceId: string }):
   return getConfiguredStripeMode() === "test" ? entry.testPriceId : entry.livePriceId;
 }
 
-function getConfiguredPlanPriceId(): string {
+function isConfiguredPriceId(priceId: string): boolean {
+  const normalized = normalizeString(priceId);
+  if (!normalized) return false;
+  return !/(^price_.*_todo$|_todo$|not_configured|todo)/i.test(normalized);
+}
+
+function getConfiguredPlanPriceId(plan: PlanKey, interval: PlanInterval): string {
   const meta = (typeof import.meta !== "undefined" ? import.meta : {}) as ImportMeta & {
     env?: Record<string, unknown>;
   };
   const metaEnv = meta.env ?? {};
+
+  if (plan === "creator") {
+    return String(
+      readWindowConfig(`__forgeCreator${interval === "monthly" ? "Monthly" : "Quarterly"}PriceId`)
+        || (interval === "monthly"
+          ? metaEnv.VITE_STRIPE_CREATOR_MONTHLY_PRICE_ID
+          : metaEnv.VITE_STRIPE_CREATOR_QUARTERLY_PRICE_ID)
+        || metaEnv.VITE_STRIPE_PRICE_ID
+        || getCatalogPriceId(
+          interval === "monthly"
+            ? STRIPE_CATALOG.plans.creator.monthly
+            : STRIPE_CATALOG.plans.creator.quarterly,
+        ),
+    ).trim();
+  }
+
+  if (plan === "pro") {
+    return String(
+      readWindowConfig(`__forgePro${interval === "monthly" ? "Monthly" : "Quarterly"}PriceId`)
+        || (interval === "monthly"
+          ? metaEnv.VITE_STRIPE_PRO_MONTHLY_PRICE_ID
+          : metaEnv.VITE_STRIPE_PRO_QUARTERLY_PRICE_ID)
+        || getCatalogPriceId(
+          interval === "monthly"
+            ? STRIPE_CATALOG.plans.pro.monthly
+            : STRIPE_CATALOG.plans.pro.quarterly,
+        ),
+    ).trim();
+  }
+
   return String(
-    readWindowConfig("__forgeCreatorMonthlyPriceId")
-      || metaEnv.VITE_STRIPE_CREATOR_MONTHLY_PRICE_ID
-      || metaEnv.VITE_STRIPE_PRICE_ID
-      || getCatalogPriceId(STRIPE_CATALOG.plans.creator.monthly),
+    readWindowConfig(`__forgeStudio${interval === "monthly" ? "Monthly" : "Quarterly"}PriceId`)
+      || (interval === "monthly"
+        ? metaEnv.VITE_STRIPE_STUDIO_MONTHLY_PRICE_ID
+        : metaEnv.VITE_STRIPE_STUDIO_QUARTERLY_PRICE_ID)
+      || getCatalogPriceId(
+        interval === "monthly"
+          ? STRIPE_CATALOG.plans.studio.monthly
+          : STRIPE_CATALOG.plans.studio.quarterly,
+      ),
   ).trim();
+}
+
+function getConfiguredPlanChoices(): PlanChoice[] {
+  return [
+    {
+      key: "creator",
+      interval: "monthly",
+      offerId: STRIPE_CATALOG.plans.creator.monthly.offerId,
+      label: "Creator Monthly",
+      description: "Paid individual plan for solo creators.",
+      includedCreditsLabel: "1,000 included monthly credits",
+      priceId: getConfiguredPlanPriceId("creator", "monthly"),
+    },
+    {
+      key: "creator",
+      interval: "quarterly",
+      offerId: STRIPE_CATALOG.plans.creator.quarterly.offerId,
+      label: "Creator Quarterly",
+      description: "Paid individual plan for solo creators.",
+      includedCreditsLabel: "1,000 included monthly credits",
+      priceId: getConfiguredPlanPriceId("creator", "quarterly"),
+    },
+    {
+      key: "pro",
+      interval: "monthly",
+      offerId: STRIPE_CATALOG.plans.pro.monthly.offerId,
+      label: "Pro Monthly",
+      description: "Advanced individual plan with higher monthly AI inclusion.",
+      includedCreditsLabel: "4,000 included monthly credits",
+      priceId: getConfiguredPlanPriceId("pro", "monthly"),
+    },
+    {
+      key: "pro",
+      interval: "quarterly",
+      offerId: STRIPE_CATALOG.plans.pro.quarterly.offerId,
+      label: "Pro Quarterly",
+      description: "Advanced individual plan with higher monthly AI inclusion.",
+      includedCreditsLabel: "4,000 included monthly credits",
+      priceId: getConfiguredPlanPriceId("pro", "quarterly"),
+    },
+    {
+      key: "studio",
+      interval: "monthly",
+      offerId: STRIPE_CATALOG.plans.studio.monthly.offerId,
+      label: "Studio Monthly",
+      description: "Team and organization tier.",
+      includedCreditsLabel: "10,000 included monthly credits (shared)",
+      priceId: getConfiguredPlanPriceId("studio", "monthly"),
+    },
+    {
+      key: "studio",
+      interval: "quarterly",
+      offerId: STRIPE_CATALOG.plans.studio.quarterly.offerId,
+      label: "Studio Quarterly",
+      description: "Team and organization tier.",
+      includedCreditsLabel: "10,000 included monthly credits (shared)",
+      priceId: getConfiguredPlanPriceId("studio", "quarterly"),
+    },
+  ];
 }
 
 function getConfiguredAiPriceId(key: AiPackKey): string {
@@ -215,11 +330,17 @@ function getConfiguredStoragePriceId(level: StorageLevel): string {
     return STRIPE_CATALOG.storage[level].testPriceId;
   }
 
-  const envKey = level === "50gb"
+  const envKey = level === "50gb_v2"
     ? metaEnv.VITE_STRIPE_STORAGE_PRICE_ID_50GB
+    : level === "150gb"
+    ? metaEnv.VITE_STRIPE_STORAGE_PRICE_ID_150GB
+    : level === "500gb"
+    ? metaEnv.VITE_STRIPE_STORAGE_PRICE_ID_500GB
+    : level === "50gb"
+    ? metaEnv.VITE_STRIPE_STORAGE_PRICE_ID_250GB_LEGACY
     : level === "100gb"
-    ? metaEnv.VITE_STRIPE_STORAGE_PRICE_ID_100GB
-    : metaEnv.VITE_STRIPE_STORAGE_PRICE_ID_1TB;
+    ? metaEnv.VITE_STRIPE_STORAGE_PRICE_ID_1TB_LEGACY
+    : metaEnv.VITE_STRIPE_STORAGE_PRICE_ID_5TB_LEGACY;
 
   return String(
     readWindowConfig(`__forgeStoragePriceId_${level}`)
@@ -232,23 +353,26 @@ function getConfiguredAiPacks(): AiPack[] {
   return [
     {
       key: "base",
-      label: "AI Base",
+      offerId: STRIPE_CATALOG.packs.ai_credits.ai_small.offerId,
+      label: "AI Credits 2,000",
       amountLabel: "$10",
-      tokensLabel: "1,000,000",
+      tokensLabel: "2,000",
       priceId: getConfiguredAiPriceId("base"),
     },
     {
       key: "mid",
-      label: "AI Mid",
+      offerId: STRIPE_CATALOG.packs.ai_credits.ai_medium.offerId,
+      label: "AI Credits 6,000",
       amountLabel: "$25",
-      tokensLabel: "3,000,000",
+      tokensLabel: "6,000",
       priceId: getConfiguredAiPriceId("mid"),
     },
     {
       key: "high",
-      label: "AI High",
+      offerId: STRIPE_CATALOG.packs.ai_credits.ai_large.offerId,
+      label: "AI Credits 15,000",
       amountLabel: "$50",
-      tokensLabel: "7,000,000",
+      tokensLabel: "15,000",
       priceId: getConfiguredAiPriceId("high"),
     },
   ];
@@ -257,26 +381,29 @@ function getConfiguredAiPacks(): AiPack[] {
 function getConfiguredStoragePacks(): StoragePack[] {
   return [
     {
-      level: "50gb",
-      sizeLabel: "+250 GB",
-      priceLabel: "$9/month",
-      description: "Starter boost",
-      priceId: getConfiguredStoragePriceId("50gb"),
+      level: "50gb_v2",
+      offerId: STRIPE_CATALOG.storage["50gb_v2"].offerId,
+      sizeLabel: "+50 GB",
+      priceLabel: "$5/month",
+      description: "Stackable monthly recurring add-on",
+      priceId: getConfiguredStoragePriceId("50gb_v2"),
     },
     {
-      level: "100gb",
-      sizeLabel: "+1 TB",
-      priceLabel: "$24/month",
-      description: "Most popular",
+      level: "150gb",
+      offerId: STRIPE_CATALOG.storage["150gb"].offerId,
+      sizeLabel: "+150 GB",
+      priceLabel: "$10/month",
+      description: "Most popular monthly recurring add-on",
       featured: true,
-      priceId: getConfiguredStoragePriceId("100gb"),
+      priceId: getConfiguredStoragePriceId("150gb"),
     },
     {
-      level: "1tb",
-      sizeLabel: "+5 TB",
-      priceLabel: "$79/month",
-      description: "Studio-scale storage",
-      priceId: getConfiguredStoragePriceId("1tb"),
+      level: "500gb",
+      offerId: STRIPE_CATALOG.storage["500gb"].offerId,
+      sizeLabel: "+500 GB",
+      priceLabel: "$20/month",
+      description: "Large monthly recurring add-on",
+      priceId: getConfiguredStoragePriceId("500gb"),
     },
   ];
 }
@@ -293,11 +420,6 @@ function getFounderAccessLabel(tier: string | null | undefined): string | null {
     return "Founder's Club";
   }
   return null;
-}
-
-function billingStatusEntitlesAccess(status: string | null | undefined): boolean {
-  const normalized = normalizeLowerString(status);
-  return normalized === "active" || normalized === "trialing";
 }
 
 function getCheckoutStatus(search: string): "success" | "canceled" | null {
@@ -352,6 +474,7 @@ function formatPlanLabel(value: string | null | undefined): string {
   const normalized = normalizeLowerString(value);
   if (!normalized || normalized === "free") return "Free";
   if (normalized === "creator") return "Creator";
+  if (normalized === "pro") return "Pro";
   if (normalized === "studio") return "Studio";
   if (normalized === "seat") return "Seat Add-on";
   if (normalized === "admin") return "Admin";
@@ -361,15 +484,18 @@ function formatPlanLabel(value: string | null | undefined): string {
 }
 
 function isStorageLevel(value: string): value is StorageLevel {
-  return value === "50gb" || value === "100gb" || value === "1tb";
+  return value in STRIPE_CATALOG.storage;
 }
 
 function formatStorageLabel(value: string | null | undefined): string {
   const normalized = normalizeLowerString(value);
   if (!normalized) return "No storage add-on";
-  if (normalized === "50gb") return "50 GB";
-  if (normalized === "100gb") return "100 GB";
-  if (normalized === "1tb") return "1 TB";
+  if (normalized === "50gb") return "Legacy 250 GB";
+  if (normalized === "100gb") return "Legacy 1 TB";
+  if (normalized === "1tb") return "Legacy 5 TB";
+  if (normalized === "50gb_v2") return "50 GB";
+  if (normalized === "150gb") return "150 GB";
+  if (normalized === "500gb") return "500 GB";
   return formatStatusLabel(normalized);
 }
 
@@ -481,6 +607,47 @@ async function ensureUserProfile(user: User): Promise<ForgeProfile> {
   }
 
   return inserted as ForgeProfile;
+}
+
+async function updateProfileDisplayName(
+  user: User,
+  displayName: string,
+): Promise<ForgeProfile> {
+  const profilesClient = supabase as unknown as ProfilesTableClient;
+  const normalizedDisplayName = normalizeString(displayName);
+
+  const { data, error } = await profilesClient
+    .from("profiles")
+    .update({
+      display_name: normalizedDisplayName || null,
+    })
+    .eq("user_id", user.id)
+    .select("user_id, display_name, tier, stripe_customer_id, subscription_status, current_period_end")
+    .single();
+
+  if (error) throw error;
+  return data as ForgeProfile;
+}
+
+function getPasswordUpdateErrorMessage(message: string): string {
+  const normalized = normalizeLowerString(message);
+  if (
+    normalized.includes("auth session missing")
+    || normalized.includes("invalid jwt")
+    || normalized.includes("jwt expired")
+    || normalized.includes("refresh token not found")
+  ) {
+    return "Your session expired. Sign in again, then retry password update.";
+  }
+
+  if (
+    normalized.includes("reauthentication required")
+    || normalized.includes("recent login required")
+  ) {
+    return "For security, please sign in again before updating your password.";
+  }
+
+  return message || "Unable to update password.";
 }
 
 async function fetchCanonicalAccountOverview(userId: string): Promise<AccountBillingOverview | null> {
@@ -627,11 +794,22 @@ export default function SubscriptionsRoute() {
   }, [location.hash, location.pathname, location.search]);
   const aiPacks = useMemo(() => getConfiguredAiPacks(), []);
   const storagePacks = useMemo(() => getConfiguredStoragePacks(), []);
-  const planPriceId = useMemo(() => getConfiguredPlanPriceId(), []);
+  const planChoices = useMemo(() => getConfiguredPlanChoices(), []);
 
   const [profile, setProfile] = useState<ForgeProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileEditOpen, setProfileEditOpen] = useState(false);
+  const [profileDraftName, setProfileDraftName] = useState("");
+  const [profileSavePending, setProfileSavePending] = useState(false);
+  const [profileSaveNotice, setProfileSaveNotice] = useState<string | null>(null);
+  const [profileSaveError, setProfileSaveError] = useState<string | null>(null);
+  const [passwordFormOpen, setPasswordFormOpen] = useState(false);
+  const [passwordDraft, setPasswordDraft] = useState("");
+  const [passwordConfirmDraft, setPasswordConfirmDraft] = useState("");
+  const [passwordUpdatePending, setPasswordUpdatePending] = useState(false);
+  const [passwordUpdateNotice, setPasswordUpdateNotice] = useState<string | null>(null);
+  const [passwordUpdateError, setPasswordUpdateError] = useState<string | null>(null);
   const [accountOverview, setAccountOverview] = useState<AccountBillingOverview | null>(null);
   const [accountOverviewLoading, setAccountOverviewLoading] = useState(false);
   const [accountOverviewError, setAccountOverviewError] = useState<string | null>(null);
@@ -698,6 +876,17 @@ export default function SubscriptionsRoute() {
       setProfile(null);
       setProfileError(null);
       setProfileLoading(false);
+      setProfileEditOpen(false);
+      setProfileDraftName("");
+      setProfileSavePending(false);
+      setProfileSaveNotice(null);
+      setProfileSaveError(null);
+      setPasswordFormOpen(false);
+      setPasswordDraft("");
+      setPasswordConfirmDraft("");
+      setPasswordUpdatePending(false);
+      setPasswordUpdateNotice(null);
+      setPasswordUpdateError(null);
       setAccountOverview(null);
       setAccountOverviewError(null);
       setAccountOverviewLoading(false);
@@ -745,6 +934,14 @@ export default function SubscriptionsRoute() {
     return () => window.clearTimeout(timer);
   }, [checkoutStatus, refreshAccountOverview, refreshAiCredits]);
 
+  useEffect(() => {
+    if (profileEditOpen) return;
+    const nextDraft = normalizeString(profile?.display_name)
+      || normalizeString(user?.user_metadata?.full_name)
+      || "";
+    setProfileDraftName(nextDraft);
+  }, [profile?.display_name, profileEditOpen, user?.user_metadata?.full_name]);
+
   const displayName = normalizeString(profile?.display_name)
     || normalizeString(user?.user_metadata?.full_name)
     || normalizeString(user?.email)
@@ -786,30 +983,37 @@ export default function SubscriptionsRoute() {
   const storageBytesRemaining = storageBytesUsed == null
     ? null
     : Math.max(0, storageTotalBytesEntitled - storageBytesUsed);
+  const selectedPlanChoice = planChoices.find((choice) =>
+    choice.key === (accountOverview?.planItemId ?? "")
+    && choice.interval === (accountOverview?.planInterval === "quarterly" ? "quarterly" : "monthly")
+  );
   const aiBalance = accountOverview?.aiCreditBalance ?? aiSnapshot?.tokenBalance ?? null;
   const avatarUrl = buildAvatarUrl(user);
   const avatarInitials = buildInitials(displayName, user?.email);
+  const aiAccessEligible = Boolean(accountOverview?.planEntitled || founderAccessLabel);
   const aiLockedReason = !user
     ? "Sign in to manage Forge AI credits."
+    : accountOverviewLoading
+    ? "Loading membership entitlement..."
+    : !aiAccessEligible
+    ? "Active Creator, Pro, Studio, or Founder membership is required for AI access (including BYO lane)."
     : aiLoading
     ? "Loading AI billing mode..."
-    : aiSnapshot?.billingMode === "byo"
-    ? "Forge AI credits are only available for Forge-managed AI usage. Your workspace is currently in BYO mode."
     : aiError
     ? "Unable to load AI billing mode. Refresh and try again."
     : "";
-  const aiLocked = !user || aiLoading || !!aiError || aiSnapshot?.billingMode === "byo";
+  const aiLocked = !user || accountOverviewLoading || !aiAccessEligible || aiLoading || !!aiError;
   const canonicalFallbackNotice = !accountOverviewLoading && !accountOverview && !accountOverviewError
     ? "Some billing details are still syncing. A few fields may be limited until that finishes."
     : null;
   const hasAnyCheckoutNotice = Boolean(checkoutMessage);
 
-  async function handlePlanCheckout(): Promise<void> {
-    if (!user || !planPriceId || planPending || founderAccessOnly) return;
+  async function handlePlanCheckout(plan: PlanChoice): Promise<void> {
+    if (!user || !isConfiguredPriceId(plan.priceId) || planPending || founderAccessOnly) return;
     setPlanPending(true);
     setPlanMessage(null);
     try {
-      await startCheckout(planPriceId, "create-checkout-session");
+      await startCheckout(plan.priceId, "create-checkout-session");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Checkout failed.";
       setPlanMessage(`Checkout error: ${message}`);
@@ -818,7 +1022,7 @@ export default function SubscriptionsRoute() {
   }
 
   async function handleStorageCheckout(pack: StoragePack): Promise<void> {
-    if (!user || !pack.priceId || pendingStorageLevel) return;
+    if (!user || !isConfiguredPriceId(pack.priceId) || pendingStorageLevel) return;
     setPendingStorageLevel(pack.level);
     setStorageMessage(null);
     try {
@@ -831,7 +1035,7 @@ export default function SubscriptionsRoute() {
   }
 
   async function handleAiCheckout(pack: AiPack): Promise<void> {
-    if (!user || aiLocked || !pack.priceId || pendingPackKey) return;
+    if (!user || aiLocked || !isConfiguredPriceId(pack.priceId) || pendingPackKey) return;
     setPendingPackKey(pack.key);
     setAiMessage(null);
     try {
@@ -853,6 +1057,106 @@ export default function SubscriptionsRoute() {
       const message = error instanceof Error ? error.message : "Unable to open billing management.";
       setBillingMessage(`Billing portal error: ${message}`);
       setPortalPending(false);
+    }
+  }
+
+  async function handleSaveProfile(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!user || profileSavePending) return;
+
+    const nextDisplayName = normalizeString(profileDraftName);
+    if (!nextDisplayName) {
+      setProfileSaveError("Display name is required.");
+      setProfileSaveNotice(null);
+      return;
+    }
+
+    if (nextDisplayName === normalizeString(profile?.display_name)) {
+      setProfileSaveNotice("No profile changes to save.");
+      setProfileSaveError(null);
+      return;
+    }
+
+    setProfileSavePending(true);
+    setProfileSaveNotice(null);
+    setProfileSaveError(null);
+
+    try {
+      const updated = await updateProfileDisplayName(user, nextDisplayName);
+      setProfile(updated);
+
+      const { error: authUpdateError } = await supabase.auth.updateUser({
+        data: {
+          full_name: nextDisplayName,
+          display_name: nextDisplayName,
+        },
+      });
+
+      if (authUpdateError) {
+        setProfileSaveNotice(
+          "Profile saved. Session metadata will refresh after next sign-in.",
+        );
+      } else {
+        setProfileSaveNotice("Profile updated.");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save profile.";
+      setProfileSaveError(message);
+    } finally {
+      setProfileSavePending(false);
+    }
+  }
+
+  async function handleUpdatePassword(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!user || passwordUpdatePending) return;
+
+    const nextPassword = passwordDraft.trim();
+    const confirmPassword = passwordConfirmDraft.trim();
+
+    if (!nextPassword) {
+      setPasswordUpdateError("Enter a new password.");
+      setPasswordUpdateNotice(null);
+      return;
+    }
+
+    if (nextPassword.length < 8) {
+      setPasswordUpdateError("Use at least 8 characters.");
+      setPasswordUpdateNotice(null);
+      return;
+    }
+
+    if (nextPassword !== confirmPassword) {
+      setPasswordUpdateError("Passwords do not match.");
+      setPasswordUpdateNotice(null);
+      return;
+    }
+
+    setPasswordUpdatePending(true);
+    setPasswordUpdateNotice(null);
+    setPasswordUpdateError(null);
+
+    try {
+      const { data: sessionResult } = await supabase.auth.getSession();
+      if (!sessionResult.session) {
+        setPasswordUpdateError("Your session expired. Sign in again, then retry.");
+        return;
+      }
+
+      const { error } = await supabase.auth.updateUser({ password: nextPassword });
+      if (error) {
+        setPasswordUpdateError(getPasswordUpdateErrorMessage(error.message));
+        return;
+      }
+
+      setPasswordDraft("");
+      setPasswordConfirmDraft("");
+      setPasswordUpdateNotice("Password updated.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update password.";
+      setPasswordUpdateError(getPasswordUpdateErrorMessage(message));
+    } finally {
+      setPasswordUpdatePending(false);
     }
   }
 
@@ -932,18 +1236,108 @@ export default function SubscriptionsRoute() {
                 </div>
                 <div>
                   <dt>Profile actions</dt>
-                  <dd>Editing and password tools are landing here soon.</dd>
+                  <dd>Use the forms below to update your profile and password.</dd>
                 </div>
               </dl>
 
               <div className="subscriptions-actions">
-                <button type="button" className="subscriptions-button subscriptions-button--ghost" disabled>
-                  Edit profile
+                <button
+                  type="button"
+                  className="subscriptions-button subscriptions-button--ghost"
+                  onClick={() => {
+                    setProfileEditOpen((open) => !open);
+                    setProfileSaveNotice(null);
+                    setProfileSaveError(null);
+                  }}
+                >
+                  {profileEditOpen ? "Close profile editor" : "Edit profile"}
                 </button>
-                <button type="button" className="subscriptions-button subscriptions-button--ghost" disabled>
-                  Password settings
+                <button
+                  type="button"
+                  className="subscriptions-button subscriptions-button--ghost"
+                  onClick={() => {
+                    setPasswordFormOpen((open) => !open);
+                    setPasswordUpdateNotice(null);
+                    setPasswordUpdateError(null);
+                  }}
+                >
+                  {passwordFormOpen ? "Close password form" : "Password settings"}
                 </button>
               </div>
+
+              {profileEditOpen ? (
+                <form className="subscriptions-inline-form" onSubmit={(event) => void handleSaveProfile(event)}>
+                  <label className="subscriptions-inline-form__field">
+                    <span>Display name</span>
+                    <input
+                      type="text"
+                      value={profileDraftName}
+                      onChange={(event) => setProfileDraftName(event.target.value)}
+                      maxLength={120}
+                      autoComplete="name"
+                      placeholder="Display name"
+                      disabled={profileSavePending}
+                    />
+                  </label>
+                  <div className="subscriptions-inline-form__actions">
+                    <button
+                      type="submit"
+                      className="subscriptions-button subscriptions-button--secondary"
+                      disabled={profileSavePending}
+                    >
+                      {profileSavePending ? "Saving..." : "Save profile"}
+                    </button>
+                  </div>
+                  {profileSaveNotice ? (
+                    <p className="subscriptions-status subscriptions-status--success">{profileSaveNotice}</p>
+                  ) : null}
+                  {profileSaveError ? (
+                    <p className="subscriptions-status subscriptions-status--error">{profileSaveError}</p>
+                  ) : null}
+                </form>
+              ) : null}
+
+              {passwordFormOpen ? (
+                <form className="subscriptions-inline-form" onSubmit={(event) => void handleUpdatePassword(event)}>
+                  <label className="subscriptions-inline-form__field">
+                    <span>New password</span>
+                    <input
+                      type="password"
+                      value={passwordDraft}
+                      onChange={(event) => setPasswordDraft(event.target.value)}
+                      autoComplete="new-password"
+                      placeholder="New password"
+                      disabled={passwordUpdatePending}
+                    />
+                  </label>
+                  <label className="subscriptions-inline-form__field">
+                    <span>Confirm password</span>
+                    <input
+                      type="password"
+                      value={passwordConfirmDraft}
+                      onChange={(event) => setPasswordConfirmDraft(event.target.value)}
+                      autoComplete="new-password"
+                      placeholder="Confirm password"
+                      disabled={passwordUpdatePending}
+                    />
+                  </label>
+                  <div className="subscriptions-inline-form__actions">
+                    <button
+                      type="submit"
+                      className="subscriptions-button subscriptions-button--secondary"
+                      disabled={passwordUpdatePending}
+                    >
+                      {passwordUpdatePending ? "Updating..." : "Update password"}
+                    </button>
+                  </div>
+                  {passwordUpdateNotice ? (
+                    <p className="subscriptions-status subscriptions-status--success">{passwordUpdateNotice}</p>
+                  ) : null}
+                  {passwordUpdateError ? (
+                    <p className="subscriptions-status subscriptions-status--error">{passwordUpdateError}</p>
+                  ) : null}
+                </form>
+              ) : null}
 
               {profileError ? <p className="subscriptions-status subscriptions-status--error">{profileError}</p> : null}
             </article>
@@ -951,7 +1345,7 @@ export default function SubscriptionsRoute() {
             <article className="subscriptions-card">
               <h3>Plan</h3>
               <p className="subscriptions-card__copy">
-                Review your current plan, renewal timing, and billing access here.
+                Creator and Pro are paid individual plans. Studio remains the team/org tier. Seat add-ons are billed as explicit Stripe offers in workspace billing flows.
               </p>
 
               <dl className="subscriptions-facts subscriptions-facts--compact">
@@ -981,18 +1375,21 @@ export default function SubscriptionsRoute() {
 
               <div className="subscriptions-actions">
                 {!founderAccessOnly ? (
-                  <button
-                    type="button"
-                    className="subscriptions-button"
-                    disabled={!planPriceId || planPending}
-                    onClick={() => void handlePlanCheckout()}
-                  >
-                    {planPending
-                      ? "Redirecting..."
-                      : accountOverview?.planEntitled
-                      ? "Change plan"
-                      : "Upgrade plan"}
-                  </button>
+                  <>
+                    {planChoices.map((plan) => (
+                      <button
+                        key={`${plan.key}-${plan.interval}`}
+                        type="button"
+                        className="subscriptions-button"
+                        disabled={!isConfiguredPriceId(plan.priceId) || planPending}
+                        onClick={() => void handlePlanCheckout(plan)}
+                      >
+                        {planPending
+                          ? "Redirecting..."
+                          : `Choose ${plan.label}`}
+                      </button>
+                    ))}
+                  </>
                 ) : null}
                 <button
                   type="button"
@@ -1009,9 +1406,18 @@ export default function SubscriptionsRoute() {
                   Founder access is admin-assigned.
                 </p>
               ) : null}
-              {!planPriceId && !founderAccessOnly ? (
+              {!selectedPlanChoice ? (
+                <p className="subscriptions-status subscriptions-status--info">
+                  Included monthly credits: Creator 1,000, Pro 4,000, Studio 10,000 shared.
+                </p>
+              ) : (
+                <p className="subscriptions-status subscriptions-status--info">
+                  {selectedPlanChoice.includedCreditsLabel} on each renewal cycle.
+                </p>
+              )}
+              {planChoices.some((plan) => !isConfiguredPriceId(plan.priceId)) && !founderAccessOnly ? (
                 <p className="subscriptions-status subscriptions-status--error">
-                  Billing is not configured in this environment.
+                  One or more plan price IDs are not configured in this environment.
                 </p>
               ) : null}
               {planMessage ? <p className="subscriptions-status subscriptions-status--error">{planMessage}</p> : null}
@@ -1020,7 +1426,7 @@ export default function SubscriptionsRoute() {
             <article className="subscriptions-card subscriptions-card--wide">
               <h3>Storage</h3>
               <p className="subscriptions-card__copy">
-                Only one storage add-on can be active at a time. Total storage equals base plan storage plus your selected add-on.
+                Storage add-ons are stackable and billed monthly. Total storage equals base plan storage plus all active add-ons.
               </p>
 
               <dl className="subscriptions-facts subscriptions-facts--compact">
@@ -1060,14 +1466,6 @@ export default function SubscriptionsRoute() {
 
               <div className="subscriptions-storage-ladder">
                 {storagePacks.map((pack) => {
-                  const isCurrentTier = accountOverview?.storageItemId === pack.level
-                    && billingStatusEntitlesAccess(accountOverview?.storageStatus);
-                  const actionLabel = isCurrentTier
-                    ? "Active"
-                    : accountOverview?.storageItemId
-                    ? "Change add-on"
-                    : "Add storage";
-
                   return (
                     <article
                       key={pack.level}
@@ -1078,9 +1476,7 @@ export default function SubscriptionsRoute() {
                           <strong>{pack.sizeLabel}</strong>
                           <p>{pack.description}</p>
                         </div>
-                        {isCurrentTier ? (
-                          <span className="subscriptions-storage-tier__badge">Active</span>
-                        ) : pack.featured ? (
+                        {pack.featured ? (
                           <span className="subscriptions-storage-tier__badge subscriptions-storage-tier__badge--popular">
                             Most popular
                           </span>
@@ -1090,17 +1486,17 @@ export default function SubscriptionsRoute() {
                       <button
                         type="button"
                         className={`subscriptions-button${pack.featured ? " subscriptions-button--featured" : ""}`}
-                        disabled={!pack.priceId || pendingStorageLevel !== null || isCurrentTier}
+                        disabled={!isConfiguredPriceId(pack.priceId) || pendingStorageLevel !== null}
                         onClick={() => void handleStorageCheckout(pack)}
                       >
-                        {pendingStorageLevel === pack.level ? "Redirecting..." : actionLabel}
+                        {pendingStorageLevel === pack.level ? "Redirecting..." : "Add storage"}
                       </button>
                     </article>
                   );
                 })}
               </div>
 
-              {storagePacks.some((pack) => !pack.priceId) ? (
+              {storagePacks.some((pack) => !isConfiguredPriceId(pack.priceId)) ? (
                 <p className="subscriptions-status subscriptions-status--error">
                   One or more storage price IDs are not configured.
                 </p>
@@ -1111,7 +1507,7 @@ export default function SubscriptionsRoute() {
             <article className="subscriptions-card subscriptions-card--wide">
               <h3>AI Credits</h3>
               <p className="subscriptions-card__copy">
-                Add credits for Forge-managed AI usage without leaving this account hub.
+                AI access requires active membership (Creator, Pro, Studio, or Founder), including BYO lane.
               </p>
 
               <div className="subscriptions-pack-row">
@@ -1120,7 +1516,7 @@ export default function SubscriptionsRoute() {
                     key={pack.key}
                     type="button"
                     className="subscriptions-button"
-                    disabled={aiLocked || !pack.priceId || pendingPackKey !== null}
+                    disabled={aiLocked || !isConfiguredPriceId(pack.priceId) || pendingPackKey !== null}
                     onClick={() => void handleAiCheckout(pack)}
                   >
                     {pendingPackKey === pack.key
@@ -1141,10 +1537,17 @@ export default function SubscriptionsRoute() {
                 </div>
               </dl>
 
+              <p className="subscriptions-status subscriptions-status--info">
+                Forge credits cover text/assist flows and reference clips. Image-generation flows (thumbnails, timeline images, B-roll generation) are excluded and billed separately later.
+              </p>
+              <p className="subscriptions-status subscriptions-status--info">
+                BYO usage does not consume Forge credits. BYO members still receive included monthly base credits on renewal.
+              </p>
+
               {aiLockedReason ? (
                 <p className="subscriptions-status subscriptions-status--info">{aiLockedReason}</p>
               ) : null}
-              {aiPacks.some((pack) => !pack.priceId) ? (
+              {aiPacks.some((pack) => !isConfiguredPriceId(pack.priceId)) ? (
                 <p className="subscriptions-status subscriptions-status--error">
                   One or more AI credit pack price IDs are not configured.
                 </p>

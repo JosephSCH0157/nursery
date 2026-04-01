@@ -182,3 +182,76 @@ test("visual providers: timeline image prompt pack uses the same active provider
   assert.equal(result.pack.negative, undefined);
   assert.match(result.pack.prompt, /podcast|timeline beat|spoken narration|comparison/i);
 });
+
+test("visual providers: timeline image prompt pack dedupes repeated description text", () => {
+  const repeated = "Even our license plate still carries an orange — a symbol of something that barely exists in the landscape anymore.";
+  const result = buildTimelineImagePromptPack({
+    entry: {
+      id: "img-dup-1",
+      anchor: "s1:para3",
+      script_anchor: null,
+      beat_anchor: null,
+      anchor_scope: "attached",
+      purpose: "coverage",
+      description: repeated,
+      visual_intent: "cutaway coverage",
+      prompt_basis: repeated,
+      style_preset: "cinematic_realism",
+      intent: "comparison",
+      source_type: "stock",
+      origin: "hearth",
+      visual_priority: "primary",
+      visual_type: "still_image",
+      section_intent_note: "",
+      beat_order: 1,
+      paragraph_beat_order: 1,
+      candidate_assets: [],
+      selected_asset_id: null,
+      status: "draft",
+      placement_hint: "first occurrence",
+    },
+    providerId: "generic",
+  });
+
+  const normalizedNeedle = repeated.toLowerCase();
+  const occurrences = (result.pack.prompt.toLowerCase().match(new RegExp(normalizedNeedle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []).length;
+  assert.equal(occurrences, 1);
+});
+
+test("visual providers: timeline image prompt pack removes duplicate sentence fragments", () => {
+  const repeatedSentence = "So here's the question that hangs over all of this. The one everybody asks sooner or later.";
+  const result = buildTimelineImagePromptPack({
+    entry: {
+      id: "img-dup-2",
+      anchor: "s1:para4",
+      script_anchor: null,
+      beat_anchor: null,
+      anchor_scope: "attached",
+      purpose: "cutaway",
+      description: `${repeatedSentence} So here's.`,
+      visual_intent: "coverage",
+      prompt_basis: repeatedSentence,
+      style_preset: "cinematic_realism",
+      intent: "cutaway",
+      source_type: "stock",
+      origin: "hearth",
+      visual_priority: "primary",
+      visual_type: "still_image",
+      section_intent_note: "",
+      beat_order: 1,
+      paragraph_beat_order: 1,
+      candidate_assets: [],
+      selected_asset_id: null,
+      status: "draft",
+      placement_hint: "first occurrence",
+    },
+    providerId: "generic",
+  });
+
+  const occurrences = (
+    result.pack.prompt.toLowerCase().match(/so here's the question that hangs over all of this\./g) ?? []
+  ).length;
+  assert.equal(occurrences, 1);
+  assert.ok(!/\bso here's\.$/i.test(result.pack.prompt));
+  assert.ok(!/\.\./.test(result.pack.prompt));
+});
