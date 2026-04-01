@@ -4,20 +4,20 @@
   "private": true,
   "type": "module",
   "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "types": "src/index.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./ai-policy": {
-      "types": "./dist/ai-policy.d.ts",
+      "types": "./src/ai-policy.ts",
       "import": "./dist/ai-policy.js",
       "default": "./dist/ai-policy.js"
     },
     "./ai-usage-taxonomy": {
-      "types": "./dist/ai-usage-taxonomy.d.ts",
+      "types": "./src/ai-usage-taxonomy.ts",
       "import": "./dist/ai-usage-taxonomy.js",
       "default": "./dist/ai-usage-taxonomy.js"
     }
