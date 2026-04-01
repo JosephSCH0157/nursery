@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
 import { Link, useLocation, useOutletContext } from "react-router-dom";
@@ -608,6 +609,47 @@ async function ensureUserProfile(user: User): Promise<ForgeProfile> {
   return inserted as ForgeProfile;
 }
 
+async function updateProfileDisplayName(
+  user: User,
+  displayName: string,
+): Promise<ForgeProfile> {
+  const profilesClient = supabase as unknown as ProfilesTableClient;
+  const normalizedDisplayName = normalizeString(displayName);
+
+  const { data, error } = await profilesClient
+    .from("profiles")
+    .update({
+      display_name: normalizedDisplayName || null,
+    })
+    .eq("user_id", user.id)
+    .select("user_id, display_name, tier, stripe_customer_id, subscription_status, current_period_end")
+    .single();
+
+  if (error) throw error;
+  return data as ForgeProfile;
+}
+
+function getPasswordUpdateErrorMessage(message: string): string {
+  const normalized = normalizeLowerString(message);
+  if (
+    normalized.includes("auth session missing")
+    || normalized.includes("invalid jwt")
+    || normalized.includes("jwt expired")
+    || normalized.includes("refresh token not found")
+  ) {
+    return "Your session expired. Sign in again, then retry password update.";
+  }
+
+  if (
+    normalized.includes("reauthentication required")
+    || normalized.includes("recent login required")
+  ) {
+    return "For security, please sign in again before updating your password.";
+  }
+
+  return message || "Unable to update password.";
+}
+
 async function fetchCanonicalAccountOverview(userId: string): Promise<AccountBillingOverview | null> {
   const { data, error } = await tongsBillingDb
     .from("account_balances")
@@ -757,6 +799,17 @@ export default function SubscriptionsRoute() {
   const [profile, setProfile] = useState<ForgeProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileEditOpen, setProfileEditOpen] = useState(false);
+  const [profileDraftName, setProfileDraftName] = useState("");
+  const [profileSavePending, setProfileSavePending] = useState(false);
+  const [profileSaveNotice, setProfileSaveNotice] = useState<string | null>(null);
+  const [profileSaveError, setProfileSaveError] = useState<string | null>(null);
+  const [passwordFormOpen, setPasswordFormOpen] = useState(false);
+  const [passwordDraft, setPasswordDraft] = useState("");
+  const [passwordConfirmDraft, setPasswordConfirmDraft] = useState("");
+  const [passwordUpdatePending, setPasswordUpdatePending] = useState(false);
+  const [passwordUpdateNotice, setPasswordUpdateNotice] = useState<string | null>(null);
+  const [passwordUpdateError, setPasswordUpdateError] = useState<string | null>(null);
   const [accountOverview, setAccountOverview] = useState<AccountBillingOverview | null>(null);
   const [accountOverviewLoading, setAccountOverviewLoading] = useState(false);
   const [accountOverviewError, setAccountOverviewError] = useState<string | null>(null);
@@ -823,6 +876,17 @@ export default function SubscriptionsRoute() {
       setProfile(null);
       setProfileError(null);
       setProfileLoading(false);
+      setProfileEditOpen(false);
+      setProfileDraftName("");
+      setProfileSavePending(false);
+      setProfileSaveNotice(null);
+      setProfileSaveError(null);
+      setPasswordFormOpen(false);
+      setPasswordDraft("");
+      setPasswordConfirmDraft("");
+      setPasswordUpdatePending(false);
+      setPasswordUpdateNotice(null);
+      setPasswordUpdateError(null);
       setAccountOverview(null);
       setAccountOverviewError(null);
       setAccountOverviewLoading(false);
@@ -869,6 +933,14 @@ export default function SubscriptionsRoute() {
     }, 2500);
     return () => window.clearTimeout(timer);
   }, [checkoutStatus, refreshAccountOverview, refreshAiCredits]);
+
+  useEffect(() => {
+    if (profileEditOpen) return;
+    const nextDraft = normalizeString(profile?.display_name)
+      || normalizeString(user?.user_metadata?.full_name)
+      || "";
+    setProfileDraftName(nextDraft);
+  }, [profile?.display_name, profileEditOpen, user?.user_metadata?.full_name]);
 
   const displayName = normalizeString(profile?.display_name)
     || normalizeString(user?.user_metadata?.full_name)
@@ -988,6 +1060,106 @@ export default function SubscriptionsRoute() {
     }
   }
 
+  async function handleSaveProfile(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!user || profileSavePending) return;
+
+    const nextDisplayName = normalizeString(profileDraftName);
+    if (!nextDisplayName) {
+      setProfileSaveError("Display name is required.");
+      setProfileSaveNotice(null);
+      return;
+    }
+
+    if (nextDisplayName === normalizeString(profile?.display_name)) {
+      setProfileSaveNotice("No profile changes to save.");
+      setProfileSaveError(null);
+      return;
+    }
+
+    setProfileSavePending(true);
+    setProfileSaveNotice(null);
+    setProfileSaveError(null);
+
+    try {
+      const updated = await updateProfileDisplayName(user, nextDisplayName);
+      setProfile(updated);
+
+      const { error: authUpdateError } = await supabase.auth.updateUser({
+        data: {
+          full_name: nextDisplayName,
+          display_name: nextDisplayName,
+        },
+      });
+
+      if (authUpdateError) {
+        setProfileSaveNotice(
+          "Profile saved. Session metadata will refresh after next sign-in.",
+        );
+      } else {
+        setProfileSaveNotice("Profile updated.");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save profile.";
+      setProfileSaveError(message);
+    } finally {
+      setProfileSavePending(false);
+    }
+  }
+
+  async function handleUpdatePassword(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!user || passwordUpdatePending) return;
+
+    const nextPassword = passwordDraft.trim();
+    const confirmPassword = passwordConfirmDraft.trim();
+
+    if (!nextPassword) {
+      setPasswordUpdateError("Enter a new password.");
+      setPasswordUpdateNotice(null);
+      return;
+    }
+
+    if (nextPassword.length < 8) {
+      setPasswordUpdateError("Use at least 8 characters.");
+      setPasswordUpdateNotice(null);
+      return;
+    }
+
+    if (nextPassword !== confirmPassword) {
+      setPasswordUpdateError("Passwords do not match.");
+      setPasswordUpdateNotice(null);
+      return;
+    }
+
+    setPasswordUpdatePending(true);
+    setPasswordUpdateNotice(null);
+    setPasswordUpdateError(null);
+
+    try {
+      const { data: sessionResult } = await supabase.auth.getSession();
+      if (!sessionResult.session) {
+        setPasswordUpdateError("Your session expired. Sign in again, then retry.");
+        return;
+      }
+
+      const { error } = await supabase.auth.updateUser({ password: nextPassword });
+      if (error) {
+        setPasswordUpdateError(getPasswordUpdateErrorMessage(error.message));
+        return;
+      }
+
+      setPasswordDraft("");
+      setPasswordConfirmDraft("");
+      setPasswordUpdateNotice("Password updated.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update password.";
+      setPasswordUpdateError(getPasswordUpdateErrorMessage(message));
+    } finally {
+      setPasswordUpdatePending(false);
+    }
+  }
+
   return (
     <section className="subscriptions-page">
       <header className="subscriptions-page__header">
@@ -1064,18 +1236,108 @@ export default function SubscriptionsRoute() {
                 </div>
                 <div>
                   <dt>Profile actions</dt>
-                  <dd>Editing and password tools are landing here soon.</dd>
+                  <dd>Use the forms below to update your profile and password.</dd>
                 </div>
               </dl>
 
               <div className="subscriptions-actions">
-                <button type="button" className="subscriptions-button subscriptions-button--ghost" disabled>
-                  Edit profile
+                <button
+                  type="button"
+                  className="subscriptions-button subscriptions-button--ghost"
+                  onClick={() => {
+                    setProfileEditOpen((open) => !open);
+                    setProfileSaveNotice(null);
+                    setProfileSaveError(null);
+                  }}
+                >
+                  {profileEditOpen ? "Close profile editor" : "Edit profile"}
                 </button>
-                <button type="button" className="subscriptions-button subscriptions-button--ghost" disabled>
-                  Password settings
+                <button
+                  type="button"
+                  className="subscriptions-button subscriptions-button--ghost"
+                  onClick={() => {
+                    setPasswordFormOpen((open) => !open);
+                    setPasswordUpdateNotice(null);
+                    setPasswordUpdateError(null);
+                  }}
+                >
+                  {passwordFormOpen ? "Close password form" : "Password settings"}
                 </button>
               </div>
+
+              {profileEditOpen ? (
+                <form className="subscriptions-inline-form" onSubmit={(event) => void handleSaveProfile(event)}>
+                  <label className="subscriptions-inline-form__field">
+                    <span>Display name</span>
+                    <input
+                      type="text"
+                      value={profileDraftName}
+                      onChange={(event) => setProfileDraftName(event.target.value)}
+                      maxLength={120}
+                      autoComplete="name"
+                      placeholder="Display name"
+                      disabled={profileSavePending}
+                    />
+                  </label>
+                  <div className="subscriptions-inline-form__actions">
+                    <button
+                      type="submit"
+                      className="subscriptions-button subscriptions-button--secondary"
+                      disabled={profileSavePending}
+                    >
+                      {profileSavePending ? "Saving..." : "Save profile"}
+                    </button>
+                  </div>
+                  {profileSaveNotice ? (
+                    <p className="subscriptions-status subscriptions-status--success">{profileSaveNotice}</p>
+                  ) : null}
+                  {profileSaveError ? (
+                    <p className="subscriptions-status subscriptions-status--error">{profileSaveError}</p>
+                  ) : null}
+                </form>
+              ) : null}
+
+              {passwordFormOpen ? (
+                <form className="subscriptions-inline-form" onSubmit={(event) => void handleUpdatePassword(event)}>
+                  <label className="subscriptions-inline-form__field">
+                    <span>New password</span>
+                    <input
+                      type="password"
+                      value={passwordDraft}
+                      onChange={(event) => setPasswordDraft(event.target.value)}
+                      autoComplete="new-password"
+                      placeholder="New password"
+                      disabled={passwordUpdatePending}
+                    />
+                  </label>
+                  <label className="subscriptions-inline-form__field">
+                    <span>Confirm password</span>
+                    <input
+                      type="password"
+                      value={passwordConfirmDraft}
+                      onChange={(event) => setPasswordConfirmDraft(event.target.value)}
+                      autoComplete="new-password"
+                      placeholder="Confirm password"
+                      disabled={passwordUpdatePending}
+                    />
+                  </label>
+                  <div className="subscriptions-inline-form__actions">
+                    <button
+                      type="submit"
+                      className="subscriptions-button subscriptions-button--secondary"
+                      disabled={passwordUpdatePending}
+                    >
+                      {passwordUpdatePending ? "Updating..." : "Update password"}
+                    </button>
+                  </div>
+                  {passwordUpdateNotice ? (
+                    <p className="subscriptions-status subscriptions-status--success">{passwordUpdateNotice}</p>
+                  ) : null}
+                  {passwordUpdateError ? (
+                    <p className="subscriptions-status subscriptions-status--error">{passwordUpdateError}</p>
+                  ) : null}
+                </form>
+              ) : null}
 
               {profileError ? <p className="subscriptions-status subscriptions-status--error">{profileError}</p> : null}
             </article>

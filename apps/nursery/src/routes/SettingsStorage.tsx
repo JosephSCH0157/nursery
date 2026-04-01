@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import type {
   MirrorPolicy,
@@ -62,8 +62,12 @@ function buildMirrorConfig(
 }
 
 export default function SettingsStorage() {
+  const shell = useOutletContext<AppShellContext>();
+  const session = shell?.session ?? null;
+  const preferredWorkspaceId = shell?.workspaceId ?? "default";
+
   const initialState = useMemo(() => {
-    const res = loadMountRegistry("default");
+    const res = loadMountRegistry(preferredWorkspaceId);
     let statusMessage = "Storage registry loaded.";
     if (!res.ok) {
       statusMessage = `Registry reset: ${toFriendly(res.issues)}`;
@@ -71,7 +75,7 @@ export default function SettingsStorage() {
       statusMessage = "Storage registry seeded with defaults.";
     }
     return { registry: res.registry, status: statusMessage };
-  }, []);
+  }, [preferredWorkspaceId]);
 
   const [registry, setRegistry] = useState<WorkspaceMountRegistry | null>(initialState.registry);
   const [status, setStatus] = useState<string | null>(initialState.status);
@@ -79,9 +83,22 @@ export default function SettingsStorage() {
   const [hasChanges, setHasChanges] = useState(false);
   const [mirroringRole, setMirroringRole] = useState<MountRole | null>(null);
 
-  const shell = useOutletContext<AppShellContext>();
-  const session = shell?.session ?? null;
   const activeWorkspaceId = shell?.workspaceId ?? registry?.workspaceId ?? null;
+
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    if (registry?.workspaceId === activeWorkspaceId) return;
+    if (hasChanges) return;
+    const res = loadMountRegistry(activeWorkspaceId);
+    setRegistry(res.registry);
+    if (!res.ok) {
+      setStatus(`Registry reset: ${toFriendly(res.issues)}`);
+    } else if (res.seeded) {
+      setStatus("Storage registry seeded with defaults.");
+    } else {
+      setStatus("Storage registry loaded.");
+    }
+  }, [activeWorkspaceId, hasChanges, registry?.workspaceId]);
 
   const updateRegistryEntry = (role: MountRole, updater: (entry: MountRegistryEntry) => MountRegistryEntry) => {
     setRegistry((prev) => {
@@ -92,7 +109,12 @@ export default function SettingsStorage() {
       const mounts = existing
         ? prev.mounts.map((entry) => (entry.role === role ? nextEntry : entry))
         : [...prev.mounts, nextEntry];
-      return { ...prev, mounts, updatedAtIso: new Date().toISOString() };
+      return {
+        ...prev,
+        workspaceId: activeWorkspaceId ?? prev.workspaceId,
+        mounts,
+        updatedAtIso: new Date().toISOString(),
+      };
     });
     setHasChanges(true);
   };
@@ -118,7 +140,8 @@ export default function SettingsStorage() {
     const handle = await pickDirectory();
     if (!handle) return;
 
-    const vaultKey = buildVaultKey(registry.workspaceId, role, "local");
+    const workspaceId = activeWorkspaceId ?? registry.workspaceId;
+    const vaultKey = buildVaultKey(workspaceId, role, "local");
     try {
       await setHandle(vaultKey, handle, handle.name);
     } catch (err) {
@@ -176,7 +199,8 @@ export default function SettingsStorage() {
     const handle = await pickDirectory();
     if (!handle) return;
 
-    const vaultKey = buildVaultKey(registry.workspaceId, role, "mirror");
+    const workspaceId = activeWorkspaceId ?? registry.workspaceId;
+    const vaultKey = buildVaultKey(workspaceId, role, "mirror");
     try {
       await setHandle(vaultKey, handle, handle.name);
     } catch (err) {
@@ -230,7 +254,7 @@ export default function SettingsStorage() {
 
   const handleReset = () => {
     clearMountRegistry();
-    const res = loadMountRegistry("default");
+    const res = loadMountRegistry(activeWorkspaceId ?? "default");
     setRegistry(res.registry);
     setHasChanges(false);
     setStatus("Storage preferences reset to defaults.");
