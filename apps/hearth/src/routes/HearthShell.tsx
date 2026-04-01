@@ -125,8 +125,6 @@ import { useCanonicalImageMapScriptStateLoader } from "../hooks/visuals/useCanon
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
 import {
   buildThumbnailPanelProps,
-  buildBrollPlanPanelProps,
-  buildImageMapPanelProps,
   buildMediaMapPanelProps,
 } from "../hooks/visuals/buildVisualsPanelProps";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
@@ -223,6 +221,8 @@ import { buildHearthDraftScriptSurfaceProps } from "../views/modes/buildHearthDr
 import { buildHearthDraftScriptPanelState } from "../views/modes/buildHearthDraftScriptPanelState";
 import HearthDesktopRail from "../views/modes/HearthDesktopRail";
 import { buildHearthReferenceClipPanelProps } from "../views/modes/buildHearthReferenceClipPanelProps";
+import { buildHearthBrollPanelProps } from "../views/modes/buildHearthBrollPanelProps";
+import { buildHearthImageMapPanelProps } from "../views/modes/buildHearthImageMapPanelProps";
 import {
   PRODUCTION_ACTION_LABEL,
   persistProductionArtifact as persistHearthProductionArtifact,
@@ -6736,7 +6736,7 @@ export default function HearthShell({
       onSaveEntry: () => void onSaveMediaMapEntry(),
       onDeleteEntry: () => void onDeleteMediaMapEntry(),
     });
-    const imageMapPanelProps = buildImageMapPanelProps({
+    const imageMapPanelProps = buildHearthImageMapPanelProps({
       panelTitle: "Timeline Images",
       manualOnly: false,
       entries: imageMapEntries,
@@ -6807,7 +6807,7 @@ export default function HearthShell({
       onCancelReanchor: onCancelImageMapReanchor,
       onPickReanchor: (selection: ImageMapScriptSelection) => void onPickImageMapReanchor(selection),
     });
-    const brollPlanPanelProps = buildBrollPlanPanelProps({
+    const brollPlanPanelProps = buildHearthBrollPanelProps({
       beats: brollBeats,
       selectedBeatId: selectedBrollBeatId,
       coverageStrength: brollPlan?.coverage_strength ?? null,
