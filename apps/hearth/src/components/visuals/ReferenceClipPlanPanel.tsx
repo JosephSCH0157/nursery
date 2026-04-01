@@ -178,6 +178,7 @@ function CandidateList(args: {
 
 export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProps) {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const lastPreviewLoadSignatureRef = useRef<string>("");
   const selectedEntry = useMemo(
     () => props.entries.find((entry) => entry.id === props.selectedEntryId) ?? null,
     [props.entries, props.selectedEntryId],
@@ -195,8 +196,26 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
     ? resolveCandidatePreviewSource(selectedCandidate, previewUrlById)
     : null;
   const hasUsableSelectedAsset = Boolean(selectedAssetPreviewSource);
+  const previewLoadSignature = useMemo(() => {
+    const episodeId = props.workpieceId?.trim() ?? "";
+    const entryId = selectedEntry?.id ?? "";
+    const candidateSignature = candidates
+      .map((candidate) => [
+        candidate.asset_id ?? "",
+        candidate.path ?? "",
+        candidate.mime_type ?? "",
+        candidate.uri ?? "",
+      ].join("|"))
+      .join("||");
+    return `${episodeId}::${entryId}::${candidateSignature}`;
+  }, [candidates, props.workpieceId, selectedEntry?.id]);
 
   useEffect(() => {
+    if (lastPreviewLoadSignatureRef.current === previewLoadSignature) {
+      return;
+    }
+    lastPreviewLoadSignatureRef.current = previewLoadSignature;
+
     const episodeId = props.workpieceId?.trim() ?? "";
     if (!episodeId || !selectedEntry || candidates.length === 0) {
       setPreviewStateById({});
@@ -249,7 +268,7 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
     return () => {
       cancelled = true;
     };
-  }, [candidates, props.workpieceId, selectedEntry]);
+  }, [candidates, previewLoadSignature, props.workpieceId, selectedEntry]);
 
   return (
     <div className="hs-imap-panel">
