@@ -6875,6 +6875,7 @@ export default function HearthShell({
       saveError: referenceClipSaveError,
       message: referenceClipMessage,
       disabled: isApprovingScript || isReferenceClipBusy || !episodePackage,
+      workpieceId,
       draft: {
         anchorText: referenceClipAnchorDraft,
         description: referenceClipDescriptionDraft,

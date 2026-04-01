@@ -12,6 +12,7 @@ import { generateWorkpieceImageMapCandidates } from "../../lib/hearth-image-map-
 import { resolveBulletBeatContext } from "../../lib/hearth-spoken-beats";
 import { resolveAiThumbnailAutoApproveFromStorage } from "../../lib/hearth-chat-api";
 import type {
+  EpisodeBrollAssetCandidate,
   EpisodeContextualDataCompositePlan,
   EpisodeImageMapEntry,
   EpisodeReferenceClipChartType,
@@ -83,6 +84,27 @@ type UseReferenceClipCoreActionsArgs = {
     | { ok: false; message: string }
   >;
 };
+
+function dedupeReferenceClipCandidates(
+  candidates: EpisodeBrollAssetCandidate[] | null | undefined,
+): EpisodeBrollAssetCandidate[] {
+  if (!candidates?.length) return [];
+  const seen = new Set<string>();
+  const deduped: EpisodeBrollAssetCandidate[] = [];
+  for (const candidate of candidates) {
+    const normalizedPath = candidate.path?.trim()?.toLowerCase() ?? "";
+    const normalizedSourceUrl = candidate.source_url?.trim()?.toLowerCase() ?? "";
+    const normalizedLabel = candidate.label?.trim()?.toLowerCase() ?? "";
+    const dedupeKey = [
+      normalizedPath || normalizedSourceUrl || (candidate.asset_id?.trim() ?? ""),
+      normalizedLabel,
+    ].join("|");
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    deduped.push(candidate);
+  }
+  return deduped;
+}
 
 export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArgs) {
   const buildReferenceClipEntryFromDraft = useCallback((
@@ -270,18 +292,26 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
         source: "hearth_ai" as const,
         asset_class: "reference_clip" as const,
         source_beat_id: referenceClipEntry.id,
-        source_label: "Forge",
+        source_label: `Forge · ${asset.provider}`,
+        source_url: asset.path,
         label: asset.variantLabel,
         path: asset.path,
         mime_type: asset.mimeType,
         created_at: generatedAt,
       }));
-      const selectedGeneratedAssetId = generatedCandidates[0]?.asset_id ?? null;
+      const dedupedGeneratedCandidates = dedupeReferenceClipCandidates(generatedCandidates);
+      if (!dedupedGeneratedCandidates.length) {
+        args.setReferenceClipSaveError("Forge returned duplicate or unusable candidates only. Try generating again.");
+        args.setReferenceClipSaveState("error");
+        return false;
+      }
+      const selectedGeneratedAssetId = dedupedGeneratedCandidates[0]?.asset_id ?? null;
       const preservedCandidates = (referenceClipEntry.candidate_assets ?? []).filter((asset) => asset.source !== "hearth_ai");
+      const mergedCandidates = dedupeReferenceClipCandidates([...preservedCandidates, ...dedupedGeneratedCandidates]);
       const nextGeneratedEntry: EpisodeContextualDataCompositePlan = {
         ...referenceClipEntry,
         source_type: "hearth_ai",
-        candidate_assets: [...preservedCandidates, ...generatedCandidates],
+        candidate_assets: mergedCandidates,
         selected_asset_id: selectedGeneratedAssetId,
         external_request: advanceExternalRequestTracker(referenceClipEntry.external_request, "resolved", {
           providerId: "forge",
@@ -302,7 +332,8 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
         eventName: "hearth.cdc_plan.generated_in_forge.v1",
         eventPayload: {
           cdc_id: referenceClipEntry.id,
-          generated_asset_count: generatedCandidates.length,
+          generated_asset_count: dedupedGeneratedCandidates.length,
+          duplicate_asset_count: Math.max(0, generatedCandidates.length - dedupedGeneratedCandidates.length),
         },
         baseEpisodePackage: cleanedImageMap.episodePackage,
       });
@@ -313,7 +344,12 @@ export function useReferenceClipCoreActions(args: UseReferenceClipCoreActionsArg
       }
 
       args.setReferenceClipSaveState("saved");
-      args.setReferenceClipMessage(`Reference Clip generated in Forge (${generatedCandidates.length} candidate${generatedCandidates.length === 1 ? "" : "s"}).`);
+      const duplicateCount = Math.max(0, generatedCandidates.length - dedupedGeneratedCandidates.length);
+      args.setReferenceClipMessage(
+        duplicateCount > 0
+          ? `Reference Clip generated in Forge (${dedupedGeneratedCandidates.length} usable candidate${dedupedGeneratedCandidates.length === 1 ? "" : "s"}, ${duplicateCount} duplicate${duplicateCount === 1 ? "" : "s"} removed).`
+          : `Reference Clip generated in Forge (${dedupedGeneratedCandidates.length} candidate${dedupedGeneratedCandidates.length === 1 ? "" : "s"}).`,
+      );
       return true;
     } catch {
       args.setReferenceClipSaveError("Unable to generate this Reference Clip in Forge.");

@@ -161,6 +161,7 @@ type BuildReferenceClipPanelArgs = {
   saveError: string | null;
   message: string | null;
   disabled: boolean;
+  workpieceId: string | null;
   draft: ReferenceClipPanelProps["draft"];
   requestState: string;
   providers: ReferenceClipPanelProps["providers"];
@@ -411,6 +412,7 @@ export function buildReferenceClipPlanPanelProps(args: BuildReferenceClipPanelAr
     saveError: args.saveError,
     message: args.message,
     disabled: args.disabled,
+    workpieceId: args.workpieceId,
     draft: args.draft,
     requestState: args.requestState,
     providers: args.providers,

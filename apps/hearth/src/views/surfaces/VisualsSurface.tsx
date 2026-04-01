@@ -36,23 +36,6 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
   const [openPanel, setOpenPanel] = useState<HearthVisualsPanelId | null>("media_map");
   const openPanelRef = useRef<HearthVisualsPanelId | null>("media_map");
 
-  const resolveScrollParent = useCallback((element: HTMLElement): HTMLElement | Window => {
-    if (typeof window === "undefined") return element;
-    let current: HTMLElement | null = element.parentElement;
-    while (current) {
-      const styles = window.getComputedStyle(current);
-      const overflowY = styles.overflowY;
-      const isScrollable = (
-        overflowY === "auto"
-        || overflowY === "scroll"
-        || overflowY === "overlay"
-      ) && current.scrollHeight > current.clientHeight + 4;
-      if (isScrollable) return current;
-      current = current.parentElement;
-    }
-    return window;
-  }, []);
-
   const queueScrollToPanel = useCallback((panel: HearthVisualsPanelId) => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
     const sectionId = HEARTH_VISUALS_PANEL_SECTION_IDS[panel];
@@ -60,24 +43,9 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
       const section = document.getElementById(sectionId);
       if (!section) return;
       const target = section.querySelector<HTMLElement>(".hs-focus-panel-header") ?? section;
-      const scrollParent = resolveScrollParent(section);
-      if (scrollParent === window) {
-        const rect = target.getBoundingClientRect();
-        const centeredTop = window.scrollY + rect.top - (window.innerHeight / 2) + (rect.height / 2);
-        window.scrollTo({
-          top: Math.max(0, centeredTop),
-          behavior: "smooth",
-        });
-        return;
-      }
-      const container = scrollParent as HTMLElement;
-      const targetRect = target.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-      const targetTopInContainer = targetRect.top - containerRect.top + container.scrollTop;
-      const centeredTop = targetTopInContainer - (container.clientHeight / 2) + (targetRect.height / 2);
-      container.scrollTo({
-        top: Math.max(0, centeredTop),
+      target.scrollIntoView({
         behavior: "smooth",
+        block: "center",
       });
     };
     window.requestAnimationFrame(() => {
@@ -85,7 +53,7 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
       window.setTimeout(scrollPanelIntoView, 140);
       window.setTimeout(scrollPanelIntoView, 280);
     });
-  }, [resolveScrollParent]);
+  }, []);
 
   const handleTogglePanel = useCallback((panel: HearthVisualsPanelId) => {
     const nextPanel = toggleHearthVisualsPanel(openPanelRef.current, panel);

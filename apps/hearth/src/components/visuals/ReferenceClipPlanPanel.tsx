@@ -1,4 +1,5 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { loadImageMapCandidatePreviewDataUrl } from "../../lib/hearth-image-map-repo";
 import type { EpisodeBrollAssetCandidate, EpisodeContextualDataCompositePlan } from "../../lib/episode-package-v2";
 import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actionability";
 import type { PromptPack } from "../../lib/hearth-visual-provider-profiles";
@@ -10,6 +11,7 @@ type ReferenceClipPlanPanelProps = {
   saveError: string | null;
   message: string | null;
   disabled?: boolean;
+  workpieceId: string | null;
   draft: {
     anchorText: string;
     description: string;
@@ -74,7 +76,9 @@ const MOTION_LEVELS = ["static", "subtle", "full_animation"];
 const CHART_TYPES = ["line", "bar", "area", "scatter", "timeline", "map", "stat_card", "comparison"];
 const SOURCE_TYPES = ["planned", "hearth_ai", "upload", "external", "hammer_upload"];
 
-function resolveCandidatePreviewSource(candidate: EpisodeBrollAssetCandidate): string | null {
+type CandidatePreviewState = "loading" | "ready" | "error";
+
+function resolveDirectCandidatePreviewSource(candidate: EpisodeBrollAssetCandidate): string | null {
   const uri = (candidate.uri ?? "").trim();
   if (uri && (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("blob:") || uri.startsWith("data:"))) {
     return uri;
@@ -86,10 +90,20 @@ function resolveCandidatePreviewSource(candidate: EpisodeBrollAssetCandidate): s
   return null;
 }
 
+function resolveCandidatePreviewSource(
+  candidate: EpisodeBrollAssetCandidate,
+  previewUrlById: Record<string, string>,
+): string | null {
+  return resolveDirectCandidatePreviewSource(candidate) ?? previewUrlById[candidate.asset_id] ?? null;
+}
+
 function CandidateList(args: {
   candidates: EpisodeBrollAssetCandidate[];
   selectedCandidateId: string | null;
   disabled: boolean;
+  previewStateById: Record<string, CandidatePreviewState>;
+  previewUrlById: Record<string, string>;
+  previewErrorById: Record<string, string>;
   onSelectCandidate: (candidateId: string) => void;
 }) {
   if (args.candidates.length === 0) {
@@ -97,51 +111,67 @@ function CandidateList(args: {
   }
   return (
     <div className="hs-imap-candidates">
-      {args.candidates.map((candidate) => (
-        <article key={candidate.asset_id} className={`hs-imap-candidate-card${candidate.asset_id === args.selectedCandidateId ? " is-selected" : ""}`}>
-          {candidate.mime_type?.startsWith("image/") ? (
-            <div className="hs-imap-candidate-media">
-              {resolveCandidatePreviewSource(candidate) ? (
-                <img
-                  src={resolveCandidatePreviewSource(candidate) ?? ""}
-                  alt={candidate.label ?? "Reference clip candidate"}
-                  className="hs-imap-candidate-image"
-                  loading="lazy"
-                />
-              ) : (
-                <div className="hs-imap-candidate-placeholder">Preview unavailable in-app</div>
-              )}
-            </div>
-          ) : null}
-          <div className="hs-imap-candidate-meta">
-            <div className="hs-imap-candidate-title">
-              {candidate.label ?? candidate.source}
-              {candidate.asset_id === args.selectedCandidateId ? <span className="hs-imap-candidate-badge">Selected</span> : null}
-            </div>
-            <div className="hs-imap-candidate-subtitle">
-              {candidate.source}
-              {candidate.asset_category ? ` • ${candidate.asset_category}` : ""}
-              {candidate.mime_type ? ` • ${candidate.mime_type}` : ""}
-            </div>
-            {candidate.uri ? (
-              <a href={candidate.uri} target="_blank" rel="noreferrer" className="hs-imap-link-inline">
-                Open source
-              </a>
+      {args.candidates.map((candidate) => {
+        const previewSource = resolveCandidatePreviewSource(candidate, args.previewUrlById);
+        const previewState = args.previewStateById[candidate.asset_id] ?? (previewSource ? "ready" : "error");
+        const previewError = args.previewErrorById[candidate.asset_id] ?? null;
+        const requiresImagePreview = !candidate.mime_type || candidate.mime_type.startsWith("image/");
+        const isIncomplete = requiresImagePreview && !previewSource;
+        const selectDisabled = args.disabled || isIncomplete;
+        return (
+          <article key={candidate.asset_id} className={`hs-imap-candidate-card${candidate.asset_id === args.selectedCandidateId ? " is-selected" : ""}`}>
+            {requiresImagePreview ? (
+              <div className="hs-imap-candidate-media">
+                {previewSource ? (
+                  <img
+                    src={previewSource}
+                    alt={candidate.label ?? "Reference clip candidate"}
+                    className="hs-imap-candidate-image"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="hs-imap-candidate-placeholder">
+                    {previewState === "loading" ? "Loading preview..." : "Generation incomplete (no preview URL)"}
+                  </div>
+                )}
+              </div>
             ) : null}
-            {candidate.path ? <div className="hs-imap-candidate-subtitle">{candidate.path}</div> : null}
-          </div>
-          <div className="hs-imap-candidate-actions">
-            <button
-              type="button"
-              className="hs-imap-candidate-apply"
-              disabled={args.disabled}
-              onClick={() => args.onSelectCandidate(candidate.asset_id)}
-            >
-              {candidate.asset_id === args.selectedCandidateId ? "Selected for Reference Clip" : "Choose Existing Asset"}
-            </button>
-          </div>
-        </article>
-      ))}
+            <div className="hs-imap-candidate-meta">
+              <div className="hs-imap-candidate-title">
+                {candidate.label ?? candidate.source}
+                {candidate.asset_id === args.selectedCandidateId ? <span className="hs-imap-candidate-badge">Selected</span> : null}
+              </div>
+              <div className="hs-imap-candidate-subtitle">
+                {candidate.source}
+                {candidate.asset_category ? ` • ${candidate.asset_category}` : ""}
+                {candidate.mime_type ? ` • ${candidate.mime_type}` : ""}
+              </div>
+              <div className="hs-imap-candidate-subtitle">Asset: {candidate.asset_id}</div>
+              {candidate.uri ? (
+                <a href={candidate.uri} target="_blank" rel="noreferrer" className="hs-imap-link-inline">
+                  Open source
+                </a>
+              ) : null}
+              {candidate.path ? <div className="hs-imap-candidate-subtitle">{candidate.path}</div> : null}
+              {previewError ? <div className="hs-error-text-small">{previewError}</div> : null}
+            </div>
+            <div className="hs-imap-candidate-actions">
+              <button
+                type="button"
+                className="hs-imap-candidate-apply"
+                disabled={selectDisabled}
+                onClick={() => args.onSelectCandidate(candidate.asset_id)}
+              >
+                {candidate.asset_id === args.selectedCandidateId
+                  ? "Selected for Reference Clip"
+                  : isIncomplete
+                    ? "Not Selectable (Incomplete)"
+                    : "Choose Existing Asset"}
+              </button>
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -153,13 +183,73 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
     [props.entries, props.selectedEntryId],
   );
   const candidates = selectedEntry?.candidate_assets ?? [];
+  const [previewStateById, setPreviewStateById] = useState<Record<string, CandidatePreviewState>>({});
+  const [previewUrlById, setPreviewUrlById] = useState<Record<string, string>>({});
+  const [previewErrorById, setPreviewErrorById] = useState<Record<string, string>>({});
   const selectedAssetId = selectedEntry?.selected_asset_id ?? null;
   const selectedCandidate = selectedAssetId
     ? candidates.find((candidate) => candidate.asset_id === selectedAssetId) ?? null
     : null;
   const hasSelectedAsset = Boolean(selectedAssetId);
-  const selectedAssetPreviewSource = selectedCandidate ? resolveCandidatePreviewSource(selectedCandidate) : null;
+  const selectedAssetPreviewSource = selectedCandidate
+    ? resolveCandidatePreviewSource(selectedCandidate, previewUrlById)
+    : null;
   const hasUsableSelectedAsset = Boolean(selectedAssetPreviewSource);
+
+  useEffect(() => {
+    const episodeId = props.workpieceId?.trim() ?? "";
+    if (!episodeId || !selectedEntry || candidates.length === 0) {
+      setPreviewStateById({});
+      setPreviewUrlById({});
+      setPreviewErrorById({});
+      return;
+    }
+    const candidatesNeedingLoad = candidates.filter((candidate) => {
+      if (!candidate.asset_id || !candidate.path) return false;
+      if (candidate.mime_type && !candidate.mime_type.startsWith("image/")) return false;
+      return !resolveDirectCandidatePreviewSource(candidate);
+    });
+    if (!candidatesNeedingLoad.length) {
+      setPreviewStateById({});
+      setPreviewUrlById({});
+      setPreviewErrorById({});
+      return;
+    }
+    let cancelled = false;
+    setPreviewStateById(Object.fromEntries(candidatesNeedingLoad.map((candidate) => [candidate.asset_id, "loading"] as const)));
+    setPreviewUrlById({});
+    setPreviewErrorById({});
+
+    void Promise.all(candidatesNeedingLoad.map(async (candidate) => {
+      const result = await loadImageMapCandidatePreviewDataUrl({
+        workpieceId: episodeId,
+        path: candidate.path ?? null,
+        mimeType: candidate.mime_type ?? null,
+      });
+      return { assetId: candidate.asset_id, result };
+    })).then((results) => {
+      if (cancelled) return;
+      const nextState: Record<string, CandidatePreviewState> = {};
+      const nextUrls: Record<string, string> = {};
+      const nextErrors: Record<string, string> = {};
+      for (const { assetId, result } of results) {
+        if (result.ok) {
+          nextState[assetId] = "ready";
+          nextUrls[assetId] = result.dataUrl;
+        } else {
+          nextState[assetId] = "error";
+          nextErrors[assetId] = result.error;
+        }
+      }
+      setPreviewStateById(nextState);
+      setPreviewUrlById(nextUrls);
+      setPreviewErrorById(nextErrors);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [candidates, props.workpieceId, selectedEntry]);
 
   return (
     <div className="hs-imap-panel">
@@ -493,6 +583,9 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
                 candidates={candidates}
                 selectedCandidateId={props.selectedCandidateId}
                 disabled={Boolean(props.disabled)}
+                previewStateById={previewStateById}
+                previewUrlById={previewUrlById}
+                previewErrorById={previewErrorById}
                 onSelectCandidate={props.onSelectCandidate}
               />
             </>
