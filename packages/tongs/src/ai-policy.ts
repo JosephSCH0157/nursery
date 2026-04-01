@@ -97,7 +97,7 @@ export const AI_REASON_MESSAGES: Record<AiReasonCode, string> = {
   NO_VALID_FUNDING_SOURCE:
     "No valid AI funding source is currently available for this request.",
   MEMBERSHIP_REQUIRED_STUDIO_OR_FOUNDER:
-    "Organization AI controls require a Studio or Founder entitlement.",
+    "An active paid membership (Creator, Pro, or Studio) or Founder access is required for AI actions.",
 };
 
 type RpcMembershipRow = {

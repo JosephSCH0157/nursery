@@ -17,6 +17,7 @@ export type ForgePurchaseInterval =
 export type ForgePurchaseMetadata = {
   supabaseUserId: string;
   purchaseType: ForgePurchaseType;
+  offerId: string | null;
   itemId: string;
   interval: ForgePurchaseInterval;
   version: "v1";
@@ -29,6 +30,18 @@ export const FORGE_METADATA_VERSION = "v1";
 const AI_PACK_IDS = new Set(
   Object.values(STRIPE_CATALOG.packs.ai_credits).map((entry) => entry.packId),
 );
+const OFFER_IDS = new Set([
+  ...Object.values(STRIPE_CATALOG.plans).flatMap((intervals) =>
+    Object.values(intervals).map((entry) => entry.offerId)
+  ),
+  ...Object.values(STRIPE_CATALOG.addons).flatMap((intervals) =>
+    Object.values(intervals).map((entry) => entry.offerId)
+  ),
+  ...Object.values(STRIPE_CATALOG.packs).flatMap((packs) =>
+    Object.values(packs).map((entry) => entry.offerId)
+  ),
+  ...Object.values(STRIPE_CATALOG.storage).map((entry) => entry.offerId),
+]);
 const CLOUD_STORAGE_IDS = new Set(
   Object.values(STRIPE_CATALOG.storage).map((entry) => entry.storageLevel),
 );
@@ -73,24 +86,28 @@ function resolveCheckoutMetadataCore(
     case "plan":
       return {
         purchaseType: "subscription",
+        offerId: catalogPrice.offerId,
         itemId: catalogPrice.planId,
         interval: catalogPrice.interval,
       };
     case "addon":
       return {
         purchaseType: "subscription",
+        offerId: catalogPrice.offerId,
         itemId: catalogPrice.addonId,
         interval: catalogPrice.interval,
       };
     case "pack":
       return {
         purchaseType: "ai_credits",
+        offerId: catalogPrice.offerId,
         itemId: catalogPrice.packId,
         interval: catalogPrice.interval,
       };
     case "storage":
       return {
         purchaseType: "cloud_storage",
+        offerId: catalogPrice.offerId,
         itemId: catalogPrice.storageLevel,
         interval: catalogPrice.interval,
       };
@@ -123,9 +140,16 @@ function inferLegacyItemId(
 }
 
 function validatePurchaseCombination(
-  metadata: Pick<ForgePurchaseMetadata, "purchaseType" | "itemId" | "interval">,
+  metadata: Pick<
+    ForgePurchaseMetadata,
+    "purchaseType" | "offerId" | "itemId" | "interval"
+  >,
   mode: string | null,
 ): void {
+  if (metadata.offerId !== null && !OFFER_IDS.has(metadata.offerId)) {
+    throw new Error(`Unsupported forge_offer_id: ${metadata.offerId}`);
+  }
+
   switch (metadata.purchaseType) {
     case "subscription":
       if (metadata.interval !== "monthly" && metadata.interval !== "quarterly") {
@@ -187,6 +211,7 @@ export function buildForgeCheckoutMetadata(
     forge_user_id: args.userId,
     forge_product: FORGE_PRODUCT_ID,
     forge_purchase_type: core.purchaseType,
+    forge_offer_id: core.offerId ?? "",
     forge_item_id: core.itemId,
     forge_interval: core.interval,
     forge_version: FORGE_METADATA_VERSION,
@@ -230,6 +255,7 @@ export function parseForgePurchaseMetadata(args: {
   }
 
   const purchaseType = readMetadataString(args.metadata, "forge_purchase_type");
+  const offerId = readMetadataString(args.metadata, "forge_offer_id");
   const itemId = readMetadataString(args.metadata, "forge_item_id");
   const interval = readMetadataString(args.metadata, "forge_interval");
   const version = readMetadataString(args.metadata, "forge_version");
@@ -246,6 +272,7 @@ export function parseForgePurchaseMetadata(args: {
     const canonical = {
       supabaseUserId,
       purchaseType,
+      offerId,
       itemId,
       interval,
       version: FORGE_METADATA_VERSION,
@@ -286,6 +313,7 @@ export function parseForgePurchaseMetadata(args: {
   const legacy = {
     supabaseUserId,
     purchaseType: inferredPurchaseType,
+    offerId,
     itemId: inferredItemId,
     interval: inferredInterval,
     version: FORGE_METADATA_VERSION,

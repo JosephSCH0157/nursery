@@ -1,19 +1,30 @@
 type StripeCatalogIds = {
+  offerId: string;
   liveProductId: string;
   testProductId: string;
   livePriceId: string;
   testPriceId: string;
+  legacyLiveProductIds?: readonly string[];
+  legacyTestProductIds?: readonly string[];
+  legacyLivePriceIds?: readonly string[];
+  legacyTestPriceIds?: readonly string[];
 };
 
 type StripePlanInterval = "monthly" | "quarterly";
-type StripeAddonInterval = "monthly";
+type StripeAddonInterval = "monthly" | "quarterly";
 type StripePackInterval = "one_time";
 type StripeStorageInterval = "monthly";
-type StripePlanId = "creator" | "studio";
+type StripePlanId = "creator" | "pro" | "studio";
 type StripeAddonId = "seat";
 type StripePackType = "ai_credits";
 type StripePackId = "ai_small" | "ai_medium" | "ai_large";
-type StripeStorageLevel = "50gb" | "100gb" | "1tb";
+type StripeStorageLevel =
+  | "50gb"
+  | "100gb"
+  | "1tb"
+  | "50gb_v2"
+  | "150gb"
+  | "500gb";
 type StripeCouponId = "founders_50";
 type StripeCouponScope = "plans_only";
 type StripeCouponDuration = "forever";
@@ -33,6 +44,7 @@ type StripePackCatalogEntry = StripeCatalogIds & {
   packId: StripePackId;
   interval: StripePackInterval;
   tokenAmount: number;
+  legacyPackAliases?: readonly string[];
 };
 
 type StripeStorageCatalogEntry = StripeCatalogIds & {
@@ -47,86 +59,192 @@ type StripeCouponCatalogEntry = {
   duration: StripeCouponDuration;
 };
 
+function collectCatalogPriceIds(entry: StripeCatalogIds): string[] {
+  return [
+    entry.livePriceId,
+    entry.testPriceId,
+    ...(entry.legacyLivePriceIds ?? []),
+    ...(entry.legacyTestPriceIds ?? []),
+  ];
+}
+
+function collectCatalogProductIds(entry: StripeCatalogIds): string[] {
+  return [
+    entry.liveProductId,
+    entry.testProductId,
+    ...(entry.legacyLiveProductIds ?? []),
+    ...(entry.legacyTestProductIds ?? []),
+  ];
+}
+
 export const STRIPE_CATALOG = {
   plans: {
     creator: {
       monthly: {
+        offerId: "forge_creator_monthly",
         planId: "creator",
         interval: "monthly",
-        liveProductId: "prod_TncbKTaecCg24w",
-        testProductId: "prod_U5Xbk4zVfJjRek",
-        livePriceId: "price_1Sq1M01OSG3CCNl80iaTXKeJ",
-        testPriceId: "price_1T7MWa1OSG3CCNl8tAtHR2LY",
+        liveProductId: "prod_FORGE_CREATOR_MONTHLY_LIVE_TODO",
+        testProductId: "prod_UFwW5GdpDxpvSs",
+        livePriceId: "price_FORGE_CREATOR_MONTHLY_LIVE_TODO",
+        testPriceId: "price_1THQeN1OSG3CCNl8MHVMvIbG",
+        // Legacy grouped product/price IDs retained for compatibility.
+        legacyLiveProductIds: ["prod_TncbKTaecCg24w"],
+        legacyTestProductIds: ["prod_U5Xbk4zVfJjRek"],
+        legacyLivePriceIds: ["price_1Sq1M01OSG3CCNl80iaTXKeJ"],
+        legacyTestPriceIds: ["price_1T7MWa1OSG3CCNl8tAtHR2LY"],
       },
       quarterly: {
+        offerId: "forge_creator_quarterly",
         planId: "creator",
         interval: "quarterly",
-        liveProductId: "prod_TncbKTaecCg24w",
-        testProductId: "prod_U5Xbk4zVfJjRek",
-        livePriceId: "price_1Sq1M01OSG3CCNl8x3ASWmgD",
-        testPriceId: "price_1T83sY1OSG3CCNl8f1hdNE9t",
+        liveProductId: "prod_FORGE_CREATOR_QUARTERLY_LIVE_TODO",
+        testProductId: "prod_UFwWWQqvDM9gyS",
+        livePriceId: "price_FORGE_CREATOR_QUARTERLY_LIVE_TODO",
+        testPriceId: "price_1THQeO1OSG3CCNl8cmNiQP8R",
+        // Legacy grouped product/price IDs retained for compatibility.
+        legacyLiveProductIds: ["prod_TncbKTaecCg24w"],
+        legacyTestProductIds: ["prod_U5Xbk4zVfJjRek"],
+        legacyLivePriceIds: ["price_1Sq1M01OSG3CCNl8x3ASWmgD"],
+        legacyTestPriceIds: ["price_1T83sY1OSG3CCNl8f1hdNE9t"],
+      },
+    },
+    pro: {
+      monthly: {
+        offerId: "forge_pro_monthly",
+        planId: "pro",
+        interval: "monthly",
+        // TODO: replace with canonical Stripe IDs once provisioned.
+        liveProductId: "prod_FORGE_PRO_MONTHLY_LIVE_TODO",
+        testProductId: "prod_UFwjHGme9StMrO",
+        livePriceId: "price_FORGE_PRO_MONTHLY_LIVE_TODO",
+        testPriceId: "price_1THQqY1OSG3CCNl8w3VJk1qd",
+      },
+      quarterly: {
+        offerId: "forge_pro_quarterly",
+        planId: "pro",
+        interval: "quarterly",
+        // TODO: replace with canonical Stripe IDs once provisioned.
+        liveProductId: "prod_FORGE_PRO_QUARTERLY_LIVE_TODO",
+        testProductId: "prod_UFwjt2XWlB8kEk",
+        livePriceId: "price_FORGE_PRO_QUARTERLY_LIVE_TODO",
+        testPriceId: "price_1THQqa1OSG3CCNl8CHxd7bDP",
       },
     },
     studio: {
       monthly: {
+        offerId: "forge_studio_monthly",
         planId: "studio",
         interval: "monthly",
-        liveProductId: "prod_U6EufezDArpNZf",
-        testProductId: "prod_U6GWcVFIxtKbTM",
-        livePriceId: "price_1T82QU1OSG3CCNl8k4DHCfm9",
-        testPriceId: "price_1T83zY1OSG3CCNl8Jm4YkLHh",
+        liveProductId: "prod_FORGE_STUDIO_MONTHLY_LIVE_TODO",
+        testProductId: "prod_UFwWpoKG7TRY83",
+        livePriceId: "price_FORGE_STUDIO_MONTHLY_LIVE_TODO",
+        testPriceId: "price_1THQeP1OSG3CCNl82c9OoMFt",
+        // Legacy grouped product/price IDs retained for compatibility.
+        legacyLiveProductIds: ["prod_U6EufezDArpNZf"],
+        legacyTestProductIds: ["prod_U6GWcVFIxtKbTM"],
+        legacyLivePriceIds: ["price_1T82QU1OSG3CCNl8k4DHCfm9"],
+        legacyTestPriceIds: ["price_1T83zY1OSG3CCNl8Jm4YkLHh"],
+      },
+      quarterly: {
+        offerId: "forge_studio_quarterly",
+        planId: "studio",
+        interval: "quarterly",
+        // TODO: replace with canonical Stripe IDs once provisioned.
+        liveProductId: "prod_FORGE_STUDIO_QUARTERLY_LIVE_TODO",
+        testProductId: "prod_UFwmspdkv5rXmp",
+        livePriceId: "price_FORGE_STUDIO_QUARTERLY_LIVE_TODO",
+        testPriceId: "price_1THQsj1OSG3CCNl8lEPGsK1v",
       },
     },
   },
   addons: {
     seat: {
       monthly: {
+        offerId: "forge_addon_seat_monthly",
         addonId: "seat",
         interval: "monthly",
-        liveProductId: "prod_U6Ezc4QSolhaRr",
-        testProductId: "prod_U6GXQcPOfqcky3",
-        livePriceId: "price_1T82V41OSG3CCNl89yqb9B4j",
-        testPriceId: "price_1T84071OSG3CCNl8n1X4wY8R",
+        liveProductId: "prod_FORGE_ADDON_SEAT_MONTHLY_LIVE_TODO",
+        testProductId: "prod_UFwWUP1wNcL1LZ",
+        livePriceId: "price_FORGE_ADDON_SEAT_MONTHLY_LIVE_TODO",
+        testPriceId: "price_1THQeQ1OSG3CCNl8zuDBu5rs",
+        // Legacy grouped product/price IDs retained for compatibility.
+        legacyLiveProductIds: ["prod_U6Ezc4QSolhaRr"],
+        legacyTestProductIds: ["prod_U6GXQcPOfqcky3"],
+        legacyLivePriceIds: ["price_1T82V41OSG3CCNl89yqb9B4j"],
+        legacyTestPriceIds: ["price_1T84071OSG3CCNl8n1X4wY8R"],
+      },
+      quarterly: {
+        offerId: "forge_addon_seat_quarterly",
+        addonId: "seat",
+        interval: "quarterly",
+        // TODO: replace with canonical Stripe IDs once provisioned.
+        liveProductId: "prod_FORGE_ADDON_SEAT_QUARTERLY_LIVE_TODO",
+        testProductId: "prod_UFwmKEgTP2jQeO",
+        livePriceId: "price_FORGE_ADDON_SEAT_QUARTERLY_LIVE_TODO",
+        testPriceId: "price_1THQsk1OSG3CCNl87K8KXFmQ",
       },
     },
   },
   packs: {
     ai_credits: {
       ai_small: {
+        offerId: "forge_ai_credits_2000",
         packType: "ai_credits",
         packId: "ai_small",
         interval: "one_time",
-        // Token amounts are inferred from the existing Forge AI pack mapping already in repo.
-        tokenAmount: 1_000_000,
-        liveProductId: "prod_U5TpXdkVfZtwDh",
-        testProductId: "prod_TndF1ENQTGet4Q",
-        livePriceId: "price_1T7Iry1OSG3CCNl8VQ86l8Ff",
-        testPriceId: "price_1T7MSt1OSG3CCNl8p7bTPKE8",
+        tokenAmount: 2_000,
+        liveProductId: "prod_FORGE_AI_CREDITS_2000_LIVE_TODO",
+        testProductId: "prod_UFwW61glKzQWEO",
+        livePriceId: "price_FORGE_AI_CREDITS_2000_LIVE_TODO",
+        testPriceId: "price_1THQeR1OSG3CCNl8YajEHCL8",
+        // Legacy grouped product/price IDs retained for compatibility.
+        legacyLiveProductIds: ["prod_U5TpXdkVfZtwDh"],
+        legacyTestProductIds: ["prod_TndF1ENQTGet4Q"],
+        legacyLivePriceIds: ["price_1T7Iry1OSG3CCNl8VQ86l8Ff"],
+        legacyTestPriceIds: ["price_1T7MSt1OSG3CCNl8p7bTPKE8"],
+        legacyPackAliases: ["forge_ai_credits_2000"],
       },
       ai_medium: {
+        offerId: "forge_ai_credits_6000",
         packType: "ai_credits",
         packId: "ai_medium",
         interval: "one_time",
-        tokenAmount: 3_000_000,
-        liveProductId: "prod_U5TpXdkVfZtwDh",
-        testProductId: "prod_TndF1ENQTGet4Q",
-        livePriceId: "price_1T7Iry1OSG3CCNl8Oo8Myfhw",
-        testPriceId: "price_1Sq1zI1OSG3CCNl8w823S5rR",
+        tokenAmount: 6_000,
+        liveProductId: "prod_FORGE_AI_CREDITS_6000_LIVE_TODO",
+        testProductId: "prod_UFwWSwnxAMF7S8",
+        livePriceId: "price_FORGE_AI_CREDITS_6000_LIVE_TODO",
+        testPriceId: "price_1THQeT1OSG3CCNl8aEXhSrGx",
+        // Legacy grouped product/price IDs retained for compatibility.
+        legacyLiveProductIds: ["prod_U5TpXdkVfZtwDh"],
+        legacyTestProductIds: ["prod_TndF1ENQTGet4Q"],
+        legacyLivePriceIds: ["price_1T7Iry1OSG3CCNl8Oo8Myfhw"],
+        legacyTestPriceIds: ["price_1Sq1zI1OSG3CCNl8w823S5rR"],
+        legacyPackAliases: ["forge_ai_credits_6000"],
       },
       ai_large: {
+        offerId: "forge_ai_credits_15000",
         packType: "ai_credits",
         packId: "ai_large",
         interval: "one_time",
-        tokenAmount: 7_000_000,
-        liveProductId: "prod_U5TpXdkVfZtwDh",
-        testProductId: "prod_TndF1ENQTGet4Q",
-        livePriceId: "price_1T7Iry1OSG3CCNl8QjxT3OiY",
-        testPriceId: "price_1T83vg1OSG3CCNl8MQMqUTR0",
+        tokenAmount: 15_000,
+        liveProductId: "prod_FORGE_AI_CREDITS_15000_LIVE_TODO",
+        testProductId: "prod_UFwWVhvFehtYC2",
+        livePriceId: "price_FORGE_AI_CREDITS_15000_LIVE_TODO",
+        testPriceId: "price_1THQeV1OSG3CCNl8XJJv7vvT",
+        // Legacy grouped product/price IDs retained for compatibility.
+        legacyLiveProductIds: ["prod_U5TpXdkVfZtwDh"],
+        legacyTestProductIds: ["prod_TndF1ENQTGet4Q"],
+        legacyLivePriceIds: ["price_1T7Iry1OSG3CCNl8QjxT3OiY"],
+        legacyTestPriceIds: ["price_1T83vg1OSG3CCNl8MQMqUTR0"],
+        legacyPackAliases: ["forge_ai_credits_15000"],
       },
     },
   },
   storage: {
+    // Legacy storage ladder entries retained for webhook/backfill compatibility.
     "50gb": {
+      offerId: "forge_storage_legacy_250gb",
       storageLevel: "50gb",
       interval: "monthly",
       liveProductId: "prod_U7SAHtH1OMlkTh",
@@ -135,6 +253,7 @@ export const STRIPE_CATALOG = {
       testPriceId: "price_1T9D5M1OSG3CCNl8IU9GVtUL",
     },
     "100gb": {
+      offerId: "forge_storage_legacy_1tb",
       storageLevel: "100gb",
       interval: "monthly",
       liveProductId: "prod_U7SAHtH1OMlkTh",
@@ -143,12 +262,56 @@ export const STRIPE_CATALOG = {
       testPriceId: "price_1T9D9J1OSG3CCNl8w8nwqQ21",
     },
     "1tb": {
+      offerId: "forge_storage_legacy_5tb",
       storageLevel: "1tb",
       interval: "monthly",
       liveProductId: "prod_U7SAHtH1OMlkTh",
       testProductId: "prod_U7RzELyWyE9APS",
       livePriceId: "price_1T9DKG1OSG3CCNl89UguaE0u",
       testPriceId: "price_1T9D9J1OSG3CCNl8m1d9vlrc",
+    },
+    // New explicit one-product-per-offer storage ladder.
+    "50gb_v2": {
+      offerId: "forge_storage_50gb",
+      storageLevel: "50gb_v2",
+      interval: "monthly",
+      liveProductId: "prod_FORGE_STORAGE_50GB_LIVE_TODO",
+      testProductId: "prod_UFwW0QUSUgTyV8",
+      livePriceId: "price_FORGE_STORAGE_50GB_LIVE_TODO",
+      testPriceId: "price_1THQiC1OSG3CCNl8KMwHQFQU",
+      legacyLiveProductIds: ["prod_STORAGE_50GB_LIVE_TODO"],
+      legacyTestProductIds: ["prod_UFwW0QUSUgTyV8"],
+      legacyLivePriceIds: ["price_STORAGE_50GB_LIVE_TODO"],
+      // Preserve earlier one-time storage pack price IDs for compatibility only.
+      legacyTestPriceIds: ["price_1THQeW1OSG3CCNl86xKEUga3"],
+    },
+    "150gb": {
+      offerId: "forge_storage_150gb",
+      storageLevel: "150gb",
+      interval: "monthly",
+      liveProductId: "prod_FORGE_STORAGE_150GB_LIVE_TODO",
+      testProductId: "prod_UFwWplSyzDWtG7",
+      livePriceId: "price_FORGE_STORAGE_150GB_LIVE_TODO",
+      testPriceId: "price_1THQiD1OSG3CCNl8Krar9qOv",
+      legacyLiveProductIds: ["prod_STORAGE_150GB_LIVE_TODO"],
+      legacyTestProductIds: ["prod_UFwWplSyzDWtG7"],
+      legacyLivePriceIds: ["price_STORAGE_150GB_LIVE_TODO"],
+      // Preserve earlier one-time storage pack price IDs for compatibility only.
+      legacyTestPriceIds: ["price_1THQeX1OSG3CCNl8oAIRsqws"],
+    },
+    "500gb": {
+      offerId: "forge_storage_500gb",
+      storageLevel: "500gb",
+      interval: "monthly",
+      liveProductId: "prod_FORGE_STORAGE_500GB_LIVE_TODO",
+      testProductId: "prod_UFwWI0YdAoLb3z",
+      livePriceId: "price_FORGE_STORAGE_500GB_LIVE_TODO",
+      testPriceId: "price_1THQiE1OSG3CCNl87lJEVjIO",
+      legacyLiveProductIds: ["prod_STORAGE_500GB_LIVE_TODO"],
+      legacyTestProductIds: ["prod_UFwWI0YdAoLb3z"],
+      legacyLivePriceIds: ["price_STORAGE_500GB_LIVE_TODO"],
+      // Preserve earlier one-time storage pack price IDs for compatibility only.
+      legacyTestPriceIds: ["price_1THQeY1OSG3CCNl8kAEzuDKB"],
     },
   },
   coupons: {
@@ -186,28 +349,68 @@ const STRIPE_CATALOG_PRICE_INDEX = (() => {
 
   for (const intervals of Object.values(STRIPE_CATALOG.plans)) {
     for (const entry of Object.values(intervals)) {
-      index.set(entry.livePriceId, { kind: "plan", ...entry });
-      index.set(entry.testPriceId, { kind: "plan", ...entry });
+      for (const priceId of collectCatalogPriceIds(entry)) {
+        index.set(priceId, { kind: "plan", ...entry });
+      }
     }
   }
 
   for (const intervals of Object.values(STRIPE_CATALOG.addons)) {
     for (const entry of Object.values(intervals)) {
-      index.set(entry.livePriceId, { kind: "addon", ...entry });
-      index.set(entry.testPriceId, { kind: "addon", ...entry });
+      for (const priceId of collectCatalogPriceIds(entry)) {
+        index.set(priceId, { kind: "addon", ...entry });
+      }
     }
   }
 
   for (const packs of Object.values(STRIPE_CATALOG.packs)) {
     for (const entry of Object.values(packs)) {
-      index.set(entry.livePriceId, { kind: "pack", ...entry });
-      index.set(entry.testPriceId, { kind: "pack", ...entry });
+      for (const priceId of collectCatalogPriceIds(entry)) {
+        index.set(priceId, { kind: "pack", ...entry });
+      }
     }
   }
 
   for (const entry of Object.values(STRIPE_CATALOG.storage)) {
-    index.set(entry.livePriceId, { kind: "storage", ...entry });
-    index.set(entry.testPriceId, { kind: "storage", ...entry });
+    for (const priceId of collectCatalogPriceIds(entry)) {
+      index.set(priceId, { kind: "storage", ...entry });
+    }
+  }
+
+  return index;
+})();
+
+const STRIPE_CATALOG_PRODUCT_INDEX = (() => {
+  const index = new Map<string, StripeCatalogPriceMatch[]>();
+
+  function push(entry: StripeCatalogPriceMatch): void {
+    for (const productId of collectCatalogProductIds(entry)) {
+      const existing = index.get(productId) ?? [];
+      existing.push(entry);
+      index.set(productId, existing);
+    }
+  }
+
+  for (const intervals of Object.values(STRIPE_CATALOG.plans)) {
+    for (const entry of Object.values(intervals)) {
+      push({ kind: "plan", ...entry });
+    }
+  }
+
+  for (const intervals of Object.values(STRIPE_CATALOG.addons)) {
+    for (const entry of Object.values(intervals)) {
+      push({ kind: "addon", ...entry });
+    }
+  }
+
+  for (const packs of Object.values(STRIPE_CATALOG.packs)) {
+    for (const entry of Object.values(packs)) {
+      push({ kind: "pack", ...entry });
+    }
+  }
+
+  for (const entry of Object.values(STRIPE_CATALOG.storage)) {
+    push({ kind: "storage", ...entry });
   }
 
   return index;
@@ -217,9 +420,22 @@ const STRIPE_CATALOG_AI_PACK_INDEX = (() => {
   const index = new Map<string, StripePackCatalogEntry>();
   for (const entry of Object.values(STRIPE_CATALOG.packs.ai_credits)) {
     index.set(entry.packId, entry);
+    index.set(entry.offerId, entry);
+    for (const alias of entry.legacyPackAliases ?? []) {
+      index.set(alias, entry);
+    }
   }
   return index;
 })();
+
+export function stripeCatalogEntryHasProductId(
+  entry: StripeCatalogIds,
+  productId: unknown,
+): boolean {
+  const normalized = normalizeCatalogKey(productId);
+  if (!normalized) return false;
+  return collectCatalogProductIds(entry).includes(normalized);
+}
 
 export function findStripeCatalogPriceById(
   priceId: unknown,
@@ -227,6 +443,17 @@ export function findStripeCatalogPriceById(
   const normalized = normalizeCatalogKey(priceId);
   if (!normalized) return null;
   return STRIPE_CATALOG_PRICE_INDEX.get(normalized) ?? null;
+}
+
+export function findStripeCatalogPriceByProductId(
+  productId: unknown,
+): StripeCatalogPriceMatch | null {
+  const normalized = normalizeCatalogKey(productId);
+  if (!normalized) return null;
+
+  const matches = STRIPE_CATALOG_PRODUCT_INDEX.get(normalized) ?? [];
+  if (matches.length !== 1) return null;
+  return matches[0] ?? null;
 }
 
 export function findStripeCatalogAiPackById(
