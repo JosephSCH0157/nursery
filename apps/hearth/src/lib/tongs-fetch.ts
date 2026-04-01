@@ -7,6 +7,7 @@ type ForgeWindow = Window &
   };
 
 const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
+const SUPABASE_TONGS_AUTH_STORAGE_KEY = "forge-auth-tongs";
 const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
 const PLACEHOLDER_TONGS_TOKENS = new Set(["DEV_TOKEN"]);
 
@@ -138,13 +139,16 @@ function readAccessTokenFromStorageKey(key: string): string | null {
 
 function resolveUserAccessTokenFromStorage(): string | null {
   if (typeof window === "undefined") return null;
+  const tongs = readAccessTokenFromStorageKey(SUPABASE_TONGS_AUTH_STORAGE_KEY);
+  if (tongs) return tongs;
+
   const primary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
   if (primary) return primary;
 
   try {
     for (let index = 0; index < window.localStorage.length; index += 1) {
       const key = window.localStorage.key(index);
-      if (!key || key === SUPABASE_AUTH_STORAGE_KEY) continue;
+      if (!key || key === SUPABASE_AUTH_STORAGE_KEY || key === SUPABASE_TONGS_AUTH_STORAGE_KEY) continue;
       if (!SUPABASE_AUTH_KEY_RE.test(key)) continue;
       const token = readAccessTokenFromStorageKey(key);
       if (token) return token;
