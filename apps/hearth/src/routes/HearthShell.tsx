@@ -123,10 +123,6 @@ import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWork
 import { useMediaMapConversationBootstrap } from "../hooks/visuals/useMediaMapConversationBootstrap";
 import { useCanonicalImageMapScriptStateLoader } from "../hooks/visuals/useCanonicalImageMapScriptStateLoader";
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
-import {
-  buildThumbnailPanelProps,
-  buildMediaMapPanelProps,
-} from "../hooks/visuals/buildVisualsPanelProps";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
@@ -223,6 +219,8 @@ import HearthDesktopRail from "../views/modes/HearthDesktopRail";
 import { buildHearthReferenceClipPanelProps } from "../views/modes/buildHearthReferenceClipPanelProps";
 import { buildHearthBrollPanelProps } from "../views/modes/buildHearthBrollPanelProps";
 import { buildHearthImageMapPanelProps } from "../views/modes/buildHearthImageMapPanelProps";
+import { buildHearthThumbnailPanelProps } from "../views/modes/buildHearthThumbnailPanelProps";
+import { buildHearthMediaMapPanelProps } from "../views/modes/buildHearthMediaMapPanelProps";
 import {
   PRODUCTION_ACTION_LABEL,
   persistProductionArtifact as persistHearthProductionArtifact,
@@ -6627,7 +6625,7 @@ export default function HearthShell({
     const isMetadataWorkspaceTab = activeWorkpieceTab === "metadata";
     const isReleaseWorkspaceTab = activeWorkpieceTab === "release";
     const isHistoryWorkspaceTab = activeWorkpieceTab === "history";
-    const thumbnailPanelProps = buildThumbnailPanelProps({
+    const thumbnailPanelProps = buildHearthThumbnailPanelProps({
       concepts: thumbnailConcepts,
       versions: thumbnailVersions,
       titleOptions: thumbnailTitleOptions,
@@ -6699,7 +6697,7 @@ export default function HearthShell({
       onSelectedLaunchVariantNotesChange: setLaunchVariantNotesDraft,
       onSaveLaunchVariant: () => void onSaveLaunchVariant(),
     });
-    const mediaMapPanelProps = buildMediaMapPanelProps({
+    const mediaMapPanelProps = buildHearthMediaMapPanelProps({
       entries: mediaMapEntries,
       selectedEntryId: selectedMediaMapEntryId,
       approvedScriptVersion,
