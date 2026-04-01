@@ -207,6 +207,13 @@ import HearthReadyMode from "../views/modes/HearthReadyMode";
 import HearthSeriesMode from "../views/modes/HearthSeriesMode";
 import HearthEpisodesMode from "../views/modes/HearthEpisodesMode";
 import HearthPlanningMode from "../views/modes/HearthPlanningMode";
+import HearthRevisionsMode from "../views/modes/HearthRevisionsMode";
+import HearthSparksMode from "../views/modes/HearthSparksMode";
+import HearthSparkBootstrapMode from "../views/modes/HearthSparkBootstrapMode";
+import HearthFocusMode from "../views/modes/HearthFocusMode";
+import HearthDraftScriptHeader from "../views/modes/HearthDraftScriptHeader";
+import HearthDraftMode from "../views/modes/HearthDraftMode";
+import HearthMobileOverlays from "../views/modes/HearthMobileOverlays";
 import {
   PRODUCTION_ACTION_LABEL,
   persistProductionArtifact as persistHearthProductionArtifact,
@@ -298,7 +305,7 @@ import {
   resolveHearthThumbnailOverlayText,
 } from "../lib/hearth-thumbnail-title-contract";
 import { formatThumbnailPanelMeta } from "../lib/hearth-thumbnail-workflow";
-import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
+import { useLayoutMode } from "@forge/ui-mobile";
 import {
   getMyWritingProfile,
   setMyWritingTonePreset,
@@ -6485,220 +6492,48 @@ export default function HearthShell({
   }, [editingPeers.length, viewingPeers.length, workpieceId]);
 
   const renderSparksView = () => {
-    const resumeWorkpieceId = normalizeUuid(session?.activeWorkpieceId ?? null)
-      ?? resolveWorkpieceIdForDraftId(session?.activeDraftId ?? null);
-    const resumeWorkpiece = resumeWorkpieceId
-      ? workpieceSummaries.find((entry) => entry.workpieceId === resumeWorkpieceId) ?? null
-      : null;
-    const resumeDraft = session?.activeDraftId
-      ? drafts.find((draft) => draft.id === session.activeDraftId) ?? null
-      : null;
-    const canResumeLast = Boolean(resumeWorkpieceId);
-    const selectedSparkStatus = selectedSpark ? formatSparkStatus(selectedSpark) : null;
-    const selectedSparkPreview = selectedSpark ? buildSparkPreview(selectedSpark.body) : "";
-    const isFreshSession = !hasActiveEpisode && !workpieceId;
-    const isProjectIntake = Boolean(routeProjectId);
-    const sparksSubtext = isProjectIntake
-      ? "Forge this Project into an Episode."
-      : isFreshSession
-      ? `Hello ${forgeGreetingName}, what would you like to forge today?`
-      : "Pick a spark, then start forging in conversation.";
-
     return (
-      <section className="hs-home hs-sparks-landing">
-        <header className="hs-home-header">
-          <h2 className="hs-home-title">Hearth</h2>
-          <p className="hs-home-subtext">{sparksSubtext}</p>
-        </header>
-
-        {isProjectIntake ? (
-          <div className="hs-resume-context hs-project-intake">
-            <div>
-              Project: <b>{routeProjectLabel ?? "Untitled Project"}</b>
-              {workpieceId ? ` · Episode ${workpieceId.slice(0, 8)}` : " · Resolving episode..."}
-            </div>
-            <div className="hs-project-intake-actions">
-              <button
-                type="button"
-                onClick={() => void forgeProjectIntoEpisode()}
-                disabled={isForging || routeProjectSparks.length === 0 || !workpieceId}
-              >
-                Forge this Project into an Episode
-              </button>
-              <span className="hs-project-intake-meta">
-                Spark Stack: {routeProjectSparks.length}
-              </span>
-            </div>
-            {routeProjectSparks.length > 0 ? (
-              <div className="hs-project-intake-stack">
-                {routeProjectSparks.map((spark) => (
-                  <div key={spark.id} className="hs-project-intake-spark">
-                    {deriveSparkTitle(spark)}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="hs-project-intake-meta">
-                No sparks attached to this Project yet.
-              </div>
-            )}
-          </div>
-        ) : null}
-
-        <div className="hs-home-actions">
-          <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
-            New project
-          </button>
-          <button type="button" onClick={() => void onResumeLastProject()} disabled={!canResumeLast}>
-            Resume last project
-          </button>
-        </div>
-        {resumeWorkpieceId ? (
-          <div className="hs-resume-context">
-            Last: {resumeWorkpiece?.title ?? resumeDraft?.title ?? "Untitled Episode"} · updated {" "}
-            {formatRelativeUpdatedAt(
-              resumeWorkpiece?.updatedAtMs
-              ?? resumeDraft?.updatedAt
-              ?? Date.now(),
-            )}
-          </div>
-        ) : null}
-
-        {forgeError ? (
-          <div className="hs-error-text-small">{forgeError}</div>
-        ) : null}
-
-        <div className="hs-sparks-layout">
-          <section className="hs-home-barstock">
-            <h3 className="hs-home-section-title">Sparks</h3>
-            <div className="hs-home-spark-list">
-              <div className="hs-spark-card hs-spark-card-new">
-                <div className="hs-spark-header">
-                  <div className="hs-spark-title">New project</div>
-                </div>
-                <div className="hs-spark-preview">
-                  Start from scratch without a Spark.
-                </div>
-                <div className="hs-spark-footer">
-                  <div className="hs-spark-status">Fresh workpiece</div>
-                  <button
-                    type="button"
-                    onClick={() => void startFromScratch()}
-                    disabled={isForging}
-                  >
-                    Start forging
-                  </button>
-                </div>
-              </div>
-
-              {visibleSparks.length === 0 ? (
-                <p className="hs-home-empty">
-                  {isSparksLoading
-                    ? "Loading sparks from Bar Stock..."
-                    : "No sparks yet. Capture ideas in Bar Stock first."}
-                </p>
-              ) : (
-                visibleSparks.map((spark) => {
-                  const status = formatSparkStatus(spark);
-                  const preview = buildSparkPreview(spark.body);
-                  const isSelected = selectedSpark?.id === spark.id;
-                  const actionLabel = resolveSparkActionLabel(spark);
-                  return (
-                    <div
-                      key={spark.id}
-                      className={`hs-spark-card${isSelected ? " is-selected" : ""}`}
-                      onMouseEnter={() => setSelectedSparkId(spark.id)}
-                    >
-                      <button
-                        type="button"
-                        className="hs-spark-select"
-                        disabled={isForging}
-                        onFocus={() => setSelectedSparkId(spark.id)}
-                        onClick={() => void onActivateSpark(spark)}
-                      >
-                        <div className="hs-spark-header">
-                          <div className="hs-spark-title">{deriveSparkTitle(spark)}</div>
-                          <div className="hs-spark-date">
-                            {formatSparkDate(spark.createdAt)}
-                          </div>
-                        </div>
-                        <div className="hs-spark-preview">
-                          {preview || "No preview available yet."}
-                        </div>
-                      </button>
-                      <div className="hs-spark-footer">
-                        <div className="hs-spark-status">
-                          Status: {status.label}{status.detail ? ` · ${status.detail}` : ""}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => void onActivateSpark(spark)}
-                          disabled={isForging}
-                        >
-                          {actionLabel}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </section>
-
-          <aside className="hs-spark-detail-panel">
-            <div className="hs-spark-detail-title">
-              {selectedSpark ? deriveSparkTitle(selectedSpark) : "Select a spark"}
-            </div>
-            {selectedSpark ? (
-              <>
-                <div className="hs-spark-detail-meta">
-                  {formatSparkDate(selectedSpark.createdAt)}
-                  {selectedSparkStatus ? ` · ${selectedSparkStatus.label}` : ""}
-                </div>
-                <div className="hs-spark-detail-preview">
-                  {selectedSparkPreview || selectedSpark.body || "No preview available yet."}
-                </div>
-                <div className="hs-spark-detail-actions">
-                  <button
-                    type="button"
-                    onClick={() => void onStartForgingSelectedSpark()}
-                    disabled={isForging}
-                  >
-                    {selectedSpark ? resolveSparkActionLabel(selectedSpark) : "Start forging"}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <p className="hs-home-empty">
-                Choose a spark to preview it before forging.
-              </p>
-            )}
-          </aside>
-        </div>
-      </section>
+      <HearthSparksMode
+        sessionActiveWorkpieceId={session?.activeWorkpieceId}
+        sessionActiveDraftId={session?.activeDraftId}
+        resolveWorkpieceIdForDraftId={resolveWorkpieceIdForDraftId}
+        normalizeUuid={normalizeUuid}
+        workpieceSummaries={workpieceSummaries}
+        drafts={drafts}
+        hasActiveEpisode={hasActiveEpisode}
+        workpieceId={workpieceId}
+        routeProjectId={routeProjectId}
+        forgeGreetingName={forgeGreetingName}
+        selectedSpark={selectedSpark}
+        formatSparkStatus={formatSparkStatus}
+        buildSparkPreview={buildSparkPreview}
+        routeProjectLabel={routeProjectLabel}
+        forgeProjectIntoEpisode={forgeProjectIntoEpisode}
+        isForging={isForging}
+        routeProjectSparks={routeProjectSparks}
+        deriveSparkTitle={deriveSparkTitle}
+        startFromScratch={startFromScratch}
+        onResumeLastProject={onResumeLastProject}
+        formatRelativeUpdatedAt={formatRelativeUpdatedAt}
+        forgeError={forgeError}
+        visibleSparks={visibleSparks}
+        isSparksLoading={isSparksLoading}
+        setSelectedSparkId={setSelectedSparkId}
+        onActivateSpark={onActivateSpark}
+        formatSparkDate={formatSparkDate}
+        resolveSparkActionLabel={resolveSparkActionLabel}
+        onStartForgingSelectedSpark={onStartForgingSelectedSpark}
+      />
     );
   };
 
   const renderSparkRouteBootstrapView = () => {
-    const sparkTitle = routeSpark ? deriveSparkTitle(routeSpark) : "Opening spark";
     return (
-      <section className="hs-home hs-sparks-landing">
-        <header className="hs-home-header">
-          <h2 className="hs-home-title">Lighting the forge...</h2>
-          <p className="hs-home-subtext">
-            {routeSpark
-              ? `Opening ${sparkTitle} from Bar Stock.`
-              : "Opening your spark from Bar Stock."}
-          </p>
-        </header>
-        {forgeError ? (
-          <div className="hs-error-text-small">{forgeError}</div>
-        ) : (
-          <div className="hs-resume-context">
-            Preparing the workpiece and dropping you into the fire.
-          </div>
-        )}
-      </section>
+      <HearthSparkBootstrapMode
+        routeSpark={routeSpark}
+        deriveSparkTitle={deriveSparkTitle}
+        forgeError={forgeError}
+      />
     );
   };
 
@@ -7127,313 +6962,175 @@ export default function HearthShell({
     });
 
     return (
-      <section className="hs-draft hs-draft-chat-first">
-        {isScriptWorkspaceTab ? (
-          <>
-        <header className="hs-draft-header hs-draft-header-chat-first">
-          <div className="hs-draft-title-wrap">
-            <div className="hs-draft-title">Project</div>
-            <div className="hs-draft-updated">
-              Last updated {formatUpdatedAt(activeDraft?.updatedAt)}
-            </div>
-            <div className="hs-draft-updated">
-              Editing as {activeUserDisplayName} · Last edited by {resolveDraftEditorName(activeDraft)}
-            </div>
-            <div className="hs-draft-updated">
-              Mode: {composeModeLabel} · Badge: {completionBadgeLabel}
-              {scriptCompletionReasons.length > 0 ? ` · ${scriptCompletionReasons.join(" ")}` : ""}
-            </div>
-          </div>
-          <label className="hs-project-title">
-            <span className="hs-field-label">Project title</span>
-            <input
-              type="text"
-              value={activeDraft?.title ?? ""}
-              placeholder="Project title"
-              onChange={(event) => onDraftTitleChange(event.target.value)}
-              disabled={!activeDraft}
-            />
-          </label>
-        </header>
-
-        <div className="hs-toolbar">
-          <button onClick={onCreateDraft}>New Draft</button>
-          <button onClick={onSaveDraft} disabled={!activeDraft || isSaving}>
-            {isSaving ? "Saving..." : "Save draft"}
-          </button>
-          <button onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
-            Delete Draft Buffer
-          </button>
-          <button onClick={openRevisionModal} disabled={!activeDraft || isSaving}>
-            Create Revision
-          </button>
-          <button onClick={openRevisionPanel} disabled={!activeDraft}>
-            Revisions
-          </button>
-          <button
-            type="button"
-            onClick={() => void onApproveScript()}
-            disabled={!activeDraft || !hasScript || isSaving || isAiProcessing || isApprovingScript || approvalBlocked}
-          >
-            {isApprovingScript ? "Approving..." : "Approve Script"}
-          </button>
-          <label className="hs-tone-control">
-            <span>Tone</span>
-            <select
-              value={activeTonePreset}
-              onChange={(event) => onChangeTonePreset(event.target.value)}
-              disabled={!activeDraft}
-            >
-              {TONE_PRESET_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <span className="hs-status-text">{statusText}</span>
-          <span className="hs-count-text">{wordCount} words · {charCount} chars</span>
-          {aiAutosaveWarning ? (
-            <span className="hs-autosave-warning" role="status" aria-live="polite">
-              {aiAutosaveWarning}
-              <button type="button" onClick={onRetryAiAutosave}>
-                Retry
-              </button>
-              <button type="button" onClick={() => void onSaveDraft()}>
-                Save now
-              </button>
-            </span>
-          ) : null}
-        </div>
-
-        {editingPeers.length > 0 ? (
-          <div className="hs-error-text-small">{activeEditorName} is editing this right now.</div>
-        ) : viewingPeers.length > 0 ? (
-          <div className="hs-muted-text-subtle">Viewed by {activeViewerName} (active)</div>
-        ) : null}
-
-        {error ? (
-          <div className="hs-error-text">{error}</div>
-        ) : null}
-
-        {draftConflictState ? (
-          <section className="hs-script-validation" aria-label="Draft conflict">
-            <div className="hs-script-validation-title">Draft changed elsewhere</div>
-            <div className="hs-script-validation-subtitle">{draftConflictState.message}</div>
-            <div className="hs-script-validation-actions">
-              <button type="button" onClick={() => void onReloadLatestDraftAfterConflict()}>
-                Reload latest
-              </button>
-              <button
-                type="button"
-                className={isCopyAcknowledged("draft-conflict.local") ? "hs-copy-ack" : undefined}
-                onClick={() => {
-                  void onCopyConflictLocalText().then((copied) => {
-                    if (copied) acknowledgeCopy("draft-conflict.local");
-                  });
-                }}
-              >
-                Copy my local text
-              </button>
-              <button type="button" onClick={() => setDraftConflictState(null)}>
-                Dismiss
-              </button>
-            </div>
-          </section>
-        ) : null}
-
-        {displayedValidation && !displayedValidation.ok ? (
-          <section className="hs-script-validation" aria-label="Anvil tag validation">
-            <div className="hs-script-validation-title">Tag Validation</div>
-            <div className="hs-script-validation-subtitle">
-              Script tags must be valid before approval.
-              Fix the issues below to continue.
-            </div>
-            <div className="hs-script-validation-subtitle">{validationIssueCount} errors</div>
-            <pre className="hs-script-validation-report">{buildValidationReport(displayedValidation)}</pre>
-            <ul className="hs-script-validation-issues">
-              {displayedValidation.issues.map((issue, index) => (
-                <li key={`${issue.code}-${issue.line}-${issue.column}-${index}`}>
-                  <button
-                    type="button"
-                    onClick={() => onJumpToValidationIssue(issue)}
-                    className="hs-script-validation-jump"
-                  >
-                    line {issue.line}: {issue.message}
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <div className="hs-script-validation-actions">
-              <button
-                type="button"
-                onClick={() => void onFixScriptFormattingNoAi()}
-                disabled={!activeDraft || isSaving || isRepairingScript}
-              >
-                Fix Tag Structure
-              </button>
-              <button
-                type="button"
-                onClick={() => void onAskAiRepairScript()}
-                disabled={!activeDraft || !aiEpisodeReady || aiCreditsDepleted || isAiProcessing || isRepairingScript}
-              >
-                {isRepairingScript ? "Repairing..." : "Ask AI to repair"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setScriptValidation(null)}
-                disabled={isRepairingScript}
-              >
-                Dismiss
-              </button>
-            </div>
-          </section>
-        ) : null}
-
-        <div className="hs-chat-stage-controls">
-          <div className="hs-manual-draft-controls">
-            <button
-              type="button"
-              onClick={() => setShowManualDraft((prev) => !prev)}
-              disabled={!activeDraft}
-            >
-              {showManualDraft ? "Hide Manual Draft" : "Manual Draft (no AI)"}
-            </button>
-            {hasScript ? (
-              <button
-                type="button"
-                onClick={() => setShowScriptPanel((prev) => !prev)}
-                disabled={!activeDraft}
-              >
-                {showScriptPanel ? "Hide Script panel" : "Script panel"}
-              </button>
-            ) : null}
-            {hasApprovedScript && approvedScriptVersion ? (
-              <button
-                type="button"
-                onClick={onToggleVisualScriptMode}
-              >
-                {isVisualScriptMode ? "Exit Visual Mode" : "Visual Mode"}
-              </button>
-            ) : null}
-          </div>
-          <div className="hs-field-label-muted">Write without AI (just a text editor)</div>
-        </div>
-          </>
-        ) : null}
-
-        <WorkpieceTabBar
-          activeTab={activeWorkpieceTab}
-          tabSummaryById={tabSummaryById}
-          tabDirtyById={tabDirtyById}
-          onChangeTab={requestWorkpieceTabChange}
-        />
-
-        <div className={`hs-draft-stage${(isHistoryWorkspaceTab || (isScriptWorkspaceTab && showScriptEditor)) ? " has-script-panel" : ""}`}>
-          <div className="hs-focus-stack">
-            <ChatSurface {...chatWorkspace.chatSurfaceProps} />
-
-            {isReleaseWorkspaceTab && hasApprovedScript && approvedScriptVersion ? (
-              <ReleaseSurface
-                hasApprovedScript={hasApprovedScript}
-                approvedScriptVersion={approvedScriptVersion}
-                hasFramingComplete={metadataComplete}
-                hasThumbnailsSelected={thumbnailsSelected}
-                mediaMapStatus={mediaMap?.status ?? null}
-                releaseReadinessCompleteCount={releaseReadiness.completeCount}
-                releaseReadinessTotalCount={releaseReadiness.totalCount}
-              />
-            ) : null}
-
-            <MetadataSurface
-              visible={isMetadataWorkspaceTab}
-              hasApprovedScript={hearthVisualsWorkspace.status.hasApprovedScript}
-              approvedScriptVersion={hearthVisualsWorkspace.status.approvedScriptVersion}
-              metadataPanelMeta={visualsPanelContracts.metadata.meta}
-              metadataPanelProps={visualsPanelContracts.metadata.panelProps}
-              aiCreditsDepleted={hearthVisualsWorkspace.status.aiCreditsDepleted}
-              isAiProcessing={hearthVisualsWorkspace.status.isAiProcessing}
-              activeProductionAction={hearthVisualsWorkspace.status.activeProductionAction}
-              releasePrepScriptVersion={hearthVisualsWorkspace.status.releasePrepScriptVersion}
-              latestReleasePrepRawText={hearthVisualsWorkspace.status.latestReleasePrepRawText}
-              releasePrepLoadState={hearthVisualsWorkspace.status.releasePrepLoadState}
-              latestReleasePrepSections={hearthVisualsWorkspace.status.latestReleasePrepSections}
-              onGenerateTitles={hearthVisualsWorkspace.commands.onGenerateTitles}
-              onGenerateTags={hearthVisualsWorkspace.commands.onGenerateTags}
-              onGenerateFramingPack={hearthVisualsWorkspace.commands.onGenerateFramingPack}
-              onRefreshFramingPack={hearthVisualsWorkspace.commands.onRefreshFramingPack}
-            />
-            <VisualsSurface
-              visible={isVisualsWorkspaceTab}
-              hasApprovedScript={hearthVisualsWorkspace.status.hasApprovedScript}
-              approvedScriptVersion={hearthVisualsWorkspace.status.approvedScriptVersion}
-              mediaMapStatus={hearthVisualsWorkspace.status.mediaMapStatus}
-              mediaMapCoverageLevel={hearthVisualsWorkspace.status.mediaMapCoverageLevel}
-              mediaMapScopeLabel={hearthVisualsWorkspace.status.mediaMapScopeLabel}
-              thumbnailPanelMeta={visualsPanelContracts.thumbnail.meta}
-              mediaMapPanelMeta={visualsPanelContracts.mediaMap.meta}
-              imageMapPanelMeta={visualsPanelContracts.imageMap.meta}
-              brollPanelMeta={visualsPanelContracts.broll.meta}
-              referenceClipPanelMeta={visualsPanelContracts.referenceClips.meta}
-              activeVisualProviderBanner={hearthVisualsWorkspace.status.activeVisualProviderBanner}
-              activeVisualProviderHelperText={hearthVisualsWorkspace.status.activeVisualProviderHelperText}
-              thumbnailPanelProps={visualsPanelContracts.thumbnail.panelProps}
-              mediaMapPanelProps={visualsPanelContracts.mediaMap.panelProps}
-              imageMapPanelProps={visualsPanelContracts.imageMap.panelProps}
-              brollPlanPanelProps={visualsPanelContracts.broll.panelProps}
-              referenceClipPlanPanelProps={visualsPanelContracts.referenceClips.panelProps}
-            />
-          </div>
-
-          <HistorySurface visible={isHistoryWorkspaceTab}>
-            {renderRevisionsView()}
-          </HistorySurface>
-
-          <ScriptSurface
-            visible={isScriptWorkspaceTab}
-            showScriptEditor={showScriptEditor}
-            scriptPanelTitle={scriptPanelTitle}
-            scriptPanelCopyMessage={scriptPanelCopyMessage}
-            scriptPanelCopyAcknowledged={isCopyAcknowledged("script-panel.copy")}
-            scriptPanelHint={scriptPanelHint}
-            scriptPanelMetaText={scriptPanelMetaText}
-            scriptPanelBodyText={scriptPanelBodyText}
-            scriptPanelPlaceholder={scriptPanelPlaceholder}
+      <HearthDraftMode
+        scriptHeader={(
+          <HearthDraftScriptHeader
+            isScriptWorkspaceTab={isScriptWorkspaceTab}
+            activeDraft={activeDraft}
+            formatUpdatedAt={formatUpdatedAt}
+            activeUserDisplayName={activeUserDisplayName}
+            resolveDraftEditorName={resolveDraftEditorName}
+            composeModeLabel={composeModeLabel}
+            completionBadgeLabel={completionBadgeLabel}
+            scriptCompletionReasons={scriptCompletionReasons}
+            onDraftTitleChange={onDraftTitleChange}
+            onCreateDraft={onCreateDraft}
+            onSaveDraft={onSaveDraft}
+            isSaving={isSaving}
+            onDeleteDraft={onDeleteDraft}
+            openRevisionModal={openRevisionModal}
+            openRevisionPanel={openRevisionPanel}
+            onApproveScript={onApproveScript}
+            hasScript={hasScript}
+            isAiProcessing={isAiProcessing}
+            isApprovingScript={isApprovingScript}
+            approvalBlocked={approvalBlocked}
+            activeTonePreset={activeTonePreset}
+            onChangeTonePreset={onChangeTonePreset}
+            tonePresetOptions={TONE_PRESET_OPTIONS}
+            statusText={statusText}
+            wordCount={wordCount}
+            charCount={charCount}
+            aiAutosaveWarning={aiAutosaveWarning}
+            onRetryAiAutosave={onRetryAiAutosave}
+            editingPeersCount={editingPeers.length}
+            viewingPeersCount={viewingPeers.length}
+            activeEditorName={activeEditorName}
+            activeViewerName={activeViewerName}
+            error={error}
+            draftConflictState={draftConflictState}
+            onReloadLatestDraftAfterConflict={onReloadLatestDraftAfterConflict}
+            onCopyConflictLocalText={onCopyConflictLocalText}
+            acknowledgeCopy={acknowledgeCopy}
+            isCopyAcknowledged={isCopyAcknowledged}
+            onDismissDraftConflict={() => setDraftConflictState(null)}
+            displayedValidation={displayedValidation}
+            validationIssueCount={validationIssueCount}
+            buildValidationReport={buildValidationReport}
+            onJumpToValidationIssue={onJumpToValidationIssue}
+            onFixScriptFormattingNoAi={onFixScriptFormattingNoAi}
+            onAskAiRepairScript={onAskAiRepairScript}
+            aiEpisodeReady={aiEpisodeReady}
+            aiCreditsDepleted={aiCreditsDepleted}
+            isRepairingScript={isRepairingScript}
+            onDismissValidation={() => setScriptValidation(null)}
+            showManualDraft={showManualDraft}
+            onToggleShowManualDraft={() => setShowManualDraft((prev) => !prev)}
+            showScriptPanel={showScriptPanel}
+            onToggleShowScriptPanel={() => setShowScriptPanel((prev) => !prev)}
+            hasApprovedScript={hasApprovedScript}
+            approvedScriptVersion={approvedScriptVersion}
             isVisualScriptMode={isVisualScriptMode}
-            visualScriptParagraphRail={visualScriptParagraphRail}
-            isCanonicalImageMapScriptPanel={isCanonicalImageMapScriptPanel}
-            activeDraftExists={Boolean(activeDraft)}
-            sourcesSummary={sourcesSummary}
-            unusedSummary={unusedSummary}
-            canReviewSources={Boolean(workpieceId)}
-            sttLane={sttLane}
-            sttTarget={sttTarget}
-            sttState={sttState}
-            hasBrowserSpeech={hasBrowserSpeech}
-            sttNotice={sttNotice}
-            sttError={sttError}
-            bodyRef={bodyRef}
-            copyIcon={<CopyIcon />}
-            listeningIndicator={<OscilloscopeFill stream={mediaStreamRef.current} active />}
-            onSetSttLane={(lane) => setSttLane(lane)}
-            onToggleScriptMic={() => onToggleMic("script")}
-            onCopyScriptPanelText={() => {
-              void onCopyScriptPanelText().then((copied) => {
-                if (copied) acknowledgeCopy("script-panel.copy");
-              });
-            }}
-            onBodyChange={(nextBody) => {
-              onDraftBodyChange(nextBody);
-            }}
-            onBodyCompositionStart={() => setIsBodyComposing(true)}
-            onBodyCompositionEnd={() => setIsBodyComposing(false)}
-            onBodyCursorChange={(cursor) => setCursorPosition(cursor)}
-            onBodyScrollChange={(nextScrollTop) => setScrollTop(nextScrollTop)}
-            onReviewSources={() => {
-              setFocusTab("sources");
-              setMode("focus");
-            }}
+            onToggleVisualScriptMode={onToggleVisualScriptMode}
           />
-        </div>
-      </section>
+        )}
+        workpieceTabProps={{
+          activeTab: activeWorkpieceTab,
+          tabSummaryById,
+          tabDirtyById,
+          onChangeTab: requestWorkpieceTabChange,
+        }}
+        draftStageClassName={`hs-draft-stage${(isHistoryWorkspaceTab || (isScriptWorkspaceTab && showScriptEditor)) ? " has-script-panel" : ""}`}
+        chatSurfaceProps={chatWorkspace.chatSurfaceProps}
+        releaseSurfaceProps={
+          isReleaseWorkspaceTab && hasApprovedScript && approvedScriptVersion
+            ? {
+              hasApprovedScript,
+              approvedScriptVersion,
+              hasFramingComplete: metadataComplete,
+              hasThumbnailsSelected: thumbnailsSelected,
+              mediaMapStatus: mediaMap?.status ?? null,
+              releaseReadinessCompleteCount: releaseReadiness.completeCount,
+              releaseReadinessTotalCount: releaseReadiness.totalCount,
+            }
+            : null
+        }
+        metadataSurfaceProps={{
+          visible: isMetadataWorkspaceTab,
+          hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
+          approvedScriptVersion: hearthVisualsWorkspace.status.approvedScriptVersion,
+          metadataPanelMeta: visualsPanelContracts.metadata.meta,
+          metadataPanelProps: visualsPanelContracts.metadata.panelProps,
+          aiCreditsDepleted: hearthVisualsWorkspace.status.aiCreditsDepleted,
+          isAiProcessing: hearthVisualsWorkspace.status.isAiProcessing,
+          activeProductionAction: hearthVisualsWorkspace.status.activeProductionAction,
+          releasePrepScriptVersion: hearthVisualsWorkspace.status.releasePrepScriptVersion,
+          latestReleasePrepRawText: hearthVisualsWorkspace.status.latestReleasePrepRawText,
+          releasePrepLoadState: hearthVisualsWorkspace.status.releasePrepLoadState,
+          latestReleasePrepSections: hearthVisualsWorkspace.status.latestReleasePrepSections,
+          onGenerateTitles: hearthVisualsWorkspace.commands.onGenerateTitles,
+          onGenerateTags: hearthVisualsWorkspace.commands.onGenerateTags,
+          onGenerateFramingPack: hearthVisualsWorkspace.commands.onGenerateFramingPack,
+          onRefreshFramingPack: hearthVisualsWorkspace.commands.onRefreshFramingPack,
+        }}
+        visualsSurfaceProps={{
+          visible: isVisualsWorkspaceTab,
+          hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
+          approvedScriptVersion: hearthVisualsWorkspace.status.approvedScriptVersion,
+          mediaMapStatus: hearthVisualsWorkspace.status.mediaMapStatus,
+          mediaMapCoverageLevel: hearthVisualsWorkspace.status.mediaMapCoverageLevel,
+          mediaMapScopeLabel: hearthVisualsWorkspace.status.mediaMapScopeLabel,
+          thumbnailPanelMeta: visualsPanelContracts.thumbnail.meta,
+          mediaMapPanelMeta: visualsPanelContracts.mediaMap.meta,
+          imageMapPanelMeta: visualsPanelContracts.imageMap.meta,
+          brollPanelMeta: visualsPanelContracts.broll.meta,
+          referenceClipPanelMeta: visualsPanelContracts.referenceClips.meta,
+          activeVisualProviderBanner: hearthVisualsWorkspace.status.activeVisualProviderBanner,
+          activeVisualProviderHelperText: hearthVisualsWorkspace.status.activeVisualProviderHelperText,
+          thumbnailPanelProps: visualsPanelContracts.thumbnail.panelProps,
+          mediaMapPanelProps: visualsPanelContracts.mediaMap.panelProps,
+          imageMapPanelProps: visualsPanelContracts.imageMap.panelProps,
+          brollPlanPanelProps: visualsPanelContracts.broll.panelProps,
+          referenceClipPlanPanelProps: visualsPanelContracts.referenceClips.panelProps,
+        }}
+        historyVisible={isHistoryWorkspaceTab}
+        revisionsContent={renderRevisionsView()}
+        scriptSurfaceProps={{
+          visible: isScriptWorkspaceTab,
+          showScriptEditor,
+          scriptPanelTitle,
+          scriptPanelCopyMessage,
+          scriptPanelCopyAcknowledged: isCopyAcknowledged("script-panel.copy"),
+          scriptPanelHint,
+          scriptPanelMetaText,
+          scriptPanelBodyText,
+          scriptPanelPlaceholder,
+          isVisualScriptMode,
+          visualScriptParagraphRail,
+          isCanonicalImageMapScriptPanel,
+          activeDraftExists: Boolean(activeDraft),
+          sourcesSummary,
+          unusedSummary,
+          canReviewSources: Boolean(workpieceId),
+          sttLane,
+          sttTarget,
+          sttState,
+          hasBrowserSpeech,
+          sttNotice,
+          sttError,
+          bodyRef,
+          copyIcon: <CopyIcon />,
+          listeningIndicator: <OscilloscopeFill stream={mediaStreamRef.current} active />,
+          onSetSttLane: (lane) => setSttLane(lane),
+          onToggleScriptMic: () => onToggleMic("script"),
+          onCopyScriptPanelText: () => {
+            void onCopyScriptPanelText().then((copied) => {
+              if (copied) acknowledgeCopy("script-panel.copy");
+            });
+          },
+          onBodyChange: (nextBody) => {
+            onDraftBodyChange(nextBody);
+          },
+          onBodyCompositionStart: () => setIsBodyComposing(true),
+          onBodyCompositionEnd: () => setIsBodyComposing(false),
+          onBodyCursorChange: (cursor) => setCursorPosition(cursor),
+          onBodyScrollChange: (nextScrollTop) => setScrollTop(nextScrollTop),
+          onReviewSources: () => {
+            setFocusTab("sources");
+            setMode("focus");
+          },
+        }}
+      />
     );
   };
 
@@ -7485,117 +7182,22 @@ export default function HearthShell({
   );
 
   const renderRevisionsView = () => (
-    <section className="hs-revisions">
-      <header className="hs-revisions-header">
-        <div className="hs-revisions-title">Revisions</div>
-        <button type="button" onClick={closeRevisionPanel}>
-          Back to Draft
-        </button>
-      </header>
-
-      {revisions.length === 0 ? (
-        <p className="hs-muted-text">No revisions yet.</p>
-      ) : (
-        <div className="hs-revisions-grid">
-          <div className="hs-revision-list">
-            {revisions.map((revision) => (
-              <div
-                key={revision.id}
-                className={`hs-revision-card${selectedRevision?.id === revision.id ? " is-active" : ""}`}
-              >
-                <div className="hs-revision-card-header">
-                  <span>{formatUpdatedAt(revision.createdAt)}</span>
-                  <span className="hs-revision-kind">
-                    {revision.kind}
-                  </span>
-                </div>
-                <div className="hs-revision-note">
-                  {revision.note || "No note"}
-                </div>
-                <div className="hs-revision-actions">
-                  <button
-                    type="button"
-                    onClick={() => selectRevisionPreview(revision)}
-                  >
-                    Preview
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => selectRevisionCompare(revision)}
-                  >
-                    Compare
-                  </button>
-                  <button type="button" onClick={() => void onRestoreRevision(revision)}>
-                    Restore
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {selectedRevision ? (
-            <div className="hs-revision-detail">
-              <div className="hs-revision-detail-title">
-                {revisionView === "preview" ? "Preview" : "Compare"}
-              </div>
-              <div className="hs-revision-meta">
-                {formatUpdatedAt(selectedRevision.createdAt)} · {selectedRevision.kind}
-              </div>
-              <label className="hs-revision-label">
-                <span className="hs-revision-label-text">Revision note</span>
-                <input
-                  value={selectedRevision.note ?? ""}
-                  onChange={(event) => updateSelectedRevisionDraftNote(event.target.value)}
-                  onBlur={(event) => void onUpdateRevisionNote(selectedRevision, event.target.value)}
-                />
-              </label>
-              {revisionView === "preview" ? (
-                <div className="hs-revision-preview">
-                  <div className="hs-revision-preview-title">{selectedRevision.titleSnapshot}</div>
-                  {renderSectionedBody(selectedRevision.bodySnapshot)}
-                </div>
-              ) : (
-                <div className="hs-revision-diff-section">
-                  <div className="hs-revision-diff-block">
-                    <span className="hs-diff-label">Diff</span>
-                    <div className="hs-diff-list">
-                      {diffLines.map((line, idx) => {
-                        const isSeparator = line.status === "separator";
-                        if (isSeparator) {
-                          return (
-                            <div key={`diff-${idx}`} className="hs-diff-separator">
-                              <hr className="hs-divider" />
-                            </div>
-                          );
-                        }
-                        return (
-                          <div
-                            key={`diff-${idx}`}
-                            className="hs-diff-row"
-                          >
-                            <div className={diffCellClass("left", line.status)}>{line.left || " "}</div>
-                            <div className={diffCellClass("right", line.status)}>{line.right || " "}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => void onUpdateRevisionNote(selectedRevision, selectedRevision.note ?? "")}
-                disabled={isSavingRevision}
-              >
-                {isSavingRevision ? "Saving note..." : "Save note"}
-              </button>
-            </div>
-          ) : (
-            <div className="hs-muted-text-subtle">Select a revision to preview.</div>
-          )}
-        </div>
-      )}
-    </section>
+    <HearthRevisionsMode
+      closeRevisionPanel={closeRevisionPanel}
+      revisions={revisions}
+      selectedRevision={selectedRevision}
+      revisionView={revisionView}
+      formatUpdatedAt={formatUpdatedAt}
+      selectRevisionPreview={selectRevisionPreview}
+      selectRevisionCompare={selectRevisionCompare}
+      onRestoreRevision={onRestoreRevision}
+      updateSelectedRevisionDraftNote={updateSelectedRevisionDraftNote}
+      onUpdateRevisionNote={onUpdateRevisionNote}
+      renderSectionedBody={renderSectionedBody}
+      diffLines={diffLines}
+      diffCellClass={diffCellClass}
+      isSavingRevision={isSavingRevision}
+    />
   );
 
   const renderEpisodesView = () => (
@@ -7672,89 +7274,38 @@ export default function HearthShell({
   };
 
   const renderFocusEditor = () => {
-    if (!hasActiveEpisode) {
-      return (
-        <section className="hs-home">
-          <header className="hs-home-header">
-            <h2 className="hs-home-title">Focus Mode</h2>
-            <p className="hs-home-subtext">Open an Episode from Episodes (In Progress) first.</p>
-          </header>
-          <div className="hs-home-actions">
-            <button type="button" onClick={() => setMode("episodes")}>
-              Go to Episodes
-            </button>
-          </div>
-        </section>
-      );
-    }
-
-    if (activeWorkpieceContext.workpiece?.isArchived) {
-      const archivedWorkpiece = activeWorkpieceContext.workpiece;
-      const isRestoringArchivedWorkpiece = restoringWorkpieceIds.includes(archivedWorkpiece.workpieceId);
-      return (
-        <section className="hs-home">
-          <header className="hs-home-header">
-            <h2 className="hs-home-title">{archivedWorkpiece.title}</h2>
-            <p className="hs-home-subtext">This workpiece is archived. Restore it to review, then re-ready it before recording.</p>
-          </header>
-          {archivedWorkpiece.archiveReason ? (
-            <div className="hs-rail-meta">Archive reason: {archivedWorkpiece.archiveReason}</div>
-          ) : null}
-          <div className="hs-home-actions">
-            <button
-              type="button"
-              onClick={() => void onRestoreWorkpiece(archivedWorkpiece.workpieceId, { openAfterRestore: true })}
-              disabled={isRestoringArchivedWorkpiece}
-            >
-              {isRestoringArchivedWorkpiece ? "Restoring..." : "Restore Workpiece"}
-            </button>
-            <button type="button" onClick={() => setMode("episodes")}>
-              Back to Episodes
-            </button>
-          </div>
-        </section>
-      );
-    }
-
-    if (!activeDraft) {
-      return (
-        <section className="hs-home">
-          <header className="hs-home-header">
-            <h2 className="hs-home-title">{activeWorkpieceContext.workpiece?.title ?? "Episode"}</h2>
-            <p className="hs-home-subtext">Hydrating the attached draft buffer for this Episode.</p>
-          </header>
-          <div className="hs-home-actions">
-            <button
-              type="button"
-              onClick={() => {
-                if (!workpieceId) return;
-                void openWorkpieceInFocus(workpieceId, {
-                  preferredDraftId: session?.activeDraftId ?? null,
-                });
-              }}
-              disabled={!workpieceId}
-            >
-              Retry draft hydration
-            </button>
-            <button type="button" onClick={() => setMode("episodes")}>
-              Back to Episodes
-            </button>
-          </div>
-        </section>
-      );
-    }
-
-    switch (focusTab) {
-      case "planning":
-        return renderPlanningView();
-      case "sources":
-        return renderSourcesView();
-      case "revisions":
-        return renderRevisionsView();
-      case "draft":
-      default:
-        return renderDraftView();
-    }
+    return (
+      <HearthFocusMode
+        hasActiveEpisode={hasActiveEpisode}
+        onGoToEpisodes={() => setMode("episodes")}
+        activeWorkpieceIsArchived={Boolean(activeWorkpieceContext.workpiece?.isArchived)}
+        activeWorkpieceTitle={activeWorkpieceContext.workpiece?.title ?? "Episode"}
+        activeWorkpieceArchiveReason={activeWorkpieceContext.workpiece?.archiveReason ?? null}
+        activeWorkpieceId={activeWorkpieceContext.workpiece?.workpieceId ?? null}
+        isRestoringArchivedWorkpiece={Boolean(
+          activeWorkpieceContext.workpiece
+          && restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId),
+        )}
+        onRestoreArchivedWorkpiece={() => {
+          const archivedWorkpieceId = activeWorkpieceContext.workpiece?.workpieceId;
+          if (!archivedWorkpieceId) return;
+          return onRestoreWorkpiece(archivedWorkpieceId, { openAfterRestore: true });
+        }}
+        hasActiveDraft={Boolean(activeDraft)}
+        onRetryDraftHydration={() => {
+          if (!workpieceId) return;
+          return openWorkpieceInFocus(workpieceId, {
+            preferredDraftId: session?.activeDraftId ?? null,
+          });
+        }}
+        workpieceId={workpieceId}
+        focusTab={focusTab}
+        renderPlanningView={renderPlanningView}
+        renderSourcesView={renderSourcesView}
+        renderRevisionsView={renderRevisionsView}
+        renderDraftView={renderDraftView}
+      />
+    );
   };
 
   const showSparkRouteBootstrap = Boolean(
@@ -8235,65 +7786,39 @@ export default function HearthShell({
         </div>
       )}
 
-      {isMobile && mobileOverlayView === "editor" ? (
-        <div className="hs-mobile-overlay">
-          <MobilePage
-            title={activeDraft?.title?.trim() || "Project Editor"}
-            onBack={closeMobileOverlay}
-            rightAction={
-              <button type="button" onClick={openReadyInMobileOverlay}>
-                Ready
-              </button>
-            }
-            bottomBar={
-              activeWorkpieceContext.workpiece?.isArchived ? (
-                <div className="hs-mobile-overlay-actions">
-                  <button
-                    type="button"
-                    onClick={() => activeWorkpieceContext.workpiece && void onRestoreWorkpiece(activeWorkpieceContext.workpiece.workpieceId, { openAfterRestore: true })}
-                    disabled={!activeWorkpieceContext.workpiece || restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId)}
-                  >
-                    {activeWorkpieceContext.workpiece && restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId)
-                      ? "Restoring..."
-                      : "Restore Workpiece"}
-                  </button>
-                </div>
-              ) : (
-                <div className="hs-mobile-overlay-actions">
-                  <button type="button" onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
-                    Delete Draft Buffer
-                  </button>
-                  <button type="button" onClick={() => void onSaveDraft()} disabled={!activeDraft || isSaving}>
-                    {isSaving ? "Saving..." : "Save"}
-                  </button>
-                </div>
-              )
-            }
-          >
-            <div className="hs-mobile-overlay-body">
-              {renderFocusEditor()}
-            </div>
-          </MobilePage>
-        </div>
-      ) : null}
-
-      {isMobile && mobileOverlayView === "ready" ? (
-        <div className="hs-mobile-overlay">
-          <MobilePage
-            title="Ready to Record"
-            onBack={closeMobileOverlay}
-            rightAction={
-              <button type="button" onClick={() => void refreshReadyScripts()} disabled={isReadyScriptsLoading}>
-                {isReadyScriptsLoading ? "..." : "Refresh"}
-              </button>
-            }
-          >
-            <div className="hs-mobile-overlay-body">
-              {renderReadyView()}
-            </div>
-          </MobilePage>
-        </div>
-      ) : null}
+      <HearthMobileOverlays
+        isMobile={isMobile}
+        mobileOverlayView={mobileOverlayView}
+        activeDraftTitle={activeDraft?.title ?? null}
+        closeMobileOverlay={closeMobileOverlay}
+        openReadyInMobileOverlay={openReadyInMobileOverlay}
+        isActiveWorkpieceArchived={Boolean(activeWorkpieceContext.workpiece?.isArchived)}
+        hasActiveWorkpiece={Boolean(activeWorkpieceContext.workpiece)}
+        restoreButtonLabel={
+          activeWorkpieceContext.workpiece && restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId)
+            ? "Restoring..."
+            : "Restore Workpiece"
+        }
+        restoreButtonDisabled={Boolean(
+          !activeWorkpieceContext.workpiece
+          || restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId),
+        )}
+        onRestoreWorkpiece={() => {
+          if (!activeWorkpieceContext.workpiece) return;
+          return onRestoreWorkpiece(activeWorkpieceContext.workpiece.workpieceId, { openAfterRestore: true });
+        }}
+        hasActiveDraft={Boolean(activeDraft)}
+        isSaving={isSaving}
+        onDeleteDraftBuffer={() => {
+          if (!activeDraft) return;
+          return onDeleteDraft(activeDraft);
+        }}
+        onSaveDraft={onSaveDraft}
+        refreshReadyScripts={refreshReadyScripts}
+        isReadyScriptsLoading={isReadyScriptsLoading}
+        renderFocusContent={renderFocusEditor}
+        renderReadyContent={renderReadyView}
+      />
 
       <ComposeSetupModal
         open={composeModalOpen}
