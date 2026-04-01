@@ -24,9 +24,12 @@ import {
   type HearthOp,
 } from "../../../hearth/src/lib/hearth-ai-runtime-contract";
 import {
+  buildEmptyHearthResearchResult,
   buildHearthResearchRequest,
+  type HearthResearchResult,
   type HearthResearchRequest,
 } from "../../../hearth/src/lib/hearth-research-contract";
+import { createHearthResearchRuntime } from "./hearth-research-runtime";
 import {
   FORGE_ALLOWED_CHAT_MODELS,
 } from "./ai-pricing";
@@ -657,6 +660,7 @@ function buildSystemPrompt(
     priorReadinessNudge?: ReadinessNudgeCategory | null;
     researchMode?: boolean;
     researchRequest?: HearthResearchRequest | null;
+    researchResult?: HearthResearchResult | null;
   },
 ): string {
   const baseLines = [
@@ -913,6 +917,12 @@ function buildSystemPrompt(
         JSON.stringify(options.researchRequest),
       );
     }
+    if (options.researchResult) {
+      baseLines.push(
+        "Canonical research runtime result:",
+        JSON.stringify(options.researchResult),
+      );
+    }
   }
 
   if (creatorStyleSnippet?.trim()) {
@@ -1146,6 +1156,7 @@ function normalizeStructuredReply(raw: string): StructuredReply | null {
 }
 
 export function createHearthAiHandler(config: HearthRuntimeConfig) {
+  const researchRuntime = createHearthResearchRuntime();
   const textApiKey = config.textApiKey ?? config.apiKey ?? null;
   const {
     model,
@@ -2070,6 +2081,23 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const researchRequest = researchModeRequested
         ? buildHearthResearchRequest({ query: requestText })
         : null;
+      let researchResult: HearthResearchResult | null = null;
+      if (researchRequest) {
+        try {
+          researchResult = await researchRuntime.run({
+            request: researchRequest,
+            workspaceId: episodeContext.workspaceId,
+            workpieceId: episodeContext.episodeId,
+            signal: request.signal,
+          });
+        } catch {
+          researchResult = buildEmptyHearthResearchResult({
+            mode: "knowledge_first",
+            runtimeStatus: "error",
+            summary: "Research runtime failed before synthesis.",
+          });
+        }
+      }
       const readinessCheckRequested = isReadinessCheckRequest(requestText);
       const allowRepeatedReadinessNudge = requestedDeepReadinessReview(requestText);
       const priorAssistantMessage = [...priorMessages]
@@ -2143,6 +2171,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             priorReadinessNudge,
             researchMode: researchModeRequested,
             researchRequest,
+            researchResult,
           },
         ),
       };
@@ -2413,6 +2442,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ops: structured.ops,
           script_text: structured.scriptText,
           tag_audit: structured.tagAudit,
+          ...(researchResult ? { research_result: researchResult } : {}),
           total_tokens: spent,
           actual_cost_usd: estimatedCostUsd,
           billable_tokens: billableTokens,

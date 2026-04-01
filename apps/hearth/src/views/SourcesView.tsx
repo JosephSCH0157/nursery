@@ -23,7 +23,7 @@ const SOURCE_TYPES = [
   "other",
 ];
 
-export default function SourcesView({ state, workspaceId, workpieceId }: SourcesViewProps) {
+export default function SourcesView({ state, workspaceId, workpieceId, researchResult = null }: SourcesViewProps) {
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [notesDrafts, setNotesDrafts] = useState<Record<string, string>>({});
   const [form, setForm] = useState<NewSourceInput>({
@@ -147,6 +147,20 @@ export default function SourcesView({ state, workspaceId, workpieceId }: Sources
       <div className="hs-sources-header">
         <div className="hs-sources-title">Sources</div>
       </div>
+
+      {researchResult ? (
+        <section className="hs-sources-section">
+          <div className="hs-sources-section-title">
+            Research Runtime: {researchResult.mode} · {researchResult.runtimeStatus}
+          </div>
+          <div className="hs-sources-muted">
+            {researchResult.sources.length} source{researchResult.sources.length === 1 ? "" : "s"} in latest research run.
+          </div>
+          {researchResult.synthesis.coverageNote ? (
+            <div className="hs-sources-muted">{researchResult.synthesis.coverageNote}</div>
+          ) : null}
+        </section>
+      ) : null}
 
       {state.status.kind !== "idle" ? (
         <div className={`hs-sources-status ${statusClassName}`}>{state.status.message}</div>

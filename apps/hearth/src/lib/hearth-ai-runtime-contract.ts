@@ -1,4 +1,8 @@
 import type { EpisodeContext, HearthOp } from "./hearth-ai-ops";
+import {
+  normalizeHearthResearchResult,
+  type HearthResearchResult,
+} from "./hearth-research-contract";
 
 export const HEARTH_AI_ROUTES = {
   chat: "/api/hearth/chat",
@@ -47,6 +51,7 @@ export type HearthChatResponse = {
   ops: HearthOp[];
   script_text: string | null;
   tag_audit: Record<string, unknown> | null;
+  research_result?: HearthResearchResult;
   gate?: "clarify";
   total_tokens: number | null;
   actual_cost_usd?: number;
@@ -375,6 +380,7 @@ export function parseHearthChatResponse(
   ).trim();
   const gateRaw = readTrimmedField(payload, "gate");
   const tagAuditRaw = readUnknownField(payload, "tag_audit");
+  const researchResult = normalizeHearthResearchResult(readUnknownField(payload, "research_result"));
   const creditsWarning = readTrimmedField(payload, "credits_warning") ?? undefined;
   const actualCostUsd = readNumberField(payload, "actual_cost_usd") ?? undefined;
   const billableTokens = readNumberField(payload, "billable_tokens") ?? undefined;
@@ -384,6 +390,7 @@ export function parseHearthChatResponse(
     ops: normalizeHearthOps(readUnknownField(payload, "ops")),
     script_text: readStringField(payload, "script_text"),
     tag_audit: isRecord(tagAuditRaw) ? tagAuditRaw : null,
+    ...(researchResult ? { research_result: researchResult } : {}),
     ...(gateRaw === "clarify" ? { gate: "clarify" as const } : {}),
     total_tokens: readNumberField(payload, "total_tokens"),
     ...(typeof actualCostUsd === "number" ? { actual_cost_usd: actualCostUsd } : {}),

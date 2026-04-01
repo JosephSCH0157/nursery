@@ -43,6 +43,10 @@ export type HearthResearchResult = {
 
 export const HEARTH_RESEARCH_DEFAULT_MAX_SOURCES = 6;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 export function buildHearthResearchRequest(input: {
   query: string;
   intent?: HearthResearchIntent | null;
@@ -96,4 +100,71 @@ function inferHearthResearchRecency(query: string): HearthResearchRequest["recen
   if (/\btoday|this week|this month|latest|breaking\b/.test(normalized)) return "strict_recent";
   if (/\brecent|new|current\b/.test(normalized)) return "recent";
   return "none";
+}
+
+export function normalizeHearthResearchResult(value: unknown): HearthResearchResult | null {
+  if (!isRecord(value)) return null;
+  const mode = value.mode;
+  const runtimeStatus = value.runtimeStatus;
+  const sources = Array.isArray(value.sources) ? value.sources : [];
+  const synthesis = isRecord(value.synthesis) ? value.synthesis : null;
+  if (
+    mode !== "knowledge_first"
+    && mode !== "retrieval_first"
+    && mode !== "partial_retrieval"
+  ) {
+    return null;
+  }
+  if (
+    runtimeStatus !== "ok"
+    && runtimeStatus !== "partial"
+    && runtimeStatus !== "no_results"
+    && runtimeStatus !== "error"
+  ) {
+    return null;
+  }
+  const normalizedSources: HearthResearchSource[] = [];
+  for (const item of sources) {
+    if (!isRecord(item)) continue;
+    const extractionStatus = item.extractionStatus;
+    if (
+      extractionStatus !== "pending"
+      && extractionStatus !== "extracted"
+      && extractionStatus !== "partial"
+      && extractionStatus !== "failed"
+      && extractionStatus !== "skipped"
+    ) {
+      continue;
+    }
+    const sourceId = typeof item.sourceId === "string" ? item.sourceId.trim() : "";
+    const url = typeof item.url === "string" ? item.url.trim() : "";
+    if (!sourceId || !url) continue;
+    normalizedSources.push({
+      sourceId,
+      title: typeof item.title === "string" ? item.title : null,
+      url,
+      domain: typeof item.domain === "string" ? item.domain : null,
+      publishedAt: typeof item.publishedAt === "string" ? item.publishedAt : null,
+      snippet: typeof item.snippet === "string" ? item.snippet : null,
+      extractedText: typeof item.extractedText === "string" ? item.extractedText : null,
+      extractionStatus,
+      extractionError: typeof item.extractionError === "string" ? item.extractionError : null,
+    });
+  }
+  const normalizedSynthesis: HearthResearchSynthesis = {
+    summary: synthesis && typeof synthesis.summary === "string" ? synthesis.summary : "",
+    keyPoints: synthesis && Array.isArray(synthesis.keyPoints)
+      ? synthesis.keyPoints.filter((entry): entry is string => typeof entry === "string")
+      : [],
+    uncertainties: synthesis && Array.isArray(synthesis.uncertainties)
+      ? synthesis.uncertainties.filter((entry): entry is string => typeof entry === "string")
+      : [],
+    coverageNote: synthesis && typeof synthesis.coverageNote === "string" ? synthesis.coverageNote : "",
+  };
+  return {
+    mode,
+    runtimeStatus,
+    sources: normalizedSources,
+    synthesis: normalizedSynthesis,
+  };
 }

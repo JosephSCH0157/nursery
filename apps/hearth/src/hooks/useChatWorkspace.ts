@@ -5,6 +5,7 @@ import {
   shouldRestartBrowserSttSession,
 } from "../lib/browser-stt";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
+import type { HearthResearchResult } from "../lib/hearth-research-contract";
 import {
   buildNoScriptChangesExplanation,
   type HearthScriptMutationIntent,
@@ -380,6 +381,7 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>
     error?: string;
     assistantText?: string;
     ops?: THearthOp[];
+    researchResult?: HearthResearchResult;
     gate?: "clarify";
     creditsWarning?: string;
     runtime: {
@@ -405,6 +407,7 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp>
     message?: string;
     severity: any;
   }) => void;
+  onResearchResult?: (result: HearthResearchResult | null) => void;
 };
 
 export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THearthOp>(
@@ -505,6 +508,7 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
         args.setAiTokenBalance(null);
       }
       if (!result.ok) {
+        args.onResearchResult?.(null);
         if (!result.cancelled) {
           const message = result.error ?? "AI request failed.";
           args.setChatError(message);
@@ -520,6 +524,7 @@ export function useChatWorkspaceRuntime<TPendingAiProposal, TEpisodeContext, THe
 
       const ops = result.ops ?? [];
       const assistantText = result.assistantText ?? "";
+      args.onResearchResult?.(result.researchResult ?? null);
       const scriptMutationRouting = resolveHearthScriptMutationRouting({
         productionAction: Boolean(params.productionAction),
         autosaveReasonCode,

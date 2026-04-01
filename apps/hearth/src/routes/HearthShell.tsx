@@ -35,6 +35,7 @@ import {
   type HearthChatMessage,
   type HearthInteractionEventType,
 } from "../lib/hearth-chat-api";
+import type { HearthResearchResult } from "../lib/hearth-research-contract";
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
 import { commitHearthSession } from "../lib/hearth-session-repo";
 import {
@@ -2757,6 +2758,7 @@ export default function HearthShell({
   const sourceIndexById = sourcesState.sourceIndexById;
   const missingSourcesCount = sourcesState.missingCitedCount;
   const unusedSourcesCount = sourcesState.unusedRefsCount;
+  const [latestResearchResult, setLatestResearchResult] = useState<HearthResearchResult | null>(null);
   const preferredDraftIdsByWorkpiece = useMemo(() => {
     const next = new Map<string, string | null>();
     if (workpieceId && activeDraft?.id) {
@@ -3460,6 +3462,7 @@ export default function HearthShell({
     refreshMyAiCredits,
     recordInteractionEvent,
     publishForgeNotice,
+    onResearchResult: setLatestResearchResult,
   });
   const { onToggleMic } = useChatWorkspaceStt({
     workpieceId,
@@ -7186,7 +7189,12 @@ export default function HearthShell({
 
   const renderSourcesView = () => (
     <section className="hs-sources-view">
-      <SourcesView state={sourcesState} workspaceId={workspaceId} workpieceId={workpieceId} />
+      <SourcesView
+        state={sourcesState}
+        workspaceId={workspaceId}
+        workpieceId={workpieceId}
+        researchResult={latestResearchResult}
+      />
     </section>
   );
 

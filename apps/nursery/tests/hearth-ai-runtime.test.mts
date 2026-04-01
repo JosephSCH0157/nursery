@@ -402,6 +402,9 @@ test("createHearthAiHandler bypasses clarify gate for short research asks and en
     assert.match(capturedSystemPrompt, /Start with immediate known examples/i);
     assert.match(capturedSystemPrompt, /Organize examples into clear buckets\/categories/i);
     assert.match(capturedSystemPrompt, /Research response shape:/i);
+    assert.match(capturedSystemPrompt, /Canonical research runtime result:/i);
+    assert.equal(payload.research_result?.mode, "knowledge_first");
+    assert.equal(payload.research_result?.runtimeStatus, "partial");
   } finally {
     globalThis.fetch = originalFetch;
   }

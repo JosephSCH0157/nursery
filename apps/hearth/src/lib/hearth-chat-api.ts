@@ -15,6 +15,7 @@ import {
   type HearthChatMessage,
   type HearthOp,
 } from "./hearth-ai-runtime-contract";
+import type { HearthResearchResult } from "./hearth-research-contract";
 import {
   AI_REASON_CODES,
   getAiReasonMessage,
@@ -46,6 +47,7 @@ export type HearthChatResult =
       ops: HearthOp[];
       scriptText?: string;
       tagAudit?: Record<string, unknown>;
+      researchResult?: HearthResearchResult;
       gate?: "clarify";
       runtime: HearthAiRuntimeSnapshot;
       totalTokens: number | null;
@@ -1261,6 +1263,7 @@ export async function requestHearthChatReply(
     ops,
     scriptText,
     tagAudit: parsed?.tag_audit ?? undefined,
+    researchResult: parsed?.research_result ?? undefined,
     gate,
     runtime,
     totalTokens: parsed?.total_tokens ?? null,
