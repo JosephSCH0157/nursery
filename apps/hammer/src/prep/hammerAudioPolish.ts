@@ -49,19 +49,7 @@ function sortHammerAudioEditOperations(
   ));
 }
 
-export function cloneHammerAudioEdit(
-  value: HammerPersistedAudioEdit | null | undefined,
-): HammerPersistedAudioEdit | null {
-  if (!value) return null;
-  return {
-    version: "v1",
-    operations: sortHammerAudioEditOperations(
-      value.operations.map((operation) => ({ ...operation })),
-    ),
-  };
-}
-
-export function normalizeHammerAudioEdit(
+function canonicalizeHammerAudioEdit(
   value: unknown,
 ): HammerPersistedAudioEdit | null {
   if (value == null) return null;
@@ -95,6 +83,18 @@ export function normalizeHammerAudioEdit(
     version: "v1",
     operations: sortHammerAudioEditOperations(operations),
   };
+}
+
+export function cloneHammerAudioEdit(
+  value: HammerPersistedAudioEdit | null | undefined,
+): HammerPersistedAudioEdit | null {
+  return canonicalizeHammerAudioEdit(value);
+}
+
+export function normalizeHammerAudioEdit(
+  value: unknown,
+): HammerPersistedAudioEdit | null {
+  return canonicalizeHammerAudioEdit(value);
 }
 
 function cloneSettingsSummary(

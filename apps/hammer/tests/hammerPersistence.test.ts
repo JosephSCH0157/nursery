@@ -488,8 +488,16 @@ assert.deepEqual(
   { workspaceId: "aaa", workpieceId: "bbb" },
 );
 
+type GlobalWithRuntime = typeof globalThis & {
+  window?: unknown;
+  localStorage?: unknown;
+  location?: unknown;
+};
+
 const originalFetch = globalThis.fetch;
-const originalWindow = (globalThis as typeof globalThis & { window?: unknown }).window;
+const originalWindow = (globalThis as GlobalWithRuntime).window;
+const originalLocalStorage = (globalThis as GlobalWithRuntime).localStorage;
+const originalLocation = (globalThis as GlobalWithRuntime).location;
 const toApiArtifact = <T,>(artifact: { path: string | null; updated_at: string | null; data: T | null }) => ({
   path: artifact.path,
   file_updated_at: artifact.updated_at,
@@ -497,56 +505,74 @@ const toApiArtifact = <T,>(artifact: { path: string | null; updated_at: string |
 });
 
 try {
-  (globalThis as typeof globalThis & { window?: unknown }).window = {
-    location: { search: "" },
-    localStorage: {
-      getItem: () => "hammer_user_token",
-      key: () => null,
-      length: 0,
-    },
+  const runtimeStorage = {
+    getItem: () => "hammer_user_token",
+    key: () => null,
+    length: 0,
   };
+  const runtimeLocation = { search: "" };
+  (globalThis as GlobalWithRuntime).window = {
+    location: runtimeLocation,
+    localStorage: runtimeStorage,
+  };
+  (globalThis as GlobalWithRuntime).localStorage = runtimeStorage;
+  (globalThis as GlobalWithRuntime).location = runtimeLocation;
 
-  globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
-    ok: true,
-    data: {
-      snapshot: {
-        schema_version: 1,
-        state: persistedSnapshot.state,
-        editor_session: toApiArtifact(persistedSnapshot.editor_session),
-        structured_transcript: toApiArtifact(persistedSnapshot.structured_transcript),
-        speaker_map: toApiArtifact(persistedSnapshot.speaker_map),
-        visual_placements: toApiArtifact(persistedSnapshot.visual_placements),
-        audio_polish: {
-          path: persistedSnapshot.audio_polish.path,
-          file_updated_at: persistedSnapshot.audio_polish.updated_at,
-          data: {
-            ...persistedSnapshot.audio_polish.data,
-            audio_edit: {
-              version: "v1",
-              operations: [
-                {
-                  id: "cut_invalid",
-                  type: "cut",
-                  start_sec: 5,
-                  end_sec: 5,
-                },
-              ],
+  async function assertInvalidAudioEditPersistsAsCanonicalNull(): Promise<void> {
+    globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
+      ok: true,
+      data: {
+        snapshot: {
+          schema_version: 1,
+          state: persistedSnapshot.state,
+          editor_session: toApiArtifact(persistedSnapshot.editor_session),
+          structured_transcript: toApiArtifact(persistedSnapshot.structured_transcript),
+          speaker_map: toApiArtifact(persistedSnapshot.speaker_map),
+          visual_placements: toApiArtifact(persistedSnapshot.visual_placements),
+          audio_polish: {
+            path: persistedSnapshot.audio_polish.path,
+            file_updated_at: persistedSnapshot.audio_polish.updated_at,
+            data: {
+              ...persistedSnapshot.audio_polish.data,
+              audio_edit: {
+                version: "v1",
+                operations: [
+                  {
+                    id: "cut_invalid",
+                    type: "cut",
+                    start_sec: 5,
+                    end_sec: 5,
+                  },
+                ],
+              },
             },
           },
+          edit_plan: toApiArtifact(persistedSnapshot.edit_plan),
+          editorial_authority: toApiArtifact(persistedSnapshot.editorial_authority),
+          macro_hooks: persistedSnapshot.macro_hooks,
         },
-        edit_plan: toApiArtifact(persistedSnapshot.edit_plan),
-        editorial_authority: toApiArtifact(persistedSnapshot.editorial_authority),
-        macro_hooks: persistedSnapshot.macro_hooks,
       },
-    },
-  }), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-  });
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
 
-  const invalidEditResult = await loadHammerPersistenceSnapshot(target);
-  assert.equal(invalidEditResult.ok, true);
-  assert.equal(invalidEditResult.ok && invalidEditResult.data.audio_polish.data?.audio_edit, null);
+    const invalidEditResult = await loadHammerPersistenceSnapshot(target);
+    assert.equal(invalidEditResult.ok, true);
+    assert.equal(invalidEditResult.ok && invalidEditResult.data.audio_polish.data?.audio_edit, null);
+
+    if (!invalidEditResult.ok) {
+      throw new Error("Expected invalid audio_edit payload to normalize to a successful null load.");
+    }
+
+    const roundTripSaveRequest = buildHammerPersistenceSaveRequest({
+      ...snapshot,
+      audioPolish: invalidEditResult.data.audio_polish.data,
+    });
+    assert.equal(roundTripSaveRequest.audio_polish?.data.audio_edit, null);
+  }
+
+  await assertInvalidAudioEditPersistsAsCanonicalNull();
 
   globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
     ok: true,
@@ -582,9 +608,19 @@ try {
 } finally {
   globalThis.fetch = originalFetch;
   if (originalWindow === undefined) {
-    delete (globalThis as typeof globalThis & { window?: unknown }).window;
+    delete (globalThis as GlobalWithRuntime).window;
   } else {
-    (globalThis as typeof globalThis & { window?: unknown }).window = originalWindow;
+    (globalThis as GlobalWithRuntime).window = originalWindow;
+  }
+  if (originalLocalStorage === undefined) {
+    delete (globalThis as GlobalWithRuntime).localStorage;
+  } else {
+    (globalThis as GlobalWithRuntime).localStorage = originalLocalStorage;
+  }
+  if (originalLocation === undefined) {
+    delete (globalThis as GlobalWithRuntime).location;
+  } else {
+    (globalThis as GlobalWithRuntime).location = originalLocation;
   }
 }
 
