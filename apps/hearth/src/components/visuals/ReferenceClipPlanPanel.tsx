@@ -153,7 +153,13 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
     [props.entries, props.selectedEntryId],
   );
   const candidates = selectedEntry?.candidate_assets ?? [];
-  const hasSelectedAsset = Boolean(selectedEntry?.selected_asset_id);
+  const selectedAssetId = selectedEntry?.selected_asset_id ?? null;
+  const selectedCandidate = selectedAssetId
+    ? candidates.find((candidate) => candidate.asset_id === selectedAssetId) ?? null
+    : null;
+  const hasSelectedAsset = Boolean(selectedAssetId);
+  const selectedAssetPreviewSource = selectedCandidate ? resolveCandidatePreviewSource(selectedCandidate) : null;
+  const hasUsableSelectedAsset = Boolean(selectedAssetPreviewSource);
 
   return (
     <div className="hs-imap-panel">
@@ -172,7 +178,15 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
       <div className="hs-imap-toolbar">
         <span className="hs-pill">{props.entries.length} reference clip{props.entries.length === 1 ? "" : "s"}</span>
         <span className="hs-pill">State: {props.saveState}</span>
-        {selectedEntry ? <span className="hs-pill">{hasSelectedAsset ? "Result attached" : "No result selected"}</span> : null}
+        {selectedEntry ? (
+          <span className="hs-pill">
+            {!hasSelectedAsset
+              ? "No result selected"
+              : hasUsableSelectedAsset
+                ? "Result attached"
+                : "Result attached (not usable in Forge yet)"}
+          </span>
+        ) : null}
       </div>
 
       <div className="hs-imap-grid">
@@ -469,6 +483,11 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
               />
 
               <div className="hs-imap-tools-label">Attached results</div>
+              {hasSelectedAsset && !hasUsableSelectedAsset ? (
+                <div className="hs-error-text-small">
+                  Selected result is attached but missing a renderable preview URL. Attach a direct image URL or upload/select a candidate that can preview in-app.
+                </div>
+              ) : null}
 
               <CandidateList
                 candidates={candidates}

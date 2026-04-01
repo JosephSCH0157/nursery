@@ -16,7 +16,7 @@ function buildConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntim
     imageApiKey: null,
     researchApiKey: null,
     apiKey: null,
-    model: "gpt-5",
+    model: "gpt-5.4-mini",
     sttModel: "gpt-4o-mini-transcribe",
     configuredBillingMode: "forge",
     initialTokenBalance: 42,
@@ -24,6 +24,9 @@ function buildConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntim
     supabaseServiceRoleKey: null,
     supabaseRpcKey: null,
     sttBucket: "forge-workpieces",
+    disableForgeLaneAi: false,
+    disableExpensiveAiActions: false,
+    disableCdcGeneration: false,
     ...overrides,
   };
 }
@@ -388,7 +391,7 @@ test("createHearthAiHandler bypasses clarify gate for short research asks and en
       body: JSON.stringify({
         messages: [{ role: "user", content: "Find breach-related reporting examples." }],
         episode_context: buildEpisodeContext(),
-        lane: "forge",
+        lane: "byo",
         behavior: "careful",
       }),
     }));
@@ -406,6 +409,8 @@ test("createHearthAiHandler bypasses clarify gate for short research asks and en
     assert.match(capturedSystemPrompt, /Canonical research runtime result:/i);
     assert.equal(payload.research_result?.mode, "knowledge_first");
     assert.equal(payload.research_result?.runtimeStatus, "partial");
+    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Live retrieval was unavailable in this run/i);
+    assert.match(String(payload.assistant_text ?? ""), /knowledge-first fallback/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -488,7 +493,7 @@ test("createHearthAiHandler returns retrieval-backed canonical research results 
       body: JSON.stringify({
         messages: [{ role: "user", content: "Find breach-related reporting examples." }],
         episode_context: buildEpisodeContext(),
-        lane: "forge",
+        lane: "byo",
         behavior: "careful",
       }),
     }));
@@ -506,6 +511,9 @@ test("createHearthAiHandler returns retrieval-backed canonical research results 
     assert.equal(payload.research_result?.sources?.[1]?.url, "https://example.org/two");
     assert.equal(payload.research_result?.sources?.[1]?.extractionStatus, "extracted");
     assert.match(String(payload.research_result?.synthesis?.summary ?? ""), /Retrieved 2 source/);
+    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Retrieval found sources/i);
+    assert.match(String(payload.assistant_text ?? ""), /Sources found \(2\):/i);
+    assert.match(String(payload.assistant_text ?? ""), /Retrieved findings:/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -582,7 +590,7 @@ test("createHearthAiHandler marks partial retrieval honestly when some sources f
       body: JSON.stringify({
         messages: [{ role: "user", content: "Find breach reports with examples." }],
         episode_context: buildEpisodeContext(),
-        lane: "forge",
+        lane: "byo",
         behavior: "careful",
       }),
     }));
@@ -598,6 +606,8 @@ test("createHearthAiHandler marks partial retrieval honestly when some sources f
       String(payload.research_result?.synthesis?.uncertainties?.[0] ?? ""),
       /partial, failed, or skipped/i,
     );
+    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Retrieval was partial/i);
+    assert.match(String(payload.assistant_text ?? ""), /Recovered sources \(2\):/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -652,7 +662,7 @@ test("createHearthAiHandler returns no_results when provider returns no candidat
       body: JSON.stringify({
         messages: [{ role: "user", content: "Find breach reporting from an obscure local incident." }],
         episode_context: buildEpisodeContext(),
-        lane: "forge",
+        lane: "byo",
         behavior: "careful",
       }),
     }));
@@ -664,6 +674,66 @@ test("createHearthAiHandler returns no_results when provider returns no candidat
     assert.equal(payload.research_result?.runtimeStatus, "no_results");
     assert.equal(payload.research_result?.sources?.length, 0);
     assert.match(String(payload.research_result?.synthesis?.summary ?? ""), /No strong retrieval results/i);
+    assert.match(String(payload.assistant_text ?? ""), /No strong retrieval results were found/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler labels retrieval errors as knowledge-first fallback in research replies", async () => {
+  const handler = createHearthAiHandler(buildConfig({
+    textApiKey: "test-key",
+    researchApiKey: "brave-test-key",
+  }));
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      return new Response("upstream failure", { status: 502 });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                assistantText: "Here are angles to explore next.",
+                ops: [],
+                script_text: null,
+                tag_audit: null,
+              }),
+            },
+          },
+        ],
+        usage: { total_tokens: 62 },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Find recent breach reporting examples." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.research_result?.runtimeStatus, "error");
+    assert.equal(payload.research_result?.mode, "knowledge_first");
+    assert.match(String(payload.assistant_text ?? ""), /Live retrieval was unavailable in this run/i);
+    assert.match(String(payload.assistant_text ?? ""), /knowledge-first fallback/i);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -1188,6 +1188,72 @@ function summarizeResearchResult(result: HearthResearchResult): Record<string, n
   };
 }
 
+function formatResearchSourceArtifact(source: { title: string | null; domain: string | null; url: string }): string {
+  const label = readOptionalString(source.title) ?? readOptionalString(source.domain) ?? source.url;
+  return label;
+}
+
+function buildResearchOutcomeLead(args: {
+  request: HearthResearchRequest;
+  result: HearthResearchResult;
+}): string {
+  const query = args.request.query.trim() || "this query";
+  const sourceCount = args.result.sources.length;
+  const topArtifacts = args.result.sources
+    .slice(0, 3)
+    .map((source) => formatResearchSourceArtifact(source))
+    .filter(Boolean);
+  const keyPoints = args.result.synthesis.keyPoints
+    .map((point) => point.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+
+  if (args.result.runtimeStatus === "no_results") {
+    return `Research outcome: No strong retrieval results were found for "${query}".`;
+  }
+
+  if (args.result.runtimeStatus === "error" || args.result.mode === "knowledge_first") {
+    return `Research outcome: Live retrieval was unavailable in this run, so this answer is a knowledge-first fallback for "${query}".`;
+  }
+
+  if (args.result.mode === "partial_retrieval" || args.result.runtimeStatus === "partial") {
+    const artifactLine = topArtifacts.length
+      ? `Recovered sources (${sourceCount}): ${topArtifacts.join("; ")}.`
+      : `Recovered sources (${sourceCount}): none surfaced in this pass.`;
+    const findingsLine = keyPoints.length
+      ? `Recovered findings: ${keyPoints.join(" ")}`
+      : "Recovered findings are limited in this pass.";
+    return `Research outcome: Retrieval was partial for "${query}". ${artifactLine} ${findingsLine}`;
+  }
+
+  const artifactLine = topArtifacts.length
+    ? `Sources found (${sourceCount}): ${topArtifacts.join("; ")}.`
+    : `Sources found (${sourceCount}).`;
+  const findingsLine = keyPoints.length
+    ? `Retrieved findings: ${keyPoints.join(" ")}`
+    : readOptionalString(args.result.synthesis.summary)
+      ? `Retrieved findings: ${args.result.synthesis.summary}`
+      : "Retrieved findings are available from the runtime source set.";
+  return `Research outcome: Retrieval found sources for "${query}". ${artifactLine} ${findingsLine}`;
+}
+
+function enforceResearchOutcomeReply(args: {
+  assistantText: string;
+  request: HearthResearchRequest;
+  result: HearthResearchResult;
+}): string {
+  const lead = buildResearchOutcomeLead({
+    request: args.request,
+    result: args.result,
+  });
+  const body = args.assistantText.trim();
+  if (!body) return lead;
+  const normalizedLead = lead.trim().toLowerCase();
+  const normalizedBody = body.toLowerCase();
+  if (normalizedBody.startsWith(normalizedLead)) return body;
+  return `${lead}\n\n${body}`;
+}
+
 export function createHearthAiHandler(config: HearthRuntimeConfig) {
   const researchApiKey = (
     config.researchApiKey
@@ -2383,6 +2449,14 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
           // Readiness checks should return guidance only, not apply edits.
           structured.ops = [];
+        }
+
+        if (researchModeRequested && researchRequest && researchResult) {
+          structured.assistantText = enforceResearchOutcomeReply({
+            assistantText: structured.assistantText,
+            request: researchRequest,
+            result: researchResult,
+          });
         }
 
         if (!structured.assistantText && structured.ops.length === 0) {
