@@ -216,6 +216,10 @@ import HearthMobileOverlays from "../views/modes/HearthMobileOverlays";
 import HearthShellModals from "../views/modes/HearthShellModals";
 import HearthMainContentSwitch from "../views/modes/HearthMainContentSwitch";
 import HearthWorkspaceProjectsRail from "../views/modes/HearthWorkspaceProjectsRail";
+import HearthActiveWorkpieceRail from "../views/modes/HearthActiveWorkpieceRail";
+import HearthReadyQueueRail from "../views/modes/HearthReadyQueueRail";
+import HearthDesktopFrame from "../views/modes/HearthDesktopFrame";
+import HearthDesktopRailContent from "../views/modes/HearthDesktopRailContent";
 import {
   PRODUCTION_ACTION_LABEL,
   persistProductionArtifact as persistHearthProductionArtifact,
@@ -7342,296 +7346,126 @@ export default function HearthShell({
           {mobileMainContent}
         </main>
       ) : (
-        <div className="hs-shell-grid">
-        <aside
-          className="hs-rail"
-        >
-          <div className="hs-rail-header">
-            <div className="hs-rail-title">Hearth</div>
-            {devMode ? (
-              <div className="hs-rail-meta">Dev store: {storeKind}</div>
-            ) : null}
-            {workpieceId ? (
-              <div className="hs-rail-meta">
-                Workpiece {workpieceId.slice(0, 8)}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="hs-rail-section">
-            <div className="hs-rail-heading">Primary actions</div>
-            <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
-              New Workpiece
-            </button>
-            <button type="button" onClick={onCreateDraft}>
-              New Draft
-            </button>
-          </div>
-
-          <div className="hs-rail-section">
-            <div className="hs-rail-heading">Modes</div>
-            <button
-              type="button"
-              className={`hs-mode-button${mode === "sparks" ? " is-active" : ""}`}
-              onClick={() => setMode("sparks")}
-            >
-              Sparks
-            </button>
-            <button
-              type="button"
-              className={`hs-mode-button${mode === "episodes" ? " is-active" : ""}`}
-              onClick={() => setMode("episodes")}
-            >
-              Episodes (In Progress)
-            </button>
-            <button
-              type="button"
-              className={`hs-mode-button${mode === "ready" ? " is-active" : ""}`}
-              onClick={() => setMode("ready")}
-            >
-              Ready
-            </button>
-            <button
-              type="button"
-              className={`hs-mode-button${mode === "series" ? " is-active" : ""}`}
-              onClick={() => setMode("series")}
-            >
-              Series
-            </button>
-          </div>
-
-          <div className="hs-rail-section">
-            <label className="hs-rail-label" htmlFor="hs-density-select">Density</label>
-            <select
-              id="hs-density-select"
-              aria-label="UI density"
-              value={uiDensity}
-              onChange={(event) => setUiDensity(event.target.value === "compact" ? "compact" : "comfortable")}
-            >
-              <option value="comfortable">Comfortable</option>
-              <option value="compact">Compact</option>
-            </select>
-          </div>
-
-          {deferDesktopRailCollections ? (
-            <div className="hs-rail-section">
-              <div className="hs-rail-heading">Workspace Queue</div>
-              <div className="hs-rail-meta">
-                Ready items and workspace projects load after you open or start an Episode.
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="hs-rail-section">
-                <div className="hs-ready-record-header">
-                  <div className="hs-rail-heading">
-                    Ready to Record
-                    <span className="hs-ready-record-count">{readyTotalCount}</span>
-                  </div>
-                  <button type="button" onClick={() => void refreshReadyScripts()} disabled={isReadyScriptsLoading}>
-                    {isReadyScriptsLoading ? "Refreshing..." : "Refresh"}
-                  </button>
-                </div>
-                {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
-                {readyCategoryError ? <div className="hs-error-text-small">{readyCategoryError}</div> : null}
-                <div className="hs-rail-meta">
-                  Each episode appears once in Projects. Ready state lives on the project row; queue management lives in the Ready view.
-                </div>
-                {isReadyScriptsLoading ? <p>Loading queue...</p> : null}
-                {!isReadyScriptsLoading ? (
-                  <div className="hs-ready-record-summary">
-                    <div className="hs-ready-record-summary-row">
-                      <span>Ready episodes</span>
-                      <strong>{readyTotalCount}</strong>
-                    </div>
-                    <div className="hs-ready-record-summary-row">
-                      <span>{READY_URGENCY_LABEL.fresh}</span>
-                      <strong>{readyUrgencyCounts.fresh}</strong>
-                    </div>
-                    <div className="hs-ready-record-summary-row">
-                      <span>{READY_URGENCY_LABEL.cooling}</span>
-                      <strong>{readyUrgencyCounts.cooling}</strong>
-                    </div>
-                    <div className="hs-ready-record-summary-row">
-                      <span>{READY_URGENCY_LABEL.cold}</span>
-                      <strong>{readyUrgencyCounts.cold}</strong>
-                    </div>
-                    <div className="hs-ready-record-summary-row">
-                      <span>Hidden</span>
-                      <strong>{removedReadyCount}</strong>
-                    </div>
-                  </div>
-                ) : null}
-                <div className="hs-workpiece-actions">
-                  <button
-                    type="button"
-                    className="hs-mode-button"
-                    onClick={() => setMode("ready")}
-                  >
-                    Open Ready View
-                  </button>
-                  {removedReadyCount > 0 ? (
-                    <button type="button" onClick={() => void onRestoreRemovedReady()} disabled={isRestoringReady}>
-                      {isRestoringReady ? "Restoring..." : `Restore hidden (${removedReadyCount})`}
-                    </button>
-                  ) : null}
-                </div>
-                {!isReadyScriptsLoading && readyTotalCount === 0 && removedReadyCount === 0 ? (
-                  <p className="hs-rail-meta">No items yet. Approve a script to populate Ready.</p>
-                ) : null}
-              </div>
-
-              <HearthWorkspaceProjectsRail
-                searchRef={searchRef}
-                searchText={searchText}
-                onSearchTextChange={setSearchText}
-                sortKey={sortKey}
-                onSortKeyChange={setSortKey}
-                showArchived={showArchived}
-                onShowArchivedChange={setShowArchived}
-                isLoading={isLoading}
-                isWorkpiecesLoading={isWorkpiecesLoading}
-                workpiecesError={workpiecesError}
-                filteredWorkpieceNavItems={filteredWorkpieceNavItems}
-                draftsById={draftsById}
-                workpieceId={workpieceId}
-                editingDraftId={editingDraftId}
-                setEditingDraftId={setEditingDraftId}
-                editingTitle={editingTitle}
-                setEditingTitle={setEditingTitle}
-                shouldShowWorkpieceId={(title) => duplicateRailTitleKeys.has(normalizeRailTitleKey(title))}
-                archivingWorkpieceIds={archivingWorkpieceIds}
-                restoringWorkpieceIds={restoringWorkpieceIds}
-                openWorkpieceInFocus={openWorkpieceInFocus}
-                formatUpdatedAt={formatUpdatedAt}
-                resolveDraftEditorName={resolveDraftEditorName}
-                saveDraftMeta={saveDraftMeta}
-                onRestoreWorkpiece={onRestoreWorkpiece}
-                onArchiveWorkpiece={onArchiveWorkpiece}
-                onDeleteDraft={onDeleteDraft}
-              />
-            </>
+        <HearthDesktopFrame
+          devMode={devMode}
+          storeKind={storeKind}
+          workpieceId={workpieceId}
+          isForging={isForging}
+          onStartFromScratch={startFromScratch}
+          onCreateDraft={onCreateDraft}
+          mode={mode}
+          onModeChange={setMode}
+          uiDensity={uiDensity}
+          onUiDensityChange={setUiDensity}
+          railContent={(
+            <HearthDesktopRailContent
+              deferDesktopRailCollections={deferDesktopRailCollections}
+              readyQueueRail={(
+                <HearthReadyQueueRail
+                  readyTotalCount={readyTotalCount}
+                  refreshReadyScripts={refreshReadyScripts}
+                  isReadyScriptsLoading={isReadyScriptsLoading}
+                  readyScriptsError={readyScriptsError}
+                  readyCategoryError={readyCategoryError}
+                  readyUrgencyLabelFresh={READY_URGENCY_LABEL.fresh}
+                  readyUrgencyLabelCooling={READY_URGENCY_LABEL.cooling}
+                  readyUrgencyLabelCold={READY_URGENCY_LABEL.cold}
+                  readyUrgencyFreshCount={readyUrgencyCounts.fresh}
+                  readyUrgencyCoolingCount={readyUrgencyCounts.cooling}
+                  readyUrgencyColdCount={readyUrgencyCounts.cold}
+                  removedReadyCount={removedReadyCount}
+                  onOpenReadyView={() => setMode("ready")}
+                  onRestoreRemovedReady={onRestoreRemovedReady}
+                  isRestoringReady={isRestoringReady}
+                />
+              )}
+              workspaceProjectsRail={(
+                <HearthWorkspaceProjectsRail
+                  searchRef={searchRef}
+                  searchText={searchText}
+                  onSearchTextChange={setSearchText}
+                  sortKey={sortKey}
+                  onSortKeyChange={setSortKey}
+                  showArchived={showArchived}
+                  onShowArchivedChange={setShowArchived}
+                  isLoading={isLoading}
+                  isWorkpiecesLoading={isWorkpiecesLoading}
+                  workpiecesError={workpiecesError}
+                  filteredWorkpieceNavItems={filteredWorkpieceNavItems}
+                  draftsById={draftsById}
+                  workpieceId={workpieceId}
+                  editingDraftId={editingDraftId}
+                  setEditingDraftId={setEditingDraftId}
+                  editingTitle={editingTitle}
+                  setEditingTitle={setEditingTitle}
+                  shouldShowWorkpieceId={(title) => duplicateRailTitleKeys.has(normalizeRailTitleKey(title))}
+                  archivingWorkpieceIds={archivingWorkpieceIds}
+                  restoringWorkpieceIds={restoringWorkpieceIds}
+                  openWorkpieceInFocus={openWorkpieceInFocus}
+                  formatUpdatedAt={formatUpdatedAt}
+                  resolveDraftEditorName={resolveDraftEditorName}
+                  saveDraftMeta={saveDraftMeta}
+                  onRestoreWorkpiece={onRestoreWorkpiece}
+                  onArchiveWorkpiece={onArchiveWorkpiece}
+                  onDeleteDraft={onDeleteDraft}
+                />
+              )}
+              activeWorkpieceRail={(
+                <HearthActiveWorkpieceRail
+                  hasActiveEpisode={hasActiveEpisode}
+                  activeEpisodeReadyStatus={activeEpisodeReadyStatus}
+                  activeWorkpieceIsArchived={activeWorkpieceIsArchived}
+                  activeWorkpieceArchiveReason={activeWorkpiece?.archiveReason ?? null}
+                  isRestoringActiveWorkpiece={Boolean(
+                    activeWorkpiece && restoringWorkpieceIds.includes(activeWorkpiece.workpieceId),
+                  )}
+                  onRestoreActiveWorkpiece={() => {
+                    if (!activeWorkpiece) return;
+                    return onRestoreWorkpiece(activeWorkpiece.workpieceId, { openAfterRestore: true });
+                  }}
+                  openInAnvilHref={openInAnvilHref}
+                  handoffBlocked={handoffBlocked}
+                  onOpenInAnvil={onOpenInAnvil}
+                  anvilStepModeHint={anvilStepModeHint}
+                  isFocusDraftActive={mode === "focus" && focusTab === "draft"}
+                  isFocusPlanningActive={mode === "focus" && focusTab === "planning"}
+                  isFocusSourcesActive={mode === "focus" && focusTab === "sources"}
+                  isFocusRevisionsActive={mode === "focus" && focusTab === "revisions"}
+                  wordCount={wordCount}
+                  revisionsCount={revisions.length}
+                  sourcesBadgeTitle={sourcesBadgeTitle}
+                  sourcesBadge={sourcesBadge}
+                  devMode={devMode}
+                  onFocusDraft={() => {
+                    setFocusTab("draft");
+                    setMode("focus");
+                  }}
+                  onFocusPlanning={() => {
+                    setFocusTab("planning");
+                    setMode("focus");
+                  }}
+                  onFocusSources={() => {
+                    setFocusTab("sources");
+                    setMode("focus");
+                  }}
+                  onFocusRevisions={() => {
+                    setFocusTab("revisions");
+                    setMode("focus");
+                  }}
+                  onOpenApiLedger={() => {
+                    if (!hasActiveEpisode) {
+                      setMode("episodes");
+                      return;
+                    }
+                    setFocusTab("sources");
+                    setMode("focus");
+                  }}
+                />
+              )}
+            />
           )}
-
-          <div className={`hs-active-workpiece${hasActiveEpisode ? "" : " is-empty"}`}>
-            <div className="hs-rail-heading">Active workpiece</div>
-            {hasActiveEpisode ? (
-              <>
-                <div className="hs-active-workpiece-status">
-                  <span className={`hs-episode-ready-pill is-${activeEpisodeReadyStatus.tone}`}>
-                    {activeEpisodeReadyStatus.label}
-                  </span>
-                  <div className="hs-rail-meta">{activeEpisodeReadyStatus.detail}</div>
-                </div>
-                {activeWorkpieceIsArchived && activeWorkpiece ? (
-                  <>
-                    <div className="hs-rail-meta">Archived workpieces are hidden records. Restore to review, then re-ready before recording.</div>
-                    {activeWorkpiece.archiveReason ? (
-                      <div className="hs-rail-meta">Archive reason: {activeWorkpiece.archiveReason}</div>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => void onRestoreWorkpiece(activeWorkpiece.workpieceId, { openAfterRestore: true })}
-                      disabled={restoringWorkpieceIds.includes(activeWorkpiece.workpieceId)}
-                      className="hs-mode-button"
-                    >
-                      {restoringWorkpieceIds.includes(activeWorkpiece.workpieceId) ? "Restoring..." : "Restore Workpiece"}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void onOpenInAnvil()}
-                      disabled={!openInAnvilHref || handoffBlocked}
-                      className="hs-mode-button"
-                    >
-                      Start Recording
-                    </button>
-                    {anvilStepModeHint ? (
-                      <div className="hs-rail-meta">{anvilStepModeHint}</div>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusTab("draft");
-                        setMode("focus");
-                      }}
-                      className={`hs-mode-button${mode === "focus" && focusTab === "draft" ? " is-active" : ""}`}
-                    >
-                      Draft
-                      <span className="hs-mode-meta">{wordCount} words</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusTab("planning");
-                        setMode("focus");
-                      }}
-                      className={`hs-mode-button${mode === "focus" && focusTab === "planning" ? " is-active" : ""}`}
-                    >
-                      Planning Board
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusTab("sources");
-                        setMode("focus");
-                      }}
-                      className={`hs-mode-button${mode === "focus" && focusTab === "sources" ? " is-active" : ""}`}
-                      title={sourcesBadgeTitle}
-                    >
-                      Sources
-                      {sourcesBadge ? (
-                        <span className={`hs-sources-badge${devMode ? " is-dev" : ""}`}>{sourcesBadge}</span>
-                      ) : null}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusTab("revisions");
-                        setMode("focus");
-                      }}
-                      className={`hs-mode-button${mode === "focus" && focusTab === "revisions" ? " is-active" : ""}`}
-                    >
-                      Revisions
-                      <span className="hs-mode-meta">{revisions.length}</span>
-                    </button>
-                  </>
-                )}
-              </>
-            ) : (
-              <div className="hs-rail-meta">Select an episode to unlock recording and focus tools.</div>
-            )}
-          </div>
-
-          <div className="hs-rail-section">
-            <div className="hs-rail-heading">Tools</div>
-            <button
-              type="button"
-              className="hs-mode-button"
-              title={sourcesBadgeTitle}
-              onClick={() => {
-                if (!hasActiveEpisode) {
-                  setMode("episodes");
-                  return;
-                }
-                setFocusTab("sources");
-                setMode("focus");
-              }}
-            >
-              API / Ledger
-              {sourcesBadge ? (
-                <span className={`hs-sources-badge${devMode ? " is-dev" : ""}`}>{sourcesBadge}</span>
-              ) : null}
-            </button>
-          </div>
-        </aside>
-
-          <main className="hs-main">
-            {mainContent}
-          </main>
-        </div>
+          mainContent={mainContent}
+        />
       )}
 
       <HearthMobileOverlays
