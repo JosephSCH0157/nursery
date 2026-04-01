@@ -195,7 +195,6 @@ import {
 } from "../lib/hearth-writing-format";
 import { inferSpeakersFromScript } from "../lib/compose-content-validation";
 import { buildComposePrompt } from "../lib/compose-prompt";
-import ComposeSetupModal from "../ui/ComposeSetupModal";
 import ChatSurface from "../views/surfaces/ChatSurface";
 import HistorySurface from "../views/surfaces/HistorySurface";
 import MetadataSurface from "../views/surfaces/MetadataSurface";
@@ -214,6 +213,9 @@ import HearthFocusMode from "../views/modes/HearthFocusMode";
 import HearthDraftScriptHeader from "../views/modes/HearthDraftScriptHeader";
 import HearthDraftMode from "../views/modes/HearthDraftMode";
 import HearthMobileOverlays from "../views/modes/HearthMobileOverlays";
+import HearthShellModals from "../views/modes/HearthShellModals";
+import HearthMainContentSwitch from "../views/modes/HearthMainContentSwitch";
+import HearthWorkspaceProjectsRail from "../views/modes/HearthWorkspaceProjectsRail";
 import {
   PRODUCTION_ACTION_LABEL,
   persistProductionArtifact as persistHearthProductionArtifact,
@@ -7312,24 +7314,18 @@ export default function HearthShell({
     incomingBarStockIntakeRoute && routeSparkId && !routeProjectId && !hasActiveEpisode && !forgeError,
   );
 
-  const mainContent = (() => {
-    if (showSparkRouteBootstrap) {
-      return renderSparkRouteBootstrapView();
-    }
-    switch (mode) {
-      case "sparks":
-        return renderSparksView();
-      case "episodes":
-        return renderEpisodesView();
-      case "ready":
-        return renderReadyView();
-      case "series":
-        return renderSeriesView();
-      case "focus":
-      default:
-        return renderFocusEditor();
-    }
-  })();
+  const mainContent = (
+    <HearthMainContentSwitch
+      showSparkRouteBootstrap={showSparkRouteBootstrap}
+      mode={mode}
+      renderSparkRouteBootstrapView={renderSparkRouteBootstrapView}
+      renderSparksView={renderSparksView}
+      renderEpisodesView={renderEpisodesView}
+      renderReadyView={renderReadyView}
+      renderSeriesView={renderSeriesView}
+      renderFocusEditor={renderFocusEditor}
+    />
+  );
   const mobileMainContent = renderEpisodesView();
 
   const sourcesBadge = missingSourcesCount > 0 ? String(missingSourcesCount) : null;
@@ -7485,183 +7481,35 @@ export default function HearthShell({
                 ) : null}
               </div>
 
-              <div className="hs-rail-section">
-                <label className="hs-rail-label">Search workspace projects</label>
-                <input
-                  aria-label="Search workspace projects"
-                  ref={searchRef}
-                  type="search"
-                  value={searchText}
-                  onChange={(event) => setSearchText(event.target.value)}
-                  placeholder="Search Episode titles"
-                />
-                <div className="hs-rail-sort">
-                  <label className="hs-rail-label">Sort</label>
-                  <select aria-label="Sort workspace projects" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
-                    <option value="updated">Recently updated</option>
-                    <option value="title">Title A-Z</option>
-                  </select>
-                </div>
-                <label className="hs-rail-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={showArchived}
-                    onChange={(event) => setShowArchived(event.target.checked)}
-                  />
-                  Show archived
-                </label>
-              </div>
-
-              <div className="hs-rail-section">
-                <div className="hs-rail-heading">Workspace Projects</div>
-                {isLoading || isWorkpiecesLoading ? <p>Loading workspace projects...</p> : null}
-                {workpiecesError ? <div className="hs-error-text-small">{workpiecesError}</div> : null}
-                {!isLoading && !isWorkpiecesLoading && filteredWorkpieceNavItems.length === 0
-                  ? <p>No workspace projects yet.</p>
-                  : null}
-                <ul className="hs-workpieces-list">
-                  {filteredWorkpieceNavItems.map((item) => {
-                    const draft = item.draftId ? draftsById.get(item.draftId) ?? null : null;
-                    const draftId = draft?.id ?? null;
-                    const isActive = workpieceId === item.workpieceId;
-                    const isEditing = Boolean(draftId) && editingDraftId === draftId;
-                    const updatedAt = item.updatedAtMs || draft?.updatedAt || Date.now();
-                    const draftLabel = readTrimmedString(draft?.title ?? null);
-                    const showDraftLabel = Boolean(draftLabel && draftLabel !== item.title);
-                    const showWorkpieceId = duplicateRailTitleKeys.has(normalizeRailTitleKey(item.title));
-                    const workpieceBadges = [
-                      item.readyEntry ? { label: "Ready", tone: "ready" } : null,
-                      draft ? { label: "Draft", tone: "draft" } : null,
-                      draft?.revisionCount ? { label: `Revisions ${draft.revisionCount}`, tone: "count" } : null,
-                      item.sparkCount > 0
-                        ? { label: `${item.sparkCount} Spark${item.sparkCount === 1 ? "" : "s"}`, tone: "count" }
-                        : null,
-                      draft?.pinned ? { label: "Pinned", tone: "neutral" } : null,
-                      item.isArchived ? { label: "Archived", tone: "archived" } : null,
-                    ].filter((badge): badge is { label: string; tone: "ready" | "draft" | "count" | "neutral" | "archived" } => Boolean(badge));
-                    const isArchiving = archivingWorkpieceIds.includes(item.workpieceId);
-                    const isRestoring = restoringWorkpieceIds.includes(item.workpieceId);
-                    return (
-                      <li key={item.workpieceId}>
-                        <div
-                          className={`hs-workpiece-card${isActive ? " is-active" : ""}`}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => void openWorkpieceInFocus(item.workpieceId, {
-                              preferredDraftId: item.draftId,
-                            })}
-                            className="hs-workpiece-button"
-                          >
-                            <div className="hs-workpiece-title-row">
-                              <div className="hs-workpiece-title-stack">
-                                <div className="hs-workpiece-title">{item.title}</div>
-                                {showWorkpieceId ? (
-                                  <div className="hs-workpiece-secondary">ID {item.workpieceId.slice(0, 8)}</div>
-                                ) : null}
-                              </div>
-                            </div>
-                            {workpieceBadges.length > 0 ? (
-                              <div className="hs-workpiece-badges" aria-label="Project status">
-                                {workpieceBadges.map((badge) => (
-                                  <span
-                                    key={`${item.workpieceId}:${badge.label}`}
-                                    className={`hs-workpiece-badge is-${badge.tone}`}
-                                  >
-                                    {badge.label}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : null}
-                            <div className="hs-workpiece-updated">
-                              Updated {formatUpdatedAt(updatedAt)}
-                            </div>
-                            <div className="hs-workpiece-updated">
-                              {draft ? `Last edited by ${resolveDraftEditorName(draft)}` : "No attached draft buffer yet"}
-                            </div>
-                            {showDraftLabel ? (
-                              <div className="hs-workpiece-updated">Draft label: {draftLabel}</div>
-                            ) : null}
-                          </button>
-                          {draft && isEditing ? (
-                            <label className="hs-workpiece-draft-label-editor">
-                              <span className="hs-rail-label">Draft label</span>
-                              <input
-                                aria-label="Edit draft label"
-                                value={editingTitle}
-                                onChange={(event) => setEditingTitle(event.target.value)}
-                                onKeyDown={(event) => {
-                                  if (!draft) return;
-                                  if (event.key === "Enter") {
-                                    event.preventDefault();
-                                    void saveDraftMeta(draft, { title: editingTitle });
-                                    setEditingDraftId(null);
-                                  }
-                                  if (event.key === "Escape") {
-                                    setEditingDraftId(null);
-                                  }
-                                }}
-                                onBlur={() => {
-                                  if (draft && editingDraftId === draft.id) {
-                                    void saveDraftMeta(draft, { title: editingTitle });
-                                    setEditingDraftId(null);
-                                  }
-                                }}
-                              />
-                              <span className="hs-rail-meta">
-                                Draft label only. Project title stays synced to Tongs.
-                              </span>
-                            </label>
-                          ) : null}
-                          {draft && !item.isArchived ? (
-                            <div className="hs-workpiece-actions">
-                              <button
-                                type="button"
-                                onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}
-                              >
-                                {draft.pinned ? "Unpin" : "Pin"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (editingDraftId === draft.id) {
-                                    setEditingDraftId(null);
-                                    return;
-                                  }
-                                  setEditingDraftId(draft.id);
-                                  setEditingTitle(draft.title);
-                                }}
-                              >
-                                {editingDraftId === draft.id ? "Close Draft Label" : "Edit Draft Label"}
-                              </button>
-                            </div>
-                          ) : null}
-                          <div className="hs-workpiece-actions">
-                            <button
-                              type="button"
-                              onClick={() => void (
-                                item.isArchived
-                                  ? onRestoreWorkpiece(item.workpieceId)
-                                  : onArchiveWorkpiece(item.workpieceId)
-                              )}
-                              disabled={isArchiving || isRestoring}
-                            >
-                              {item.isArchived
-                                ? isRestoring ? "Restoring..." : "Restore Workpiece"
-                                : isArchiving ? "Archiving..." : "Archive Workpiece"}
-                            </button>
-                            {draft ? (
-                              <button type="button" onClick={() => void onDeleteDraft(draft)}>
-                                Delete Draft Buffer
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
+              <HearthWorkspaceProjectsRail
+                searchRef={searchRef}
+                searchText={searchText}
+                onSearchTextChange={setSearchText}
+                sortKey={sortKey}
+                onSortKeyChange={setSortKey}
+                showArchived={showArchived}
+                onShowArchivedChange={setShowArchived}
+                isLoading={isLoading}
+                isWorkpiecesLoading={isWorkpiecesLoading}
+                workpiecesError={workpiecesError}
+                filteredWorkpieceNavItems={filteredWorkpieceNavItems}
+                draftsById={draftsById}
+                workpieceId={workpieceId}
+                editingDraftId={editingDraftId}
+                setEditingDraftId={setEditingDraftId}
+                editingTitle={editingTitle}
+                setEditingTitle={setEditingTitle}
+                shouldShowWorkpieceId={(title) => duplicateRailTitleKeys.has(normalizeRailTitleKey(title))}
+                archivingWorkpieceIds={archivingWorkpieceIds}
+                restoringWorkpieceIds={restoringWorkpieceIds}
+                openWorkpieceInFocus={openWorkpieceInFocus}
+                formatUpdatedAt={formatUpdatedAt}
+                resolveDraftEditorName={resolveDraftEditorName}
+                saveDraftMeta={saveDraftMeta}
+                onRestoreWorkpiece={onRestoreWorkpiece}
+                onArchiveWorkpiece={onArchiveWorkpiece}
+                onDeleteDraft={onDeleteDraft}
+              />
             </>
           )}
 
@@ -7820,51 +7668,20 @@ export default function HearthShell({
         renderReadyContent={renderReadyView}
       />
 
-      <ComposeSetupModal
-        open={composeModalOpen}
-        defaults={productionDefaults}
-        onClose={() => setComposeModalOpen(false)}
-        onCompose={onComposeSetupSubmit}
+      <HearthShellModals
+        composeModalOpen={composeModalOpen}
+        productionDefaults={productionDefaults}
+        onCloseComposeModal={() => setComposeModalOpen(false)}
+        onComposeSetupSubmit={onComposeSetupSubmit}
+        revisionModalOpen={revisionModalOpen}
+        revisionKind={revisionKind}
+        onRevisionKindChange={setRevisionKind}
+        revisionNote={revisionNote}
+        onRevisionNoteChange={setRevisionNote}
+        closeRevisionModal={closeRevisionModal}
+        onConfirmRevision={onConfirmRevision}
+        hasActiveDraft={Boolean(activeDraft)}
       />
-
-      {revisionModalOpen ? (
-        <div
-          className="hs-modal-overlay"
-        >
-          <div
-            className="hs-modal"
-          >
-            <div className="hs-modal-title">Create Revision</div>
-            <label className="hs-field">
-              <span className="hs-field-label-muted">Kind</span>
-              <select value={revisionKind} onChange={(event) => setRevisionKind(event.target.value as RevisionKind)}>
-                <option value="manual">Manual</option>
-                <option value="milestone">Milestone</option>
-              </select>
-            </label>
-            <label className="hs-field">
-              <span className="hs-field-label-muted">Note (optional)</span>
-              <textarea
-                value={revisionNote}
-                onChange={(event) => setRevisionNote(event.target.value)}
-                placeholder="Why this change?"
-                className="hs-textarea-modal"
-              />
-            </label>
-            <div className="hs-modal-actions">
-              <button
-                type="button"
-                onClick={closeRevisionModal}
-              >
-                Cancel
-              </button>
-              <button type="button" onClick={() => void onConfirmRevision()} disabled={!activeDraft}>
-                Create
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }
