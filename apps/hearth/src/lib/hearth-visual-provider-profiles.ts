@@ -218,17 +218,28 @@ function dedupePromptSentenceRuns(value: string): string {
       .replace(/\s+/g, " ")
       .trim()
   );
+  const tokenCount = (segment: string): number => normalizeForDedup(segment).split(" ").filter(Boolean).length;
 
   const seen = new Set<string>();
+  const seenKeys: string[] = [];
   const deduped: string[] = [];
   for (const segment of segments) {
     const key = normalizeForDedup(segment);
     if (!key || seen.has(key)) continue;
+    const isFragmentRepeat = seenKeys.some((existing) => (
+      (existing.includes(key) || key.includes(existing))
+      && Math.min(tokenCount(existing), tokenCount(key)) <= 4
+    ));
+    if (isFragmentRepeat) continue;
     seen.add(key);
+    seenKeys.push(key);
     deduped.push(segment);
   }
 
-  const joined = deduped.join(" ");
+  const joined = deduped
+    .join(" ")
+    .replace(/([.!?]){2,}/g, "$1")
+    .trim();
   return cleanText(joined) ?? joined;
 }
 
