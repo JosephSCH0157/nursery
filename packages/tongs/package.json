@@ -16,6 +16,11 @@
       "import": "./dist/ai-policy.js",
       "default": "./dist/ai-policy.js"
     },
+    "./ai-router": {
+      "types": "./src/ai-router.ts",
+      "import": "./dist/ai-router.js",
+      "default": "./dist/ai-router.js"
+    },
     "./ai-usage-taxonomy": {
       "types": "./src/ai-usage-taxonomy.ts",
       "import": "./dist/ai-usage-taxonomy.js",

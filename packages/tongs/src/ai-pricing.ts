@@ -1,4 +1,4 @@
-export const FORGE_ALLOWED_CHAT_MODELS = ["gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"] as const;
+export const FORGE_ALLOWED_CHAT_MODELS = ["gpt-5.1", "gpt-5.2", "gpt-5.3"] as const;
 
 export const FORGE_BILLING_TOKEN_USD = 18 / 1_000_000;
 
@@ -22,21 +22,26 @@ export type OpenAiCostEstimate = {
   source: "usage_breakdown" | "total_only";
 };
 
+export type ModelTokenEstimate = {
+  input: number;
+  output: number;
+};
+
 const MODEL_PRICING_USD_PER_MILLION: Record<string, ModelPricingPerMillion> = {
-  "gpt-5.4": {
-    inputUsdPerMillion: 2.5,
-    outputUsdPerMillion: 15,
-    cachedInputUsdPerMillion: 0.625,
-  },
-  "gpt-5.4-mini": {
+  "gpt-5.1": {
     inputUsdPerMillion: 0.5,
     outputUsdPerMillion: 2,
     cachedInputUsdPerMillion: 0.125,
   },
-  "gpt-5.4-nano": {
-    inputUsdPerMillion: 0.1,
-    outputUsdPerMillion: 0.4,
-    cachedInputUsdPerMillion: 0.025,
+  "gpt-5.2": {
+    inputUsdPerMillion: 1.2,
+    outputUsdPerMillion: 6,
+    cachedInputUsdPerMillion: 0.3,
+  },
+  "gpt-5.3": {
+    inputUsdPerMillion: 2.5,
+    outputUsdPerMillion: 15,
+    cachedInputUsdPerMillion: 0.625,
   },
   "gpt-4o-mini-transcribe": {
     inputUsdPerMillion: 1.25,
@@ -56,7 +61,7 @@ const MODEL_PRICING_USD_PER_MILLION: Record<string, ModelPricingPerMillion> = {
   },
 };
 
-const DEFAULT_SAFE_MODEL = "gpt-5.4";
+const DEFAULT_SAFE_MODEL = "gpt-5.3";
 const USD_MICRO = 1_000_000;
 
 function roundUsd(value: number): number {
@@ -71,7 +76,10 @@ function resolvePricingModel(model: string | null | undefined): string {
   const normalized = (model ?? "").trim().toLowerCase();
   if (!normalized) return DEFAULT_SAFE_MODEL;
   if (MODEL_PRICING_USD_PER_MILLION[normalized]) return normalized;
-  if (normalized.startsWith("gpt-5.4")) return "gpt-5.4";
+  if (normalized.startsWith("gpt-5.3")) return "gpt-5.3";
+  if (normalized.startsWith("gpt-5.2")) return "gpt-5.2";
+  if (normalized.startsWith("gpt-5.1")) return "gpt-5.1";
+  if (normalized.startsWith("gpt-5")) return "gpt-5.3";
   if (normalized.startsWith("gpt-4o-mini")) return "gpt-4o-mini";
   if (normalized.startsWith("gpt-4o")) return "gpt-4o";
   return DEFAULT_SAFE_MODEL;
@@ -169,6 +177,38 @@ export function estimateOpenAiCostFromPayload(
     cachedInputTokens: 0,
   };
   return estimateOpenAiCost(model, usage);
+}
+
+export function estimateCost(
+  model: string | null | undefined,
+  tokens: ModelTokenEstimate,
+): number {
+  const estimate = estimateOpenAiCost(model, {
+    inputTokens: Math.max(0, Math.floor(tokens.input)),
+    outputTokens: Math.max(0, Math.floor(tokens.output)),
+    totalTokens: Math.max(0, Math.floor(tokens.input) + Math.floor(tokens.output)),
+    cachedInputTokens: 0,
+  });
+  return estimate.estimatedCostUsd;
+}
+
+export function calculateActualCost(args: {
+  model: string | null | undefined;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+}): number {
+  const estimate = estimateOpenAiCost(args.model, {
+    inputTokens: Math.max(0, Math.floor(args.inputTokens)),
+    outputTokens: Math.max(0, Math.floor(args.outputTokens)),
+    totalTokens: Math.max(
+      0,
+      Math.floor(args.totalTokens ?? (args.inputTokens + args.outputTokens)),
+    ),
+    cachedInputTokens: Math.max(0, Math.floor(args.cachedInputTokens ?? 0)),
+  });
+  return estimate.estimatedCostUsd;
 }
 
 export function calculateForgeBillingTokens(actualCostUsd: number): number {

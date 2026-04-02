@@ -25,6 +25,7 @@
     "test:henry-actions": "tsx tests/henry-quick-actions.test.mts",
     "test:henry-suppression": "tsx tests/henry-suppression.test.mts",
     "test:hearth-runtime": "tsx tests/hearth-ai-runtime.test.mts",
+    "test:forge-ai-router": "tsx tests/forge-ai-policy-router.test.mts",
     "verify:ai-policy-live": "tsx scripts/verify-ai-policy-live.mts",
     "verify:playwright:auth": "tsx scripts/verify-playwright-auth-state.mts",
     "generate:playwright:auth": "tsx scripts/generate-playwright-auth-state.mts && pnpm verify:playwright:auth",

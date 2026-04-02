@@ -11,6 +11,7 @@ import {
   type AiUsageFeature,
   type AiUsageSubfeature,
 } from "../../../../packages/tongs/src/ai-usage-taxonomy";
+import { routeForgeAiRequest } from "../../../../packages/tongs/src/ai-router";
 import {
   HEARTH_AI_ROUTES,
   isHearthAiLane as isBillingMode,
@@ -1131,6 +1132,17 @@ function classifyChatFeature(requestText: string): { feature: AiUsageFeature; su
   };
 }
 
+function mapChatRequestToRouterFeature(args: {
+  chatFeature: { feature: AiUsageFeature; subfeature: AiUsageSubfeature | null };
+  researchModeRequested: boolean;
+}): string {
+  if (args.researchModeRequested) return "research";
+  if (args.chatFeature.subfeature === AI_USAGE_SUBFEATURE.READINESS_CHECK) return "readiness_check";
+  if (args.chatFeature.subfeature === AI_USAGE_SUBFEATURE.OUTLINE) return "outline";
+  if (args.chatFeature.subfeature === AI_USAGE_SUBFEATURE.REWRITE) return "rewrite";
+  return "chat";
+}
+
 function extractTranscriptionText(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
   const text = (payload as Record<string, unknown>).text;
@@ -1474,7 +1486,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
   const researchRuntime = createHearthResearchRuntime({ braveApiKey: researchApiKey });
   const textApiKey = config.textApiKey ?? config.apiKey ?? null;
   const {
-    model,
+    model: configuredModel,
     sttModel,
     configuredBillingMode,
     supabaseUrl,
@@ -1485,8 +1497,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     disableExpensiveAiActions,
     disableCdcGeneration,
   } = config;
-  const normalizedModel = model.trim().toLowerCase();
-  const modelAllowlisted = ALLOWED_CHAT_MODELS.has(normalizedModel);
   let tokenBalance = config.initialTokenBalance;
   const supabaseService: SupabaseClient<Database> | null =
     supabaseUrl && supabaseServiceRoleKey
@@ -1524,6 +1534,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     billableTokens: number;
     trigger: AiUsageTrigger;
     status: AiUsageStatus;
+    policyEnforced?: boolean;
     actionId?: string | null;
     providerRequestId?: string | null;
     correlationId?: string | null;
@@ -1548,6 +1559,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       billableTokens: args.billableTokens,
       trigger: args.trigger,
       status: args.status,
+      policyEnforced: args.policyEnforced ?? true,
       actionId: args.actionId ?? null,
       providerRequestId: args.providerRequestId ?? null,
       correlationId: args.correlationId ?? null,
@@ -2319,14 +2331,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      if (!modelAllowlisted) {
-        return jsonResponse(503, {
-          ok: false,
-          error: `Configured model '${model}' is not allowlisted for Forge lane.`,
-          code: "model_not_allowlisted",
-          ...buildBillingSnapshot(lane),
-        });
-      }
 
       if (!textApiKey) {
         return jsonResponse(500, {
@@ -2385,8 +2389,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         });
       }
       const chatFeature = classifyChatFeature(requestText);
-      const reasoningEffort = isRecord(bodyRaw.behavior)
+      const requestedReasoningEffort = isRecord(bodyRaw.behavior)
         ? readOptionalString((bodyRaw.behavior as Record<string, unknown>).reasoning_effort)
+        : null;
+      const requestedModel = isRecord(bodyRaw.behavior)
+        ? readOptionalString((bodyRaw.behavior as Record<string, unknown>).model)
         : null;
       if (disableCdcGeneration && CDC_REQUEST_RE.test(requestText)) {
         return jsonResponse(503, {
@@ -2400,6 +2407,47 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         ? messages.filter((_, index) => index !== latestUserMessageIndex)
         : messages;
       const researchModeRequested = isResearchIntentRequest(requestText);
+      const estimatedInputTokens = Math.max(
+        1,
+        Math.ceil(
+          messages.reduce((sum, message) => sum + message.content.length, 0) / 4,
+        ),
+      ) + 300;
+      const estimatedOutputTokens = researchModeRequested ? 1400 : 900;
+      let aiRoute: ReturnType<typeof routeForgeAiRequest>;
+      try {
+        aiRoute = routeForgeAiRequest({
+          tool: "hearth",
+          feature: mapChatRequestToRouterFeature({
+            chatFeature,
+            researchModeRequested,
+          }),
+          requestedModel: requestedModel ?? configuredModel,
+          requestedReasoningEffort,
+          estimatedTokens: {
+            inputTokens: estimatedInputTokens,
+            outputTokens: estimatedOutputTokens,
+          },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "AI routing policy rejected request";
+        return jsonResponse(422, {
+          ok: false,
+          error: message,
+          code: "ai_budget_guard_rejected",
+          ...buildBillingSnapshot(lane),
+        });
+      }
+      const model = aiRoute.model;
+      const reasoningEffort = aiRoute.reasoning;
+      if (!ALLOWED_CHAT_MODELS.has(model)) {
+        return jsonResponse(503, {
+          ok: false,
+          error: `Routed model '${model}' is not allowlisted for Forge lane.`,
+          code: "model_not_allowlisted",
+          ...buildBillingSnapshot(lane),
+        });
+      }
       const researchRequest = researchModeRequested
         ? buildHearthResearchRequest({ query: requestText })
         : null;
@@ -2727,6 +2775,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           model,
           payload,
           fallbackTotalTokens: spent,
+          preflightEstimatedCostUsd: aiRoute.estimatedCostUsd,
           billableMode: lane === AI_USAGE_LANE.FORGE ? AI_USAGE_LANE.FORGE : "non-billable",
         });
         const inputTokens = accounting.inputTokens;

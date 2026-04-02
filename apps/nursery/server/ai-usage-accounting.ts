@@ -62,6 +62,7 @@ export type AiUsageRecordInput = {
   billableTokens: number;
   trigger: AiUsageTrigger;
   status: AiUsageStatus;
+  policyEnforced?: boolean;
   actionId?: string | null;
   providerRequestId?: string | null;
   correlationId?: string | null;
@@ -136,6 +137,7 @@ export function buildUsageAccounting(args: {
   model: string;
   payload: unknown;
   fallbackTotalTokens: number;
+  preflightEstimatedCostUsd?: number | null;
   billableMode: AiUsageLane | "non-billable";
 }): UsageAccounting {
   const fallbackTotalTokens = Math.max(0, Math.floor(args.fallbackTotalTokens));
@@ -143,8 +145,10 @@ export function buildUsageAccounting(args: {
   const inputTokens = costEstimate.usage.inputTokens;
   const outputTokens = costEstimate.usage.outputTokens;
   const totalTokens = Math.max(0, costEstimate.usage.totalTokens);
-  const estimatedCostUsd = costEstimate.estimatedCostUsd;
-  const actualCostUsd = estimatedCostUsd;
+  const actualCostUsd = costEstimate.estimatedCostUsd;
+  const estimatedCostUsd = typeof args.preflightEstimatedCostUsd === "number" && Number.isFinite(args.preflightEstimatedCostUsd)
+    ? Math.max(0, Number(args.preflightEstimatedCostUsd.toFixed(8)))
+    : actualCostUsd;
   const billableTokens = args.billableMode === AI_USAGE_LANE.FORGE
     ? calculateForgeBillingTokens(actualCostUsd)
     : 0;
@@ -197,6 +201,7 @@ export async function recordAiUsageEvent(args: AiUsageRecordInput): Promise<void
       estimated_cost_usd: Number(args.estimatedCostUsd.toFixed(6)),
       actual_cost_usd: Number(args.actualCostUsd.toFixed(6)),
       billable_tokens: Math.max(0, Math.floor(args.billableTokens)),
+      policy_enforced: args.policyEnforced ?? true,
       trigger: args.trigger,
       status: args.status,
       action_id: args.actionId ?? null,

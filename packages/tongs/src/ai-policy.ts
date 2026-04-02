@@ -1,5 +1,18 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+export const FORGE_AI_POLICY = {
+  maxModel: "gpt-5.3",
+  maxReasoning: "medium",
+  allowAutoSelection: true,
+  maxCostUsdPerCall: 0.35,
+} as const;
+
+export const FORGE_MODEL_ORDER = ["gpt-5.1", "gpt-5.2", "gpt-5.3"] as const;
+export const FORGE_REASONING_ORDER = ["low", "medium", "high"] as const;
+
+export type ForgeChatModel = (typeof FORGE_MODEL_ORDER)[number];
+export type ForgeReasoningEffort = (typeof FORGE_REASONING_ORDER)[number];
+
 export const AI_MODES = [
   "AI_DISABLED",
   "ORG_ONLY",

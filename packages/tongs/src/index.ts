@@ -5,6 +5,7 @@ export * from "./defaults.js";
 export * from "./roles.js";
 export * from "./calendar-events.js";
 export * from "./ai-policy.js";
+export * from "./ai-router.js";
 export * from "./ai-pricing.js";
 export * from "./ai-usage-taxonomy.js";
 export * from "./hammer-orchestration-contract.js";

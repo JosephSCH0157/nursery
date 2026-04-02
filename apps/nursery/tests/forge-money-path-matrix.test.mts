@@ -187,7 +187,7 @@ function buildHearthConfig(overrides: Partial<HearthRuntimeConfig> = {}): Hearth
     textApiKey: "test-openai-key",
     imageApiKey: null,
     apiKey: "test-openai-key",
-    model: "gpt-5.4-mini",
+    model: "gpt-5.3",
     sttModel: "gpt-4o-mini-transcribe",
     configuredBillingMode: "forge",
     initialTokenBalance: 1_000_000_000,
@@ -550,7 +550,7 @@ async function runTest7TemperatureFallbackAttempt(): Promise<void> {
       }),
     }));
 
-    // Current production allowlist is GPT-5.4 family only, so this path is blocked before upstream call.
+    // Current production allowlist is capped to GPT-5.1/5.2/5.3, so this path is blocked before upstream call.
     assert.equal(response.status, 503);
     const payload = await response.json() as Record<string, unknown>;
     assert.equal(payload.code, "model_not_allowlisted");

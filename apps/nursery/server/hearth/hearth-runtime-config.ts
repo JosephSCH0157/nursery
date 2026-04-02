@@ -6,7 +6,7 @@ import { FORGE_ALLOWED_CHAT_MODELS } from "./ai-pricing";
 
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_STT_BUCKET = "forge-workpieces";
-const DEFAULT_CHAT_MODEL = "gpt-5.4-mini";
+const DEFAULT_CHAT_MODEL = "gpt-5.3";
 const DEFAULT_FORGE_TOKEN_BALANCE = 12430;
 const ALLOWED_CHAT_MODELS = new Set<string>(FORGE_ALLOWED_CHAT_MODELS);
 

@@ -16,7 +16,7 @@ function buildConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntim
     imageApiKey: null,
     researchApiKey: null,
     apiKey: null,
-    model: "gpt-5.4-mini",
+    model: "gpt-5.3",
     sttModel: "gpt-4o-mini-transcribe",
     configuredBillingMode: "forge",
     initialTokenBalance: 42,
@@ -200,7 +200,7 @@ test("createHearthAiHandler sends collaborator-style system prompt to upstream m
       body: JSON.stringify({
         messages: [{ role: "user", content: "I've got too many directions and none of them are landing." }],
         episode_context: buildEpisodeContext(),
-        lane: "forge",
+        lane: "byo",
         behavior: "careful",
       }),
     }));
@@ -303,7 +303,7 @@ test("createHearthAiHandler asks fewer clarify gates for directional requests", 
       body: JSON.stringify({
         messages: [{ role: "user", content: "I have a rough idea on creator burnout and where to take it next." }],
         episode_context: buildEpisodeContext(),
-        lane: "forge",
+        lane: "byo",
         behavior: "careful",
       }),
     }));
@@ -335,7 +335,7 @@ test("createHearthAiHandler keeps clarify gate for very short ambiguous asks", a
       body: JSON.stringify({
         messages: [{ role: "user", content: "episode about burnout?" }],
         episode_context: buildEpisodeContext(),
-        lane: "forge",
+        lane: "byo",
         behavior: "careful",
       }),
     }));
@@ -893,7 +893,7 @@ test("createHearthAiHandler acceptance prompts route to drafting flow instead of
         body: JSON.stringify({
           messages: [{ role: "user", content }],
           episode_context: buildEpisodeContext(),
-          lane: "forge",
+          lane: "byo",
           behavior: "careful",
         }),
       }));
@@ -952,7 +952,7 @@ test("createHearthAiHandler round2 acceptance prompts route to feedback flow wit
         body: JSON.stringify({
           messages: [{ role: "user", content }],
           episode_context: buildEpisodeContext(),
-          lane: "forge",
+          lane: "byo",
           behavior: "careful",
         }),
       }));
@@ -1003,7 +1003,7 @@ test("createHearthAiHandler routes release prep asks to generation flow without 
       body: JSON.stringify({
         messages: [{ role: "user", content: "Run a release prep pack with titles, a shorts hook, and monetization angle." }],
         episode_context: buildEpisodeContext(),
-        lane: "forge",
+        lane: "byo",
         behavior: "careful",
       }),
     }));

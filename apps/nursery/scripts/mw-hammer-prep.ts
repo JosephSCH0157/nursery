@@ -1024,8 +1024,8 @@ export function createHammerPrepMiddleware() {
   const runtimeConfig = resolveHearthRuntimeConfig();
   const textApiKey = runtimeConfig.textApiKey ?? runtimeConfig.apiKey ?? null;
   const model = readTrimmed(process.env.HAMMER_TRANSCRIBE_MODEL) ?? DEFAULT_TRANSCRIBE_MODEL;
-  const cleanupModel = readTrimmed(process.env.HAMMER_EDITORIAL_AI_MODEL) ?? "gpt-5.4-mini";
-  const quenchMetadataModel = readTrimmed(process.env.QUENCH_METADATA_AI_MODEL) ?? "gpt-5.4-mini";
+  const cleanupModel = readTrimmed(process.env.HAMMER_EDITORIAL_AI_MODEL) ?? "gpt-5.3";
+  const quenchMetadataModel = readTrimmed(process.env.QUENCH_METADATA_AI_MODEL) ?? "gpt-5.3";
   const supabaseService: SupabaseClient<Database> | null = runtimeConfig.supabaseUrl && runtimeConfig.supabaseServiceRoleKey
     ? createClient<Database>(runtimeConfig.supabaseUrl, runtimeConfig.supabaseServiceRoleKey, {
         auth: {
