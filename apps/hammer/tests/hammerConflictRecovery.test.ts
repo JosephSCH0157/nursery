@@ -22,6 +22,7 @@ import { createHammerPrepState } from "../src/prep/hammerPrep";
   });
   assert.equal(before.status, "reload_required");
   assert.notEqual(before.humanLabel, "Saving");
+  assert.notEqual(before.humanLabel, "Saved");
 
   const action = applyHammerSessionAction({
     hasPendingSaveChanges: true,
@@ -51,6 +52,42 @@ import { createHammerPrepState } from "../src/prep/hammerPrep";
 }
 
 {
+  const savingState = deriveHammerSessionState({
+    prepState: createHammerPrepState("prepared", "ready_for_next_step"),
+    saveState: {
+      isSaving: true,
+      hasPendingChanges: true,
+      failedMessage: null,
+      lastSavedAt: "2026-04-02T16:20:00.000Z",
+    },
+    recoveryState: null,
+    mediaPrepOutputs: null,
+    editorVisible: true,
+  });
+  assert.equal(savingState.status, "unsaved_changes");
+
+  const conflictInterrupt = deriveHammerSessionState({
+    prepState: createHammerPrepState("prepared", "ready_for_next_step"),
+    saveState: {
+      isSaving: true,
+      hasPendingChanges: true,
+      failedMessage: null,
+      lastSavedAt: "2026-04-02T16:20:00.000Z",
+    },
+    recoveryState: {
+      reloadRequired: true,
+      conflictDetected: true,
+      detail: "Another editing session is active. Reload before continuing.",
+    },
+    mediaPrepOutputs: null,
+    editorVisible: true,
+  });
+  assert.equal(conflictInterrupt.status, "reload_required");
+  assert.notEqual(conflictInterrupt.humanLabel, "Saving");
+  assert.notEqual(conflictInterrupt.humanLabel, "Saved");
+}
+
+{
   const action = applyHammerSessionAction({
     hasPendingSaveChanges: true,
     saveFailureMessage: null,
@@ -76,6 +113,34 @@ import { createHammerPrepState } from "../src/prep/hammerPrep";
     editorVisible: true,
   });
   assert.equal(afterFailedReload.status, "reload_required");
+}
+
+{
+  const retryDuringConflict = applyHammerSessionAction({
+    hasPendingSaveChanges: true,
+    saveFailureMessage: "Failed to save Hammer persistence.",
+    reloadRequestNonce: 0,
+    saveRetryNonce: 0,
+  }, "retry_save");
+  assert.equal(retryDuringConflict.saveRetryNonce, 1);
+
+  const afterRetryConflict = deriveHammerSessionState({
+    prepState: createHammerPrepState("prepared", "ready_for_next_step"),
+    saveState: {
+      isSaving: false,
+      hasPendingChanges: true,
+      failedMessage: null,
+      lastSavedAt: "2026-04-02T16:20:00.000Z",
+    },
+    recoveryState: {
+      reloadRequired: true,
+      conflictDetected: true,
+      detail: "Another editing session is active. Reload before continuing.",
+    },
+    mediaPrepOutputs: null,
+    editorVisible: true,
+  });
+  assert.equal(afterRetryConflict.status, "reload_required");
 }
 
 console.log("Hammer conflict recovery tests passed.");

@@ -67,4 +67,25 @@ function buildState(args: {
   assert.notEqual(afterFailure.humanLabel, "Saved");
 }
 
+{
+  const afterRetryWithConflict = deriveHammerSessionState({
+    prepState: createHammerPrepState("prepared", "ready_for_next_step"),
+    saveState: {
+      isSaving: false,
+      hasPendingChanges: true,
+      failedMessage: "Failed to save Hammer persistence.",
+      lastSavedAt: "2026-04-02T16:20:00.000Z",
+    },
+    recoveryState: {
+      reloadRequired: true,
+      conflictDetected: true,
+      detail: "Another editing session is active. Reload before continuing.",
+    },
+    mediaPrepOutputs: null,
+    editorVisible: true,
+  });
+  assert.equal(afterRetryWithConflict.status, "reload_required");
+  assert.notEqual(afterRetryWithConflict.humanLabel, "Unsaved changes");
+}
+
 console.log("Hammer save failure tests passed.");
