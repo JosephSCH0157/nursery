@@ -54,6 +54,11 @@ export interface HammerSessionStateResult {
   isDegraded: boolean;
 }
 
+export interface HammerSessionStateAction {
+  id: "retry_save" | "reload_latest";
+  label: string;
+}
+
 function buildMediaReasonCodes(
   mediaPrepOutputs: HammerMediaPrepOutputsPackage | null | undefined,
 ): HammerSessionReasonCode[] {
@@ -234,4 +239,18 @@ export function deriveHammerSessionState(
     isBlocking: false,
     isDegraded: false,
   };
+}
+
+export function deriveHammerSessionStateActions(
+  state: HammerSessionStateResult,
+): HammerSessionStateAction[] {
+  switch (state.status) {
+    case "reload_required":
+    case "recovery_available":
+      return [{ id: "reload_latest", label: "Reload latest" }];
+    case "save_failed":
+      return [{ id: "retry_save", label: "Retry save" }];
+    default:
+      return [];
+  }
 }

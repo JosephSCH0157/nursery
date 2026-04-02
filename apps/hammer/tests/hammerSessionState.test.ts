@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { deriveHammerSessionState } from "../src/editor/hammerSessionState";
+import { deriveHammerSessionState, deriveHammerSessionStateActions } from "../src/editor/hammerSessionState";
 import { createHammerPrepState } from "../src/prep/hammerPrep";
 
 function buildInput(overrides: Partial<Parameters<typeof deriveHammerSessionState>[0]> = {}) {
@@ -33,6 +33,7 @@ function buildInput(overrides: Partial<Parameters<typeof deriveHammerSessionStat
   assert.equal(result.status, "reload_required");
   assert.equal(result.humanLabel, "Reload required");
   assert.notEqual(result.humanLabel, "Saved");
+  assert.deepEqual(deriveHammerSessionStateActions(result), [{ id: "reload_latest", label: "Reload latest" }]);
 }
 
 {
@@ -84,6 +85,7 @@ function buildInput(overrides: Partial<Parameters<typeof deriveHammerSessionStat
   assert.equal(result.status, "save_failed");
   assert.equal(result.humanLabel, "Unsaved changes");
   assert.notEqual(result.humanLabel, "Saved");
+  assert.deepEqual(deriveHammerSessionStateActions(result), [{ id: "retry_save", label: "Retry save" }]);
 }
 
 {
@@ -378,6 +380,7 @@ function buildInput(overrides: Partial<Parameters<typeof deriveHammerSessionStat
 {
   const result = deriveHammerSessionState(buildInput());
   assert.equal(result.status, "saved");
+  assert.deepEqual(deriveHammerSessionStateActions(result), []);
 }
 
 console.log("Hammer session state tests passed.");

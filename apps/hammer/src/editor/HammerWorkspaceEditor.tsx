@@ -8,7 +8,7 @@ import {
   buildHammerPreparedHandoffModel,
   type HammerPreparedNextStepActionId,
 } from "./hammerPreparedHandoff";
-import { deriveHammerSessionState } from "./hammerSessionState";
+import { deriveHammerSessionState, deriveHammerSessionStateActions } from "./hammerSessionState";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import {
   buildHammerLaunchContextFromPersistence,
@@ -175,6 +175,8 @@ export default function HammerWorkspaceEditor(
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [historyRecoveryStatus, setHistoryRecoveryStatus] = useState<string | null>(null);
   const [presenceConflictDetail, setPresenceConflictDetail] = useState<string | null>(null);
+  const [reloadRequestNonce, setReloadRequestNonce] = useState(0);
+  const [saveRetryNonce, setSaveRetryNonce] = useState(0);
   const openedAtRef = useRef(new Date().toISOString());
   const saveTimerRef = useRef<number | null>(null);
   const readyTransitionTimerRef = useRef<number | null>(null);
@@ -516,7 +518,7 @@ export default function HammerWorkspaceEditor(
     return () => {
       active = false;
     };
-  }, [persistenceMode, persistenceTarget, props.launchContext]);
+  }, [persistenceMode, persistenceTarget, props.launchContext, reloadRequestNonce]);
 
   const canPersistCanonicalState = persistenceMode === "canonical"
     && hydrationReady
@@ -810,7 +812,7 @@ export default function HammerWorkspaceEditor(
         saveTimerRef.current = null;
       }
     };
-  }, [canPersistCanonicalState, loadedPersistenceSnapshot, persistenceTarget, targetKey, workspaceSnapshot]);
+  }, [canPersistCanonicalState, loadedPersistenceSnapshot, persistenceTarget, saveRetryNonce, targetKey, workspaceSnapshot]);
 
   useEffect(() => {
     if (!canPersistCanonicalState || !persistenceTarget) return;
@@ -929,6 +931,10 @@ export default function HammerWorkspaceEditor(
       shouldRenderEditor,
     ],
   );
+  const sessionActions = useMemo(
+    () => deriveHammerSessionStateActions(sessionState),
+    [sessionState],
+  );
   const progressFillClassName = useMemo(
     () => `${dynamicStyleScopeIdRef.current}__progress-fill`,
     [],
@@ -961,6 +967,16 @@ export default function HammerWorkspaceEditor(
       return;
     }
     handlePreparedHandoffAction("review_audio");
+  }
+
+  function handleSessionAction(actionId: "retry_save" | "reload_latest"): void {
+    if (actionId === "retry_save") {
+      setSaveFailureMessage(null);
+      setSaveRetryNonce((current) => current + 1);
+      return;
+    }
+
+    setReloadRequestNonce((current) => current + 1);
   }
 
   useEffect(() => {
@@ -1025,6 +1041,20 @@ export default function HammerWorkspaceEditor(
           >
             <strong>{sessionState.humanLabel}</strong>
             {sessionState.detail ? <span>{sessionState.detail}</span> : null}
+            {sessionActions.length > 0 ? (
+              <div className="hammer-prep-shell__session-actions">
+                {sessionActions.map((action) => (
+                  <button
+                    key={action.id}
+                    type="button"
+                    className="hammer-prep-shell__session-action"
+                    onClick={() => handleSessionAction(action.id)}
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
           <HammerWorkspaceShell
             launchContext={effectiveLaunchContext}

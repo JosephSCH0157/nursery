@@ -59,6 +59,26 @@
   color: rgba(219, 228, 238, 0.86);
 }
 
+.hammer-prep-shell__session-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.hammer-prep-shell__session-action {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.44);
+  color: #f8fafc;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.hammer-prep-shell__session-action:hover {
+  background: rgba(30, 41, 59, 0.72);
+}
+
 .hammer-prep-shell__session-state.is-degraded {
   border-bottom-color: rgba(245, 158, 11, 0.28);
   background: linear-gradient(180deg, rgba(69, 39, 12, 0.94), rgba(41, 27, 12, 0.88));
