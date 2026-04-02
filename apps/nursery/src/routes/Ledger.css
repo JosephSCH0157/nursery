@@ -1,0 +1,116 @@
+.ledger-route {
+  padding: 0.5rem 0 1.5rem;
+  color: var(--forge-text, #e8e8ea);
+}
+
+.ledger-route__header {
+  margin-bottom: 0.9rem;
+}
+
+.ledger-route__title {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.ledger-route__subtitle {
+  margin: 0.35rem 0 0;
+  color: var(--forge-text-muted, #a4a4ad);
+  font-size: 0.92rem;
+}
+
+.ledger-route__error {
+  margin: 0.6rem 0;
+  color: #ffb7b7;
+  font-size: 0.9rem;
+}
+
+.ledger-route__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.ledger-card {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 0.9rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+}
+
+.ledger-card__label {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--forge-text-muted, #a4a4ad);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.ledger-card__value {
+  margin: 0.45rem 0 0;
+  font-size: 1.45rem;
+  font-weight: 700;
+}
+
+.ledger-card__subvalue {
+  margin: 0.35rem 0 0;
+  font-size: 0.95rem;
+}
+
+.ledger-card__hint {
+  margin: 0.3rem 0 0;
+  font-size: 0.82rem;
+  color: var(--forge-text-muted, #a4a4ad);
+}
+
+.ledger-route__episodes {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 0.9rem;
+}
+
+.ledger-route__episodes-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: baseline;
+  margin-bottom: 0.6rem;
+}
+
+.ledger-route__episodes-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.ledger-route__episodes-head span {
+  color: var(--forge-text-muted, #a4a4ad);
+  font-size: 0.85rem;
+}
+
+.ledger-route__empty {
+  margin: 0;
+  color: var(--forge-text-muted, #a4a4ad);
+  font-size: 0.9rem;
+}
+
+.ledger-route__episode-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.ledger-route__episode-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  font-size: 0.92rem;
+}
+
+@media (max-width: 900px) {
+  .ledger-route__grid {
+    grid-template-columns: 1fr;
+  }
+}

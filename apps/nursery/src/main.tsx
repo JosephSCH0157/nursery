@@ -29,6 +29,7 @@ const BellowsStandalone = lazy(() => import("./routes/BellowsStandalone"));
 const HearthRoute = lazy(() => import("./routes/Hearth"));
 const HearthStandalone = lazy(() => import("./routes/HearthStandalone"));
 const QuenchRoute = lazy(() => import("./routes/Quench"));
+const LedgerRoute = lazy(() => import("./routes/Ledger"));
 const SettingsHome = lazy(() => import("./routes/SettingsHome"));
 const SettingsLayout = lazy(() => import("./routes/SettingsLayout"));
 const SettingsOrg = lazy(() => import("./routes/SettingsOrg"));
@@ -76,7 +77,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="hearth" element={withRouteFallback(<HearthRoute />, "Loading Hearth...")} />
             <Route path="tongs" element={withRouteFallback(<TongsRoute />, "Loading Tongs...")} />
             <Route path="quench" element={withRouteFallback(<QuenchRoute />, "Loading Quench...")} />
-            <Route path="ledger" element={<Placeholder name="Ledger" />} />
+            <Route path="ledger" element={withRouteFallback(<LedgerRoute />, "Loading Ledger...")} />
             <Route path="iron-mine" element={<IronMineRoute />} />
             <Route path="barstock/*" element={withRouteFallback(<BarstockRoute />, "Loading Barstock...")} />
             <Route path="bar-stock/*" element={withRouteFallback(<BarstockRoute />, "Loading Barstock...")} />
