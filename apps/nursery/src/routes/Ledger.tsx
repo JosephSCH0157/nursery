@@ -26,6 +26,22 @@ type EpisodeRow = {
   title: string | null;
 };
 
+type AiUsageEventsTableClient = {
+  from: (table: "ai_usage_events") => {
+    select: (columns: string) => {
+      eq: (column: string, value: unknown) => {
+        eq: (column: string, value: unknown) => {
+          order: (column: string, options?: { ascending?: boolean }) => {
+            limit: (value: number) => {
+              returns: <T>() => Promise<{ data: T | null; error: { message: string } | null }>;
+            };
+          };
+        };
+      };
+    };
+  };
+};
+
 function formatUsd(value: number): string {
   return `$${value.toFixed(4)}`;
 }
@@ -58,7 +74,9 @@ export default function LedgerRoute() {
       setLoading(true);
       setError(null);
 
-      const { data, error: queryError } = await tongsSupabase
+      const aiUsageClient = tongsSupabase as unknown as AiUsageEventsTableClient;
+
+      const { data, error: queryError } = await aiUsageClient
         .from("ai_usage_events")
         .select("created_at, feature, subfeature, actual_cost_usd, workpiece_id")
         .eq("workspace_id", workspaceId)
