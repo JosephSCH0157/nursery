@@ -8081,11 +8081,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   {sourceDeskError}
                 </div>
               ) : null}
-              {historyStatus ? (
-                <div className="hammer-source-status hammer-source-status--info" role="status">
-                  {historyStatus}
-                </div>
-              ) : null}
               <div className="hammer-source-status hammer-source-status--info" role="status">
                 History: {undoDepth} undo / {redoDepth} redo
               </div>
