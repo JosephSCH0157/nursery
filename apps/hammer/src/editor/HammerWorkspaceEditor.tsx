@@ -8,6 +8,7 @@ import {
   buildHammerPreparedHandoffModel,
   type HammerPreparedNextStepActionId,
 } from "./hammerPreparedHandoff";
+import { applyHammerSessionAction } from "./hammerSessionActions";
 import { deriveHammerSessionState, deriveHammerSessionStateActions } from "./hammerSessionState";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import {
@@ -970,13 +971,15 @@ export default function HammerWorkspaceEditor(
   }
 
   function handleSessionAction(actionId: "retry_save" | "reload_latest"): void {
-    if (actionId === "retry_save") {
-      setSaveFailureMessage(null);
-      setSaveRetryNonce((current) => current + 1);
-      return;
-    }
-
-    setReloadRequestNonce((current) => current + 1);
+    const next = applyHammerSessionAction({
+      hasPendingSaveChanges,
+      saveFailureMessage,
+      reloadRequestNonce,
+      saveRetryNonce,
+    }, actionId);
+    setSaveFailureMessage(next.saveFailureMessage);
+    setReloadRequestNonce(next.reloadRequestNonce);
+    setSaveRetryNonce(next.saveRetryNonce);
   }
 
   useEffect(() => {
