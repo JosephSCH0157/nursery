@@ -210,6 +210,15 @@ import {
   validateHammerQuenchPacketForHandoff,
 } from "./hammerQuenchHandoff";
 import {
+  canEnterPass,
+  getPassBlockedReason,
+  getPassStatus,
+  summarizePassStatuses,
+  type HammerPassDerivedStatus,
+  type HammerPassSelectorContext,
+  type HammerPassSelectorResult,
+} from "./hammerPassSelectors";
+import {
   appendAuthorityInstructionToGraph,
   createApplyExposureInstruction,
   createHearthBrollSuggestionInstruction,
@@ -1886,6 +1895,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [imageAnimationContextMenu]);
 
   function selectPass(passId: HammerPassId): void {
+    const nextPassResult = getPassStatus(passId, passSelectorContext);
+    if (!canEnterPass(passId, passSelectorContext)) {
+      const blockedReason = getPassBlockedReason(passId, passSelectorContext);
+      setTranscriptTimingHint(
+        blockedReason
+          ? `${resolvePassMeta(passId).label} blocked: ${nextPassResult.humanLabel}.`
+          : `${resolvePassMeta(passId).label} is currently blocked.`,
+      );
+      return;
+    }
     const nextMeta = resolvePassMeta(passId);
     setCurrentPass(passId);
     if (activeTool !== nextMeta.toolId) {
@@ -1905,6 +1924,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   function markCurrentPassComplete(): void {
+    if (currentPassSelectorResult.isBlocking || currentPassSelectorResult.isDegraded) {
+      setTranscriptTimingHint(
+        `${currentPassMeta.label} cannot be marked complete: ${currentPassSelectorResult.humanLabel}.`,
+      );
+      return;
+    }
     setPassStatus((previous) => {
       const normalized = normalizePassStatus(previous, currentPass);
       normalized[currentPass] = "completed";
@@ -7216,6 +7241,41 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     releasePrepPackage: exportBasis.currentReleasePackage,
     readinessGate,
   }), [exportBasis.currentReleasePackage, readinessGate]);
+  const passSelectorContext = useMemo<HammerPassSelectorContext>(() => ({
+    currentPass,
+    passStatus,
+    prepStatus: exportBasis.currentReleasePackage.identity.prep_status,
+    alignmentStatus: exportBasis.currentReleasePackage.identity.alignment_status,
+    structuredTranscript: exportBasis.transcriptForRelease,
+    visualPlacements: editableVisualPlacements,
+    audioPolish: editableAudioPolish,
+    introPath: introOutroSelection.intro_path,
+    outroPath: introOutroSelection.outro_path,
+    packagingLogoEnabled: Boolean(packagingLogoPlacement),
+    readinessGate,
+    handoffStatus: handoffPosture.handoff_status,
+  }), [
+    currentPass,
+    passStatus,
+    exportBasis.currentReleasePackage.identity.alignment_status,
+    exportBasis.currentReleasePackage.identity.prep_status,
+    exportBasis.transcriptForRelease,
+    editableAudioPolish,
+    editableVisualPlacements,
+    handoffPosture.handoff_status,
+    introOutroSelection.intro_path,
+    introOutroSelection.outro_path,
+    packagingLogoPlacement,
+    readinessGate,
+  ]);
+  const passSelectorResults = useMemo(() => {
+    const byPass = new Map<HammerPassId, HammerPassSelectorResult>();
+    for (const pass of PASS_ORDER) {
+      byPass.set(pass.id, getPassStatus(pass.id, passSelectorContext));
+    }
+    return byPass;
+  }, [passSelectorContext]);
+  const currentPassSelectorResult = passSelectorResults.get(currentPass) ?? getPassStatus(currentPass, passSelectorContext);
   const readinessStatusLabel = handoffPosture.handoff_status === "ready"
     ? "Ready for export"
     : handoffPosture.handoff_status === "blocked"
@@ -7229,48 +7289,42 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     ? "Send Updated Packet to Quench"
     : "Send to Quench";
   const readySummaryAreas = useMemo(() => {
-    const statusRank = (value: HammerPassStatusMap[HammerPassId] | undefined): number => (
-      value === "completed" ? 2 : value === "in_progress" ? 1 : 0
+    const summarize = (passIds: HammerPassId[]): HammerPassDerivedStatus => summarizePassStatuses(
+      passIds.map((passId) => passSelectorResults.get(passId)?.status ?? "not_started"),
     );
-    const summarize = (statuses: Array<HammerPassStatusMap[HammerPassId] | undefined>): "completed" | "in_progress" | "not_started" => {
-      const minRank = Math.min(...statuses.map((status) => statusRank(status)));
-      if (minRank >= 2) return "completed";
-      if (statuses.some((status) => status === "in_progress" || status === "completed")) return "in_progress";
-      return "not_started";
-    };
     return [
       {
         id: "transcript",
         label: "Transcript Cleanup + Retakes",
-        status: summarize([passStatus.transcript_cleanup, passStatus.retakes]),
+        status: summarize(["transcript_cleanup", "retakes"]),
       },
       {
         id: "pacing",
         label: "Pacing",
-        status: summarize([passStatus.gap_pacing]),
+        status: summarize(["gap_pacing"]),
       },
       {
         id: "visual_finishing",
         label: "Visual Finishing",
-        status: summarize([passStatus.visual_finishing]),
+        status: summarize(["visual_finishing"]),
       },
       {
         id: "image",
         label: "Image Placement + Animation",
-        status: summarize([passStatus.image_placement, passStatus.image_animation]),
+        status: summarize(["image_placement", "image_animation"]),
       },
       {
         id: "audio",
         label: "Audio Finalization",
-        status: summarize([passStatus.audio_finalization]),
+        status: summarize(["audio_finalization"]),
       },
       {
         id: "packaging",
         label: "Packaging",
-        status: summarize([passStatus.packaging]),
+        status: summarize(["packaging"]),
       },
     ] as const;
-  }, [passStatus]);
+  }, [passSelectorResults]);
   const selectedAttentionIndex = useMemo(
     () => boundAttentionQueue.findIndex((item) => item.operationId === selectedBoundBrollOperationId),
     [boundAttentionQueue, selectedBoundBrollOperationId],
@@ -9174,8 +9228,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               <strong>Tool Rack</strong>
               <div className="hammer-pass-head">
                 <span>{currentPassMeta.label}</span>
-                <span className={`hammer-pass-badge hammer-pass-badge--${passStatus[currentPass] ?? "not_started"}`}>
-                  {passStatus[currentPass] ?? "not_started"}
+                <span className={`hammer-pass-badge hammer-pass-badge--${currentPassSelectorResult.status}`}>
+                  {currentPassSelectorResult.status}
                 </span>
                 <button type="button" onClick={markCurrentPassComplete}>
                   Mark Complete
@@ -12181,18 +12235,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
       <nav className="hammer-toolbar" aria-label="Hammer pass toolbar">
         <div className="hammer-toolbar__title">Passes</div>
-        {PASS_ORDER.map((pass) => (
+        {PASS_ORDER.map((pass) => {
+          const passResult = passSelectorResults.get(pass.id) ?? getPassStatus(pass.id, passSelectorContext);
+          return (
           <button
             key={pass.id}
             type="button"
             className={currentPass === pass.id ? "hammer-toolbar__tool is-active" : "hammer-toolbar__tool"}
             onClick={() => selectPass(pass.id)}
-            title={`${pass.label} (${pass.toolId})`}
+            title={`${pass.label} (${pass.toolId}) - ${passResult.humanLabel}`}
           >
             <strong>{pass.shortLabel}</strong>
             <span>{pass.label}</span>
           </button>
-        ))}
+          );
+        })}
       </nav>
     </section>
   );

@@ -10,6 +10,10 @@ import {
   HAMMER_AUDIO_POLISH_PROCESSOR_VERSION,
   HAMMER_AUDIO_POLISH_PREPARED_PASSES,
 } from "../../hammer/src/prep/hammerAudioPolish";
+import {
+  readHammerForgeFfmpegClientConfig,
+  transcodeToWorkingWavWithForgeFfmpeg,
+} from "./hammer-forge-ffmpeg-client";
 import type {
   HammerAudioPolishPhase,
   HammerAudioPolishRequest,
@@ -491,6 +495,8 @@ async function renderWorkingAudioWaveBufferWithFfmpeg(args: {
           "pcm_s16le",
           "-ar",
           "48000",
+          "-ac",
+          "1",
           outputPath,
         ],
         {
@@ -535,6 +541,53 @@ async function renderWorkingAudioWaveBufferWithFfmpeg(args: {
   } finally {
     await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+async function renderWorkingAudioWaveBuffer(args: {
+  sourceBytes: Buffer;
+  sourceExtension: string;
+  sourceLabel: string;
+  sourceContentType: string;
+  ffmpegBin: string;
+}): Promise<{
+  workingWaveBytes: Buffer;
+  backend: "local_ffmpeg" | "forge_ffmpeg_service";
+  serviceRequestId: string | null;
+  serviceOutputFormat: string | null;
+  serviceOutputSampleRate: number | null;
+  serviceOutputChannels: number | null;
+}> {
+  const forgeClient = readHammerForgeFfmpegClientConfig();
+  if (forgeClient) {
+    const transcodeResult = await transcodeToWorkingWavWithForgeFfmpeg({
+      client: forgeClient,
+      sourceBytes: args.sourceBytes,
+      sourceFilename: path.basename(args.sourceLabel || `source${args.sourceExtension || ""}`),
+      contentType: args.sourceContentType,
+    });
+    return {
+      workingWaveBytes: transcodeResult.audioBytes,
+      backend: "forge_ffmpeg_service",
+      serviceRequestId: transcodeResult.requestId,
+      serviceOutputFormat: transcodeResult.outputFormat,
+      serviceOutputSampleRate: transcodeResult.outputSampleRate,
+      serviceOutputChannels: transcodeResult.outputChannels,
+    };
+  }
+
+  return {
+    workingWaveBytes: await renderWorkingAudioWaveBufferWithFfmpeg({
+      sourceBytes: args.sourceBytes,
+      sourceExtension: args.sourceExtension,
+      sourceLabel: args.sourceLabel,
+      ffmpegBin: args.ffmpegBin,
+    }),
+    backend: "local_ffmpeg",
+    serviceRequestId: null,
+    serviceOutputFormat: null,
+    serviceOutputSampleRate: null,
+    serviceOutputChannels: null,
+  };
 }
 
 function toFiniteNumberOrNull(value: unknown): number | null {
@@ -1625,6 +1678,11 @@ export async function handleHammerAudioPolishRequest(
 
   try {
     let workingWaveBytes = sourceMedia.sourceBytes;
+    let workingAudioBackend: "builtin_source" | "local_ffmpeg" | "forge_ffmpeg_service" = "builtin_source";
+    let workingAudioServiceRequestId: string | null = null;
+    let workingAudioServiceOutputFormat: string | null = null;
+    let workingAudioServiceOutputSampleRate: number | null = null;
+    let workingAudioServiceOutputChannels: number | null = null;
     const sourceArtifactPaths = [sourceMedia.canonicalWorkpiecePath];
     let workingAudioWorkpiecePath: string | null = null;
     let sourceMediaTruth: HammerFfprobeMediaTruth = {
@@ -1666,12 +1724,19 @@ export async function handleHammerAudioPolishRequest(
         throw new Error("Hammer audio prep needs authenticated Tongs access to commit canonical working audio.");
       }
 
-      workingWaveBytes = await renderWorkingAudioWaveBufferWithFfmpeg({
+      const workingAudioResult = await renderWorkingAudioWaveBuffer({
         sourceBytes: sourceMedia.sourceBytes,
         sourceExtension: sourceMedia.sourceExtension,
         sourceLabel: sourceMedia.sourceLabel,
+        sourceContentType: sourceMedia.contentType,
         ffmpegBin,
       });
+      workingWaveBytes = workingAudioResult.workingWaveBytes;
+      workingAudioBackend = workingAudioResult.backend;
+      workingAudioServiceRequestId = workingAudioResult.serviceRequestId;
+      workingAudioServiceOutputFormat = workingAudioResult.serviceOutputFormat;
+      workingAudioServiceOutputSampleRate = workingAudioResult.serviceOutputSampleRate;
+      workingAudioServiceOutputChannels = workingAudioResult.serviceOutputChannels;
       workingAudioWorkpiecePath = buildArtifactRelpath("working-audio", request);
       await commitCanonicalWorkpieceFile({
         context,
@@ -1699,6 +1764,11 @@ export async function handleHammerAudioPolishRequest(
         } catch {
           // Keep working truth optional when ffprobe probe fails.
         }
+      }
+
+      if (workingAudioBackend === "forge_ffmpeg_service") {
+        workingMediaTruth.sampleRate = workingMediaTruth.sampleRate ?? workingAudioServiceOutputSampleRate;
+        workingMediaTruth.channelCount = workingMediaTruth.channelCount ?? workingAudioServiceOutputChannels;
       }
     }
 
@@ -1819,6 +1889,12 @@ export async function handleHammerAudioPolishRequest(
             timebase: workingMediaTruth.timebase,
             working_duration_ms: workingMediaTruth.durationMs,
             working_audio_workpiece_path: workingAudioWorkpiecePath,
+            working_audio_backend: workingAudioBackend,
+            working_audio_service_url: readHammerForgeFfmpegClientConfig()?.baseUrl ?? null,
+            working_audio_service_request_id: workingAudioServiceRequestId,
+            working_audio_service_output_format: workingAudioServiceOutputFormat,
+            working_audio_service_output_sample_rate: workingAudioServiceOutputSampleRate,
+            working_audio_service_output_channels: workingAudioServiceOutputChannels,
             local_output_write_failed: localArtifactWrite.writeFailed,
             local_output_write_failure_reason: localArtifactWrite.writeFailureReason,
             media_runtime_preferred_backend: mediaRuntime.preferred_backend,

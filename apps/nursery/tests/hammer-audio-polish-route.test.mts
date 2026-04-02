@@ -377,6 +377,8 @@ async function main(): Promise<void> {
     return;
   }
 
+  process.env.HAMMER_FORGE_FFMPEG_BASE_URL = "https://forge-ffmpeg.fly.dev";
+
   const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-audio-polish-route-test-"));
 
   try {
@@ -454,7 +456,8 @@ async function main(): Promise<void> {
       assert.equal(stereoRun.status, 200);
       assert.equal(stereoRun.payload.ok, true);
       assert.equal(stereoRun.payload.data?.status, "prepared");
-      assert.equal(stereoRun.payload.data?.settings_summary.channel_count, 2);
+      assert.equal(stereoRun.payload.data?.settings_summary.source_channel_count, 2);
+      assert.equal(stereoRun.payload.data?.settings_summary.channel_count, 1);
       assert.equal(stereoRun.payload.data?.settings_summary.sample_rate, 48000);
       assert.equal(typeof stereoRun.payload.data?.settings_summary.working_audio_workpiece_path, "string");
 
@@ -482,17 +485,18 @@ async function main(): Promise<void> {
 
       assert.equal(
         stereoRun.payload.data?.analysis?.channel_characterization?.channel_count,
-        2,
-        "stereo file has channel_count=2"
+        1,
+        "stereo source normalizes to mono working audio"
       );
-      assert(
-        stereoRun.payload.data?.analysis?.channel_characterization?.phase_correlation != null,
-        "stereo file has phase_correlation defined"
+      assert.equal(
+        stereoRun.payload.data?.analysis?.channel_characterization?.phase_correlation,
+        1,
+        "mono working audio reports identity phase correlation"
       );
       assert.equal(
         stereoRun.payload.data?.analysis?.channel_characterization?.silent_channel,
         null,
-        "normal stereo has no silent_channel"
+        "mono working audio has no silent channel"
       );
       assertWaveformProxy(stereoRun.payload.data?.analysis?.waveform_proxy, "stereo.m4a");
       assert.equal(
@@ -544,7 +548,11 @@ async function main(): Promise<void> {
         assert.equal(formatRun.payload.data?.status, "prepared", `${testCase.fileName} did not prepare`);
         assert.equal(formatRun.payload.data?.settings_summary.sample_rate, 48000, `${testCase.fileName} sample rate drifted`);
         assert.equal(formatRun.payload.data?.settings_summary.bit_depth, 16, `${testCase.fileName} bit depth drifted`);
-        assert.equal(formatRun.payload.data?.settings_summary.channel_count, testCase.channels, `${testCase.fileName} channel count drifted`);
+        assert.equal(
+          formatRun.payload.data?.settings_summary.channel_count,
+          testCase.expectsWorkingAudioArtifact ? 1 : testCase.channels,
+          `${testCase.fileName} channel count drifted`,
+        );
         assert.equal(typeof formatRun.payload.data?.settings_summary.source_duration_ms, "number", `${testCase.fileName} missing source duration`);
         assert.equal(typeof formatRun.payload.data?.settings_summary.working_duration_ms, "number", `${testCase.fileName} missing working duration`);
         assert.equal(typeof formatRun.payload.data?.settings_summary.timebase, "string", `${testCase.fileName} missing working timebase`);
@@ -587,8 +595,28 @@ async function main(): Promise<void> {
         );
         if (testCase.expectsWorkingAudioArtifact) {
           assert.equal(typeof formatRun.payload.data?.settings_summary.working_audio_workpiece_path, "string", `${testCase.fileName} missing working audio path`);
+          assert.equal(
+            formatRun.payload.data?.settings_summary.working_audio_backend,
+            "forge_ffmpeg_service",
+            `${testCase.fileName} should use forge ffmpeg service for working audio`,
+          );
+          assert.equal(
+            formatRun.payload.data?.settings_summary.working_audio_service_url,
+            "https://forge-ffmpeg.fly.dev",
+            `${testCase.fileName} should report forge ffmpeg service url`,
+          );
+          assert.equal(
+            typeof formatRun.payload.data?.settings_summary.working_audio_service_request_id,
+            "string",
+            `${testCase.fileName} should include forge ffmpeg request id`,
+          );
         } else {
           assert.equal(formatRun.payload.data?.settings_summary.working_audio_workpiece_path, null, `${testCase.fileName} unexpectedly created working audio path`);
+          assert.equal(
+            formatRun.payload.data?.settings_summary.working_audio_backend,
+            "builtin_source",
+            `${testCase.fileName} should stay on builtin source path`,
+          );
         }
       }
 

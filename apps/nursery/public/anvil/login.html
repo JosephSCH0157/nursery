@@ -63,6 +63,27 @@
         margin-top: 4px;
         display: inline-block;
       }
+      .tp-beta-banner {
+        margin: 0 0 1rem;
+        padding: 0.75rem 0.85rem;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 213, 107, 0.45);
+        background: rgba(255, 149, 15, 0.14);
+        color: rgba(255, 241, 215, 0.98);
+        font-size: 0.87rem;
+        line-height: 1.45;
+      }
+      .tp-beta-banner strong {
+        font-weight: 700;
+      }
+      .tp-beta-banner a {
+        color: #ffd56b;
+        font-weight: 700;
+        text-decoration: none;
+      }
+      .tp-beta-banner a:hover {
+        text-decoration: underline;
+      }
       .tp-login-field {
         display: flex;
         flex-direction: column;
@@ -271,6 +292,10 @@
           <div class="tp-login-subtitle">
             Nursery is the canonical home for sign-in.<br>
             <span style="font-size:0.8rem; opacity:0.7;">You are being redirected there now.</span>
+          </div>
+          <div class="tp-beta-banner" role="note" aria-live="polite">
+            <strong>Open for beta requests.</strong> New sign-ups are currently disabled.
+            <a href="/beta/index.html">Request access via the beta form.</a>
           </div>
           <button type="button" id="loginBackBtn" class="tp-login-back">Back</button>
 
