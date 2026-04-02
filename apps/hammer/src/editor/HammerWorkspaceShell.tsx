@@ -76,6 +76,7 @@ import {
   syncEditableTranscriptSegments,
   updateTranscriptSegmentSpeaker,
 } from "./hammerWorkspaceTranscript";
+import { resolveSelectedPlacementId } from "./hammerWorkspaceSelection";
 import {
   previewQuickClean,
   previewRemoveFillers,
@@ -331,6 +332,7 @@ type HammerWorkspaceShellProps = {
   initialVisualPreviewSettings?: HammerPersistedVisualPreviewSettings | null;
   initialCurrentPass?: HammerPassId;
   initialSelectedSegmentId?: string | null;
+  initialSelectedOverlayRowId?: string | null;
   releasePrepHref?: string | null;
   selectedMacroRecipeRef?: string | null;
   lastMacroRunRef?: string | null;
@@ -2405,6 +2407,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => sourceVisualPlacementItems.filter((item) => item.kind === "broll" || item.kind === "reference_clip"),
     [sourceVisualPlacementItems],
   );
+  useEffect(() => {
+    const nextPlacementId = resolveSelectedPlacementId(
+      sourceVisualPlacementItems.map((item) => item.id),
+      props.initialSelectedOverlayRowId ?? null,
+    );
+    setSelectedImagePlacementId(nextPlacementId);
+  }, [
+    launchContext.workspace_id,
+    launchContext.workpiece_id,
+    props.initialSelectedOverlayRowId,
+    sourceVisualPlacementItems,
+  ]);
   const sourceVisualPlacementBySegmentId = useMemo(() => {
     const bySegment = new Map<string, HammerSourceImageItem>();
     for (const item of sourceBrollPlacementItems) {
@@ -7032,7 +7046,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         preview_mode: previewMode,
         transcript_source_id: transcriptSourceId,
         selected_segment_id: selectedSegmentId,
-        selected_overlay_row_id: selectedSegmentId,
+        selected_overlay_row_id: selectedImagePlacementId,
         media_ref: mediaRef ? { ...mediaRef } : null,
         workspace_mapping: workspaceMapping ? { ...workspaceMapping } : null,
         media_source_label: mediaSourceLabel,
@@ -7954,7 +7968,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       passStatus,
       transcriptSegments: editableTranscriptSegments,
       selectedSegmentId,
-      selectedOverlayRowId: selectedSegmentId,
+      selectedOverlayRowId: selectedImagePlacementId,
       visualPreviewSettings: {
         white_balance: visualWhiteBalance,
         color_amount: visualColorAmount,

@@ -165,9 +165,97 @@ function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): Hamme
 }
 
 {
+  const persistedPosture = buildContext({
+    currentPass: "packaging",
+    passStatus: {
+      packaging: "completed",
+    },
+    introPath: null,
+    outroPath: null,
+    packagingLogoEnabled: true,
+    visualPlacements: {
+      schema_version: 1,
+      status: "prepared",
+      source_refs: ["transcript:tx_reload"],
+      uncertainty_flags: [],
+      placements: [
+        {
+          placement_id: "placement_logo_reload",
+          entry_id: "packaging:logo",
+          anchor_segment_id: "seg_reload",
+          matched_segment_ids: ["seg_reload"],
+          anchor_text: "Reload should preserve posture",
+          asset_ref: "asset_logo_reload",
+          asset_id: "asset_logo_reload",
+          asset_path: null,
+          storage_key: null,
+          label: "Reload logo",
+          visual_mode: "packaging_logo",
+          start_sec: 0,
+          end_sec: 5,
+          confidence: 0.9,
+          timing_source: "transcript_match",
+          status: "placed",
+          uncertainty_flags: [],
+        },
+      ],
+    },
+  });
+  const result = getPassStatus("packaging", persistedPosture);
+  assert.equal(persistedPosture.currentPass, "packaging");
+  assert.equal(canEnterPass("packaging", persistedPosture), true);
+  assert.equal(result.status, "degraded");
+  assert.equal(result.isComplete, false);
+  assert.deepEqual(result.reasonCodes, ["packaging_asset_unresolved"]);
+}
+
+{
   const hydrated = deriveHydratedPassStatus("ready");
   assert.equal(hydrated.ready, "in_progress");
   assert.equal(hydrated.transcript_cleanup, "not_started");
+}
+
+{
+  const persistedPosture = buildContext({
+    currentPass: "ready",
+    passStatus: {
+      ready: "completed",
+    },
+    readinessGate: {
+      status: "blocked",
+      blocker_count: 1,
+      review_count: 0,
+    },
+    handoffStatus: "ready",
+  });
+  const result = getPassStatus("ready", persistedPosture);
+  assert.equal(persistedPosture.currentPass, "ready");
+  assert.equal(canEnterPass("ready", persistedPosture), true);
+  assert.equal(result.status, "blocked");
+  assert.equal(result.isComplete, false);
+  assert.equal(result.humanLabel, "Blocked: not ready for Quench");
+  assert.deepEqual(result.reasonCodes, ["ready_gate_blocked"]);
+}
+
+{
+  const persistedPosture = buildContext({
+    currentPass: "ready",
+    passStatus: {
+      ready: "completed",
+    },
+    readinessGate: {
+      status: "needs_review",
+      blocker_count: 0,
+      review_count: 1,
+    },
+    handoffStatus: "blocked",
+  });
+  const result = getPassStatus("ready", persistedPosture);
+  assert.equal(persistedPosture.currentPass, "ready");
+  assert.equal(canEnterPass("ready", persistedPosture), true);
+  assert.equal(result.status, "blocked");
+  assert.equal(result.isComplete, false);
+  assert.deepEqual(result.reasonCodes, ["ready_gate_review", "ready_handoff_blocked"]);
 }
 
 console.log("Hammer pass reload selector tests passed.");

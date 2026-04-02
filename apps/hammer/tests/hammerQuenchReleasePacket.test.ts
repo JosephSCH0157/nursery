@@ -187,7 +187,7 @@ async function testBuildQuenchPacketManifest() {
       preview_mode: "edit-aware",
       transcript_source_id: "tx_release_packet",
       selected_segment_id: "seg_001",
-      selected_overlay_row_id: "seg_001",
+      selected_overlay_row_id: "pl_001",
       media_ref: transcript.source_media_ref,
       workspace_mapping: null,
       media_source_label: "demo-source",

@@ -948,6 +948,7 @@ export default function HammerWorkspaceEditor(
             initialVisualPreviewSettings={loadedPersistenceSnapshot?.editor_session.data?.visual_preview ?? null}
             initialCurrentPass={loadedPersistenceSnapshot?.state?.current_pass}
             initialSelectedSegmentId={loadedPersistenceSnapshot?.editor_session.data?.selected_segment_id ?? null}
+            initialSelectedOverlayRowId={loadedPersistenceSnapshot?.editor_session.data?.selected_overlay_row_id ?? null}
             releasePrepHref={props.releasePrepHref}
             selectedMacroRecipeRef={loadedPersistenceSnapshot?.macro_hooks.recipe_ref ?? null}
             lastMacroRunRef={loadedPersistenceSnapshot?.macro_hooks.last_run_ref ?? null}
