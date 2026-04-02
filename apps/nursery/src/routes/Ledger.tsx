@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { tongsSupabase } from "../lib/supabase";
-import { buildLedgerSummary, type LedgerUsageEvent } from "../lib/ledger-costs";
+import {
+  buildLedgerSummary,
+  computeAvgCostPerEpisode,
+  computeTopFeature,
+  filterLedgerEventsByRange,
+  type LedgerTimeRange,
+  type LedgerUsageEvent,
+} from "../lib/ledger-costs";
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 import "./Ledger.css";
@@ -23,6 +30,16 @@ function formatUsd(value: number): string {
   return `$${value.toFixed(4)}`;
 }
 
+function formatToolLabel(tool: string): string {
+  return tool.slice(0, 1).toUpperCase() + tool.slice(1);
+}
+
+const RANGE_OPTIONS: ReadonlyArray<{ value: LedgerTimeRange; label: string }> = [
+  { value: "today", label: "Today" },
+  { value: "7d", label: "7d" },
+  { value: "30d", label: "30d" },
+];
+
 export default function LedgerRoute() {
   const shell = useOutletContext<AppShellContext>();
   const workspaceId = shell.workspaceId;
@@ -30,6 +47,7 @@ export default function LedgerRoute() {
   const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<LedgerUsageEvent[]>([]);
   const [episodeTitles, setEpisodeTitles] = useState<Record<string, string>>({});
+  const [timeRange, setTimeRange] = useState<LedgerTimeRange>("today");
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -102,7 +120,13 @@ export default function LedgerRoute() {
     };
   }, [workspaceId]);
 
-  const summary = useMemo(() => buildLedgerSummary(events), [events]);
+  const filteredEvents = useMemo(
+    () => filterLedgerEventsByRange(events, timeRange),
+    [events, timeRange],
+  );
+  const summary = useMemo(() => buildLedgerSummary(filteredEvents), [filteredEvents]);
+  const avgCostPerEpisode = useMemo(() => computeAvgCostPerEpisode(summary), [summary]);
+  const topFeature = useMemo(() => computeTopFeature(summary), [summary]);
   const topEpisodes = summary.costPerEpisode.slice(0, 5);
 
   if (!workspaceId) {
@@ -112,8 +136,30 @@ export default function LedgerRoute() {
   return (
     <section className="ledger-route">
       <header className="ledger-route__header">
-        <h2 className="ledger-route__title">Ledger</h2>
-        <p className="ledger-route__subtitle">Tiny AI cost truth panel from ai_usage_events.</p>
+        <div>
+          <h2 className="ledger-route__title">Ledger</h2>
+          <p className="ledger-route__subtitle">Tiny AI cost truth panel from ai_usage_events.</p>
+          {topFeature ? (
+            <p className="ledger-route__badge" role="status" aria-live="polite">
+              Highest cost {timeRange === "today" ? "today" : `in ${timeRange}`}: {formatToolLabel(topFeature.tool)} ({topFeature.percent}%)
+            </p>
+          ) : null}
+        </div>
+        <div className="ledger-route__filters" role="group" aria-label="Ledger time range">
+          {RANGE_OPTIONS.map((option) => {
+            const active = timeRange === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={active ? "ledger-route__filter-btn ledger-route__filter-btn--active" : "ledger-route__filter-btn"}
+                onClick={() => setTimeRange(option.value)}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
       </header>
 
       {error ? <div className="ledger-route__error">{error}</div> : null}
@@ -121,7 +167,8 @@ export default function LedgerRoute() {
       <div className="ledger-route__grid">
         <article className="ledger-card">
           <h3 className="ledger-card__label">Cost Today</h3>
-          <p className="ledger-card__value">{formatUsd(summary.costTodayUsd)}</p>
+          <p className="ledger-card__value">{formatUsd(summary.totalCostUsd)}</p>
+          <p className="ledger-card__hint">{timeRange === "today" ? "today" : `selected range: ${timeRange}`}</p>
         </article>
 
         <article className="ledger-card">
@@ -135,6 +182,7 @@ export default function LedgerRoute() {
           <h3 className="ledger-card__label">Cost Per Episode</h3>
           <p className="ledger-card__value">{summary.costPerEpisode.length}</p>
           <p className="ledger-card__hint">episodes with billable AI usage</p>
+          <p className="ledger-card__subvalue">Avg: {formatUsd(avgCostPerEpisode)}</p>
         </article>
       </div>
 

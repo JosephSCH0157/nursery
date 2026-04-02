@@ -20,6 +20,14 @@ export type LedgerSummary = {
   totalCostUsd: number;
 };
 
+export type LedgerTopFeature = {
+  tool: LedgerToolBucket;
+  costUsd: number;
+  percent: number;
+};
+
+export type LedgerTimeRange = "today" | "7d" | "30d";
+
 function roundUsd(value: number): number {
   return Math.max(0, Number(value.toFixed(6)));
 }
@@ -33,6 +41,39 @@ function isSameUtcDay(a: Date, b: Date): boolean {
   return a.getUTCFullYear() === b.getUTCFullYear()
     && a.getUTCMonth() === b.getUTCMonth()
     && a.getUTCDate() === b.getUTCDate();
+}
+
+function parseCreatedAt(value: string | null): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function filterLedgerEventsByRange(
+  events: LedgerUsageEvent[],
+  range: LedgerTimeRange,
+  now: Date = new Date(),
+): LedgerUsageEvent[] {
+  if (range === "30d") {
+    const from = now.getTime() - (30 * 24 * 60 * 60 * 1000);
+    return events.filter((event) => {
+      const createdAt = parseCreatedAt(event.created_at);
+      return createdAt ? createdAt.getTime() >= from : false;
+    });
+  }
+
+  if (range === "7d") {
+    const from = now.getTime() - (7 * 24 * 60 * 60 * 1000);
+    return events.filter((event) => {
+      const createdAt = parseCreatedAt(event.created_at);
+      return createdAt ? createdAt.getTime() >= from : false;
+    });
+  }
+
+  return events.filter((event) => {
+    const createdAt = parseCreatedAt(event.created_at);
+    return createdAt ? isSameUtcDay(createdAt, now) : false;
+  });
 }
 
 export function classifyToolBucket(feature: string | null, subfeature: string | null): LedgerToolBucket {
@@ -91,5 +132,31 @@ export function buildLedgerSummary(
     },
     costPerEpisode,
     totalCostUsd: roundUsd(total),
+  };
+}
+
+export function computeAvgCostPerEpisode(summary: LedgerSummary): number {
+  const episodes = summary.costPerEpisode.length;
+  if (episodes <= 0) return 0;
+  return roundUsd(summary.totalCostUsd / episodes);
+}
+
+export function computeTopFeature(summary: LedgerSummary): LedgerTopFeature | null {
+  const total = summary.totalCostUsd;
+  if (total <= 0) return null;
+
+  const entries: Array<{ tool: LedgerToolBucket; costUsd: number }> = [
+    { tool: "hearth", costUsd: summary.costByToolUsd.hearth },
+    { tool: "hammer", costUsd: summary.costByToolUsd.hammer },
+    { tool: "quench", costUsd: summary.costByToolUsd.quench },
+  ];
+
+  const top = entries.sort((a, b) => b.costUsd - a.costUsd)[0] ?? null;
+  if (!top || top.costUsd <= 0) return null;
+
+  return {
+    tool: top.tool,
+    costUsd: roundUsd(top.costUsd),
+    percent: Number(((top.costUsd / total) * 100).toFixed(1)),
   };
 }

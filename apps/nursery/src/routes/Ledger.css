@@ -4,7 +4,32 @@
 }
 
 .ledger-route__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.8rem;
   margin-bottom: 0.9rem;
+}
+
+.ledger-route__filters {
+  display: inline-flex;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.ledger-route__filter-btn {
+  border: none;
+  background: transparent;
+  color: var(--forge-text-muted, #a4a4ad);
+  padding: 0.4rem 0.75rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.ledger-route__filter-btn--active {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--forge-text, #e8e8ea);
 }
 
 .ledger-route__title {
@@ -16,6 +41,17 @@
   margin: 0.35rem 0 0;
   color: var(--forge-text-muted, #a4a4ad);
   font-size: 0.92rem;
+}
+
+.ledger-route__badge {
+  display: inline-block;
+  margin: 0.45rem 0 0;
+  font-size: 0.8rem;
+  color: #f8e8b8;
+  background: rgba(255, 179, 71, 0.15);
+  border: 1px solid rgba(255, 179, 71, 0.35);
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
 }
 
 .ledger-route__error {
@@ -110,6 +146,11 @@
 }
 
 @media (max-width: 900px) {
+  .ledger-route__header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
   .ledger-route__grid {
     grid-template-columns: 1fr;
   }
