@@ -4,6 +4,7 @@ import {
   deriveHydratedPassStatus,
   getPassReloadExpectation,
   getPassStatus,
+  summarizePassStatuses,
   type HammerPassSelectorContext,
 } from "../src/editor/hammerPassSelectors";
 
@@ -207,6 +208,7 @@ function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): Hamme
   assert.equal(result.status, "degraded");
   assert.equal(result.isComplete, false);
   assert.deepEqual(result.reasonCodes, ["packaging_asset_unresolved"]);
+  assert.equal(summarizePassStatuses([result.status]), "degraded");
 }
 
 {
@@ -235,6 +237,7 @@ function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): Hamme
   assert.equal(result.isComplete, false);
   assert.equal(result.humanLabel, "Blocked: not ready for Quench");
   assert.deepEqual(result.reasonCodes, ["ready_gate_blocked"]);
+  assert.equal(summarizePassStatuses([result.status]), "blocked");
 }
 
 {
@@ -256,6 +259,7 @@ function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): Hamme
   assert.equal(result.status, "blocked");
   assert.equal(result.isComplete, false);
   assert.deepEqual(result.reasonCodes, ["ready_gate_review", "ready_handoff_blocked"]);
+  assert.equal(summarizePassStatuses([result.status]), "blocked");
 }
 
 console.log("Hammer pass reload selector tests passed.");
