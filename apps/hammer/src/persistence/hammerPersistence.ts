@@ -814,3 +814,35 @@ export async function upsertHammerPresence(
     data: normalizePresenceRows(payload),
   };
 }
+
+export async function loadHammerPresence(
+  target: HammerPersistenceTarget,
+): Promise<PersistenceResult<HammerPresenceRow[]>> {
+  let response: Response;
+  try {
+    response = await tongsFetch(buildPresenceUrl(target), {
+      method: "GET",
+      timeoutMs: HAMMER_PRESENCE_TIMEOUT_MS,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      status: 504,
+      error: toRequestErrorMessage(error, "Failed to load Hammer presence."),
+    };
+  }
+  const payload = await readJsonBody(response);
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: readErrorMessage(payload, "Failed to load Hammer presence."),
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    data: normalizePresenceRows(payload),
+  };
+}

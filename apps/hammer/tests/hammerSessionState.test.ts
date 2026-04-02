@@ -39,6 +39,41 @@ function buildInput(overrides: Partial<Parameters<typeof deriveHammerSessionStat
     saveState: {
       isSaving: false,
       hasPendingChanges: true,
+      failedMessage: null,
+      lastSavedAt: "2026-04-02T16:20:00.000Z",
+    },
+    recoveryState: {
+      recoveryAvailable: true,
+      detail: "Snapshot fallback: payload unavailable. Opened with full history replay.",
+    },
+  }));
+  assert.equal(result.status, "recovery_available");
+  assert.equal(result.detail, "Snapshot fallback: payload unavailable. Opened with full history replay.");
+}
+
+{
+  const result = deriveHammerSessionState(buildInput({
+    saveState: {
+      isSaving: true,
+      hasPendingChanges: false,
+      failedMessage: null,
+      lastSavedAt: "2026-04-02T16:20:00.000Z",
+    },
+    recoveryState: {
+      reloadRequired: true,
+      conflictDetected: true,
+      detail: "Another editing session is active. Reload before continuing.",
+    },
+  }));
+  assert.equal(result.status, "reload_required");
+  assert.equal(result.detail, "Another editing session is active. Reload before continuing.");
+}
+
+{
+  const result = deriveHammerSessionState(buildInput({
+    saveState: {
+      isSaving: false,
+      hasPendingChanges: true,
       failedMessage: "save exploded",
       lastSavedAt: "2026-04-02T16:20:00.000Z",
     },

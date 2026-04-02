@@ -39,6 +39,7 @@ export interface HammerSessionStateInput {
     recoveryAvailable?: boolean;
     reloadRequired?: boolean;
     conflictDetected?: boolean;
+    detail?: string | null;
   } | null;
   mediaPrepOutputs?: HammerMediaPrepOutputsPackage | null;
   editorVisible?: boolean;
@@ -106,9 +107,9 @@ export function deriveHammerSessionState(
         ? ["conflict_detected"]
         : ["stale_snapshot_detected"],
       humanLabel: "Reload required",
-      detail: conflictDetected
+      detail: input.recoveryState?.detail ?? (conflictDetected
         ? "Another session changed this workspace. Reload before continuing."
-        : "A newer canonical state is available. Reload before continuing.",
+        : "A newer canonical state is available. Reload before continuing."),
       isBlocking: true,
       isDegraded: false,
     };
@@ -119,7 +120,7 @@ export function deriveHammerSessionState(
       status: "recovery_available",
       reasonCodes: ["stale_snapshot_detected"],
       humanLabel: "Recovery available",
-      detail: "Hammer found a recoverable canonical state for this session.",
+      detail: input.recoveryState?.detail ?? "Hammer found a recoverable canonical state for this session.",
       isBlocking: false,
       isDegraded: true,
     };

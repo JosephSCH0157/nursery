@@ -13,12 +13,13 @@ import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutput
 import {
   buildHammerLaunchContextFromPersistence,
   buildHammerPersistenceSaveRequest,
+  loadHammerPresence,
   loadHammerPersistenceSnapshot,
   readHammerPersistenceTarget,
   saveHammerPersistenceSnapshot,
   upsertHammerPresence,
 } from "../persistence/hammerPersistence";
-import type { HammerPersistenceSnapshot } from "../persistence/hammerPersistenceContract";
+import type { HammerPersistenceSnapshot, HammerPresenceRow } from "../persistence/hammerPersistenceContract";
 import {
   applyPreparedTranscriptToLaunchContext,
   buildHammerPrepOverlayViewModel,
@@ -172,6 +173,8 @@ export default function HammerWorkspaceEditor(
   const [saveInFlight, setSaveInFlight] = useState(false);
   const [saveFailureMessage, setSaveFailureMessage] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [historyRecoveryStatus, setHistoryRecoveryStatus] = useState<string | null>(null);
+  const [presenceConflictDetail, setPresenceConflictDetail] = useState<string | null>(null);
   const openedAtRef = useRef(new Date().toISOString());
   const saveTimerRef = useRef<number | null>(null);
   const readyTransitionTimerRef = useRef<number | null>(null);
@@ -415,6 +418,8 @@ export default function HammerWorkspaceEditor(
     setSaveInFlight(false);
     setSaveFailureMessage(null);
     setLastSavedAt(null);
+    setHistoryRecoveryStatus(null);
+    setPresenceConflictDetail(null);
     prepRunKeyRef.current = null;
     setWorkspaceSnapshot(null);
     setLoadedPersistenceSnapshot(null);
@@ -815,17 +820,36 @@ export default function HammerWorkspaceEditor(
 
     let active = true;
 
+    const updatePresenceConflict = (rows: HammerPresenceRow[]) => {
+      const conflicting = rows.find((row) => (
+        row.mode === "editing"
+        && row.session_id
+        && row.session_id !== sessionId
+      )) ?? null;
+      setPresenceConflictDetail(conflicting
+        ? `Another editing session is active${conflicting.display_name ? ` (${conflicting.display_name})` : ""}. Reload before continuing.`
+        : null);
+    };
+
     const sendHeartbeat = async () => {
       const hasUserToken = await hasTongsUserAccessToken();
       if (!active || !hasUserToken) return;
 
-      void upsertHammerPresence(persistenceTarget, {
+      const result = await upsertHammerPresence(persistenceTarget, {
         mode: "editing",
         session_id: sessionId,
       });
+      if (!active) return;
+      if (result.ok) {
+        updatePresenceConflict(result.data);
+      }
     };
 
     void sendHeartbeat();
+    void loadHammerPresence(persistenceTarget).then((result) => {
+      if (!active || !result.ok) return;
+      updatePresenceConflict(result.data);
+    });
     const intervalId = window.setInterval(() => {
       void sendHeartbeat();
     }, HEARTBEAT_INTERVAL_MS);
@@ -884,13 +908,21 @@ export default function HammerWorkspaceEditor(
         failedMessage: saveFailureMessage,
         lastSavedAt,
       },
+      recoveryState: {
+        recoveryAvailable: Boolean(historyRecoveryStatus),
+        reloadRequired: Boolean(presenceConflictDetail),
+        conflictDetected: Boolean(presenceConflictDetail),
+        detail: presenceConflictDetail ?? historyRecoveryStatus,
+      },
       mediaPrepOutputs: handoffMediaPrepOutputs,
       editorVisible: shouldRenderEditor,
     }),
     [
       handoffMediaPrepOutputs,
       hasPendingSaveChanges,
+      historyRecoveryStatus,
       lastSavedAt,
+      presenceConflictDetail,
       prepState,
       saveFailureMessage,
       saveInFlight,
@@ -1008,6 +1040,7 @@ export default function HammerWorkspaceEditor(
             lastMacroRunRef={loadedPersistenceSnapshot?.macro_hooks.last_run_ref ?? null}
             prepHandoffAction={preparedActionIntent}
             aiInUse={prepState.status === "preparing"}
+            onHistoryRecoveryStatusChange={setHistoryRecoveryStatus}
             onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
           />
         </div>

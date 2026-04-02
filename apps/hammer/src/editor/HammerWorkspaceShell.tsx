@@ -341,6 +341,7 @@ type HammerWorkspaceShellProps = {
     token: number;
   } | null;
   aiInUse?: boolean;
+  onHistoryRecoveryStatusChange?: (status: string | null) => void;
   onWorkspaceSnapshotChange?: (snapshot: HammerWorkspaceSnapshot) => void;
 };
 
@@ -1817,6 +1818,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     cloneHammerAudioPolish(props.audioPolish),
   );
   const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
+
+  useEffect(() => {
+    props.onHistoryRecoveryStatusChange?.(historyStatus);
+  }, [historyStatus, props]);
 
   useEffect(() => {
     audioPolishHasLocalEditsRef.current = false;
