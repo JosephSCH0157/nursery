@@ -12,6 +12,7 @@ import type {
   HammerPassId,
   HammerPassStatusMap,
   HammerPersistedAudioPolish,
+  HammerPersistedVisualPreviewSettings,
   HammerPersistedStructuredTranscript,
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
@@ -34,6 +35,7 @@ export interface HammerWorkspaceSnapshot {
   transcriptSegments: HammerTranscriptSegment[];
   selectedSegmentId: string | null;
   selectedOverlayRowId: string | null;
+  visualPreviewSettings: HammerPersistedVisualPreviewSettings;
   mediaRef: MediaRef | null;
   workspaceMapping: WorkspaceMediaMapping | null;
   mediaSourceLabel: string | null;

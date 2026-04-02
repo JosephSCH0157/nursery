@@ -57,6 +57,16 @@ type SemanticEditInstruction =
     linked_broll_operation_id?: string | null;
   }
   | {
+    type: "apply_look";
+    segment_id: string;
+    preset: "clean_daylight" | "warm_studio" | "cool_evening" | "high_contrast" | "soft_documentary";
+  }
+  | {
+    type: "apply_exposure";
+    segment_id: string;
+    exposure: number;
+  }
+  | {
     type: "podcast_master_pass";
     segment_id: string;
     preset: "podcast_master_v1";
@@ -143,6 +153,18 @@ function toSemanticEditInstruction(
         end_sec: instruction.end_sec,
         duck_gain_db: instruction.duck_gain_db,
         linked_broll_operation_id: instruction.linked_broll_operation_id ?? null,
+      };
+    case "apply_look":
+      return {
+        type: instruction.type,
+        segment_id: instruction.segment_id,
+        preset: instruction.preset,
+      };
+    case "apply_exposure":
+      return {
+        type: instruction.type,
+        segment_id: instruction.segment_id,
+        exposure: instruction.exposure,
       };
     case "podcast_master_pass":
       return {

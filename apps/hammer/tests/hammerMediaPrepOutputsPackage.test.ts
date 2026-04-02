@@ -31,6 +31,11 @@ const snapshot: HammerPersistenceSnapshot = {
         local_root_abs: "D:\\ForgeMedia\\workspace_media_pkg_01",
       },
       media_source_label: "tongs:media_media_pkg_01",
+      visual_preview: {
+        white_balance: 0,
+        color_amount: 0,
+        background_blur: false,
+      },
       last_opened_at: "2026-03-15T11:00:00.000Z",
     },
   },

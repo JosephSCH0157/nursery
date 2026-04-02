@@ -7,6 +7,7 @@ import {
   HAMMER_QUENCH_RELEASE_PACKET_VISUALS_PATH,
   buildHammerQuenchReleasePacket,
 } from "../src/lib/hammerQuenchReleasePacket";
+import type { HammerReadinessGateResult } from "../src/editor/hammerReadinessGate";
 import type { HammerPersistedStructuredTranscript } from "../src/persistence/hammerPersistenceContract";
 import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammerRenderAssembly";
 import { buildHammerRenderAssembly } from "../src/editor/hammerRenderAssembly";
@@ -92,9 +93,40 @@ const transcript: HammerPersistedStructuredTranscript = {
       entry_count: 1,
       content: "1\n00:00:00,000 --> 00:00:03,200\nWelcome back to the show.\n",
     },
-    vtt: null,
+    vtt: {
+      format: "vtt",
+      generated_at: "2026-03-24T10:00:30.000Z",
+      source_transcript_id: "tx_release_packet",
+      source_layer_id: "macro_run_panel",
+      source_kind: "derived",
+      source_recipe_ref: "speaker_panel:balanced",
+      approximate_timing: false,
+      entry_count: 1,
+      content: "WEBVTT\n\n00:00.000 --> 00:03.200\nWelcome back to the show.\n",
+    },
   },
 };
+
+function buildReadiness(status: HammerReadinessGateResult["status"]): HammerReadinessGateResult {
+  return {
+    status,
+    review_count: status === "needs_review" ? 1 : 0,
+    blocker_count: status === "blocked" ? 1 : 0,
+    blocking_reasons: status === "blocked" ? [{
+      code: "blocked",
+      label: "Blocked reason",
+      severity: "blocking",
+      operation_id: null,
+    }] : [],
+    review_reasons: status === "needs_review" ? [{
+      code: "review",
+      label: "Review reason",
+      severity: "review",
+      operation_id: null,
+    }] : [],
+    primary_operation_id: null,
+  };
+}
 
 async function testBuildQuenchPacketManifest() {
   const prep = buildHammerReleasePrepPackage({
@@ -105,32 +137,49 @@ async function testBuildQuenchPacketManifest() {
     structuredTranscript: transcript,
     visualPlacements: {
       schema_version: 1,
-      transcript_source_ref: "transcript:tx_release_packet",
       source_refs: ["transcript:tx_release_packet"],
       status: "prepared",
-      placement_count: 1,
       uncertainty_flags: [],
       placements: [
         {
           placement_id: "pl_001",
+          entry_id: "image-map-01",
           anchor_segment_id: "seg_001",
+          matched_segment_ids: ["seg_001"],
+          anchor_text: "Welcome back to the show.",
+          asset_ref: "asset_release_packet_01",
+          asset_id: "asset_release_packet_01",
+          storage_key: "workpieces/wp_demo/assets/card-a.png",
           start_sec: 0.5,
           end_sec: 2.7,
           asset_path: "visuals/card-a.png",
-          visual_mode: "still",
-          status: "matched",
+          visual_mode: "comparison",
+          status: "placed",
           confidence: 0.9,
-          matched_segment_ids: ["seg_001"],
-          uncertainty_flags: [],
           timing_source: "transcript_match",
-          prompt_basis: "Anchor to opening line.",
-          source_type: "hearth_image_map",
-          created_at: "2026-03-24T10:00:00.000Z",
-          updated_at: "2026-03-24T10:00:00.000Z",
+          uncertainty_flags: [],
         },
       ],
     },
-    audioPolish: null,
+    audioPolish: {
+      schema_version: 1,
+      status: "prepared",
+      prepared_passes: ["studio_sound"],
+      source_artifact_paths: ["recordings/release.wav"],
+      settings_summary: {},
+      analysis: null,
+      audio_edit: null,
+      source_media_id: "media_release_packet",
+      source_media_signature: "sig_release_packet",
+      processor_version: "forge-v1.2.0/audio-polish.v4",
+      prepared_at: "2026-03-24T10:00:00.000Z",
+      output_local_relpath: "hammer/prep/audio-polish/release.wav",
+      output_workpiece_path: "hammer/prep/audio-polish/release.wav",
+      output_mime_type: "audio/wav",
+      output_duration_ms: 18_420,
+      failure_code: null,
+      failure_reason: null,
+    },
     editorSession: {
       schema_version: 1,
       session_id: "session_demo",
@@ -142,12 +191,18 @@ async function testBuildQuenchPacketManifest() {
       media_ref: transcript.source_media_ref,
       workspace_mapping: null,
       media_source_label: "demo-source",
+      visual_preview: {
+        white_balance: 0,
+        color_amount: 0,
+        background_blur: false,
+      },
       last_opened_at: "2026-03-24T10:00:00.000Z",
     },
   });
 
   const packet = buildHammerQuenchReleasePacket({
     releasePrepPackage: prep,
+    readinessGate: buildReadiness("ready"),
     preparedAt: "2026-03-24T10:01:00.000Z",
   });
 
@@ -157,7 +212,12 @@ async function testBuildQuenchPacketManifest() {
   assert.equal(packet.manifest.transcript.text_path, HAMMER_QUENCH_RELEASE_PACKET_TRANSCRIPT_PATH);
   assert.equal(packet.manifest.captions.srt_path, HAMMER_QUENCH_RELEASE_PACKET_SRT_PATH);
   assert.equal(packet.manifest.visuals.placements_path, HAMMER_QUENCH_RELEASE_PACKET_VISUALS_PATH);
+  assert.equal(packet.manifest.look.preset, null);
+  assert.equal(packet.manifest.look.affects_export, false);
+  assert.equal(packet.manifest.exposure.amount, null);
+  assert.equal(packet.manifest.exposure.affects_export, false);
   assert.equal(packet.manifest.readiness.ready_for_quench, true);
+  assert.equal(packet.manifest.readiness.handoff_status, "ready");
   assert.equal(packet.transcriptText?.includes("Welcome back to the show."), true);
   assert.equal(packet.visuals.length, 1);
 }
@@ -207,6 +267,7 @@ async function testPacketIncludesEditorialTruthExtensionWhenProvided() {
   });
   const packet = buildHammerQuenchReleasePacket({
     releasePrepPackage: prep,
+    readinessGate: buildReadiness("ready"),
     canonicalGraph,
     renderAssembly: assembly,
     preparedAt: "2026-03-24T10:01:00.000Z",
@@ -272,6 +333,7 @@ async function testPacketDistinguishesUnresolvedVsResolvedBroll() {
   });
   const packet = buildHammerQuenchReleasePacket({
     releasePrepPackage: prep,
+    readinessGate: buildReadiness("ready"),
     canonicalGraph: graph,
     renderAssembly: assembly,
     preparedAt: "2026-03-24T10:01:00.000Z",
@@ -342,6 +404,7 @@ async function testPacketReflectsResolvedBindingEdits() {
   });
   const packet = buildHammerQuenchReleasePacket({
     releasePrepPackage: prep,
+    readinessGate: buildReadiness("ready"),
     canonicalGraph: edited,
     renderAssembly: assembly,
     preparedAt: "2026-03-24T10:01:00.000Z",
@@ -463,6 +526,7 @@ async function testPacketReflectsRippleDeleteBrollRemapTruth() {
   });
   const packet = buildHammerQuenchReleasePacket({
     releasePrepPackage: prep,
+    readinessGate: buildReadiness("ready"),
     canonicalGraph: remapped,
     renderAssembly: assembly,
     preparedAt: "2026-03-24T10:01:00.000Z",
@@ -529,6 +593,7 @@ async function testPacketReflectsPodcastMasterSummary() {
   });
   const packet = buildHammerQuenchReleasePacket({
     releasePrepPackage: prep,
+    readinessGate: buildReadiness("ready"),
     canonicalGraph,
     renderAssembly: assembly,
     preparedAt: "2026-03-24T10:01:00.000Z",
@@ -594,6 +659,7 @@ async function testPacketReflectsPodcastMasterUnavailable() {
   });
   const packet = buildHammerQuenchReleasePacket({
     releasePrepPackage: prep,
+    readinessGate: buildReadiness("ready"),
     canonicalGraph,
     renderAssembly: assembly,
     preparedAt: "2026-03-24T10:01:00.000Z",
@@ -606,6 +672,116 @@ async function testPacketReflectsPodcastMasterUnavailable() {
   );
 }
 
+async function testPacketReflectsLookTreatmentSummary() {
+  const prep = buildHammerReleasePrepPackage({
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    prepStatus: "prepared",
+    alignmentStatus: "aligned",
+    structuredTranscript: transcript,
+    visualPlacements: null,
+    audioPolish: null,
+    editorSession: null,
+  });
+  const canonicalGraph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_packet_ext_08",
+      version: "1",
+      created_at: "2026-03-24T10:00:00.000Z",
+      updated_at: "2026-03-24T10:00:00.000Z",
+      source_transcript_id: "tx_release_packet",
+      instructions: [{
+        instruction_id: "ins_look_01",
+        segment_id: "seg_001",
+        type: "apply_look",
+        preset: "warm_studio",
+        created_at: "2026-03-24T10:00:00.000Z",
+      }],
+    },
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    sessionId: "session_demo",
+  });
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: ["apply_look"],
+      export_supported_operation_types: ["apply_look"],
+      handoff_supported_operation_types: ["apply_look"],
+    },
+    transcriptSegments: [{ segment_id: "seg_001", start_sec: 0, end_sec: 6 }],
+    captionChunks: [{ chunk_id: "cap_001", start_sec: 0, end_sec: 1, segment_ids: ["seg_001"] }],
+  });
+  const packet = buildHammerQuenchReleasePacket({
+    releasePrepPackage: prep,
+    readinessGate: buildReadiness("ready"),
+    canonicalGraph,
+    renderAssembly: assembly,
+    preparedAt: "2026-03-24T10:01:00.000Z",
+  });
+  assert.equal(packet.manifest.look.preset, "warm_studio");
+  assert.equal(packet.manifest.look.affects_export, true);
+  assert.equal(packet.manifest.look.preview_mode, "previewable");
+  assert.equal(packet.manifest.editorial_truth?.export_timeline_snapshot.visual_layers.some((layer) => (
+    layer.kind === "look_treatment" && layer.preset === "warm_studio"
+  )), true);
+}
+
+async function testPacketReflectsExposureSummary() {
+  const prep = buildHammerReleasePrepPackage({
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    prepStatus: "prepared",
+    alignmentStatus: "aligned",
+    structuredTranscript: transcript,
+    visualPlacements: null,
+    audioPolish: null,
+    editorSession: null,
+  });
+  const canonicalGraph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_packet_ext_09",
+      version: "1",
+      created_at: "2026-03-24T10:00:00.000Z",
+      updated_at: "2026-03-24T10:00:00.000Z",
+      source_transcript_id: "tx_release_packet",
+      instructions: [{
+        instruction_id: "ins_exposure_01",
+        segment_id: "seg_001",
+        type: "apply_exposure",
+        exposure: 18,
+        created_at: "2026-03-24T10:00:00.000Z",
+      }],
+    },
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    sessionId: "session_demo",
+  });
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: ["apply_exposure"],
+      export_supported_operation_types: ["apply_exposure"],
+      handoff_supported_operation_types: ["apply_exposure"],
+    },
+    transcriptSegments: [{ segment_id: "seg_001", start_sec: 0, end_sec: 6 }],
+    captionChunks: [{ chunk_id: "cap_001", start_sec: 0, end_sec: 1, segment_ids: ["seg_001"] }],
+  });
+  const packet = buildHammerQuenchReleasePacket({
+    releasePrepPackage: prep,
+    readinessGate: buildReadiness("ready"),
+    canonicalGraph,
+    renderAssembly: assembly,
+    preparedAt: "2026-03-24T10:01:00.000Z",
+  });
+  assert.equal(packet.manifest.exposure.amount, 18);
+  assert.equal(packet.manifest.exposure.affects_export, true);
+  assert.equal(packet.manifest.exposure.preview_mode, "previewable");
+  assert.equal(packet.manifest.editorial_truth?.export_timeline_snapshot.visual_layers.some((layer) => (
+    layer.kind === "exposure_adjustment" && layer.exposure === 18
+  )), true);
+}
+
 async function run() {
   await testBuildQuenchPacketManifest();
   await testManifestPathConstant();
@@ -615,6 +791,8 @@ async function run() {
   await testPacketReflectsRippleDeleteBrollRemapTruth();
   await testPacketReflectsPodcastMasterSummary();
   await testPacketReflectsPodcastMasterUnavailable();
+  await testPacketReflectsLookTreatmentSummary();
+  await testPacketReflectsExposureSummary();
   // eslint-disable-next-line no-console
   console.log("Hammer Quench release packet tests passed.");
 }

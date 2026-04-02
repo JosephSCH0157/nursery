@@ -259,6 +259,36 @@ function readInstruction(input: unknown): HammerEditInstruction | null {
         created_at: createdAt,
       };
     }
+    case "apply_look": {
+      const preset = readString(row.preset);
+      if (
+        preset !== "clean_daylight"
+        && preset !== "warm_studio"
+        && preset !== "cool_evening"
+        && preset !== "high_contrast"
+        && preset !== "soft_documentary"
+      ) {
+        return null;
+      }
+      return {
+        instruction_id: instructionId,
+        segment_id: segmentId,
+        type,
+        preset,
+        created_at: createdAt,
+      };
+    }
+    case "apply_exposure": {
+      const exposure = readNumber(row.exposure);
+      if (exposure == null || !Number.isFinite(exposure)) return null;
+      return {
+        instruction_id: instructionId,
+        segment_id: segmentId,
+        type,
+        exposure,
+        created_at: createdAt,
+      };
+    }
     case "podcast_master_pass": {
       const preset = readString(row.preset);
       if (preset !== "podcast_master_v1") return null;

@@ -23,6 +23,23 @@ import {
   estimateOpenAiCost,
 } from "./ai-pricing.js";
 import {
+  HAMMER_ALIGNMENT_STATUS_VALUES,
+  HAMMER_PASS_ID_VALUES,
+  HAMMER_PASS_ORDER_VERSION,
+  HAMMER_PASS_STATE_VALUES,
+  HAMMER_PREP_STATUS_VALUES,
+  normalizeHammerAlignmentStatus as canonicalizeHammerAlignmentStatus,
+  normalizeHammerOrchestrationState,
+  normalizeHammerPassId as canonicalizeHammerPassId,
+  normalizeHammerPassOrderVersion as canonicalizeHammerPassOrderVersion,
+  normalizeHammerPassStatusMap as canonicalizeHammerPassStatusMap,
+  normalizeHammerPrepStatus as canonicalizeHammerPrepStatus,
+  type HammerAlignmentStatus,
+  type HammerPassId,
+  type HammerPassState,
+  type HammerPrepStatus,
+} from "./hammer-orchestration-contract.js";
+import {
   AI_USAGE_FEATURE,
   AI_USAGE_LANE,
   AI_USAGE_STATUS,
@@ -39,6 +56,8 @@ import {
   type AiUsageTrigger,
 } from "./ai-usage-taxonomy.js";
 import { normalizeHammerAudioEdit } from "./hammer-audio-edit-contract.js";
+import { normalizeHammerStructuredTranscript } from "./hammer-structured-transcript-contract.js";
+import { normalizeHammerVisualPlacements } from "./hammer-visual-placements-contract.js";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
@@ -123,25 +142,10 @@ const IMAGE_MAP_VISUAL_MODE_VALUES = [
   "object_detail",
 ] as const;
 const IMAGE_MAP_VISUAL_MODE_SET = new Set<string>(IMAGE_MAP_VISUAL_MODE_VALUES);
-const HAMMER_PREP_STATUS_VALUES = ["idle", "preparing", "prepared", "prep_failed"] as const;
 const HAMMER_PREP_STATUS_SET = new Set<string>(HAMMER_PREP_STATUS_VALUES);
-const HAMMER_ALIGNMENT_STATUS_VALUES = ["not_started", "pending", "aligned", "needs_review"] as const;
 const HAMMER_ALIGNMENT_STATUS_SET = new Set<string>(HAMMER_ALIGNMENT_STATUS_VALUES);
-const HAMMER_PASS_ID_VALUES = [
-  "transcript_cleanup",
-  "retakes",
-  "gap_pacing",
-  "visual_finishing",
-  "image_placement",
-  "image_animation",
-  "audio_finalization",
-  "packaging",
-  "ready",
-] as const;
 const HAMMER_PASS_ID_SET = new Set<string>(HAMMER_PASS_ID_VALUES);
-const HAMMER_PASS_STATE_VALUES = ["not_started", "in_progress", "completed"] as const;
 const HAMMER_PASS_STATE_SET = new Set<string>(HAMMER_PASS_STATE_VALUES);
-const HAMMER_PASS_ORDER_VERSION = 2;
 const STORAGE_LIST_MAX_DEPTH = 3;
 const STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY = 80;
 const HAMMER_ARTIFACT_PATHS = {
@@ -411,10 +415,12 @@ export type AttachCalendarEventAssignmentRequest = {
 
 export type HearthPresenceMode = "viewing" | "editing";
 export type HammerPresenceMode = "viewing" | "editing";
-export type HammerPrepStatus = (typeof HAMMER_PREP_STATUS_VALUES)[number];
-export type HammerAlignmentStatus = (typeof HAMMER_ALIGNMENT_STATUS_VALUES)[number];
-export type HammerPassId = (typeof HAMMER_PASS_ID_VALUES)[number];
-export type HammerPassState = (typeof HAMMER_PASS_STATE_VALUES)[number];
+export type {
+  HammerAlignmentStatus,
+  HammerPassId,
+  HammerPassState,
+  HammerPrepStatus,
+} from "./hammer-orchestration-contract.js";
 
 export type UpsertHearthWorkpiecePresenceRequest = {
   mode: HearthPresenceMode;
@@ -2342,31 +2348,31 @@ function normalizeUpsertHammerWorkpiecePresenceRequest(
 }
 
 function normalizeHammerPrepStatus(value: unknown, field = "prep_status"): HammerPrepStatus {
-  const status = normalizeNonEmptyString(value, field).toLowerCase();
+  const status = canonicalizeHammerPrepStatus(normalizeNonEmptyString(value, field));
   if (HAMMER_PREP_STATUS_SET.has(status)) {
-    return status as HammerPrepStatus;
+    return status;
   }
   throw new HttpError(400, "invalid_status", `${field} must be one of ${HAMMER_PREP_STATUS_VALUES.join(", ")}`);
 }
 
 function normalizeHammerAlignmentStatus(value: unknown, field = "alignment_status"): HammerAlignmentStatus {
-  const status = normalizeNonEmptyString(value, field).toLowerCase();
+  const status = canonicalizeHammerAlignmentStatus(normalizeNonEmptyString(value, field));
   if (HAMMER_ALIGNMENT_STATUS_SET.has(status)) {
-    return status as HammerAlignmentStatus;
+    return status;
   }
   throw new HttpError(400, "invalid_status", `${field} must be one of ${HAMMER_ALIGNMENT_STATUS_VALUES.join(", ")}`);
 }
 
 function normalizeHammerPassId(value: unknown, field = "current_pass"): HammerPassId {
-  const normalized = normalizeNonEmptyString(value, field).toLowerCase();
+  const normalized = canonicalizeHammerPassId(normalizeNonEmptyString(value, field));
   if (HAMMER_PASS_ID_SET.has(normalized)) {
-    return normalized as HammerPassId;
+    return normalized;
   }
   throw new HttpError(400, "invalid_pass", `${field} must be one of ${HAMMER_PASS_ID_VALUES.join(", ")}`);
 }
 
 function normalizeHammerPassOrderVersion(value: unknown, field = "pass_order_version"): number {
-  const parsed = Number(value);
+  const parsed = canonicalizeHammerPassOrderVersion(Number(value));
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new HttpError(400, "invalid_pass_order_version", `${field} must be a positive integer`);
   }
@@ -2376,12 +2382,12 @@ function normalizeHammerPassOrderVersion(value: unknown, field = "pass_order_ver
 function normalizeHammerPassStatusMap(
   value: unknown,
   field = "pass_status",
+  currentPass = canonicalizeHammerPassId(undefined),
 ): Partial<Record<HammerPassId, HammerPassState>> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new HttpError(400, "invalid_pass_status", `${field} must be an object`);
   }
   const row = value as Record<string, unknown>;
-  const normalized: Partial<Record<HammerPassId, HammerPassState>> = {};
   for (const [rawPassId, rawState] of Object.entries(row)) {
     if (!HAMMER_PASS_ID_SET.has(rawPassId)) continue;
     const normalizedState = typeof rawState === "string" ? rawState.trim().toLowerCase() : "";
@@ -2392,9 +2398,8 @@ function normalizeHammerPassStatusMap(
         `${field}.${rawPassId} must be one of ${HAMMER_PASS_STATE_VALUES.join(", ")}`,
       );
     }
-    normalized[rawPassId as HammerPassId] = normalizedState as HammerPassState;
   }
-  return normalized;
+  return canonicalizeHammerPassStatusMap(row, currentPass);
 }
 
 function normalizeHammerArtifactWriteRequest(
@@ -2445,6 +2450,33 @@ function normalizeHammerAudioPolishArtifactData(value: unknown): unknown {
   };
 }
 
+function normalizeHammerStructuredTranscriptArtifactData(value: unknown): unknown {
+  return normalizeHammerStructuredTranscript(value);
+}
+
+function normalizeHammerVisualPlacementsArtifactData(value: unknown): unknown {
+  return normalizeHammerVisualPlacements(value);
+}
+
+function normalizeHammerStateRow(
+  value: HammerWorkpieceStateRow | Record<string, unknown> | null | undefined,
+): HammerWorkpieceStateRow | null {
+  if (!value) return null;
+  const orchestration = normalizeHammerOrchestrationState(value);
+
+  return {
+    ...(value as HammerWorkpieceStateRow),
+    prep_status: orchestration.prep_status,
+    alignment_status: orchestration.alignment_status,
+    current_pass: orchestration.current_pass,
+    pass_order_version: orchestration.pass_order_version,
+    pass_status: orchestration.pass_status as Json,
+    edit_plan_signature: orchestration.edit_plan_signature,
+    macro_recipe_ref: orchestration.macro_recipe_ref,
+    last_macro_run_ref: orchestration.last_macro_run_ref,
+  };
+}
+
 function normalizeSaveHammerWorkpieceStateRequest(
   body: Record<string, unknown>,
 ): SaveHammerWorkpieceStateRequest {
@@ -2467,7 +2499,7 @@ function normalizeSaveHammerWorkpieceStateRequest(
     : normalizeHammerPassOrderVersion(body.pass_order_version);
   const passStatus = typeof body.pass_status === "undefined"
     ? undefined
-    : normalizeHammerPassStatusMap(body.pass_status);
+    : normalizeHammerPassStatusMap(body.pass_status, "pass_status", currentPass ?? canonicalizeHammerPassId(undefined));
   const macroRecipeRef = typeof body.macro_recipe_ref === "undefined"
     ? undefined
     : body.macro_recipe_ref === null
@@ -2501,13 +2533,31 @@ function normalizeSaveHammerWorkpieceStateRequest(
       : { editor_session: normalizeHammerArtifactWriteRequest(body.editor_session, "editor_session") }),
     ...(typeof body.structured_transcript === "undefined"
       ? {}
-      : { structured_transcript: normalizeHammerArtifactWriteRequest(body.structured_transcript, "structured_transcript") }),
+      : {
+        structured_transcript: (() => {
+          const normalized = normalizeHammerArtifactWriteRequest(body.structured_transcript, "structured_transcript");
+          if (!normalized) return normalized;
+          return {
+            ...normalized,
+            data: normalizeHammerStructuredTranscriptArtifactData(normalized.data),
+          };
+        })(),
+      }),
     ...(typeof body.speaker_map === "undefined"
       ? {}
       : { speaker_map: normalizeHammerArtifactWriteRequest(body.speaker_map, "speaker_map") }),
     ...(typeof body.visual_placements === "undefined"
       ? {}
-      : { visual_placements: normalizeHammerArtifactWriteRequest(body.visual_placements, "visual_placements") }),
+      : {
+        visual_placements: (() => {
+          const normalized = normalizeHammerArtifactWriteRequest(body.visual_placements, "visual_placements");
+          if (!normalized) return normalized;
+          return {
+            ...normalized,
+            data: normalizeHammerVisualPlacementsArtifactData(normalized.data),
+          };
+        })(),
+      }),
     ...(typeof body.audio_polish === "undefined"
       ? {}
       : {
@@ -4897,6 +4947,7 @@ export class TongsCommitService {
         reason: error.message,
       });
     }
+    const normalizedState = normalizeHammerStateRow(state);
 
     const readArtifact = async (path: string | null): Promise<HammerPersistedArtifactRecord> => {
       if (!path) {
@@ -4916,27 +4967,31 @@ export class TongsCommitService {
         };
       }
 
-      return {
-        path,
-        file_updated_at: result.file_row?.updated_at ?? null,
-        data: path === (state?.audio_polish_artifact_path ?? null)
-          ? normalizeHammerAudioPolishArtifactData(result.data ?? null)
-          : result.data ?? null,
+        return {
+          path,
+          file_updated_at: result.file_row?.updated_at ?? null,
+          data: path === (state?.audio_polish_artifact_path ?? null)
+            ? normalizeHammerAudioPolishArtifactData(result.data ?? null)
+            : path === (state?.transcript_artifact_path ?? null)
+              ? normalizeHammerStructuredTranscriptArtifactData(result.data ?? null)
+              : path === (state?.visual_placement_artifact_path ?? null)
+                ? normalizeHammerVisualPlacementsArtifactData(result.data ?? null)
+              : result.data ?? null,
+        };
       };
-    };
 
     return {
       schema_version: 1,
-      state: state ?? null,
-      editor_session: await readArtifact(state?.editor_session_path ?? null),
-      structured_transcript: await readArtifact(state?.transcript_artifact_path ?? null),
-      speaker_map: await readArtifact(state?.speaker_map_artifact_path ?? null),
-      visual_placements: await readArtifact(state?.visual_placement_artifact_path ?? null),
-      audio_polish: await readArtifact(state?.audio_polish_artifact_path ?? null),
-      edit_plan: await readArtifact(state?.edit_plan_artifact_path ?? null),
+      state: normalizedState,
+      editor_session: await readArtifact(normalizedState?.editor_session_path ?? null),
+      structured_transcript: await readArtifact(normalizedState?.transcript_artifact_path ?? null),
+      speaker_map: await readArtifact(normalizedState?.speaker_map_artifact_path ?? null),
+      visual_placements: await readArtifact(normalizedState?.visual_placement_artifact_path ?? null),
+      audio_polish: await readArtifact(normalizedState?.audio_polish_artifact_path ?? null),
+      edit_plan: await readArtifact(normalizedState?.edit_plan_artifact_path ?? null),
       macro_hooks: {
-        recipe_ref: state?.macro_recipe_ref ?? null,
-        last_run_ref: state?.last_macro_run_ref ?? null,
+        recipe_ref: normalizedState?.macro_recipe_ref ?? null,
+        last_run_ref: normalizedState?.last_macro_run_ref ?? null,
       },
     };
   }
@@ -4964,6 +5019,7 @@ export class TongsCommitService {
         reason: existingStateError.message,
       });
     }
+    const normalizedExistingState = normalizeHammerStateRow(existingState);
 
     const commitArtifact = async (
       key: HammerArtifactKey,
@@ -4990,7 +5046,11 @@ export class TongsCommitService {
         } as Json,
         json: (key === "audio_polish"
           ? normalizeHammerAudioPolishArtifactData(request.data)
-          : request.data) as Json,
+          : key === "structured_transcript"
+            ? normalizeHammerStructuredTranscriptArtifactData(request.data)
+            : key === "visual_placements"
+              ? normalizeHammerVisualPlacementsArtifactData(request.data)
+            : request.data) as Json,
         user_access_token: options?.userAccessToken ?? null,
       });
       return path;
@@ -5007,41 +5067,41 @@ export class TongsCommitService {
       workspace_id: workspaceId,
       workpiece_id: workpieceId,
       active_session_id: typeof input.active_session_id === "undefined"
-        ? existingState?.active_session_id ?? null
+        ? normalizedExistingState?.active_session_id ?? null
         : input.active_session_id,
       editor_session_path: typeof editorSessionPath === "undefined"
-        ? existingState?.editor_session_path ?? null
+        ? normalizedExistingState?.editor_session_path ?? null
         : editorSessionPath,
       transcript_artifact_path: typeof transcriptArtifactPath === "undefined"
-        ? existingState?.transcript_artifact_path ?? null
+        ? normalizedExistingState?.transcript_artifact_path ?? null
         : transcriptArtifactPath,
       speaker_map_artifact_path: typeof speakerMapArtifactPath === "undefined"
-        ? existingState?.speaker_map_artifact_path ?? null
+        ? normalizedExistingState?.speaker_map_artifact_path ?? null
         : speakerMapArtifactPath,
       visual_placement_artifact_path: typeof visualPlacementArtifactPath === "undefined"
-        ? existingState?.visual_placement_artifact_path ?? null
+        ? normalizedExistingState?.visual_placement_artifact_path ?? null
         : visualPlacementArtifactPath,
       audio_polish_artifact_path: typeof audioPolishArtifactPath === "undefined"
-        ? existingState?.audio_polish_artifact_path ?? null
+        ? normalizedExistingState?.audio_polish_artifact_path ?? null
         : audioPolishArtifactPath,
       edit_plan_artifact_path: typeof editPlanArtifactPath === "undefined"
-        ? existingState?.edit_plan_artifact_path ?? null
+        ? normalizedExistingState?.edit_plan_artifact_path ?? null
         : editPlanArtifactPath,
       edit_plan_signature: typeof input.edit_plan_signature === "undefined"
-        ? existingState?.edit_plan_signature ?? null
+        ? normalizedExistingState?.edit_plan_signature ?? null
         : input.edit_plan_signature,
-      prep_status: input.prep_status ?? existingState?.prep_status ?? "idle",
-      alignment_status: input.alignment_status ?? existingState?.alignment_status ?? "not_started",
-      current_pass: input.current_pass ?? existingState?.current_pass ?? "transcript_cleanup",
-      pass_order_version: input.pass_order_version ?? existingState?.pass_order_version ?? HAMMER_PASS_ORDER_VERSION,
-      pass_status: (input.pass_status ?? existingState?.pass_status ?? {}) as Json,
+      prep_status: input.prep_status ?? normalizedExistingState?.prep_status ?? "idle",
+      alignment_status: input.alignment_status ?? normalizedExistingState?.alignment_status ?? "not_started",
+      current_pass: input.current_pass ?? normalizedExistingState?.current_pass ?? "transcript_cleanup",
+      pass_order_version: input.pass_order_version ?? normalizedExistingState?.pass_order_version ?? HAMMER_PASS_ORDER_VERSION,
+      pass_status: (input.pass_status ?? normalizedExistingState?.pass_status ?? {}) as Json,
       macro_recipe_ref: typeof input.macro_recipe_ref === "undefined"
-        ? existingState?.macro_recipe_ref ?? null
+        ? normalizedExistingState?.macro_recipe_ref ?? null
         : input.macro_recipe_ref,
       last_macro_run_ref: typeof input.last_macro_run_ref === "undefined"
-        ? existingState?.last_macro_run_ref ?? null
+        ? normalizedExistingState?.last_macro_run_ref ?? null
         : input.last_macro_run_ref,
-      last_opened_at: input.last_opened_at ?? existingState?.last_opened_at ?? new Date().toISOString(),
+      last_opened_at: input.last_opened_at ?? normalizedExistingState?.last_opened_at ?? new Date().toISOString(),
       updated_by: auth.userId,
     };
 

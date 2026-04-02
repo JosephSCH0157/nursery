@@ -1036,6 +1036,707 @@ test("PUT /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/state no
   assert.equal(calls.saveHammerWorkpieceState[0]?.input?.audio_polish?.data?.audio_edit, null);
 });
 
+test("TongsCommitService.readHammerWorkpieceState normalizes malformed structured_transcript on read", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const stateRow = {
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    active_session_id: "session_hammer_01",
+    editor_session_path: null,
+    transcript_artifact_path: "hammer/transcript/structured.v1.json",
+    speaker_map_artifact_path: null,
+    visual_placement_artifact_path: null,
+    audio_polish_artifact_path: null,
+    edit_plan_artifact_path: null,
+    edit_plan_signature: null,
+    prep_status: "prepared",
+    alignment_status: "aligned",
+    current_pass: "transcript_cleanup",
+    pass_order_version: 2,
+    pass_status: {},
+    macro_recipe_ref: null,
+    last_macro_run_ref: null,
+    last_opened_at: "2026-03-13T12:00:00.000Z",
+    updated_at: "2026-03-13T12:00:05.000Z",
+    updated_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  };
+  const supabase = {
+    schema() {
+      return {
+        from(table) {
+          if (table !== "hammer_workpiece_state") {
+            throw new Error(`Unexpected table ${table}`);
+          }
+          return {
+            select() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            async maybeSingle() {
+              return { data: stateRow, error: null };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({ id: workspaceId });
+  service.assertWorkpieceInWorkspace = async () => ({ id: workpieceId, workspace_id: workspaceId });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "editor" });
+  service.readWorkpieceJson = async (_workpieceId, path) => {
+    if (path !== "hammer/transcript/structured.v1.json") {
+      return { found: false };
+    }
+    return {
+      found: true,
+      data: {
+        schema_version: 1,
+        transcript_id: "transcript_01",
+        media_id: "media_01",
+        media_signature: "media_sig_01",
+        prepared_at: "2026-03-13T10:00:00.000Z",
+        structure: "speaker_turns",
+        source_media_ref: null,
+        diarization: {
+          label_scheme: "forge-neutral-speakers.v1",
+          labels: ["S1"],
+          raw_labels: ["host"],
+          version: "gpt-4o-transcribe",
+          provider: "openai",
+          provider_request_id: "req_01",
+          model: "gpt-4o-transcribe",
+        },
+        confidence_flags: [],
+        segments: [],
+        derived_text_layers: {
+          schema_version: 1,
+          active_layer_id: "missing_active",
+          output_layer_id: "missing_output",
+          layers: [
+            {
+              layer_id: "legacy_macro_run",
+              recipe_ref: "macro:podcast_cleanup.v1",
+              macro_kind: "filler_cleanup",
+              status: "review",
+              created_at: "2026-03-13T10:15:00.000Z",
+              based_on_transcript_id: "transcript_01",
+              summary: {
+                changed_segment_count: 1,
+                removal_count: 1,
+                untouched_segment_count: 0,
+              },
+              changes: [
+                {
+                  segment_id: "seg_001",
+                  original_text: "Um line one.",
+                  cleaned_text: "line one.",
+                  removed_fillers: [
+                    {
+                      value: "Um",
+                      start: 0,
+                      end: 2,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        subtitle_outputs: {
+          schema_version: 1,
+          last_generated_format: "srt",
+          srt: {
+            format: "srt",
+            generated_at: "2026-03-13T10:14:00.000Z",
+            source_transcript_id: "transcript_01",
+            source_layer_id: null,
+            source_kind: "raw",
+            source_recipe_ref: null,
+            approximate_timing: false,
+            entry_count: 1,
+            content: "subtitle body",
+          },
+          vtt: "not-an-artifact",
+        },
+      },
+      file_row: { updated_at: "2026-03-13T12:00:02.000Z" },
+    };
+  };
+
+  const result = await service.readHammerWorkpieceState(workspaceId, workpieceId, { userAccessToken: "hammer_user_token" });
+
+  assert.equal(result.structured_transcript.data?.derived_text_layers?.active_layer_id, null);
+  assert.equal(result.structured_transcript.data?.derived_text_layers?.output_layer_id, null);
+  assert.deepEqual(result.structured_transcript.data?.derived_text_layers?.layers[0]?.changes[0]?.operations, [
+    {
+      kind: "filler_removed",
+      value: "Um",
+      start: 0,
+      end: 2,
+    },
+  ]);
+  assert.equal(result.structured_transcript.data?.subtitle_outputs?.vtt, null);
+});
+
+test("TongsCommitService.saveHammerWorkpieceState normalizes malformed structured_transcript before commit", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const committed = [];
+  const upserts = [];
+  const existingState = {
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    active_session_id: null,
+    editor_session_path: null,
+    transcript_artifact_path: null,
+    speaker_map_artifact_path: null,
+    visual_placement_artifact_path: null,
+    audio_polish_artifact_path: null,
+    edit_plan_artifact_path: null,
+    edit_plan_signature: null,
+    prep_status: "idle",
+    alignment_status: "not_started",
+    current_pass: "transcript_cleanup",
+    pass_order_version: 2,
+    pass_status: {},
+    macro_recipe_ref: null,
+    last_macro_run_ref: null,
+    last_opened_at: "2026-03-13T12:00:00.000Z",
+    updated_at: "2026-03-13T12:00:05.000Z",
+    updated_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  };
+  const supabase = {
+    schema() {
+      return {
+        from(table) {
+          if (table !== "hammer_workpiece_state") {
+            throw new Error(`Unexpected table ${table}`);
+          }
+          return {
+            select() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            async maybeSingle() {
+              return { data: existingState, error: null };
+            },
+            async upsert(row) {
+              upserts.push(row);
+              return { error: null };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({ id: workspaceId });
+  service.assertWorkpieceInWorkspace = async () => ({ id: workpieceId, workspace_id: workspaceId });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "editor" });
+  service.commitFile = async (_workpieceId, input) => {
+    committed.push(input);
+    return {
+      workpiece_id: workpieceId,
+      path: input.path,
+      storage_key: `workpieces/${workpieceId}/${input.path}`,
+      hash: "hash-file",
+      bytes: 77,
+      content_type: input.content_type || "application/json",
+      manifest_hash: "hash-manifest",
+      manifest_bytes: 456,
+      file_row: {
+        updated_at: "2026-03-13T12:00:02.000Z",
+      },
+    };
+  };
+  service.readHammerWorkpieceState = async () => ({
+    schema_version: 1,
+    state: existingState,
+    editor_session: { path: null, file_updated_at: null, data: null },
+    structured_transcript: { path: "hammer/transcript/structured.v1.json", file_updated_at: "2026-03-13T12:00:02.000Z", data: committed[0]?.json ?? null },
+    speaker_map: { path: null, file_updated_at: null, data: null },
+    visual_placements: { path: null, file_updated_at: null, data: null },
+    audio_polish: { path: null, file_updated_at: null, data: null },
+    edit_plan: { path: null, file_updated_at: null, data: null },
+    macro_hooks: { recipe_ref: null, last_run_ref: null },
+  });
+
+  await service.saveHammerWorkpieceState(workspaceId, workpieceId, {
+    written_by: {
+      tool: "hammer",
+      tool_version: "forge-v1.2.0",
+      lane: "forge-managed",
+    },
+    structured_transcript: {
+      data: {
+        schema_version: 1,
+        transcript_id: "transcript_01",
+        media_id: "media_01",
+        media_signature: "media_sig_01",
+        prepared_at: "2026-03-13T10:00:00.000Z",
+        structure: "speaker_turns",
+        source_media_ref: null,
+        diarization: {
+          label_scheme: "forge-neutral-speakers.v1",
+          labels: ["S1"],
+          raw_labels: ["host"],
+          version: "gpt-4o-transcribe",
+          provider: "openai",
+          provider_request_id: "req_01",
+          model: "gpt-4o-transcribe",
+        },
+        confidence_flags: [],
+        segments: [],
+        derived_text_layers: {
+          schema_version: 1,
+          active_layer_id: "missing_active",
+          output_layer_id: "missing_output",
+          layers: [
+            {
+              layer_id: "legacy_macro_run",
+              recipe_ref: "macro:podcast_cleanup.v1",
+              macro_kind: "filler_cleanup",
+              status: "review",
+              created_at: "2026-03-13T10:15:00.000Z",
+              based_on_transcript_id: "transcript_01",
+              summary: {
+                changed_segment_count: 1,
+                removal_count: 1,
+                untouched_segment_count: 0,
+              },
+              changes: [
+                {
+                  segment_id: "seg_001",
+                  original_text: "Um line one.",
+                  cleaned_text: "line one.",
+                  removed_fillers: [
+                    {
+                      value: "Um",
+                      start: 0,
+                      end: 2,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        subtitle_outputs: {
+          schema_version: 1,
+          last_generated_format: "srt",
+          srt: {
+            format: "srt",
+            generated_at: "2026-03-13T10:14:00.000Z",
+            source_transcript_id: "transcript_01",
+            source_layer_id: null,
+            source_kind: "raw",
+            source_recipe_ref: null,
+            approximate_timing: false,
+            entry_count: 1,
+            content: "subtitle body",
+          },
+          vtt: "not-an-artifact",
+        },
+      },
+    },
+  }, { userAccessToken: "hammer_user_token" });
+
+  assert.equal(committed.length, 1);
+  assert.equal(committed[0]?.path, "hammer/transcript/structured.v1.json");
+  assert.equal(committed[0]?.json?.derived_text_layers?.active_layer_id, null);
+  assert.equal(committed[0]?.json?.derived_text_layers?.output_layer_id, null);
+  assert.deepEqual(committed[0]?.json?.derived_text_layers?.layers[0]?.changes[0]?.operations, [
+    {
+      kind: "filler_removed",
+      value: "Um",
+      start: 0,
+      end: 2,
+    },
+  ]);
+  assert.equal(committed[0]?.json?.subtitle_outputs?.vtt, null);
+  assert.equal(upserts.length, 1);
+});
+
+test("TongsCommitService.readHammerWorkpieceState normalizes malformed orchestration state on read", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const stateRow = {
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    active_session_id: "session_hammer_01",
+    editor_session_path: null,
+    transcript_artifact_path: null,
+    speaker_map_artifact_path: null,
+    visual_placement_artifact_path: null,
+    audio_polish_artifact_path: null,
+    edit_plan_artifact_path: null,
+    edit_plan_signature: " ",
+    prep_status: "drifted",
+    alignment_status: "sideways",
+    current_pass: "bogus_pass",
+    pass_order_version: 0,
+    pass_status: {
+      retakes: "completed",
+      ready: "weird",
+      unknown_pass: "in_progress",
+    },
+    macro_recipe_ref: " ",
+    last_macro_run_ref: "macro_run_02",
+    last_opened_at: "2026-03-13T12:00:00.000Z",
+    updated_at: "2026-03-13T12:00:05.000Z",
+    updated_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  };
+  const supabase = {
+    schema() {
+      return {
+        from() {
+          return {
+            select() { return this; },
+            eq() { return this; },
+            async maybeSingle() { return { data: stateRow, error: null }; },
+          };
+        },
+      };
+    },
+  };
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({ id: workspaceId });
+  service.assertWorkpieceInWorkspace = async () => ({ id: workpieceId, workspace_id: workspaceId });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "editor" });
+
+  const result = await service.readHammerWorkpieceState(workspaceId, workpieceId, { userAccessToken: "hammer_user_token" });
+
+  assert.equal(result.state?.prep_status, "idle");
+  assert.equal(result.state?.alignment_status, "not_started");
+  assert.equal(result.state?.current_pass, "transcript_cleanup");
+  assert.equal(result.state?.pass_order_version, 2);
+  assert.equal(result.state?.pass_status.transcript_cleanup, "in_progress");
+  assert.equal(result.state?.pass_status.retakes, "completed");
+  assert.equal(result.state?.pass_status.ready, "not_started");
+  assert.equal(result.state?.edit_plan_signature, null);
+  assert.equal(result.state?.macro_recipe_ref, null);
+  assert.equal(result.state?.last_macro_run_ref, "macro_run_02");
+  assert.equal(result.macro_hooks.recipe_ref, null);
+  assert.equal(result.macro_hooks.last_run_ref, "macro_run_02");
+});
+
+test("TongsCommitService.saveHammerWorkpieceState normalizes malformed stored orchestration state before upsert", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const upserts = [];
+  const existingState = {
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    active_session_id: "session_hammer_01",
+    editor_session_path: null,
+    transcript_artifact_path: null,
+    speaker_map_artifact_path: null,
+    visual_placement_artifact_path: null,
+    audio_polish_artifact_path: null,
+    edit_plan_artifact_path: null,
+    edit_plan_signature: " ",
+    prep_status: "drifted",
+    alignment_status: "sideways",
+    current_pass: "bogus_pass",
+    pass_order_version: 0,
+    pass_status: {
+      retakes: "completed",
+      ready: "weird",
+      unknown_pass: "in_progress",
+    },
+    macro_recipe_ref: " ",
+    last_macro_run_ref: "macro_run_02",
+    last_opened_at: "2026-03-13T12:00:00.000Z",
+    updated_at: "2026-03-13T12:00:05.000Z",
+    updated_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  };
+  const supabase = {
+    schema() {
+      return {
+        from() {
+          return {
+            select() { return this; },
+            eq() { return this; },
+            async maybeSingle() { return { data: existingState, error: null }; },
+            async upsert(row) {
+              upserts.push(row);
+              return { error: null };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({ id: workspaceId });
+  service.assertWorkpieceInWorkspace = async () => ({ id: workpieceId, workspace_id: workspaceId });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "editor" });
+  service.readHammerWorkpieceState = async () => ({
+    schema_version: 1,
+    state: upserts[0] ?? null,
+    editor_session: { path: null, file_updated_at: null, data: null },
+    structured_transcript: { path: null, file_updated_at: null, data: null },
+    speaker_map: { path: null, file_updated_at: null, data: null },
+    visual_placements: { path: null, file_updated_at: null, data: null },
+    audio_polish: { path: null, file_updated_at: null, data: null },
+    edit_plan: { path: null, file_updated_at: null, data: null },
+    macro_hooks: {
+      recipe_ref: upserts[0]?.macro_recipe_ref ?? null,
+      last_run_ref: upserts[0]?.last_macro_run_ref ?? null,
+    },
+  });
+
+  await service.saveHammerWorkpieceState(workspaceId, workpieceId, {
+    written_by: {
+      tool: "hammer",
+      tool_version: "forge-v1.2.0",
+      lane: "editor",
+    },
+    last_opened_at: "2026-03-13T12:05:00.000Z",
+  }, { userAccessToken: "hammer_user_token" });
+
+  assert.equal(upserts.length, 1);
+  assert.equal(upserts[0]?.prep_status, "idle");
+  assert.equal(upserts[0]?.alignment_status, "not_started");
+  assert.equal(upserts[0]?.current_pass, "transcript_cleanup");
+  assert.equal(upserts[0]?.pass_order_version, 2);
+  assert.equal(upserts[0]?.pass_status.transcript_cleanup, "in_progress");
+  assert.equal(upserts[0]?.pass_status.retakes, "completed");
+  assert.equal(upserts[0]?.pass_status.ready, "not_started");
+  assert.equal(upserts[0]?.edit_plan_signature, null);
+  assert.equal(upserts[0]?.macro_recipe_ref, null);
+  assert.equal(upserts[0]?.last_macro_run_ref, "macro_run_02");
+});
+
+test("TongsCommitService.readHammerWorkpieceState normalizes malformed visual_placements on read", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const stateRow = {
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    active_session_id: "session_hammer_01",
+    editor_session_path: null,
+    transcript_artifact_path: null,
+    speaker_map_artifact_path: null,
+    visual_placement_artifact_path: "hammer/prep/visual-placements.v1.json",
+    audio_polish_artifact_path: null,
+    edit_plan_artifact_path: null,
+    edit_plan_signature: null,
+    prep_status: "prepared",
+    alignment_status: "aligned",
+    current_pass: "image_placement",
+    pass_order_version: 2,
+    pass_status: {},
+    macro_recipe_ref: null,
+    last_macro_run_ref: null,
+    last_opened_at: "2026-03-13T12:00:00.000Z",
+    updated_at: "2026-03-13T12:00:05.000Z",
+    updated_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  };
+  const supabase = {
+    schema() {
+      return {
+        from() {
+          return {
+            select() { return this; },
+            eq() { return this; },
+            async maybeSingle() { return { data: stateRow, error: null }; },
+          };
+        },
+      };
+    },
+  };
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({ id: workspaceId });
+  service.assertWorkpieceInWorkspace = async () => ({ id: workpieceId, workspace_id: workspaceId });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "editor" });
+  service.readWorkpieceJson = async (_workpieceId, path) => ({
+    found: path === "hammer/prep/visual-placements.v1.json",
+    data: {
+      schema_version: 1,
+      status: "prepared",
+      source_refs: ["transcript:tx_01", "transcript:tx_01", "", null],
+      uncertainty_flags: ["match_missing:image-map-01", "", "match_missing:image-map-01"],
+      placements: [
+        {
+          placement_id: "placement_01",
+          entry_id: "image-map-01",
+          anchor_segment_id: "seg_001",
+          matched_segment_ids: ["seg_001", "", "seg_001"],
+          anchor_text: "Anchor",
+          asset_ref: "asset_01",
+          asset_id: "asset_01",
+          asset_path: "assets/example.png",
+          storage_key: "workpieces/example/assets/example.png",
+          label: "explainer",
+          visual_mode: "comparison",
+          start_sec: 1,
+          end_sec: 3,
+          timing_source: "weird",
+          status: "bad",
+          uncertainty_flags: ["timeline_remap_review", "", "timeline_remap_review"],
+          overlay_geometry: {
+            x: -2,
+            y: 3,
+            width: 0.01,
+            height: 2,
+            anchor: "nonsense",
+          },
+          animation_preset: "bad",
+          overlay_opacity: 4,
+        },
+        {
+          placement_id: "placement_02",
+          entry_id: "image-map-invalid",
+          anchor_segment_id: "seg_002",
+          asset_ref: "asset_02",
+          start_sec: 5,
+          end_sec: 4,
+          timing_source: "ordered_fallback",
+          status: "uncertain",
+          uncertainty_flags: [],
+          matched_segment_ids: ["seg_002"],
+        },
+      ],
+    },
+    file_row: { updated_at: "2026-03-13T12:00:02.000Z" },
+  });
+
+  const result = await service.readHammerWorkpieceState(workspaceId, workpieceId, { userAccessToken: "hammer_user_token" });
+  assert.deepEqual(result.visual_placements.data?.source_refs, ["transcript:tx_01"]);
+  assert.deepEqual(result.visual_placements.data?.uncertainty_flags, ["match_missing:image-map-01"]);
+  assert.equal(result.visual_placements.data?.placements.length, 1);
+  assert.deepEqual(result.visual_placements.data?.placements[0]?.overlay_geometry, {
+    x: 0,
+    y: 1,
+    width: 0.05,
+    height: 1,
+    anchor: "top_left",
+  });
+  assert.equal(result.visual_placements.data?.placements[0]?.animation_preset, null);
+  assert.equal(result.visual_placements.data?.placements[0]?.overlay_opacity, 1);
+});
+
+test("TongsCommitService.saveHammerWorkpieceState normalizes malformed visual_placements before commit", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const committed = [];
+  const supabase = {
+    schema() {
+      return {
+        from() {
+          return {
+            select() { return this; },
+            eq() { return this; },
+            async maybeSingle() { return { data: null, error: null }; },
+            async upsert() { return { error: null }; },
+          };
+        },
+      };
+    },
+  };
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({ id: workspaceId });
+  service.assertWorkpieceInWorkspace = async () => ({ id: workpieceId, workspace_id: workspaceId });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "editor" });
+  service.commitFile = async (_workpieceId, input) => {
+    committed.push(input);
+    return {
+      workpiece_id: workpieceId,
+      path: input.path,
+      storage_key: `workpieces/${workpieceId}/${input.path}`,
+      hash: "hash-file",
+      bytes: 77,
+      content_type: "application/json",
+      manifest_hash: "hash-manifest",
+      manifest_bytes: 456,
+      file_row: { updated_at: "2026-03-13T12:00:02.000Z" },
+    };
+  };
+  service.readHammerWorkpieceState = async () => ({
+    schema_version: 1,
+    state: null,
+    editor_session: { path: null, file_updated_at: null, data: null },
+    structured_transcript: { path: null, file_updated_at: null, data: null },
+    speaker_map: { path: null, file_updated_at: null, data: null },
+    visual_placements: { path: "hammer/prep/visual-placements.v1.json", file_updated_at: "2026-03-13T12:00:02.000Z", data: committed[0]?.json ?? null },
+    audio_polish: { path: null, file_updated_at: null, data: null },
+    edit_plan: { path: null, file_updated_at: null, data: null },
+    macro_hooks: { recipe_ref: null, last_run_ref: null },
+  });
+
+  await service.saveHammerWorkpieceState(workspaceId, workpieceId, {
+    written_by: {
+      tool: "hammer",
+      tool_version: "forge-v1.2.0",
+      lane: "forge-managed",
+    },
+    visual_placements: {
+      data: {
+        schema_version: 1,
+        status: "prepared",
+        source_refs: ["transcript:tx_01", "", "transcript:tx_01"],
+        uncertainty_flags: ["match_missing:image-map-01", "", "match_missing:image-map-01"],
+        placements: [
+          {
+            placement_id: "placement_01",
+            entry_id: "image-map-01",
+            anchor_segment_id: "seg_001",
+            matched_segment_ids: ["seg_001", "", "seg_001"],
+            anchor_text: "Anchor",
+            asset_ref: "asset_01",
+            asset_id: "asset_01",
+            asset_path: "assets/example.png",
+            storage_key: "workpieces/example/assets/example.png",
+            label: "explainer",
+            visual_mode: "comparison",
+            start_sec: 1,
+            end_sec: 3,
+            timing_source: "weird",
+            status: "bad",
+            uncertainty_flags: ["timeline_remap_review", "", "timeline_remap_review"],
+            overlay_geometry: {
+              x: -2,
+              y: 3,
+              width: 0.01,
+              height: 2,
+              anchor: "nonsense",
+            },
+            animation_preset: "bad",
+            overlay_opacity: 4,
+          },
+        ],
+      },
+    },
+  }, { userAccessToken: "hammer_user_token" });
+
+  assert.equal(committed.length, 1);
+  assert.deepEqual(committed[0]?.json?.source_refs, ["transcript:tx_01"]);
+  assert.deepEqual(committed[0]?.json?.uncertainty_flags, ["match_missing:image-map-01"]);
+  assert.deepEqual(committed[0]?.json?.placements[0]?.matched_segment_ids, ["seg_001"]);
+  assert.equal(committed[0]?.json?.placements[0]?.timing_source, "transcript_match");
+  assert.equal(committed[0]?.json?.placements[0]?.status, "placed");
+  assert.deepEqual(committed[0]?.json?.placements[0]?.overlay_geometry, {
+    x: 0,
+    y: 1,
+    width: 0.05,
+    height: 1,
+    anchor: "top_left",
+  });
+  assert.equal(committed[0]?.json?.placements[0]?.animation_preset, null);
+  assert.equal(committed[0]?.json?.placements[0]?.overlay_opacity, 1);
+});
+
 test("GET /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/presence returns Hammer presence rows", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);

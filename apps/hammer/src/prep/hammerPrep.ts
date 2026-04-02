@@ -604,6 +604,11 @@ function buildPrepEditorSession(
       ? cloneWorkspaceMapping(mediaContext.workspaceMapping)
       : null,
     media_source_label: mediaContext?.mediaRef.media_id ?? null,
+    visual_preview: {
+      white_balance: 0,
+      color_amount: 0,
+      background_blur: false,
+    },
     last_opened_at: new Date().toISOString(),
   };
 }

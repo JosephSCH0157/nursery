@@ -1,6 +1,9 @@
 import type { HammerReleasePrepPackage } from "./hammerReleasePrepPackage";
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
+import type { HammerLookPreset } from "../../../../packages/contracts/hammer/edit-instruction.contract";
 import type { HammerRenderAssemblyResult } from "../editor/hammerRenderAssembly";
+import type { HammerReadinessGateResult } from "../editor/hammerReadinessGate";
+import { deriveHammerReleaseHandoffPosture } from "./hammerReleaseHandoffPosture";
 
 export const HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH = "hammer/release-packet/manifest.v1.json";
 export const HAMMER_QUENCH_RELEASE_PACKET_TRANSCRIPT_PATH = "hammer/release-packet/transcript/transcript.txt";
@@ -50,9 +53,28 @@ export interface HammerQuenchReleasePacketManifest {
     placements_path: string;
     count: number;
   };
+  look: {
+    preset: HammerLookPreset | null;
+    operation_id: string | null;
+    affects_export: boolean;
+    posture: "authoritative" | "degraded" | "unavailable" | null;
+    capability: "executable" | "degraded" | "unavailable" | null;
+    preview_mode: "previewable" | "export_only" | null;
+  };
+  exposure: {
+    amount: number | null;
+    operation_id: string | null;
+    affects_export: boolean;
+    posture: "authoritative" | "degraded" | "unavailable" | null;
+    capability: "executable" | "degraded" | "unavailable" | null;
+    preview_mode: "previewable" | "export_only" | null;
+  };
   readiness: {
     ready_for_quench: boolean;
     overall_status: HammerReleasePrepPackage["readiness"]["blocking_statuses"][number] | "ready";
+    handoff_status: "ready" | "needs_review" | "blocked";
+    artifact_reasons: string[];
+    review_reasons: string[];
     reasons: string[];
   };
   editorial_truth?: {
@@ -128,13 +150,16 @@ export interface HammerQuenchReleasePacketManifest {
         preview_mode?: "previewable" | "export_only";
       }>;
       visual_layers: Array<{
-        kind: "primary_video" | "broll" | "dip_to_black";
+        kind: "primary_video" | "broll" | "dip_to_black" | "look_treatment" | "exposure_adjustment";
         operation_id: string | null;
         start_sec: number;
         end_sec: number;
         posture: "authoritative" | "degraded" | "unavailable";
         capability: "executable" | "degraded" | "unavailable";
         reason_codes: string[];
+        preset?: HammerLookPreset;
+        exposure?: number;
+        preview_mode?: "previewable" | "export_only";
       }>;
       transition_layers: Array<{
         kind: "hard_cut" | "crossfade" | "dip_to_black" | "fade_audio";
@@ -207,40 +232,27 @@ function resolveDurationSeconds(
   return Number((durationMs / 1000).toFixed(3));
 }
 
-function resolveReadiness(pkg: HammerReleasePrepPackage): HammerQuenchReleasePacketManifest["readiness"] {
-  const statuses = {
-    transcript: pkg.readiness.transcript_output,
-    srt: pkg.readiness.subtitles.srt,
-    audio: pkg.readiness.audio_polish,
-  } as const;
-  const reasons: string[] = [];
-  if (statuses.transcript !== "ready") {
-    reasons.push(statuses.transcript === "stale"
-      ? "Transcript output is stale."
-      : "Transcript output is missing.");
-  }
-  if (statuses.srt !== "ready") {
-    reasons.push(statuses.srt === "stale"
-      ? "SRT captions are stale."
-      : "SRT captions are missing.");
-  }
-  if (statuses.audio === "failed" || statuses.audio === "unsupported" || statuses.audio === "requires_future_ffmpeg") {
-    reasons.push(statuses.audio === "failed"
-      ? "Audio preparation failed."
-      : statuses.audio === "unsupported"
-      ? "Audio source is unsupported for prep."
-      : "Audio preparation requires future FFmpeg-backed normalization.");
-  }
-  const ready = reasons.length === 0;
+function resolveReadiness(args: {
+  releasePrepPackage: HammerReleasePrepPackage;
+  readinessGate: HammerReadinessGateResult;
+}): HammerQuenchReleasePacketManifest["readiness"] {
+  const posture = deriveHammerReleaseHandoffPosture({
+    releasePrepPackage: args.releasePrepPackage,
+    readinessGate: args.readinessGate,
+  });
   return {
-    ready_for_quench: ready,
-    overall_status: ready ? "ready" : "missing",
-    reasons,
+    ready_for_quench: posture.ready_for_quench,
+    overall_status: posture.artifact_status,
+    handoff_status: posture.handoff_status,
+    artifact_reasons: posture.artifact_reasons,
+    review_reasons: posture.review_reasons,
+    reasons: posture.reasons,
   };
 }
 
 export function buildHammerQuenchReleasePacket(args: {
   releasePrepPackage: HammerReleasePrepPackage;
+  readinessGate: HammerReadinessGateResult;
   preparedAt?: string;
   canonicalGraph?: HammerEditorialAuthorityGraph | null;
   renderAssembly?: HammerRenderAssemblyResult | null;
@@ -264,6 +276,8 @@ export function buildHammerQuenchReleasePacket(args: {
     return [operation.operation_id];
   }));
   const podcastMasterLayer = args.renderAssembly?.export_timeline.audio_layers.find((layer) => layer.kind === "podcast_master_pass") ?? null;
+  const lookLayer = args.renderAssembly?.export_timeline.visual_layers.find((layer) => layer.kind === "look_treatment") ?? null;
+  const exposureLayer = args.renderAssembly?.export_timeline.visual_layers.find((layer) => layer.kind === "exposure_adjustment") ?? null;
 
   const manifest: HammerQuenchReleasePacketManifest = {
     version: 1,
@@ -296,7 +310,26 @@ export function buildHammerQuenchReleasePacket(args: {
       placements_path: HAMMER_QUENCH_RELEASE_PACKET_VISUALS_PATH,
       count: visuals.length,
     },
-    readiness: resolveReadiness(pkg),
+    look: {
+      preset: lookLayer?.meta?.preset ?? null,
+      operation_id: lookLayer?.operation_id ?? null,
+      affects_export: Boolean(lookLayer?.meta?.preset),
+      posture: lookLayer?.posture ?? null,
+      capability: lookLayer?.capability ?? null,
+      preview_mode: lookLayer?.meta?.preview_mode ?? null,
+    },
+    exposure: {
+      amount: exposureLayer?.meta?.exposure ?? null,
+      operation_id: exposureLayer?.operation_id ?? null,
+      affects_export: typeof exposureLayer?.meta?.exposure === "number",
+      posture: exposureLayer?.posture ?? null,
+      capability: exposureLayer?.capability ?? null,
+      preview_mode: exposureLayer?.meta?.preview_mode ?? null,
+    },
+    readiness: resolveReadiness({
+      releasePrepPackage: pkg,
+      readinessGate: args.readinessGate,
+    }),
     ...(args.renderAssembly
       ? {
         editorial_truth: {
@@ -424,6 +457,17 @@ export function buildHammerQuenchReleasePacket(args: {
               posture: layer.posture,
               capability: layer.capability,
               reason_codes: layer.reason_codes,
+              ...(layer.kind === "look_treatment"
+                ? {
+                  preset: layer.meta?.preset ?? undefined,
+                  preview_mode: layer.meta?.preview_mode ?? "export_only",
+                }
+                : layer.kind === "exposure_adjustment"
+                ? {
+                  exposure: layer.meta?.exposure ?? undefined,
+                  preview_mode: layer.meta?.preview_mode ?? "export_only",
+                }
+                : {}),
             })),
             transition_layers: args.renderAssembly.export_timeline.transition_layers.map((layer) => ({
               kind: layer.kind,

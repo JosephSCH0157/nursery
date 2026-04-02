@@ -170,6 +170,11 @@ function buildSnapshot(args?: {
           local_root_abs: "D:\\ForgeMedia\\workspace_release_pkg_01",
         },
         media_source_label: `tongs:${mediaRef.media_id}`,
+        visual_preview: {
+          white_balance: 0,
+          color_amount: 0,
+          background_blur: false,
+        },
         last_opened_at: "2026-03-15T12:08:00.000Z",
       },
     },

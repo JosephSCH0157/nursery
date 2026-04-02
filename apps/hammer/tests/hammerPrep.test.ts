@@ -158,6 +158,11 @@ const persistedPreparedSnapshot = {
         local_root_abs: "D:\\ForgeMedia\\workspace",
       },
       media_source_label: "tongs:media_01",
+      visual_preview: {
+        white_balance: 0,
+        color_amount: 0,
+        background_blur: false,
+      },
       last_opened_at: "2026-03-14T09:30:00.000Z",
     },
   },

@@ -47,6 +47,11 @@ const snapshot: HammerWorkspaceSnapshot = {
   ],
   selectedSegmentId: "seg_001",
   selectedOverlayRowId: "row_001",
+  visualPreviewSettings: {
+    white_balance: 12,
+    color_amount: 18,
+    background_blur: true,
+  },
   mediaRef: {
     media_id: "media_01",
     kind: "recording_video",
@@ -358,6 +363,11 @@ assert.deepEqual(
   saveRequest.visual_placements?.data.uncertainty_flags,
   ["match_missing:image-map-02"],
 );
+assert.deepEqual(saveRequest.editor_session?.data.visual_preview, {
+  white_balance: 12,
+  color_amount: 18,
+  background_blur: true,
+});
 assert.equal(saveRequest.editorial_authority?.data.graph_id, "plan_01:authority");
 
 const persistedSnapshot: HammerPersistenceSnapshot = {
@@ -697,6 +707,251 @@ try {
   }
 
   await assertStructuredTranscriptRoundTripsToCanonicalShape();
+
+  async function assertVisualPlacementsRoundTripToCanonicalShape(): Promise<void> {
+    globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
+      ok: true,
+      data: {
+        snapshot: {
+          schema_version: 1,
+          state: persistedSnapshot.state,
+          editor_session: toApiArtifact(persistedSnapshot.editor_session),
+          structured_transcript: toApiArtifact(persistedSnapshot.structured_transcript),
+          speaker_map: toApiArtifact(persistedSnapshot.speaker_map),
+          visual_placements: {
+            path: persistedSnapshot.visual_placements.path,
+            file_updated_at: persistedSnapshot.visual_placements.updated_at,
+            data: {
+              ...persistedSnapshot.visual_placements.data,
+              source_refs: ["transcript:transcript_01", "", "transcript:transcript_01"],
+              uncertainty_flags: ["match_missing:image-map-02", "", "match_missing:image-map-02"],
+              placements: [
+                {
+                  placement_id: "placement_invalid",
+                  entry_id: "image-map-invalid",
+                  anchor_segment_id: "seg_001",
+                  asset_ref: "asset_invalid",
+                  start_sec: 5,
+                  end_sec: 4,
+                  timing_source: "weird",
+                  status: "bad",
+                  matched_segment_ids: ["seg_001", ""],
+                  uncertainty_flags: ["timeline_remap_review", ""],
+                },
+                {
+                  ...persistedSnapshot.visual_placements.data?.placements[0],
+                  matched_segment_ids: ["seg_001", "", "seg_001"],
+                  uncertainty_flags: ["", "timeline_remap_review", "timeline_remap_review"],
+                  overlay_geometry: {
+                    x: -1,
+                    y: 2,
+                    width: 0.01,
+                    height: 9,
+                    anchor: "nonsense",
+                  },
+                  animation_preset: "bad-preset",
+                  overlay_opacity: 2,
+                },
+              ],
+            },
+          },
+          audio_polish: toApiArtifact(persistedSnapshot.audio_polish),
+          edit_plan: toApiArtifact(persistedSnapshot.edit_plan),
+          editorial_authority: toApiArtifact(persistedSnapshot.editorial_authority),
+          macro_hooks: persistedSnapshot.macro_hooks,
+        },
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+    const result = await loadHammerPersistenceSnapshot(target);
+    assert.equal(result.ok, true);
+    if (!result.ok) {
+      throw new Error("Expected malformed visual_placements payload to normalize on load.");
+    }
+
+    const normalizedVisualPlacements = result.data.visual_placements.data;
+    assert.deepEqual(normalizedVisualPlacements?.source_refs, [
+      "transcript:transcript_01",
+    ]);
+    assert.deepEqual(normalizedVisualPlacements?.uncertainty_flags, [
+      "match_missing:image-map-02",
+    ]);
+    assert.equal(normalizedVisualPlacements?.placements.length, 1);
+    assert.deepEqual(normalizedVisualPlacements?.placements[0]?.matched_segment_ids, [
+      "seg_001",
+    ]);
+    assert.deepEqual(normalizedVisualPlacements?.placements[0]?.uncertainty_flags, [
+      "timeline_remap_review",
+    ]);
+    assert.deepEqual(normalizedVisualPlacements?.placements[0]?.overlay_geometry, {
+      x: 0,
+      y: 1,
+      width: 0.05,
+      height: 1,
+      anchor: "top_left",
+    });
+    assert.equal(normalizedVisualPlacements?.placements[0]?.animation_preset, null);
+    assert.equal(normalizedVisualPlacements?.placements[0]?.overlay_opacity, 1);
+
+    const roundTripSaveRequest = buildHammerPersistenceSaveRequest({
+      ...snapshot,
+      visualPlacements: normalizedVisualPlacements,
+    });
+    assert.deepEqual(roundTripSaveRequest.visual_placements?.data.source_refs, [
+      "transcript:transcript_01",
+    ]);
+    assert.deepEqual(roundTripSaveRequest.visual_placements?.data.placements[0]?.matched_segment_ids, [
+      "seg_001",
+    ]);
+    assert.equal(roundTripSaveRequest.visual_placements?.data.placements.length, 1);
+    assert.equal(roundTripSaveRequest.visual_placements?.data.placements[0]?.animation_preset, null);
+    assert.equal(roundTripSaveRequest.visual_placements?.data.placements[0]?.overlay_opacity, 1);
+  }
+
+  await assertVisualPlacementsRoundTripToCanonicalShape();
+
+  async function assertOrchestrationStateRoundTripsToCanonicalShape(): Promise<void> {
+    globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
+      ok: true,
+      data: {
+        snapshot: {
+          schema_version: 1,
+          state: {
+            ...persistedSnapshot.state,
+            current_pass: "bogus_pass",
+            pass_order_version: 0,
+            pass_status: {
+              retakes: "completed",
+              ready: "bad_state",
+              unknown_pass: "in_progress",
+            },
+            prep_status: "mystery",
+            alignment_status: "drifted",
+            edit_plan_signature: " ",
+            macro_recipe_ref: " ",
+            last_macro_run_ref: "macro_run_02",
+          },
+          editor_session: toApiArtifact(persistedSnapshot.editor_session),
+          structured_transcript: toApiArtifact(persistedSnapshot.structured_transcript),
+          speaker_map: toApiArtifact(persistedSnapshot.speaker_map),
+          visual_placements: toApiArtifact(persistedSnapshot.visual_placements),
+          audio_polish: toApiArtifact(persistedSnapshot.audio_polish),
+          edit_plan: toApiArtifact(persistedSnapshot.edit_plan),
+          editorial_authority: toApiArtifact(persistedSnapshot.editorial_authority),
+          macro_hooks: {
+            recipe_ref: " ",
+            last_run_ref: "macro_run_02",
+          },
+        },
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+    const result = await loadHammerPersistenceSnapshot(target);
+    assert.equal(result.ok, true);
+    if (!result.ok) {
+      throw new Error("Expected malformed orchestration state to normalize on load.");
+    }
+
+    assert.equal(result.data.state?.current_pass, "transcript_cleanup");
+    assert.equal(result.data.state?.pass_order_version, 2);
+    assert.equal(result.data.state?.prep_status, "idle");
+    assert.equal(result.data.state?.alignment_status, "not_started");
+    assert.equal(result.data.state?.pass_status.transcript_cleanup, "in_progress");
+    assert.equal(result.data.state?.pass_status.retakes, "completed");
+    assert.equal(result.data.state?.pass_status.ready, "not_started");
+    assert.equal(result.data.state?.edit_plan_signature, null);
+    assert.equal(result.data.state?.macro_recipe_ref, null);
+    assert.equal(result.data.state?.last_macro_run_ref, "macro_run_02");
+    assert.equal(result.data.macro_hooks.recipe_ref, null);
+    assert.equal(result.data.macro_hooks.last_run_ref, "macro_run_02");
+
+    const roundTripSaveRequest = buildHammerPersistenceSaveRequest({
+      ...snapshot,
+      transcriptSegments: [],
+      currentPass: result.data.state?.current_pass ?? "transcript_cleanup",
+      passOrderVersion: result.data.state?.pass_order_version ?? 2,
+      passStatus: result.data.state?.pass_status ?? {},
+      editPlanSignature: result.data.state?.edit_plan_signature ?? null,
+      selectedMacroRecipeRef: result.data.macro_hooks.recipe_ref ?? null,
+      lastMacroRunRef: result.data.macro_hooks.last_run_ref ?? null,
+    });
+    assert.equal(roundTripSaveRequest.current_pass, "transcript_cleanup");
+    assert.equal(roundTripSaveRequest.pass_order_version, 2);
+    assert.equal(roundTripSaveRequest.prep_status, "idle");
+    assert.equal(roundTripSaveRequest.alignment_status, "not_started");
+    assert.equal(roundTripSaveRequest.pass_status?.transcript_cleanup, "in_progress");
+    assert.equal(roundTripSaveRequest.pass_status?.retakes, "completed");
+    assert.equal(roundTripSaveRequest.pass_status?.ready, "not_started");
+    assert.equal(roundTripSaveRequest.edit_plan_signature, null);
+    assert.equal(roundTripSaveRequest.macro_recipe_ref, null);
+    assert.equal(roundTripSaveRequest.last_macro_run_ref, "macro_run_02");
+  }
+
+  await assertOrchestrationStateRoundTripsToCanonicalShape();
+
+  async function assertVisualPreviewSettingsRoundTripToCanonicalShape(): Promise<void> {
+    globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
+      ok: true,
+      data: {
+        snapshot: {
+          schema_version: 1,
+          state: persistedSnapshot.state,
+          editor_session: {
+            path: persistedSnapshot.editor_session.path,
+            file_updated_at: persistedSnapshot.editor_session.updated_at,
+            data: {
+              ...persistedSnapshot.editor_session.data,
+              visual_preview: {
+                white_balance: 140.6,
+                color_amount: -181.2,
+                background_blur: "yes",
+              },
+            },
+          },
+          structured_transcript: toApiArtifact(persistedSnapshot.structured_transcript),
+          speaker_map: toApiArtifact(persistedSnapshot.speaker_map),
+          visual_placements: toApiArtifact(persistedSnapshot.visual_placements),
+          audio_polish: toApiArtifact(persistedSnapshot.audio_polish),
+          edit_plan: toApiArtifact(persistedSnapshot.edit_plan),
+          editorial_authority: toApiArtifact(persistedSnapshot.editorial_authority),
+          macro_hooks: persistedSnapshot.macro_hooks,
+        },
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+    const result = await loadHammerPersistenceSnapshot(target);
+    assert.equal(result.ok, true);
+    if (!result.ok) {
+      throw new Error("Expected malformed visual_preview payload to normalize on load.");
+    }
+
+    assert.deepEqual(result.data.editor_session.data?.visual_preview, {
+      white_balance: 100,
+      color_amount: -100,
+      background_blur: false,
+    });
+
+    const roundTripSaveRequest = buildHammerPersistenceSaveRequest({
+      ...snapshot,
+      visualPreviewSettings: result.data.editor_session.data?.visual_preview ?? snapshot.visualPreviewSettings,
+    });
+    assert.deepEqual(roundTripSaveRequest.editor_session?.data.visual_preview, {
+      white_balance: 100,
+      color_amount: -100,
+      background_blur: false,
+    });
+  }
+
+  await assertVisualPreviewSettingsRoundTripToCanonicalShape();
 
   globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
     ok: true,

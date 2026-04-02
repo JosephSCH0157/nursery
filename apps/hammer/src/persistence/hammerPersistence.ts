@@ -2,13 +2,17 @@ import type { HammerEditPlan } from "../../../../packages/contracts/hammer/edit-
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import { normalizeHammerAudioEdit } from "../../../../packages/tongs/src/hammer-audio-edit-contract";
+import { normalizeHammerOrchestrationState } from "../../../../packages/tongs/src/hammer-orchestration-contract";
 import {
   cloneHammerEditorialAuthorityGraph,
   type HammerEditorialAuthorityGraph,
 } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import { tongsFetch } from "../lib/tongsFetch";
 import { cloneHammerStructuredTranscript } from "../macros/hammerDerivedTranscriptLayers";
-import { cloneVisualPlacements } from "../lib/hammerVisualPlacements";
+import {
+  cloneVisualPlacements,
+  normalizeHammerVisualPlacementsState,
+} from "../lib/hammerVisualPlacements";
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
 import {
   projectEditPlanFromEditorialAuthorityGraph,
@@ -30,8 +34,10 @@ import type {
   HammerPersistenceTarget,
   HammerPersistedAudioPolish,
   HammerPersistedEditorSession,
+  HammerPersistedStateRecord,
   HammerPersistedSpeakerMap,
   HammerPersistedStructuredTranscript,
+  HammerPersistedVisualPreviewSettings,
   HammerPersistedVisualPlacements,
   HammerPresenceRequest,
   HammerPresenceRow,
@@ -54,6 +60,36 @@ function readString(value: unknown): string | null {
 function readJsonObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPreviewSettings {
+  return {
+    white_balance: 0,
+    color_amount: 0,
+    background_blur: false,
+  };
+}
+
+function normalizeVisualPreviewSettings(
+  value: unknown,
+): HammerPersistedVisualPreviewSettings {
+  const row = readJsonObject(value);
+  const defaults = buildDefaultVisualPreviewSettings();
+  const whiteBalance = readNumber(row?.white_balance);
+  const colorAmount = readNumber(row?.color_amount);
+  return {
+    white_balance: whiteBalance == null ? defaults.white_balance : clamp(Math.round(whiteBalance), -100, 100),
+    color_amount: colorAmount == null ? defaults.color_amount : clamp(Math.round(colorAmount), -100, 100),
+    background_blur: typeof row?.background_blur === "boolean" ? row.background_blur : defaults.background_blur,
+  };
 }
 
 function cloneTranscriptSegments(segments: HammerTranscriptSegment[]): HammerTranscriptSegment[] {
@@ -181,6 +217,7 @@ function toEditorSession(
     media_ref: snapshot.mediaRef ? { ...snapshot.mediaRef } : null,
     workspace_mapping: snapshot.workspaceMapping ? { ...snapshot.workspaceMapping } : null,
     media_source_label: snapshot.mediaSourceLabel,
+    visual_preview: normalizeVisualPreviewSettings(snapshot.visualPreviewSettings),
     last_opened_at: lastOpenedAt,
   };
 }
@@ -228,19 +265,29 @@ export function buildHammerPersistenceSaveRequest(
     graph: canonicalGraph,
     fallback: cloneEditPlan(snapshot.editPlan),
   });
-
-  return {
-    written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
-    active_session_id: snapshot.sessionId,
+  const canonicalOrchestration = normalizeHammerOrchestrationState({
     prep_status: snapshot.transcriptSegments.length > 0 ? "prepared" : "idle",
     alignment_status: snapshot.transcriptSegments.length > 0 ? "aligned" : "not_started",
     current_pass: snapshot.currentPass,
     pass_order_version: snapshot.passOrderVersion,
     pass_status: snapshot.passStatus,
-    last_opened_at: lastOpenedAt,
     edit_plan_signature: snapshot.editPlanSignature,
     macro_recipe_ref: snapshot.selectedMacroRecipeRef,
     last_macro_run_ref: snapshot.lastMacroRunRef,
+  });
+
+  return {
+    written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
+    active_session_id: snapshot.sessionId,
+    prep_status: canonicalOrchestration.prep_status,
+    alignment_status: canonicalOrchestration.alignment_status,
+    current_pass: canonicalOrchestration.current_pass,
+    pass_order_version: canonicalOrchestration.pass_order_version,
+    pass_status: canonicalOrchestration.pass_status,
+    last_opened_at: lastOpenedAt,
+    edit_plan_signature: canonicalOrchestration.edit_plan_signature,
+    macro_recipe_ref: canonicalOrchestration.macro_recipe_ref,
+    last_macro_run_ref: canonicalOrchestration.last_macro_run_ref,
     editor_session: {
       data: toEditorSession(snapshot, lastOpenedAt),
     },
@@ -436,6 +483,44 @@ function normalizeAudioPolishArtifact(
   };
 }
 
+function normalizeEditorSessionArtifact(
+  value: unknown,
+): { path: string | null; file_updated_at: string | null; data: HammerPersistedEditorSession | null } {
+  const artifact = normalizeArtifact<Record<string, unknown>>(value);
+  const dataRow = readJsonObject(artifact.data);
+  const sessionId = readString(dataRow?.session_id);
+  const sourceMode = readString(dataRow?.source_mode);
+  const previewMode = readString(dataRow?.preview_mode);
+  const transcriptSourceId = readString(dataRow?.transcript_source_id);
+  const lastOpenedAt = readString(dataRow?.last_opened_at);
+  if (!dataRow || !sessionId || !sourceMode || !previewMode || !transcriptSourceId || !lastOpenedAt) {
+    return {
+      path: artifact.path,
+      file_updated_at: artifact.file_updated_at,
+      data: null,
+    };
+  }
+
+  return {
+    path: artifact.path,
+    file_updated_at: artifact.file_updated_at,
+    data: {
+      schema_version: 1,
+      session_id: sessionId,
+      source_mode: sourceMode as HammerPersistedEditorSession["source_mode"],
+      preview_mode: previewMode as HammerPersistedEditorSession["preview_mode"],
+      transcript_source_id: transcriptSourceId,
+      selected_segment_id: readString(dataRow.selected_segment_id),
+      selected_overlay_row_id: readString(dataRow.selected_overlay_row_id),
+      media_ref: readJsonObject(dataRow.media_ref) as HammerPersistedEditorSession["media_ref"],
+      workspace_mapping: readJsonObject(dataRow.workspace_mapping) as HammerPersistedEditorSession["workspace_mapping"],
+      media_source_label: readString(dataRow.media_source_label),
+      visual_preview: normalizeVisualPreviewSettings(dataRow.visual_preview),
+      last_opened_at: lastOpenedAt,
+    },
+  };
+}
+
 function normalizeStructuredTranscriptArtifact(
   value: unknown,
 ): { path: string | null; file_updated_at: string | null; data: HammerPersistedStructuredTranscript | null } {
@@ -464,21 +549,73 @@ function normalizeStructuredTranscriptArtifact(
   }
 }
 
+function normalizeVisualPlacementsArtifact(
+  value: unknown,
+): { path: string | null; file_updated_at: string | null; data: HammerPersistedVisualPlacements | null } {
+  const artifact = normalizeArtifact<Record<string, unknown>>(value);
+  return {
+    path: artifact.path,
+    file_updated_at: artifact.file_updated_at,
+    data: normalizeHammerVisualPlacementsState(artifact.data),
+  };
+}
+
+function normalizeStateRecord(value: unknown): HammerPersistedStateRecord | null {
+  const row = readJsonObject(value);
+  if (!row) return null;
+  const workspaceId = readString(row.workspace_id);
+  const workpieceId = readString(row.workpiece_id);
+  const lastOpenedAt = readString(row.last_opened_at);
+  const updatedAt = readString(row.updated_at);
+  const updatedBy = readString(row.updated_by);
+  if (!workspaceId || !workpieceId || !lastOpenedAt || !updatedAt || !updatedBy) {
+    return null;
+  }
+  const orchestration = normalizeHammerOrchestrationState(row);
+
+  return {
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    active_session_id: readString(row.active_session_id),
+    current_pass: orchestration.current_pass,
+    pass_order_version: orchestration.pass_order_version,
+    pass_status: orchestration.pass_status,
+    editor_session_path: readString(row.editor_session_path),
+    transcript_artifact_path: readString(row.transcript_artifact_path),
+    speaker_map_artifact_path: readString(row.speaker_map_artifact_path),
+    visual_placement_artifact_path: readString(row.visual_placement_artifact_path),
+    audio_polish_artifact_path: readString(row.audio_polish_artifact_path),
+    edit_plan_artifact_path: readString(row.edit_plan_artifact_path),
+    editorial_authority_artifact_path: readString(row.editorial_authority_artifact_path),
+    edit_plan_signature: orchestration.edit_plan_signature,
+    prep_status: orchestration.prep_status,
+    alignment_status: orchestration.alignment_status,
+    macro_recipe_ref: orchestration.macro_recipe_ref,
+    last_macro_run_ref: orchestration.last_macro_run_ref,
+    last_opened_at: lastOpenedAt,
+    updated_at: updatedAt,
+    updated_by: updatedBy,
+  };
+}
+
 function normalizeSnapshot(payload: unknown): HammerPersistenceSnapshot | null {
   const root = readJsonObject(payload);
   const data = readJsonObject(root?.data);
   const snapshot = readJsonObject(data?.snapshot);
   if (!snapshot) return null;
+  const state = normalizeStateRecord(snapshot.state);
+  const macroHooksRow = readJsonObject(snapshot.macro_hooks);
   const audioPolish = normalizeAudioPolishArtifact(snapshot.audio_polish);
   const structuredTranscript = normalizeStructuredTranscriptArtifact(snapshot.structured_transcript);
+  const visualPlacements = normalizeVisualPlacementsArtifact(snapshot.visual_placements);
 
   return {
     schema_version: 1,
-    state: (snapshot.state ?? null) as HammerPersistenceSnapshot["state"],
+    state,
     editor_session: {
-      path: normalizeArtifact<HammerPersistedEditorSession>(snapshot.editor_session).path,
-      updated_at: normalizeArtifact<HammerPersistedEditorSession>(snapshot.editor_session).file_updated_at,
-      data: normalizeArtifact<HammerPersistedEditorSession>(snapshot.editor_session).data,
+      path: normalizeEditorSessionArtifact(snapshot.editor_session).path,
+      updated_at: normalizeEditorSessionArtifact(snapshot.editor_session).file_updated_at,
+      data: normalizeEditorSessionArtifact(snapshot.editor_session).data,
     },
     structured_transcript: {
       path: structuredTranscript.path,
@@ -491,9 +628,9 @@ function normalizeSnapshot(payload: unknown): HammerPersistenceSnapshot | null {
       data: normalizeArtifact<HammerPersistedSpeakerMap>(snapshot.speaker_map).data,
     },
     visual_placements: {
-      path: normalizeArtifact<HammerPersistedVisualPlacements>(snapshot.visual_placements).path,
-      updated_at: normalizeArtifact<HammerPersistedVisualPlacements>(snapshot.visual_placements).file_updated_at,
-      data: normalizeArtifact<HammerPersistedVisualPlacements>(snapshot.visual_placements).data,
+      path: visualPlacements.path,
+      updated_at: visualPlacements.file_updated_at,
+      data: visualPlacements.data,
     },
     audio_polish: {
       path: audioPolish.path,
@@ -511,8 +648,8 @@ function normalizeSnapshot(payload: unknown): HammerPersistenceSnapshot | null {
       data: normalizeArtifact<HammerEditorialAuthorityGraph>(snapshot.editorial_authority).data,
     },
     macro_hooks: {
-      recipe_ref: readString(readJsonObject(snapshot.macro_hooks)?.recipe_ref),
-      last_run_ref: readString(readJsonObject(snapshot.macro_hooks)?.last_run_ref),
+      recipe_ref: readString(macroHooksRow?.recipe_ref) ?? state?.macro_recipe_ref ?? null,
+      last_run_ref: readString(macroHooksRow?.last_run_ref) ?? state?.last_macro_run_ref ?? null,
     },
   };
 }

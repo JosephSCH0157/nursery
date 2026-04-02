@@ -1,10 +1,13 @@
 import type {
+  HammerApplyLookInstruction,
+  HammerApplyExposureInstruction,
   HammerAudioDuckInstruction,
   HammerDipToBlackInstruction,
   HammerEditInstruction,
   HammerFadeAudioInstruction,
   HammerHardCutInstruction,
   HammerInsertBrollInstruction,
+  HammerLookPreset,
   HammerPodcastMasterPassInstruction,
   HammerRippleDeleteInstruction,
   HammerCrossfadeInstruction,
@@ -884,6 +887,50 @@ export function createPodcastMasterPassInstruction(args: {
     created_at: nowIso,
     execution: {
       operation_family: "audio_shaping",
+      capability: "executable",
+      status: "declared",
+      target: "export",
+    },
+  };
+}
+
+export function createApplyLookInstruction(args: {
+  segmentId: string;
+  preset: HammerLookPreset;
+  nowIso?: string;
+  instructionId?: string;
+}): HammerApplyLookInstruction {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  return {
+    instruction_id: args.instructionId ?? createInstructionId("apply_look"),
+    segment_id: args.segmentId,
+    type: "apply_look",
+    preset: args.preset,
+    created_at: nowIso,
+    execution: {
+      operation_family: "video_enhancement",
+      capability: "executable",
+      status: "declared",
+      target: "export",
+    },
+  };
+}
+
+export function createApplyExposureInstruction(args: {
+  segmentId: string;
+  exposure: number;
+  nowIso?: string;
+  instructionId?: string;
+}): HammerApplyExposureInstruction {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  return {
+    instruction_id: args.instructionId ?? createInstructionId("apply_exposure"),
+    segment_id: args.segmentId,
+    type: "apply_exposure",
+    exposure: args.exposure,
+    created_at: nowIso,
+    execution: {
+      operation_family: "video_enhancement",
       capability: "executable",
       status: "declared",
       target: "export",

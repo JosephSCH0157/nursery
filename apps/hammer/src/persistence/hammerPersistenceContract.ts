@@ -17,29 +17,30 @@ import type {
   HammerAudioEditCutOperation,
   HammerPersistedAudioEdit,
 } from "../../../../packages/tongs/src/hammer-audio-edit-contract";
+import type {
+  HammerAlignmentStatus,
+  HammerPassId,
+  HammerPassState,
+  HammerPassStatusMap,
+  HammerPrepStatus,
+} from "../../../../packages/tongs/src/hammer-orchestration-contract";
+import { HAMMER_PASS_ORDER_VERSION } from "../../../../packages/tongs/src/hammer-orchestration-contract";
 
 export type {
   HammerAudioEditOperation,
   HammerAudioEditCutOperation,
   HammerPersistedAudioEdit,
 };
+export type {
+  HammerAlignmentStatus,
+  HammerPassId,
+  HammerPassState,
+  HammerPassStatusMap,
+  HammerPrepStatus,
+};
+export { HAMMER_PASS_ORDER_VERSION };
 
-export type HammerPrepStatus = "idle" | "preparing" | "prepared" | "prep_failed";
-export type HammerAlignmentStatus = "not_started" | "pending" | "aligned" | "needs_review";
 export type HammerPresenceMode = "viewing" | "editing";
-export type HammerPassId =
-  | "transcript_cleanup"
-  | "retakes"
-  | "gap_pacing"
-  | "visual_finishing"
-  | "image_placement"
-  | "image_animation"
-  | "audio_finalization"
-  | "packaging"
-  | "ready";
-export type HammerPassState = "not_started" | "in_progress" | "completed";
-export type HammerPassStatusMap = Partial<Record<HammerPassId, HammerPassState>>;
-export const HAMMER_PASS_ORDER_VERSION = 2;
 
 export interface HammerPersistenceTarget {
   workspaceId: string;
@@ -63,7 +64,14 @@ export interface HammerPersistedEditorSession {
   media_ref: MediaRef | null;
   workspace_mapping: WorkspaceMediaMapping | null;
   media_source_label: string | null;
+  visual_preview: HammerPersistedVisualPreviewSettings;
   last_opened_at: string;
+}
+
+export interface HammerPersistedVisualPreviewSettings {
+  white_balance: number;
+  color_amount: number;
+  background_blur: boolean;
 }
 
 export type HammerDerivedTextMacroKind =

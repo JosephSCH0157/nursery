@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX, MouseEvent } from "react";
 import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
-import type { HammerEditInstruction } from "../../../../packages/contracts/hammer/edit-instruction.contract";
+import type {
+  HammerEditInstruction,
+  HammerLookPreset,
+} from "../../../../packages/contracts/hammer/edit-instruction.contract";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { MediaRef, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
+import {
+  normalizeHammerPassId as normalizeCanonicalPassId,
+  normalizeHammerPassStatusMap as normalizeCanonicalPassStatusMap,
+} from "../../../../packages/tongs/src/hammer-orchestration-contract";
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
 import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import { HAMMER_PASS_ORDER_VERSION } from "../persistence/hammerPersistenceContract";
@@ -14,6 +21,7 @@ import type {
   HammerPassStatusMap,
   HammerDerivedTextLayer,
   HammerPersistedAudioPolish,
+  HammerPersistedVisualPreviewSettings,
   HammerPersistedStructuredTranscript,
   HammerVisualPlacementRecord,
   HammerPersistedVisualPlacements,
@@ -180,9 +188,11 @@ import {
   HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH,
   buildHammerQuenchReleasePacket,
 } from "../lib/hammerQuenchReleasePacket";
+import { deriveHammerReleaseHandoffPosture } from "../lib/hammerReleaseHandoffPosture";
 import { saveHammerQuenchReleasePacket } from "../lib/hammerQuenchReleasePacketApi";
 import {
   buildHammerRenderAssembly,
+  projectEditPlanFromEditorialAuthorityGraph,
   projectEditorialAuthorityGraphFromEditPlan,
   type HammerRenderRuntimeCapabilities,
 } from "./hammerRenderAssembly";
@@ -201,8 +211,10 @@ import {
 } from "./hammerQuenchHandoff";
 import {
   appendAuthorityInstructionToGraph,
+  createApplyExposureInstruction,
   createHearthBrollSuggestionInstruction,
   createAudioDuckInstruction,
+  createApplyLookInstruction,
   createCrossfadeInstruction,
   createDipToBlackInstruction,
   createFadeAudioInstruction,
@@ -244,7 +256,7 @@ type HammerPlaybackAuthorityWindow = Window & typeof globalThis & {
   __forgeHammerActivePreviewAudio__?: HTMLMediaElement;
 };
 const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
-  preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut"],
+  preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut", "apply_look", "apply_exposure"],
   export_supported_operation_types: [
     "delete",
     "mute",
@@ -260,6 +272,8 @@ const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
     "dip_to_black",
     "fade_audio",
     "audio_duck",
+    "apply_look",
+    "apply_exposure",
   ],
   handoff_supported_operation_types: [
     "delete",
@@ -276,6 +290,8 @@ const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
     "dip_to_black",
     "fade_audio",
     "audio_duck",
+    "apply_look",
+    "apply_exposure",
     "podcast_master_pass",
   ],
 };
@@ -301,6 +317,7 @@ type HammerWorkspaceShellProps = {
   structuredTranscript?: HammerPersistedStructuredTranscript | null;
   visualPlacements?: HammerPersistedVisualPlacements | null;
   audioPolish?: HammerPersistedAudioPolish | null;
+  initialVisualPreviewSettings?: HammerPersistedVisualPreviewSettings | null;
   initialCurrentPass?: HammerPassId;
   initialPassStatus?: HammerPassStatusMap | null;
   releasePrepHref?: string | null;
@@ -340,33 +357,29 @@ const PASS_ORDER: Array<{
   { id: "ready", shortLabel: "R", label: "Ready", toolId: "export", sourceTab: "transcript" },
 ];
 
-const PASS_ID_SET = new Set<HammerPassId>(PASS_ORDER.map((pass) => pass.id));
+function resolveActiveLookPreset(
+  graph: HammerEditorialAuthorityGraph | null | undefined,
+): HammerVisualLutPreset | null {
+  const operation = (graph?.operations ?? []).find((candidate) => (
+    candidate.lifecycle === "active" && candidate.instruction.type === "apply_look"
+  )) ?? null;
+  return operation?.instruction.type === "apply_look" ? operation.instruction.preset : null;
+}
 
-function resolveDefaultPassStatus(currentPass: HammerPassId): HammerPassStatusMap {
-  const status: HammerPassStatusMap = {};
-  for (const pass of PASS_ORDER) {
-    status[pass.id] = pass.id === currentPass ? "in_progress" : "not_started";
-  }
-  return status;
+function resolveActiveExposureAdjustment(
+  graph: HammerEditorialAuthorityGraph | null | undefined,
+): number | null {
+  const operation = (graph?.operations ?? []).find((candidate) => (
+    candidate.lifecycle === "active" && candidate.instruction.type === "apply_exposure"
+  )) ?? null;
+  return operation?.instruction.type === "apply_exposure" ? operation.instruction.exposure : null;
 }
 
 function normalizePassStatus(
   value: HammerPassStatusMap | null | undefined,
   currentPass: HammerPassId,
 ): HammerPassStatusMap {
-  const fallback = resolveDefaultPassStatus(currentPass);
-  if (!value) return fallback;
-  const next: HammerPassStatusMap = { ...fallback };
-  for (const pass of PASS_ORDER) {
-    const status = value[pass.id];
-    if (status === "not_started" || status === "in_progress" || status === "completed") {
-      next[pass.id] = status;
-    }
-  }
-  if (next[currentPass] === "not_started") {
-    next[currentPass] = "in_progress";
-  }
-  return next;
+  return normalizeCanonicalPassStatusMap(value, currentPass);
 }
 
 function resolvePassMeta(passId: HammerPassId): (typeof PASS_ORDER)[number] {
@@ -378,7 +391,28 @@ function resolveDefaultPassForTool(toolId: HammerToolId): HammerPassId {
 }
 
 function resolveInitialPassId(value: HammerPassId | undefined): HammerPassId {
-  return value && PASS_ID_SET.has(value) ? value : PASS_ORDER[0].id;
+  return normalizeCanonicalPassId(value);
+}
+
+function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPreviewSettings {
+  return {
+    white_balance: 0,
+    color_amount: 0,
+    background_blur: false,
+  };
+}
+
+function normalizeVisualPreviewSettings(
+  value: HammerPersistedVisualPreviewSettings | null | undefined,
+): HammerPersistedVisualPreviewSettings {
+  if (!value) {
+    return buildDefaultVisualPreviewSettings();
+  }
+  return {
+    white_balance: Math.max(-100, Math.min(100, Math.round(value.white_balance))),
+    color_amount: Math.max(-100, Math.min(100, Math.round(value.color_amount))),
+    background_blur: Boolean(value.background_blur),
+  };
 }
 
 type HammerCandidateReviewKind = "fillers" | "retakes";
@@ -394,13 +428,7 @@ type HammerCandidateCard = {
   timeSavedSec: number;
 };
 
-type HammerVisualLutPreset =
-  | "neutral"
-  | "clean_daylight"
-  | "warm_studio"
-  | "cool_evening"
-  | "high_contrast"
-  | "soft_documentary";
+type HammerVisualLutPreset = HammerLookPreset | "neutral";
 
 type HammerSourceImageItem = {
   id: string;
@@ -1679,11 +1707,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
   const [audioFinalizationCompareMode, setAudioFinalizationCompareMode] = useState<HammerAudioFinalizationCompareMode>("after");
   const [videoSnapMode, setVideoSnapMode] = useState<"timeline" | "segment">("timeline");
-  const [visualLutPreset, setVisualLutPreset] = useState<HammerVisualLutPreset>("neutral");
-  const [visualWhiteBalance, setVisualWhiteBalance] = useState(0);
-  const [visualColorAmount, setVisualColorAmount] = useState(0);
-  const [visualBackgroundBlur, setVisualBackgroundBlur] = useState(false);
-  const [visualEyeContact, setVisualEyeContact] = useState(false);
+  const initialVisualPreviewSettings = normalizeVisualPreviewSettings(props.initialVisualPreviewSettings);
+  const [visualWhiteBalance, setVisualWhiteBalance] = useState(initialVisualPreviewSettings.white_balance);
+  const [visualColorAmount, setVisualColorAmount] = useState(initialVisualPreviewSettings.color_amount);
+  const [visualBackgroundBlur, setVisualBackgroundBlur] = useState(initialVisualPreviewSettings.background_blur);
   const [selectedImagePlacementId, setSelectedImagePlacementId] = useState<string | null>(null);
   const [imagePlacementDraftWindows, setImagePlacementDraftWindows] = useState<Record<string, HammerImagePlacementDraftWindow>>({});
   const [timelineImageDragState, setTimelineImageDragState] = useState<HammerTimelineImageDragState | null>(null);
@@ -1831,6 +1858,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     props.initialCurrentPass,
     props.initialPassStatus,
   ]);
+
+  useEffect(() => {
+    const nextVisualPreviewSettings = normalizeVisualPreviewSettings(props.initialVisualPreviewSettings);
+    setVisualWhiteBalance(nextVisualPreviewSettings.white_balance);
+    setVisualColorAmount(nextVisualPreviewSettings.color_amount);
+    setVisualBackgroundBlur(nextVisualPreviewSettings.background_blur);
+  }, [props.initialVisualPreviewSettings]);
 
   useEffect(() => {
     setPassStatus((previous) => {
@@ -2032,19 +2066,29 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     : isPlaybackActive
     ? "Playing"
     : "Paused";
+  const activeLookPreset = useMemo(
+    () => resolveActiveLookPreset(editableEditorialAuthorityGraph),
+    [editableEditorialAuthorityGraph],
+  );
+  const activeExposureAdjustment = useMemo(
+    () => resolveActiveExposureAdjustment(editableEditorialAuthorityGraph),
+    [editableEditorialAuthorityGraph],
+  );
   const visualPreviewFilter = useMemo(() => {
-    const base = resolveVisualPresetFilter(visualLutPreset);
+    const base = resolveVisualPresetFilter(activeLookPreset ?? "neutral");
+    const exposureBoost = 1 + ((activeExposureAdjustment ?? 0) / 100) * 0.35;
     const temperatureShift = visualWhiteBalance / 3;
     const colorBoost = 1 + (visualColorAmount / 100) * 0.25;
     const blurPx = visualBackgroundBlur ? 1.4 : 0;
     const filterParts = [
       base !== "none" ? base : "",
+      `brightness(${exposureBoost.toFixed(2)})`,
       `hue-rotate(${temperatureShift.toFixed(1)}deg)`,
       `saturate(${colorBoost.toFixed(2)})`,
       blurPx > 0 ? `blur(${blurPx.toFixed(1)}px)` : "",
     ].filter(Boolean);
     return filterParts.join(" ");
-  }, [visualBackgroundBlur, visualColorAmount, visualLutPreset, visualWhiteBalance]);
+  }, [activeExposureAdjustment, activeLookPreset, visualBackgroundBlur, visualColorAmount, visualWhiteBalance]);
   const transcriptSegmentsById = useMemo(() => {
     const byId = new Map<string, HammerTranscriptSegment>();
     for (const segment of editableTranscriptSegments) {
@@ -6393,6 +6437,123 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
+  function applyLookPresetSelection(preset: HammerVisualLutPreset | "neutral"): void {
+    if ((activeLookPreset ?? "neutral") === preset) {
+      return;
+    }
+
+    applyHistoryMutation({
+      label: preset === "neutral"
+        ? "Clear look preset"
+        : `Apply ${preset.replace(/_/g, " ")} look`,
+      kind: "editor_state_change",
+      toolId: "video",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        let graph = before.editorialAuthorityGraph;
+        if (!graph) return before;
+
+        for (const operation of graph.operations) {
+          if (operation.lifecycle !== "active" || operation.instruction.type !== "apply_look") continue;
+          graph = setAuthorityOperationLifecycle({
+            graph,
+            operationId: operation.operation_id,
+            lifecycle: "superseded",
+          }) ?? graph;
+        }
+
+        if (preset === "neutral") {
+          return {
+            ...before,
+            editorialAuthorityGraph: graph,
+          };
+        }
+
+        const segment = before.selectedSegmentId
+          ? before.transcriptSegments.find((item) => item.segment_id === before.selectedSegmentId) ?? null
+          : before.transcriptSegments[0] ?? null;
+        if (!segment) {
+          return {
+            ...before,
+            editorialAuthorityGraph: graph,
+          };
+        }
+
+        const instruction = createApplyLookInstruction({
+          segmentId: segment.segment_id,
+          preset,
+        });
+
+        return {
+          ...before,
+          editorialAuthorityGraph: appendAuthorityInstructionForState({
+            ...before,
+            editorialAuthorityGraph: graph,
+          }, instruction),
+        };
+      },
+    });
+  }
+
+  function applyExposureAdjustment(nextExposure: number): void {
+    const normalizedExposure = Math.max(-100, Math.min(100, Math.round(nextExposure)));
+    if ((activeExposureAdjustment ?? 0) === normalizedExposure) {
+      return;
+    }
+
+    applyHistoryMutation({
+      label: normalizedExposure === 0
+        ? "Reset exposure"
+        : `Set exposure to ${normalizedExposure > 0 ? "+" : ""}${normalizedExposure}`,
+      kind: "editor_state_change",
+      toolId: "video",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        let graph = before.editorialAuthorityGraph;
+        if (!graph) return before;
+
+        for (const operation of graph.operations) {
+          if (operation.lifecycle !== "active" || operation.instruction.type !== "apply_exposure") continue;
+          graph = setAuthorityOperationLifecycle({
+            graph,
+            operationId: operation.operation_id,
+            lifecycle: "superseded",
+          }) ?? graph;
+        }
+
+        if (normalizedExposure === 0) {
+          return {
+            ...before,
+            editorialAuthorityGraph: graph,
+          };
+        }
+
+        const segment = before.selectedSegmentId
+          ? before.transcriptSegments.find((item) => item.segment_id === before.selectedSegmentId) ?? null
+          : before.transcriptSegments[0] ?? null;
+        if (!segment) {
+          return {
+            ...before,
+            editorialAuthorityGraph: graph,
+          };
+        }
+
+        const instruction = createApplyExposureInstruction({
+          segmentId: segment.segment_id,
+          exposure: normalizedExposure,
+        });
+
+        return {
+          ...before,
+          editorialAuthorityGraph: appendAuthorityInstructionForState({
+            ...before,
+            editorialAuthorityGraph: graph,
+          }, instruction),
+        };
+      },
+    });
+  }
+
   function selectOutputLayerForExport(layerId: string | null): void {
     const targetLayer = layerId
       ? outputLayerCandidates.find((layer) => layer.layer_id === layerId) ?? null
@@ -6771,11 +6932,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         instructions: launchContext.edit_plan.instructions.map((instruction) => ({ ...instruction })),
       }
       : createFallbackEditPlan(launchContext, transcriptSourceId, previewMode);
-    const timelineRevision = createSemanticEditPlanSignature(
-      transcriptSourceId,
-      previewMode,
-      editPlan.instructions,
-    );
     const canonicalGraph = editableEditorialAuthorityGraph
       ? {
         ...editableEditorialAuthorityGraph,
@@ -6787,6 +6943,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         workpieceId: launchContext.workpiece_id,
         sessionId: launchContext.session_id ?? editPlan.session_id ?? `${launchContext.workpiece_id}:session`,
       });
+    const canonicalEditPlan = projectEditPlanFromEditorialAuthorityGraph({
+      graph: canonicalGraph,
+      fallback: editPlan,
+    });
+    const timelineRevision = createSemanticEditPlanSignature(
+      transcriptSourceId,
+      previewMode,
+      canonicalEditPlan.instructions,
+    );
     const renderAssembly = buildHammerRenderAssembly({
       canonicalGraph,
       runtimeCapabilities: {
@@ -6839,6 +7004,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         media_ref: mediaRef ? { ...mediaRef } : null,
         workspace_mapping: workspaceMapping ? { ...workspaceMapping } : null,
         media_source_label: mediaSourceLabel,
+        visual_preview: {
+          white_balance: visualWhiteBalance,
+          color_amount: visualColorAmount,
+          background_blur: visualBackgroundBlur,
+        },
         last_opened_at: new Date().toISOString(),
       },
     });
@@ -7042,14 +7212,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     boundAttentionQueueForGate,
     unresolvedBrollSuggestionItems,
   ]);
-  const readinessStatusLabel = readinessGate.status === "ready"
+  const handoffPosture = useMemo(() => deriveHammerReleaseHandoffPosture({
+    releasePrepPackage: exportBasis.currentReleasePackage,
+    readinessGate,
+  }), [exportBasis.currentReleasePackage, readinessGate]);
+  const readinessStatusLabel = handoffPosture.handoff_status === "ready"
     ? "Ready for export"
-    : readinessGate.status === "blocked"
+    : handoffPosture.handoff_status === "blocked"
     ? "Blocked"
     : `Needs review (${readinessGate.review_count})`;
-  const sendToQuenchButtonLabel = readinessGate.status === "blocked"
+  const sendToQuenchButtonLabel = handoffPosture.handoff_status === "blocked"
     ? "Blocked — Resolve Issues"
-    : readinessGate.status === "needs_review"
+    : handoffPosture.handoff_status === "needs_review"
     ? "Send to Quench (Needs Review)"
     : exportTruthState === "stale"
     ? "Send Updated Packet to Quench"
@@ -7531,7 +7705,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setQuenchHandoffStatus(null);
 
     try {
-      const handoffDecision = decideHammerQuenchHandoff({ readinessGate });
+      const handoffDecision = decideHammerQuenchHandoff({
+        releasePrepPackage: exportBasis.currentReleasePackage,
+        readinessGate,
+      });
       if (handoffDecision.status === "blocked") {
         setQuenchHandoffStatus({
           status: "blocked",
@@ -7603,11 +7780,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
       const quenchPacket = buildHammerQuenchReleasePacket({
         releasePrepPackage: exportBasis.currentReleasePackage,
+        readinessGate,
         preparedAt: preparedPackage.preparedAt,
         canonicalGraph: exportBasis.canonicalGraph,
         renderAssembly: exportBasis.renderAssembly,
       });
       const packetValidation = validateHammerQuenchPacketForHandoff({
+        releasePrepPackage: exportBasis.currentReleasePackage,
         packet: quenchPacket,
         renderAssembly: exportBasis.renderAssembly,
         readinessGate,
@@ -7695,6 +7874,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         instructions: launchContext.edit_plan.instructions.map((instruction) => ({ ...instruction })),
       }
       : createFallbackEditPlan(launchContext, transcriptSourceId, previewMode);
+    const canonicalEditPlan = projectEditPlanFromEditorialAuthorityGraph({
+      graph: exportBasis.canonicalGraph,
+      fallback: editPlan,
+    });
 
     const snapshot: HammerWorkspaceSnapshot = {
       workspaceId: launchContext.workspace_id,
@@ -7703,7 +7886,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       sourceMode: launchContext.source_mode,
       previewMode,
       editPlanStatus: "clean",
-      editPlanSignature: createSemanticEditPlanSignature(transcriptSourceId, previewMode, editPlan.instructions),
+      editPlanSignature: createSemanticEditPlanSignature(transcriptSourceId, previewMode, canonicalEditPlan.instructions),
       transcriptSourceId: transcriptSourceId,
       currentPass,
       passOrderVersion: HAMMER_PASS_ORDER_VERSION,
@@ -7711,13 +7894,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       transcriptSegments: editableTranscriptSegments,
       selectedSegmentId,
       selectedOverlayRowId: selectedSegmentId,
+      visualPreviewSettings: {
+        white_balance: visualWhiteBalance,
+        color_amount: visualColorAmount,
+        background_blur: visualBackgroundBlur,
+      },
       mediaRef,
       workspaceMapping,
       mediaSourceLabel,
       selectedMacroRecipeRef: props.selectedMacroRecipeRef ?? null,
       lastMacroRunRef: props.lastMacroRunRef ?? null,
       structuredTranscript: exportBasis.transcriptForRelease,
-      editPlan,
+      editPlan: canonicalEditPlan,
       editorialAuthorityGraph: exportBasis.canonicalGraph,
       visualPlacements: editableVisualPlacements,
       audioPolish: editableAudioPolish,
@@ -7738,6 +7926,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     currentPass,
     passStatus,
     selectedSegmentId,
+    visualBackgroundBlur,
+    visualColorAmount,
+    visualWhiteBalance,
     editableTranscriptSegments,
     transcriptSourceId,
     workspaceMapping,
@@ -10289,15 +10480,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Visual Finishing</header>
                     <div className="hammer-tool-hint">
-                      Podcast-first finishing controls only. Keep changes simple and fast.
+                      Look Preset and Exposure affect preview and export. White balance, color, and blur stay preview-only in this phase.
                     </div>
                     <label className="hammer-tool-field">
-                      <span>LUT Preset</span>
+                      <span>Look Preset</span>
                       <select
-                        value={visualLutPreset}
+                        value={activeLookPreset ?? "neutral"}
                         onChange={(event) => {
                           setFocusOverride("tool-focus");
-                          setVisualLutPreset(event.target.value as HammerVisualLutPreset);
+                          applyLookPresetSelection(event.target.value as HammerVisualLutPreset | "neutral");
                         }}
                       >
                         <option value="neutral">Neutral</option>
@@ -10309,7 +10500,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       </select>
                     </label>
                     <label className="hammer-tool-field">
-                      <span>White Balance ({visualWhiteBalance})</span>
+                      <span>Exposure ({activeExposureAdjustment ?? 0})</span>
+                      <input
+                        type="range"
+                        min={-100}
+                        max={100}
+                        step={1}
+                        value={activeExposureAdjustment ?? 0}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          applyExposureAdjustment(Number(event.target.value));
+                        }}
+                      />
+                    </label>
+                    <label className="hammer-tool-field">
+                      <span>Preview White Balance ({visualWhiteBalance})</span>
                       <input
                         type="range"
                         min={-100}
@@ -10323,7 +10528,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       />
                     </label>
                     <label className="hammer-tool-field">
-                      <span>Color ({visualColorAmount})</span>
+                      <span>Preview Color ({visualColorAmount})</span>
                       <input
                         type="range"
                         min={-100}
@@ -10345,21 +10550,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           setVisualBackgroundBlur(event.target.checked);
                         }}
                       />
-                      <span>Background Blur</span>
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={visualEyeContact}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setVisualEyeContact(event.target.checked);
-                        }}
-                      />
-                      <span>Eye Contact</span>
+                      <span>Preview Blur</span>
                     </label>
                     <div className="hammer-tool-hint">
-                      Eye Contact and Background Blur are lightweight preview controls in this phase.
+                      White balance, color, and blur remain preview-only. Look Preset and Exposure now carry into the export packet.
                     </div>
                   </section>
                 ) : currentPass === "image_placement" ? (
@@ -11285,7 +11479,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </div>
                     <div className="hammer-tool-hint">
                       Readiness: {readinessStatusLabel}
-                      {` · blockers ${readinessGate.blocker_count} · review ${readinessGate.review_count}`}
+                      {` · blockers ${handoffPosture.blocking_reasons.length} · review ${handoffPosture.review_reasons.length}`}
                     </div>
                     <div className="hammer-tool-hint">Export packet: {exportStatusLabel}</div>
                     <button
@@ -11293,7 +11487,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       onClick={() => {
                         void handleSendToQuench();
                       }}
-                      disabled={releasePrepSaving || releasePrepLoading || readinessGate.status === "blocked"}
+                      disabled={releasePrepSaving || releasePrepLoading || handoffPosture.handoff_status === "blocked"}
                     >
                       {releasePrepSaving ? "Sending..." : sendToQuenchButtonLabel}
                     </button>
@@ -11312,7 +11506,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <div className="hammer-tool-hint">Export status: {exportStatusLabel}</div>
                   <div className="hammer-tool-hint">
                     Readiness gate: {readinessStatusLabel}
-                    {` · blockers ${readinessGate.blocker_count} · review ${readinessGate.review_count}`}
+                    {` · blockers ${handoffPosture.blocking_reasons.length} · review ${handoffPosture.review_reasons.length}`}
                   </div>
                   <div className="hammer-tool-hint">Output source: {outputSelectionSummary}</div>
                   <div className="hammer-tool-hint">Preview truth: {previewTruthPosture}</div>
@@ -11330,15 +11524,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   ) : null}
                   {readinessGate.blocking_reasons.length > 0 ? (
                     <div className="hammer-tool-hint">
-                      Blocking reasons: {readinessGate.blocking_reasons.slice(0, 3).map((reason) => reason.label).join(" ")}
+                      Blocking reasons: {handoffPosture.blocking_reasons.slice(0, 3).join(" ")}
                     </div>
                   ) : null}
-                  {readinessGate.review_reasons.length > 0 ? (
+                  {handoffPosture.review_reasons.length > 0 ? (
                     <div className="hammer-tool-hint">
-                      Review reasons: {readinessGate.review_reasons.slice(0, 3).map((reason) => reason.label).join(" ")}
+                      Review reasons: {handoffPosture.review_reasons.slice(0, 3).join(" ")}
                     </div>
                   ) : null}
-                  {(readinessGate.blocker_count > 0 || readinessGate.review_count > 0) ? (
+                  {(handoffPosture.blocking_reasons.length > 0 || handoffPosture.review_reasons.length > 0) ? (
                     <button type="button" onClick={focusReadinessIssue}>
                       Review Next Issue
                     </button>
@@ -11401,7 +11595,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     onClick={() => {
                       void handleSendToQuench();
                     }}
-                    disabled={releasePrepSaving || releasePrepLoading || readinessGate.status === "blocked"}
+                    disabled={releasePrepSaving || releasePrepLoading || handoffPosture.handoff_status === "blocked"}
                   >
                     {releasePrepSaving ? "Sending..." : sendToQuenchButtonLabel}
                   </button>
@@ -11412,7 +11606,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   ) : null}
                   {releasePrepSaved ? (
                     <div className="hammer-tool-hint">
-                      {readinessGate.status === "ready" ? "Ready for Quench." : readinessGate.status === "blocked" ? "Prepared packet is blocked for handoff." : "Prepared packet needs review before handoff."}
+                      {handoffPosture.handoff_status === "ready" ? "Ready for Quench." : handoffPosture.handoff_status === "blocked" ? "Prepared packet is blocked for handoff." : "Prepared packet needs review before handoff."}
                       {" "}Exported {new Date(releasePrepSaved.preparedAt).toLocaleString()}.
                       Status {releasePrepSaved.overallStatus}.
                       Subtitle artifacts {releasePrepSaved.subtitleArtifactCount}.
@@ -11425,7 +11619,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   ) : null}
                   {releasePrepOpenHref && exportTruthState !== "never_prepared" ? (
                     <a href={releasePrepOpenHref}>
-                      {readinessGate.status === "blocked"
+                      {handoffPosture.handoff_status === "blocked"
                         ? "Open in Quench (blocked)"
                         : exportTruthState === "current"
                         ? "Open in Quench"

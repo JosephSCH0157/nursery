@@ -344,12 +344,92 @@ async function testPodcastMasterPassPostureTracksRuntimeCapability() {
   assert.equal(unavailable.operations[0]?.export_posture, "unavailable");
 }
 
+async function testApplyLookInstructionFlowsIntoVisualTimeline() {
+  const graph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_render_06",
+      version: "1",
+      created_at: "2026-03-24T12:50:00.000Z",
+      updated_at: "2026-03-24T12:50:00.000Z",
+      source_transcript_id: "transcript_render_06",
+      preview_mode: "edit-aware",
+      instructions: [
+        {
+          instruction_id: "ins_look_01",
+          segment_id: "seg_01",
+          type: "apply_look",
+          preset: "warm_studio",
+          created_at: "2026-03-24T12:50:00.000Z",
+        },
+      ],
+    },
+    workspaceId: "ws_render",
+    workpieceId: "wp_render",
+    sessionId: "session_render",
+  });
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph: graph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: ["apply_look"],
+      export_supported_operation_types: ["apply_look"],
+      handoff_supported_operation_types: ["apply_look"],
+    },
+    transcriptSegments: [{ segment_id: "seg_01", start_sec: 0, end_sec: 12 }],
+    captionChunks: [{ chunk_id: "cap_look_01", start_sec: 0, end_sec: 1, segment_ids: ["seg_01"] }],
+  });
+  const lookLayer = assembly.export_timeline.visual_layers.find((layer) => layer.kind === "look_treatment");
+  assert.equal(assembly.export_timeline.export_posture, "authoritative");
+  assert.equal(lookLayer?.meta?.preset, "warm_studio");
+  assert.equal(lookLayer?.meta?.preview_mode, "previewable");
+}
+
+async function testApplyExposureInstructionFlowsIntoVisualTimeline() {
+  const graph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_render_07",
+      version: "1",
+      created_at: "2026-03-24T12:55:00.000Z",
+      updated_at: "2026-03-24T12:55:00.000Z",
+      source_transcript_id: "transcript_render_07",
+      preview_mode: "edit-aware",
+      instructions: [
+        {
+          instruction_id: "ins_exposure_01",
+          segment_id: "seg_01",
+          type: "apply_exposure",
+          exposure: 24,
+          created_at: "2026-03-24T12:55:00.000Z",
+        },
+      ],
+    },
+    workspaceId: "ws_render",
+    workpieceId: "wp_render",
+    sessionId: "session_render",
+  });
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph: graph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: ["apply_exposure"],
+      export_supported_operation_types: ["apply_exposure"],
+      handoff_supported_operation_types: ["apply_exposure"],
+    },
+    transcriptSegments: [{ segment_id: "seg_01", start_sec: 0, end_sec: 12 }],
+    captionChunks: [{ chunk_id: "cap_exposure_01", start_sec: 0, end_sec: 1, segment_ids: ["seg_01"] }],
+  });
+  const exposureLayer = assembly.export_timeline.visual_layers.find((layer) => layer.kind === "exposure_adjustment");
+  assert.equal(assembly.export_timeline.export_posture, "authoritative");
+  assert.equal(exposureLayer?.meta?.exposure, 24);
+  assert.equal(exposureLayer?.meta?.preview_mode, "previewable");
+}
+
 async function run() {
   await testAssemblyDeterminismAndPosture();
   await testUnresolvedBrollIsNeverTreatedAsBoundMediaTruth();
   await testOrphanedLinkedDuckIsExplicitlyDegraded();
   await testExportTimelineAssemblyIsDeterministicAndComposed();
   await testPodcastMasterPassPostureTracksRuntimeCapability();
+  await testApplyLookInstructionFlowsIntoVisualTimeline();
+  await testApplyExposureInstructionFlowsIntoVisualTimeline();
   // eslint-disable-next-line no-console
   console.log("Hammer render assembly tests passed.");
 }

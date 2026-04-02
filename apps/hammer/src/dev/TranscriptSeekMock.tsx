@@ -2208,6 +2208,11 @@ export default function TranscriptSeekMock(
         media_ref: activeMediaRef ? { ...activeMediaRef } : null,
         workspace_mapping: activeMediaWorkspaceMapping ? { ...activeMediaWorkspaceMapping } : null,
         media_source_label: activeMediaSourceLabel,
+        visual_preview: {
+          white_balance: 0,
+          color_amount: 0,
+          background_blur: false,
+        },
         last_opened_at: currentEditPlan.updated_at,
       },
     }),
@@ -2299,6 +2304,11 @@ export default function TranscriptSeekMock(
       transcriptSegments: cloneTranscriptSegments(rawTranscriptSegments),
       selectedSegmentId,
       selectedOverlayRowId,
+      visualPreviewSettings: {
+        white_balance: 0,
+        color_amount: 0,
+        background_blur: false,
+      },
       mediaRef: activeMediaRef ? { ...activeMediaRef } : null,
       workspaceMapping: activeMediaWorkspaceMapping ? { ...activeMediaWorkspaceMapping } : null,
       mediaSourceLabel: activeMediaSourceLabel,
@@ -5622,6 +5632,11 @@ export default function TranscriptSeekMock(
                         media_ref: activeMediaRef ? { ...activeMediaRef } : null,
                         workspace_mapping: activeMediaWorkspaceMapping ? { ...activeMediaWorkspaceMapping } : null,
                         media_source_label: activeMediaSourceLabel,
+                        visual_preview: {
+                          white_balance: 0,
+                          color_amount: 0,
+                          background_blur: false,
+                        },
                         last_opened_at: currentEditPlan.updated_at,
                       },
                     });

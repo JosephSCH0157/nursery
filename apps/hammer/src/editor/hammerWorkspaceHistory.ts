@@ -2,8 +2,11 @@ import type { HammerTranscriptSegment } from "../../../../packages/contracts/ham
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import type {
   HammerPersistedVisualPlacements,
-  HammerVisualPlacementRecord,
 } from "../persistence/hammerPersistenceContract";
+import {
+  cloneVisualPlacements as cloneCanonicalVisualPlacements,
+  normalizeHammerVisualPlacementsState,
+} from "../lib/hammerVisualPlacements";
 import {
   cloneHammerStudioRackState,
   createDefaultHammerStudioRackState,
@@ -151,24 +154,10 @@ function cloneSegments(segments: HammerTranscriptSegment[]): HammerTranscriptSeg
   return segments.map((segment) => ({ ...segment }));
 }
 
-function clonePlacementRecords(placements: HammerVisualPlacementRecord[]): HammerVisualPlacementRecord[] {
-  return placements.map((placement) => ({
-    ...placement,
-    matched_segment_ids: [...placement.matched_segment_ids],
-    uncertainty_flags: [...placement.uncertainty_flags],
-  }));
-}
-
 function cloneVisualPlacements(
   placements: HammerPersistedVisualPlacements | null,
 ): HammerPersistedVisualPlacements | null {
-  if (!placements) return null;
-  return {
-    ...placements,
-    source_refs: [...placements.source_refs],
-    uncertainty_flags: [...placements.uncertainty_flags],
-    placements: clonePlacementRecords(placements.placements),
-  };
+  return cloneCanonicalVisualPlacements(placements);
 }
 
 function cloneEditorialAuthorityGraph(
@@ -474,119 +463,7 @@ function readSegmentAt(state: HammerEditorStateSerializable, index: number): Ham
 }
 
 function normalizeVisualPlacementsFromValue(value: unknown): HammerPersistedVisualPlacements | null {
-  if (value == null) return null;
-  const row = readJsonObject(value);
-  if (!row) return null;
-
-  const sourceRefs = Array.isArray(row.source_refs)
-    ? row.source_refs.map((item) => readString(item)).filter((item): item is string => Boolean(item))
-    : [];
-  const uncertaintyFlags = Array.isArray(row.uncertainty_flags)
-    ? row.uncertainty_flags.map((item) => readString(item)).filter((item): item is string => Boolean(item))
-    : [];
-
-  const placementsRaw = Array.isArray(row.placements) ? row.placements : [];
-  const placements = placementsRaw
-    .map((item) => {
-      const placement = readJsonObject(item);
-      if (!placement) return null;
-      const placementId = readString(placement.placement_id);
-      const entryId = readString(placement.entry_id);
-      const anchorSegmentId = readString(placement.anchor_segment_id);
-      const assetRef = readString(placement.asset_ref);
-      const timingSource = readString(placement.timing_source);
-      const status = readString(placement.status);
-      const startSec = Number(placement.start_sec);
-      const endSec = Number(placement.end_sec);
-      const overlayGeometryRow = readJsonObject(placement.overlay_geometry);
-      const geometryX = Number(overlayGeometryRow?.x);
-      const geometryY = Number(overlayGeometryRow?.y);
-      const geometryWidth = Number(overlayGeometryRow?.width);
-      const geometryHeight = Number(overlayGeometryRow?.height);
-      const overlayGeometry = (
-        Number.isFinite(geometryX)
-        && Number.isFinite(geometryY)
-        && Number.isFinite(geometryWidth)
-        && Number.isFinite(geometryHeight)
-      )
-        ? {
-          x: Math.max(0, Math.min(1, geometryX)),
-          y: Math.max(0, Math.min(1, geometryY)),
-          width: Math.max(0.05, Math.min(1, geometryWidth)),
-          height: Math.max(0.05, Math.min(1, geometryHeight)),
-          anchor: overlayGeometryRow?.anchor === "center" ? "center" : "top_left",
-        } as const
-        : null;
-      const animationPreset = readString(placement.animation_preset);
-      if (
-        !placementId
-        || !entryId
-        || !anchorSegmentId
-        || !assetRef
-        || !timingSource
-        || !status
-        || !Number.isFinite(startSec)
-        || !Number.isFinite(endSec)
-      ) {
-        return null;
-      }
-      return {
-        placement_id: placementId,
-        authority_operation_id: readString(placement.authority_operation_id) ?? undefined,
-        entry_id: entryId,
-        anchor_segment_id: anchorSegmentId,
-        matched_segment_ids: Array.isArray(placement.matched_segment_ids)
-          ? placement.matched_segment_ids
-            .map((segmentId) => readString(segmentId))
-            .filter((segmentId): segmentId is string => Boolean(segmentId))
-          : [],
-        anchor_text: readString(placement.anchor_text),
-        asset_ref: assetRef,
-        asset_id: readString(placement.asset_id),
-        asset_path: readString(placement.asset_path),
-        storage_key: readString(placement.storage_key),
-        label: readString(placement.label),
-        visual_mode: readString(placement.visual_mode),
-        start_sec: startSec,
-        end_sec: endSec,
-        confidence: Number.isFinite(Number(placement.confidence)) ? Number(placement.confidence) : null,
-        timing_source: timingSource === "ordered_fallback" ? "ordered_fallback" : "transcript_match",
-        status: status === "uncertain" ? "uncertain" : "placed",
-        ingest_state: placement.ingest_state === "approved" ? "approved" : "suggested",
-        uncertainty_flags: Array.isArray(placement.uncertainty_flags)
-          ? placement.uncertainty_flags
-            .map((flag) => readString(flag))
-            .filter((flag): flag is string => Boolean(flag))
-          : [],
-        overlay_geometry: overlayGeometry,
-        animation_preset: (
-          animationPreset === "fade_in"
-          || animationPreset === "fade_out"
-          || animationPreset === "fade_in_out"
-          || animationPreset === "flip_in"
-          || animationPreset === "flip_out"
-          || animationPreset === "shutter_in"
-          || animationPreset === "shutter_out"
-          || animationPreset === "shutter_in_fade_out"
-          || animationPreset === "none"
-        ) ? animationPreset : null,
-        overlay_opacity: Number.isFinite(Number(placement.overlay_opacity))
-          ? Number(placement.overlay_opacity)
-          : null,
-        overlay_z_index: Number.isFinite(Number(placement.overlay_z_index))
-          ? Number(placement.overlay_z_index)
-          : null,
-      } as HammerVisualPlacementRecord;
-    })
-    .filter((placement): placement is HammerVisualPlacementRecord => Boolean(placement));
-
-  return {
-    schema_version: 1,
-    status: row.status === "prepared" ? "prepared" : "not_started",
-    source_refs: sourceRefs,
-    uncertainty_flags: uncertaintyFlags,
-    placements,
-  };
+  return normalizeHammerVisualPlacementsState(value);
 }
 
 function normalizeOutputSelectionFromValue(value: unknown): HammerOutputSelectionState {

@@ -12,6 +12,10 @@ import type {
   HammerPersistedVisualPlacements,
   HammerVisualPlacementRecord,
 } from "../persistence/hammerPersistenceContract";
+import {
+  cloneVisualPlacementsContract,
+  normalizeHammerVisualPlacements,
+} from "../../../../packages/tongs/src/hammer-visual-placements-contract";
 import { tongsFetch } from "./tongsFetch";
 import { requestHammerVisualAssistPreflight } from "./hammerVisualAssistApi";
 
@@ -689,7 +693,7 @@ export function buildUnavailableHammerVisualPlacements(
   };
 }
 
-function clonePlacementRecord(record: HammerVisualPlacementRecord): HammerVisualPlacementRecord {
+export function clonePlacementRecord(record: HammerVisualPlacementRecord): HammerVisualPlacementRecord {
   return {
     ...record,
     matched_segment_ids: [...record.matched_segment_ids],
@@ -829,13 +833,13 @@ export function isReusableHammerVisualPlacements(
 export function cloneVisualPlacements(
   placements: HammerPersistedVisualPlacements | null | undefined,
 ): HammerPersistedVisualPlacements | null {
-  if (!placements) return null;
-  return {
-    ...placements,
-    source_refs: [...placements.source_refs],
-    uncertainty_flags: [...placements.uncertainty_flags],
-    placements: placements.placements.map((record) => clonePlacementRecord(record)),
-  };
+  return cloneVisualPlacementsContract(placements) as HammerPersistedVisualPlacements | null;
+}
+
+export function normalizeHammerVisualPlacementsState(
+  value: unknown,
+): HammerPersistedVisualPlacements | null {
+  return normalizeHammerVisualPlacements(value) as HammerPersistedVisualPlacements | null;
 }
 
 export function deriveHammerVisualPlacements(args: {

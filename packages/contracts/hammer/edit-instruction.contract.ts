@@ -13,6 +13,8 @@ export type HammerEditInstructionType =
   | "dip_to_black"
   | "fade_audio"
   | "audio_duck"
+  | "apply_look"
+  | "apply_exposure"
   | "podcast_master_pass";
 
 export type HammerEditInstructionOperationFamily =
@@ -145,6 +147,23 @@ export interface HammerAudioDuckInstruction extends HammerEditInstructionBase {
   linked_broll_operation_id?: string | null;
 }
 
+export type HammerLookPreset =
+  | "clean_daylight"
+  | "warm_studio"
+  | "cool_evening"
+  | "high_contrast"
+  | "soft_documentary";
+
+export interface HammerApplyLookInstruction extends HammerEditInstructionBase {
+  type: "apply_look";
+  preset: HammerLookPreset;
+}
+
+export interface HammerApplyExposureInstruction extends HammerEditInstructionBase {
+  type: "apply_exposure";
+  exposure: number;
+}
+
 export interface HammerPodcastMasterPassInstruction extends HammerEditInstructionBase {
   type: "podcast_master_pass";
   preset: "podcast_master_v1";
@@ -169,6 +188,8 @@ export type HammerEditInstruction =
   | HammerDipToBlackInstruction
   | HammerFadeAudioInstruction
   | HammerAudioDuckInstruction
+  | HammerApplyLookInstruction
+  | HammerApplyExposureInstruction
   | HammerPodcastMasterPassInstruction;
 
 export type HammerCutInstructionType = HammerEditInstructionType;

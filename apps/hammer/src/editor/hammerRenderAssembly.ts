@@ -1,4 +1,7 @@
-import type { HammerEditInstruction } from "../../../../packages/contracts/hammer/edit-instruction.contract";
+import type {
+  HammerEditInstruction,
+  HammerLookPreset,
+} from "../../../../packages/contracts/hammer/edit-instruction.contract";
 import type { HammerEditPlan } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type {
   HammerEditorialAuthorityGraph,
@@ -97,7 +100,7 @@ export interface HammerExportTimelineAudioLayer {
 }
 
 export interface HammerExportTimelineVisualLayer {
-  kind: "primary_video" | "broll" | "dip_to_black";
+  kind: "primary_video" | "broll" | "dip_to_black" | "look_treatment" | "exposure_adjustment";
   operation_id: string | null;
   start_sec: number;
   end_sec: number;
@@ -108,6 +111,9 @@ export interface HammerExportTimelineVisualLayer {
     asset_ref?: string;
     intent_ref?: string | null;
     intent_description?: string | null;
+    preset?: HammerLookPreset;
+    exposure?: number;
+    preview_mode?: "previewable" | "export_only";
   };
 }
 
@@ -712,6 +718,38 @@ function buildHammerExportTimelineAssembly(args: {
             skipped_stages: support.skipped_stages,
             stage_posture: support.export_posture,
             preview_mode: support.preview_mode,
+          },
+        });
+        break;
+      }
+      case "apply_look": {
+        visualLayers.push({
+          kind: "look_treatment",
+          operation_id: operation.operation_id,
+          start_sec: 0,
+          end_sec: structuralDurationSec,
+          posture: resolution.export_posture,
+          capability: resolution.capability,
+          reason_codes: resolution.reason_codes,
+          meta: {
+            preset: operation.instruction.preset,
+            preview_mode: resolution.preview_posture === "authoritative" ? "previewable" : "export_only",
+          },
+        });
+        break;
+      }
+      case "apply_exposure": {
+        visualLayers.push({
+          kind: "exposure_adjustment",
+          operation_id: operation.operation_id,
+          start_sec: 0,
+          end_sec: structuralDurationSec,
+          posture: resolution.export_posture,
+          capability: resolution.capability,
+          reason_codes: resolution.reason_codes,
+          meta: {
+            exposure: operation.instruction.exposure,
+            preview_mode: resolution.preview_posture === "authoritative" ? "previewable" : "export_only",
           },
         });
         break;

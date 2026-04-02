@@ -945,6 +945,7 @@ export default function HammerWorkspaceEditor(
             structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
             visualPlacements={visualPlacementData}
             audioPolish={audioPolishData}
+            initialVisualPreviewSettings={loadedPersistenceSnapshot?.editor_session.data?.visual_preview ?? null}
             initialCurrentPass={loadedPersistenceSnapshot?.state?.current_pass}
             initialPassStatus={loadedPersistenceSnapshot?.state?.pass_status ?? null}
             releasePrepHref={props.releasePrepHref}
