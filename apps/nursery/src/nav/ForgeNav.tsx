@@ -10,8 +10,6 @@ type Props = {
   onAction?: (actionId: string) => void;
   renderSectionTitle?: (section: ForgeNavSection) => React.ReactNode;
   renderDividerAfterSectionId?: string;
-  getNavStyle?: (section: ForgeNavSection) => React.CSSProperties;
-  getItemStyle?: (section: ForgeNavSection) => React.CSSProperties | undefined;
 };
 
 export function ForgeNav({
@@ -21,8 +19,6 @@ export function ForgeNav({
   onAction,
   renderSectionTitle,
   renderDividerAfterSectionId = "forge",
-  getNavStyle,
-  getItemStyle,
 }: Props) {
   function renderItemContent(item: ForgeNavItem): React.ReactNode {
     if (!item.badge) {
@@ -48,29 +44,27 @@ export function ForgeNav({
           section.title
             ? (
               section.id === "forge"
-                ? <h3 style={{ marginTop: 0 }}>{section.title}</h3>
+                ? <h3 className="forge-nav__section-title-forge">{section.title}</h3>
                 : (
-                  <div style={{ fontSize: "0.85rem", color: "var(--forge-text-muted)" }}>
+                  <div className="forge-nav__section-title-muted">
                     {section.title}
                   </div>
                 )
             )
             : null
         );
-
-        const navStyle = getNavStyle?.(section) ?? {
-          display: "grid",
-          gap: section.id === "settings" ? 6 : 8,
-          marginTop: section.id === "settings" ? 4 : 0,
-        };
-
-        const itemStyle = getItemStyle?.(section);
+        const navClassName = section.id === "settings"
+          ? "forge-nav__section-items forge-nav__section-items--settings"
+          : "forge-nav__section-items";
+        const sectionClassName = isFirst
+          ? "forge-nav__section"
+          : "forge-nav__section forge-nav__section--spaced";
 
         return (
-          <div key={section.id} style={{ marginTop: isFirst ? 0 : 12 }}>
+          <div key={section.id} className={sectionClassName}>
             {titleNode}
 
-            <nav style={navStyle}>
+            <nav className={navClassName}>
               {(section.id === "settings" ? [...section.items, ...extraItems] : section.items).map((item) => {
                 if (item.actionId) {
                   const actionId = item.actionId;
@@ -82,17 +76,7 @@ export function ForgeNav({
                         onAction?.(actionId);
                         onNavigate?.();
                       }}
-                      style={{
-                        ...itemStyle,
-                        width: "100%",
-                        textAlign: "left",
-                        background: "transparent",
-                        border: "none",
-                        padding: 0,
-                        color: "inherit",
-                        cursor: "pointer",
-                        font: "inherit",
-                      }}
+                      className="forge-nav__action-item"
                     >
                       {renderItemContent(item)}
                     </button>
@@ -105,7 +89,7 @@ export function ForgeNav({
                       key={item.id}
                       href={item.href}
                       onClick={onNavigate}
-                      style={itemStyle}
+                      className="forge-nav__item-link"
                     >
                       {renderItemContent(item)}
                     </a>
@@ -117,7 +101,7 @@ export function ForgeNav({
                     key={item.id}
                     to={item.to ?? "#"}
                     onClick={onNavigate}
-                    style={itemStyle}
+                    className="forge-nav__item-link"
                   >
                     {renderItemContent(item)}
                   </Link>

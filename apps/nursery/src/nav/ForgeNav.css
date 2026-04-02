@@ -1,3 +1,46 @@
+.forge-nav__section {
+  margin-top: 0;
+}
+
+.forge-nav__section--spaced {
+  margin-top: 12px;
+}
+
+.forge-nav__section-title-forge {
+  margin-top: 0;
+}
+
+.forge-nav__section-title-muted {
+  font-size: 0.85rem;
+  color: var(--forge-text-muted);
+}
+
+.forge-nav__section-items {
+  display: grid;
+  gap: 8px;
+}
+
+.forge-nav__section-items--settings {
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.forge-nav__item-link,
+.forge-nav__action-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+}
+
+.forge-nav__action-item {
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
 .forge-nav__item-content {
   display: inline-flex;
   align-items: center;
