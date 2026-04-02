@@ -211,6 +211,7 @@ import {
 } from "./hammerQuenchHandoff";
 import {
   canEnterPass,
+  deriveHydratedPassStatus,
   getPassBlockedReason,
   getPassStatus,
   summarizePassStatuses,
@@ -328,7 +329,6 @@ type HammerWorkspaceShellProps = {
   audioPolish?: HammerPersistedAudioPolish | null;
   initialVisualPreviewSettings?: HammerPersistedVisualPreviewSettings | null;
   initialCurrentPass?: HammerPassId;
-  initialPassStatus?: HammerPassStatusMap | null;
   releasePrepHref?: string | null;
   selectedMacroRecipeRef?: string | null;
   lastMacroRunRef?: string | null;
@@ -384,15 +384,15 @@ function resolveActiveExposureAdjustment(
   return operation?.instruction.type === "apply_exposure" ? operation.instruction.exposure : null;
 }
 
+function resolvePassMeta(passId: HammerPassId): (typeof PASS_ORDER)[number] {
+  return PASS_ORDER.find((pass) => pass.id === passId) ?? PASS_ORDER[0];
+}
+
 function normalizePassStatus(
   value: HammerPassStatusMap | null | undefined,
   currentPass: HammerPassId,
 ): HammerPassStatusMap {
   return normalizeCanonicalPassStatusMap(value, currentPass);
-}
-
-function resolvePassMeta(passId: HammerPassId): (typeof PASS_ORDER)[number] {
-  return PASS_ORDER.find((pass) => pass.id === passId) ?? PASS_ORDER[0];
 }
 
 function resolveDefaultPassForTool(toolId: HammerToolId): HammerPassId {
@@ -1603,9 +1603,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const initialCurrentPass = resolveInitialPassId(props.initialCurrentPass);
   const initialPassMeta = resolvePassMeta(initialCurrentPass);
   const [currentPass, setCurrentPass] = useState<HammerPassId>(initialCurrentPass);
-  const [passStatus, setPassStatus] = useState<HammerPassStatusMap>(() => (
-    normalizePassStatus(props.initialPassStatus, initialCurrentPass)
-  ));
+  const [passStatus, setPassStatus] = useState<HammerPassStatusMap>(() => deriveHydratedPassStatus(initialCurrentPass));
   const [selectedSourceTab, setSelectedSourceTab] = useState<HammerSourceTabId>(initialPassMeta.sourceTab);
   const [selectedVisualFlowStep, setSelectedVisualFlowStep] = useState<HammerVisualFlowStepId>("media_map");
   const [activeTool, setActiveTool] = useState<HammerToolId>(initialPassMeta.toolId);
@@ -1857,7 +1855,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useEffect(() => {
     const nextInitialPass = resolveInitialPassId(props.initialCurrentPass);
     setCurrentPass(nextInitialPass);
-    setPassStatus(normalizePassStatus(props.initialPassStatus, nextInitialPass));
+    setPassStatus(deriveHydratedPassStatus(nextInitialPass));
     const nextMeta = resolvePassMeta(nextInitialPass);
     setActiveTool(nextMeta.toolId);
     setSelectedSourceTab(nextMeta.sourceTab);
@@ -1865,7 +1863,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     launchContext.workspace_id,
     launchContext.workpiece_id,
     props.initialCurrentPass,
-    props.initialPassStatus,
   ]);
 
   useEffect(() => {

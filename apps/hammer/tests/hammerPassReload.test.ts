@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   canEnterPass,
+  deriveHydratedPassStatus,
   getPassReloadExpectation,
   getPassStatus,
   type HammerPassSelectorContext,
@@ -161,6 +162,12 @@ function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): Hamme
   assert.equal(canEnterPass("packaging", persistedPosture), true);
   assert.equal(result.status, "blocked");
   assert.equal(result.isComplete, false);
+}
+
+{
+  const hydrated = deriveHydratedPassStatus("ready");
+  assert.equal(hydrated.ready, "in_progress");
+  assert.equal(hydrated.transcript_cleanup, "not_started");
 }
 
 console.log("Hammer pass reload selector tests passed.");

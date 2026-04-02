@@ -947,7 +947,6 @@ export default function HammerWorkspaceEditor(
             audioPolish={audioPolishData}
             initialVisualPreviewSettings={loadedPersistenceSnapshot?.editor_session.data?.visual_preview ?? null}
             initialCurrentPass={loadedPersistenceSnapshot?.state?.current_pass}
-            initialPassStatus={loadedPersistenceSnapshot?.state?.pass_status ?? null}
             releasePrepHref={props.releasePrepHref}
             selectedMacroRecipeRef={loadedPersistenceSnapshot?.macro_hooks.recipe_ref ?? null}
             lastMacroRunRef={loadedPersistenceSnapshot?.macro_hooks.last_run_ref ?? null}

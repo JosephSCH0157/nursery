@@ -284,6 +284,12 @@ export function getPassReloadExpectation(
   }
 }
 
+export function deriveHydratedPassStatus(
+  currentPass: HammerPassId,
+): HammerPassStatusMap {
+  return normalizeHammerPassStatusMap(null, currentPass);
+}
+
 export function getPassBlockedReason(
   passId: HammerPassId,
   context: HammerPassSelectorContext,
