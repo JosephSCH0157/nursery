@@ -29,6 +29,7 @@ async function testSelectionResolution() {
   assert.equal(resolveSelectedSegmentId(segments, "b"), "b");
   assert.equal(resolveSelectedSegmentId(segments, "missing"), "a");
   assert.equal(resolveSelectedSegmentId([], "a"), null);
+  assert.equal(resolveSelectedSegmentId(segments, null), "a");
 }
 
 async function testSyncEditableSegments() {

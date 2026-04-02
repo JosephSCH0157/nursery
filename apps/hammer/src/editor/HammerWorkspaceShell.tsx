@@ -71,6 +71,7 @@ import {
   filterDismissedSilenceCutSuggestions,
 } from "./hammerSilenceCutSuggestions";
 import {
+  resolveSelectedSegmentId,
   resolveTranscriptDurationSec,
   syncEditableTranscriptSegments,
   updateTranscriptSegmentSpeaker,
@@ -329,6 +330,7 @@ type HammerWorkspaceShellProps = {
   audioPolish?: HammerPersistedAudioPolish | null;
   initialVisualPreviewSettings?: HammerPersistedVisualPreviewSettings | null;
   initialCurrentPass?: HammerPassId;
+  initialSelectedSegmentId?: string | null;
   releasePrepHref?: string | null;
   selectedMacroRecipeRef?: string | null;
   lastMacroRunRef?: string | null;
@@ -1641,12 +1643,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => createDefaultHammerStudioRackState(),
   );
   const [studioRackOpen, setStudioRackOpen] = useState(false);
-  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(transcriptSegments[0]?.segment_id ?? null);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(
+    resolveSelectedSegmentId(transcriptSegments, props.initialSelectedSegmentId ?? null),
+  );
   const [transcriptSelectionAnchorSegmentId, setTranscriptSelectionAnchorSegmentId] = useState<string | null>(
-    transcriptSegments[0]?.segment_id ?? null,
+    resolveSelectedSegmentId(transcriptSegments, props.initialSelectedSegmentId ?? null),
   );
   const [transcriptSelectionFocusSegmentId, setTranscriptSelectionFocusSegmentId] = useState<string | null>(
-    transcriptSegments[0]?.segment_id ?? null,
+    resolveSelectedSegmentId(transcriptSegments, props.initialSelectedSegmentId ?? null),
   );
   const [playheadSec, setPlayheadSec] = useState(0);
   const [isPlaybackActive, setIsPlaybackActive] = useState(false);
@@ -1854,15 +1858,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   useEffect(() => {
     const nextInitialPass = resolveInitialPassId(props.initialCurrentPass);
+    const nextSelectedSegmentId = resolveSelectedSegmentId(transcriptSegments, props.initialSelectedSegmentId ?? null);
     setCurrentPass(nextInitialPass);
     setPassStatus(deriveHydratedPassStatus(nextInitialPass));
     const nextMeta = resolvePassMeta(nextInitialPass);
     setActiveTool(nextMeta.toolId);
     setSelectedSourceTab(nextMeta.sourceTab);
+    setSelectedSegmentId(nextSelectedSegmentId);
+    setTranscriptSelectionAnchorSegmentId(nextSelectedSegmentId);
+    setTranscriptSelectionFocusSegmentId(nextSelectedSegmentId);
   }, [
     launchContext.workspace_id,
     launchContext.workpiece_id,
     props.initialCurrentPass,
+    props.initialSelectedSegmentId,
+    transcriptSegments,
   ]);
 
   useEffect(() => {
