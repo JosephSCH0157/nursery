@@ -8,6 +8,7 @@ import {
   buildHammerPreparedHandoffModel,
   type HammerPreparedNextStepActionId,
 } from "./hammerPreparedHandoff";
+import { deriveHammerSessionState } from "./hammerSessionState";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import {
   buildHammerLaunchContextFromPersistence,
@@ -167,6 +168,10 @@ export default function HammerWorkspaceEditor(
   const [showPreparedHandoff, setShowPreparedHandoff] = useState(false);
   const [preparedActionIntent, setPreparedActionIntent] = useState<HammerPreparedActionIntent | null>(null);
   const [prepAttemptNonce, setPrepAttemptNonce] = useState(0);
+  const [hasPendingSaveChanges, setHasPendingSaveChanges] = useState(false);
+  const [saveInFlight, setSaveInFlight] = useState(false);
+  const [saveFailureMessage, setSaveFailureMessage] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const openedAtRef = useRef(new Date().toISOString());
   const saveTimerRef = useRef<number | null>(null);
   const readyTransitionTimerRef = useRef<number | null>(null);
@@ -406,6 +411,10 @@ export default function HammerWorkspaceEditor(
   useEffect(() => {
     beginPrepExecution();
     lastSavedPayloadRef.current = null;
+    setHasPendingSaveChanges(false);
+    setSaveInFlight(false);
+    setSaveFailureMessage(null);
+    setLastSavedAt(null);
     prepRunKeyRef.current = null;
     setWorkspaceSnapshot(null);
     setLoadedPersistenceSnapshot(null);
@@ -760,21 +769,32 @@ export default function HammerWorkspaceEditor(
       request,
     });
     if (payloadKey === lastSavedPayloadRef.current) {
+      setHasPendingSaveChanges(false);
       return;
     }
+
+    setHasPendingSaveChanges(true);
+    setSaveFailureMessage(null);
 
     if (saveTimerRef.current != null) {
       window.clearTimeout(saveTimerRef.current);
     }
 
     saveTimerRef.current = window.setTimeout(() => {
+      setSaveInFlight(true);
       void saveHammerPersistenceSnapshot(persistenceTarget, request)
         .then((result) => {
-          if (!result.ok) return;
+          if (!result.ok) {
+            setSaveFailureMessage(result.error);
+            return;
+          }
           lastSavedPayloadRef.current = payloadKey;
+          setLastSavedAt(new Date().toISOString());
+          setHasPendingSaveChanges(false);
           setLoadedPersistenceSnapshot(result.data);
         })
         .finally(() => {
+          setSaveInFlight(false);
           saveTimerRef.current = null;
         });
     }, SAVE_DEBOUNCE_MS);
@@ -855,6 +875,28 @@ export default function HammerWorkspaceEditor(
     audioPolish: audioPolishData,
     mediaPrepOutputs: handoffMediaPrepOutputs,
   });
+  const sessionState = useMemo(
+    () => deriveHammerSessionState({
+      prepState,
+      saveState: {
+        isSaving: saveInFlight,
+        hasPendingChanges: hasPendingSaveChanges,
+        failedMessage: saveFailureMessage,
+        lastSavedAt,
+      },
+      mediaPrepOutputs: handoffMediaPrepOutputs,
+      editorVisible: shouldRenderEditor,
+    }),
+    [
+      handoffMediaPrepOutputs,
+      hasPendingSaveChanges,
+      lastSavedAt,
+      prepState,
+      saveFailureMessage,
+      saveInFlight,
+      shouldRenderEditor,
+    ],
+  );
   const progressFillClassName = useMemo(
     () => `${dynamicStyleScopeIdRef.current}__progress-fill`,
     [],
@@ -940,6 +982,18 @@ export default function HammerWorkspaceEditor(
     <div className="hammer-prep-shell hammer-workspace-editor-host">
       {shouldRenderEditor ? (
         <div className="hammer-prep-shell__editor">
+          <div
+            className={[
+              "hammer-prep-shell__session-state",
+              sessionState.isBlocking ? "is-blocking" : "",
+              sessionState.isDegraded ? "is-degraded" : "",
+            ].filter(Boolean).join(" ")}
+            role="status"
+            aria-live="polite"
+          >
+            <strong>{sessionState.humanLabel}</strong>
+            {sessionState.detail ? <span>{sessionState.detail}</span> : null}
+          </div>
           <HammerWorkspaceShell
             launchContext={effectiveLaunchContext}
             structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}

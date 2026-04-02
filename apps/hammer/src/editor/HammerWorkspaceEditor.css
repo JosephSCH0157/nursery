@@ -24,6 +24,7 @@
   height: 100%;
   min-width: 0;
   display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -31,6 +32,41 @@
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
+}
+
+.hammer-prep-shell__session-state {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.82));
+  color: #dbe4ee;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.hammer-prep-shell__session-state strong {
+  color: #f8fafc;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hammer-prep-shell__session-state span {
+  color: rgba(219, 228, 238, 0.86);
+}
+
+.hammer-prep-shell__session-state.is-degraded {
+  border-bottom-color: rgba(245, 158, 11, 0.28);
+  background: linear-gradient(180deg, rgba(69, 39, 12, 0.94), rgba(41, 27, 12, 0.88));
+}
+
+.hammer-prep-shell__session-state.is-blocking {
+  border-bottom-color: rgba(248, 113, 113, 0.32);
+  background: linear-gradient(180deg, rgba(69, 20, 20, 0.94), rgba(48, 18, 18, 0.9));
 }
 
 .hammer-prep-shell__overlay {
