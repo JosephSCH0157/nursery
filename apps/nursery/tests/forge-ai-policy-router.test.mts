@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { routeForgeAiRequest } from "../../../packages/tongs/src/ai-router";
