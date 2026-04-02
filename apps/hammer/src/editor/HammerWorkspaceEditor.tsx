@@ -9,6 +9,12 @@ import {
   type HammerPreparedNextStepActionId,
 } from "./hammerPreparedHandoff";
 import { applyHammerSessionAction } from "./hammerSessionActions";
+import {
+  resolveHammerReloadFailure,
+  resolveHammerReloadSuccess,
+  resolveHammerSaveFailure,
+  resolveHammerSaveSuccess,
+} from "./hammerSessionHostLoop";
 import { deriveHammerSessionState, deriveHammerSessionStateActions } from "./hammerSessionState";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import {
@@ -187,6 +193,18 @@ export default function HammerWorkspaceEditor(
   const isMountedRef = useRef(true);
   const dynamicStyleScopeIdRef = useRef(`hammer-workspace-editor-${Math.random().toString(36).slice(2, 10)}`);
   const handoffPanelRef = useRef<HTMLElement | null>(null);
+
+  function applyHostLoopState(next: {
+    hasPendingSaveChanges: boolean;
+    saveFailureMessage: string | null;
+    historyRecoveryStatus: string | null;
+    presenceConflictDetail: string | null;
+  }): void {
+    setHasPendingSaveChanges(next.hasPendingSaveChanges);
+    setSaveFailureMessage(next.saveFailureMessage);
+    setHistoryRecoveryStatus(next.historyRecoveryStatus);
+    setPresenceConflictDetail(next.presenceConflictDetail);
+  }
 
   const clearReadyTransitionTimer = (): void => {
     if (readyTransitionTimerRef.current != null) {
@@ -417,12 +435,8 @@ export default function HammerWorkspaceEditor(
   useEffect(() => {
     beginPrepExecution();
     lastSavedPayloadRef.current = null;
-    setHasPendingSaveChanges(false);
     setSaveInFlight(false);
-    setSaveFailureMessage(null);
     setLastSavedAt(null);
-    setHistoryRecoveryStatus(null);
-    setPresenceConflictDetail(null);
     prepRunKeyRef.current = null;
     setWorkspaceSnapshot(null);
     setLoadedPersistenceSnapshot(null);
@@ -484,6 +498,12 @@ export default function HammerWorkspaceEditor(
         startTransition(() => {
           setEffectiveLaunchContext(nextLaunchContext);
         });
+        applyHostLoopState(resolveHammerReloadSuccess({
+          hasPendingSaveChanges,
+          saveFailureMessage,
+          historyRecoveryStatus,
+          presenceConflictDetail,
+        }));
         setHasCanonicalBasis(nextHasCanonicalBasis);
         setHydrationReady(true);
       })
@@ -512,6 +532,12 @@ export default function HammerWorkspaceEditor(
         startTransition(() => {
           setEffectiveLaunchContext(nextLaunchContext);
         });
+        applyHostLoopState(resolveHammerReloadFailure({
+          hasPendingSaveChanges,
+          saveFailureMessage,
+          historyRecoveryStatus,
+          presenceConflictDetail,
+        }));
         setHasCanonicalBasis(nextHasCanonicalBasis);
         setHydrationReady(true);
       });
@@ -793,12 +819,22 @@ export default function HammerWorkspaceEditor(
       void saveHammerPersistenceSnapshot(persistenceTarget, request)
         .then((result) => {
           if (!result.ok) {
-            setSaveFailureMessage(result.error);
+            applyHostLoopState(resolveHammerSaveFailure({
+              hasPendingSaveChanges: true,
+              saveFailureMessage,
+              historyRecoveryStatus,
+              presenceConflictDetail,
+            }, result.error));
             return;
           }
           lastSavedPayloadRef.current = payloadKey;
           setLastSavedAt(new Date().toISOString());
-          setHasPendingSaveChanges(false);
+          applyHostLoopState(resolveHammerSaveSuccess({
+            hasPendingSaveChanges: true,
+            saveFailureMessage,
+            historyRecoveryStatus,
+            presenceConflictDetail,
+          }));
           setLoadedPersistenceSnapshot(result.data);
         })
         .finally(() => {
