@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createDefaultVisualAnimation, createDefaultVisualGeometry, createEmptyVisualTimelineState } from "../src/visuals/model/hammerVisualDefaults";
 import { hammerVisualTimelineReducer } from "../src/visuals/state/hammerVisualReducer";
-import { selectEnabledClipsAtTimeSorted } from "../src/visuals/state/hammerVisualSelectors";
+import { selectClipById, selectEnabledClipsAtTimeSorted } from "../src/visuals/state/hammerVisualSelectors";
 import type { HammerVisualClip } from "../src/visuals/model/hammerVisualTypes";
 
 function buildClip(overrides?: Partial<HammerVisualClip>): HammerVisualClip {
@@ -173,4 +173,34 @@ test("selectEnabledClipsAtTimeSorted sorts by z-index then stable fallback", () 
   const ordered = selectEnabledClipsAtTimeSorted(state, 1.5);
 
   assert.deepEqual(ordered.map((clip) => clip.clip_id), ["clip_c", "clip_a", "clip_b"]);
+});
+
+test("clip targeting resolves exact canonical clip id even with similar labels", () => {
+  const state = createEmptyVisualTimelineState({
+    clips: [
+      buildClip({ clip_id: "clip_101", label: "Same Label" }),
+      buildClip({ clip_id: "clip_102", label: "Same Label", start_sec: 4, end_sec: 6 }),
+    ],
+    lanes: [{
+      lane_id: "lane:primary",
+      label: "Visuals",
+      clip_ids: ["clip_101", "clip_102"],
+    }],
+    selected_clip_id: "clip_102",
+  });
+
+  const selected = selectClipById(state, state.selected_clip_id);
+  assert.equal(selected?.clip_id, "clip_102");
+});
+
+test("fit mode updates on canonical clip state", () => {
+  const state = buildState();
+  const next = hammerVisualTimelineReducer(state, {
+    type: "UPDATE_CLIP_FIT_MODE",
+    clip_id: "clip_001",
+    fit_mode: "cover",
+    updated_at: "2026-04-02T12:15:00.000Z",
+  });
+
+  assert.equal(next.clips[0]?.fit_mode, "cover");
 });

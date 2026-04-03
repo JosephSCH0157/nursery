@@ -13,6 +13,7 @@ export type HammerVisualAssetKind =
   | "contextual_data_composite";
 
 export type HammerVisualGeometryAnchor = "center" | "top_left";
+export type HammerVisualFitMode = "contain" | "cover";
 
 export type HammerVisualAnimationPreset =
   | "none"
@@ -72,6 +73,7 @@ export interface HammerVisualClip {
   start_sec: number;
   end_sec: number;
   geometry: HammerVisualGeometry;
+  fit_mode?: HammerVisualFitMode;
   animation: HammerVisualAnimation;
   opacity: number;
   z_index: number;

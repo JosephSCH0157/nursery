@@ -5,6 +5,7 @@ import type {
   HammerVisualAnimation,
   HammerVisualAsset,
   HammerVisualClip,
+  HammerVisualFitMode,
   HammerVisualGeometry,
   HammerVisualTimelineState,
 } from "../model/hammerVisualTypes";
@@ -53,6 +54,9 @@ export function useHammerVisualTimeline(options?: UseHammerVisualTimelineOptions
     },
     updateClipGeometry: (clipId: string, geometry: HammerVisualGeometry) => {
       dispatch({ type: "UPDATE_CLIP_GEOMETRY", clip_id: clipId, geometry, updated_at: clock() });
+    },
+    updateClipFitMode: (clipId: string, fitMode: HammerVisualFitMode) => {
+      dispatch({ type: "UPDATE_CLIP_FIT_MODE", clip_id: clipId, fit_mode: fitMode, updated_at: clock() });
     },
     patchClipGeometry: (clipId: string, geometry: Partial<HammerVisualGeometry>) => {
       dispatch({ type: "PATCH_CLIP_GEOMETRY", clip_id: clipId, geometry, updated_at: clock() });

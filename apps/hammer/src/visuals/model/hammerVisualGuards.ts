@@ -9,6 +9,7 @@ import {
   type HammerVisualAnchorHint,
   type HammerVisualAnimation,
   type HammerVisualAnimationPreset,
+  type HammerVisualFitMode,
   type HammerVisualGeometry,
   type HammerVisualGeometryAnchor,
   type HammerVisualTimelineState,
@@ -26,6 +27,7 @@ const VALID_ANIMATION_PRESETS = new Set<HammerVisualAnimationPreset>([
   "shutter_out",
   "shutter_in_fade_out",
 ]);
+const VALID_FIT_MODES = new Set<HammerVisualFitMode>(["contain", "cover"]);
 
 function readFiniteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -126,6 +128,12 @@ export function normalizeAnimation(
   return { preset };
 }
 
+export function normalizeFitMode(
+  value: HammerVisualFitMode | null | undefined,
+): HammerVisualFitMode {
+  return VALID_FIT_MODES.has(value as HammerVisualFitMode) ? value as HammerVisualFitMode : "contain";
+}
+
 export function normalizeAnchorHint(
   value: Partial<HammerVisualAnchorHint> | null | undefined,
 ): HammerVisualAnchorHint {
@@ -221,6 +229,10 @@ export function assertValidTimelineState(
     assertCondition(
       normalizedAnimation.preset === clip.animation.preset,
       `Visual clip ${clip.clip_id} animation is invalid.`,
+    );
+    assertCondition(
+      normalizeFitMode(clip.fit_mode) === (clip.fit_mode ?? "contain"),
+      `Visual clip ${clip.clip_id} fit_mode is invalid.`,
     );
     const normalizedAnchor = normalizeAnchorHint(clip.anchor_hint);
     assertCondition(

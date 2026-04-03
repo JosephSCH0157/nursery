@@ -28,6 +28,15 @@ import type {
 } from "../persistence/hammerPersistenceContract";
 import { createEmptyVisualTimelineState } from "../visuals/model/hammerVisualDefaults";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
+import {
+  selectClipById,
+  selectEnabledClipsAtTimeSorted,
+} from "../visuals/state/hammerVisualSelectors";
+import VisualTimelineDock from "../visuals/components/VisualTimelineDock";
+import type { VisualClipBlockModel } from "../visuals/components/VisualClipBlock";
+import VisualPreviewComposer, {
+  type VisualPreviewOverlayModel,
+} from "../visuals/components/VisualPreviewComposer";
 import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import {
   DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
@@ -575,20 +584,6 @@ type HammerVisualPlacementGeometry = {
   width: number;
   height: number;
   anchor: "center" | "top_left";
-};
-
-type HammerPreviewVisualOverlay = {
-  placementId: string;
-  label: string;
-  kind: "image" | "broll";
-  src: string | null;
-  startSec: number;
-  endSec: number;
-  transform: HammerImagePlacementTransform;
-  animationPreset: HammerImageAnimationPreset;
-  zIndex: number;
-  opacity: number;
-  isSelected: boolean;
 };
 
 type HammerTimelineImageDragState = {
@@ -1257,16 +1252,6 @@ function resolvePlacementAnimationPreset(
   ) ? preset : "none";
 }
 
-function isPlacementActiveAtPlayhead(
-  placement: HammerVisualPlacementRecord,
-  playheadSec: number,
-): boolean {
-  const startSec = Number.isFinite(placement.start_sec) ? placement.start_sec : 0;
-  const rawEndSec = Number.isFinite(placement.end_sec) ? placement.end_sec : startSec;
-  const endSec = Math.max(startSec, rawEndSec - PLAYHEAD_WINDOW_EPSILON_SEC);
-  return playheadSec >= (startSec - PLAYHEAD_WINDOW_EPSILON_SEC) && playheadSec <= endSec;
-}
-
 function clampNumber(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, value));
@@ -1832,6 +1817,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [thumbnailPromptDraft, setThumbnailPromptDraft] = useState("");
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const [playbackMediaSrc, setPlaybackMediaSrc] = useState<string | null>(null);
+  const [visualTimelineFocusNonce, setVisualTimelineFocusNonce] = useState(0);
   const editableVisualPlacements = useMemo(
     () => deriveLegacyVisualPlacementsFromTimeline(editableVisualTimeline),
     [editableVisualTimeline],
@@ -2435,29 +2421,42 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => sortedTimelineMarkers.map((marker) => marker.timeSec),
     [sortedTimelineMarkers],
   );
+  const visualAssetsById = useMemo(() => {
+    const byId = new Map<string, NonNullable<HammerVisualTimelineState["assets"]>[number]>();
+    for (const asset of editableVisualTimeline?.assets ?? []) {
+      byId.set(asset.asset_id, asset);
+    }
+    return byId;
+  }, [editableVisualTimeline?.assets]);
   const sourceVisualPlacementItems = useMemo<HammerSourceImageItem[]>(() => (
-    (editableVisualPlacements?.placements ?? [])
-      .map((placement) => {
+    (editableVisualTimeline?.clips ?? [])
+      .map((clip) => {
+        const asset = clip.asset_id ? (visualAssetsById.get(clip.asset_id) ?? null) : null;
         const kind = deriveAssetKind({
-          visualMode: placement.visual_mode,
-          assetPath: placement.asset_path,
+          visualMode: clip.visual_mode,
+          assetPath: asset?.path ?? null,
         });
         if (kind !== "image" && kind !== "broll" && kind !== "reference_clip") return null;
+        const fallbackAnchorSegmentId = clip.anchor_hint.anchor_segment_id
+          ?? clip.anchor_hint.matched_segment_ids[0]
+          ?? selectedSegmentId
+          ?? editableTranscriptSegments[0]?.segment_id
+          ?? "segment:unknown";
         return {
-          id: placement.placement_id,
-          label: placement.label ?? placement.asset_ref ?? placement.asset_path ?? placement.entry_id,
+          id: clip.clip_id,
+          label: clip.label ?? asset?.label ?? asset?.asset_ref ?? clip.entry_id ?? clip.clip_id,
           kind,
-          anchorSegmentId: placement.anchor_segment_id,
-          startSec: imagePlacementDraftWindows[placement.placement_id]?.startSec ?? placement.start_sec,
-          endSec: imagePlacementDraftWindows[placement.placement_id]?.endSec ?? placement.end_sec,
-          status: placement.status,
-          confidence: placement.confidence,
-          visualMode: placement.visual_mode,
-          assetPath: placement.asset_path,
+          anchorSegmentId: fallbackAnchorSegmentId,
+          startSec: imagePlacementDraftWindows[clip.clip_id]?.startSec ?? clip.start_sec,
+          endSec: imagePlacementDraftWindows[clip.clip_id]?.endSec ?? clip.end_sec,
+          status: clip.placement_status,
+          confidence: clip.confidence,
+          visualMode: clip.visual_mode,
+          assetPath: asset?.path ?? null,
         };
       })
       .filter((item): item is HammerSourceImageItem => Boolean(item))
-  ), [editableVisualPlacements?.placements, imagePlacementDraftWindows]);
+  ), [editableTranscriptSegments, editableVisualTimeline?.clips, imagePlacementDraftWindows, selectedSegmentId, visualAssetsById]);
   const sourceImageItems = useMemo(
     () => sourceVisualPlacementItems.filter((item) => item.kind === "image"),
     [sourceVisualPlacementItems],
@@ -2501,6 +2500,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return byId;
   }, [editableVisualPlacements?.placements]);
+  const selectedVisualClip = useMemo(
+    () => (editableVisualTimeline ? selectClipById(editableVisualTimeline, selectedClipId) : null),
+    [editableVisualTimeline, selectedClipId],
+  );
   const selectedImagePlacement = useMemo(
     () => sourceVisualPlacementItems.find((item) => item.id === selectedClipId) ?? null,
     [selectedClipId, sourceVisualPlacementItems],
@@ -2512,9 +2515,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (!selectedClipId) return DEFAULT_IMAGE_PLACEMENT_TRANSFORM;
     const draft = imagePlacementTransforms[selectedClipId];
     if (draft) return draft;
+    if (selectedVisualClip) {
+      return geometryToTransform(selectedVisualClip.geometry);
+    }
     return geometryToTransform(resolvePlacementGeometry(selectedPlacementRecord));
-  }, [imagePlacementTransforms, selectedClipId, selectedPlacementRecord]);
-  const selectedImageAnimationPreset = resolvePlacementAnimationPreset(selectedPlacementRecord);
+  }, [imagePlacementTransforms, selectedClipId, selectedPlacementRecord, selectedVisualClip]);
+  const selectedImageAnimationPreset = selectedVisualClip?.animation.preset ?? resolvePlacementAnimationPreset(selectedPlacementRecord);
   const selectedImageAnimationLabel = IMAGE_ANIMATION_PRESET_OPTIONS.find(
     (option) => option.id === selectedImageAnimationPreset,
   )?.label ?? "None";
@@ -2524,49 +2530,71 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     previewSurfaceRef.current.style.filter = visualPreviewFilter || "";
   }, [visualPreviewFilter]);
 
-  const activePreviewOverlays = useMemo<HammerPreviewVisualOverlay[]>(() => (
-    (editableVisualPlacements?.placements ?? [])
-      .filter((placement) => isPlacementActiveAtPlayhead(placement, playheadSec))
-      .map((placement, index) => {
+  const activePreviewOverlays = useMemo<VisualPreviewOverlayModel[]>(() => {
+    if (!editableVisualTimeline) return [];
+    return selectEnabledClipsAtTimeSorted(editableVisualTimeline, playheadSec)
+      .map((clip) => {
+        const asset = clip.asset_id ? (visualAssetsById.get(clip.asset_id) ?? null) : null;
         const kind = deriveAssetKind({
-          visualMode: placement.visual_mode,
-          assetPath: placement.asset_path,
+          visualMode: clip.visual_mode,
+          assetPath: asset?.path ?? null,
         });
-        if (kind !== "image" && kind !== "broll") return null;
-        const animationPreset = resolvePlacementAnimationPreset(placement);
+        if (kind !== "image" && kind !== "broll" && kind !== "reference_clip") return null;
+        const transform = imagePlacementTransforms[clip.clip_id] ?? geometryToTransform(clip.geometry);
         return {
-          placementId: placement.placement_id,
-          label: placement.label ?? placement.asset_ref ?? placement.asset_path ?? placement.entry_id,
-          kind,
-          src: placement.asset_path ? (sourceDeskPreviewUrls[placement.asset_path] ?? null) : null,
-          startSec: placement.start_sec,
-          endSec: placement.end_sec,
-          transform: geometryToTransform(resolvePlacementGeometry(placement)),
-          animationPreset,
-          zIndex: Math.round(Number.isFinite(placement.overlay_z_index ?? NaN) ? Number(placement.overlay_z_index) : index + 1),
-          opacity: Math.max(0, Math.min(1, Number.isFinite(placement.overlay_opacity ?? NaN) ? Number(placement.overlay_opacity) : 1)),
-          isSelected: placement.placement_id === selectedClipId,
-        };
+          clip_id: clip.clip_id,
+          label: clip.label ?? asset?.label ?? asset?.asset_ref ?? clip.entry_id ?? clip.clip_id,
+          kind: kind === "image" ? "image" : "broll",
+          src: asset?.path ? (sourceDeskPreviewUrls[asset.path] ?? null) : null,
+          left_pct: transform.leftPct,
+          top_pct: transform.topPct,
+          width_pct: transform.widthPct,
+          height_pct: transform.heightPct,
+          z_index: clip.z_index,
+          opacity: clip.opacity,
+          fit_mode: clip.fit_mode ?? "contain",
+          animation_class: resolveImageAnimationClass(clip.animation.preset),
+          selected: clip.clip_id === selectedClipId,
+          dimmed: currentPass === "image_placement" && Boolean(selectedClipId) && clip.clip_id !== selectedClipId,
+        } satisfies VisualPreviewOverlayModel;
       })
-      .filter((item): item is HammerPreviewVisualOverlay => Boolean(item))
-      .sort((left, right) => left.zIndex - right.zIndex)
-  ), [editableVisualPlacements?.placements, playheadSec, selectedClipId, sourceDeskPreviewUrls]);
-
-  function applyPreviewOverlayStyle(node: HTMLDivElement | null, overlay: HammerPreviewVisualOverlay): void {
-    if (!node) return;
-    node.style.left = `${overlay.transform.leftPct}%`;
-    node.style.top = `${overlay.transform.topPct}%`;
-    node.style.width = `${overlay.transform.widthPct}%`;
-    node.style.height = `${overlay.transform.heightPct}%`;
-    node.style.zIndex = String(overlay.zIndex);
-    node.style.opacity = String(overlay.opacity);
-  }
+      .filter((item): item is VisualPreviewOverlayModel => Boolean(item))
+      .sort((left, right) => left.z_index - right.z_index);
+  }, [
+    currentPass,
+    editableVisualTimeline,
+    imagePlacementTransforms,
+    playheadSec,
+    selectedClipId,
+    sourceDeskPreviewUrls,
+    visualAssetsById,
+  ]);
 
   useEffect(() => {
     if (!selectedClipId) return;
     if (sourceVisualPlacementItems.some((item) => item.id === selectedClipId)) return;
     setSelectedClipId(null);
   }, [selectedClipId, sourceVisualPlacementItems]);
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    if (!selectedClipId) return;
+    const selectedTimelineClip = editableVisualTimeline
+      ? selectClipById(editableVisualTimeline, selectedClipId)
+      : null;
+    const renderedClipId = activePreviewOverlays.find((overlay) => overlay.selected)?.clip_id ?? null;
+    if (!selectedTimelineClip) {
+      console.warn("[HammerVisuals] selected clip is missing from canonical timeline", {
+        selected_clip_id: selectedClipId,
+      });
+      return;
+    }
+    if (renderedClipId && renderedClipId !== selectedTimelineClip.clip_id) {
+      console.warn("[HammerVisuals] preview render mismatch", {
+        selected_clip_id: selectedTimelineClip.clip_id,
+        rendered_clip_id: renderedClipId,
+      });
+    }
+  }, [activePreviewOverlays, editableVisualTimeline, selectedClipId]);
   useEffect(() => {
     if (currentPass !== "image_placement" && currentPass !== "image_animation") return;
     if (selectedClipId) return;
@@ -2577,9 +2605,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useEffect(() => {
     for (const overlay of activePreviewOverlays) {
       if (overlay.kind !== "broll") continue;
-      const node = previewBrollVideoRefs.current.get(overlay.placementId) ?? null;
+      const node = previewBrollVideoRefs.current.get(overlay.clip_id) ?? null;
       if (!node) continue;
-      const localTime = Math.max(0, playheadSec - overlay.startSec);
+      const clip = editableVisualTimeline
+        ? selectClipById(editableVisualTimeline, overlay.clip_id)
+        : null;
+      if (!clip) continue;
+      const localTime = Math.max(0, playheadSec - clip.start_sec);
       const seekThresholdSec = isScrubbing ? 0.015 : SCRUB_SEEK_THRESHOLD_SEC;
       if (Math.abs(node.currentTime - localTime) > seekThresholdSec) {
         node.currentTime = localTime;
@@ -2591,7 +2623,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         node.pause();
       }
     }
-  }, [activePreviewOverlays, isPlaybackActive, isScrubbing, playheadSec, scrubRate]);
+  }, [activePreviewOverlays, editableVisualTimeline, isPlaybackActive, isScrubbing, playheadSec, scrubRate]);
   const sourceAssetItems = useMemo<HammerSourceAssetItem[]>(() => {
     const byId = new Map<string, HammerSourceAssetItem>();
     for (const placement of editableVisualPlacements?.placements ?? []) {
@@ -2843,6 +2875,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         },
       }))
   ), [selectedClipId, sourceBrollPlacementItems]);
+  const visualTimelineLaneClips = useMemo<VisualClipBlockModel[]>(() => (
+    [...sourceImageItems, ...sourceBrollPlacementItems]
+      .map((item) => ({
+        clipId: item.id,
+        label: item.label,
+        startSec: item.startSec,
+        endSec: item.endSec,
+        selected: item.id === selectedClipId,
+      }))
+      .sort((left, right) => left.startSec - right.startSec)
+  ), [selectedClipId, sourceBrollPlacementItems, sourceImageItems]);
   const timelineLanes = useMemo<HammerTimelineLaneView[]>(() => ([
     { id: "dialogue", label: "Dialogue", tone: "dialogue", blocks: dialogueLaneBlocks },
     { id: "music", label: "Music", tone: "music", blocks: [] },
@@ -5599,7 +5642,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   function beginTimelineImagePlacementDrag(
-    event: MouseEvent<SVGGElement | SVGRectElement>,
+    event: MouseEvent<HTMLElement | SVGElement>,
     args: {
       placementId: string;
       mode: HammerTimelineImageDragState["mode"];
@@ -5609,8 +5652,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   ): void {
     if (currentPass !== "image_placement") return;
     if (event.button !== 0) return;
-    const trackRect = event.currentTarget.ownerSVGElement?.getBoundingClientRect()
-      ?? event.currentTarget.getBoundingClientRect();
+    const currentTarget = event.currentTarget as Element;
+    const ownerSvg = currentTarget instanceof SVGElement ? currentTarget.ownerSVGElement : null;
+    const trackRect = ownerSvg?.getBoundingClientRect() ?? currentTarget.getBoundingClientRect();
     if (trackRect.width <= 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -8851,10 +8895,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                   setSelectedSegmentId(item.anchorSegmentId);
                                   setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
                                   setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
+                                  setVisualTimelineFocusNonce((current) => current + 1);
                                   seekPlayheadToTime(item.startSec, "playhead");
                                 }}
                               >
-                                Jump to timeline
+                                Send to timeline
                               </button>
                               <button
                                 type="button"
@@ -9470,76 +9515,34 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   className="hammer-preview-media"
                 />
                 <div className="hammer-preview-surface__label">{resolvePreviewLabel(playheadSegment, playheadSec)}</div>
-                <div className="hammer-preview-canvas" aria-label="Visual composition canvas">
-                  {activePreviewOverlays.map((overlay) => (
-                    <div
-                      ref={(node) => applyPreviewOverlayStyle(node, overlay)}
-                      key={`${overlay.placementId}:${overlay.startSec}:${overlay.endSec}`}
-                      className={[
-                        "hammer-preview-canvas__bbox",
-                        resolveImageAnimationClass(overlay.animationPreset),
-                        overlay.isSelected ? "is-selected" : "",
-                        currentPass === "image_placement" && selectedClipId && !overlay.isSelected ? "is-dimmed" : "",
-                      ].filter(Boolean).join(" ")}
-                      onMouseDown={(event) => {
-                        setSelectedClipId(overlay.placementId);
-                        if (currentPass !== "image_placement") return;
-                        beginPreviewCanvasDrag(event, {
-                          placementId: overlay.placementId,
-                          mode: "move",
-                        });
-                      }}
-                    >
-                      {overlay.kind === "broll" ? (
-                        overlay.src ? (
-                          <video
-                            ref={(node) => {
-                              if (node) {
-                                previewBrollVideoRefs.current.set(overlay.placementId, node);
-                              } else {
-                                previewBrollVideoRefs.current.delete(overlay.placementId);
-                              }
-                            }}
-                            src={overlay.src}
-                            muted
-                            playsInline
-                            preload="metadata"
-                            className="hammer-preview-canvas__video"
-                          />
-                        ) : (
-                          <div className="hammer-preview-canvas__fallback">{overlay.label}</div>
-                        )
-                      ) : overlay.src ? (
-                        <img
-                          src={overlay.src}
-                          alt={overlay.label}
-                          className="hammer-preview-canvas__image"
-                        />
-                      ) : (
-                        <div className="hammer-preview-canvas__fallback">{overlay.label}</div>
-                      )}
-                      {currentPass === "image_placement" && overlay.isSelected ? (
-                        <button
-                          type="button"
-                          className="hammer-preview-canvas__resize-handle"
-                          aria-label="Resize selected visual"
-                          onMouseDown={(event) => {
-                            event.stopPropagation();
-                            beginPreviewCanvasDrag(event, {
-                              placementId: overlay.placementId,
-                              mode: "resize",
-                            });
-                          }}
-                        />
-                      ) : null}
-                    </div>
-                  ))}
-                  {activePreviewOverlays.length === 0 ? (
-                    <div className="hammer-preview-canvas__empty">
-                      No active visual overlay at this playhead time.
-                    </div>
-                  ) : null}
-                </div>
+                <VisualPreviewComposer
+                  overlays={activePreviewOverlays}
+                  editable={currentPass === "image_placement"}
+                  onSelectClip={(clipId) => {
+                    setSelectedClipId(clipId);
+                  }}
+                  onBeginMove={(event, clipId) => {
+                    if (currentPass !== "image_placement") return;
+                    beginPreviewCanvasDrag(event, {
+                      placementId: clipId,
+                      mode: "move",
+                    });
+                  }}
+                  onBeginResize={(event, clipId) => {
+                    if (currentPass !== "image_placement") return;
+                    beginPreviewCanvasDrag(event, {
+                      placementId: clipId,
+                      mode: "resize",
+                    });
+                  }}
+                  onRegisterBrollVideoRef={(clipId, node) => {
+                    if (node) {
+                      previewBrollVideoRefs.current.set(clipId, node);
+                    } else {
+                      previewBrollVideoRefs.current.delete(clipId);
+                    }
+                  }}
+                />
               </div>
               <div className="hammer-preview-meta">
                 <span>Playhead {playheadSec.toFixed(1)}s</span>
@@ -12343,6 +12346,51 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 </div>
               </section>
             ) : null}
+            <VisualTimelineDock
+              clips={visualTimelineLaneClips}
+              playheadSec={playheadSec}
+              durationSec={timelineDurationSec}
+              selectedClipId={selectedClipId}
+              editable={currentPass === "image_placement"}
+              focusToken={visualTimelineFocusNonce}
+              onSelectClip={(clipId) => {
+                const clip = sourceVisualPlacementItems.find((item) => item.id === clipId) ?? null;
+                setSelectedClipId(clipId);
+                if (clip) {
+                  selectionOriginRef.current = "timeline";
+                  setSelectedSegmentId(clip.anchorSegmentId);
+                  setTranscriptSelectionAnchorSegmentId(clip.anchorSegmentId);
+                  setTranscriptSelectionFocusSegmentId(clip.anchorSegmentId);
+                }
+              }}
+              onMoveClip={(event, clip) => {
+                if (currentPass !== "image_placement") return;
+                beginTimelineImagePlacementDrag(event, {
+                  placementId: clip.clipId,
+                  mode: "move",
+                  startSec: clip.startSec,
+                  endSec: clip.endSec,
+                });
+              }}
+              onTrimClipStart={(event, clip) => {
+                if (currentPass !== "image_placement") return;
+                beginTimelineImagePlacementDrag(event, {
+                  placementId: clip.clipId,
+                  mode: "resize_start",
+                  startSec: clip.startSec,
+                  endSec: clip.endSec,
+                });
+              }}
+              onTrimClipEnd={(event, clip) => {
+                if (currentPass !== "image_placement") return;
+                beginTimelineImagePlacementDrag(event, {
+                  placementId: clip.clipId,
+                  mode: "resize_end",
+                  startSec: clip.startSec,
+                  endSec: clip.endSec,
+                });
+              }}
+            />
             <div className="hammer-timeline-track-scroll" ref={timelineTrackScrollRef}>
               {editableTranscriptSegments.length > 0 ? (
                 <section className="hammer-timeline-board" aria-label="Track-based timeline">

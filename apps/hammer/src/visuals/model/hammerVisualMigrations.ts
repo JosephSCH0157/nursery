@@ -116,6 +116,7 @@ export function migrateLegacyPlacementRecordToClip(args: {
     start_sec: timing.start_sec,
     end_sec: timing.end_sec,
     geometry: normalizeGeometry(args.record.overlay_geometry ?? createDefaultVisualGeometry()),
+    fit_mode: "contain",
     animation: normalizeAnimation({
       preset: args.record.animation_preset ?? createDefaultVisualAnimation().preset,
     }),

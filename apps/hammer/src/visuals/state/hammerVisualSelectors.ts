@@ -25,6 +25,14 @@ export function selectSelectedClip(
   return state.clips.find((clip) => clip.clip_id === state.selected_clip_id) ?? null;
 }
 
+export function selectClipById(
+  state: HammerVisualTimelineState,
+  clipId: string | null | undefined,
+): HammerVisualClip | null {
+  if (!clipId) return null;
+  return state.clips.find((clip) => clip.clip_id === clipId) ?? null;
+}
+
 export function selectSelectedAsset(
   state: HammerVisualTimelineState,
 ): HammerVisualAsset | null {

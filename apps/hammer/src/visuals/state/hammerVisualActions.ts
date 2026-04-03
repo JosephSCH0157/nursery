@@ -3,6 +3,7 @@ import type {
   HammerVisualAnimation,
   HammerVisualAsset,
   HammerVisualClip,
+  HammerVisualFitMode,
   HammerVisualGeometry,
   HammerVisualTimelineState,
 } from "../model/hammerVisualTypes";
@@ -38,6 +39,11 @@ export type HammerVisualTimelineAction =
     type: "UPDATE_CLIP_GEOMETRY";
     clip_id: string;
     geometry: HammerVisualGeometry;
+  } & HammerVisualMutationMeta)
+  | ({
+    type: "UPDATE_CLIP_FIT_MODE";
+    clip_id: string;
+    fit_mode: HammerVisualFitMode;
   } & HammerVisualMutationMeta)
   | ({
     type: "PATCH_CLIP_GEOMETRY";

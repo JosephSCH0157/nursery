@@ -1757,6 +1757,94 @@ Guardrails:
   pointer-events: none;
 }
 
+.hammer-visual-timeline-dock {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.35rem 0 0.7rem;
+}
+
+.hammer-visual-timeline-lane {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.hammer-visual-timeline-lane__head {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.72rem;
+  color: rgba(225, 231, 240, 0.78);
+}
+
+.hammer-visual-timeline-lane__track {
+  position: relative;
+  min-height: 44px;
+  border-radius: 9px;
+  border: 1px solid rgba(129, 146, 170, 0.35);
+  background: linear-gradient(135deg, rgba(9, 14, 27, 0.94), rgba(14, 21, 38, 0.92));
+  overflow: hidden;
+}
+
+.hammer-visual-timeline-lane__playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 195, 92, 0.92);
+  transform: translateX(-0.5px);
+  pointer-events: none;
+}
+
+.hammer-visual-clip-block {
+  position: absolute;
+  top: 6px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid rgba(125, 170, 255, 0.5);
+  background: linear-gradient(135deg, rgba(40, 75, 151, 0.92), rgba(32, 55, 112, 0.88));
+  color: #e6ebf6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.65rem;
+  font-size: 0.69rem;
+  cursor: pointer;
+}
+
+.hammer-visual-clip-block.is-selected {
+  border-color: rgba(255, 205, 108, 0.92);
+  box-shadow: 0 0 0 1px rgba(255, 205, 108, 0.6);
+}
+
+.hammer-visual-clip-block.is-disabled {
+  opacity: 0.5;
+}
+
+.hammer-visual-clip-block__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hammer-visual-clip-block__handle {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 6px;
+  border: none;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.65);
+  cursor: ew-resize;
+}
+
+.hammer-visual-clip-block__handle--start {
+  left: 2px;
+}
+
+.hammer-visual-clip-block__handle--end {
+  right: 2px;
+}
+
 .hammer-timeline-gap {
   fill: rgba(148, 163, 184, 0.08);
   stroke: rgba(148, 163, 184, 0.18);

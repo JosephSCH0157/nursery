@@ -5,6 +5,7 @@ import {
   normalizeAnchorHint,
   normalizeAnimation,
   normalizeGeometry,
+  normalizeFitMode,
   normalizeSecRange,
   normalizeZIndex,
 } from "../model/hammerVisualGuards";
@@ -102,6 +103,7 @@ function normalizeClip(clip: HammerVisualClip, updatedAt: string): HammerVisualC
     start_sec: timing.start_sec,
     end_sec: timing.end_sec,
     geometry: normalizeGeometry(clip.geometry),
+    fit_mode: normalizeFitMode(clip.fit_mode),
     animation: normalizeAnimation(clip.animation),
     opacity: clampOpacity(clip.opacity),
     z_index: normalizeZIndex(clip.z_index),
@@ -257,6 +259,18 @@ export function hammerVisualTimelineReducer(
         replaceClip(draft, action.clip_id, (clip) => ({
           ...clip,
           geometry: normalizeGeometry(action.geometry),
+          updated_at: updatedAt,
+        })) ?? draft
+      ));
+    }
+    case "UPDATE_CLIP_FIT_MODE": {
+      const currentClip = findClip(state, action.clip_id);
+      if (!currentClip || currentClip.locked) return state;
+      const updatedAt = readTimestamp(action.updated_at);
+      return nextState(state, updatedAt, (draft) => (
+        replaceClip(draft, action.clip_id, (clip) => ({
+          ...clip,
+          fit_mode: normalizeFitMode(action.fit_mode),
           updated_at: updatedAt,
         })) ?? draft
       ));
