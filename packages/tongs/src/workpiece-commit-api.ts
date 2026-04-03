@@ -75,6 +75,7 @@ const BOOTSTRAP_WORKPIECE_PATHS = new Set([
   "hearth/media_map.v1.json",
   "hearth/revisions.v1.json",
   "hammer/session/intro-outro.v1.json",
+  "hammer/session/recording-card-thumbnail.v1.json",
   "hammer/snapshots/manifest.v1.json",
   "hammer/history/history.v1.json",
   "hammer/release-prep/package.v1.json",
