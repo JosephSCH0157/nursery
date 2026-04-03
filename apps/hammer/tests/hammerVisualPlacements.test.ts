@@ -155,8 +155,62 @@ function testReportsNoSelectedVisualsWithoutFakePlacements() {
 
   assert.equal(placements.status, "prepared");
   assert.equal(placements.placements.length, 1);
-  assert.equal(placements.placements[0]?.status, "uncertain");
+  assert.equal(placements.placements[0]?.status, "placed");
   assert.equal(placements.placements[0]?.uncertainty_flags.includes("image_map_candidate_promoted"), true);
+}
+
+function testResolvesAnchorAcrossLongTranscriptWindow() {
+  const longTranscript: HammerTranscriptSegment[] = [
+    {
+      segment_id: "turn_001",
+      start_sec: 0,
+      end_sec: 1,
+      speaker: "S1",
+      text: "Jackson faced",
+    },
+    {
+      segment_id: "turn_002",
+      start_sec: 1,
+      end_sec: 2,
+      speaker: "S1",
+      text: "overwhelming odds while",
+    },
+    {
+      segment_id: "turn_003",
+      start_sec: 2,
+      end_sec: 3,
+      speaker: "S1",
+      text: "the skyline held",
+    },
+    {
+      segment_id: "turn_004",
+      start_sec: 3,
+      end_sec: 4,
+      speaker: "S1",
+      text: "steady at dawn",
+    },
+  ];
+
+  const visualPackage = buildVisualPackage();
+  visualPackage.visuals[0] = {
+    ...visualPackage.visuals[0],
+    script_anchor: {
+      ...visualPackage.visuals[0].script_anchor!,
+      span_text: "Jackson faced overwhelming odds while the skyline held steady at dawn",
+    },
+  };
+
+  const placements = deriveHammerVisualPlacements({
+    transcriptSourceId,
+    transcriptSegments: longTranscript,
+    visualPackage,
+  });
+
+  assert.equal(placements.status, "prepared");
+  assert.equal(placements.placements.length, 1);
+  assert.equal(placements.placements[0]?.status, "placed");
+  assert.equal(placements.placements[0]?.anchor_segment_id, "turn_001");
+  assert.equal(placements.placements[0]?.timing_source, "transcript_match");
 }
 
 function testReportsNoSelectedVisualsWhenNoCandidateAssetExists() {
@@ -207,6 +261,7 @@ try {
   testDerivesDeterministicPlacementFromMatchingAnchor();
   testFallsBackToReviewableUncertainPlacementWhenMatchIsWeak();
   testReportsNoSelectedVisualsWithoutFakePlacements();
+  testResolvesAnchorAcrossLongTranscriptWindow();
   testReportsNoSelectedVisualsWhenNoCandidateAssetExists();
   testReusesPlacementArtifactWhenVisualSourcesHaveNotChanged();
   testPreservesReferenceClipClassWithoutInference();

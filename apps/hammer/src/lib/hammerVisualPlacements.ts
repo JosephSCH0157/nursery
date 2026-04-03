@@ -19,7 +19,8 @@ import {
 import { tongsFetch } from "./tongsFetch";
 import { requestHammerVisualAssistPreflight } from "./hammerVisualAssistApi";
 
-const MATCH_WINDOW_MAX_SEGMENTS = 3;
+const MATCH_WINDOW_MIN_SEGMENTS = 3;
+const MATCH_WINDOW_MAX_SEGMENTS = 12;
 const MATCH_MIN_SCORE = 0.18;
 const MATCH_STRONG_SCORE = 0.72;
 const ORDER_PENALTY_PER_SEGMENT = 0.04;
@@ -633,13 +634,14 @@ function findBestPlacementCandidate(
   anchorText: string,
   transcriptSegments: HammerTranscriptSegment[],
   floorIndex: number,
+  maxWindowSegments: number,
 ): PlacementCandidate | null {
   let best: PlacementCandidate | null = null;
 
   for (let startIndex = 0; startIndex < transcriptSegments.length; startIndex += 1) {
     for (
       let endIndex = startIndex;
-      endIndex < Math.min(transcriptSegments.length, startIndex + MATCH_WINDOW_MAX_SEGMENTS);
+      endIndex < Math.min(transcriptSegments.length, startIndex + maxWindowSegments);
       endIndex += 1
     ) {
       const windowText = transcriptSegments
@@ -664,6 +666,72 @@ function findBestPlacementCandidate(
         !best
         || candidate.score > best.score
         || (candidate.score === best.score && candidate.rawScore > best.rawScore)
+      ) {
+        best = candidate;
+      }
+    }
+  }
+
+  return best;
+}
+
+function resolveMaxWindowSegments(anchorText: string): number {
+  const tokenCount = tokenize(anchorText).length;
+  if (tokenCount <= 0) return MATCH_WINDOW_MIN_SEGMENTS;
+  const expandedWindow = Math.ceil(tokenCount / 3);
+  return Math.min(
+    MATCH_WINDOW_MAX_SEGMENTS,
+    Math.max(MATCH_WINDOW_MIN_SEGMENTS, expandedWindow),
+  );
+}
+
+function findDeterministicPlacementCandidate(
+  anchorText: string,
+  transcriptSegments: HammerTranscriptSegment[],
+  floorIndex: number,
+  maxWindowSegments: number,
+): PlacementCandidate | null {
+  const normalizedAnchor = normalizeForMatch(anchorText);
+  if (!normalizedAnchor) return null;
+
+  let best: PlacementCandidate | null = null;
+  for (let startIndex = Math.max(0, floorIndex); startIndex < transcriptSegments.length; startIndex += 1) {
+    for (
+      let endIndex = startIndex;
+      endIndex < Math.min(transcriptSegments.length, startIndex + maxWindowSegments);
+      endIndex += 1
+    ) {
+      const windowText = transcriptSegments
+        .slice(startIndex, endIndex + 1)
+        .map((segment) => segment.text)
+        .join(" ");
+      const normalizedWindow = normalizeForMatch(windowText);
+      if (!normalizedWindow || !normalizedWindow.includes(normalizedAnchor)) continue;
+
+      const exact = normalizedWindow === normalizedAnchor;
+      const rawScore = exact ? 1 : 0.98;
+      const candidate: PlacementCandidate = {
+        startIndex,
+        endIndex,
+        score: rawScore,
+        rawScore,
+      };
+
+      if (!best) {
+        best = candidate;
+        continue;
+      }
+
+      const bestSpan = best.endIndex - best.startIndex;
+      const candidateSpan = endIndex - startIndex;
+      if (candidate.rawScore > best.rawScore) {
+        best = candidate;
+      } else if (candidate.rawScore === best.rawScore && candidateSpan < bestSpan) {
+        best = candidate;
+      } else if (
+        candidate.rawScore === best.rawScore
+        && candidateSpan === bestSpan
+        && candidate.startIndex < best.startIndex
       ) {
         best = candidate;
       }
@@ -889,7 +957,19 @@ export function deriveHammerVisualPlacements(args: {
       continue;
     }
 
-    const candidate = findBestPlacementCandidate(anchorText, transcriptSegments, searchFloor);
+    const maxWindowSegments = resolveMaxWindowSegments(anchorText);
+    const deterministicCandidate = findDeterministicPlacementCandidate(
+      anchorText,
+      transcriptSegments,
+      searchFloor,
+      maxWindowSegments,
+    );
+    const candidate = deterministicCandidate ?? findBestPlacementCandidate(
+      anchorText,
+      transcriptSegments,
+      searchFloor,
+      maxWindowSegments,
+    );
     const placementFlags: string[] = [];
     let startIndex = searchFloor;
     let endIndex = Math.min(transcriptSegments.length - 1, searchFloor);
@@ -901,7 +981,7 @@ export function deriveHammerVisualPlacements(args: {
       endIndex = candidate.endIndex;
       confidence = Number(candidate.rawScore.toFixed(3));
       timingSource = "transcript_match";
-      if (candidate.rawScore < MATCH_STRONG_SCORE) {
+      if (!deterministicCandidate && candidate.rawScore < MATCH_STRONG_SCORE) {
         placementFlags.push("low_confidence_match");
       }
       if (candidate.startIndex < searchFloor) {
@@ -919,6 +999,7 @@ export function deriveHammerVisualPlacements(args: {
     const endSec = matchedSegments.at(-1)?.end_sec ?? startSec;
     searchFloor = Math.min(transcriptSegments.length - 1, endIndex + 1);
 
+    const promotedCandidate = visual.status !== "selected";
     placements.push({
       placement_id: `placement_${visual.entry_id}`,
       entry_id: visual.entry_id,
@@ -941,9 +1022,9 @@ export function deriveHammerVisualPlacements(args: {
       end_sec: endSec,
       confidence,
       timing_source: timingSource,
-      status: placementFlags.length > 0 || visual.status !== "selected" ? "uncertain" : "placed",
+      status: placementFlags.length > 0 ? "uncertain" : "placed",
       ingest_state: visual.status === "selected" ? "approved" : "suggested",
-      uncertainty_flags: visual.status !== "selected"
+      uncertainty_flags: promotedCandidate
         ? [...placementFlags, "image_map_candidate_promoted"]
         : placementFlags,
     });

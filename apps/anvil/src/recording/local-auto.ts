@@ -152,7 +152,26 @@ import {
     return sliced || 'Script';
   }
 
+  function getRouteEpisodeTitle(): string | null {
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const candidate = params.get('episode_title')
+        || params.get('episodeTitle')
+        || params.get('workpiece_title')
+        || params.get('workpieceTitle');
+      if (!candidate) return null;
+      const normalized = candidate.trim();
+      return normalized.length > 0 ? normalized : null;
+    } catch {
+      return null;
+    }
+  }
+
   function getActiveScriptTitle(): string {
+    try {
+      const routeEpisodeTitle = getRouteEpisodeTitle();
+      if (routeEpisodeTitle) return routeEpisodeTitle;
+    } catch {}
     try {
       const titleInput = document.getElementById('scriptTitle') as HTMLInputElement | null;
       if (titleInput && titleInput.value) return titleInput.value;

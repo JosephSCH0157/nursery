@@ -921,6 +921,10 @@ Guardrails:
   cursor: pointer;
 }
 
+.hammer-preview-meta__warning {
+  color: #fbbf24;
+}
+
 .hammer-tool-card {
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 10px;

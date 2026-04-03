@@ -25,6 +25,16 @@ const ANVIL_FULL_PAGE_URL = import.meta.env.DEV
   : "/anvil/teleprompter_pro.html";
 const TONGS_TOKEN_STORAGE_KEY = "forge_tongs_api_token_v1";
 
+function appendEpisodeTitleParam(href: string, episodeTitle: string | null): string {
+  const normalizedTitle = episodeTitle?.trim() ?? "";
+  if (!normalizedTitle) return href;
+  const [pathname, rawSearch = ""] = href.split("?", 2);
+  const params = new URLSearchParams(rawSearch);
+  params.set("episode_title", normalizedTitle);
+  const nextSearch = params.toString();
+  return nextSearch ? `${pathname}?${nextSearch}` : pathname;
+}
+
 export default function AnvilRoute() {
   const shell = useOutletContext<AppShellContext>();
   const location = useLocation();
@@ -56,23 +66,21 @@ export default function AnvilRoute() {
     && !requestedWorkspaceKnown
     && (!shell.hasWorkspaceFetchSucceeded || shell.loadingWorkspaces),
   );
-  const anvilHomeHref = useMemo(
-    () =>
-      buildForgeRouteHref(ANVIL_FULL_PAGE_URL, {
+  const anvilHomeHref = useMemo(() => appendEpisodeTitleParam(
+    buildForgeRouteHref(ANVIL_FULL_PAGE_URL, {
         search: location.search,
         workspaceId: resolvedWorkspaceId,
       }),
-    [location.search, resolvedWorkspaceId],
-  );
-  const anvilHref = useMemo(
-    () =>
-      buildForgeRouteHref(ANVIL_FULL_PAGE_URL, {
+    resolvedEpisodeTitle,
+  ), [location.search, resolvedEpisodeTitle, resolvedWorkspaceId]);
+  const anvilHref = useMemo(() => appendEpisodeTitleParam(
+    buildForgeRouteHref(ANVIL_FULL_PAGE_URL, {
         search: location.search,
         workspaceId: resolvedWorkspaceId,
         workpieceId: context.workpieceId,
       }),
-    [context.workpieceId, location.search, resolvedWorkspaceId],
-  );
+    resolvedEpisodeTitle,
+  ), [context.workpieceId, location.search, resolvedEpisodeTitle, resolvedWorkspaceId]);
   const hasRequestedHandoff = Boolean(
     context.workpieceId
     || context.hasInvalidWorkpieceId

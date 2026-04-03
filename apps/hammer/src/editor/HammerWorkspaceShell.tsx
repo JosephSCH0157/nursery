@@ -211,6 +211,7 @@ import {
   loadHammerPreparedReleasePackage,
   saveHammerPreparedReleasePackage,
 } from "../lib/hammerPreparedReleasePackageApi";
+import { loadHammerWorkspaceWorkpieceLabel } from "../app/hammerRuntimeData";
 import {
   HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH,
   buildHammerQuenchReleasePacket,
@@ -839,6 +840,25 @@ function toErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   if (typeof error === "string" && error.trim()) return error;
   return fallback;
+}
+
+function normalizeLabelForComparison(value: string | null | undefined): string {
+  const raw = value?.trim() ?? "";
+  if (!raw) return "";
+  return raw
+    .toLowerCase()
+    .replace(/[_\-]+/g, " ")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isSystemMediaLabel(value: string | null | undefined): boolean {
+  const raw = value?.trim() ?? "";
+  if (!raw) return true;
+  return raw.startsWith("tongs:")
+    || raw.includes("/")
+    || raw.includes("\\");
 }
 
 function isSubtractiveTranscriptEdit(previousText: string, nextText: string): boolean {
@@ -1777,6 +1797,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [thumbnailPromptDraft, setThumbnailPromptDraft] = useState("");
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const [playbackMediaSrc, setPlaybackMediaSrc] = useState<string | null>(null);
+  const [canonicalWorkpieceLabel, setCanonicalWorkpieceLabel] = useState<string | null>(null);
   const [visualTimelineFocusNonce, setVisualTimelineFocusNonce] = useState(0);
   const editableVisualPlacements = useMemo(
     () => deriveLegacyVisualPlacementsFromTimeline(editableVisualTimeline),
@@ -2015,6 +2036,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const mediaSourceLabel = launchContext.media.kind === "dev-tone"
     ? "Dev tone"
     : mediaRef?.local_relpath ?? launchContext.media.label ?? null;
+  const legacyCaptureLabel = launchContext.media.kind === "dev-tone"
+    ? null
+    : launchContext.media.label ?? null;
   const playbackLocalRootAbs = workspaceMapping?.local_root_abs
     ?? (launchContext.media.kind === "mapped-local" ? (launchContext.media.media_root_abs ?? null) : null);
   const mediaBackboneRuntime = useMemo(
@@ -2970,6 +2994,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return mediaSourceLabel;
   }, [mediaSourceLabel, preferredPlayback.kind, preferredPlayback.local_relpath, preferredPlayback.source_label, preferredPlayback.workpiece_path]);
+  const mediaLabelMismatchWarning = useMemo(() => {
+    const canonical = normalizeLabelForComparison(canonicalWorkpieceLabel);
+    const legacy = normalizeLabelForComparison(legacyCaptureLabel);
+    if (!canonical || !legacy) return null;
+    if (isSystemMediaLabel(legacyCaptureLabel)) return null;
+    if (canonical.includes(legacy) || legacy.includes(canonical)) return null;
+    return `Capture label "${legacyCaptureLabel}" does not match this episode title "${canonicalWorkpieceLabel}".`;
+  }, [canonicalWorkpieceLabel, legacyCaptureLabel]);
   const historyController = historyControllerRef.current;
   const canUndo = historyController?.canUndo() ?? false;
   const canRedo = historyController?.canRedo() ?? false;
@@ -3428,6 +3460,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       }),
     });
   }, [editableOutputSelection, outputLayerCandidates]);
+
+  useEffect(() => {
+    let active = true;
+    setCanonicalWorkpieceLabel(null);
+    void loadHammerWorkspaceWorkpieceLabel(launchContext.workspace_id, launchContext.workpiece_id)
+      .then((label) => {
+        if (!active) return;
+        setCanonicalWorkpieceLabel(label?.trim() || null);
+      })
+      .catch(() => {
+        if (!active) return;
+        setCanonicalWorkpieceLabel(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [launchContext.workspace_id, launchContext.workpiece_id]);
 
   useEffect(() => {
     if (speakerOptions.length === 0) return;
@@ -9571,6 +9620,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <span>Playhead {playheadSec.toFixed(1)}s</span>
                 <span>{playbackModeLabel}</span>
                 <span>{playbackSourceLabel ?? "No media source"}</span>
+                {mediaLabelMismatchWarning ? (
+                  <span className="hammer-preview-meta__warning">{mediaLabelMismatchWarning}</span>
+                ) : null}
                 <span>Playback lane: {studioRackPlaybackConfig.backend}</span>
                 <span>{playbackMediaSrc ? "Mapped media ready" : "Mapped media unavailable"}</span>
                 {currentPass === "visual_finishing" ? (
