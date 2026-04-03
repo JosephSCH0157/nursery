@@ -97,6 +97,26 @@ test("createHearthAiHandler keeps stt error semantics when text api key is missi
   assert.equal(payload.billing_mode, "forge");
 });
 
+test("createHearthAiHandler returns infrastructure error for ai key status when service role is missing", async () => {
+  const handler = createHearthAiHandler(buildConfig({ supabaseUrl: null, supabaseServiceRoleKey: null }));
+  const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.aiKeysStatus}`));
+  assert.equal(response.status, 500);
+  const payload = await response.json();
+  assert.equal(payload.ok, false);
+  assert.equal(payload.error, "Supabase service role is not configured.");
+});
+
+test("createHearthAiHandler enforces POST for ai key connect/disconnect routes", async () => {
+  const handler = createHearthAiHandler(buildConfig());
+  const connect = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.aiKeysConnect}`, { method: "GET" }));
+  const disconnect = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.aiKeysDisconnect}`, { method: "GET" }));
+
+  assert.equal(connect.status, 405);
+  assert.equal(disconnect.status, 405);
+  assert.equal((await connect.json()).error, "Method not allowed");
+  assert.equal((await disconnect.json()).error, "Method not allowed");
+});
+
 test("Vite middleware status route matches direct handler output", async () => {
   const priorBillingMode = process.env.HEARTH_AI_BILLING_MODE;
   const priorBalance = process.env.HEARTH_AI_TOKEN_BALANCE;

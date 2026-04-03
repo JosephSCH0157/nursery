@@ -64,6 +64,10 @@ export function mwHearthChatApi() {
         pathname !== HEARTH_AI_ROUTES.chat
         && pathname !== HEARTH_AI_ROUTES.chatStatus
         && pathname !== HEARTH_AI_ROUTES.stt
+        && pathname !== HEARTH_AI_ROUTES.costAudit
+        && pathname !== HEARTH_AI_ROUTES.aiKeysConnect
+        && pathname !== HEARTH_AI_ROUTES.aiKeysDisconnect
+        && pathname !== HEARTH_AI_ROUTES.aiKeysStatus
       ) {
         next();
         return;

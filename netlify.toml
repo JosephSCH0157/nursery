@@ -25,6 +25,24 @@
   force = true
 
 [[redirects]]
+  from = "/api/ai-keys/connect"
+  to = "/.netlify/functions/ai-keys-connect"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/ai-keys/disconnect"
+  to = "/.netlify/functions/ai-keys-disconnect"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/ai-keys/status"
+  to = "/.netlify/functions/ai-keys-status"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/anvil/asr/whisper"
   to = "/.netlify/functions/anvil-whisper"
   status = 200

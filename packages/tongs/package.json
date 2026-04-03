@@ -37,6 +37,7 @@
     "test:storage-registry": "tsc -p tsconfig.json && node --test tests/storage-registry-migration.test.mjs"
   },
   "devDependencies": {
+    "@types/node": "^24.10.1",
     "@eslint/js": "^9.39.1",
     "eslint": "^9.39.1",
     "typescript": "~5.9.3",

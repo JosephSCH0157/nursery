@@ -44,6 +44,11 @@ import {
   type AiUsageTrigger,
 } from "../ai-usage-accounting";
 import type { HearthRuntimeConfig } from "./hearth-runtime-config";
+import {
+  connectUserAiKey,
+  disconnectUserAiKey,
+  getUserAiKeyStatus,
+} from "./user-ai-keys-service";
 
 type StructuredReply = {
   assistantText: string;
@@ -121,6 +126,19 @@ type SttReqBody = {
   mime_type?: unknown;
   lane?: unknown;
   action_id?: unknown;
+};
+
+type AiKeysConnectReqBody = {
+  provider?: unknown;
+  api_key?: unknown;
+  key_label?: unknown;
+  provider_account_id?: unknown;
+  validation_mode?: unknown;
+};
+
+type AiKeysDisconnectReqBody = {
+  provider?: unknown;
+  provider_account_id?: unknown;
 };
 
 const STT_MAX_BYTES = 10 * 1024 * 1024;
@@ -1917,6 +1935,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         && pathname !== HEARTH_AI_ROUTES.chatStatus
         && pathname !== HEARTH_AI_ROUTES.stt
         && pathname !== HEARTH_AI_ROUTES.costAudit
+        && pathname !== HEARTH_AI_ROUTES.aiKeysConnect
+        && pathname !== HEARTH_AI_ROUTES.aiKeysDisconnect
+        && pathname !== HEARTH_AI_ROUTES.aiKeysStatus
       ) {
         return jsonResponse(404, { ok: false, error: "Not found" });
       }
@@ -2024,6 +2045,90 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           lane,
           rows: normalizedRows,
           totals,
+        });
+      }
+
+      if (pathname === HEARTH_AI_ROUTES.aiKeysStatus) {
+        if (method !== "GET") {
+          return jsonResponse(405, { ok: false, error: "Method not allowed" });
+        }
+        if (!supabaseService) {
+          return jsonResponse(500, { ok: false, error: "Supabase service role is not configured." });
+        }
+        const bearerToken = readBearerToken(request.headers.get("authorization"));
+        const userId = await resolveUserId(bearerToken);
+        if (!userId) {
+          return jsonResponse(401, { ok: false, error: "Authentication required." });
+        }
+        const provider = url.searchParams.get("provider");
+        const result = await getUserAiKeyStatus({
+          supabaseService,
+          provider,
+        });
+        if (!result.ok) {
+          return jsonResponse(result.statusCode, { ok: false, error: result.error });
+        }
+        return jsonResponse(200, {
+          ok: true,
+          statuses: result.statuses,
+        });
+      }
+
+      if (pathname === HEARTH_AI_ROUTES.aiKeysConnect) {
+        if (method !== "POST") {
+          return jsonResponse(405, { ok: false, error: "Method not allowed" });
+        }
+        if (!supabaseService) {
+          return jsonResponse(500, { ok: false, error: "Supabase service role is not configured." });
+        }
+        const bearerToken = readBearerToken(request.headers.get("authorization"));
+        const userId = await resolveUserId(bearerToken);
+        if (!userId) {
+          return jsonResponse(401, { ok: false, error: "Authentication required." });
+        }
+
+        const bodyRaw = (await readJsonBody(request)) as AiKeysConnectReqBody;
+        const result = await connectUserAiKey({
+          supabaseService,
+          provider: bodyRaw.provider,
+          rawKey: bodyRaw.api_key,
+          keyLabel: bodyRaw.key_label,
+          providerAccountId: bodyRaw.provider_account_id,
+          validationMode: bodyRaw.validation_mode,
+        });
+        if (!result.ok) {
+          return jsonResponse(result.statusCode, { ok: false, error: result.error });
+        }
+        return jsonResponse(200, {
+          ok: true,
+          status: result.status,
+        });
+      }
+
+      if (pathname === HEARTH_AI_ROUTES.aiKeysDisconnect) {
+        if (method !== "POST") {
+          return jsonResponse(405, { ok: false, error: "Method not allowed" });
+        }
+        if (!supabaseService) {
+          return jsonResponse(500, { ok: false, error: "Supabase service role is not configured." });
+        }
+        const bearerToken = readBearerToken(request.headers.get("authorization"));
+        const userId = await resolveUserId(bearerToken);
+        if (!userId) {
+          return jsonResponse(401, { ok: false, error: "Authentication required." });
+        }
+        const bodyRaw = (await readJsonBody(request)) as AiKeysDisconnectReqBody;
+        const result = await disconnectUserAiKey({
+          supabaseService,
+          provider: bodyRaw.provider,
+          providerAccountId: bodyRaw.provider_account_id,
+        });
+        if (!result.ok) {
+          return jsonResponse(result.statusCode, { ok: false, error: result.error });
+        }
+        return jsonResponse(200, {
+          ok: true,
+          status: result.status,
         });
       }
 
