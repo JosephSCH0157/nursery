@@ -16,6 +16,22 @@
       property="og:description"
       content="Podcaster's Forge unifies your production workflow across Sparks, scripts, recording, and publishing."
     />
+    <script type="module">
+      if (import.meta.env.PROD) {
+        const tag = document.createElement("script");
+        tag.async = true;
+        tag.src = "https://www.googletagmanager.com/gtag/js?id=G-GE3SGWWW0F";
+        document.head.appendChild(tag);
+
+        window.dataLayer = window.dataLayer || [];
+        window.gtag = function gtag() {
+          window.dataLayer.push(arguments);
+        };
+
+        window.gtag("js", new Date());
+        window.gtag("config", "G-GE3SGWWW0F");
+      }
+    </script>
     <title>Podcaster's Forge</title>
   </head>
   <body>

@@ -60,6 +60,7 @@ import {
   isReusableHammerVisualPlacements,
   loadHammerWorkpieceVisualPackage,
 } from "../lib/hammerVisualPlacements";
+import { loadHammerVisualTimelineStateFromSnapshot } from "../visuals/persistence/hammerVisualTimelinePersistence";
 import { hasTongsUserAccessToken } from "../lib/tongsFetch";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
 
@@ -907,6 +908,10 @@ export default function HammerWorkspaceEditor(
   const overlayViewModel = buildHammerPrepOverlayViewModel(prepState);
   const shouldRenderEditor = persistenceMode !== "canonical" || prepState.status === "prepared";
   const visualPlacementData = loadedPersistenceSnapshot?.visual_placements.data ?? null;
+  const visualTimelineData = useMemo(
+    () => loadHammerVisualTimelineStateFromSnapshot(loadedPersistenceSnapshot),
+    [loadedPersistenceSnapshot],
+  );
   const audioPolishData = loadedPersistenceSnapshot?.audio_polish.data ?? null;
   const handoffMediaPrepOutputs = useMemo(
     () => buildHammerMediaPrepOutputsPackage({
@@ -1099,6 +1104,7 @@ export default function HammerWorkspaceEditor(
             launchContext={effectiveLaunchContext}
             structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
             visualPlacements={visualPlacementData}
+            visualTimeline={visualTimelineData}
             audioPolish={audioPolishData}
             initialVisualPreviewSettings={loadedPersistenceSnapshot?.editor_session.data?.visual_preview ?? null}
             initialCurrentPass={loadedPersistenceSnapshot?.state?.current_pass}

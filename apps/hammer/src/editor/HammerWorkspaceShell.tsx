@@ -26,6 +26,7 @@ import type {
   HammerVisualPlacementRecord,
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
+import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import {
   DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
@@ -328,6 +329,7 @@ type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
   structuredTranscript?: HammerPersistedStructuredTranscript | null;
   visualPlacements?: HammerPersistedVisualPlacements | null;
+  visualTimeline?: HammerVisualTimelineState | null;
   audioPolish?: HammerPersistedAudioPolish | null;
   initialVisualPreviewSettings?: HammerPersistedVisualPreviewSettings | null;
   initialCurrentPass?: HammerPassId;
@@ -1598,6 +1600,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       })),
     }))}`;
   }, [props.visualPlacements]);
+  const visualTimelineResetKey = useMemo(() => {
+    const timeline = props.visualTimeline;
+    if (!timeline) return "visual-timeline:none";
+    return `visual-timeline:${stableHashToken(JSON.stringify({
+      revision: timeline.revision,
+      updatedAt: timeline.updated_at,
+      selectedClipId: timeline.selected_clip_id,
+      clipCount: timeline.clips.length,
+      assetCount: timeline.assets.length,
+      clipIds: timeline.clips.map((clip) => clip.clip_id),
+    }))}`;
+  }, [props.visualTimeline]);
   const transcriptSegments = useMemo(
     () => readTranscriptSegments(launchContext, props.structuredTranscript ?? null),
     [launchContext.transcript, structuredTranscriptResetKey],
@@ -3438,7 +3452,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       active = false;
       clearPersistTimer();
     };
-  }, [launchContext.workpiece_id, structuredTranscriptResetKey, transcriptSourceId, visualPlacementsResetKey]);
+  }, [launchContext.workpiece_id, structuredTranscriptResetKey, transcriptSourceId, visualPlacementsResetKey, visualTimelineResetKey]);
 
   useEffect(() => {
     const selectedStillExists = selectedSegmentId
@@ -7995,6 +8009,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       editPlan: canonicalEditPlan,
       editorialAuthorityGraph: exportBasis.canonicalGraph,
       visualPlacements: editableVisualPlacements,
+      visualTimeline: props.visualTimeline ?? null,
       audioPolish: editableAudioPolish,
     };
 
@@ -8019,6 +8034,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     editableTranscriptSegments,
     transcriptSourceId,
     workspaceMapping,
+    props.visualTimeline,
   ]);
 
   return (
