@@ -12,8 +12,8 @@ interface VisualTimelineDockProps {
   focusToken?: number;
   onSelectClip: (clipId: string) => void;
   onMoveClip?: (event: MouseEvent<HTMLDivElement>, clip: VisualClipBlockModel) => void;
-  onTrimClipStart?: (event: MouseEvent<HTMLButtonElement>, clip: VisualClipBlockModel) => void;
-  onTrimClipEnd?: (event: MouseEvent<HTMLButtonElement>, clip: VisualClipBlockModel) => void;
+  onTrimClipStart?: (event: MouseEvent<HTMLDivElement>, clip: VisualClipBlockModel) => void;
+  onTrimClipEnd?: (event: MouseEvent<HTMLDivElement>, clip: VisualClipBlockModel) => void;
 }
 
 export default function VisualTimelineDock(props: VisualTimelineDockProps) {

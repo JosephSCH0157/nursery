@@ -16,8 +16,8 @@ interface VisualClipBlockProps {
   showTrimHandles?: boolean;
   onSelect: (clipId: string) => void;
   onMovePointerDown?: (event: MouseEvent<HTMLDivElement>, clipId: string) => void;
-  onTrimStartPointerDown?: (event: MouseEvent<HTMLButtonElement>, clipId: string) => void;
-  onTrimEndPointerDown?: (event: MouseEvent<HTMLButtonElement>, clipId: string) => void;
+  onTrimStartPointerDown?: (event: MouseEvent<HTMLDivElement>, clipId: string) => void;
+  onTrimEndPointerDown?: (event: MouseEvent<HTMLDivElement>, clipId: string) => void;
 }
 
 function toPercent(value: number, durationSec: number): number {
@@ -29,6 +29,13 @@ export default function VisualClipBlock(props: VisualClipBlockProps) {
   const { clip, durationSec } = props;
   const leftPercent = toPercent(clip.startSec, durationSec);
   const widthPercent = Math.max(1, toPercent(clip.endSec - clip.startSec, durationSec));
+
+  const applyBlockLayout = (node: HTMLDivElement | null) => {
+    if (!node) return;
+    node.style.left = `${leftPercent}%`;
+    node.style.width = `${widthPercent}%`;
+  };
+
   return (
     <div
       role="button"
@@ -41,10 +48,7 @@ export default function VisualClipBlock(props: VisualClipBlockProps) {
         clip.disabled ? "is-disabled" : "",
         clip.locked ? "is-locked" : "",
       ].filter(Boolean).join(" ")}
-      style={{
-        left: `${leftPercent}%`,
-        width: `${widthPercent}%`,
-      }}
+      ref={applyBlockLayout}
       onMouseDown={(event) => {
         props.onMovePointerDown?.(event, clip.clipId);
       }}
@@ -60,19 +64,17 @@ export default function VisualClipBlock(props: VisualClipBlockProps) {
     >
       {props.showTrimHandles ? (
         <>
-          <button
-            type="button"
+          <div
             className="hammer-visual-clip-block__handle hammer-visual-clip-block__handle--start"
-            aria-label="Trim clip start"
+            aria-hidden="true"
             onMouseDown={(event) => {
               event.stopPropagation();
               props.onTrimStartPointerDown?.(event, clip.clipId);
             }}
           />
-          <button
-            type="button"
+          <div
             className="hammer-visual-clip-block__handle hammer-visual-clip-block__handle--end"
-            aria-label="Trim clip end"
+            aria-hidden="true"
             onMouseDown={(event) => {
               event.stopPropagation();
               props.onTrimEndPointerDown?.(event, clip.clipId);

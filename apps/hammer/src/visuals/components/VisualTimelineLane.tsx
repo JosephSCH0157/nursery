@@ -10,8 +10,8 @@ interface VisualTimelineLaneProps {
   editable: boolean;
   onSelectClip: (clipId: string) => void;
   onMoveClip?: (event: MouseEvent<HTMLDivElement>, clip: VisualClipBlockModel) => void;
-  onTrimClipStart?: (event: MouseEvent<HTMLButtonElement>, clip: VisualClipBlockModel) => void;
-  onTrimClipEnd?: (event: MouseEvent<HTMLButtonElement>, clip: VisualClipBlockModel) => void;
+  onTrimClipStart?: (event: MouseEvent<HTMLDivElement>, clip: VisualClipBlockModel) => void;
+  onTrimClipEnd?: (event: MouseEvent<HTMLDivElement>, clip: VisualClipBlockModel) => void;
 }
 
 function toPercent(value: number, durationSec: number): number {
