@@ -1,6 +1,6 @@
 import { normalizeHammerPassStatusMap } from "../../../../packages/tongs/src/hammer-orchestration-contract";
 import type { HammerReadinessGateResult } from "./hammerReadinessGate";
-import type { HammerReleaseHandoffStatus } from "../lib/hammerReleaseHandoffPosture";
+import type { HammerReadinessReasonCode } from "./hammerReadinessTypes";
 import type {
   HammerAlignmentStatus,
   HammerPassId,
@@ -34,10 +34,7 @@ export type HammerPassReasonCode =
   | "packaging_basis_missing"
   | "packaging_selection_missing"
   | "packaging_asset_unresolved"
-  | "ready_gate_blocked"
-  | "ready_gate_review"
-  | "ready_handoff_blocked"
-  | "ready_handoff_review";
+  | HammerReadinessReasonCode;
 
 export interface HammerPassReloadExpectation {
   code:
@@ -63,8 +60,11 @@ export interface HammerPassSelectorContext {
   introPath?: string | null;
   outroPath?: string | null;
   packagingLogoEnabled?: boolean;
+  readinessVerdict?: Pick<
+    HammerReadinessGateResult,
+    "status" | "blocker_count" | "review_count" | "reasons" | "blockingReasons" | "reviewReasons"
+  > | null;
   readinessGate?: Pick<HammerReadinessGateResult, "status" | "blocker_count" | "review_count"> | null;
-  handoffStatus?: HammerReleaseHandoffStatus | null;
 }
 
 export interface HammerPassSelectorResult {
@@ -186,20 +186,16 @@ function packagingReasonCodes(
 function readyReasonCodes(
   context: HammerPassSelectorContext,
 ): HammerPassReasonCode[] {
-  const reasons: HammerPassReasonCode[] = [];
+  if (context.readinessVerdict) {
+    return [...new Set(context.readinessVerdict.reasons.map((reason) => reason.code))];
+  }
   if (context.readinessGate?.status === "blocked" || (context.readinessGate?.blocker_count ?? 0) > 0) {
-    reasons.push("ready_gate_blocked");
-  } else if (context.readinessGate?.status === "needs_review" || (context.readinessGate?.review_count ?? 0) > 0) {
-    reasons.push("ready_gate_review");
+    return ["handoff_blocked"];
   }
-
-  if (context.handoffStatus === "blocked") {
-    reasons.push("ready_handoff_blocked");
-  } else if (context.handoffStatus === "needs_review") {
-    reasons.push("ready_handoff_review");
+  if (context.readinessGate?.status === "needs_review" || (context.readinessGate?.review_count ?? 0) > 0) {
+    return ["handoff_needs_review"];
   }
-
-  return [...new Set(reasons)];
+  return [];
 }
 
 function resolveHumanLabel(
@@ -224,8 +220,13 @@ function resolveHumanLabel(
         return "Blocked: packaging basis missing";
       case "packaging_selection_missing":
         return "Blocked: packaging selection missing";
-      case "ready_gate_blocked":
-      case "ready_handoff_blocked":
+      case "handoff_blocked":
+      case "export_posture_unavailable":
+      case "artifact_transcript_missing":
+      case "artifact_subtitles_srt_missing":
+      case "artifact_subtitles_vtt_missing":
+      case "artifact_visuals_missing":
+      case "artifact_audio_missing":
         return "Blocked: not ready for Quench";
       default:
         return `Blocked: ${passId.replaceAll("_", " ")}`;
@@ -245,8 +246,14 @@ function resolveHumanLabel(
         return "Degraded: audio not finalized";
       case "packaging_asset_unresolved":
         return "Degraded: packaging asset unresolved";
-      case "ready_gate_review":
-      case "ready_handoff_review":
+      case "handoff_needs_review":
+      case "export_posture_degraded":
+      case "operation_degraded":
+      case "unresolved_broll_intent":
+      case "podcast_master_degraded":
+      case "podcast_master_export_only":
+      case "bound_attention_video":
+      case "bound_attention_audio":
         return "Needs review before Ready";
       default:
         return "Degraded";
@@ -352,8 +359,24 @@ export function getPassStatus(
     || reason === "audio_polish_missing"
     || reason === "packaging_basis_missing"
     || reason === "packaging_selection_missing"
-    || reason === "ready_gate_blocked"
-    || reason === "ready_handoff_blocked"
+    || reason === "handoff_blocked"
+    || reason === "export_posture_unavailable"
+    || reason === "operation_unavailable"
+    || reason === "podcast_master_unavailable"
+    || reason === "artifact_transcript_missing"
+    || reason === "artifact_transcript_stale"
+    || reason === "artifact_transcript_failed"
+    || reason === "artifact_subtitles_srt_missing"
+    || reason === "artifact_subtitles_srt_stale"
+    || reason === "artifact_subtitles_vtt_missing"
+    || reason === "artifact_subtitles_vtt_stale"
+    || reason === "artifact_visuals_missing"
+    || reason === "artifact_visuals_stale"
+    || reason === "artifact_audio_missing"
+    || reason === "artifact_audio_stale"
+    || reason === "artifact_audio_failed"
+    || reason === "artifact_audio_unsupported"
+    || reason === "artifact_audio_requires_future_ffmpeg"
   ));
   const isDegraded = !isBlocking && reasonCodes.length > 0;
 

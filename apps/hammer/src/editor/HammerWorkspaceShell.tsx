@@ -6396,7 +6396,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   function focusReadinessIssue(): void {
-    const operationId = readinessGate.primary_operation_id
+    const operationId = readinessVerdict.primaryOperationId
+      ?? readinessGate.primary_operation_id
       ?? boundAttentionQueue[0]?.operationId
       ?? unresolvedBrollSuggestionItems[0]?.operationId
       ?? null;
@@ -7267,6 +7268,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     releasePrepPackage: exportBasis.currentReleasePackage,
     readinessGate,
   }), [exportBasis.currentReleasePackage, readinessGate]);
+  const readinessVerdict = handoffPosture.verdict;
   const passSelectorContext = useMemo<HammerPassSelectorContext>(() => ({
     currentPass,
     passStatus,
@@ -7278,8 +7280,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     introPath: introOutroSelection.intro_path,
     outroPath: introOutroSelection.outro_path,
     packagingLogoEnabled: Boolean(packagingLogoPlacement),
+    readinessVerdict,
     readinessGate,
-    handoffStatus: handoffPosture.handoff_status,
   }), [
     currentPass,
     passStatus,
@@ -7288,10 +7290,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     exportBasis.transcriptForRelease,
     editableAudioPolish,
     editableVisualPlacements,
-    handoffPosture.handoff_status,
     introOutroSelection.intro_path,
     introOutroSelection.outro_path,
     packagingLogoPlacement,
+    readinessVerdict,
     readinessGate,
   ]);
   const passSelectorResults = useMemo(() => {
@@ -7302,14 +7304,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return byPass;
   }, [passSelectorContext]);
   const currentPassSelectorResult = passSelectorResults.get(currentPass) ?? getPassStatus(currentPass, passSelectorContext);
-  const readinessStatusLabel = handoffPosture.handoff_status === "ready"
+  const readinessStatusLabel = readinessVerdict.status === "ready"
     ? "Ready for export"
-    : handoffPosture.handoff_status === "blocked"
+    : readinessVerdict.status === "blocked"
     ? "Blocked"
-    : `Needs review (${readinessGate.review_count})`;
-  const sendToQuenchButtonLabel = handoffPosture.handoff_status === "blocked"
+    : `Needs review (${readinessVerdict.counts.review})`;
+  const sendToQuenchButtonLabel = readinessVerdict.status === "blocked"
     ? "Blocked — Resolve Issues"
-    : handoffPosture.handoff_status === "needs_review"
+    : readinessVerdict.status === "needs_review"
     ? "Send to Quench (Needs Review)"
     : exportTruthState === "stale"
     ? "Send Updated Packet to Quench"
@@ -11559,7 +11561,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     </div>
                     <div className="hammer-tool-hint">
                       Readiness: {readinessStatusLabel}
-                      {` · blockers ${handoffPosture.blocking_reasons.length} · review ${handoffPosture.review_reasons.length}`}
+                      {` · blockers ${readinessVerdict.counts.blocking} · review ${readinessVerdict.counts.review}`}
                     </div>
                     <div className="hammer-tool-hint">Export packet: {exportStatusLabel}</div>
                     <button
@@ -11567,7 +11569,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       onClick={() => {
                         void handleSendToQuench();
                       }}
-                      disabled={releasePrepSaving || releasePrepLoading || handoffPosture.handoff_status === "blocked"}
+                      disabled={releasePrepSaving || releasePrepLoading || readinessVerdict.status === "blocked"}
                     >
                       {releasePrepSaving ? "Sending..." : sendToQuenchButtonLabel}
                     </button>
@@ -11586,7 +11588,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <div className="hammer-tool-hint">Export status: {exportStatusLabel}</div>
                   <div className="hammer-tool-hint">
                     Readiness gate: {readinessStatusLabel}
-                    {` · blockers ${handoffPosture.blocking_reasons.length} · review ${handoffPosture.review_reasons.length}`}
+                    {` · blockers ${readinessVerdict.counts.blocking} · review ${readinessVerdict.counts.review}`}
                   </div>
                   <div className="hammer-tool-hint">Output source: {outputSelectionSummary}</div>
                   <div className="hammer-tool-hint">Preview truth: {previewTruthPosture}</div>
@@ -11602,17 +11604,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       {unresolvedBrollSuggestionItems.length} unresolved B-roll intent(s) need binding before authoritative visual handoff.
                     </div>
                   ) : null}
-                  {readinessGate.blocking_reasons.length > 0 ? (
+                  {readinessVerdict.blockingReasons.length > 0 ? (
                     <div className="hammer-tool-hint">
-                      Blocking reasons: {handoffPosture.blocking_reasons.slice(0, 3).join(" ")}
+                      Blocking reasons: {readinessVerdict.blockingReasons.slice(0, 3).map((reason) => reason.label).join(" ")}
                     </div>
                   ) : null}
-                  {handoffPosture.review_reasons.length > 0 ? (
+                  {readinessVerdict.reviewReasons.length > 0 ? (
                     <div className="hammer-tool-hint">
-                      Review reasons: {handoffPosture.review_reasons.slice(0, 3).join(" ")}
+                      Review reasons: {readinessVerdict.reviewReasons.slice(0, 3).map((reason) => reason.label).join(" ")}
                     </div>
                   ) : null}
-                  {(handoffPosture.blocking_reasons.length > 0 || handoffPosture.review_reasons.length > 0) ? (
+                  {(readinessVerdict.blockingReasons.length > 0 || readinessVerdict.reviewReasons.length > 0) ? (
                     <button type="button" onClick={focusReadinessIssue}>
                       Review Next Issue
                     </button>
@@ -11675,7 +11677,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     onClick={() => {
                       void handleSendToQuench();
                     }}
-                    disabled={releasePrepSaving || releasePrepLoading || handoffPosture.handoff_status === "blocked"}
+                    disabled={releasePrepSaving || releasePrepLoading || readinessVerdict.status === "blocked"}
                   >
                     {releasePrepSaving ? "Sending..." : sendToQuenchButtonLabel}
                   </button>
@@ -11686,7 +11688,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   ) : null}
                   {releasePrepSaved ? (
                     <div className="hammer-tool-hint">
-                      {handoffPosture.handoff_status === "ready" ? "Ready for Quench." : handoffPosture.handoff_status === "blocked" ? "Prepared packet is blocked for handoff." : "Prepared packet needs review before handoff."}
+                      {readinessVerdict.status === "ready" ? "Ready for Quench." : readinessVerdict.status === "blocked" ? "Prepared packet is blocked for handoff." : "Prepared packet needs review before handoff."}
                       {" "}Exported {new Date(releasePrepSaved.preparedAt).toLocaleString()}.
                       Status {releasePrepSaved.overallStatus}.
                       Subtitle artifacts {releasePrepSaved.subtitleArtifactCount}.
@@ -11699,7 +11701,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   ) : null}
                   {releasePrepOpenHref && exportTruthState !== "never_prepared" ? (
                     <a href={releasePrepOpenHref}>
-                      {handoffPosture.handoff_status === "blocked"
+                      {readinessVerdict.status === "blocked"
                         ? "Open in Quench (blocked)"
                         : exportTruthState === "current"
                         ? "Open in Quench"

@@ -5,6 +5,7 @@ import {
   summarizePassStatuses,
   type HammerPassSelectorContext,
 } from "../src/editor/hammerPassSelectors";
+import { buildHammerReadinessVerdict } from "../src/editor/hammerReadinessTypes";
 
 function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): HammerPassSelectorContext {
   return {
@@ -100,12 +101,15 @@ function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): Hamme
     introPath: "assets/intro.mp4",
     outroPath: "assets/outro.mp4",
     packagingLogoEnabled: true,
+    readinessVerdict: buildHammerReadinessVerdict({
+      blockingReasons: [],
+      reviewReasons: [],
+    }),
     readinessGate: {
       status: "ready",
       blocker_count: 0,
       review_count: 0,
     },
-    handoffStatus: "ready",
     ...overrides,
   };
 }
@@ -195,16 +199,41 @@ function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): Hamme
 {
   const result = getPassStatus("ready", buildContext({
     passStatus: { ready: "completed" },
-    readinessGate: {
-      status: "blocked",
-      blocker_count: 1,
-      review_count: 0,
-    },
-    handoffStatus: "blocked",
+    readinessVerdict: buildHammerReadinessVerdict({
+      blockingReasons: [{
+        code: "artifact_visuals_missing",
+        label: "Visual placements are missing.",
+        severity: "blocking",
+        source: "artifact",
+        operationId: null,
+        operation_id: null,
+      }],
+      reviewReasons: [],
+    }),
   }));
   assert.equal(result.status, "blocked");
   assert.equal(result.isComplete, false);
-  assert.deepEqual(result.reasonCodes, ["ready_gate_blocked", "ready_handoff_blocked"]);
+  assert.deepEqual(result.reasonCodes, ["artifact_visuals_missing"]);
+}
+
+{
+  const result = getPassStatus("ready", buildContext({
+    passStatus: { ready: "completed" },
+    readinessVerdict: buildHammerReadinessVerdict({
+      blockingReasons: [],
+      reviewReasons: [{
+        code: "export_posture_degraded",
+        label: "Export assembly is degraded and needs review.",
+        severity: "review",
+        source: "gate",
+        operationId: null,
+        operation_id: null,
+      }],
+    }),
+  }));
+  assert.equal(result.status, "degraded");
+  assert.equal(result.isComplete, false);
+  assert.deepEqual(result.reasonCodes, ["export_posture_degraded"]);
 }
 
 {

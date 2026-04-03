@@ -7,6 +7,7 @@ import {
   summarizePassStatuses,
   type HammerPassSelectorContext,
 } from "../src/editor/hammerPassSelectors";
+import { buildHammerReadinessVerdict } from "../src/editor/hammerReadinessTypes";
 
 function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): HammerPassSelectorContext {
   return {
@@ -95,12 +96,15 @@ function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): Hamme
     introPath: "assets/intro.mp4",
     outroPath: "assets/outro.mp4",
     packagingLogoEnabled: true,
+    readinessVerdict: buildHammerReadinessVerdict({
+      blockingReasons: [],
+      reviewReasons: [],
+    }),
     readinessGate: {
       status: "ready",
       blocker_count: 0,
       review_count: 0,
     },
-    handoffStatus: "ready",
     ...overrides,
   };
 }
@@ -126,12 +130,17 @@ function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): Hamme
     passStatus: {
       ready: "completed",
     },
-    readinessGate: {
-      status: "needs_review",
-      blocker_count: 0,
-      review_count: 2,
-    },
-    handoffStatus: "needs_review",
+    readinessVerdict: buildHammerReadinessVerdict({
+      blockingReasons: [],
+      reviewReasons: [{
+        code: "export_posture_degraded",
+        label: "Export assembly is degraded and needs review.",
+        severity: "review",
+        source: "gate",
+        operationId: null,
+        operation_id: null,
+      }],
+    }),
   });
   const result = getPassStatus("ready", persistedPosture);
   assert.equal(persistedPosture.currentPass, "ready");
@@ -223,12 +232,17 @@ function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): Hamme
     passStatus: {
       ready: "completed",
     },
-    readinessGate: {
-      status: "blocked",
-      blocker_count: 1,
-      review_count: 0,
-    },
-    handoffStatus: "ready",
+    readinessVerdict: buildHammerReadinessVerdict({
+      blockingReasons: [{
+        code: "handoff_blocked",
+        label: "Handoff is blocked.",
+        severity: "blocking",
+        source: "handoff",
+        operationId: null,
+        operation_id: null,
+      }],
+      reviewReasons: [],
+    }),
   });
   const result = getPassStatus("ready", persistedPosture);
   assert.equal(persistedPosture.currentPass, "ready");
@@ -236,7 +250,7 @@ function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): Hamme
   assert.equal(result.status, "blocked");
   assert.equal(result.isComplete, false);
   assert.equal(result.humanLabel, "Blocked: not ready for Quench");
-  assert.deepEqual(result.reasonCodes, ["ready_gate_blocked"]);
+  assert.deepEqual(result.reasonCodes, ["handoff_blocked"]);
   assert.equal(summarizePassStatuses([result.status]), "blocked");
 }
 
@@ -246,19 +260,31 @@ function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): Hamme
     passStatus: {
       ready: "completed",
     },
-    readinessGate: {
-      status: "needs_review",
-      blocker_count: 0,
-      review_count: 1,
-    },
-    handoffStatus: "blocked",
+    readinessVerdict: buildHammerReadinessVerdict({
+      blockingReasons: [{
+        code: "handoff_blocked",
+        label: "Handoff is blocked.",
+        severity: "blocking",
+        source: "handoff",
+        operationId: null,
+        operation_id: null,
+      }],
+      reviewReasons: [{
+        code: "export_posture_degraded",
+        label: "Export assembly is degraded and needs review.",
+        severity: "review",
+        source: "gate",
+        operationId: null,
+        operation_id: null,
+      }],
+    }),
   });
   const result = getPassStatus("ready", persistedPosture);
   assert.equal(persistedPosture.currentPass, "ready");
   assert.equal(canEnterPass("ready", persistedPosture), true);
   assert.equal(result.status, "blocked");
   assert.equal(result.isComplete, false);
-  assert.deepEqual(result.reasonCodes, ["ready_gate_review", "ready_handoff_blocked"]);
+  assert.deepEqual(result.reasonCodes, ["handoff_blocked", "export_posture_degraded"]);
   assert.equal(summarizePassStatuses([result.status]), "blocked");
 }
 
