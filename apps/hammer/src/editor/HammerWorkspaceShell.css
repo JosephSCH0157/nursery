@@ -78,6 +78,14 @@ Guardrails:
   overflow: hidden;
 }
 
+.hammer-source-bay,
+.hammer-preview-bay,
+.hammer-tool-bay,
+.hammer-timeline-dock {
+  display: flex;
+  flex-direction: column;
+}
+
 .hammer-preview-bay {
   max-width: var(--hammer-shell-preview-width);
   width: 100%;
@@ -243,8 +251,9 @@ Guardrails:
 
 .hammer-bay-body {
   min-height: 0;
-  height: calc(100% - 41px);
+  flex: 1 1 auto;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 8px 10px;
   display: grid;
   gap: 6px;
@@ -1593,6 +1602,7 @@ Guardrails:
 
 .hammer-timeline-track-scroll {
   overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid rgba(148, 163, 184, 0.14);
   border-radius: 10px;
   padding: 4px 8px 6px;
