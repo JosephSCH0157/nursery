@@ -38,8 +38,12 @@ async function testReadyState() {
     unresolvedBrollSuggestionOperationIds: [],
   });
   assert.equal(gate.status, "ready");
+  assert.equal(gate.readyForQuench, true);
   assert.equal(gate.review_count, 0);
   assert.equal(gate.blocker_count, 0);
+  assert.equal(gate.counts.review, 0);
+  assert.equal(gate.counts.blocking, 0);
+  assert.deepEqual(gate.reasons, []);
 }
 
 async function testNeedsReviewState() {
@@ -81,7 +85,12 @@ async function testNeedsReviewState() {
     unresolvedBrollSuggestionOperationIds: ["op:ins_suggestion_01"],
   });
   assert.equal(gate.status, "needs_review");
+  assert.equal(gate.readyForQuench, false);
   assert.equal(gate.review_count > 0, true);
+  assert.equal(gate.counts.review > 0, true);
+  assert.equal(gate.reviewReasons.length > 0, true);
+  assert.equal(gate.reasons.some((reason) => reason.code === "unresolved_broll_intent"), true);
+  assert.equal(gate.reasons.some((reason) => reason.code === "bound_attention_video"), true);
 }
 
 async function testBlockedState() {
@@ -125,7 +134,11 @@ async function testBlockedState() {
     unresolvedBrollSuggestionOperationIds: [],
   });
   assert.equal(gate.status, "blocked");
+  assert.equal(gate.readyForQuench, false);
   assert.equal(gate.blocker_count > 0, true);
+  assert.equal(gate.counts.blocking > 0, true);
+  assert.equal(gate.blockingReasons.some((reason) => reason.code === "podcast_master_unavailable"), true);
+  assert.equal(gate.primaryOperationId, gate.primary_operation_id);
 }
 
 async function run() {
