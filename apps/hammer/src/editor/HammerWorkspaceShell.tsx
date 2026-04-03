@@ -1216,9 +1216,15 @@ function resolvePlacementGeometry(
 }
 
 function geometryToTransform(geometry: HammerVisualPlacementGeometry): HammerImagePlacementTransform {
+  const left = geometry.anchor === "center"
+    ? (geometry.x - (geometry.width / 2))
+    : geometry.x;
+  const top = geometry.anchor === "center"
+    ? (geometry.y - (geometry.height / 2))
+    : geometry.y;
   return clampImagePlacementTransform({
-    leftPct: geometry.x * 100,
-    topPct: geometry.y * 100,
+    leftPct: left * 100,
+    topPct: top * 100,
     widthPct: geometry.width * 100,
     heightPct: geometry.height * 100,
   });
@@ -2532,8 +2538,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   const activePreviewOverlays = useMemo<VisualPreviewOverlayModel[]>(() => {
     if (!editableVisualTimeline) return [];
-    return selectEnabledClipsAtTimeSorted(editableVisualTimeline, playheadSec)
-      .map((clip) => {
+    const selectedClip = selectClipById(editableVisualTimeline, selectedClipId);
+    const shouldFocusSelectedInPreview = (
+      currentPass === "visual_finishing"
+      || currentPass === "image_placement"
+      || currentPass === "image_animation"
+    );
+    const clipCandidates = shouldFocusSelectedInPreview && selectedClip
+      ? [selectedClip]
+      : selectEnabledClipsAtTimeSorted(editableVisualTimeline, playheadSec);
+    const overlays = clipCandidates
+      .map((clip): VisualPreviewOverlayModel | null => {
         const asset = clip.asset_id ? (visualAssetsById.get(clip.asset_id) ?? null) : null;
         const kind = deriveAssetKind({
           visualMode: clip.visual_mode,
@@ -2555,11 +2570,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           fit_mode: clip.fit_mode ?? "contain",
           animation_class: resolveImageAnimationClass(clip.animation.preset),
           selected: clip.clip_id === selectedClipId,
-          dimmed: currentPass === "image_placement" && Boolean(selectedClipId) && clip.clip_id !== selectedClipId,
-        } satisfies VisualPreviewOverlayModel;
+          dimmed: false,
+        };
       })
-      .filter((item): item is VisualPreviewOverlayModel => Boolean(item))
-      .sort((left, right) => left.z_index - right.z_index);
+      .filter((item): item is VisualPreviewOverlayModel => item !== null);
+    return overlays.sort((left, right) => left.z_index - right.z_index);
   }, [
     currentPass,
     editableVisualTimeline,
@@ -3163,10 +3178,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         updated_at: new Date().toISOString(),
         debug_origin: "empty_init",
       });
-      return hammerVisualTimelineReducer(base, {
+      const next = hammerVisualTimelineReducer(base, {
         type: "SELECT_CLIP",
         clip_id: clipId,
       });
+      if (import.meta.env.DEV && clipId) {
+        const resolved = selectClipById(next, clipId);
+        console.debug("[HammerVisuals] clip selection", {
+          clicked_clip_id: clipId,
+          resolved_selected_clip_id: resolved?.clip_id ?? null,
+        });
+      }
+      return next;
     });
   }
 
@@ -5610,8 +5633,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     updater: (current: HammerImagePlacementTransform) => HammerImagePlacementTransform,
   ): void {
     setImagePlacementTransforms((current) => {
+      const clip = editableVisualTimeline
+        ? selectClipById(editableVisualTimeline, placementId)
+        : null;
       const base = current[placementId]
-        ?? geometryToTransform(resolvePlacementGeometry(visualPlacementsById.get(placementId)));
+        ?? (clip
+          ? geometryToTransform(clip.geometry)
+          : geometryToTransform(resolvePlacementGeometry(visualPlacementsById.get(placementId))));
       const next = clampImagePlacementTransform(updater(base));
       return {
         ...current,
@@ -5676,8 +5704,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   ): void {
     if (currentPass !== "image_placement") return;
     if (event.button !== 0) return;
+    const clip = editableVisualTimeline
+      ? selectClipById(editableVisualTimeline, args.placementId)
+      : null;
     const activeTransform = imagePlacementTransforms[args.placementId]
-      ?? geometryToTransform(resolvePlacementGeometry(visualPlacementsById.get(args.placementId)));
+      ?? (clip
+        ? geometryToTransform(clip.geometry)
+        : geometryToTransform(resolvePlacementGeometry(visualPlacementsById.get(args.placementId))));
     event.preventDefault();
     event.stopPropagation();
     setFocusOverride("tool-focus");

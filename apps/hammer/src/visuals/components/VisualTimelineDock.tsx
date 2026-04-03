@@ -21,12 +21,21 @@ export default function VisualTimelineDock(props: VisualTimelineDockProps) {
 
   useEffect(() => {
     if (!props.selectedClipId) return;
+    if (props.focusToken == null) return;
     const container = dockRef.current;
     if (!container) return;
     const selected = container.querySelector<HTMLElement>(`[data-clip-id="${props.selectedClipId}"]`);
-    selected?.scrollIntoView({
-      block: "nearest",
-      inline: "center",
+    if (!selected) return;
+    const track = selected.parentElement;
+    if (!(track instanceof HTMLElement)) return;
+    const left = selected.offsetLeft;
+    const right = left + selected.offsetWidth;
+    const viewLeft = track.scrollLeft;
+    const viewRight = viewLeft + track.clientWidth;
+    if (left >= viewLeft && right <= viewRight) return;
+    const centeredLeft = Math.max(0, left - ((track.clientWidth - selected.offsetWidth) / 2));
+    track.scrollTo({
+      left: centeredLeft,
       behavior: "smooth",
     });
   }, [props.focusToken, props.selectedClipId]);
