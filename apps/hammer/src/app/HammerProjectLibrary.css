@@ -190,15 +190,15 @@
 .hammer-project-library__card-media-inline {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .hammer-project-library__card-thumb-token {
-  width: 58px;
-  height: 34px;
-  border-radius: 8px;
+  width: 124px;
+  height: 70px;
+  border-radius: 10px;
   overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid rgba(148, 163, 184, 0.48);
   background: rgba(2, 6, 23, 0.66);
   flex: 0 0 auto;
 }
@@ -215,6 +215,13 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
   padding: 2px 7px;
+}
+
+@media (max-width: 720px) {
+  .hammer-project-library__card-thumb-token {
+    width: 104px;
+    height: 58px;
+  }
 }
 
 .hammer-project-library__card-media-badge-duration {

@@ -55,6 +55,7 @@ const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
   admin: 30,
   owner: 40,
 };
+const LIST_RELOAD_COOLDOWN_MS = 30_000;
 
 function readErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message;
@@ -197,6 +198,10 @@ export default function TongsRecordingSessions() {
   const [dragFromIndex, setDragFromIndex] = useState<number | null>(null);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const readyCandidatesRequestSeqRef = useRef(0);
+  const sessionsRequestInFlightRef = useRef(false);
+  const readyRequestInFlightRef = useRef(false);
+  const lastSessionsAttemptAtRef = useRef(0);
+  const lastReadyAttemptAtRef = useRef(0);
 
   const currentPlanSignature = useMemo(() => itemSignature(planItems), [planItems]);
   const isDirty = currentPlanSignature !== savedPlanSignature;
@@ -250,12 +255,18 @@ export default function TongsRecordingSessions() {
     return count;
   }, [candidateByPlannerKey, planItems]);
 
-  const loadSessions = useCallback(async (preferredId?: string | null) => {
+  const loadSessions = useCallback(async (preferredId?: string | null, options?: { force?: boolean }) => {
     if (!workspaceId || !session || !canReadSessions) {
       setSessions([]);
       setSelectedSessionId(null);
       return;
     }
+    const now = Date.now();
+    const force = options?.force === true;
+    if (sessionsRequestInFlightRef.current) return;
+    if (!force && now - lastSessionsAttemptAtRef.current < LIST_RELOAD_COOLDOWN_MS) return;
+    sessionsRequestInFlightRef.current = true;
+    lastSessionsAttemptAtRef.current = now;
     setSessionsLoading(true);
     setSessionsError(null);
     try {
@@ -273,16 +284,23 @@ export default function TongsRecordingSessions() {
     } catch (error: unknown) {
       setSessionsError(readErrorMessage(error, "Failed loading recording sessions."));
     } finally {
+      sessionsRequestInFlightRef.current = false;
       setSessionsLoading(false);
     }
   }, [workspaceId, session, canReadSessions]);
 
-  const loadReadyCandidates = useCallback(async () => {
+  const loadReadyCandidates = useCallback(async (options?: { force?: boolean }) => {
     if (!workspaceId || !session || !canReadSessions) {
       setReadyCandidates([]);
       setReadyCandidatesWorkspaceId(null);
       return;
     }
+    const now = Date.now();
+    const force = options?.force === true;
+    if (readyRequestInFlightRef.current) return;
+    if (!force && now - lastReadyAttemptAtRef.current < LIST_RELOAD_COOLDOWN_MS) return;
+    readyRequestInFlightRef.current = true;
+    lastReadyAttemptAtRef.current = now;
     const requestSeq = readyCandidatesRequestSeqRef.current + 1;
     readyCandidatesRequestSeqRef.current = requestSeq;
     setReadyLoading(true);
@@ -301,6 +319,7 @@ export default function TongsRecordingSessions() {
       setReadyCandidatesWorkspaceId(null);
       setReadyError(readErrorMessage(error, "Failed loading ready candidates."));
     } finally {
+      readyRequestInFlightRef.current = false;
       if (readyCandidatesRequestSeqRef.current === requestSeq) {
         setReadyLoading(false);
       }
@@ -332,6 +351,13 @@ export default function TongsRecordingSessions() {
   }, []);
 
   useEffect(() => {
+    lastSessionsAttemptAtRef.current = 0;
+    lastReadyAttemptAtRef.current = 0;
+    sessionsRequestInFlightRef.current = false;
+    readyRequestInFlightRef.current = false;
+  }, [workspaceId]);
+
+  useEffect(() => {
     if (!workspaceId || !session || !canReadSessions) {
       setSessions([]);
       setSelectedSessionId(null);
@@ -342,8 +368,8 @@ export default function TongsRecordingSessions() {
       setReadyCandidatesWorkspaceId(null);
       return;
     }
-    void loadSessions();
-    void loadReadyCandidates();
+    void loadSessions(null, { force: true });
+    void loadReadyCandidates({ force: true });
   }, [workspaceId, session, canReadSessions, loadReadyCandidates, loadSessions]);
 
   useEffect(() => {
@@ -571,7 +597,7 @@ export default function TongsRecordingSessions() {
       setPlanItems(persisted);
       setSavedPlanSignature(itemSignature(persisted));
       setSaveNotice(`Saved ${persisted.length} item${persisted.length === 1 ? "" : "s"}.`);
-      await loadSessions(selectedSessionId);
+      await loadSessions(selectedSessionId, { force: true });
     } catch (error: unknown) {
       const message = readErrorMessage(error, "Failed saving session plan.");
       setSaveError(
@@ -603,7 +629,7 @@ export default function TongsRecordingSessions() {
       });
       setCreateOpen(false);
       setCreateTitle("Recording Session");
-      await loadSessions(row.id);
+      await loadSessions(row.id, { force: true });
       setSelectedSessionId(row.id);
       if (isMobile) {
         setMobileDetailOpen(true);
@@ -649,7 +675,7 @@ export default function TongsRecordingSessions() {
       }
 
       setSelectedSessionId(preferredId);
-      await loadSessions(preferredId);
+      await loadSessions(preferredId, { force: true });
       setSaveNotice(`Deleted session "${label}".`);
     } catch (error: unknown) {
       setDeleteError(readErrorMessage(error, "Failed deleting recording session."));
@@ -871,8 +897,8 @@ export default function TongsRecordingSessions() {
           <button
             type="button"
             onClick={() => {
-              void loadSessions();
-              void loadReadyCandidates();
+              void loadSessions(null, { force: true });
+              void loadReadyCandidates({ force: true });
             }}
             disabled={sessionsLoading || readyLoading}
           >

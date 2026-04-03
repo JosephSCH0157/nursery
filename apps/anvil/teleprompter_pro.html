@@ -84,7 +84,7 @@
 
       pushBootTrace('shell:module-loader:start');
       let lastErr = null;
-      const manifestCandidates = ["./dist/manifest.json", "./manifest.json"];
+      const manifestCandidates = ["./manifest.json", "./dist/manifest.json"];
       for (const manifestPath of manifestCandidates) {
         try {
           pushBootTrace('shell:manifest:fetch:start', { manifestPath });
@@ -106,7 +106,7 @@
         }
       }
 
-      const directEntryCandidates = ["./dist/index.js"];
+      const directEntryCandidates = ["./index.js", "./dist/index.js"];
       for (const entryPath of directEntryCandidates) {
         try {
           pushBootTrace('shell:direct-import:start', { entryPath });

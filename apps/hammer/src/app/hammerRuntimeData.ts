@@ -2,7 +2,6 @@ import { tongsFetch } from "../lib/tongsFetch";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { MediaKind, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import { loadHammerPersistenceSnapshot } from "../persistence/hammerPersistence";
-import { loadWorkpieceRecordingCardThumbnailState } from "./hammerRecordingCardThumbnail";
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const HAMMER_ACTIVE_WORKSPACE_KEY = "hammer_workspace_id_v1";
@@ -518,18 +517,12 @@ export async function loadHammerWorkspaceProjects(
         }),
         loadHammerWorkpieceRecordingTruth(episode.id),
       ]);
-      const thumbnailResult = await Promise.allSettled([
-        loadWorkpieceRecordingCardThumbnailState(episode.id),
-      ]);
 
       return {
         snapshotResult: snapshotResult.status === "fulfilled" ? snapshotResult.value : null,
         recordingTruth: truthResult.status === "fulfilled"
           ? truthResult.value
           : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null },
-        recordingThumbnail: thumbnailResult[0]?.status === "fulfilled"
-          ? thumbnailResult[0].value
-          : { thumbnailPath: null },
         recordingTruthUnavailable: truthResult.status === "rejected",
       };
     }),
@@ -543,9 +536,6 @@ export async function loadHammerWorkspaceProjects(
     const recordingTruth = detailResult?.status === "fulfilled"
       ? detailResult.value.recordingTruth
       : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null };
-    const recordingThumbnail = detailResult?.status === "fulfilled"
-      ? detailResult.value.recordingThumbnail
-      : { thumbnailPath: null };
     const snapshot = snapshotResult?.ok
       ? snapshotResult.data
       : null;
@@ -602,7 +592,7 @@ export async function loadHammerWorkspaceProjects(
         keptTakePath: recordingTruth.latestKeptTakePath,
         keptTakeKind: inferRecordingKindFromTruth(recordingTruth),
         keptTakeDurationMs: recordingTruth.latestKeptTake?.durationMs ?? null,
-        thumbnailPath: recordingThumbnail.thumbnailPath,
+        thumbnailPath: null,
       },
     };
   });

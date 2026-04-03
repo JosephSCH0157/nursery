@@ -174,6 +174,10 @@ export async function ensureWorkpieceRecordingCardThumbnail(args: {
   if (args.existingThumbnailPath) {
     return args.existingThumbnailPath;
   }
+  const persistedState = await loadWorkpieceRecordingCardThumbnailState(args.workpieceId).catch(() => ({ thumbnailPath: null }));
+  if (persistedState.thumbnailPath) {
+    return persistedState.thumbnailPath;
+  }
 
   const recordingUrl = await loadWorkpieceMediaPreviewUrl({
     workpieceId: args.workpieceId,
