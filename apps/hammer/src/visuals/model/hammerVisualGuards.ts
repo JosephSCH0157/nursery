@@ -235,6 +235,7 @@ export function assertValidTimelineState(
     if (clip.asset_id) {
       assertCondition(assetIds.has(clip.asset_id), `Visual clip ${clip.clip_id} references unknown asset ${clip.asset_id}.`);
     }
+    assertCondition(Array.isArray(clip.uncertainty_flags), `Visual clip ${clip.clip_id} uncertainty_flags must be an array.`);
     assertCondition(laneClipIds.has(clip.clip_id), `Visual clip ${clip.clip_id} is not mounted in a lane.`);
   }
 

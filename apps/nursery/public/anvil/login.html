@@ -43,7 +43,6 @@
       }
       .tp-login-card {
         background: rgba(15, 15, 20, 0.68);
-        -webkit-backdrop-filter: blur(10px);
         backdrop-filter: blur(10px);
         border-radius: 16px;
         border: 1px solid rgba(255, 255, 255, 0.12);
@@ -179,19 +178,6 @@
         text-decoration: none;
       }
       .tp-login-secondary a:hover { text-decoration: underline; }
-      .tp-login-subtitle-note {
-        font-size: 0.8rem;
-        opacity: 0.7;
-      }
-      .tp-login-footnote {
-        margin-top: 0.6rem;
-        font-size: 0.82rem;
-        text-align: center;
-        opacity: 0.8;
-      }
-      .tp-login-footnote-secondary {
-        margin-top: 0.4rem;
-      }
       #error {
         color: #ffb3b3;
         min-height: 1.2rem;
@@ -211,7 +197,6 @@
           0 0 6px rgba(0, 0, 0, 0.75),
           0 0 18px rgba(0, 0, 0, 0.65);
         pointer-events: none;
-        -webkit-user-select: none;
         user-select: none;
       }
       .tp-login-video {
@@ -306,7 +291,7 @@
           <div class="tp-login-title">Login Moved to Podcaster's Forge</div>
           <div class="tp-login-subtitle">
             Nursery is the canonical home for sign-in.<br>
-            <span class="tp-login-subtitle-note">You are being redirected there now.</span>
+            <span style="font-size:0.8rem; opacity:0.7;">You are being redirected there now.</span>
           </div>
           <div class="tp-beta-banner" role="note" aria-live="polite">
             <strong>Open for beta requests.</strong> New sign-ups are currently disabled.
@@ -326,7 +311,7 @@
 
           <p id="error" aria-live="polite">Redirecting to the Nursery login...</p>
           <div class="tp-login-footnote">If the redirect stalls, use Continue to Login.</div>
-          <div class="tp-login-footnote tp-login-footnote-secondary">Anvil now lives inside Nursery.</div>
+          <div class="tp-login-footnote" style="margin-top:0.4rem;">Anvil now lives inside Nursery.</div>
         </div>
       </div>
     </main>

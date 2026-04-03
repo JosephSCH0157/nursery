@@ -59,6 +59,7 @@ export function createEmptyVisualTimelineState(
         ...clip,
         geometry: { ...clip.geometry },
         animation: { ...clip.animation },
+        uncertainty_flags: [...clip.uncertainty_flags],
         anchor_hint: {
           ...clip.anchor_hint,
           matched_segment_ids: [...clip.anchor_hint.matched_segment_ids],

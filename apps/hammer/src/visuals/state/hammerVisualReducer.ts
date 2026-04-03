@@ -30,6 +30,7 @@ function cloneLane(lane: HammerVisualLane): HammerVisualLane {
 function cloneClip(clip: HammerVisualClip): HammerVisualClip {
   return {
     ...clip,
+    uncertainty_flags: [...clip.uncertainty_flags],
     geometry: { ...clip.geometry },
     animation: { ...clip.animation },
     anchor_hint: {
@@ -106,6 +107,9 @@ function normalizeClip(clip: HammerVisualClip, updatedAt: string): HammerVisualC
     z_index: normalizeZIndex(clip.z_index),
     enabled: clip.enabled !== false,
     locked: clip.locked === true,
+    placement_status: clip.placement_status === "uncertain" ? "uncertain" : "placed",
+    ingest_state: clip.ingest_state === "suggested" || clip.ingest_state === "approved" ? clip.ingest_state : null,
+    uncertainty_flags: [...clip.uncertainty_flags],
     anchor_hint: normalizeAnchorHint(clip.anchor_hint),
     updated_at: updatedAt,
   };

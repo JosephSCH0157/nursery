@@ -61,7 +61,14 @@ export interface HammerVisualClip {
   clip_id: string;
   asset_id: string | null;
   lane_id: string;
+  entry_id: string | null;
   label: string | null;
+  visual_mode: string | null;
+  confidence: number | null;
+  placement_status: "placed" | "uncertain";
+  ingest_state: "suggested" | "approved" | null;
+  uncertainty_flags: string[];
+  authority_operation_id?: string;
   start_sec: number;
   end_sec: number;
   geometry: HammerVisualGeometry;
