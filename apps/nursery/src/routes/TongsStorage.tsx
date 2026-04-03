@@ -27,6 +27,8 @@ type StorageTreeNode = {
   name: string;
   kind: "directory" | "file";
   path: string;
+  bytes?: number | null;
+  updated_at?: string | null;
   children?: StorageTreeNode[];
   note?: string;
 };
@@ -72,6 +74,29 @@ type StorageListingPanelProps = {
   unavailablePlaceholder: string;
   footnote?: string;
   emptyAction?: ReactNode;
+};
+
+type WorkpieceDeletionMode =
+  | "full_delete"
+  | "delete_keep_performance"
+  | "delete_keep_reusable_media";
+
+type DeleteWorkpieceResult = {
+  result: {
+    workspace_id: string;
+    workpiece_id: string;
+    deletion_mode: WorkpieceDeletionMode;
+    retained_performance_stub: boolean;
+    retained_reusable_assets: number;
+    deleted_asset_rows: number;
+    deleted_workpiece_file_rows: number;
+    deleted_workpiece_event_rows: number;
+    deleted_presence_rows: number;
+    deleted_recording_links: number;
+    deleted_project_links: number;
+    bytes_removed_estimate: number;
+    warnings: string[];
+  };
 };
 
 const ROLE_POLICY_MAP = new Map(MOUNT_ROLE_POLICY.map((policy) => [policy.role, policy] as const));
@@ -262,7 +287,7 @@ function buildCloudNodeNote(node: WorkspaceStorageTreeNode): string | undefined 
 
   const parts: string[] = [];
   const bytes = formatBytes(node.bytes);
-  if (bytes) parts.push(bytes);
+  if (bytes) parts.push(`Size: ${bytes}`);
   if (node.updated_at) parts.push(`updated ${formatDateTime(node.updated_at)}`);
   return parts.length > 0 ? parts.join(" • ") : undefined;
 }
@@ -272,9 +297,75 @@ function mapCloudNodes(nodes: WorkspaceStorageTreeNode[]): StorageTreeNode[] {
     name: node.name,
     kind: node.kind,
     path: node.path,
+    bytes: node.bytes ?? null,
+    updated_at: node.updated_at ?? null,
     note: buildCloudNodeNote(node),
     children: node.children ? mapCloudNodes(node.children) : undefined,
   }));
+}
+
+type StorageUsageSummary = {
+  fileCount: number;
+  directoryCount: number;
+  knownSizeFileCount: number;
+  unknownSizeFileCount: number;
+  totalBytes: number;
+  largestFiles: Array<{
+    path: string;
+    name: string;
+    bytes: number;
+    updated_at: string | null;
+  }>;
+};
+
+function buildStorageUsageSummary(nodes: StorageTreeNode[]): StorageUsageSummary {
+  const stack = [...nodes];
+  const fileRows: StorageUsageSummary["largestFiles"] = [];
+  let fileCount = 0;
+  let directoryCount = 0;
+  let knownSizeFileCount = 0;
+  let unknownSizeFileCount = 0;
+  let totalBytes = 0;
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+    if (node.kind === "directory") {
+      directoryCount += 1;
+      if (node.children?.length) {
+        for (const child of node.children) stack.push(child);
+      }
+      continue;
+    }
+
+    fileCount += 1;
+    const bytes = typeof node.bytes === "number" && Number.isFinite(node.bytes) && node.bytes >= 0
+      ? node.bytes
+      : null;
+    if (bytes == null) {
+      unknownSizeFileCount += 1;
+      continue;
+    }
+
+    knownSizeFileCount += 1;
+    totalBytes += bytes;
+    fileRows.push({
+      path: node.path,
+      name: node.name,
+      bytes,
+      updated_at: node.updated_at ?? null,
+    });
+  }
+
+  fileRows.sort((left, right) => right.bytes - left.bytes);
+  return {
+    fileCount,
+    directoryCount,
+    knownSizeFileCount,
+    unknownSizeFileCount,
+    totalBytes,
+    largestFiles: fileRows.slice(0, 5),
+  };
 }
 
 function StorageTree({ nodes, depth = 0 }: { nodes: StorageTreeNode[]; depth?: number }) {
@@ -337,6 +428,10 @@ function StorageListingPanel({
       : treeState.status === "error"
       ? errorPlaceholder
       : unavailablePlaceholder;
+  const usageSummary = useMemo(() => {
+    if (treeState.status !== "ready" || treeState.nodes.length === 0) return null;
+    return buildStorageUsageSummary(treeState.nodes);
+  }, [treeState.nodes, treeState.status]);
 
   return (
     <div className="tongs-storage__tree-panel">
@@ -362,6 +457,45 @@ function StorageListingPanel({
       </div>
 
       {treeState.message ? <div className={messageClass}>{treeState.message}</div> : null}
+
+      {usageSummary ? (
+        <section className="tongs-storage__usage-summary">
+          <div className="tongs-storage__usage-grid">
+            <div className="tongs-storage__usage-card">
+              <div className="tongs-storage__usage-label">Total size (known)</div>
+              <div className="tongs-storage__usage-value">{formatBytes(usageSummary.totalBytes) ?? "0 B"}</div>
+            </div>
+            <div className="tongs-storage__usage-card">
+              <div className="tongs-storage__usage-label">Files</div>
+              <div className="tongs-storage__usage-value">
+                {usageSummary.fileCount}
+                {usageSummary.unknownSizeFileCount > 0
+                  ? ` (${usageSummary.unknownSizeFileCount} without size metadata)`
+                  : ""}
+              </div>
+            </div>
+            <div className="tongs-storage__usage-card">
+              <div className="tongs-storage__usage-label">Folders</div>
+              <div className="tongs-storage__usage-value">{usageSummary.directoryCount}</div>
+            </div>
+          </div>
+          {usageSummary.largestFiles.length > 0 ? (
+            <div className="tongs-storage__largest-files">
+              <h5 className="tongs-storage__largest-files-title">Largest Files</h5>
+              <ul className="tongs-storage__largest-files-list">
+                {usageSummary.largestFiles.map((row) => (
+                  <li key={row.path} className="tongs-storage__largest-files-item">
+                    <span className="tongs-storage__largest-files-name">{row.name}</span>
+                    <span className="tongs-storage__largest-files-meta">
+                      {formatBytes(row.bytes) ?? "Unknown"} • {row.path}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {treeState.status === "ready" && treeState.nodes.length > 0 ? <StorageTree nodes={treeState.nodes} /> : null}
 
@@ -423,6 +557,11 @@ export default function TongsStorage() {
     setCanonicalRecordingsTreeState(nextState);
   }, []);
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [deleteMode, setDeleteMode] = useState<WorkpieceDeletionMode>("delete_keep_performance");
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteNotice, setDeleteNotice] = useState<string | null>(null);
 
   const roots = useMemo<RootViewModel[]>(() => {
     return ALL_MOUNT_ROLES.map((role) => {
@@ -518,7 +657,7 @@ export default function TongsStorage() {
     return () => {
       cancelled = true;
     };
-  }, [applyWorkpieceTreeState, routeContext.hasInvalidWorkpieceId, workpieceId]);
+  }, [applyWorkpieceTreeState, routeContext.hasInvalidWorkpieceId, workpieceId, refreshNonce]);
 
   useEffect(() => {
     if (!selectedRoot) {
@@ -677,7 +816,7 @@ export default function TongsStorage() {
     return () => {
       cancelled = true;
     };
-  }, [applyRoleRootTreeState, selectedRoot, workspaceId]);
+  }, [applyRoleRootTreeState, selectedRoot, workspaceId, refreshNonce]);
 
   useEffect(() => {
     if (!workspaceId || selectedRoot?.role !== "recordings") {
@@ -746,7 +885,7 @@ export default function TongsStorage() {
     return () => {
       cancelled = true;
     };
-  }, [applyCanonicalRecordingsTreeState, selectedRoot?.role, workspaceId]);
+  }, [applyCanonicalRecordingsTreeState, selectedRoot?.role, workspaceId, refreshNonce]);
 
   if (!workspaceId) {
     return <WorkspaceRequiredNotice toolName="Tongs Storage" />;
@@ -807,6 +946,41 @@ export default function TongsStorage() {
     }
   }
 
+  async function deleteCurrentWorkpiece() {
+    if (!workspaceId || !workpieceId || deleteBusy) return;
+    if (deleteMode === "full_delete" && deleteConfirmText.trim().toUpperCase() !== "DELETE") {
+      setDeleteNotice("Full delete requires typing DELETE.");
+      return;
+    }
+    setDeleteBusy(true);
+    setDeleteNotice("Deleting episode...");
+    try {
+      const response = await tongsApiRequest<DeleteWorkpieceResult>(
+        `/tongs/workpieces/${encodeURIComponent(workpieceId)}/delete`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            workspace_id: workspaceId,
+            deletion_mode: deleteMode,
+          }),
+        },
+      );
+      const row = response.result;
+      const reclaimed = formatBytes(row.bytes_removed_estimate) ?? `${row.bytes_removed_estimate} B`;
+      setDeleteNotice(
+        `Deleted using ${row.deletion_mode}. Reclaimed ~${reclaimed}. ` +
+        `Files: ${row.deleted_workpiece_file_rows}, assets: ${row.deleted_asset_rows}, ` +
+        `reusable kept: ${row.retained_reusable_assets}, performance stub: ${row.retained_performance_stub ? "yes" : "no"}.`,
+      );
+      setDeleteConfirmText("");
+      setRefreshNonce((value) => value + 1);
+    } catch (error) {
+      setDeleteNotice(error instanceof Error ? error.message : "Episode delete failed.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   return (
     <section className={`tongs-storage${isMobile ? " tongs-storage--mobile" : ""}`}>
       <header className="tongs-storage__header">
@@ -855,6 +1029,49 @@ export default function TongsStorage() {
             Source: {workpieceTreeState.source?.badgeLabel ?? "route context"}
           </span>
         </div>
+
+        {workpieceId ? (
+          <section className="tongs-storage__delete-panel">
+            <h4 className="tongs-storage__delete-title">Episode Deletion</h4>
+            <p className="tongs-storage__delete-copy">
+              Delete by episode/workpiece boundary. File-level delete remains intentionally disabled.
+            </p>
+            <label className="tongs-storage__delete-field">
+              <span>Deletion mode</span>
+              <select
+                value={deleteMode}
+                onChange={(event) => setDeleteMode(event.target.value as WorkpieceDeletionMode)}
+                disabled={deleteBusy}
+              >
+                <option value="full_delete">Delete everything</option>
+                <option value="delete_keep_performance">Delete episode, keep performance</option>
+                <option value="delete_keep_reusable_media">Delete episode, keep reusable media</option>
+              </select>
+            </label>
+            <p className="tongs-storage__delete-copy">
+              {deleteMode === "full_delete"
+                ? "Removes production footprint and stops performance continuity."
+                : deleteMode === "delete_keep_performance"
+                ? "Removes production footprint but keeps published performance tracking identity."
+                : "Removes episode production footprint while retaining explicitly reusable assets."}
+            </p>
+            {deleteMode === "full_delete" ? (
+              <label className="tongs-storage__delete-field">
+                <span>Type DELETE to confirm full delete</span>
+                <input
+                  value={deleteConfirmText}
+                  onChange={(event) => setDeleteConfirmText(event.target.value)}
+                  placeholder="DELETE"
+                  disabled={deleteBusy}
+                />
+              </label>
+            ) : null}
+            <button type="button" onClick={() => void deleteCurrentWorkpiece()} disabled={deleteBusy}>
+              {deleteBusy ? "Deleting..." : deleteMode === "full_delete" ? "Confirm Full Delete" : "Delete Episode"}
+            </button>
+            {deleteNotice ? <div className="tongs-storage__delete-notice">{deleteNotice}</div> : null}
+          </section>
+        ) : null}
 
         <details className="tongs-storage__advanced">
           <summary>Advanced routing details</summary>

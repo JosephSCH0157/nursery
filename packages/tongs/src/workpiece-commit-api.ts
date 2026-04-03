@@ -864,6 +864,32 @@ export type RestoreWorkpieceRequest = {
   workspace_id: string;
 };
 
+export type WorkpieceDeletionMode =
+  | "full_delete"
+  | "delete_keep_performance"
+  | "delete_keep_reusable_media";
+
+export type DeleteWorkpieceRequest = {
+  workspace_id: string;
+  deletion_mode: WorkpieceDeletionMode;
+};
+
+export type DeleteWorkpieceResult = {
+  workspace_id: string;
+  workpiece_id: string;
+  deletion_mode: WorkpieceDeletionMode;
+  retained_performance_stub: boolean;
+  retained_reusable_assets: number;
+  deleted_asset_rows: number;
+  deleted_workpiece_file_rows: number;
+  deleted_workpiece_event_rows: number;
+  deleted_presence_rows: number;
+  deleted_recording_links: number;
+  deleted_project_links: number;
+  bytes_removed_estimate: number;
+  warnings: string[];
+};
+
 export type ListWorkspaceReadyScriptsOptions = {
   unrecordedOnly?: boolean;
   includeHidden?: boolean;
@@ -914,6 +940,11 @@ export type TongsCommitApiService = {
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
   commitWorkspaceFile(workspaceId: string, input: CommitFileRequest): Promise<CommitWorkspaceFileResponse>;
   deleteReadyScript(workpieceId: string, path: string, options?: DeleteReadyScriptOptions): Promise<DeleteReadyScriptResult>;
+  deleteWorkpiece(
+    workpieceId: string,
+    input: DeleteWorkpieceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<DeleteWorkpieceResult>;
   generateEpisodeThumbnail(workpieceId: string, input: GenerateEpisodeThumbnailRequest): Promise<GenerateEpisodeThumbnailResponse>;
   createRecordingSessionRecord(input: CreateRecordingSessionRecordRequest): Promise<RecordingSessionRow>;
   listRecordingSessionsForPlanner(options?: RecordingSessionListOptions): Promise<RecordingSessionRow[]>;
@@ -3133,6 +3164,21 @@ function normalizeArchiveWorkpieceRequest(body: Record<string, unknown>): Archiv
 function normalizeRestoreWorkpieceRequest(body: Record<string, unknown>): RestoreWorkpieceRequest {
   return {
     workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+  };
+}
+
+function normalizeDeleteWorkpieceRequest(body: Record<string, unknown>): DeleteWorkpieceRequest {
+  const deletionModeRaw = normalizeNonEmptyString(body.deletion_mode, "deletion_mode");
+  if (
+    deletionModeRaw !== "full_delete"
+    && deletionModeRaw !== "delete_keep_performance"
+    && deletionModeRaw !== "delete_keep_reusable_media"
+  ) {
+    throw new HttpError(400, "invalid_deletion_mode", "deletion_mode must be full_delete, delete_keep_performance, or delete_keep_reusable_media");
+  }
+  return {
+    workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+    deletion_mode: deletionModeRaw,
   };
 }
 
@@ -7197,6 +7243,406 @@ export class TongsCommitService {
     ));
   }
 
+  private isReusableAssetRow(row: AssetRow): boolean {
+    const metadata = (row.metadata_json && typeof row.metadata_json === "object" && !Array.isArray(row.metadata_json))
+      ? row.metadata_json as Record<string, unknown>
+      : null;
+    if (!metadata) return false;
+    if (metadata.is_reusable === true) return true;
+    const reuseStatus = typeof metadata.reuse_status === "string" ? metadata.reuse_status.toLowerCase() : null;
+    if (reuseStatus === "reusable" || reuseStatus === "promoted" || reuseStatus === "library") return true;
+    if (typeof metadata.library_promoted_at === "string" && metadata.library_promoted_at.trim().length > 0) return true;
+    return false;
+  }
+
+  private async captureWorkpiecePerformanceRetention(args: {
+    workspaceId: string;
+    workpieceId: string;
+    deletionMode: WorkpieceDeletionMode;
+    actorUserId: string;
+    fallbackTitle: string | null;
+  }): Promise<boolean> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_events")
+      .select("event_name,payload,created_at")
+      .eq("workpiece_id", args.workpieceId)
+      .order("created_at", { ascending: false })
+      .limit(500);
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to read workpiece events for performance retention", {
+        reason: error.message,
+      });
+    }
+
+    const publishedEvents = (data ?? []).filter((row) => (
+      typeof row.event_name === "string"
+      && (
+        row.event_name === HEARTH_APPROVED_SCRIPT_EVENT
+        || row.event_name.toLowerCase().includes("publish")
+      )
+    ));
+    if (publishedEvents.length === 0) {
+      return false;
+    }
+
+    const platformRecords: Array<Record<string, unknown>> = [];
+    let canonicalUrl: string | null = null;
+    let titleSnapshot: string | null = args.fallbackTitle;
+    let publishTimestamp: string | null = null;
+
+    for (const row of publishedEvents) {
+      const payload = row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
+        ? row.payload as Record<string, unknown>
+        : {};
+      const platform = typeof payload.platform === "string" ? payload.platform : null;
+      const platformContentId = typeof payload.platform_content_id === "string"
+        ? payload.platform_content_id
+        : typeof payload.content_id === "string"
+          ? payload.content_id
+          : null;
+      const url = typeof payload.canonical_url === "string"
+        ? payload.canonical_url
+        : typeof payload.url === "string"
+          ? payload.url
+          : null;
+      const title = typeof payload.title_snapshot === "string"
+        ? payload.title_snapshot
+        : typeof payload.title === "string"
+          ? payload.title
+          : null;
+      if (!publishTimestamp && typeof row.created_at === "string") {
+        publishTimestamp = row.created_at;
+      }
+      if (!canonicalUrl && url) canonicalUrl = url;
+      if (!titleSnapshot && title) titleSnapshot = title;
+      if (!platform && !platformContentId && !url) continue;
+      platformRecords.push({
+        platform,
+        platform_content_id: platformContentId,
+        canonical_url: url,
+        published_at: row.created_at,
+      });
+    }
+
+    if (platformRecords.length === 0 && !canonicalUrl) {
+      return false;
+    }
+
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => {
+        upsert: (value: Record<string, unknown>, options?: { onConflict?: string }) => {
+          select: (columns: string) => { single: () => Promise<{ data: unknown; error: { message: string } | null }> };
+        };
+      };
+    };
+
+    const { error: upsertError } = await tongsUntyped
+      .from("episode_performance_retention")
+      .upsert({
+        workspace_id: args.workspaceId,
+        former_workpiece_id: args.workpieceId,
+        workpiece_id: args.workpieceId,
+        deletion_mode: args.deletionMode,
+        tracking_enabled: true,
+        platform_records: platformRecords,
+        publish_timestamp: publishTimestamp,
+        title_snapshot: titleSnapshot,
+        canonical_url: canonicalUrl,
+        detached_at: new Date().toISOString(),
+        created_by: args.actorUserId,
+      }, { onConflict: "workspace_id,former_workpiece_id" })
+      .select("id")
+      .single();
+
+    if (upsertError) {
+      throw new HttpError(502, "db_write_failed", "Failed to upsert performance retention stub", {
+        reason: upsertError.message,
+      });
+    }
+
+    return true;
+  }
+
+  async deleteWorkpiece(
+    workpieceId: string,
+    input: DeleteWorkpieceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<DeleteWorkpieceResult> {
+    await this.getWorkspaceOrThrow(input.workspace_id);
+    const cradle = await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    if ((cradle.archive_reason ?? "").startsWith("deleted:")) {
+      throw new HttpError(409, "already_deleted", "This workpiece has already been deleted.");
+    }
+
+    const warnings: string[] = [];
+    const nowIso = new Date().toISOString();
+
+    const { data: workpieceFileRows, error: workpieceFileRowsError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_files")
+      .select("path,bytes,storage_bucket,storage_key")
+      .eq("workpiece_id", workpieceId);
+    if (workpieceFileRowsError) {
+      throw new HttpError(502, "db_read_failed", "Failed to list workpiece files for deletion", {
+        reason: workpieceFileRowsError.message,
+      });
+    }
+
+    const { data: assetRows, error: assetRowsError } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .select("*")
+      .eq("workspace_id", input.workspace_id)
+      .eq("workpiece_id", workpieceId);
+    if (assetRowsError) {
+      throw new HttpError(502, "db_read_failed", "Failed to list workpiece assets for deletion", {
+        reason: assetRowsError.message,
+      });
+    }
+
+    const allAssets = assetRows ?? [];
+    const retainedReusableAssets = input.deletion_mode === "delete_keep_reusable_media"
+      ? allAssets.filter((row) => this.isReusableAssetRow(row))
+      : [];
+    const assetsToDelete = input.deletion_mode === "delete_keep_reusable_media"
+      ? allAssets.filter((row) => !this.isReusableAssetRow(row))
+      : allAssets;
+
+    let retainedPerformanceStub = false;
+    if (input.deletion_mode === "delete_keep_performance") {
+      retainedPerformanceStub = await this.captureWorkpiecePerformanceRetention({
+        workspaceId: input.workspace_id,
+        workpieceId,
+        deletionMode: input.deletion_mode,
+        actorUserId: auth.userId,
+        fallbackTitle: cradle.label,
+      });
+      if (!retainedPerformanceStub) {
+        warnings.push("performance_stub_not_retained_no_publish_identity");
+      }
+    }
+
+    if (input.deletion_mode === "delete_keep_reusable_media") {
+      const promotedReusableIds = retainedReusableAssets.map((row) => row.id);
+      if (promotedReusableIds.length > 0) {
+        const { error: promoteError } = await this.supabase
+          .schema("tongs")
+          .from("assets")
+          .update({
+            metadata_json: {
+              retained_after_episode_delete: true,
+              retained_at: nowIso,
+              retained_mode: input.deletion_mode,
+            },
+            updated_at: nowIso,
+          })
+          .in("id", promotedReusableIds);
+        if (promoteError) {
+          throw new HttpError(502, "db_write_failed", "Failed to mark reusable assets as retained", {
+            reason: promoteError.message,
+          });
+        }
+      }
+    }
+
+    const fileRows = workpieceFileRows ?? [];
+    const fileStorageRows = fileRows.map((row) => ({
+      bucket: row.storage_bucket?.trim() || this.bucket,
+      key: row.storage_key?.trim() || buildStorageKey(workpieceId, row.path),
+      bytes: row.bytes,
+    }));
+    const assetStorageRows = assetsToDelete.map((row) => ({
+      bucket: row.storage_bucket?.trim() || this.bucket,
+      key: row.storage_key?.trim() || buildStorageKey(workpieceId, row.path),
+      bytes: row.bytes,
+    }));
+    const bytesRemovedEstimate = [...fileStorageRows, ...assetStorageRows]
+      .reduce((sum, row) => sum + (typeof row.bytes === "number" && Number.isFinite(row.bytes) ? row.bytes : 0), 0);
+
+    if (assetsToDelete.length > 0) {
+      const { error: deleteAssetsError } = await this.supabase
+        .schema("tongs")
+        .from("assets")
+        .delete()
+        .in("id", assetsToDelete.map((row) => row.id));
+      if (deleteAssetsError) {
+        throw new HttpError(502, "db_write_failed", "Failed to delete workpiece asset rows", {
+          reason: deleteAssetsError.message,
+        });
+      }
+    }
+
+    const { data: deletedWorkpieceFiles, error: deleteWorkpieceFilesError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_files")
+      .delete()
+      .eq("workpiece_id", workpieceId)
+      .select("path");
+    if (deleteWorkpieceFilesError) {
+      throw new HttpError(502, "db_write_failed", "Failed to delete workpiece file rows", {
+        reason: deleteWorkpieceFilesError.message,
+      });
+    }
+
+    const { data: deletedWorkpieceEvents, error: deleteWorkpieceEventsError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_events")
+      .delete()
+      .eq("workpiece_id", workpieceId)
+      .select("id");
+    if (deleteWorkpieceEventsError) {
+      throw new HttpError(502, "db_write_failed", "Failed to delete workpiece events", {
+        reason: deleteWorkpieceEventsError.message,
+      });
+    }
+
+    const [hearthPresenceResult, hammerPresenceResult] = await Promise.all([
+      this.supabase.schema("tongs").from("hearth_workpiece_presence").delete().eq("workpiece_id", workpieceId).select("user_id"),
+      this.supabase.schema("tongs").from("hammer_workpiece_presence").delete().eq("workpiece_id", workpieceId).select("user_id"),
+    ]);
+    if (hearthPresenceResult.error || hammerPresenceResult.error) {
+      throw new HttpError(502, "db_write_failed", "Failed to clear workpiece presence rows", {
+        reason: hearthPresenceResult.error?.message ?? hammerPresenceResult.error?.message ?? "unknown",
+      });
+    }
+
+    const [deleteHammerStateResult, deleteReadyMetaResult, deleteReadyQueueResult, deleteSessionItemsResult, deleteSessionEpisodeLinksResult] = await Promise.all([
+      this.supabase.schema("tongs").from("hammer_workpiece_state").delete().eq("workpiece_id", workpieceId).select("workpiece_id"),
+      this.supabase.schema("tongs").from("workpiece_ready_script_meta").delete().eq("workpiece_id", workpieceId).select("script_path"),
+      this.supabase.schema("tongs").from("workspace_ready_queue_state").delete().eq("workpiece_id", workpieceId).select("workpiece_id"),
+      this.supabase.schema("tongs").from("recording_session_items").delete().eq("episode_id", workpieceId).select("id"),
+      this.supabase.schema("tongs").from("recording_session_episodes").delete().eq("episode_id", workpieceId).select("recording_session_id"),
+    ]);
+    if (
+      deleteHammerStateResult.error
+      || deleteReadyMetaResult.error
+      || deleteReadyQueueResult.error
+      || deleteSessionItemsResult.error
+      || deleteSessionEpisodeLinksResult.error
+    ) {
+      throw new HttpError(502, "db_write_failed", "Failed to clear workpiece-linked rows", {
+        reason: deleteHammerStateResult.error?.message
+          ?? deleteReadyMetaResult.error?.message
+          ?? deleteReadyQueueResult.error?.message
+          ?? deleteSessionItemsResult.error?.message
+          ?? deleteSessionEpisodeLinksResult.error?.message
+          ?? "unknown",
+      });
+    }
+
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => {
+        delete: () => {
+          eq: (column: string, value: unknown) => {
+            eq: (nextColumn: string, nextValue: unknown) => Promise<{ data: unknown[] | null; error: { message: string } | null }>;
+          };
+        };
+        update: (values: Record<string, unknown>) => {
+          eq: (column: string, value: unknown) => {
+            eq: (nextColumn: string, nextValue: unknown) => Promise<{ data: unknown[] | null; error: { message: string } | null }>;
+          };
+        };
+        insert: (values: Record<string, unknown>) => Promise<{ data: unknown[] | null; error: { message: string } | null }>;
+      };
+    };
+
+    const projectLinkDelete = await tongsUntyped
+      .from("barstock_project_episode_links")
+      .delete()
+      .eq("workspace_id", input.workspace_id)
+      .eq("workpiece_id", workpieceId);
+    if (projectLinkDelete.error) {
+      throw new HttpError(502, "db_write_failed", "Failed to clear project/workpiece links during deletion", {
+        reason: projectLinkDelete.error.message,
+      });
+    }
+
+    const deletionState = input.deletion_mode === "delete_keep_performance"
+      ? "published_detached"
+      : "deleted";
+    const episodeUpdateResult = await tongsUntyped
+      .from("episodes")
+      .update({
+        archived_at: nowIso,
+        archived_by: auth.userId,
+        archive_reason: `deleted:${input.deletion_mode}`,
+        lifecycle_state: deletionState,
+        deleted_at: nowIso,
+        deleted_by: auth.userId,
+      })
+      .eq("id", workpieceId)
+      .eq("workspace_id", input.workspace_id);
+    if (episodeUpdateResult.error) {
+      throw new HttpError(502, "db_write_failed", "Failed to update episode lifecycle for deletion", {
+        reason: episodeUpdateResult.error.message,
+      });
+    }
+
+    const auditInsert = await tongsUntyped
+      .from("episode_deletion_audit")
+      .insert({
+        workspace_id: input.workspace_id,
+        workpiece_id: workpieceId,
+        actor_user_id: auth.userId,
+        deletion_mode: input.deletion_mode,
+        retained_performance_stub: retainedPerformanceStub,
+        retained_reusable_assets_count: retainedReusableAssets.length,
+        deleted_asset_rows_count: assetsToDelete.length,
+        deleted_workpiece_file_rows_count: (deletedWorkpieceFiles ?? []).length,
+        deleted_workpiece_event_rows_count: (deletedWorkpieceEvents ?? []).length,
+        deleted_presence_rows_count: (hearthPresenceResult.data ?? []).length + (hammerPresenceResult.data ?? []).length,
+        deleted_recording_links_count: (deleteSessionItemsResult.data ?? []).length + (deleteSessionEpisodeLinksResult.data ?? []).length,
+        deleted_project_links_count: (projectLinkDelete.data ?? []).length,
+        bytes_removed_estimate: bytesRemovedEstimate,
+        warnings: warnings,
+      });
+    if (auditInsert.error) {
+      throw new HttpError(502, "db_write_failed", "Failed to write deletion audit row", {
+        reason: auditInsert.error.message,
+      });
+    }
+
+    const storageByBucket = new Map<string, string[]>();
+    for (const row of [...fileStorageRows, ...assetStorageRows]) {
+      if (!row.key) continue;
+      const bucket = row.bucket || this.bucket;
+      const existing = storageByBucket.get(bucket);
+      if (existing) {
+        if (!existing.includes(row.key)) existing.push(row.key);
+      } else {
+        storageByBucket.set(bucket, [row.key]);
+      }
+    }
+    for (const [bucket, keys] of storageByBucket.entries()) {
+      const { error: storageDeleteError } = await this.supabase.storage
+        .from(bucket)
+        .remove(keys);
+      if (storageDeleteError) {
+        warnings.push("storage_delete_failed");
+        logStorageError("delete", bucket, keys.join(","), storageDeleteError);
+      }
+    }
+
+    return {
+      workspace_id: input.workspace_id,
+      workpiece_id: workpieceId,
+      deletion_mode: input.deletion_mode,
+      retained_performance_stub: retainedPerformanceStub,
+      retained_reusable_assets: retainedReusableAssets.length,
+      deleted_asset_rows: assetsToDelete.length,
+      deleted_workpiece_file_rows: (deletedWorkpieceFiles ?? []).length,
+      deleted_workpiece_event_rows: (deletedWorkpieceEvents ?? []).length,
+      deleted_presence_rows: (hearthPresenceResult.data ?? []).length + (hammerPresenceResult.data ?? []).length,
+      deleted_recording_links: (deleteSessionItemsResult.data ?? []).length + (deleteSessionEpisodeLinksResult.data ?? []).length,
+      deleted_project_links: (projectLinkDelete.data ?? []).length,
+      bytes_removed_estimate: bytesRemovedEstimate,
+      warnings: [...new Set(warnings)],
+    };
+  }
+
   async archiveWorkpiece(
     workpieceId: string,
     input: ArchiveWorkpieceRequest,
@@ -7227,6 +7673,26 @@ export class TongsCommitService {
     }
     if (!data) {
       throw new HttpError(502, "db_write_failed", "episodes archive update returned no row");
+    }
+
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => {
+        update: (value: Record<string, unknown>) => {
+          eq: (column: string, target: unknown) => {
+            eq: (nextColumn: string, nextTarget: unknown) => Promise<{ data: unknown; error: { message: string } | null }>;
+          };
+        };
+      };
+    };
+    const lifecycleUpdate = await tongsUntyped
+      .from("episodes")
+      .update({ lifecycle_state: "archived" })
+      .eq("id", workpieceId)
+      .eq("workspace_id", input.workspace_id);
+    if (lifecycleUpdate.error) {
+      throw new HttpError(502, "db_write_failed", "Failed to update archived lifecycle state", {
+        reason: lifecycleUpdate.error.message,
+      });
     }
 
     await this.insertEvent({
@@ -7280,6 +7746,31 @@ export class TongsCommitService {
     }
     if (!data) {
       throw new HttpError(502, "db_write_failed", "episodes restore update returned no row");
+    }
+
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => {
+        update: (value: Record<string, unknown>) => {
+          eq: (column: string, target: unknown) => {
+            eq: (nextColumn: string, nextTarget: unknown) => Promise<{ data: unknown; error: { message: string } | null }>;
+          };
+        };
+      };
+    };
+    const lifecycleUpdate = await tongsUntyped
+      .from("episodes")
+      .update({
+        lifecycle_state: "active",
+        deleted_at: null,
+        deleted_by: null,
+        detached_at: null,
+      })
+      .eq("id", workpieceId)
+      .eq("workspace_id", input.workspace_id);
+    if (lifecycleUpdate.error) {
+      throw new HttpError(502, "db_write_failed", "Failed to update restored lifecycle state", {
+        reason: lifecycleUpdate.error.message,
+      });
     }
 
     await this.insertEvent({
@@ -8492,6 +8983,16 @@ export function createTongsCommitApiHandlerWithService(
         const userAccessToken = requireUserAccessTokenHeader(request);
         const result = await service.restoreWorkpiece(workpieceId, payload, { userAccessToken });
         return jsonResponse(200, { ok: true, data: { workpiece: result } });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "delete") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const payload = normalizeDeleteWorkpieceRequest(body);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.deleteWorkpiece(workpieceId, payload, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: { result } });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "ready-queue-state") {

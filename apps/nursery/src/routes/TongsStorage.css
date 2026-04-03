@@ -92,6 +92,37 @@
   flex-wrap: wrap;
 }
 
+.tongs-storage__delete-panel {
+  border: 1px solid rgba(255, 130, 130, 0.35);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(120, 20, 20, 0.18);
+  display: grid;
+  gap: 8px;
+}
+
+.tongs-storage__delete-title {
+  margin: 0;
+  font-size: 14px;
+}
+
+.tongs-storage__delete-copy {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.88;
+}
+
+.tongs-storage__delete-field {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.tongs-storage__delete-notice {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
 .tongs-storage__badge--status {
   border-color: rgba(255, 255, 255, 0.24);
   background: rgba(255, 255, 255, 0.06);
@@ -291,6 +322,82 @@
   background: rgba(0, 0, 0, 0.2);
 }
 
+.tongs-storage__usage-summary {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tongs-storage__usage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+}
+
+.tongs-storage__usage-card {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  display: grid;
+  gap: 4px;
+}
+
+.tongs-storage__usage-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.76;
+}
+
+.tongs-storage__usage-value {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tongs-storage__largest-files {
+  display: grid;
+  gap: 6px;
+}
+
+.tongs-storage__largest-files-title {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.8;
+}
+
+.tongs-storage__largest-files-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.tongs-storage__largest-files-item {
+  display: grid;
+  gap: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.tongs-storage__largest-files-name {
+  font-weight: 600;
+}
+
+.tongs-storage__largest-files-meta {
+  font-size: 12px;
+  opacity: 0.82;
+  word-break: break-all;
+}
+
 .tongs-storage__tree-header {
   display: flex;
   justify-content: space-between;
@@ -390,6 +497,11 @@
 .tongs-storage__tree-footnote {
   font-size: 12px;
   opacity: 0.72;
+}
+
+.tongs-storage__tree-node--file .tongs-storage__tree-note {
+  font-size: 13px;
+  opacity: 0.92;
 }
 
 @media (max-width: 960px) {
