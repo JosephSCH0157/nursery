@@ -22,6 +22,17 @@ All queries default to a 30-day window; change the `where created_at >= ...` cla
 - `ai_top_users_by_lane_usage.sql`
   - Top users by lane usage.
 
+## Integrity / Drift Detection
+
+- `ai_runtime_followed_policy_mismatch.sql`
+  - Tripwire query for runtime-vs-policy drift.
+  - Flags mismatch classes with a human-readable `mismatch_reason`, including:
+    - policy expected Forge but runtime used BYO
+    - policy required BYO but runtime used Forge
+    - billing lane vs effective key source mismatch
+    - denied/missing-key rows that still look like execution
+    - kill-switch-active rows with BYO execution attribution
+
 ## Safety notes
 
 - Do not extend snapshots to include raw API keys, encrypted key blobs, auth headers, or tokens.
