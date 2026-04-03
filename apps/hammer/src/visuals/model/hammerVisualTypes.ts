@@ -4,6 +4,7 @@ export const HAMMER_VISUAL_DEFAULT_UPDATED_AT = "1970-01-01T00:00:00.000Z" as co
 export const HAMMER_VISUAL_DEFAULT_MIN_DURATION_SEC = 0.25 as const;
 
 export type HammerVisualSourceMode = "packaging" | "manual" | "seeded";
+export type HammerVisualTimelineDebugOrigin = "canonical_load" | "legacy_migration" | "empty_init";
 
 export type HammerVisualAssetKind =
   | "image"
@@ -89,4 +90,6 @@ export interface HammerVisualTimelineState {
   assets: HammerVisualAsset[];
   lanes: HammerVisualLane[];
   clips: HammerVisualClip[];
+  debug_origin?: HammerVisualTimelineDebugOrigin;
+  debug_migration_hash?: string | null;
 }

@@ -152,6 +152,14 @@ export function assertValidTimelineState(
   assertCondition(Array.isArray(state.assets), "Visual timeline assets must be an array.");
   assertCondition(Array.isArray(state.lanes), "Visual timeline lanes must be an array.");
   assertCondition(Array.isArray(state.clips), "Visual timeline clips must be an array.");
+  if (state.debug_origin != null) {
+    assertCondition(
+      state.debug_origin === "canonical_load"
+      || state.debug_origin === "legacy_migration"
+      || state.debug_origin === "empty_init",
+      "Visual timeline debug_origin is invalid.",
+    );
+  }
 
   const assetIds = new Set<string>();
   for (const asset of state.assets) {

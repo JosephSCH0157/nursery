@@ -3,6 +3,7 @@ import type {
   HammerPreviewMode,
 } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
+import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import type {
   HammerLaunchContext,
   HammerLaunchSourceMode,
@@ -343,6 +344,7 @@ export interface HammerPersistedStateRecord {
   transcript_artifact_path: string | null;
   speaker_map_artifact_path: string | null;
   visual_placement_artifact_path: string | null;
+  visual_timeline_artifact_path?: string | null;
   audio_polish_artifact_path: string | null;
   edit_plan_artifact_path: string | null;
   editorial_authority_artifact_path: string | null;
@@ -363,6 +365,7 @@ export interface HammerPersistenceSnapshot {
   structured_transcript: HammerPersistedArtifact<HammerPersistedStructuredTranscript>;
   speaker_map: HammerPersistedArtifact<HammerPersistedSpeakerMap>;
   visual_placements: HammerPersistedArtifact<HammerPersistedVisualPlacements>;
+  visual_timeline: HammerPersistedArtifact<HammerVisualTimelineState>;
   audio_polish: HammerPersistedArtifact<HammerPersistedAudioPolish>;
   edit_plan: HammerPersistedArtifact<HammerEditPlan>;
   editorial_authority: HammerPersistedArtifact<HammerEditorialAuthorityGraph>;
@@ -395,6 +398,7 @@ export interface HammerPersistenceSaveRequest {
   structured_transcript?: HammerArtifactWriteRequest<HammerPersistedStructuredTranscript>;
   speaker_map?: HammerArtifactWriteRequest<HammerPersistedSpeakerMap>;
   visual_placements?: HammerArtifactWriteRequest<HammerPersistedVisualPlacements>;
+  visual_timeline?: HammerArtifactWriteRequest<HammerVisualTimelineState>;
   audio_polish?: HammerArtifactWriteRequest<HammerPersistedAudioPolish>;
   edit_plan?: HammerArtifactWriteRequest<HammerEditPlan>;
   editorial_authority?: HammerArtifactWriteRequest<HammerEditorialAuthorityGraph>;

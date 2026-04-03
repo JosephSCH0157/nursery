@@ -65,5 +65,7 @@ export function createEmptyVisualTimelineState(
         },
       }))
       : [],
+    debug_origin: overrides?.debug_origin ?? "empty_init",
+    debug_migration_hash: overrides?.debug_migration_hash ?? null,
   };
 }

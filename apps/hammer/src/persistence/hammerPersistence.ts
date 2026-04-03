@@ -13,6 +13,7 @@ import {
   cloneVisualPlacements,
   normalizeHammerVisualPlacementsState,
 } from "../lib/hammerVisualPlacements";
+import { buildHammerVisualTimelineSaveRequest } from "../visuals/persistence/hammerVisualTimelinePersistence";
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
 import {
   projectEditPlanFromEditorialAuthorityGraph,
@@ -300,6 +301,13 @@ export function buildHammerPersistenceSaveRequest(
     visual_placements: {
       data: toVisualPlacements(snapshot),
     },
+    ...(snapshot.visualTimeline
+      ? buildHammerVisualTimelineSaveRequest({
+        timeline: snapshot.visualTimeline,
+        active_session_id: snapshot.sessionId,
+        last_opened_at: lastOpenedAt,
+      })
+      : {}),
     audio_polish: {
       data: toAudioPolish(snapshot, existingAudioPolish),
     },
@@ -560,6 +568,17 @@ function normalizeVisualPlacementsArtifact(
   };
 }
 
+function normalizeVisualTimelineArtifact(
+  value: unknown,
+): { path: string | null; file_updated_at: string | null; data: HammerPersistenceSnapshot["visual_timeline"]["data"] } {
+  const artifact = normalizeArtifact<Record<string, unknown>>(value);
+  return {
+    path: artifact.path,
+    file_updated_at: artifact.file_updated_at,
+    data: artifact.data as HammerPersistenceSnapshot["visual_timeline"]["data"],
+  };
+}
+
 function normalizeStateRecord(value: unknown): HammerPersistedStateRecord | null {
   const row = readJsonObject(value);
   if (!row) return null;
@@ -584,6 +603,7 @@ function normalizeStateRecord(value: unknown): HammerPersistedStateRecord | null
     transcript_artifact_path: readString(row.transcript_artifact_path),
     speaker_map_artifact_path: readString(row.speaker_map_artifact_path),
     visual_placement_artifact_path: readString(row.visual_placement_artifact_path),
+    visual_timeline_artifact_path: readString(row.visual_timeline_artifact_path),
     audio_polish_artifact_path: readString(row.audio_polish_artifact_path),
     edit_plan_artifact_path: readString(row.edit_plan_artifact_path),
     editorial_authority_artifact_path: readString(row.editorial_authority_artifact_path),
@@ -608,6 +628,7 @@ function normalizeSnapshot(payload: unknown): HammerPersistenceSnapshot | null {
   const audioPolish = normalizeAudioPolishArtifact(snapshot.audio_polish);
   const structuredTranscript = normalizeStructuredTranscriptArtifact(snapshot.structured_transcript);
   const visualPlacements = normalizeVisualPlacementsArtifact(snapshot.visual_placements);
+  const visualTimeline = normalizeVisualTimelineArtifact(snapshot.visual_timeline);
 
   return {
     schema_version: 1,
@@ -631,6 +652,11 @@ function normalizeSnapshot(payload: unknown): HammerPersistenceSnapshot | null {
       path: visualPlacements.path,
       updated_at: visualPlacements.file_updated_at,
       data: visualPlacements.data,
+    },
+    visual_timeline: {
+      path: visualTimeline.path,
+      updated_at: visualTimeline.file_updated_at,
+      data: visualTimeline.data,
     },
     audio_polish: {
       path: audioPolish.path,

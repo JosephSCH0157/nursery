@@ -16,6 +16,7 @@ import type {
   HammerPersistedStructuredTranscript,
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
+import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 
 export type HammerWorkspaceEditPlanStatus = "clean" | "dirty" | "reloaded";
@@ -45,5 +46,6 @@ export interface HammerWorkspaceSnapshot {
   editPlan: HammerEditPlan;
   editorialAuthorityGraph?: HammerEditorialAuthorityGraph | null;
   visualPlacements: HammerPersistedVisualPlacements | null;
+  visualTimeline?: HammerVisualTimelineState | null;
   audioPolish: HammerPersistedAudioPolish | null;
 }
