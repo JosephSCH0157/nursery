@@ -820,6 +820,14 @@ Guardrails:
   pointer-events: none;
 }
 
+.hammer-preview-canvas__image--cover {
+  object-fit: cover;
+}
+
+.hammer-preview-canvas__image--contain {
+  object-fit: contain;
+}
+
 .hammer-preview-canvas__video {
   width: 100%;
   height: 100%;

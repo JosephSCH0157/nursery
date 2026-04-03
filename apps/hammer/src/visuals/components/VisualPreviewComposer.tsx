@@ -28,6 +28,16 @@ interface VisualPreviewComposerProps {
 }
 
 export default function VisualPreviewComposer(props: VisualPreviewComposerProps) {
+  const applyOverlayLayout = (node: HTMLDivElement | null, overlay: VisualPreviewOverlayModel) => {
+    if (!node) return;
+    node.style.left = `${overlay.left_pct}%`;
+    node.style.top = `${overlay.top_pct}%`;
+    node.style.width = `${overlay.width_pct}%`;
+    node.style.height = `${overlay.height_pct}%`;
+    node.style.zIndex = String(overlay.z_index);
+    node.style.opacity = String(overlay.opacity);
+  };
+
   return (
     <div className="hammer-preview-canvas" aria-label="Visual composition canvas">
       {props.overlays.map((overlay) => (
@@ -39,13 +49,8 @@ export default function VisualPreviewComposer(props: VisualPreviewComposerProps)
             overlay.selected ? "is-selected" : "",
             overlay.dimmed ? "is-dimmed" : "",
           ].filter(Boolean).join(" ")}
-          style={{
-            left: `${overlay.left_pct}%`,
-            top: `${overlay.top_pct}%`,
-            width: `${overlay.width_pct}%`,
-            height: `${overlay.height_pct}%`,
-            zIndex: overlay.z_index,
-            opacity: overlay.opacity,
+          ref={(node) => {
+            applyOverlayLayout(node, overlay);
           }}
           onMouseDown={(event) => {
             props.onSelectClip(overlay.clip_id);
@@ -71,8 +76,12 @@ export default function VisualPreviewComposer(props: VisualPreviewComposerProps)
             <img
               src={overlay.src}
               alt={overlay.label}
-              className="hammer-preview-canvas__image"
-              style={{ objectFit: overlay.fit_mode }}
+              className={[
+                "hammer-preview-canvas__image",
+                overlay.fit_mode === "contain"
+                  ? "hammer-preview-canvas__image--contain"
+                  : "hammer-preview-canvas__image--cover",
+              ].join(" ")}
             />
           ) : (
             <div className="hammer-preview-canvas__fallback">{overlay.label}</div>

@@ -21,6 +21,12 @@ function toPercent(value: number, durationSec: number): number {
 
 export default function VisualTimelineLane(props: VisualTimelineLaneProps) {
   const playheadPercent = toPercent(props.playheadSec, props.durationSec);
+
+  const applyPlayheadPosition = (node: HTMLDivElement | null) => {
+    if (!node) return;
+    node.style.left = `${playheadPercent}%`;
+  };
+
   return (
     <div className="hammer-visual-timeline-lane">
       <header className="hammer-visual-timeline-lane__head">
@@ -29,7 +35,10 @@ export default function VisualTimelineLane(props: VisualTimelineLaneProps) {
         <span>{props.selectedClipId ? `Selected ${props.selectedClipId}` : "No clip selected"}</span>
       </header>
       <div className="hammer-visual-timeline-lane__track">
-        <div className="hammer-visual-timeline-lane__playhead" style={{ left: `${playheadPercent}%` }} />
+        <div
+          className="hammer-visual-timeline-lane__playhead"
+          ref={applyPlayheadPosition}
+        />
         {props.clips.map((clip) => (
           <VisualClipBlock
             key={clip.clipId}
