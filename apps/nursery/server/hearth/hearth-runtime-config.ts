@@ -66,6 +66,7 @@ export type HearthRuntimeConfig = {
   supabaseRpcKey: string | null;
   sttBucket: string;
   disableForgeLaneAi: boolean;
+  disableUserKeys: boolean;
   disableExpensiveAiActions: boolean;
   disableCdcGeneration: boolean;
 };
@@ -132,6 +133,7 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
       || DEFAULT_STT_BUCKET
     ).trim(),
     disableForgeLaneAi: readBooleanEnv("FORGE_AI_DISABLE_FORGE_LANE", false),
+    disableUserKeys: readBooleanEnv("FORGE_DISABLE_USER_KEYS", false),
     disableExpensiveAiActions: readBooleanEnv("FORGE_AI_DISABLE_EXPENSIVE_ACTIONS", false),
     disableCdcGeneration: readBooleanEnv("FORGE_AI_DISABLE_CDC_GENERATION", false),
   };

@@ -1,7 +1,14 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@forge/tongs";
+import {
+  getAiReasonMessage,
+  resolveAiPolicy,
+  type AiFundingSource,
+  type AiPolicyResolveResult,
+  type AiMode,
+  type Database,
+} from "@forge/tongs";
 import {
   AI_USAGE_FEATURE,
   AI_USAGE_LANE,
@@ -49,6 +56,12 @@ import {
   disconnectUserAiKey,
   getUserAiKeyStatus,
 } from "./user-ai-keys-service";
+import {
+  MissingForgeKeyError,
+  MissingUserKeyError,
+  PolicyDeniedError,
+  resolveEffectiveAiCredentials,
+} from "./resolve-effective-ai-credentials";
 
 type StructuredReply = {
   assistantText: string;
@@ -229,6 +242,80 @@ function readOptionalNumber(value: unknown): number | null {
   if (typeof value !== "number") return null;
   if (!Number.isFinite(value)) return null;
   return value;
+}
+
+function mapLaneToRequestedMode(lane: BillingMode): AiMode {
+  return lane === AI_USAGE_LANE.BYO ? "PERSONAL_ONLY" : "ORG_FIRST_PERSONAL_FALLBACK";
+}
+
+function mapLaneToRequestedFundingSource(lane: BillingMode): AiFundingSource {
+  return lane === AI_USAGE_LANE.BYO ? "personal_byo_key" : "forge_managed_credits";
+}
+
+async function readPersonalAiConfigured(args: {
+  supabaseService: SupabaseClient<Database> | null;
+  userId: string | null;
+  provider: string;
+}): Promise<boolean> {
+  if (!args.supabaseService || !args.userId) return false;
+  const tableClient = args.supabaseService.schema("tongs") as unknown as {
+    from: (table: string) => {
+      select: (fields: string) => {
+        eq: (column: string, value: string) => {
+          eq: (column: string, value: string) => {
+            limit: (value: number) => Promise<{ data: unknown; error: { message: string } | null }>;
+          };
+        };
+      };
+    };
+  };
+  const { data, error } = await tableClient
+    .from("user_ai_keys")
+    .select("status")
+    .eq("user_id", args.userId)
+    .eq("provider", args.provider)
+    .limit(1);
+  if (error) return false;
+  const row = Array.isArray(data) ? data[0] : null;
+  if (!isRecord(row)) return false;
+  return readOptionalString(row.status) === "active";
+}
+
+async function resolveRuntimeAiPolicy(args: {
+  supabaseService: SupabaseClient<Database> | null;
+  userId: string | null;
+  workspaceId: string | null;
+  lane: BillingMode;
+  feature: string;
+  action: string;
+  provider: string;
+  model: string;
+  estimatedCostUsd: number | null;
+  requestId: string;
+}): Promise<AiPolicyResolveResult | null> {
+  if (!args.supabaseService || !args.userId) return null;
+  const personalAiConfigured = await readPersonalAiConfigured({
+    supabaseService: args.supabaseService,
+    userId: args.userId,
+    provider: args.provider,
+  });
+  return resolveAiPolicy(args.supabaseService, {
+    orgId: null,
+    workspaceId: args.workspaceId,
+    userId: args.userId,
+    tool: "hearth",
+    feature: args.feature,
+    action: args.action,
+    requestedMode: mapLaneToRequestedMode(args.lane),
+    personalAiConfigured,
+    orgAiAvailable: true,
+    requestedFundingSource: mapLaneToRequestedFundingSource(args.lane),
+    estimatedCostUsd: args.estimatedCostUsd,
+    provider: args.provider,
+    model: args.model,
+    requestId: args.requestId,
+    writeLedger: false,
+  });
 }
 
 function clamp01(value: number): number {
@@ -1512,6 +1599,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     supabaseRpcKey,
     sttBucket,
     disableForgeLaneAi,
+    disableUserKeys,
     disableExpensiveAiActions,
     disableCdcGeneration,
   } = config;
@@ -2157,14 +2245,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         }
 
-        if (!textApiKey) {
-          return jsonResponse(500, {
-            ok: false,
-            error: MISSING_OPENAI_TEXT_API_KEY_ERROR,
-            ...buildBillingSnapshot(lane),
-          });
-        }
-
         if (lane === AI_USAGE_LANE.FORGE && tokenBalance != null && tokenBalance <= 0) {
           return jsonResponse(402, {
             ok: false,
@@ -2173,20 +2253,96 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         }
 
+        const userId = await resolveUserId(bearerToken);
+        let policyDecision: AiPolicyResolveResult | null = null;
+        try {
+          policyDecision = await resolveRuntimeAiPolicy({
+            supabaseService,
+            userId,
+            workspaceId: null,
+            lane,
+            feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
+            action: "transcribe",
+            provider: "openai",
+            model: sttModel,
+            estimatedCostUsd: null,
+            requestId: sttActionId,
+          });
+        } catch {
+          return jsonResponse(500, {
+            ok: false,
+            error: "Failed resolving AI policy.",
+            ...buildBillingSnapshot(lane),
+          });
+        }
+
+        let resolvedCredentials;
+        try {
+          resolvedCredentials = await resolveEffectiveAiCredentials({
+            requestedLane: lane,
+            provider: "openai",
+            forgeManagedApiKey: textApiKey,
+            userId,
+            supabaseService,
+            disableUserKeys,
+            policyDecision,
+          });
+        } catch (error) {
+          if (error instanceof MissingForgeKeyError) {
+            return jsonResponse(500, {
+              ok: false,
+              error: MISSING_OPENAI_TEXT_API_KEY_ERROR,
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          if (error instanceof MissingUserKeyError) {
+            return jsonResponse(422, {
+              ok: false,
+              error: error.message,
+              code: "missing_user_byo_key",
+              effective_ai_key_source: "user_byo",
+              key_resolution_status: "missing_required_key",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          if (error instanceof PolicyDeniedError) {
+            return jsonResponse(403, {
+              ok: false,
+              error: error.reasonCode ? getAiReasonMessage(error.reasonCode) : error.message,
+              code: "policy_denied",
+              key_resolution_status: error.keyResolutionStatus,
+              policy_decision_type: policyDecision?.decisionType ?? "HARD_DENY",
+              policy_reason_code: policyDecision?.reasonCode ?? error.reasonCode,
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          return jsonResponse(500, {
+            ok: false,
+            error: "Failed resolving effective AI credentials.",
+            ...buildBillingSnapshot(lane),
+          });
+        }
+        const effectiveLane = resolvedCredentials.billingLane;
+        const resolutionSnapshot = {
+          effective_ai_key_source: resolvedCredentials.keySource,
+          key_resolution_status: resolvedCredentials.keyResolutionStatus,
+          policy_decision_type: policyDecision?.decisionType ?? null,
+          policy_reason_code: policyDecision?.reasonCode ?? null,
+        };
         if (!supabaseService) {
           return jsonResponse(500, {
             ok: false,
             error: "Supabase service role is not configured.",
             ...buildBillingSnapshot(lane),
+            ...resolutionSnapshot,
           });
         }
-
-        const userId = await resolveUserId(bearerToken);
         if (!userId) {
           return jsonResponse(401, {
             ok: false,
             error: "Authentication required.",
             ...buildBillingSnapshot(lane),
+            ...resolutionSnapshot,
           });
         }
 
@@ -2258,7 +2414,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           let upstream: Response;
           try {
             upstream = await runAIRequest({
-              lane,
+              lane: resolvedCredentials.billingLane,
               userId,
               workspaceId: null,
               workpieceId,
@@ -2273,7 +2429,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 init: {
                   method: "POST",
                   headers: {
-                    authorization: `Bearer ${textApiKey}`,
+                    authorization: `Bearer ${resolvedCredentials.apiKey}`,
                   },
                   body: form,
                 },
@@ -2300,6 +2456,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               error: upstreamMessage,
               detail,
               ...buildBillingSnapshot(lane),
+              ...resolutionSnapshot,
             });
           }
 
@@ -2308,7 +2465,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           if (!text) {
             await recordAiUsageEvent({
               userId,
-              lane,
+              lane: effectiveLane,
               provider: "openai",
               workspaceId: null,
               workpieceId,
@@ -2332,6 +2489,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               ok: false,
               error: "OpenAI returned empty transcription",
               ...buildBillingSnapshot(lane),
+              ...resolutionSnapshot,
             });
           }
 
@@ -2339,7 +2497,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             model: sttModel,
             payload,
             text,
-            billableMode: lane === AI_USAGE_LANE.FORGE ? AI_USAGE_LANE.FORGE : "non-billable",
+            billableMode: effectiveLane === AI_USAGE_LANE.FORGE ? AI_USAGE_LANE.FORGE : "non-billable",
           });
           const totalTokens = accounting.totalTokens;
           const inputTokens = accounting.inputTokens;
@@ -2351,7 +2509,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
           await recordAiUsageEvent({
             userId,
-            lane,
+            lane: effectiveLane,
             provider: "openai",
             workspaceId: null,
             workpieceId,
@@ -2372,7 +2530,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             correlationId: sttActionId,
           });
 
-          if (lane === AI_USAGE_LANE.FORGE && billableTokens > 0) {
+          if (effectiveLane === AI_USAGE_LANE.FORGE && billableTokens > 0) {
             const deltaResult = await applyTokenDelta({
               userId,
               spent: billableTokens,
@@ -2386,6 +2544,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 error: "Failed to apply Forge credit deduction.",
                 code: "forge_deduction_failed",
                 ...buildBillingSnapshot(lane),
+                ...resolutionSnapshot,
               });
             } else if (deltaResult.tokenBalance != null) {
               tokenBalance = deltaResult.tokenBalance;
@@ -2405,6 +2564,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             actual_cost_usd: estimatedCostUsd,
             billable_tokens: billableTokens,
             ...buildBillingSnapshot(lane),
+            ...resolutionSnapshot,
           });
         } finally {
           request.signal.removeEventListener("abort", onAborted);
@@ -2433,22 +2593,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ok: false,
           error: "Higher-cost AI actions are temporarily disabled.",
           code: "expensive_actions_disabled",
-          ...buildBillingSnapshot(lane),
-        });
-      }
-
-      if (!textApiKey) {
-        return jsonResponse(500, {
-          ok: false,
-          error: MISSING_OPENAI_TEXT_API_KEY_ERROR,
-          ...buildBillingSnapshot(lane),
-        });
-      }
-
-      if (lane === AI_USAGE_LANE.FORGE && tokenBalance != null && tokenBalance <= 0) {
-        return jsonResponse(402, {
-          ok: false,
-          error: "No AI credits remaining.",
           ...buildBillingSnapshot(lane),
         });
       }
@@ -2486,11 +2630,93 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         : null;
       const requestText = latestUserMessage?.content ?? "";
       const userId = await resolveUserId(bearerToken);
-      if (lane === AI_USAGE_LANE.FORGE && !userId) {
+      let policyDecision: AiPolicyResolveResult | null = null;
+      try {
+        policyDecision = await resolveRuntimeAiPolicy({
+          supabaseService,
+          userId,
+          workspaceId: episodeContext.workspaceId,
+          lane,
+          feature: AI_USAGE_FEATURE.CHAT_ASSIST,
+          action: "chat",
+          provider: "openai",
+          model: requestedModel ?? configuredModel,
+          estimatedCostUsd: null,
+          requestId: chatActionId,
+        });
+      } catch {
+        return jsonResponse(500, {
+          ok: false,
+          error: "Failed resolving AI policy.",
+          ...buildBillingSnapshot(lane),
+        });
+      }
+      let resolvedCredentials;
+      try {
+        resolvedCredentials = await resolveEffectiveAiCredentials({
+          requestedLane: lane,
+          provider: "openai",
+          forgeManagedApiKey: textApiKey,
+          userId,
+          supabaseService,
+          disableUserKeys,
+          policyDecision,
+        });
+      } catch (error) {
+        if (error instanceof MissingForgeKeyError) {
+          return jsonResponse(500, {
+            ok: false,
+            error: MISSING_OPENAI_TEXT_API_KEY_ERROR,
+            ...buildBillingSnapshot(lane),
+          });
+        }
+        if (error instanceof MissingUserKeyError) {
+          return jsonResponse(422, {
+            ok: false,
+            error: error.message,
+            code: "missing_user_byo_key",
+            effective_ai_key_source: "user_byo",
+            key_resolution_status: "missing_required_key",
+            ...buildBillingSnapshot(lane),
+          });
+        }
+        if (error instanceof PolicyDeniedError) {
+          return jsonResponse(403, {
+            ok: false,
+            error: error.reasonCode ? getAiReasonMessage(error.reasonCode) : error.message,
+            code: "policy_denied",
+            key_resolution_status: error.keyResolutionStatus,
+            policy_decision_type: policyDecision?.decisionType ?? "HARD_DENY",
+            policy_reason_code: policyDecision?.reasonCode ?? error.reasonCode,
+            ...buildBillingSnapshot(lane),
+          });
+        }
+        return jsonResponse(500, {
+          ok: false,
+          error: "Failed resolving effective AI credentials.",
+          ...buildBillingSnapshot(lane),
+        });
+      }
+      const effectiveLane = resolvedCredentials.billingLane;
+      const resolutionSnapshot = {
+        effective_ai_key_source: resolvedCredentials.keySource,
+        key_resolution_status: resolvedCredentials.keyResolutionStatus,
+        policy_decision_type: policyDecision?.decisionType ?? null,
+        policy_reason_code: policyDecision?.reasonCode ?? null,
+      };
+      if (effectiveLane === AI_USAGE_LANE.FORGE && !userId) {
         return jsonResponse(401, {
           ok: false,
           error: "Authentication required.",
           ...buildBillingSnapshot(lane),
+        });
+      }
+      if (effectiveLane === AI_USAGE_LANE.FORGE && tokenBalance != null && tokenBalance <= 0) {
+        return jsonResponse(402, {
+          ok: false,
+          error: "No AI credits remaining.",
+          ...buildBillingSnapshot(lane),
+          ...resolutionSnapshot,
         });
       }
       const chatFeature = classifyChatFeature(requestText);
@@ -2695,7 +2921,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 messages: completionMessages,
               };
           return runAIRequest({
-            lane,
+            lane: effectiveLane,
             userId,
             workspaceId: episodeContext.workspaceId,
             workpieceId: episodeContext.episodeId,
@@ -2716,7 +2942,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               init: {
                 method: "POST",
                 headers: {
-                  authorization: `Bearer ${textApiKey}`,
+                  authorization: `Bearer ${resolvedCredentials.apiKey}`,
                   "content-type": "application/json",
                 },
                 body: JSON.stringify(payload),
@@ -2780,7 +3006,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         if (!rawReply) {
           await recordAiUsageEvent({
             userId,
-            lane,
+            lane: effectiveLane,
             provider: "openai",
             workspaceId: episodeContext.workspaceId,
             workpieceId: episodeContext.episodeId,
@@ -2881,7 +3107,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           payload,
           fallbackTotalTokens: spent,
           preflightEstimatedCostUsd: aiRoute.estimatedCostUsd,
-          billableMode: lane === AI_USAGE_LANE.FORGE ? AI_USAGE_LANE.FORGE : "non-billable",
+          billableMode: effectiveLane === AI_USAGE_LANE.FORGE ? AI_USAGE_LANE.FORGE : "non-billable",
         });
         const inputTokens = accounting.inputTokens;
         const outputTokens = accounting.outputTokens;
@@ -2892,7 +3118,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
         await recordAiUsageEvent({
           userId,
-          lane,
+          lane: effectiveLane,
           provider: "openai",
           workspaceId: episodeContext.workspaceId,
           workpieceId: episodeContext.episodeId,
@@ -2914,31 +3140,24 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           correlationId: chatActionId,
         });
 
-        if (lane === AI_USAGE_LANE.FORGE && billableTokens > 0) {
-          if (!userId) {
-            return jsonResponse(401, {
+        if (effectiveLane === AI_USAGE_LANE.FORGE && billableTokens > 0 && userId) {
+          const deltaResult = await applyTokenDelta({
+            userId,
+            spent: billableTokens,
+            requestId: chatActionId,
+            openAiRequestId,
+            reason: "hearth:chat:forge_billing_tokens",
+          });
+          if (!deltaResult.ok) {
+            return jsonResponse(502, {
               ok: false,
-              error: "Authentication required.",
+              error: "Failed to apply Forge credit deduction.",
+              code: "forge_deduction_failed",
               ...buildBillingSnapshot(lane),
+              ...resolutionSnapshot,
             });
-          } else {
-            const deltaResult = await applyTokenDelta({
-              userId,
-              spent: billableTokens,
-              requestId: chatActionId,
-              openAiRequestId,
-              reason: "hearth:chat:forge_billing_tokens",
-            });
-            if (!deltaResult.ok) {
-              return jsonResponse(502, {
-                ok: false,
-                error: "Failed to apply Forge credit deduction.",
-                code: "forge_deduction_failed",
-                ...buildBillingSnapshot(lane),
-              });
-            } else if (deltaResult.tokenBalance != null) {
-              tokenBalance = deltaResult.tokenBalance;
-            }
+          } else if (deltaResult.tokenBalance != null) {
+            tokenBalance = deltaResult.tokenBalance;
           }
         }
 
@@ -2959,6 +3178,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           billable_tokens: billableTokens,
           credits_warning: creditsWarning,
           ...buildBillingSnapshot(lane),
+          ...resolutionSnapshot,
         });
       } finally {
         request.signal.removeEventListener("abort", onAborted);

@@ -53,6 +53,8 @@ export type AiDecisionType = (typeof AI_DECISION_TYPES)[number];
 export type AiFeatureFlag = (typeof AI_FEATURE_FLAGS)[number];
 export type AiFundingSource = (typeof AI_FUNDING_SOURCES)[number];
 export type AiReasonCode = (typeof AI_REASON_CODES)[number];
+export type EffectiveAiKeySource = "forge_managed" | "user_byo" | "org_shared";
+export type KeyResolutionStatus = "available" | "missing_required_key" | "provider_not_supported" | "policy_denied";
 
 export type MembershipEntitlement = {
   profileTier: string | null;
@@ -91,6 +93,9 @@ export type AiPolicyResolveResult = {
   fallbackAvailable: boolean;
   fallbackUsed: boolean;
   effectivePolicySnapshot: Record<string, unknown>;
+  effectiveAiKeySource: EffectiveAiKeySource;
+  effectiveProvider: string | null;
+  keyResolutionStatus: KeyResolutionStatus;
 };
 
 export const AI_REASON_MESSAGES: Record<AiReasonCode, string> = {
@@ -149,13 +154,26 @@ function normalizeMembershipRow(row: RpcMembershipRow): MembershipEntitlement {
 }
 
 function normalizeResolvePolicyRow(row: RpcResolvePolicyRow): AiPolicyResolveResult {
+  const selectedFundingSource = row.selected_funding_source;
+  const keySource = (() => {
+    if (selectedFundingSource === "personal_byo_key") return "user_byo" as const;
+    if (selectedFundingSource === "org_shared_credits" || selectedFundingSource === "org_byo_key") return "org_shared" as const;
+    return "forge_managed" as const;
+  })();
+  const keyResolutionStatus = row.decision_type === "ALLOW"
+    ? (row.reason_code === "PERSONAL_AI_REQUIRED_NOT_CONFIGURED" ? "missing_required_key" : "available")
+    : "policy_denied";
+
   return {
     decisionType: row.decision_type,
     reasonCode: row.reason_code,
-    selectedFundingSource: row.selected_funding_source,
+    selectedFundingSource,
     fallbackAvailable: Boolean(row.fallback_available),
     fallbackUsed: Boolean(row.fallback_used),
     effectivePolicySnapshot: row.effective_policy_snapshot ?? {},
+    effectiveAiKeySource: keySource,
+    effectiveProvider: null,
+    keyResolutionStatus,
   };
 }
 

@@ -25,6 +25,7 @@ function buildConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntim
     supabaseRpcKey: null,
     sttBucket: "forge-workpieces",
     disableForgeLaneAi: false,
+    disableUserKeys: false,
     disableExpensiveAiActions: false,
     disableCdcGeneration: false,
     ...overrides,
