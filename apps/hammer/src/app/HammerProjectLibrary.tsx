@@ -57,6 +57,14 @@ function formatDurationLabel(durationMs: number | null): string | null {
   return `${mm}:${ss}`;
 }
 
+function inferVideoMimeTypeFromPath(path: string): string {
+  const value = path.trim().toLowerCase();
+  if (value.endsWith(".webm")) return "video/webm";
+  if (value.endsWith(".mov")) return "video/quicktime";
+  if (value.endsWith(".m4v")) return "video/x-m4v";
+  return "video/mp4";
+}
+
 type ProjectSortMode = "updated_desc" | "title_asc" | "needs_recording";
 
 function sortProjects(items: HammerRuntimeProjectCard[], mode: ProjectSortMode): HammerRuntimeProjectCard[] {
@@ -108,6 +116,7 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
   const [refreshToken, setRefreshToken] = useState(0);
   const [sortMode, setSortMode] = useState<ProjectSortMode>("updated_desc");
   const [recordingThumbnailUrls, setRecordingThumbnailUrls] = useState<Record<string, string>>({});
+  const [recordingThumbnailKinds, setRecordingThumbnailKinds] = useState<Record<string, "image" | "video">>({});
 
   useEffect(() => {
     if (!routeWorkpieceId) return;
@@ -155,36 +164,53 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
 
     async function resolveCardThumbnails(): Promise<void> {
       const nextUrls: Record<string, string> = {};
+      const nextKinds: Record<string, "image" | "video"> = {};
       for (const project of projects) {
         if (!project.recording.hasKeptTake) continue;
         if (project.recording.keptTakeKind !== "recording_video") continue;
         if (!project.recording.keptTakePath) continue;
 
+        let previewUrl: string | null = null;
         let thumbnailPath = await ensureWorkpieceRecordingCardThumbnail({
           workpieceId: project.workpieceId,
           recordingPath: project.recording.keptTakePath,
           existingThumbnailPath: project.recording.thumbnailPath,
         }).catch(() => null);
-        if (!thumbnailPath) continue;
-        let previewUrl = await loadWorkpieceMediaPreviewUrl({
-          workpieceId: project.workpieceId,
-          path: thumbnailPath,
-          mimeType: "image/jpeg",
-        }).catch(() => null);
-        if (!previewUrl) {
-          thumbnailPath = await ensureWorkpieceRecordingCardThumbnail({
-            workpieceId: project.workpieceId,
-            recordingPath: project.recording.keptTakePath,
-            existingThumbnailPath: null,
-          }).catch(() => null);
-          if (!thumbnailPath) continue;
+        if (thumbnailPath) {
           previewUrl = await loadWorkpieceMediaPreviewUrl({
             workpieceId: project.workpieceId,
             path: thumbnailPath,
             mimeType: "image/jpeg",
           }).catch(() => null);
         }
+        if (!previewUrl) {
+          thumbnailPath = await ensureWorkpieceRecordingCardThumbnail({
+            workpieceId: project.workpieceId,
+            recordingPath: project.recording.keptTakePath,
+            existingThumbnailPath: null,
+          }).catch(() => null);
+          if (thumbnailPath) {
+            previewUrl = await loadWorkpieceMediaPreviewUrl({
+              workpieceId: project.workpieceId,
+              path: thumbnailPath,
+              mimeType: "image/jpeg",
+            }).catch(() => null);
+          }
+        }
+        if (!previewUrl) {
+          previewUrl = await loadWorkpieceMediaPreviewUrl({
+            workpieceId: project.workpieceId,
+            path: project.recording.keptTakePath,
+            mimeType: inferVideoMimeTypeFromPath(project.recording.keptTakePath),
+          }).catch(() => null);
+          if (previewUrl) {
+            nextKinds[project.workpieceId] = "video";
+          }
+        }
         if (!previewUrl) continue;
+        if (!nextKinds[project.workpieceId]) {
+          nextKinds[project.workpieceId] = "image";
+        }
         if (!active) {
           URL.revokeObjectURL(previewUrl);
           continue;
@@ -204,6 +230,7 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
         }
         return nextUrls;
       });
+      setRecordingThumbnailKinds(nextKinds);
     }
 
     void resolveCardThumbnails();
@@ -264,11 +291,21 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
                 <div className="hammer-project-library__card-media-inline">
                   <div className="hammer-project-library__card-thumb-token">
                     {recordingThumbnailUrls[project.workpieceId] ? (
-                      <img
-                        className="hammer-project-library__card-thumb"
-                        src={recordingThumbnailUrls[project.workpieceId]}
-                        alt={`${project.label} recording thumbnail`}
-                      />
+                      recordingThumbnailKinds[project.workpieceId] === "video" ? (
+                        <video
+                          className="hammer-project-library__card-thumb"
+                          src={recordingThumbnailUrls[project.workpieceId]}
+                          muted
+                          playsInline
+                          preload="metadata"
+                        />
+                      ) : (
+                        <img
+                          className="hammer-project-library__card-thumb"
+                          src={recordingThumbnailUrls[project.workpieceId]}
+                          alt={`${project.label} recording thumbnail`}
+                        />
+                      )
                     ) : (
                       <div className="hammer-project-library__card-thumb-fallback">
                         {project.recording.hasKeptTake ? "Rec" : "None"}

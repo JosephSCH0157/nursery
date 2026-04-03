@@ -1,7 +1,9 @@
 import { tongsFetch } from "../lib/tongsFetch";
 import { loadWorkpieceMediaPreviewUrl, normalizeWorkpieceRelativePath } from "../lib/hammerSourceDeskMediaApi";
+import { HAMMER_RUNTIME_WRITTEN_BY } from "../prep/hammerPrep";
 
 const RECORDING_CARD_THUMBNAIL_STATE_PATH = "hammer/session/recording-card-thumbnail.v1.json";
+const MISSING_THUMBNAIL_STATE_WORKPIECE_IDS = new Set<string>();
 
 function readObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -45,6 +47,7 @@ async function commitWorkpieceBinaryFile(args: {
       json: {
         path: args.path,
         content_type: args.contentType,
+        written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
         bytes_base64: toBase64(args.bytes),
       },
       timeoutMs: 45_000,
@@ -67,6 +70,7 @@ async function commitWorkpieceJsonFile(args: {
       json: {
         path: args.path,
         content_type: "application/json",
+        written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
         json: args.value,
       },
       timeoutMs: 30_000,
@@ -209,6 +213,7 @@ export async function ensureWorkpieceRecordingCardThumbnail(args: {
         updated_at: new Date().toISOString(),
       },
     });
+    MISSING_THUMBNAIL_STATE_WORKPIECE_IDS.delete(args.workpieceId);
     return thumbnailPath;
   } finally {
     URL.revokeObjectURL(recordingUrl);
@@ -216,6 +221,9 @@ export async function ensureWorkpieceRecordingCardThumbnail(args: {
 }
 
 export async function loadWorkpieceRecordingCardThumbnailState(workpieceId: string): Promise<{ thumbnailPath: string | null }> {
+  if (MISSING_THUMBNAIL_STATE_WORKPIECE_IDS.has(workpieceId)) {
+    return { thumbnailPath: null };
+  }
   const response = await tongsFetch(
     `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(RECORDING_CARD_THUMBNAIL_STATE_PATH)}`,
     {
@@ -227,6 +235,7 @@ export async function loadWorkpieceRecordingCardThumbnailState(workpieceId: stri
     },
   );
   if (response.status === 404) {
+    MISSING_THUMBNAIL_STATE_WORKPIECE_IDS.add(workpieceId);
     return { thumbnailPath: null };
   }
   const payload = await response.json().catch(() => null);
