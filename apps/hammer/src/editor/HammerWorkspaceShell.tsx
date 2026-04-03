@@ -7785,8 +7785,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setQuenchHandoffStatus(null);
 
     try {
+      const releasePrepPackageSnapshot = exportBasis.currentReleasePackage;
+      const renderAssemblySnapshot = exportBasis.renderAssembly;
+      const canonicalGraphSnapshot = exportBasis.canonicalGraph;
+      const subtitlesSnapshot = exportBasis.subtitles;
+      const timelineRevisionSnapshot = exportBasis.timelineRevision;
       const handoffDecision = decideHammerQuenchHandoff({
-        releasePrepPackage: exportBasis.currentReleasePackage,
+        releasePrepPackage: releasePrepPackageSnapshot,
         readinessGate,
       });
       if (handoffDecision.status === "blocked") {
@@ -7845,30 +7850,30 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       setStudioRackRenderStatus(renderExecution);
 
       const preparedPackage = buildHammerPreparedReleasePackage({
-        current: exportBasis.currentReleasePackage,
-        timelineRevision: exportBasis.timelineRevision,
+        current: releasePrepPackageSnapshot,
+        timelineRevision: timelineRevisionSnapshot,
       });
 
       const result = await saveHammerPreparedReleasePackage({
         workpieceId: launchContext.workpiece_id,
         pkg: preparedPackage,
-        subtitles: exportBasis.subtitles,
+        subtitles: subtitlesSnapshot,
       });
       if (!result.ok) {
         throw new Error(result.error);
       }
 
       const quenchPacket = buildHammerQuenchReleasePacket({
-        releasePrepPackage: exportBasis.currentReleasePackage,
+        releasePrepPackage: releasePrepPackageSnapshot,
         readinessGate,
         preparedAt: preparedPackage.preparedAt,
-        canonicalGraph: exportBasis.canonicalGraph,
-        renderAssembly: exportBasis.renderAssembly,
+        canonicalGraph: canonicalGraphSnapshot,
+        renderAssembly: renderAssemblySnapshot,
       });
       const packetValidation = validateHammerQuenchPacketForHandoff({
-        releasePrepPackage: exportBasis.currentReleasePackage,
+        releasePrepPackage: releasePrepPackageSnapshot,
         packet: quenchPacket,
-        renderAssembly: exportBasis.renderAssembly,
+        renderAssembly: renderAssemblySnapshot,
         readinessGate,
       });
       if (!packetValidation.ok) {

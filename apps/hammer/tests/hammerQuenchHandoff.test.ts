@@ -7,6 +7,7 @@ import {
   validateHammerQuenchPacketForHandoff,
 } from "../src/editor/hammerQuenchHandoff";
 import type { HammerReadinessGateResult } from "../src/editor/hammerReadinessGate";
+import { buildHammerReadinessVerdict } from "../src/editor/hammerReadinessTypes";
 import type {
   HammerPersistedAudioPolish,
   HammerPersistedStructuredTranscript,
@@ -123,31 +124,38 @@ function buildReadyPrep() {
 }
 
 function buildReadiness(status: HammerReadinessGateResult["status"]): HammerReadinessGateResult {
-  return {
-    status,
-    review_count: status === "needs_review" ? 1 : 0,
-    blocker_count: status === "blocked" ? 1 : 0,
-    blocking_reasons: status === "blocked" ? [{
-      code: "blocked",
+  return buildHammerReadinessVerdict({
+    blockingReasons: status === "blocked" ? [{
+      code: "export_posture_unavailable",
       label: "Blocked reason",
       severity: "blocking",
+      source: "gate",
+      operationId: null,
       operation_id: null,
     }] : [],
-    review_reasons: status === "needs_review" ? [{
-      code: "review",
+    reviewReasons: status === "needs_review" ? [{
+      code: "export_posture_degraded",
       label: "Review reason",
       severity: "review",
+      source: "gate",
+      operationId: null,
       operation_id: null,
     }] : [],
-    primary_operation_id: null,
-  };
+  });
 }
 
 async function testDecisions() {
   const prep = buildReadyPrep();
-  assert.equal(decideHammerQuenchHandoff({ releasePrepPackage: prep, readinessGate: buildReadiness("ready") }).status, "allowed");
-  assert.equal(decideHammerQuenchHandoff({ releasePrepPackage: prep, readinessGate: buildReadiness("needs_review") }).status, "requires_confirmation");
-  assert.equal(decideHammerQuenchHandoff({ releasePrepPackage: prep, readinessGate: buildReadiness("blocked") }).status, "blocked");
+  const allowed = decideHammerQuenchHandoff({ releasePrepPackage: prep, readinessGate: buildReadiness("ready") });
+  assert.equal(allowed.status, "allowed");
+  assert.deepEqual(allowed.reasonCodes, []);
+  const review = decideHammerQuenchHandoff({ releasePrepPackage: prep, readinessGate: buildReadiness("needs_review") });
+  assert.equal(review.status, "requires_confirmation");
+  assert.equal(review.reasonCodes.includes("export_posture_degraded"), true);
+  assert.equal(review.reasonDetails.some((reason) => reason.source === "gate"), true);
+  const blocked = decideHammerQuenchHandoff({ releasePrepPackage: prep, readinessGate: buildReadiness("blocked") });
+  assert.equal(blocked.status, "blocked");
+  assert.equal(blocked.reasonCodes.includes("export_posture_unavailable"), true);
   const incompletePrep = buildHammerReleasePrepPackage({
     workspaceId: "ws_handoff",
     workpieceId: "wp_handoff",
@@ -158,7 +166,9 @@ async function testDecisions() {
     audioPolish: audioPolish,
     editorSession: null,
   });
-  assert.equal(decideHammerQuenchHandoff({ releasePrepPackage: incompletePrep, readinessGate: buildReadiness("ready") }).status, "blocked");
+  const blockedByArtifact = decideHammerQuenchHandoff({ releasePrepPackage: incompletePrep, readinessGate: buildReadiness("ready") });
+  assert.equal(blockedByArtifact.status, "blocked");
+  assert.equal(blockedByArtifact.reasonCodes.includes("artifact_visuals_missing"), true);
 }
 
 async function testPacketValidation() {
@@ -200,12 +210,16 @@ async function testPacketValidation() {
     renderAssembly,
     readinessGate: buildReadiness("ready"),
   }).ok, true);
-  assert.equal(validateHammerQuenchPacketForHandoff({
+  const blockedValidation = validateHammerQuenchPacketForHandoff({
     releasePrepPackage: prep,
     packet,
     renderAssembly,
     readinessGate: buildReadiness("blocked"),
-  }).ok, false);
+  });
+  assert.equal(blockedValidation.ok, false);
+  assert.equal(blockedValidation.reasonCodes.includes("handoff_blocked"), true);
+  assert.equal(blockedValidation.reasonCodes.includes("export_posture_unavailable"), true);
+  assert.equal(blockedValidation.reasonDetails.some((reason) => reason.source === "handoff"), true);
 }
 
 async function run() {

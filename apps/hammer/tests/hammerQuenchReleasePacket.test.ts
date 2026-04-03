@@ -8,6 +8,7 @@ import {
   buildHammerQuenchReleasePacket,
 } from "../src/lib/hammerQuenchReleasePacket";
 import type { HammerReadinessGateResult } from "../src/editor/hammerReadinessGate";
+import { buildHammerReadinessVerdict } from "../src/editor/hammerReadinessTypes";
 import type { HammerPersistedStructuredTranscript } from "../src/persistence/hammerPersistenceContract";
 import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammerRenderAssembly";
 import { buildHammerRenderAssembly } from "../src/editor/hammerRenderAssembly";
@@ -108,24 +109,24 @@ const transcript: HammerPersistedStructuredTranscript = {
 };
 
 function buildReadiness(status: HammerReadinessGateResult["status"]): HammerReadinessGateResult {
-  return {
-    status,
-    review_count: status === "needs_review" ? 1 : 0,
-    blocker_count: status === "blocked" ? 1 : 0,
-    blocking_reasons: status === "blocked" ? [{
-      code: "blocked",
+  return buildHammerReadinessVerdict({
+    blockingReasons: status === "blocked" ? [{
+      code: "export_posture_unavailable",
       label: "Blocked reason",
       severity: "blocking",
+      source: "gate",
+      operationId: null,
       operation_id: null,
     }] : [],
-    review_reasons: status === "needs_review" ? [{
-      code: "review",
+    reviewReasons: status === "needs_review" ? [{
+      code: "export_posture_degraded",
       label: "Review reason",
       severity: "review",
+      source: "gate",
+      operationId: null,
       operation_id: null,
     }] : [],
-    primary_operation_id: null,
-  };
+  });
 }
 
 async function testBuildQuenchPacketManifest() {
@@ -217,9 +218,38 @@ async function testBuildQuenchPacketManifest() {
   assert.equal(packet.manifest.exposure.amount, null);
   assert.equal(packet.manifest.exposure.affects_export, false);
   assert.equal(packet.manifest.readiness.ready_for_quench, true);
+  assert.equal(packet.manifest.readiness.status, "ready");
   assert.equal(packet.manifest.readiness.handoff_status, "ready");
+  assert.deepEqual(packet.manifest.readiness.reason_codes, []);
+  assert.deepEqual(packet.manifest.readiness.reasons_detail, []);
   assert.equal(packet.transcriptText?.includes("Welcome back to the show."), true);
   assert.equal(packet.visuals.length, 1);
+}
+
+async function testPacketPreservesCanonicalReadinessReasons() {
+  const prep = buildHammerReleasePrepPackage({
+    workspaceId: "ws_demo",
+    workpieceId: "wp_demo",
+    prepStatus: "prepared",
+    alignmentStatus: "aligned",
+    structuredTranscript: transcript,
+    visualPlacements: null,
+    audioPolish: null,
+    editorSession: null,
+  });
+
+  const packet = buildHammerQuenchReleasePacket({
+    releasePrepPackage: prep,
+    readinessGate: buildReadiness("needs_review"),
+    preparedAt: "2026-03-24T10:01:00.000Z",
+  });
+
+  assert.equal(packet.manifest.readiness.status, "blocked");
+  assert.equal(packet.manifest.readiness.reason_codes.includes("artifact_visuals_missing"), true);
+  assert.equal(packet.manifest.readiness.reason_codes.includes("artifact_audio_missing"), true);
+  assert.equal(packet.manifest.readiness.blocking_reason_codes.includes("artifact_visuals_missing"), true);
+  assert.equal(packet.manifest.readiness.artifact_reason_codes.includes("artifact_audio_missing"), true);
+  assert.equal(packet.manifest.readiness.reasons_detail.some((reason) => reason.source === "artifact"), true);
 }
 
 async function testManifestPathConstant() {
@@ -784,6 +814,7 @@ async function testPacketReflectsExposureSummary() {
 
 async function run() {
   await testBuildQuenchPacketManifest();
+  await testPacketPreservesCanonicalReadinessReasons();
   await testManifestPathConstant();
   await testPacketIncludesEditorialTruthExtensionWhenProvided();
   await testPacketDistinguishesUnresolvedVsResolvedBroll();

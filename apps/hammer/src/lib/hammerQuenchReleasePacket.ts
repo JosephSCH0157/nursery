@@ -3,6 +3,7 @@ import type { HammerEditorialAuthorityGraph } from "../../../../packages/contrac
 import type { HammerLookPreset } from "../../../../packages/contracts/hammer/edit-instruction.contract";
 import type { HammerRenderAssemblyResult } from "../editor/hammerRenderAssembly";
 import type { HammerReadinessGateResult } from "../editor/hammerReadinessGate";
+import type { HammerReadinessReason, HammerReadinessReasonCode, HammerReadinessVerdictStatus } from "../editor/hammerReadinessTypes";
 import { deriveHammerReleaseHandoffPosture } from "./hammerReleaseHandoffPosture";
 
 export const HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH = "hammer/release-packet/manifest.v1.json";
@@ -70,9 +71,18 @@ export interface HammerQuenchReleasePacketManifest {
     preview_mode: "previewable" | "export_only" | null;
   };
   readiness: {
+    status: HammerReadinessVerdictStatus;
     ready_for_quench: boolean;
     overall_status: HammerReleasePrepPackage["readiness"]["blocking_statuses"][number] | "ready";
     handoff_status: "ready" | "needs_review" | "blocked";
+    reason_codes: HammerReadinessReasonCode[];
+    reasons_detail: HammerReadinessReason[];
+    blocking_reason_codes: HammerReadinessReasonCode[];
+    blocking_reasons_detail: HammerReadinessReason[];
+    review_reason_codes: HammerReadinessReasonCode[];
+    review_reasons_detail: HammerReadinessReason[];
+    artifact_reason_codes: HammerReadinessReasonCode[];
+    artifact_reasons_detail: HammerReadinessReason[];
     artifact_reasons: string[];
     review_reasons: string[];
     reasons: string[];
@@ -241,9 +251,18 @@ function resolveReadiness(args: {
     readinessGate: args.readinessGate,
   });
   return {
+    status: posture.verdict.status,
     ready_for_quench: posture.ready_for_quench,
     overall_status: posture.artifact_status,
     handoff_status: posture.handoff_status,
+    reason_codes: posture.reason_codes,
+    reasons_detail: posture.reason_details,
+    blocking_reason_codes: posture.blocking_reason_codes,
+    blocking_reasons_detail: posture.blocking_reason_details,
+    review_reason_codes: posture.review_reason_codes,
+    review_reasons_detail: posture.review_reason_details,
+    artifact_reason_codes: posture.artifact_reason_codes,
+    artifact_reasons_detail: posture.artifact_reason_details,
     artifact_reasons: posture.artifact_reasons,
     review_reasons: posture.review_reasons,
     reasons: posture.reasons,
