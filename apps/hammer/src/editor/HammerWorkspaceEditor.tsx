@@ -836,7 +836,6 @@ export default function HammerWorkspaceEditor(
             historyRecoveryStatus,
             presenceConflictDetail,
           }));
-          setLoadedPersistenceSnapshot(result.data);
         })
         .finally(() => {
           setSaveInFlight(false);
