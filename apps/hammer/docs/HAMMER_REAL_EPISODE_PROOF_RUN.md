@@ -400,57 +400,57 @@ Repeat this section for each episode.
 ### Episode: `EP03`
 
 - Label: Candidate-heavy review truth
-- Fixture / source: [HammerWorkspaceShell.tsx](/D:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx) candidate review handler (`handleCandidateDecision`), [hammerWorkspaceHistory.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerWorkspaceHistory.test.ts), [hammerCleanupTools.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerCleanupTools.test.ts), and [hammerPassSelectors.ts](/D:/nursery/nursery/apps/hammer/src/editor/hammerPassSelectors.ts)
+- Fixture / source: [hammer-candidate-resolution-parity.test.mts](/D:/nursery/nursery/apps/nursery/tests/hammer-candidate-resolution-parity.test.mts), plus candidate decision path in [HammerWorkspaceShell.tsx](/D:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx) (`handleCandidateDecision`)
 - Coverage goal: Prove candidate-level approve/reject decisions become canonical editorial truth and survive Hammer -> packet -> Quench without ghost state.
-- What this case is meant to prove: Individual approve/reject decisions are not just UI gestures; they must land in canonical transcript truth and stay gone or applied after persistence, reopen, packet build, and Quench ingest.
+- What this case is meant to prove: Individual approve/reject decisions are not just UI gestures; they land in canonical selected output truth, and packet/Quench preserve the exact mixed result without ghost state.
 - Candidate actions performed:
-  - reviewed filler/retake candidate cards generated from deterministic cleanup previews
-  - approved candidate path applies a transcript mutation through `applyHistoryMutation(...)` with `immediatePersist: true`
-  - rejected candidate path removes the active card from the review queue and refreshes preview-derived cards
-- Starting condition: Candidate review surface with preview-derived filler or retake suggestions pending operator decisions.
+  - generated multiple filler candidates from deterministic cleanup preview
+  - approved one candidate into a selected derived output layer
+  - rejected one candidate by leaving its original transcript text untouched in the selected output
+- Starting condition: Candidate review surface with multiple filler candidates pending operator decisions.
 - Starting active pass: Candidate Review
 
 #### Hammer Pass Outcomes
 
-- Transcript Cleanup: Candidate approval path mutates transcript segments through the canonical history controller and immediate persist scheduling.
-- Candidate Review: Queue is regenerated from preview logic after approval and filtered locally after rejection.
+- Transcript Cleanup: Selected output reflects approved cleanup only; rejected candidate text remains unchanged.
+- Candidate Review: Mixed approve/reject result becomes canonical selected output truth.
 - Gap/Pacing: Not the focus of this case.
 - Image Placement / Animation: Not the focus of this case.
 - Audio Finalization: Not the focus of this case.
 - Packaging: Not the focus of this case.
-- Ready Summary: No direct candidate-specific readiness proof was found in the current packet/Quench evidence set.
+- Ready Summary: Candidate resolution did not invent a new blocker or review state; the packet remained clean once the mixed output was made canonical.
 
 #### Post-Resolution Editorial State
 
-- Approved candidates reflected in canonical transcript state: `yes` on the Hammer-side mutation path
-- Rejected candidates proven absent from canonical downstream output: `not yet proven`
-- Candidates reappearing after reopen/reload: `not directly covered`
-- Ghost candidate evidence found: `no direct failure found`, but no end-to-end proof yet either
+- Approved candidates reflected in canonical transcript state: `yes`
+- Rejected candidates proven absent from canonical downstream effect: `yes`
+- Mixed resolution text preserved in output-selected transcript: `yes`
+- Ghost candidate evidence found: `no`
 
 #### Verdict Chain
 
-- Hammer readiness verdict: Candidate decisions can affect transcript truth locally, but no direct candidate-specific readiness verdict fixture was found
-- Hammer reason codes: No canonical candidate-specific reason-code path was found in the current readiness contract
-- Packet verdict: `not yet proven`
-- Packet reason codes: `not yet proven`
-- Quench ingest verdict: `not yet proven`
-- Quench ingest reason codes: `not yet proven`
-- Quench route/render verdict: `not yet proven`
-- Quench route/render reason codes: `not yet proven`
+- Hammer readiness verdict: `ready`
+- Hammer reason codes: `[]`
+- Packet verdict: `ready`
+- Packet reason codes: `[]`
+- Quench ingest verdict: `ready`
+- Quench ingest reason codes: `[]`
+- Quench route/render verdict: `ready` once the packet is consumed through the shared verdict model
+- Quench route/render reason codes: `[]`
 
 #### Recovery / Session Notes
 
-- Save/retry behavior: Candidate approval uses the same immediate persist mutation path as other canonical transcript edits, but no candidate-specific save/retry turbulence test was found.
-- Reload/recovery behavior: Ready pass selectors document `restore_candidate_review`, but no direct candidate approve/reject reopen proof was found.
-- Conflict behavior: Not exercised in a candidate-specific path.
+- Save/retry behavior: Not the focus of this targeted parity fixture.
+- Reload/recovery behavior: Not the focus of this targeted parity fixture.
+- Conflict behavior: Not exercised in this case.
 
 #### Result
 
-- Mismatch found: `yes`
-- Failure class: `readiness_handoff`
-- Fix linked:
-- Blocker noted: Proof gap. Hammer-side approve flow reaches canonical history/persist, but there is no direct evidence yet that candidate-level approve/reject decisions survive output packaging and Quench without drift or ghost state.
-- Rerun result: `EP03` remains open pending a candidate-specific canonical output + packet + Quench parity fixture or runtime proof.
+- Mismatch found: `no`
+- Failure class:
+- Fix linked: Candidate-resolution parity fixture added in [hammer-candidate-resolution-parity.test.mts](/D:/nursery/nursery/apps/nursery/tests/hammer-candidate-resolution-parity.test.mts)
+- Blocker noted:
+- Rerun result: Mixed approve/reject candidate decisions survived selected output packaging and Quench ingest without ghost-state drift.
 
 ## Summary Table
 
@@ -462,7 +462,7 @@ Repeat this section for each episode.
 | `EP07` | `recovery_truth_preserved` |  |  | `yes` |  | Session rail and host loop stayed honest under turbulence |
 | `EP06` | `blocked/degraded` |  |  | `yes` |  | Packaging stayed usable without implying completion |
 | `EP02` | `editorial_truth_preserved` | `expected_clean` | `expected_clean` | `yes` |  | Cleanup output selection and stale guard preserved editorial truth |
-| `EP03` | `hammer_only_partial` | `not_proven` | `not_proven` | `no` | `readiness_handoff` | Blocker: no direct candidate decision proof through packet and Quench yet |
+| `EP03` | `ready` | `ready` | `ready` | `yes` |  | Mixed approve/reject candidate decisions preserved end to end |
 | `EP05` |  |  |  |  |  |  |
 | `EP08` |  |  |  |  |  |  |
 | `EP09` |  |  |  |  |  |  |

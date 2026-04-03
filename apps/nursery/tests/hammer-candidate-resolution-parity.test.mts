@@ -143,9 +143,15 @@ function buildCandidateResolvedTranscript(): {
     format: "srt",
     generatedAt: "2026-04-02T14:06:00.000Z",
   }));
+  const withVtt = setHammerSubtitleArtifact(withSrt, generateHammerSubtitleArtifact({
+    rawSegments: transcript.segments,
+    transcript: withSrt,
+    format: "vtt",
+    generatedAt: "2026-04-02T14:06:15.000Z",
+  }));
 
   return {
-    transcript: withSrt,
+    transcript: withVtt,
     approvedSegmentId,
     rejectedSegmentId,
     layerId: layer.layer_id,
@@ -245,6 +251,15 @@ async function testCandidateResolutionParity() {
 
   const ingest = await ingestHammerReleasePacket({
     reader: createReader(store),
+    audioResolver: {
+      async resolveAudioReference() {
+        return {
+          resolved: true,
+          uri: "file:///candidate-resolution.wav",
+          reason: null,
+        };
+      },
+    },
   });
 
   assert.equal(prep.text_outputs?.output_selection.source_kind, "derived");
