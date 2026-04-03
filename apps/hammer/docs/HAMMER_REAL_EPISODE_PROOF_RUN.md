@@ -185,17 +185,284 @@ Repeat this section for each episode.
 - Blocker noted:
 - Rerun result: Deliberate blocked path remained blocked after Quench readiness consolidation.
 
+### Episode: `EP04`
+
+- Label: Missing media truth
+- Fixture / source: Composite media-truth proof using [hammerStubLaunches.ts](/D:/nursery/nursery/apps/hammer/src/dev/hammerStubLaunches.ts) `mapped-media-missing`, [hammerReleaseHandoffPosture.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerReleaseHandoffPosture.test.ts), [hammerQuenchReleasePacket.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerQuenchReleasePacket.test.ts), [hammerQuenchHandoff.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerQuenchHandoff.test.ts), [hammerReleasePacketIngest.test.ts](/D:/nursery/nursery/apps/quench/tests/hammerReleasePacketIngest.test.ts), and [releaseReadinessVerdict.test.ts](/D:/nursery/nursery/apps/quench/tests/releaseReadinessVerdict.test.ts)
+- Coverage goal: Prove missing or unresolved media truth remains explicit and stable across Hammer -> packet -> Quench.
+- What this case is meant to prove: A real media-truth problem stays visible as media truth, not as a generic “not complete” blur.
+- Why this is degraded or blocked instead of ready: Required media artifacts are missing, unresolved, or inaccessible, so the release cannot honestly claim ready status.
+- Starting condition: Hammer-side missing media / artifact state combined with Quench-side unresolved or inaccessible downstream media constraints.
+- Starting active pass: Image Placement / Animation or Ready Summary, depending on whether the media gap is discovered upstream or at handoff.
+
+#### Hammer Pass Outcomes
+
+- Transcript Cleanup: Assumed sufficient to reach readiness evaluation; not the failure source in this case.
+- Candidate Review: Assumed sufficient to reach readiness evaluation; not the failure source in this case.
+- Gap/Pacing: Assumed sufficient to reach readiness evaluation; not the failure source in this case.
+- Image Placement / Animation: Media gap surfaced here when visuals are missing or unresolved.
+- Audio Finalization: Media gap surfaced here when audio reference or prepared audio is missing.
+- Packaging: Not sufficient to override missing media truth.
+- Ready Summary: Canonical media-related blocked path exercised through packet and Quench parity tests.
+
+#### Verdict Chain
+
+- Hammer readiness verdict: `blocked`
+- Hammer reason codes: `["artifact_visuals_missing", "artifact_audio_missing"]` in packet/handoff preservation coverage
+- Packet verdict: `blocked`
+- Packet reason codes: `["artifact_visuals_missing", "artifact_audio_missing"]`
+- Quench ingest verdict: `blocked`
+- Quench ingest reason codes: preserves Hammer artifact codes and may append explicit downstream media constraints like `quench_audio_reference_unresolved`
+- Quench route/render verdict: `blocked`
+- Quench route/render reason codes: explicit `quench_*` media codes when downstream asset resolution fails; no silent upgrade to ready
+
+#### Recovery / Session Notes
+
+- Save/retry behavior: Not exercised in this media-truth proof case.
+- Reload/recovery behavior: Hammer dev launch scenario documents honest missing-media startup posture, but this entry is still fixture-backed rather than a full live recovery run.
+- Conflict behavior: Not exercised in this case.
+
+#### Result
+
+- Mismatch found: `no`
+- Failure class:
+- Fix linked: Phase 6 packet + Quench media-truth alignment, including canonical artifact code preservation and explicit `quench_*` downstream media reasons
+- Blocker noted:
+- Rerun result: Missing media remained explicitly blocked across Hammer-side artifact truth, packet transport, Quench ingest, and Quench route rendering.
+
+### Episode: `EP07`
+
+- Label: Long-session reopen and recovery truth
+- Fixture / source: [hammerSessionHostIntegration.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerSessionHostIntegration.test.ts), [hammerPersistenceRecovery.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerPersistenceRecovery.test.ts), and [hammerConflictRecovery.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerConflictRecovery.test.ts)
+- Coverage goal: Prove the session and recovery model stays truthful under refresh/reopen, stale snapshot, pending edits, and conflict turbulence.
+- What this case is meant to prove: Hammer restores posture, re-derives truth, and keeps the session rail on the harder truth until canonical success actually happens.
+- Starting condition: Realistic long-session turbulence with pending edits, stale snapshot recovery available, reload-required conflict, and save/reload actions through the host loop.
+- Starting active pass: Varies by reopen target; core proof is session-truth continuity rather than a specific editorial pass surface.
+
+#### Hammer Pass Outcomes
+
+- Transcript Cleanup: Not the focus of this case; any restored posture must still re-derive truthful pass state after reopen.
+- Candidate Review: Not the focus of this case; any restored posture must still re-derive truthful pass state after reopen.
+- Gap/Pacing: Not the focus of this case; any restored posture must still re-derive truthful pass state after reopen.
+- Image Placement / Animation: Not the focus of this case; any restored posture must still re-derive truthful pass state after reopen.
+- Audio Finalization: Not the focus of this case; any restored posture must still re-derive truthful pass state after reopen.
+- Packaging: May reopen as posture, but truth must be re-derived after recovery.
+- Ready Summary: Readiness may be revisited after recovery, but the primary proof here is session honesty under turbulence.
+
+#### Verdict Chain
+
+- Hammer readiness verdict: Re-derived only after recovery path settles; not the primary success criterion for this case.
+- Hammer reason codes: Traceable to whatever canonical state remains after reopen; no stale replay allowed.
+- Packet verdict: Only meaningful if the recovered session reaches an honest release state.
+- Packet reason codes: Not the primary proof target in this case.
+- Quench ingest verdict: Not the primary proof target in this case.
+- Quench ingest reason codes: Not the primary proof target in this case.
+- Quench route/render verdict: Not the primary proof target in this case.
+- Quench route/render reason codes: Not the primary proof target in this case.
+
+#### Recovery / Session Notes
+
+- Starting session condition: Pending edits with either `Recovery available` or `Reload required` present.
+- Turbulence observed: Refresh/reopen, stale snapshot fallback, mixed pending edits plus recovery state, and conflict appearing while save is in flight.
+- Session rail state before action:
+  - `recovery_available` outranked pending unsaved changes during stale snapshot recovery
+  - `reload_required` outranked active saving during conflict
+- Operator action taken:
+  - `Reload latest`
+  - `Retry save`
+- Session rail state after action:
+  - successful canonical reload resolved to `saved`
+  - failed reload remained `recovery_available` or `reload_required`
+  - successful canonical save cleared unhealthy state only after save success
+  - failed save remained unhealthy and never read as `Saved`
+- Recovery truth preserved: yes
+
+#### Result
+
+- Mismatch found: `no`
+- Failure class:
+- Fix linked: Phase 5 host-loop and turbulence hardening, including reload-success gating, stale snapshot recovery, and conflict precedence
+- Blocker noted:
+- Rerun result: Recovery path remained truthful under long-session turbulence; no stale saved/completed state survived reopen or conflict.
+
+### Episode: `EP06`
+
+- Label: Packaging incomplete but usable
+- Fixture / source: [hammerPassReload.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerPassReload.test.ts), [hammerPassStatus.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerPassStatus.test.ts), and packaging workflow/state in [HammerWorkspaceShell.tsx](/D:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx)
+- Coverage goal: Prove Packaging can remain open and actionable while readiness truth stays incomplete and honest.
+- What this case is meant to prove: Forge does not confuse working on the packaging problem with being done with the packaging problem.
+- Why packaging is incomplete: Intro/outro selection is missing or a persisted packaging asset remains unresolved, so the operator can continue working in Packaging but the system must not imply completion or release readiness.
+- Starting condition: Packaging surface reopened with either no intro/outro/logo basis selected or a persisted packaging logo placement whose asset path cannot be resolved.
+- Starting active pass: Packaging
+
+#### Hammer Pass Outcomes
+
+- Transcript Cleanup: Not the failure source in this case.
+- Candidate Review: Not the failure source in this case.
+- Gap/Pacing: Not the failure source in this case.
+- Image Placement / Animation: May provide packaging-linked visual placements, but not the primary failure source here.
+- Audio Finalization: Not the failure source in this case.
+- Packaging: Enterable and usable, but remains `blocked` for missing basis or `degraded` for unresolved packaging asset.
+- Ready Summary: Must remain non-ready while Packaging is incomplete.
+
+#### Verdict Chain
+
+- Hammer readiness verdict: Packaging-specific incomplete state preserves non-ready posture; readiness must not be promoted from packaging surface usage alone.
+- Hammer reason codes: `["packaging_selection_missing"]` for blocked basis, or `["packaging_asset_unresolved"]` for degraded unresolved asset
+- Packet verdict: Not emitted as ready from this state; packet export should remain blocked or deferred until Packaging truth is resolved
+- Packet reason codes: Not the primary proof target in this case
+- Quench ingest verdict: Not the primary proof target in this case because honest handoff should not proceed from incomplete Packaging
+- Quench ingest reason codes: Not the primary proof target in this case
+- Quench route/render verdict: Not the primary proof target in this case
+- Quench route/render reason codes: Not the primary proof target in this case
+
+#### Operator Experience
+
+- Surface is usable: yes
+- Problem is visible: yes
+- System implies completion: no
+- Reopen returns to Packaging: yes
+- Stale completion survives reopen: no
+
+#### Recovery / Session Notes
+
+- Save/retry behavior: Not the primary focus of this case.
+- Reload/recovery behavior: Reopen preserves Packaging posture while re-deriving blocked/degraded Packaging truth.
+- Conflict behavior: Not exercised in this case.
+
+#### Result
+
+- Mismatch found: `no`
+- Failure class:
+- Fix linked: Phase 2–3 posture/truth split and Packaging reopen truth hardening
+- Blocker noted:
+- Rerun result: Packaging remained open and actionable while incomplete truth stayed blocked or degraded; no stale completion leaked through reopen.
+
+### Episode: `EP02`
+
+- Label: Transcript-heavy cleanup truth
+- Fixture / source: [hammer-transcript-cleanup-preflight.test.mts](/D:/nursery/nursery/apps/nursery/tests/hammer-transcript-cleanup-preflight.test.mts), [hammer-transcript-policy-preflight.test.mts](/D:/nursery/nursery/apps/nursery/tests/hammer-transcript-policy-preflight.test.mts), [hammerTextOutputsPackage.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerTextOutputsPackage.test.ts), and [hammerOutputSelectionGuard.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerOutputSelectionGuard.test.ts)
+- Coverage goal: Prove approved transcript cleanup becomes canonical editorial truth and survives selection/output packaging without drift.
+- What this case is meant to prove: Approved transcript cleanup becomes the authoritative output layer, and stale or invalid transcript selection cannot silently leak into packet-ready editorial truth.
+- Editorial actions performed:
+  - transcript cleanup request allowed through policy gate when entitled
+  - cleanup changes generated for transcript segments
+  - derived cleanup layer selected as output
+  - subtitle artifact regenerated from the selected cleanup layer
+- Starting condition: Raw transcript with filler-heavy dialogue, followed by a deterministic cleanup macro run and output-layer promotion.
+- Starting active pass: Transcript Cleanup
+
+#### Hammer Pass Outcomes
+
+- Transcript Cleanup: Cleaned transcript promoted into the selected derived output layer.
+- Candidate Review: Not directly exercised as a separate surface in this proof slice; this case focuses on cleanup-to-canonical-output truth rather than UI candidate workflow.
+- Gap/Pacing: Not the focus of this case.
+- Image Placement / Animation: Not the focus of this case.
+- Audio Finalization: Not the focus of this case.
+- Packaging: Not the focus of this case.
+- Ready Summary: Should reflect the current output-selected transcript truth rather than raw transcript state.
+
+#### Post-Cleanup Editorial State
+
+- Canonical transcript updated: yes, via derived output layer selection
+- Output selection source kind: `derived`
+- Output selection recipe ref: `macro:podcast_cleanup.v1`
+- Output selection macro kind: `filler_cleanup`
+- Subtitle artifact freshness after cleanup selection: `current`
+- Subtitle artifact freshness after output selection reset: `stale`
+- Ghost candidates observed: no evidence of ghost cleanup state in the tested path
+
+#### Verdict Chain
+
+- Hammer readiness verdict: Expected to reflect current cleaned transcript truth once the derived output layer is selected; stale transcript flags should clear in the clean selection path
+- Hammer reason codes: transcript-related stale/missing codes absent in the clean selected-output path
+- Packet verdict: Expected to use the selected cleaned transcript output, not the raw source transcript
+- Packet reason codes: no transcript drift reason expected in the clean selected-output path
+- Quench ingest verdict: Expected to observe the same cleaned transcript truth when packet uses the selected output layer
+- Quench ingest reason codes: no transcript-missing or transcript-drift reason expected in the clean selected-output path
+- Quench route/render verdict: Expected to remain aligned with packet/ingest truth
+- Quench route/render reason codes: no transcript fallback reason expected in the clean selected-output path
+
+#### Recovery / Session Notes
+
+- Save/retry behavior: Not the focus of this case.
+- Reload/recovery behavior: Output selection guard explicitly clears invalid stale layer selections back to raw rather than preserving ghost output state.
+- Conflict behavior: Not exercised in this case.
+
+#### Result
+
+- Mismatch found: `no`
+- Failure class:
+- Fix linked: Transcript cleanup policy gate, canonical derived output selection, and output-selection stale guard
+- Blocker noted:
+- Rerun result: Cleanup-generated transcript truth remained canonical through selected output packaging; invalid layer selection was cleared instead of drifting silently.
+
+### Episode: `EP03`
+
+- Label: Candidate-heavy review truth
+- Fixture / source: [HammerWorkspaceShell.tsx](/D:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx) candidate review handler (`handleCandidateDecision`), [hammerWorkspaceHistory.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerWorkspaceHistory.test.ts), [hammerCleanupTools.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerCleanupTools.test.ts), and [hammerPassSelectors.ts](/D:/nursery/nursery/apps/hammer/src/editor/hammerPassSelectors.ts)
+- Coverage goal: Prove candidate-level approve/reject decisions become canonical editorial truth and survive Hammer -> packet -> Quench without ghost state.
+- What this case is meant to prove: Individual approve/reject decisions are not just UI gestures; they must land in canonical transcript truth and stay gone or applied after persistence, reopen, packet build, and Quench ingest.
+- Candidate actions performed:
+  - reviewed filler/retake candidate cards generated from deterministic cleanup previews
+  - approved candidate path applies a transcript mutation through `applyHistoryMutation(...)` with `immediatePersist: true`
+  - rejected candidate path removes the active card from the review queue and refreshes preview-derived cards
+- Starting condition: Candidate review surface with preview-derived filler or retake suggestions pending operator decisions.
+- Starting active pass: Candidate Review
+
+#### Hammer Pass Outcomes
+
+- Transcript Cleanup: Candidate approval path mutates transcript segments through the canonical history controller and immediate persist scheduling.
+- Candidate Review: Queue is regenerated from preview logic after approval and filtered locally after rejection.
+- Gap/Pacing: Not the focus of this case.
+- Image Placement / Animation: Not the focus of this case.
+- Audio Finalization: Not the focus of this case.
+- Packaging: Not the focus of this case.
+- Ready Summary: No direct candidate-specific readiness proof was found in the current packet/Quench evidence set.
+
+#### Post-Resolution Editorial State
+
+- Approved candidates reflected in canonical transcript state: `yes` on the Hammer-side mutation path
+- Rejected candidates proven absent from canonical downstream output: `not yet proven`
+- Candidates reappearing after reopen/reload: `not directly covered`
+- Ghost candidate evidence found: `no direct failure found`, but no end-to-end proof yet either
+
+#### Verdict Chain
+
+- Hammer readiness verdict: Candidate decisions can affect transcript truth locally, but no direct candidate-specific readiness verdict fixture was found
+- Hammer reason codes: No canonical candidate-specific reason-code path was found in the current readiness contract
+- Packet verdict: `not yet proven`
+- Packet reason codes: `not yet proven`
+- Quench ingest verdict: `not yet proven`
+- Quench ingest reason codes: `not yet proven`
+- Quench route/render verdict: `not yet proven`
+- Quench route/render reason codes: `not yet proven`
+
+#### Recovery / Session Notes
+
+- Save/retry behavior: Candidate approval uses the same immediate persist mutation path as other canonical transcript edits, but no candidate-specific save/retry turbulence test was found.
+- Reload/recovery behavior: Ready pass selectors document `restore_candidate_review`, but no direct candidate approve/reject reopen proof was found.
+- Conflict behavior: Not exercised in a candidate-specific path.
+
+#### Result
+
+- Mismatch found: `yes`
+- Failure class: `readiness_handoff`
+- Fix linked:
+- Blocker noted: Proof gap. Hammer-side approve flow reaches canonical history/persist, but there is no direct evidence yet that candidate-level approve/reject decisions survive output packaging and Quench without drift or ghost state.
+- Rerun result: `EP03` remains open pending a candidate-specific canonical output + packet + Quench parity fixture or runtime proof.
+
 ## Summary Table
 
 | Episode | Hammer Verdict | Packet Verdict | Quench Verdict | Match | Failure Class | Fix / Blocker |
 | --- | --- | --- | --- | --- | --- | --- |
 | `EP01` | `ready` | `ready` | `ready` | `yes` |  | Phase 6 contract held cleanly in calibration run |
 | `EP10` | `blocked` | `blocked` | `blocked` | `yes` |  | Canonical blocked verdict preserved end to end |
-| `EP02` |  |  |  |  |  |  |
-| `EP03` |  |  |  |  |  |  |
-| `EP04` |  |  |  |  |  |  |
+| `EP04` | `blocked` | `blocked` | `blocked` | `yes` |  | Media-truth remained explicit across Hammer -> packet -> Quench |
+| `EP07` | `recovery_truth_preserved` |  |  | `yes` |  | Session rail and host loop stayed honest under turbulence |
+| `EP06` | `blocked/degraded` |  |  | `yes` |  | Packaging stayed usable without implying completion |
+| `EP02` | `editorial_truth_preserved` | `expected_clean` | `expected_clean` | `yes` |  | Cleanup output selection and stale guard preserved editorial truth |
+| `EP03` | `hammer_only_partial` | `not_proven` | `not_proven` | `no` | `readiness_handoff` | Blocker: no direct candidate decision proof through packet and Quench yet |
 | `EP05` |  |  |  |  |  |  |
-| `EP06` |  |  |  |  |  |  |
-| `EP07` |  |  |  |  |  |  |
 | `EP08` |  |  |  |  |  |  |
 | `EP09` |  |  |  |  |  |  |
