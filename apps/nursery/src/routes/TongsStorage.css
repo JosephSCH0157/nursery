@@ -92,6 +92,26 @@
   flex-wrap: wrap;
 }
 
+.tongs-storage__archive-panel {
+  border: 1px solid rgba(148, 204, 255, 0.35);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(32, 74, 120, 0.18);
+  display: grid;
+  gap: 8px;
+}
+
+.tongs-storage__archive-title {
+  margin: 0;
+  font-size: 14px;
+}
+
+.tongs-storage__archive-copy {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.88;
+}
+
 .tongs-storage__delete-panel {
   border: 1px solid rgba(255, 130, 130, 0.35);
   border-radius: 10px;

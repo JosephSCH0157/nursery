@@ -869,6 +869,14 @@ export type WorkpieceDeletionMode =
   | "delete_keep_performance"
   | "delete_keep_reusable_media";
 
+export type WorkpieceLifecycleState =
+  | "active"
+  | "archived"
+  | "published_detached"
+  | "deleted";
+
+export type WorkpieceStorageTier = "hot" | "cold";
+
 export type DeleteWorkpieceRequest = {
   workspace_id: string;
   deletion_mode: WorkpieceDeletionMode;
@@ -7649,69 +7657,34 @@ export class TongsCommitService {
     options?: { userAccessToken?: string | null },
   ): Promise<WorkspaceEpisodeSummary> {
     await this.getWorkspaceOrThrow(input.workspace_id);
-    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const cradle = await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
     const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
-    const archivedAt = new Date().toISOString();
 
-    const { data, error } = await this.supabase
-      .schema("tongs")
-      .from("episodes")
-      .update({
-        archived_at: archivedAt,
-        archived_by: auth.userId,
-        archive_reason: input.reason ?? null,
-      })
-      .eq("id", workpieceId)
-      .eq("workspace_id", input.workspace_id)
-      .select("id,workspace_id,label,created_at,updated_at,archived_at,archived_by,archive_reason")
-      .single();
-
-    if (error) {
-      throw new HttpError(502, "db_write_failed", "Failed to archive workpiece", {
-        reason: error.message,
-      });
-    }
-    if (!data) {
-      throw new HttpError(502, "db_write_failed", "episodes archive update returned no row");
-    }
-
-    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
-      from: (table: string) => {
-        update: (value: Record<string, unknown>) => {
-          eq: (column: string, target: unknown) => {
-            eq: (nextColumn: string, nextTarget: unknown) => Promise<{ data: unknown; error: { message: string } | null }>;
-          };
-        };
-      };
-    };
-    const lifecycleUpdate = await tongsUntyped
-      .from("episodes")
-      .update({ lifecycle_state: "archived" })
-      .eq("id", workpieceId)
-      .eq("workspace_id", input.workspace_id);
-    if (lifecycleUpdate.error) {
-      throw new HttpError(502, "db_write_failed", "Failed to update archived lifecycle state", {
-        reason: lifecycleUpdate.error.message,
-      });
-    }
-
-    await this.insertEvent({
-      workpieceId,
-      eventName: "hearth.workpiece.archived.v1",
-      payload: {
+    try {
+      console.warn("[tongs-archive-blocked]", {
+        mode: "archive",
+        blocked_reason: "archive_storage_not_configured",
         workspace_id: input.workspace_id,
-        archived_at: archivedAt,
-        reason: input.reason ?? null,
-      },
-      writtenBy: {
-        tool: "hearth",
-        tool_version: "0.0.0",
-        lane: "forge-managed",
-      },
-      correlationId: null,
-    });
+        workpiece_id: workpieceId,
+        actor_user_id: auth.userId,
+        current_archive_state: cradle.archived_at ? "archived" : "active",
+      });
+    } catch {
+      // Logging should never break the request path.
+    }
 
-    return toWorkspaceEpisodeSummary(data);
+    throw new HttpError(
+      409,
+      "archive_storage_not_configured",
+      "Archive is not available because long-term storage is not configured.",
+      {
+        mode: "archive_episode",
+        archive_enabled: false,
+        blocked_reason: "archive_storage_not_configured",
+        workspace_id: input.workspace_id,
+        workpiece_id: workpieceId,
+      },
+    );
   }
 
   async restoreWorkpiece(
@@ -8971,8 +8944,38 @@ export function createTongsCommitApiHandlerWithService(
         const body = await parseJsonBody(request);
         const payload = normalizeArchiveWorkpieceRequest(body);
         const userAccessToken = requireUserAccessTokenHeader(request);
-        const result = await service.archiveWorkpiece(workpieceId, payload, { userAccessToken });
-        return jsonResponse(200, { ok: true, data: { workpiece: result } });
+        try {
+          const result = await service.archiveWorkpiece(workpieceId, payload, { userAccessToken });
+          return jsonResponse(200, { ok: true, data: { workpiece: result } });
+        } catch (error) {
+          const archiveDisabledErrorCode = (
+            error instanceof HttpError
+              ? error.code
+              : (typeof error === "object" && error != null && "code" in error && typeof (error as { code?: unknown }).code === "string")
+                ? (error as { code: string }).code
+                : null
+          );
+          const archiveDisabledErrorStatus = (
+            error instanceof HttpError
+              ? error.status
+              : (typeof error === "object" && error != null && "status" in error && typeof (error as { status?: unknown }).status === "number")
+                ? (error as { status: number }).status
+                : null
+          );
+          if (
+            archiveDisabledErrorStatus === 409
+            && archiveDisabledErrorCode === "archive_storage_not_configured"
+          ) {
+            return jsonResponse(409, {
+              ok: false,
+              code: "archive_storage_not_configured",
+              message: "Archive is not available because long-term storage is not configured.",
+              mode: "archive_episode",
+              archive_enabled: false,
+            });
+          }
+          throw error;
+        }
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "restore") {

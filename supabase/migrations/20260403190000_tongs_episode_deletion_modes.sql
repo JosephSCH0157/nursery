@@ -2,6 +2,7 @@ begin;
 
 alter table if exists tongs.episodes
   add column if not exists lifecycle_state text not null default 'active',
+  add column if not exists storage_tier text not null default 'hot',
   add column if not exists deleted_at timestamptz null,
   add column if not exists deleted_by uuid null references auth.users(id),
   add column if not exists detached_at timestamptz null;
@@ -17,6 +18,20 @@ begin
     alter table tongs.episodes
       add constraint episodes_lifecycle_state_check
       check (lifecycle_state in ('active', 'archived', 'published_detached', 'deleted'));
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'episodes_storage_tier_check'
+      and conrelid = 'tongs.episodes'::regclass
+  ) then
+    alter table tongs.episodes
+      add constraint episodes_storage_tier_check
+      check (storage_tier in ('hot', 'cold'));
   end if;
 end $$;
 

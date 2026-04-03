@@ -4405,6 +4405,47 @@ test("POST /tongs/workpieces/:id/archive dispatches archiveWorkpiece", async () 
   assert.equal(body.data?.workpiece?.archived_at, "2026-03-11T14:00:00.000Z");
 });
 
+test("POST /tongs/workpieces/:id/archive returns stable 409 payload when archive is disabled", async () => {
+  const { service, calls } = mockService();
+  service.archiveWorkpiece = async (workpieceId, input, options) => {
+    calls.archiveWorkpiece.push({ workpieceId, input, options: options ?? null });
+    throw {
+      status: 409,
+      code: "archive_storage_not_configured",
+      message: "Archive is not available because long-term storage is not configured.",
+    };
+  };
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/archive",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+      body: JSON.stringify({
+        workspace_id: "22222222-2222-4222-8222-222222222222",
+        reason: "archive for later",
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 409);
+  assert.equal(calls.archiveWorkpiece.length, 1);
+  assert.deepEqual(body, {
+    ok: false,
+    code: "archive_storage_not_configured",
+    message: "Archive is not available because long-term storage is not configured.",
+    mode: "archive_episode",
+    archive_enabled: false,
+  });
+});
+
 test("POST /tongs/workpieces/:id/restore dispatches restoreWorkpiece", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);
@@ -4919,7 +4960,7 @@ test("TongsCommitService.listWorkspaceEpisodes includes archived rows when reque
   assert.equal(result[0]?.archived_at, "2026-03-11T09:00:00.000Z");
 });
 
-test("TongsCommitService.archiveWorkpiece and restoreWorkpiece update episodes and append events", async () => {
+test("TongsCommitService.archiveWorkpiece is hard-blocked when archive storage is not configured", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const editorId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   const workpieceId = "11111111-1111-4111-8111-111111111111";
@@ -4952,28 +4993,25 @@ test("TongsCommitService.archiveWorkpiece and restoreWorkpiece update episodes a
   });
   service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
 
-  const archived = await service.archiveWorkpiece(workpieceId, {
-    workspace_id: workspaceId,
-    reason: "duplicate cleanup",
-  }, {
-    userAccessToken: "editor_token",
-  });
-  assert.equal(archived.archived_by, editorId);
-  assert.equal(archived.archive_reason, "duplicate cleanup");
-  assert.ok(typeof archived.archived_at === "string");
+  await assert.rejects(
+    service.archiveWorkpiece(workpieceId, {
+      workspace_id: workspaceId,
+      reason: "duplicate cleanup",
+    }, {
+      userAccessToken: "editor_token",
+    }),
+    (error) => {
+      assert.equal(error?.status, 409);
+      assert.equal(error?.code, "archive_storage_not_configured");
+      assert.equal(
+        error?.message,
+        "Archive is not available because long-term storage is not configured.",
+      );
+      return true;
+    },
+  );
 
-  const restored = await service.restoreWorkpiece(workpieceId, {
-    workspace_id: workspaceId,
-  }, {
-    userAccessToken: "editor_token",
-  });
-  assert.equal(restored.archived_at, null);
-  assert.equal(restored.archived_by, null);
-  assert.equal(restored.archive_reason, null);
-
-  assert.equal(events.length, 2);
-  assert.equal(events[0]?.event_name, "hearth.workpiece.archived.v1");
-  assert.equal(events[1]?.event_name, "hearth.workpiece.restored.v1");
+  assert.equal(events.length, 0);
 });
 
 test("TongsCommitService.restoreWorkpiece clears active ready eligibility without deleting planner history", async () => {

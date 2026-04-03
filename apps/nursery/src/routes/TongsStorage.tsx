@@ -1031,6 +1031,25 @@ export default function TongsStorage() {
         </div>
 
         {workpieceId ? (
+          <section className="tongs-storage__archive-panel">
+            <h4 className="tongs-storage__archive-title">Archive Episode</h4>
+            <p className="tongs-storage__archive-copy">
+              Coming soon. Archive will move this episode to long-term storage, remove it from active workspaces, and keep it restorable.
+            </p>
+            <button
+              type="button"
+              disabled
+              title="Archive is not available yet because long-term storage is not configured."
+            >
+              Archive Episode (Coming soon)
+            </button>
+            <p className="tongs-storage__archive-copy">
+              Archive remains non-destructive and is currently disabled until cold storage is configured.
+            </p>
+          </section>
+        ) : null}
+
+        {workpieceId ? (
           <section className="tongs-storage__delete-panel">
             <h4 className="tongs-storage__delete-title">Episode Deletion</h4>
             <p className="tongs-storage__delete-copy">
