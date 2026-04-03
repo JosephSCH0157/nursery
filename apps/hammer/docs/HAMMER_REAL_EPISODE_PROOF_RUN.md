@@ -140,11 +140,57 @@ Repeat this section for each episode.
 - Blocker noted:
 - Rerun result: Clean ready path remained ready after final Quench consolidation pass.
 
+### Episode: `EP10`
+
+- Label: Intentionally blocked calibration
+- Fixture / source: [mockReleasePackets.ts](/D:/nursery/nursery/apps/quench/src/dev/mockReleasePackets.ts) `blocked` plus [hammer-quench-readiness-contract.test.mts](/D:/nursery/nursery/apps/nursery/tests/hammer-quench-readiness-contract.test.mts) blocked parity case and [hammerReleasePacketIngest.test.ts](/D:/nursery/nursery/apps/quench/tests/hammerReleasePacketIngest.test.ts) blocked ingest preservation case
+- Coverage goal: Prove a deliberate blocked verdict survives the full readiness chain without being softened or upgraded.
+- What this case is meant to prove: A lawful hard stop remains a hard stop across Hammer truth, packet transport, Quench ingest, and Quench rendering.
+- Why this case is blocked on purpose: The fixture is constructed with intentionally missing or inaccessible core handoff requirements so the system must keep saying no.
+- Starting condition: Intentionally blocked release packet with inaccessible thumbnail/video and a blocked handoff readiness basis.
+- Starting active pass: Ready Summary
+
+#### Hammer Pass Outcomes
+
+- Transcript Cleanup: Assumed complete enough to reach readiness evaluation; not independently exercised in this calibration case.
+- Candidate Review: Assumed complete enough to reach readiness evaluation; not independently exercised in this calibration case.
+- Gap/Pacing: Assumed complete enough to reach readiness evaluation; not independently exercised in this calibration case.
+- Image Placement / Animation: Assumed non-authoritative for this blocked calibration; not independently exercised here.
+- Audio Finalization: Assumed non-authoritative for this blocked calibration; not independently exercised here.
+- Packaging: Assumed evaluated but not sufficient to override blocked readiness truth.
+- Ready Summary: Canonical-blocked path exercised through packet and Quench parity tests.
+
+#### Verdict Chain
+
+- Hammer readiness verdict: `blocked`
+- Hammer reason codes: `["handoff_blocked"]`
+- Packet verdict: `blocked`
+- Packet reason codes: `["handoff_blocked"]`
+- Quench ingest verdict: `blocked`
+- Quench ingest reason codes: `["handoff_blocked"]`
+- Quench route/render verdict: `blocked`
+- Quench route/render reason codes: `["handoff_blocked"]`
+
+#### Recovery / Session Notes
+
+- Save/retry behavior: Not exercised in this blocked calibration case.
+- Reload/recovery behavior: Not exercised in this blocked calibration case.
+- Conflict behavior: Not exercised in this blocked calibration case.
+
+#### Result
+
+- Mismatch found: `no`
+- Failure class:
+- Fix linked: Phase 6 canonical blocked verdict preservation across Hammer -> packet -> Quench
+- Blocker noted:
+- Rerun result: Deliberate blocked path remained blocked after Quench readiness consolidation.
+
 ## Summary Table
 
 | Episode | Hammer Verdict | Packet Verdict | Quench Verdict | Match | Failure Class | Fix / Blocker |
 | --- | --- | --- | --- | --- | --- | --- |
 | `EP01` | `ready` | `ready` | `ready` | `yes` |  | Phase 6 contract held cleanly in calibration run |
+| `EP10` | `blocked` | `blocked` | `blocked` | `yes` |  | Canonical blocked verdict preserved end to end |
 | `EP02` |  |  |  |  |  |  |
 | `EP03` |  |  |  |  |  |  |
 | `EP04` |  |  |  |  |  |  |
@@ -153,4 +199,3 @@ Repeat this section for each episode.
 | `EP07` |  |  |  |  |  |  |
 | `EP08` |  |  |  |  |  |  |
 | `EP09` |  |  |  |  |  |  |
-| `EP10` |  |  |  |  |  |  |
