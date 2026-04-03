@@ -63,6 +63,13 @@ export type AiUsageRecordInput = {
   trigger: AiUsageTrigger;
   status: AiUsageStatus;
   policyEnforced?: boolean;
+  keySource?: "forge" | "byo" | "org_shared" | null;
+  effectiveAiKeySource?: "forge_managed" | "user_byo" | "org_shared" | null;
+  keyResolutionStatus?: "available" | "missing_required_key" | "provider_not_supported" | "policy_denied" | null;
+  effectiveBillingLane?: BillingMode | null;
+  policyDecisionType?: "ALLOW" | "SOFT_DENY" | "HARD_DENY" | null;
+  policyReasonCode?: string | null;
+  policySnapshot?: Record<string, unknown> | null;
   actionId?: string | null;
   providerRequestId?: string | null;
   correlationId?: string | null;
@@ -162,6 +169,45 @@ export function buildUsageAccounting(args: {
   };
 }
 
+function inferKeySourceFromLane(lane: BillingMode): "forge" | "byo" {
+  return lane === AI_USAGE_LANE.BYO ? "byo" : "forge";
+}
+
+function inferEffectiveAiKeySourceFromLane(lane: BillingMode): "forge_managed" | "user_byo" {
+  return lane === AI_USAGE_LANE.BYO ? "user_byo" : "forge_managed";
+}
+
+function redactPolicySnapshot(value: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  if (!value) return {};
+  const blocklist = new Set([
+    "api_key",
+    "encrypted_api_key",
+    "authorization",
+    "access_token",
+    "refresh_token",
+    "bearer_token",
+    "headers",
+    "cookie",
+  ]);
+  const recurse = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map((entry) => recurse(entry));
+    if (!node || typeof node !== "object") return node;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      if (blocklist.has(k.toLowerCase())) {
+        out[k] = "[redacted]";
+      } else {
+        out[k] = recurse(v);
+      }
+    }
+    return out;
+  };
+  const redacted = recurse(value);
+  return redacted && typeof redacted === "object" && !Array.isArray(redacted)
+    ? (redacted as Record<string, unknown>)
+    : {};
+}
+
 export async function recordAiUsageEvent(args: AiUsageRecordInput): Promise<void> {
   if (!args.supabaseService) return;
   if (!args.userId || !UUID_RE.test(args.userId)) return;
@@ -188,6 +234,13 @@ export async function recordAiUsageEvent(args: AiUsageRecordInput): Promise<void
       user_id: args.userId,
       lane: args.lane,
       provider: args.provider,
+      key_source: args.keySource ?? inferKeySourceFromLane(args.lane),
+      effective_ai_key_source: args.effectiveAiKeySource ?? inferEffectiveAiKeySourceFromLane(args.lane),
+      key_resolution_status: args.keyResolutionStatus ?? "available",
+      effective_billing_lane: args.effectiveBillingLane ?? args.lane,
+      policy_decision_type: args.policyDecisionType ?? (args.status === "success" ? "ALLOW" : null),
+      policy_reason_code: args.policyReasonCode ?? null,
+      policy_snapshot: redactPolicySnapshot(args.policySnapshot),
       workspace_id: args.workspaceId,
       workpiece_id: args.workpieceId,
       session_id: args.sessionId,

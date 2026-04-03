@@ -244,6 +244,12 @@ function readOptionalNumber(value: unknown): number | null {
   return value;
 }
 
+function mapEffectiveKeySourceToEventKeySource(source: "forge_managed" | "user_byo" | "org_shared"): "forge" | "byo" | "org_shared" {
+  if (source === "user_byo") return "byo";
+  if (source === "org_shared") return "org_shared";
+  return "forge";
+}
+
 function mapLaneToRequestedMode(lane: BillingMode): AiMode {
   return lane === AI_USAGE_LANE.BYO ? "PERSONAL_ONLY" : "ORG_FIRST_PERSONAL_FALLBACK";
 }
@@ -1641,6 +1647,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     trigger: AiUsageTrigger;
     status: AiUsageStatus;
     policyEnforced?: boolean;
+    keySource?: "forge" | "byo" | "org_shared" | null;
+    effectiveAiKeySource?: "forge_managed" | "user_byo" | "org_shared" | null;
+    keyResolutionStatus?: "available" | "missing_required_key" | "provider_not_supported" | "policy_denied" | null;
+    effectiveBillingLane?: BillingMode | null;
+    policyDecisionType?: "ALLOW" | "SOFT_DENY" | "HARD_DENY" | null;
+    policyReasonCode?: string | null;
+    policySnapshot?: Record<string, unknown> | null;
     actionId?: string | null;
     providerRequestId?: string | null;
     correlationId?: string | null;
@@ -1666,6 +1679,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       trigger: args.trigger,
       status: args.status,
       policyEnforced: args.policyEnforced ?? true,
+      keySource: args.keySource ?? null,
+      effectiveAiKeySource: args.effectiveAiKeySource ?? null,
+      keyResolutionStatus: args.keyResolutionStatus ?? null,
+      effectiveBillingLane: args.effectiveBillingLane ?? null,
+      policyDecisionType: args.policyDecisionType ?? null,
+      policyReasonCode: args.policyReasonCode ?? null,
+      policySnapshot: args.policySnapshot ?? null,
       actionId: args.actionId ?? null,
       providerRequestId: args.providerRequestId ?? null,
       correlationId: args.correlationId ?? null,
@@ -1683,6 +1703,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     model: string;
     reasoningEffort?: string | null;
     trigger: AiUsageTrigger;
+    keySource?: "forge" | "byo" | "org_shared" | null;
+    effectiveAiKeySource?: "forge_managed" | "user_byo" | "org_shared" | null;
+    keyResolutionStatus?: "available" | "missing_required_key" | "provider_not_supported" | "policy_denied" | null;
+    effectiveBillingLane?: BillingMode | null;
+    policyDecisionType?: "ALLOW" | "SOFT_DENY" | "HARD_DENY" | null;
+    policyReasonCode?: string | null;
+    policySnapshot?: Record<string, unknown> | null;
     actionId?: string | null;
     isRecoverableHttpError?: (response: Response) => Promise<boolean>;
     request: {
@@ -1726,6 +1753,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             billableTokens: 0,
             trigger: args.trigger,
             status: AI_USAGE_STATUS.ERROR,
+            keySource: args.keySource ?? null,
+            effectiveAiKeySource: args.effectiveAiKeySource ?? null,
+            keyResolutionStatus: args.keyResolutionStatus ?? null,
+            effectiveBillingLane: args.effectiveBillingLane ?? null,
+            policyDecisionType: args.policyDecisionType ?? null,
+            policyReasonCode: args.policyReasonCode ?? null,
+            policySnapshot: args.policySnapshot ?? null,
             actionId: args.actionId,
             providerRequestId: response.headers.get("x-request-id"),
           });
@@ -1753,6 +1787,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         billableTokens: 0,
         trigger: args.trigger,
         status: AI_USAGE_STATUS.ERROR,
+        keySource: args.keySource ?? null,
+        effectiveAiKeySource: args.effectiveAiKeySource ?? null,
+        keyResolutionStatus: args.keyResolutionStatus ?? null,
+        effectiveBillingLane: args.effectiveBillingLane ?? null,
+        policyDecisionType: args.policyDecisionType ?? null,
+        policyReasonCode: args.policyReasonCode ?? null,
+        policySnapshot: args.policySnapshot ?? null,
         actionId: args.actionId,
         providerRequestId: null,
       });
@@ -2298,6 +2339,43 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             });
           }
           if (error instanceof MissingUserKeyError) {
+            await recordAiUsageEvent({
+              userId,
+              lane,
+              provider: "openai",
+              workspaceId: null,
+              workpieceId: null,
+              sessionId: null,
+              feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
+              subfeature: AI_USAGE_SUBFEATURE.WORKPIECE_AUDIO,
+              model: sttModel,
+              inputTokens: 0,
+              outputTokens: 0,
+              totalTokens: 0,
+              estimatedCostUsd: 0,
+              actualCostUsd: 0,
+              billableTokens: 0,
+              trigger: AI_USAGE_TRIGGER.USER,
+              status: AI_USAGE_STATUS.ERROR,
+              keySource: "byo",
+              effectiveAiKeySource: "user_byo",
+              keyResolutionStatus: "missing_required_key",
+              effectiveBillingLane: lane,
+              policyDecisionType: policyDecision?.decisionType ?? "SOFT_DENY",
+              policyReasonCode: policyDecision?.reasonCode ?? "PERSONAL_AI_REQUIRED_NOT_CONFIGURED",
+              policySnapshot: {
+                tool: "hearth",
+                requested_feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
+                requested_subfeature: AI_USAGE_SUBFEATURE.WORKPIECE_AUDIO,
+                requested_lane: lane,
+                provider: "openai",
+                model: sttModel,
+                kill_switch_user_keys_disabled: disableUserKeys,
+                byo_required: true,
+              },
+              actionId: sttActionId,
+              correlationId: sttActionId,
+            });
             return jsonResponse(422, {
               ok: false,
               error: error.message,
@@ -2308,6 +2386,43 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             });
           }
           if (error instanceof PolicyDeniedError) {
+            await recordAiUsageEvent({
+              userId,
+              lane,
+              provider: "openai",
+              workspaceId: null,
+              workpieceId: null,
+              sessionId: null,
+              feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
+              subfeature: AI_USAGE_SUBFEATURE.WORKPIECE_AUDIO,
+              model: sttModel,
+              inputTokens: 0,
+              outputTokens: 0,
+              totalTokens: 0,
+              estimatedCostUsd: 0,
+              actualCostUsd: 0,
+              billableTokens: 0,
+              trigger: AI_USAGE_TRIGGER.USER,
+              status: AI_USAGE_STATUS.ERROR,
+              keySource: lane === AI_USAGE_LANE.BYO ? "byo" : "forge",
+              effectiveAiKeySource: policyDecision?.effectiveAiKeySource ?? null,
+              keyResolutionStatus: "policy_denied",
+              effectiveBillingLane: lane,
+              policyDecisionType: policyDecision?.decisionType ?? "HARD_DENY",
+              policyReasonCode: policyDecision?.reasonCode ?? error.reasonCode,
+              policySnapshot: {
+                tool: "hearth",
+                requested_feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
+                requested_subfeature: AI_USAGE_SUBFEATURE.WORKPIECE_AUDIO,
+                requested_lane: lane,
+                provider: "openai",
+                model: sttModel,
+                kill_switch_user_keys_disabled: disableUserKeys,
+                byo_required: lane === AI_USAGE_LANE.BYO,
+              },
+              actionId: sttActionId,
+              correlationId: sttActionId,
+            });
             return jsonResponse(403, {
               ok: false,
               error: error.reasonCode ? getAiReasonMessage(error.reasonCode) : error.message,
@@ -2331,6 +2446,38 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           policy_decision_type: policyDecision?.decisionType ?? null,
           policy_reason_code: policyDecision?.reasonCode ?? null,
         };
+        const policySnapshot = {
+          tool: "hearth",
+          requested_feature: AI_USAGE_FEATURE.SPEECH_TRANSCRIPTION,
+          requested_subfeature: AI_USAGE_SUBFEATURE.WORKPIECE_AUDIO,
+          requested_lane: lane,
+          effective_billing_lane: effectiveLane,
+          requested_mode: mapLaneToRequestedMode(lane),
+          requested_funding_source: mapLaneToRequestedFundingSource(lane),
+          policy_decision_type: policyDecision?.decisionType ?? null,
+          policy_reason_code: policyDecision?.reasonCode ?? null,
+          policy_fallback_allowed: policyDecision?.fallbackAvailable ?? null,
+          policy_fallback_used: policyDecision?.fallbackUsed ?? null,
+          policy_effective_key_source: policyDecision?.effectiveAiKeySource ?? null,
+          policy_key_resolution_status: policyDecision?.keyResolutionStatus ?? null,
+          provider: "openai",
+          model: sttModel,
+          workspace_id: null,
+          org_id: null,
+          user_id: userId,
+          byo_allowed: true,
+          byo_required: lane === AI_USAGE_LANE.BYO,
+          kill_switch_user_keys_disabled: disableUserKeys,
+        };
+        const usageAttribution = {
+          keySource: mapEffectiveKeySourceToEventKeySource(resolvedCredentials.keySource),
+          effectiveAiKeySource: resolvedCredentials.keySource,
+          keyResolutionStatus: resolvedCredentials.keyResolutionStatus,
+          effectiveBillingLane: effectiveLane,
+          policyDecisionType: policyDecision?.decisionType ?? null,
+          policyReasonCode: policyDecision?.reasonCode ?? null,
+          policySnapshot,
+        } as const;
         if (!supabaseService) {
           return jsonResponse(500, {
             ok: false,
@@ -2422,6 +2569,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               subfeature: AI_USAGE_SUBFEATURE.WORKPIECE_AUDIO,
               model: sttModel,
               trigger: AI_USAGE_TRIGGER.USER,
+              ...usageAttribution,
               actionId: sttActionId,
               request: {
                 url: "https://api.openai.com/v1/audio/transcriptions",
@@ -2480,6 +2628,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               billableTokens: 0,
               trigger: AI_USAGE_TRIGGER.USER,
               status: AI_USAGE_STATUS.ERROR,
+              ...usageAttribution,
               actionId: sttActionId,
               providerRequestId: upstream.headers.get("x-request-id"),
               correlationId: sttActionId,
@@ -2524,6 +2673,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             billableTokens,
             trigger: AI_USAGE_TRIGGER.USER,
             status: AI_USAGE_STATUS.SUCCESS,
+            ...usageAttribution,
             actionId: sttActionId,
             providerRequestId: openAiRequestId,
             correlationId: sttActionId,
@@ -2677,6 +2827,48 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         }
         if (error instanceof MissingUserKeyError) {
+          await recordAiUsageEvent({
+            userId,
+            lane,
+            provider: "openai",
+            workspaceId: episodeContext.workspaceId,
+            workpieceId: episodeContext.episodeId,
+            sessionId: null,
+            feature: chatFeature.feature,
+            subfeature: chatFeature.subfeature,
+            model: requestedModel ?? configuredModel,
+            reasoningEffort: requestedReasoningEffort,
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            estimatedCostUsd: 0,
+            actualCostUsd: 0,
+            billableTokens: 0,
+            trigger: AI_USAGE_TRIGGER.USER,
+            status: AI_USAGE_STATUS.ERROR,
+            keySource: "byo",
+            effectiveAiKeySource: "user_byo",
+            keyResolutionStatus: "missing_required_key",
+            effectiveBillingLane: lane,
+            policyDecisionType: policyDecision?.decisionType ?? "SOFT_DENY",
+            policyReasonCode: policyDecision?.reasonCode ?? "PERSONAL_AI_REQUIRED_NOT_CONFIGURED",
+            policySnapshot: {
+              tool: "hearth",
+              requested_feature: chatFeature.feature,
+              requested_subfeature: chatFeature.subfeature,
+              requested_lane: lane,
+              provider: "openai",
+              model: requestedModel ?? configuredModel,
+              reasoning_effort: requestedReasoningEffort,
+              workspace_id: episodeContext.workspaceId,
+              org_id: null,
+              user_id: userId,
+              kill_switch_user_keys_disabled: disableUserKeys,
+              byo_required: true,
+            },
+            actionId: chatActionId,
+            correlationId: chatActionId,
+          });
           return jsonResponse(422, {
             ok: false,
             error: error.message,
@@ -2687,6 +2879,48 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         }
         if (error instanceof PolicyDeniedError) {
+          await recordAiUsageEvent({
+            userId,
+            lane,
+            provider: "openai",
+            workspaceId: episodeContext.workspaceId,
+            workpieceId: episodeContext.episodeId,
+            sessionId: null,
+            feature: chatFeature.feature,
+            subfeature: chatFeature.subfeature,
+            model: requestedModel ?? configuredModel,
+            reasoningEffort: requestedReasoningEffort,
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            estimatedCostUsd: 0,
+            actualCostUsd: 0,
+            billableTokens: 0,
+            trigger: AI_USAGE_TRIGGER.USER,
+            status: AI_USAGE_STATUS.ERROR,
+            keySource: lane === AI_USAGE_LANE.BYO ? "byo" : "forge",
+            effectiveAiKeySource: policyDecision?.effectiveAiKeySource ?? null,
+            keyResolutionStatus: "policy_denied",
+            effectiveBillingLane: lane,
+            policyDecisionType: policyDecision?.decisionType ?? "HARD_DENY",
+            policyReasonCode: policyDecision?.reasonCode ?? error.reasonCode,
+            policySnapshot: {
+              tool: "hearth",
+              requested_feature: chatFeature.feature,
+              requested_subfeature: chatFeature.subfeature,
+              requested_lane: lane,
+              provider: "openai",
+              model: requestedModel ?? configuredModel,
+              reasoning_effort: requestedReasoningEffort,
+              workspace_id: episodeContext.workspaceId,
+              org_id: null,
+              user_id: userId,
+              kill_switch_user_keys_disabled: disableUserKeys,
+              byo_required: lane === AI_USAGE_LANE.BYO,
+            },
+            actionId: chatActionId,
+            correlationId: chatActionId,
+          });
           return jsonResponse(403, {
             ok: false,
             error: error.reasonCode ? getAiReasonMessage(error.reasonCode) : error.message,
@@ -2710,6 +2944,39 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         policy_decision_type: policyDecision?.decisionType ?? null,
         policy_reason_code: policyDecision?.reasonCode ?? null,
       };
+      const policySnapshot = {
+        tool: "hearth",
+        requested_feature: chatFeature.feature,
+        requested_subfeature: chatFeature.subfeature,
+        requested_lane: lane,
+        effective_billing_lane: effectiveLane,
+        requested_mode: mapLaneToRequestedMode(lane),
+        requested_funding_source: mapLaneToRequestedFundingSource(lane),
+        policy_decision_type: policyDecision?.decisionType ?? null,
+        policy_reason_code: policyDecision?.reasonCode ?? null,
+        policy_fallback_allowed: policyDecision?.fallbackAvailable ?? null,
+        policy_fallback_used: policyDecision?.fallbackUsed ?? null,
+        policy_effective_key_source: policyDecision?.effectiveAiKeySource ?? null,
+        policy_key_resolution_status: policyDecision?.keyResolutionStatus ?? null,
+        provider: "openai",
+        model: requestedModel ?? configuredModel,
+        reasoning_effort: requestedReasoningEffort,
+        workspace_id: episodeContext.workspaceId,
+        org_id: null,
+        user_id: userId,
+        byo_allowed: true,
+        byo_required: lane === AI_USAGE_LANE.BYO,
+        kill_switch_user_keys_disabled: disableUserKeys,
+      };
+      const usageAttribution = {
+        keySource: mapEffectiveKeySourceToEventKeySource(resolvedCredentials.keySource),
+        effectiveAiKeySource: resolvedCredentials.keySource,
+        keyResolutionStatus: resolvedCredentials.keyResolutionStatus,
+        effectiveBillingLane: effectiveLane,
+        policyDecisionType: policyDecision?.decisionType ?? null,
+        policyReasonCode: policyDecision?.reasonCode ?? null,
+        policySnapshot,
+      } as const;
       if (effectiveLane === AI_USAGE_LANE.FORGE && !userId) {
         return jsonResponse(401, {
           ok: false,
@@ -2930,6 +3197,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             model,
             reasoningEffort,
             trigger: AI_USAGE_TRIGGER.USER,
+            ...usageAttribution,
             actionId: chatActionId,
             isRecoverableHttpError: async (response) => {
               if (!allowTemperatureOverride || response.status !== 400) return false;
@@ -3022,6 +3290,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             billableTokens: 0,
             trigger: AI_USAGE_TRIGGER.USER,
             status: AI_USAGE_STATUS.ERROR,
+            ...usageAttribution,
             actionId: chatActionId,
             providerRequestId: upstream.headers.get("x-request-id"),
             correlationId: chatActionId,
@@ -3134,6 +3403,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           billableTokens,
           trigger: AI_USAGE_TRIGGER.USER,
           status: AI_USAGE_STATUS.SUCCESS,
+          ...usageAttribution,
           actionId: chatActionId,
           providerRequestId: openAiRequestId,
           correlationId: chatActionId,
