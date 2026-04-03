@@ -2228,6 +2228,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const bodyRaw = (await readJsonBody(request)) as SttReqBody;
         const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
         const bearerToken = readBearerToken(request.headers.get("authorization"));
+        const providedSttActionId = readOptionalString(bodyRaw.action_id);
+        const sttActionId = isUuid(providedSttActionId) ? providedSttActionId : crypto.randomUUID();
         if (lane === AI_USAGE_LANE.FORGE && disableForgeLaneAi) {
           return jsonResponse(503, {
             ok: false,
@@ -2399,9 +2401,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const form = new FormData();
         form.set("model", sttModel);
         form.set("file", audioBlob, `speech.${ext}`);
-        const providedSttActionId = readOptionalString(bodyRaw.action_id);
-        const sttActionId = isUuid(providedSttActionId) ? providedSttActionId : crypto.randomUUID();
-
         const upstreamAbort = new AbortController();
         let clientAborted = request.signal.aborted;
         const onAborted = () => {
@@ -2630,6 +2629,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         : null;
       const requestText = latestUserMessage?.content ?? "";
       const userId = await resolveUserId(bearerToken);
+      const chatFeature = classifyChatFeature(requestText);
+      const requestedReasoningEffort = isRecord(bodyRaw.behavior)
+        ? readOptionalString((bodyRaw.behavior as Record<string, unknown>).reasoning_effort)
+        : null;
+      const requestedModel = isRecord(bodyRaw.behavior)
+        ? readOptionalString((bodyRaw.behavior as Record<string, unknown>).model)
+        : null;
       let policyDecision: AiPolicyResolveResult | null = null;
       try {
         policyDecision = await resolveRuntimeAiPolicy({
@@ -2637,7 +2643,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           userId,
           workspaceId: episodeContext.workspaceId,
           lane,
-          feature: AI_USAGE_FEATURE.CHAT_ASSIST,
+          feature: chatFeature.feature,
           action: "chat",
           provider: "openai",
           model: requestedModel ?? configuredModel,
@@ -2719,13 +2725,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...resolutionSnapshot,
         });
       }
-      const chatFeature = classifyChatFeature(requestText);
-      const requestedReasoningEffort = isRecord(bodyRaw.behavior)
-        ? readOptionalString((bodyRaw.behavior as Record<string, unknown>).reasoning_effort)
-        : null;
-      const requestedModel = isRecord(bodyRaw.behavior)
-        ? readOptionalString((bodyRaw.behavior as Record<string, unknown>).model)
-        : null;
       if (disableCdcGeneration && CDC_REQUEST_RE.test(requestText)) {
         return jsonResponse(503, {
           ok: false,
