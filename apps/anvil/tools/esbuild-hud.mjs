@@ -5,7 +5,7 @@ const shared = {
   bundle: true,
   format: 'esm',
   platform: 'browser',
-  sourcemap: true,
+  sourcemap: watch,
   target: ['es2020'],
   outdir: 'dist/hud',
 };

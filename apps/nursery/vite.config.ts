@@ -238,5 +238,6 @@ export default defineConfig({
   },
   build: {
     copyPublicDir: false,
+    sourcemap: false,
   },
 });

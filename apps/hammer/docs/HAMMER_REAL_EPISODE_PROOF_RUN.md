@@ -452,6 +452,182 @@ Repeat this section for each episode.
 - Blocker noted:
 - Rerun result: Mixed approve/reject candidate decisions survived selected output packaging and Quench ingest without ghost-state drift.
 
+### Episode: `EP05`
+
+- Label: Prep degraded truth
+- Fixture / source: Composite degraded-prep proof using [hammerReleasePrepPackage.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerReleasePrepPackage.test.ts), [hammerPreparedReleasePackage.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerPreparedReleasePackage.test.ts), [hammerQuenchReleasePacket.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerQuenchReleasePacket.test.ts), [hammerReleasePacketIngest.test.ts](/D:/nursery/nursery/apps/quench/tests/hammerReleasePacketIngest.test.ts), and [hammer-quench-readiness-contract.test.mts](/D:/nursery/nursery/apps/nursery/tests/hammer-quench-readiness-contract.test.mts)
+- Coverage goal: Prove degraded prep remains usable and truthful, and survives Hammer -> packet -> Quench as `needs_review` instead of being flattened into either ready or generic blocked state.
+- What this case is meant to prove: Forge can keep the operator in a usable degraded-prep posture while preserving the exact stale prep reason through the readiness chain.
+- Starting condition: Release prep package with a stale-but-present artifact posture, especially visuals/subtitles drift where work can continue but the release is not fully current.
+- Starting active pass: Ready Summary or Packaging, depending on where the stale prep becomes visible.
+
+#### Hammer Pass Outcomes
+
+- Transcript Cleanup: Not the failure source in this case.
+- Candidate Review: Not the failure source in this case.
+- Gap/Pacing: Not the failure source in this case.
+- Image Placement / Animation: Stale or degraded visual prep can surface here while remaining reviewable rather than hard blocked.
+- Audio Finalization: Audio prep can fall back to stale/raw or unsupported states, but the core proof for this case centers on degraded review posture rather than hard-stop failure.
+- Packaging: Remains actionable; stale prep must not be promoted into healthy completion.
+- Ready Summary: Canonical degraded-prep state remains `needs_review` instead of silently reading as ready.
+
+#### Degraded Prep State
+
+- Hammer release prep package preserves stale readiness statuses: `yes`
+- Prepared-package comparison keeps stale reasons explicit: `yes`
+- Operator can continue from degraded prep posture without false healthy promotion: `yes`
+- Hard-blocked missing-media variants intentionally tracked elsewhere: `yes` (`EP04`)
+
+#### Verdict Chain
+
+- Hammer readiness verdict: `needs_review`
+- Hammer reason codes: `["artifact_visuals_stale"]` in the canonical degraded-prep parity path
+- Packet verdict: `needs_review`
+- Packet reason codes: `["artifact_visuals_stale"]`
+- Quench ingest verdict: `needs_review`
+- Quench ingest reason codes: `["artifact_visuals_stale"]`
+- Quench route/render verdict: `needs_review`
+- Quench route/render reason codes: `["artifact_visuals_stale"]`
+
+#### Recovery / Session Notes
+
+- Save/retry behavior: Not the primary focus of this case.
+- Reload/recovery behavior: Prepared-package stale comparison keeps drift explicit after current-vs-prepared comparison; no false current promotion.
+- Conflict behavior: Not exercised in this case.
+
+#### Result
+
+- Mismatch found: `no`
+- Failure class:
+- Fix linked: Phase 6 degraded readiness parity plus prep-package stale reason preservation
+- Blocker noted:
+- Rerun result: Degraded prep stayed reviewable and explicit across Hammer, packet transport, Quench ingest, and Quench route rendering.
+
+### Episode: `EP08`
+
+- Label: Multi-image and overlay structure truth
+- Fixture / source: [hammer-overlay-structure-parity.test.mts](/D:/nursery/nursery/apps/nursery/tests/hammer-overlay-structure-parity.test.mts), [hammerWorkspaceSelection.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerWorkspaceSelection.test.ts), [hammerVisualPreviewState.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerVisualPreviewState.test.ts), and [hammerQuenchReleasePacket.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerQuenchReleasePacket.test.ts)
+- Coverage goal: Prove multi-image/overlay timeline structure survives Hammer -> packet -> Quench without identity, ordering, or selection drift.
+- What this case is meant to prove: Structure-heavy visual editing does not become lossy just because the episode is visually complex; the same placement identities and order survive transport.
+- Starting condition: Prepared release with three distinct visual placements, unique placement ids, unique timing windows, and a persisted selected overlay focus on the middle placement.
+- Starting active pass: Image Placement / Animation
+
+#### Hammer Pass Outcomes
+
+- Transcript Cleanup: Not the focus of this case.
+- Candidate Review: Not the focus of this case.
+- Gap/Pacing: Not the focus of this case.
+- Image Placement / Animation: Three placements remain present, ordered, and timeline-distinct; invalid persisted selection falls back safely to the first valid placement.
+- Audio Finalization: Not the focus of this case.
+- Packaging: Not the focus of this case.
+- Ready Summary: Complexity alone does not degrade readiness; no extra review or blocking state appears from multi-placement structure itself.
+
+#### Structure / Focus State
+
+- Placement count preserved: `yes`
+- Placement ids preserved: `yes`
+- Placement ordering preserved: `yes`
+- Placement timing preserved: `yes`
+- Persisted overlay selection remains valid when present: `yes`
+- Invalid persisted overlay selection falls back safely: `yes`
+- Focus posture confused with canonical placement truth: `no`
+
+#### Verdict Chain
+
+- Hammer readiness verdict: `ready`
+- Hammer reason codes: `[]`
+- Packet verdict: `ready`
+- Packet reason codes: `[]`
+- Quench ingest verdict: `ready`
+- Quench ingest reason codes: `[]`
+- Quench route/render verdict: `ready`
+- Quench route/render reason codes: `[]`
+
+#### Recovery / Session Notes
+
+- Save/retry behavior: Not the primary focus of this case.
+- Reload/recovery behavior: Selection helper proves persisted overlay focus is restored only when still valid and otherwise falls back safely.
+- Conflict behavior: Not exercised in this case.
+
+#### Result
+
+- Mismatch found: `no`
+- Failure class:
+- Fix linked: Overlay structure parity fixture added in [hammer-overlay-structure-parity.test.mts](/D:/nursery/nursery/apps/nursery/tests/hammer-overlay-structure-parity.test.mts)
+- Blocker noted:
+- Rerun result: Multi-placement visual structure survived packet build and Quench ingest with identity/order/timing intact, and overlay focus fallback remained safe.
+
+### Episode: `EP09`
+
+- Label: Podcast-master / audio-finalization truth
+- Fixture / source: [hammer-podcast-master-parity.test.mts](/D:/nursery/nursery/apps/nursery/tests/hammer-podcast-master-parity.test.mts), [hammerReadinessGate.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerReadinessGate.test.ts), [hammerQuenchReleasePacket.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerQuenchReleasePacket.test.ts), and [hammerPodcastMasterStatus.test.ts](/D:/nursery/nursery/apps/hammer/tests/hammerPodcastMasterStatus.test.ts)
+- Coverage goal: Prove podcast-master truth survives Hammer -> packet -> Quench with canonical audio/master reason codes intact and the correct readiness class preserved.
+- What this case is meant to prove: Final audio posture is not flattened into generic media truth; the system preserves podcast-master-specific meaning such as degraded/export-only versus unavailable.
+- Why the podcast-master state is the way it is:
+  - reviewable path: runtime can export podcast master, but preview support is export-only and some stages are degraded or skipped
+  - blocked path: runtime cannot execute the declared podcast-master pass at all
+- Starting condition: Declared `podcast_master_pass` in the authority graph with one reviewable runtime profile and one unavailable runtime profile.
+- Starting active pass: Audio Finalization or Ready Summary
+
+#### Hammer Pass Outcomes
+
+- Transcript Cleanup: Not the focus of this case.
+- Candidate Review: Not the focus of this case.
+- Gap/Pacing: Not the focus of this case.
+- Image Placement / Animation: Not the focus of this case.
+- Audio Finalization: Podcast-master truth remains explicit as either `needs_review` (`podcast_master_degraded` + `podcast_master_export_only`) or `blocked` (`podcast_master_unavailable`).
+- Packaging: Not the focus of this case.
+- Ready Summary: Preserves the same audio/master truth class instead of softening it into generic media messaging.
+
+#### Audio / Master Truth
+
+- Canonical master-specific reason codes preserved: `yes`
+- Reviewable export-only/degraded path preserved: `yes`
+- Unavailable hard-blocked path preserved: `yes`
+- Meaning flattened into generic media truth: `no`
+- Quench added extra `quench_*` reasons for this case: `no`
+
+#### Verdict Chain
+
+- Hammer readiness verdict:
+  - reviewable path: `needs_review`
+  - blocked path: `blocked`
+- Hammer reason codes:
+  - reviewable path: `["podcast_master_degraded", "podcast_master_export_only"]`
+  - blocked path: `["podcast_master_unavailable"]`
+- Packet verdict:
+  - reviewable path: `needs_review`
+  - blocked path: `blocked`
+- Packet reason codes:
+  - reviewable path: `["podcast_master_degraded", "podcast_master_export_only"]`
+  - blocked path: `["podcast_master_unavailable"]`
+- Quench ingest verdict:
+  - reviewable path: `needs_review`
+  - blocked path: `blocked`
+- Quench ingest reason codes:
+  - reviewable path: `["podcast_master_degraded", "podcast_master_export_only"]`
+  - blocked path: `["podcast_master_unavailable"]`
+- Quench route/render verdict:
+  - reviewable path: `needs_review`
+  - blocked path: `blocked`
+- Quench route/render reason codes:
+  - reviewable path: `["podcast_master_degraded", "podcast_master_export_only"]`
+  - blocked path: `["podcast_master_unavailable"]`
+
+#### Recovery / Session Notes
+
+- Save/retry behavior: Not the primary focus of this case.
+- Reload/recovery behavior: Not the primary focus of this case.
+- Conflict behavior: Not exercised in this case.
+
+#### Result
+
+- Mismatch found: `no`
+- Failure class:
+- Fix linked: Podcast-master parity fixture added in [hammer-podcast-master-parity.test.mts](/D:/nursery/nursery/apps/nursery/tests/hammer-podcast-master-parity.test.mts)
+- Blocker noted:
+- Rerun result: Podcast-master-specific truth remained explicit and stable across Hammer, packet transport, Quench ingest, and route-level rendering semantics.
+
 ## Summary Table
 
 | Episode | Hammer Verdict | Packet Verdict | Quench Verdict | Match | Failure Class | Fix / Blocker |
@@ -463,6 +639,6 @@ Repeat this section for each episode.
 | `EP06` | `blocked/degraded` |  |  | `yes` |  | Packaging stayed usable without implying completion |
 | `EP02` | `editorial_truth_preserved` | `expected_clean` | `expected_clean` | `yes` |  | Cleanup output selection and stale guard preserved editorial truth |
 | `EP03` | `ready` | `ready` | `ready` | `yes` |  | Mixed approve/reject candidate decisions preserved end to end |
-| `EP05` |  |  |  |  |  |  |
-| `EP08` |  |  |  |  |  |  |
-| `EP09` |  |  |  |  |  |  |
+| `EP05` | `needs_review` | `needs_review` | `needs_review` | `yes` |  | Degraded prep remained explicit and reviewable across Hammer -> packet -> Quench |
+| `EP08` | `ready` | `ready` | `ready` | `yes` |  | Multi-placement identity, order, and timing survived transport and ingest |
+| `EP09` | `needs_review / blocked` | `needs_review / blocked` | `needs_review / blocked` | `yes` |  | Podcast-master-specific audio truth survived the full chain without flattening |
