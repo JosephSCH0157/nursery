@@ -1,4 +1,5 @@
 .mobile-page {
+  min-height: 100vh;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -59,7 +60,9 @@
 
 .mobile-page__body {
   flex: 1;
+  min-height: 0;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 16px 12px calc(20px + env(safe-area-inset-bottom, 0px));
 }
 

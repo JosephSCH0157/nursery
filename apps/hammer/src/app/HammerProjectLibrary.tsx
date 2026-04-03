@@ -7,6 +7,8 @@ import {
   resolveHammerRouteWorkpieceId,
   type HammerRuntimeProjectCard,
 } from "./hammerRuntimeData";
+import { ensureWorkpieceRecordingCardThumbnail } from "./hammerRecordingCardThumbnail";
+import { loadWorkpieceMediaPreviewUrl } from "../lib/hammerSourceDeskMediaApi";
 import HammerWorkspaceSelection from "./HammerWorkspaceSelection";
 import type { HammerShellWorkspaceOption, HammerWorkspaceResolutionState } from "./hammerShellContext";
 import "./HammerProjectLibrary.css";
@@ -39,6 +41,20 @@ function shortId(value: string): string {
   if (!value) return "";
   if (value.length <= 12) return value;
   return `${value.slice(0, 8)}...`;
+}
+
+function formatDurationLabel(durationMs: number | null): string | null {
+  if (durationMs == null || !Number.isFinite(durationMs) || durationMs <= 0) return null;
+  const totalSeconds = Math.max(1, Math.floor(durationMs / 1000));
+  const seconds = totalSeconds % 60;
+  const minutes = Math.floor(totalSeconds / 60) % 60;
+  const hours = Math.floor(totalSeconds / 3600);
+  const mm = String(minutes).padStart(2, "0");
+  const ss = String(seconds).padStart(2, "0");
+  if (hours > 0) {
+    return `${hours}:${mm}:${ss}`;
+  }
+  return `${mm}:${ss}`;
 }
 
 type ProjectSortMode = "updated_desc" | "title_asc" | "needs_recording";
@@ -91,6 +107,7 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const [sortMode, setSortMode] = useState<ProjectSortMode>("updated_desc");
+  const [recordingThumbnailUrls, setRecordingThumbnailUrls] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!routeWorkpieceId) return;
@@ -132,6 +149,72 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
     };
   }, [props.workspaceId, routeWorkpieceId, refreshToken]);
 
+  useEffect(() => {
+    let active = true;
+    const createdUrls: string[] = [];
+
+    async function resolveCardThumbnails(): Promise<void> {
+      const nextUrls: Record<string, string> = {};
+      for (const project of projects) {
+        if (!project.recording.hasKeptTake) continue;
+        if (project.recording.keptTakeKind !== "recording_video") continue;
+        if (!project.recording.keptTakePath) continue;
+
+        let thumbnailPath = await ensureWorkpieceRecordingCardThumbnail({
+          workpieceId: project.workpieceId,
+          recordingPath: project.recording.keptTakePath,
+          existingThumbnailPath: project.recording.thumbnailPath,
+        }).catch(() => null);
+        if (!thumbnailPath) continue;
+        let previewUrl = await loadWorkpieceMediaPreviewUrl({
+          workpieceId: project.workpieceId,
+          path: thumbnailPath,
+          mimeType: "image/jpeg",
+        }).catch(() => null);
+        if (!previewUrl) {
+          thumbnailPath = await ensureWorkpieceRecordingCardThumbnail({
+            workpieceId: project.workpieceId,
+            recordingPath: project.recording.keptTakePath,
+            existingThumbnailPath: null,
+          }).catch(() => null);
+          if (!thumbnailPath) continue;
+          previewUrl = await loadWorkpieceMediaPreviewUrl({
+            workpieceId: project.workpieceId,
+            path: thumbnailPath,
+            mimeType: "image/jpeg",
+          }).catch(() => null);
+        }
+        if (!previewUrl) continue;
+        if (!active) {
+          URL.revokeObjectURL(previewUrl);
+          continue;
+        }
+        createdUrls.push(previewUrl);
+        nextUrls[project.workpieceId] = previewUrl;
+      }
+
+      if (!active) {
+        for (const url of createdUrls) URL.revokeObjectURL(url);
+        return;
+      }
+
+      setRecordingThumbnailUrls((current) => {
+        for (const url of Object.values(current)) {
+          URL.revokeObjectURL(url);
+        }
+        return nextUrls;
+      });
+    }
+
+    void resolveCardThumbnails();
+    return () => {
+      active = false;
+      for (const url of createdUrls) {
+        URL.revokeObjectURL(url);
+      }
+    };
+  }, [projects]);
+
   const selectedProject = useMemo(
     () => projects.find((project) => project.workpieceId === selectedWorkpieceId) ?? null,
     [projects, selectedWorkpieceId],
@@ -167,6 +250,7 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
       <div className="hammer-project-library__grid">
         {items.map((project) => {
           const isSelected = project.workpieceId === (routeWorkpieceId ?? selectedWorkpieceId);
+          const recordingDurationLabel = formatDurationLabel(project.recording.keptTakeDurationMs);
           return (
             <article
               key={project.workpieceId}
@@ -177,6 +261,32 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
               }}
             >
               <div className="hammer-project-library__card-body">
+                <div className="hammer-project-library__card-media-inline">
+                  <div className="hammer-project-library__card-thumb-token">
+                    {recordingThumbnailUrls[project.workpieceId] ? (
+                      <img
+                        className="hammer-project-library__card-thumb"
+                        src={recordingThumbnailUrls[project.workpieceId]}
+                        alt={`${project.label} recording thumbnail`}
+                      />
+                    ) : (
+                      <div className="hammer-project-library__card-thumb-fallback">
+                        {project.recording.hasKeptTake ? "Rec" : "None"}
+                      </div>
+                    )}
+                  </div>
+                  {project.recording.hasKeptTake ? (
+                    <span className="hammer-project-library__card-media-badge">
+                      Recorded
+                      {recordingDurationLabel ? (
+                        <span className="hammer-project-library__card-media-badge-duration">
+                          {" • "}
+                          {recordingDurationLabel}
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : null}
+                </div>
                 <div className="hammer-project-library__card-topline">
                   <span className={getReadinessClassName(project)}>
                     {project.readiness.statusLabel}

@@ -1,6 +1,7 @@
 import type { HenryConversationTurn, HenryObservation, HenryPreferenceState } from "@forge/shared/henry";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
+import { useLayoutMode } from "@forge/ui-mobile";
 import { supabase } from "../lib/supabase";
 import { parseForgeRouteContext } from "../lib/forge-route-context";
 import { useOptionalEpisodeWorkspace } from "../workspace/EpisodeWorkspaceContext";
@@ -12,6 +13,7 @@ import {
   resolveHenryObservation,
   resolveHenryRecommendation,
 } from "./henryMessageEngine";
+import { canRenderHenrySurface } from "./henryRenderPolicy";
 import { resolveHenryQuickActions } from "./henryQuickActions";
 import { readCachedHenryPreferences, writeCachedHenryPreferences } from "./henryStorage";
 import {
@@ -27,10 +29,6 @@ import { HenryLauncher, HenryObservationSlot, HenryPanel } from "./HenryUI";
 import "./Henry.css";
 
 const OBSERVATION_COOLDOWN_MS = 15 * 60 * 1000;
-
-function shouldRenderHenry(pathname: string): boolean {
-  return pathname.startsWith("/app") || pathname.startsWith("/apps/hearth") || pathname.startsWith("/apps/bellows");
-}
 
 function isMuted(preferences: HenryPreferenceState): boolean {
   if (!preferences.mutedUntil) return false;
@@ -51,6 +49,11 @@ function deriveLocalSubtitle(pathname: string): string {
 
 export function HenryProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
+  const layoutMode = useLayoutMode();
+  const canRenderHenry = canRenderHenrySurface({
+    pathname: location.pathname,
+    layoutMode,
+  });
   const episodeCtx = useOptionalEpisodeWorkspace();
   const routeContext = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
   const henryContext = useMemo(
@@ -187,7 +190,7 @@ export function HenryProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     const nextObservation = (() => {
-      if (!shouldRenderHenry(location.pathname)) return null;
+      if (!canRenderHenry) return null;
       if (!preferences.showHenry || preferences.hideTips || panelOpen || suppression.isSuppressed) {
         return null;
       }
@@ -214,6 +217,7 @@ export function HenryProvider({ children }: { children: ReactNode }) {
     };
   }, [
     henryContext,
+    canRenderHenry,
     location.pathname,
     messageState,
     panelOpen,
@@ -437,7 +441,7 @@ export function HenryProvider({ children }: { children: ReactNode }) {
   return (
     <>
       {children}
-      {shouldRenderHenry(location.pathname) && preferences.showHenry ? (
+      {canRenderHenry && preferences.showHenry ? (
         <>
           <HenryObservationSlot
             observation={observation}
