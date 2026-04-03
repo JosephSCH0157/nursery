@@ -21,7 +21,7 @@ const EXTRA_FS_ALLOW_ENV_KEYS = ["FORGE_VITE_FS_ALLOW", "FORGE_MEDIA_ROOTS"] as 
 const ANVIL_DEV_ROUTE_PREFIX = "/anvil/";
 const DEV_SERVER_HOST = process.env.FORGE_VITE_HOST?.trim() || "127.0.0.1";
 const DEV_SERVER_PORT = Number(process.env.FORGE_VITE_PORT || "5173");
-const DEV_HMR_HOST = process.env.FORGE_VITE_HMR_HOST?.trim() || "localhost";
+const DEV_HMR_HOST = process.env.FORGE_VITE_HMR_HOST?.trim() || DEV_SERVER_HOST;
 const DEV_HMR_PORT = Number(process.env.FORGE_VITE_HMR_PORT || String(DEV_SERVER_PORT));
 
 function getMimeType(filePath: string): string {
