@@ -2256,12 +2256,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       if (Math.abs(playheadSec - terminalPlayheadSec) >= SCRUB_SEEK_THRESHOLD_SEC) {
         setPlayheadSec(terminalPlayheadSec);
       }
-      if (
-        previewAudioRef.current
-        && Math.abs(previewAudioRef.current.currentTime - playbackTransportDurationSec) > PLAYHEAD_WINDOW_EPSILON_SEC
-      ) {
-        previewAudioRef.current.currentTime = playbackTransportDurationSec;
-      }
+    if (
+      previewAudioRef.current
+      && Math.abs(previewAudioRef.current.currentTime - playbackTransportDurationSec) > SCRUB_SEEK_THRESHOLD_SEC
+    ) {
+      previewAudioRef.current.currentTime = playbackTransportDurationSec;
+    }
       if (isPlaybackActive) {
         setIsPlaybackActive(false);
       }
@@ -2279,7 +2279,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setPlayheadSec(nextPlayheadSec);
     if (
       previewAudioRef.current
-      && Math.abs(previewAudioRef.current.currentTime - audibleTarget) > PLAYHEAD_WINDOW_EPSILON_SEC
+      && Math.abs(previewAudioRef.current.currentTime - audibleTarget) > SCRUB_SEEK_THRESHOLD_SEC
     ) {
       previewAudioRef.current.currentTime = audibleTarget;
     }
@@ -3850,9 +3850,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       previewAudio.volume = 1;
     }
     claimGlobalPlaybackAuthority(previewAudio);
-    void previewAudio.play().catch(() => {
-      setIsPlaybackActive(false);
-    });
+    if (previewAudio.paused) {
+      void previewAudio.play().catch(() => {
+        setIsPlaybackActive(false);
+      });
+    }
   }, [
     claimGlobalPlaybackAuthority,
     isPlaybackActive,
@@ -5401,7 +5403,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (
       previewAudioRef.current
       && (transportProgress.shouldLoop || transportProgress.shouldSyncMediaTime)
-      && Math.abs(previewAudioRef.current.currentTime - transportProgress.nextPlayheadSec) > PLAYHEAD_WINDOW_EPSILON_SEC
+      && Math.abs(previewAudioRef.current.currentTime - transportProgress.nextPlayheadSec) > SCRUB_SEEK_THRESHOLD_SEC
     ) {
       previewAudioRef.current.currentTime = transportProgress.nextPlayheadSec;
     }
