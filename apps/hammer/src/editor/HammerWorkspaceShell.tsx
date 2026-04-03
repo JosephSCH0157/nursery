@@ -3844,6 +3844,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       return;
     }
 
+    // Guard against stale mute state from cross-media coordination.
+    previewAudio.muted = false;
+    if (previewAudio.volume <= 0) {
+      previewAudio.volume = 1;
+    }
     claimGlobalPlaybackAuthority(previewAudio);
     void previewAudio.play().catch(() => {
       setIsPlaybackActive(false);
