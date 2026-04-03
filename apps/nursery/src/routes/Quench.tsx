@@ -9,17 +9,18 @@ import {
   type PublishContext,
   type QuenchMockReleaseCase,
   type QuenchPlatform,
+  type QuenchReleaseReadinessVerdict,
   type ReleasePacket,
   type ReleaseMode,
   type ReleaseReadinessCheckKey,
   type ResolvedAsset,
   type ResolvedReleaseAssets,
+  deriveReleasePacketReadinessVerdict,
   RssAdapter,
   StaticAssetResolver,
   YouTubeAdapter,
   listQuenchMockReleaseCases,
   resolveReleaseAssets,
-  validateReleasePacketReadiness,
 } from "@forge/quench";
 import type { HammerPreparedReleasePackage } from "../../../hammer/src/lib/hammerPreparedReleasePackage";
 import { tongsFetch } from "../../../hammer/src/lib/tongsFetch";
@@ -295,6 +296,40 @@ type ResolvedAssetCard = {
   asset: ResolvedAsset | null | undefined;
 };
 
+function getVerdictTone(status: QuenchReleaseReadinessVerdict["status"] | "invalid"): "is-good" | "is-warn" | "is-bad" {
+  switch (status) {
+    case "ready":
+      return "is-good";
+    case "needs_review":
+      return "is-warn";
+    case "blocked":
+    case "invalid":
+      return "is-bad";
+  }
+}
+
+function getVerdictLabel(status: QuenchReleaseReadinessVerdict["status"]): string {
+  switch (status) {
+    case "ready":
+      return "ready";
+    case "needs_review":
+      return "needs review";
+    case "blocked":
+      return "blocked";
+  }
+}
+
+function getVerdictSummary(verdict: QuenchReleaseReadinessVerdict): string {
+  switch (verdict.status) {
+    case "ready":
+      return "ready for handoff";
+    case "needs_review":
+      return "needs review before publish";
+    case "blocked":
+      return "blocked for publish";
+  }
+}
+
 export default function QuenchRoute() {
   const shell = useOutletContext<AppShellContext>();
   const location = useLocation();
@@ -550,8 +585,8 @@ export default function QuenchRoute() {
   }, [applySelectedCaseDefaults, releaseCases, selectedCaseId]);
 
   const selectedCase = releaseCases.find((entry) => entry.case_id === selectedCaseId) ?? releaseCases[0] ?? null;
-  const readiness = selectedCase
-    ? validateReleasePacketReadiness(selectedCase.packet, resolvedAssets, selectedPlatforms)
+  const readinessVerdict = selectedCase
+    ? deriveReleasePacketReadinessVerdict(selectedCase.packet, resolvedAssets, selectedPlatforms)
     : null;
   const quenchEpisodeReadModel = useMemo(() => {
     const episodeId = routeCtx.workpieceId ?? selectedCase?.packet.workpiece_id ?? null;
@@ -561,9 +596,9 @@ export default function QuenchRoute() {
       episodeId,
       title,
       phase: "release",
-      displayStatus: readiness?.ready ? "releasing" : "edited",
+      displayStatus: readinessVerdict?.status === "ready" ? "releasing" : "edited",
     } satisfies EpisodeWorkspaceReadModel;
-  }, [readiness?.ready, routeCtx.workpieceId, selectedCase?.packet.title, selectedCase?.packet.workpiece_id]);
+  }, [readinessVerdict?.status, routeCtx.workpieceId, selectedCase?.packet.title, selectedCase?.packet.workpiece_id]);
   useEpisodeWorkspaceLoading(
     routeCtx.workpieceId ?? null,
     Boolean(routeCtx.workpieceId && preparedHandoffState.status === "loading" && !quenchEpisodeReadModel),
@@ -759,8 +794,8 @@ export default function QuenchRoute() {
           </div>
           <div className="quench-console__meta-card">
             <span>Release readiness</span>
-            <strong className={readiness?.ready ? "is-good" : "is-bad"}>
-              {readiness?.ready ? "ready" : "blocked"}
+            <strong className={readinessVerdict ? getVerdictTone(readinessVerdict.status) : "is-bad"}>
+              {readinessVerdict ? getVerdictLabel(readinessVerdict.status) : "unknown"}
             </strong>
           </div>
           <div className="quench-console__meta-card">
@@ -796,7 +831,7 @@ export default function QuenchRoute() {
           </div>
           <div className="quench-console__case-list">
             {releaseCases.map((entry) => {
-              const caseReadiness = validateReleasePacketReadiness(
+              const caseReadiness = deriveReleasePacketReadinessVerdict(
                 entry.packet,
                 entry.resolved_assets,
                 entry.default_platforms,
@@ -811,8 +846,10 @@ export default function QuenchRoute() {
                 >
                   <div className="quench-console__case-top">
                     <strong>{entry.label}</strong>
-                    <span className={caseReadiness.ready ? "is-good" : "is-bad"}>
-                      {caseReadiness.ready ? "ready" : `${caseReadiness.missing_requirements.length} missing`}
+                    <span className={getVerdictTone(caseReadiness.status)}>
+                      {caseReadiness.status === "blocked"
+                        ? `${caseReadiness.blocking_reason_codes.length} blocked`
+                        : getVerdictLabel(caseReadiness.status)}
                     </span>
                   </div>
                   <div className="quench-console__case-summary">{entry.summary}</div>
@@ -864,33 +901,36 @@ export default function QuenchRoute() {
                 <section className="quench-console__card">
                   <div className="quench-console__card-head">
                     <h3>Readiness</h3>
-                    <span className={readiness?.ready ? "is-good" : "is-bad"}>
-                      {readiness?.ready ? "ready for handoff" : "not complete"}
+                    <span className={readinessVerdict ? getVerdictTone(readinessVerdict.status) : "is-bad"}>
+                      {readinessVerdict ? getVerdictSummary(readinessVerdict) : "not complete"}
                     </span>
                   </div>
                   <div className="quench-console__check-grid">
                     {(Object.entries(READINESS_LABELS) as [ReleaseReadinessCheckKey, string][]).map(([key, label]) => (
                       <div
                         key={key}
-                        className={`quench-console__check${readiness?.checks[key] ? " is-good" : " is-bad"}`}
+                        className={`quench-console__check${readinessVerdict?.checks[key] ? " is-good" : " is-bad"}`}
                       >
                         <span>{label}</span>
-                        <strong>{readiness?.checks[key] ? "ok" : "missing"}</strong>
+                        <strong>{readinessVerdict?.checks[key] ? "ok" : "missing"}</strong>
                       </div>
                     ))}
                   </div>
-                  {readiness?.errors.length ? (
+                  {readinessVerdict?.reasons_detail.length ? (
                     <div className="quench-console__issue-list">
-                      {readiness.errors.map((issue) => (
-                        <div key={`${issue.code}_${issue.platform ?? "global"}`} className="quench-console__issue is-bad">
-                          <strong>{issue.code}</strong>
-                          <span>{issue.message}</span>
+                      {readinessVerdict.reasons_detail.map((reason) => (
+                        <div
+                          key={`${reason.code}_${reason.platform ?? "global"}`}
+                          className={`quench-console__issue ${reason.severity === "blocking" ? "is-bad" : "is-warn"}`}
+                        >
+                          <strong>{reason.code}</strong>
+                          <span>{reason.label}</span>
                         </div>
                       ))}
                     </div>
                   ) : (
                     <div className="quench-console__empty-note">
-                      No readiness errors are blocking the selected platform mix.
+                      No downstream Quench constraints are blocking the selected platform mix.
                     </div>
                   )}
                 </section>

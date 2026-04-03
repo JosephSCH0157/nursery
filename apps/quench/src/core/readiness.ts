@@ -29,6 +29,65 @@ export interface ReleaseReadinessResult {
   errors: ReleaseReadinessError[];
 }
 
+export type QuenchReleaseReadinessVerdictStatus = "ready" | "needs_review" | "blocked";
+
+export type QuenchReleaseReadinessReasonCode =
+  | "quench_workspace_id_missing"
+  | "quench_workpiece_id_missing"
+  | "quench_episode_id_missing"
+  | "quench_title_missing"
+  | "quench_description_missing"
+  | "quench_thumbnail_missing"
+  | "quench_video_export_missing"
+  | "quench_audio_export_missing"
+  | "quench_rss_public_audio_required";
+
+export interface QuenchReleaseReadinessReason {
+  code: QuenchReleaseReadinessReasonCode;
+  label: string;
+  severity: "blocking" | "review";
+  source: "quench";
+  platform?: QuenchPlatform;
+}
+
+export interface QuenchReleaseReadinessVerdict {
+  status: QuenchReleaseReadinessVerdictStatus;
+  ready: boolean;
+  checks: Record<ReleaseReadinessCheckKey, boolean>;
+  missing_requirements: ReleaseReadinessCheckKey[];
+  errors: ReleaseReadinessError[];
+  reason_codes: QuenchReleaseReadinessReasonCode[];
+  reasons_detail: QuenchReleaseReadinessReason[];
+  blocking_reason_codes: QuenchReleaseReadinessReasonCode[];
+  blocking_reasons_detail: QuenchReleaseReadinessReason[];
+  review_reason_codes: QuenchReleaseReadinessReasonCode[];
+  review_reasons_detail: QuenchReleaseReadinessReason[];
+}
+
+const CHECK_REASON_CODES: Record<ReleaseReadinessCheckKey, QuenchReleaseReadinessReasonCode> = {
+  workspace_id: "quench_workspace_id_missing",
+  workpiece_id: "quench_workpiece_id_missing",
+  episode_id: "quench_episode_id_missing",
+  title: "quench_title_missing",
+  description: "quench_description_missing",
+  thumbnail: "quench_thumbnail_missing",
+  video_export: "quench_video_export_missing",
+  audio_export: "quench_audio_export_missing",
+  rss_public_audio: "quench_rss_public_audio_required",
+};
+
+const CHECK_REASON_LABELS: Record<ReleaseReadinessCheckKey, string> = {
+  workspace_id: "Workspace id is missing.",
+  workpiece_id: "Workpiece id is missing.",
+  episode_id: "Episode id is missing.",
+  title: "Release title is missing.",
+  description: "Release description is missing.",
+  thumbnail: "No resolvable thumbnail asset is available for this release packet.",
+  video_export: "Video platforms require a resolvable video export.",
+  audio_export: "Audio distribution requires a resolvable audio export.",
+  rss_public_audio: "RSS publication requires a publicly reachable audio URL.",
+};
+
 function hasAccessibleAsset(
   assetId: string | null,
   asset: ResolvedReleaseAssets[keyof ResolvedReleaseAssets] | null | undefined,
@@ -44,7 +103,7 @@ function hasPublicAudio(audio: ResolvedReleaseAssets["audio"]): boolean {
   return Boolean(audio?.accessible && audio.public_url);
 }
 
-export function validateReleasePacketReadiness(
+function computeReleasePacketReadinessBase(
   packet: ReleasePacket,
   assets: Partial<ResolvedReleaseAssets> = {},
   selectedPlatforms: QuenchPlatform[] = [],
@@ -100,5 +159,81 @@ export function validateReleasePacketReadiness(
     checks,
     missing_requirements: missingRequirements,
     errors,
+  };
+}
+
+export function deriveReleasePacketReadinessVerdict(
+  packet: ReleasePacket,
+  assets: Partial<ResolvedReleaseAssets> = {},
+  selectedPlatforms: QuenchPlatform[] = [],
+): QuenchReleaseReadinessVerdict {
+  const readiness = computeReleasePacketReadinessBase(packet, assets, selectedPlatforms);
+  const seenCodes = new Set<QuenchReleaseReadinessReasonCode>();
+  const blockingReasons: QuenchReleaseReadinessReason[] = [];
+
+  for (const key of readiness.missing_requirements) {
+    const code = CHECK_REASON_CODES[key];
+    if (seenCodes.has(code)) continue;
+    seenCodes.add(code);
+    blockingReasons.push({
+      code,
+      label: CHECK_REASON_LABELS[key],
+      severity: "blocking",
+      source: "quench",
+    });
+  }
+
+  for (const error of readiness.errors) {
+    const code = (() => {
+      switch (error.code) {
+        case "THUMBNAIL_MISSING":
+          return "quench_thumbnail_missing";
+        case "VIDEO_EXPORT_MISSING":
+          return "quench_video_export_missing";
+        case "AUDIO_EXPORT_MISSING":
+          return "quench_audio_export_missing";
+        case "RSS_PUBLIC_AUDIO_REQUIRED":
+          return "quench_rss_public_audio_required";
+        default:
+          return null;
+      }
+    })();
+    if (!code || seenCodes.has(code)) continue;
+    seenCodes.add(code);
+    blockingReasons.push({
+      code,
+      label: error.message,
+      severity: "blocking",
+      source: "quench",
+      platform: error.platform,
+    });
+  }
+
+  return {
+    status: blockingReasons.length > 0 ? "blocked" : "ready",
+    ready: blockingReasons.length === 0,
+    checks: readiness.checks,
+    missing_requirements: readiness.missing_requirements,
+    errors: readiness.errors,
+    reason_codes: blockingReasons.map((reason) => reason.code),
+    reasons_detail: blockingReasons,
+    blocking_reason_codes: blockingReasons.map((reason) => reason.code),
+    blocking_reasons_detail: blockingReasons,
+    review_reason_codes: [],
+    review_reasons_detail: [],
+  };
+}
+
+export function validateReleasePacketReadiness(
+  packet: ReleasePacket,
+  assets: Partial<ResolvedReleaseAssets> = {},
+  selectedPlatforms: QuenchPlatform[] = [],
+): ReleaseReadinessResult {
+  const verdict = deriveReleasePacketReadinessVerdict(packet, assets, selectedPlatforms);
+  return {
+    ready: verdict.ready,
+    checks: verdict.checks,
+    missing_requirements: verdict.missing_requirements,
+    errors: verdict.errors,
   };
 }
