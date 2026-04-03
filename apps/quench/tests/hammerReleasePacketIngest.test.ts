@@ -54,8 +54,15 @@ function buildManifest(overrides?: Partial<Record<string, unknown>>) {
       count: 1,
     },
     readiness: {
+      status: "ready",
       ready_for_quench: true,
       overall_status: "ready",
+      reason_codes: [],
+      reasons_detail: [],
+      blocking_reason_codes: [],
+      blocking_reasons_detail: [],
+      review_reason_codes: [],
+      review_reasons_detail: [],
       reasons: [],
     },
     ...(overrides ?? {}),
@@ -84,6 +91,7 @@ async function testReadyPacket() {
   });
   assert.equal(result.state, "ready");
   assert.equal(result.status_label, "Ready for publish");
+  assert.equal(result.verdict?.status, "ready");
   assert.equal(result.audio.resolved, true);
   assert.equal(result.issues.length, 0);
 }
@@ -108,9 +116,10 @@ async function testAttentionWhenAudioUnresolved() {
       },
     },
   });
-  assert.equal(result.state, "attention");
-  assert.equal(result.status_label, "Needs attention: audio reference unresolved");
-  assert.equal(result.issues.some((issue) => issue.code === "AUDIO_REFERENCE_UNRESOLVED"), true);
+  assert.equal(result.state, "blocked");
+  assert.equal(result.status_label, "Blocked for publish");
+  assert.equal(result.verdict?.reason_codes.includes("quench_audio_reference_unresolved"), true);
+  assert.equal(result.issues.some((issue) => issue.code === "quench_audio_reference_unresolved"), true);
 }
 
 async function testAttentionWhenCaptionsMissingButPacketValid() {
@@ -128,9 +137,10 @@ async function testAttentionWhenCaptionsMissingButPacketValid() {
   const result = await ingestHammerReleasePacket({
     reader: createReader(store),
   });
-  assert.equal(result.state, "attention");
-  assert.equal(result.status_label, "Needs attention: captions missing");
-  assert.equal(result.issues.some((issue) => issue.code === "CAPTIONS_MISSING"), true);
+  assert.equal(result.state, "needs_review");
+  assert.equal(result.status_label, "Needs review before publish");
+  assert.equal(result.verdict?.reason_codes.includes("quench_captions_missing"), true);
+  assert.equal(result.issues.some((issue) => issue.code === "quench_captions_missing"), true);
 }
 
 async function testVisualsMissingIsWarningNotInvalid() {
@@ -143,8 +153,9 @@ async function testVisualsMissingIsWarningNotInvalid() {
   const result = await ingestHammerReleasePacket({
     reader: createReader(store),
   });
-  assert.equal(result.state, "ready");
-  assert.equal(result.issues.some((issue) => issue.code === "VISUALS_MISSING"), true);
+  assert.equal(result.state, "needs_review");
+  assert.equal(result.verdict?.reason_codes.includes("quench_visuals_missing"), true);
+  assert.equal(result.issues.some((issue) => issue.code === "quench_visuals_missing"), true);
 }
 
 async function testInvalidManifestShape() {
@@ -179,9 +190,10 @@ async function testAttentionWhenTranscriptMissing() {
   const result = await ingestHammerReleasePacket({
     reader: createReader(store),
   });
-  assert.equal(result.state, "attention");
-  assert.equal(result.status_label, "Needs attention: transcript missing");
-  assert.equal(result.issues.some((issue) => issue.code === "TRANSCRIPT_MISSING"), true);
+  assert.equal(result.state, "blocked");
+  assert.equal(result.status_label, "Blocked for publish");
+  assert.equal(result.verdict?.reason_codes.includes("quench_transcript_missing"), true);
+  assert.equal(result.issues.some((issue) => issue.code === "quench_transcript_missing"), true);
 }
 
 async function testManifestAcceptsEditorialTruthExtension() {
@@ -219,6 +231,100 @@ async function testManifestAcceptsEditorialTruthExtension() {
   assert.equal(result.manifest?.editorial_truth?.authority_graph_id, "graph_01");
 }
 
+async function testManifestNeedsReviewSurvivesIngestWithoutReinterpretation() {
+  const manifest = buildManifest({
+    readiness: {
+      status: "needs_review",
+      ready_for_quench: false,
+      overall_status: "stale",
+      reason_codes: ["artifact_visuals_stale"],
+      reasons_detail: [{
+        code: "artifact_visuals_stale",
+        label: "Visual placements are stale.",
+        severity: "review",
+        source: "artifact",
+        operationId: null,
+        operation_id: null,
+      }],
+      blocking_reason_codes: [],
+      blocking_reasons_detail: [],
+      review_reason_codes: ["artifact_visuals_stale"],
+      review_reasons_detail: [{
+        code: "artifact_visuals_stale",
+        label: "Visual placements are stale.",
+        severity: "review",
+        source: "artifact",
+        operationId: null,
+        operation_id: null,
+      }],
+      reasons: ["Visual placements are stale."],
+    },
+  });
+  const store: MemoryStore = {
+    [HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH]: manifest,
+    [manifest.transcript.text_path]: "Resolved transcript text.",
+    [manifest.captions.srt_path]: "1\n00:00:00,000 --> 00:00:01,000\nhello\n",
+    [manifest.visuals.placements_path]: [
+      {
+        placement_id: "pl_01",
+        anchor_segment_id: "seg_01",
+        start_sec: 0.1,
+        end_sec: 1.4,
+        asset_path: "visuals/card.png",
+        status: "matched",
+      },
+    ],
+  };
+  const result = await ingestHammerReleasePacket({
+    reader: createReader(store),
+  });
+  assert.equal(result.state, "needs_review");
+  assert.equal(result.status_label, "Needs review before publish");
+  assert.equal(result.verdict?.reason_codes.includes("artifact_visuals_stale"), true);
+}
+
+async function testManifestBlockedTruthOutranksLocalReviewOnlyIssue() {
+  const manifest = buildManifest({
+    readiness: {
+      status: "blocked",
+      ready_for_quench: false,
+      overall_status: "failed",
+      reason_codes: ["handoff_blocked"],
+      reasons_detail: [{
+        code: "handoff_blocked",
+        label: "Handoff is blocked.",
+        severity: "blocking",
+        source: "handoff",
+        operationId: null,
+        operation_id: null,
+      }],
+      blocking_reason_codes: ["handoff_blocked"],
+      blocking_reasons_detail: [{
+        code: "handoff_blocked",
+        label: "Handoff is blocked.",
+        severity: "blocking",
+        source: "handoff",
+        operationId: null,
+        operation_id: null,
+      }],
+      review_reason_codes: [],
+      review_reasons_detail: [],
+      reasons: ["Handoff is blocked."],
+    },
+  });
+  const store: MemoryStore = {
+    [HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH]: manifest,
+    [manifest.transcript.text_path]: "Resolved transcript text.",
+    [manifest.captions.srt_path]: "1\n00:00:00,000 --> 00:00:01,000\nhello\n",
+  };
+  const result = await ingestHammerReleasePacket({
+    reader: createReader(store),
+  });
+  assert.equal(result.state, "blocked");
+  assert.equal(result.verdict?.reason_codes.includes("handoff_blocked"), true);
+  assert.equal(result.verdict?.reason_codes.includes("quench_visuals_missing"), true);
+}
+
 async function run() {
   await testReadyPacket();
   await testAttentionWhenAudioUnresolved();
@@ -228,6 +334,8 @@ async function run() {
   await testInvalidWhenManifestNotFound();
   await testAttentionWhenTranscriptMissing();
   await testManifestAcceptsEditorialTruthExtension();
+  await testManifestNeedsReviewSurvivesIngestWithoutReinterpretation();
+  await testManifestBlockedTruthOutranksLocalReviewOnlyIssue();
   // eslint-disable-next-line no-console
   console.log("Quench hammer release packet ingest tests passed.");
 }

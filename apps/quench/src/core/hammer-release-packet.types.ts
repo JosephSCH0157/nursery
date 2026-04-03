@@ -1,6 +1,54 @@
 export const HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH = "hammer/release-packet/manifest.v1.json";
 
 export type HammerQuenchPacketReadinessStatus = "ready" | "missing" | "stale" | "failed" | "unsupported" | "requires_future_ffmpeg";
+export type HammerQuenchCanonicalReadinessStatus = "ready" | "needs_review" | "blocked";
+export type HammerQuenchCanonicalReadinessReasonSeverity = "blocking" | "review";
+export type HammerQuenchCanonicalReadinessReasonSource = "gate" | "artifact" | "packet" | "handoff" | "quench";
+export type HammerQuenchCanonicalReadinessReasonCode =
+  | "export_posture_unavailable"
+  | "export_posture_degraded"
+  | "operation_unavailable"
+  | "operation_degraded"
+  | "unresolved_broll_intent"
+  | "bound_attention_video"
+  | "bound_attention_audio"
+  | "podcast_master_unavailable"
+  | "podcast_master_degraded"
+  | "podcast_master_export_only"
+  | "artifact_transcript_missing"
+  | "artifact_transcript_stale"
+  | "artifact_transcript_failed"
+  | "artifact_subtitles_srt_missing"
+  | "artifact_subtitles_srt_stale"
+  | "artifact_subtitles_vtt_missing"
+  | "artifact_subtitles_vtt_stale"
+  | "artifact_visuals_missing"
+  | "artifact_visuals_stale"
+  | "artifact_audio_missing"
+  | "artifact_audio_stale"
+  | "artifact_audio_failed"
+  | "artifact_audio_unsupported"
+  | "artifact_audio_requires_future_ffmpeg"
+  | "packet_workpiece_id_missing"
+  | "packet_kind_invalid"
+  | "packet_editorial_truth_missing"
+  | "packet_timeline_snapshot_missing"
+  | "handoff_blocked"
+  | "handoff_needs_review"
+  | "quench_audio_reference_unresolved"
+  | "quench_transcript_missing"
+  | "quench_captions_missing"
+  | "quench_visuals_missing"
+  | "quench_visuals_invalid";
+
+export interface HammerQuenchCanonicalReadinessReason {
+  code: HammerQuenchCanonicalReadinessReasonCode;
+  label: string;
+  severity: HammerQuenchCanonicalReadinessReasonSeverity;
+  source: HammerQuenchCanonicalReadinessReasonSource;
+  operationId: string | null;
+  operation_id?: string | null;
+}
 
 export interface HammerQuenchReleasePacketManifest {
   version: 1;
@@ -34,8 +82,20 @@ export interface HammerQuenchReleasePacketManifest {
     count: number;
   };
   readiness: {
+    status: HammerQuenchCanonicalReadinessStatus;
     ready_for_quench: boolean;
     overall_status: HammerQuenchPacketReadinessStatus;
+    handoff_status?: HammerQuenchCanonicalReadinessStatus;
+    reason_codes?: HammerQuenchCanonicalReadinessReasonCode[];
+    reasons_detail?: HammerQuenchCanonicalReadinessReason[];
+    blocking_reason_codes?: HammerQuenchCanonicalReadinessReasonCode[];
+    blocking_reasons_detail?: HammerQuenchCanonicalReadinessReason[];
+    review_reason_codes?: HammerQuenchCanonicalReadinessReasonCode[];
+    review_reasons_detail?: HammerQuenchCanonicalReadinessReason[];
+    artifact_reason_codes?: HammerQuenchCanonicalReadinessReasonCode[];
+    artifact_reasons_detail?: HammerQuenchCanonicalReadinessReason[];
+    artifact_reasons?: string[];
+    review_reasons?: string[];
     reasons: string[];
   };
   editorial_truth?: {
@@ -107,17 +167,17 @@ export interface HammerQuenchVisualPlacement {
   status: string;
 }
 
-export type QuenchPacketIngestState = "ready" | "attention" | "invalid";
+export type QuenchPacketIngestState = HammerQuenchCanonicalReadinessStatus | "invalid";
 export type QuenchPacketIssueSeverity = "error" | "warning";
 
 export type QuenchPacketIssueCode =
   | "MANIFEST_NOT_FOUND"
   | "MANIFEST_INVALID"
-  | "TRANSCRIPT_MISSING"
-  | "AUDIO_REFERENCE_UNRESOLVED"
-  | "CAPTIONS_MISSING"
-  | "VISUALS_MISSING"
-  | "VISUALS_INVALID";
+  | "quench_transcript_missing"
+  | "quench_audio_reference_unresolved"
+  | "quench_captions_missing"
+  | "quench_visuals_missing"
+  | "quench_visuals_invalid";
 
 export interface QuenchPacketIssue {
   code: QuenchPacketIssueCode;
@@ -133,14 +193,19 @@ export interface QuenchPacketAudioResolution {
 
 export interface QuenchPacketIngestResult {
   state: QuenchPacketIngestState;
-  status_label:
-    | "Ready for publish"
-    | "Needs attention: packet invalid"
-    | "Needs attention: audio reference unresolved"
-    | "Needs attention: captions missing"
-    | "Needs attention: transcript missing";
+  status_label: "Ready for publish" | "Needs review before publish" | "Blocked for publish" | "Needs attention: packet invalid";
   manifest_path: string;
   manifest: HammerQuenchReleasePacketManifest | null;
+  verdict: {
+    status: HammerQuenchCanonicalReadinessStatus;
+    ready_for_quench: boolean;
+    reason_codes: HammerQuenchCanonicalReadinessReasonCode[];
+    reasons_detail: HammerQuenchCanonicalReadinessReason[];
+    blocking_reason_codes: HammerQuenchCanonicalReadinessReasonCode[];
+    blocking_reasons_detail: HammerQuenchCanonicalReadinessReason[];
+    review_reason_codes: HammerQuenchCanonicalReadinessReasonCode[];
+    review_reasons_detail: HammerQuenchCanonicalReadinessReason[];
+  } | null;
   transcript_text: string | null;
   captions: {
     srt: string | null;
