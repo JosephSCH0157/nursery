@@ -2464,6 +2464,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => (editableVisualTimeline ? selectClipById(editableVisualTimeline, selectedClipId) : null),
     [editableVisualTimeline, selectedClipId],
   );
+  const visualPlacementEditingEnabled = currentPass === "image_placement" || currentPass === "image_animation";
   const selectedImagePlacement = useMemo(
     () => sourceVisualPlacementItems.find((item) => item.id === selectedClipId) ?? null,
     [selectedClipId, sourceVisualPlacementItems],
@@ -2484,6 +2485,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const selectedImageAnimationLabel = IMAGE_ANIMATION_PRESET_OPTIONS.find(
     (option) => option.id === selectedImageAnimationPreset,
   )?.label ?? "None";
+  const previewSurfaceLabel = useMemo(() => {
+    if (selectedVisualClip) {
+      const visualLabel = selectedVisualClip.label?.trim() || selectedVisualClip.clip_id;
+      return `Selected visual: ${visualLabel} (${selectedVisualClip.start_sec.toFixed(1)}s-${selectedVisualClip.end_sec.toFixed(1)}s)`;
+    }
+    const fallback = resolvePreviewLabel(playheadSegment, playheadSec);
+    return fallback.length > 120 ? `${fallback.slice(0, 117)}...` : fallback;
+  }, [playheadSec, playheadSegment, selectedVisualClip]);
 
   useEffect(() => {
     if (!previewSurfaceRef.current) return;
@@ -5632,7 +5641,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       endSec: number;
     },
   ): void {
-    if (currentPass !== "image_placement") return;
+    if (!visualPlacementEditingEnabled) return;
     if (event.button !== 0) return;
     const currentTarget = event.currentTarget as Element;
     const ownerSvg = currentTarget instanceof SVGElement ? currentTarget.ownerSVGElement : null;
@@ -5656,7 +5665,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     event: MouseEvent<HTMLElement>,
     args: { placementId: string; mode: HammerPreviewCanvasDragState["mode"] },
   ): void {
-    if (currentPass !== "image_placement") return;
+    if (!visualPlacementEditingEnabled) return;
     if (event.button !== 0) return;
     const clip = editableVisualTimeline
       ? selectClipById(editableVisualTimeline, args.placementId)
@@ -9506,22 +9515,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   }}
                   className="hammer-preview-media"
                 />
-                <div className="hammer-preview-surface__label">{resolvePreviewLabel(playheadSegment, playheadSec)}</div>
+                <div className="hammer-preview-surface__label">{previewSurfaceLabel}</div>
                 <VisualPreviewComposer
                   overlays={activePreviewOverlays}
-                  editable={currentPass === "image_placement"}
+                  editable={visualPlacementEditingEnabled}
                   onSelectClip={(clipId) => {
                     setSelectedClipId(clipId);
                   }}
                   onBeginMove={(event, clipId) => {
-                    if (currentPass !== "image_placement") return;
+                    if (!visualPlacementEditingEnabled) return;
                     beginPreviewCanvasDrag(event, {
                       placementId: clipId,
                       mode: "move",
                     });
                   }}
                   onBeginResize={(event, clipId) => {
-                    if (currentPass !== "image_placement") return;
+                    if (!visualPlacementEditingEnabled) return;
                     beginPreviewCanvasDrag(event, {
                       placementId: clipId,
                       mode: "resize",
@@ -12343,7 +12352,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               playheadSec={playheadSec}
               durationSec={timelineDurationSec}
               selectedClipId={selectedClipId}
-              editable={currentPass === "image_placement"}
+              editable={visualPlacementEditingEnabled}
               focusToken={visualTimelineFocusNonce}
               onSelectClip={(clipId) => {
                 const clip = sourceVisualPlacementItems.find((item) => item.id === clipId) ?? null;
@@ -12356,7 +12365,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 }
               }}
               onMoveClip={(event, clip) => {
-                if (currentPass !== "image_placement") return;
+                if (!visualPlacementEditingEnabled) return;
                 beginTimelineImagePlacementDrag(event, {
                   placementId: clip.clipId,
                   mode: "move",
@@ -12365,7 +12374,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 });
               }}
               onTrimClipStart={(event, clip) => {
-                if (currentPass !== "image_placement") return;
+                if (!visualPlacementEditingEnabled) return;
                 beginTimelineImagePlacementDrag(event, {
                   placementId: clip.clipId,
                   mode: "resize_start",
@@ -12374,7 +12383,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 });
               }}
               onTrimClipEnd={(event, clip) => {
-                if (currentPass !== "image_placement") return;
+                if (!visualPlacementEditingEnabled) return;
                 beginTimelineImagePlacementDrag(event, {
                   placementId: clip.clipId,
                   mode: "resize_end",
@@ -12490,7 +12499,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           {lane.blocks.map((block) => {
                             const x = (block.startSec / timelineDurationSec) * 1000;
                             const width = Math.max(14, ((block.endSec - block.startSec) / timelineDurationSec) * 1000);
-                            const imagePlacementEditable = currentPass === "image_placement"
+                            const imagePlacementEditable = visualPlacementEditingEnabled
                               && (lane.id === "stills" || lane.id === "broll")
                               && (block.tone === "image" || block.tone === "broll")
                               && Boolean(block.placementId);

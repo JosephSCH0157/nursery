@@ -757,6 +757,9 @@ Guardrails:
   top: 0;
   z-index: 1;
   pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hammer-preview-canvas {
