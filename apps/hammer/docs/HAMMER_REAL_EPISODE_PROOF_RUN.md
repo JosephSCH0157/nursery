@@ -630,15 +630,15 @@ Repeat this section for each episode.
 
 ## Summary Table
 
-| Episode | Hammer Verdict | Packet Verdict | Quench Verdict | Match | Failure Class | Fix / Blocker |
-| --- | --- | --- | --- | --- | --- | --- |
-| `EP01` | `ready` | `ready` | `ready` | `yes` |  | Phase 6 contract held cleanly in calibration run |
-| `EP10` | `blocked` | `blocked` | `blocked` | `yes` |  | Canonical blocked verdict preserved end to end |
-| `EP04` | `blocked` | `blocked` | `blocked` | `yes` |  | Media-truth remained explicit across Hammer -> packet -> Quench |
-| `EP07` | `recovery_truth_preserved` |  |  | `yes` |  | Session rail and host loop stayed honest under turbulence |
-| `EP06` | `blocked/degraded` |  |  | `yes` |  | Packaging stayed usable without implying completion |
-| `EP02` | `editorial_truth_preserved` | `expected_clean` | `expected_clean` | `yes` |  | Cleanup output selection and stale guard preserved editorial truth |
-| `EP03` | `ready` | `ready` | `ready` | `yes` |  | Mixed approve/reject candidate decisions preserved end to end |
-| `EP05` | `needs_review` | `needs_review` | `needs_review` | `yes` |  | Degraded prep remained explicit and reviewable across Hammer -> packet -> Quench |
-| `EP08` | `ready` | `ready` | `ready` | `yes` |  | Multi-placement identity, order, and timing survived transport and ingest |
-| `EP09` | `needs_review / blocked` | `needs_review / blocked` | `needs_review / blocked` | `yes` |  | Podcast-master-specific audio truth survived the full chain without flattening |
+| Episode | Classification | Hammer Verdict | Packet Verdict | Quench Verdict | Match | Failure Class | Fix / Blocker |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `EP01` | `proven_with_limitation` | `ready` | `ready` | `ready` | `yes` |  | Phase 6 contract held cleanly in calibration run; fixture-backed calibration rather than full live operator path |
+| `EP10` | `proven_with_limitation` | `blocked` | `blocked` | `blocked` | `yes` |  | Canonical blocked verdict preserved end to end; intentionally blocked calibration fixture rather than full live episode |
+| `EP04` | `proven_with_limitation` | `blocked` | `blocked` | `blocked` | `yes` |  | Media-truth remained explicit across Hammer -> packet -> Quench; composite proof rather than one single live fixture |
+| `EP07` | `proven_with_limitation` | `recovery_truth_preserved` |  |  | `yes` |  | Session rail and host loop stayed honest under turbulence; recovery-focused host proof rather than release-through-Quench run |
+| `EP06` | `proven_with_limitation` | `blocked/degraded` |  |  | `yes` |  | Packaging stayed usable without implying completion; honest incomplete state should not proceed to packet/Quench |
+| `EP02` | `proven_with_limitation` | `editorial_truth_preserved` | `expected_clean` | `expected_clean` | `yes` |  | Cleanup output selection and stale guard preserved editorial truth; output-selection proof is stronger than current full route-level fixture |
+| `EP03` | `proven` | `ready` | `ready` | `ready` | `yes` |  | Mixed approve/reject candidate decisions preserved end to end |
+| `EP05` | `proven_with_limitation` | `needs_review` | `needs_review` | `needs_review` | `yes` |  | Degraded prep remained explicit and reviewable across Hammer -> packet -> Quench; composite degraded-prep proof |
+| `EP08` | `proven` | `ready` | `ready` | `ready` | `yes` |  | Multi-placement identity, order, and timing survived transport and ingest |
+| `EP09` | `proven` | `needs_review / blocked` | `needs_review / blocked` | `needs_review / blocked` | `yes` |  | Podcast-master-specific audio truth survived the full chain without flattening |
