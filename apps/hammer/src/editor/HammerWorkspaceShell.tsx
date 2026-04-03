@@ -2014,7 +2014,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   );
   const mediaSourceLabel = launchContext.media.kind === "dev-tone"
     ? "Dev tone"
-    : launchContext.media.label ?? mediaRef?.local_relpath ?? null;
+    : mediaRef?.local_relpath ?? launchContext.media.label ?? null;
   const playbackLocalRootAbs = workspaceMapping?.local_root_abs
     ?? (launchContext.media.kind === "mapped-local" ? (launchContext.media.media_root_abs ?? null) : null);
   const mediaBackboneRuntime = useMemo(
@@ -2955,6 +2955,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     ],
   );
   const preferredPlayback = mediaPrepOutputs.audio.preferred_playback;
+  const playbackSourceLabel = useMemo(() => {
+    if (preferredPlayback.kind === "polished") {
+      return preferredPlayback.workpiece_path
+        ?? preferredPlayback.local_relpath
+        ?? preferredPlayback.source_label
+        ?? mediaSourceLabel;
+    }
+    if (preferredPlayback.kind === "raw") {
+      return preferredPlayback.local_relpath
+        ?? preferredPlayback.workpiece_path
+        ?? preferredPlayback.source_label
+        ?? mediaSourceLabel;
+    }
+    return mediaSourceLabel;
+  }, [mediaSourceLabel, preferredPlayback.kind, preferredPlayback.local_relpath, preferredPlayback.source_label, preferredPlayback.workpiece_path]);
   const historyController = historyControllerRef.current;
   const canUndo = historyController?.canUndo() ?? false;
   const canRedo = historyController?.canRedo() ?? false;
@@ -9555,7 +9570,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               <div className="hammer-preview-meta">
                 <span>Playhead {playheadSec.toFixed(1)}s</span>
                 <span>{playbackModeLabel}</span>
-                <span>{mediaSourceLabel ?? "No media source"}</span>
+                <span>{playbackSourceLabel ?? "No media source"}</span>
                 <span>Playback lane: {studioRackPlaybackConfig.backend}</span>
                 <span>{playbackMediaSrc ? "Mapped media ready" : "Mapped media unavailable"}</span>
                 {currentPass === "visual_finishing" ? (
