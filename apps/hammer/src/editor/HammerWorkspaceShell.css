@@ -35,6 +35,7 @@ Guardrails:
   --hammer-shell-preview-width: 460px;
   --hammer-shell-timeline-height: clamp(220px, 31vh, 330px);
   --hammer-shell-timeline-time-focus-height: clamp(280px, 42vh, 430px);
+  --hammer-shell-timeline-track-min-height: 140px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--hammer-shell-toolbar-width);
   gap: 8px;
@@ -84,6 +85,10 @@ Guardrails:
 .hammer-timeline-dock {
   display: flex;
   flex-direction: column;
+}
+
+.hammer-timeline-dock {
+  flex: 0 0 auto;
 }
 
 .hammer-preview-bay {
@@ -1555,9 +1560,10 @@ Guardrails:
 }
 
 .hammer-timeline-dock__body {
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
   display: grid;
-  grid-template-rows: auto auto auto auto 24px auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto 24px auto minmax(var(--hammer-shell-timeline-track-min-height), 1fr);
   gap: 6px;
 }
 
@@ -1603,6 +1609,7 @@ Guardrails:
 .hammer-timeline-track-scroll {
   overflow: auto;
   overscroll-behavior: contain;
+  min-height: var(--hammer-shell-timeline-track-min-height);
   border: 1px solid rgba(148, 163, 184, 0.14);
   border-radius: 10px;
   padding: 4px 8px 6px;
