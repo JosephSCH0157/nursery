@@ -27,7 +27,14 @@ import type {
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
 import { createEmptyVisualTimelineState } from "../visuals/model/hammerVisualDefaults";
-import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
+import type { HammerVisualGeometry, HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
+import {
+  HAMMER_VISUAL_DEFAULT_GEOMETRY,
+  HAMMER_VISUAL_DEFAULT_PERCENT_BOX,
+  clampNormalizedGeometry,
+  geometryToPercentBox,
+  percentBoxToGeometry,
+} from "../visuals/model/visualPlacementGeometry";
 import {
   selectClipById,
   selectEnabledClipsAtTimeSorted,
@@ -576,14 +583,6 @@ type HammerImagePlacementTransform = {
   topPct: number;
   widthPct: number;
   heightPct: number;
-};
-
-type HammerVisualPlacementGeometry = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  anchor: "center" | "top_left";
 };
 
 type HammerTimelineImageDragState = {
@@ -1154,47 +1153,20 @@ function createTimelineMarkerId(): string {
 }
 
 const DEFAULT_IMAGE_PLACEMENT_TRANSFORM: HammerImagePlacementTransform = {
-  leftPct: 28,
-  topPct: 22,
-  widthPct: 44,
-  heightPct: 34,
+  ...HAMMER_VISUAL_DEFAULT_PERCENT_BOX,
 };
 
-const DEFAULT_VISUAL_PLACEMENT_GEOMETRY: HammerVisualPlacementGeometry = {
-  x: 0.28,
-  y: 0.22,
-  width: 0.44,
-  height: 0.34,
-  anchor: "top_left",
+const DEFAULT_VISUAL_PLACEMENT_GEOMETRY: HammerVisualGeometry = {
+  ...HAMMER_VISUAL_DEFAULT_GEOMETRY,
 };
 
 function clampImagePlacementTransform(transform: HammerImagePlacementTransform): HammerImagePlacementTransform {
-  const widthPct = Math.max(8, Math.min(92, transform.widthPct));
-  const heightPct = Math.max(8, Math.min(92, transform.heightPct));
-  const leftPct = Math.max(0, Math.min(100 - widthPct, transform.leftPct));
-  const topPct = Math.max(0, Math.min(100 - heightPct, transform.topPct));
-  return { leftPct, topPct, widthPct, heightPct };
-}
-
-function clampVisualPlacementGeometry(
-  geometry: HammerVisualPlacementGeometry,
-): HammerVisualPlacementGeometry {
-  const width = Math.max(0.08, Math.min(0.92, geometry.width));
-  const height = Math.max(0.08, Math.min(0.92, geometry.height));
-  const x = Math.max(0, Math.min(1 - width, geometry.x));
-  const y = Math.max(0, Math.min(1 - height, geometry.y));
-  return {
-    x,
-    y,
-    width,
-    height,
-    anchor: geometry.anchor === "center" ? "center" : "top_left",
-  };
+  return geometryToPercentBox(percentBoxToGeometry(transform, "top_left"));
 }
 
 function resolvePlacementGeometry(
   placement: HammerVisualPlacementRecord | null | undefined,
-): HammerVisualPlacementGeometry {
+): HammerVisualGeometry {
   const candidate = placement?.overlay_geometry ?? null;
   if (!candidate) {
     return DEFAULT_VISUAL_PLACEMENT_GEOMETRY;
@@ -1206,7 +1178,7 @@ function resolvePlacementGeometry(
   if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) {
     return DEFAULT_VISUAL_PLACEMENT_GEOMETRY;
   }
-  return clampVisualPlacementGeometry({
+  return clampNormalizedGeometry({
     x,
     y,
     width,
@@ -1215,30 +1187,12 @@ function resolvePlacementGeometry(
   });
 }
 
-function geometryToTransform(geometry: HammerVisualPlacementGeometry): HammerImagePlacementTransform {
-  const left = geometry.anchor === "center"
-    ? (geometry.x - (geometry.width / 2))
-    : geometry.x;
-  const top = geometry.anchor === "center"
-    ? (geometry.y - (geometry.height / 2))
-    : geometry.y;
-  return clampImagePlacementTransform({
-    leftPct: left * 100,
-    topPct: top * 100,
-    widthPct: geometry.width * 100,
-    heightPct: geometry.height * 100,
-  });
+function geometryToTransform(geometry: HammerVisualGeometry): HammerImagePlacementTransform {
+  return geometryToPercentBox(geometry);
 }
 
-function transformToGeometry(transform: HammerImagePlacementTransform): HammerVisualPlacementGeometry {
-  const clamped = clampImagePlacementTransform(transform);
-  return clampVisualPlacementGeometry({
-    x: clamped.leftPct / 100,
-    y: clamped.topPct / 100,
-    width: clamped.widthPct / 100,
-    height: clamped.heightPct / 100,
-    anchor: "top_left",
-  });
+function transformToGeometry(transform: HammerImagePlacementTransform): HammerVisualGeometry {
+  return percentBoxToGeometry(transform, "top_left");
 }
 
 function resolvePlacementAnimationPreset(
@@ -1305,7 +1259,7 @@ const LOGO_SIZE_OPTIONS: Array<{ id: HammerLogoOverlaySize; label: string }> = [
 function positionFromLogoOption(
   position: HammerLogoOverlayPosition,
   size: HammerLogoOverlaySize,
-): HammerVisualPlacementGeometry {
+): HammerVisualGeometry {
   const edgePadding = 0.04;
   const sizeValue = size === "small" ? 0.12 : size === "large" ? 0.24 : 0.18;
   const width = sizeValue;
@@ -1316,7 +1270,7 @@ function positionFromLogoOption(
   const y = position === "bottom_left" || position === "bottom_right"
     ? 1 - height - edgePadding
     : edgePadding;
-  return clampVisualPlacementGeometry({
+  return clampNormalizedGeometry({
     x,
     y,
     width,
@@ -5850,7 +5804,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     endSec: number;
     visualMode: string;
     uncertaintyFlags?: string[];
-    overlayGeometry?: HammerVisualPlacementGeometry;
+    overlayGeometry?: HammerVisualGeometry;
   }): void {
     applyHistoryMutation({
       label: `Apply ${args.label}`,
@@ -7440,7 +7394,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       prepStatus: transcriptForRelease.segments.length > 0 ? "prepared" : "idle",
       alignmentStatus: transcriptForRelease.segments.length > 0 ? "aligned" : "not_started",
       structuredTranscript: transcriptForRelease,
-      visualPlacements: editableVisualPlacements,
+      visualPlacements: editableVisualTimeline
+        ? deriveLegacyVisualPlacementsFromTimeline(editableVisualTimeline)
+        : editableVisualPlacements,
       audioPolish: editableAudioPolish,
       editorSession: {
         schema_version: 1,
@@ -8391,7 +8347,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       structuredTranscript: exportBasis.transcriptForRelease,
       editPlan: canonicalEditPlan,
       editorialAuthorityGraph: exportBasis.canonicalGraph,
-      visualPlacements: editableVisualPlacements,
+      visualPlacements: editableVisualTimeline
+        ? deriveLegacyVisualPlacementsFromTimeline(editableVisualTimeline)
+        : editableVisualPlacements,
       visualTimeline: editableVisualTimeline,
       audioPolish: editableAudioPolish,
     };
@@ -8407,6 +8365,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     props.selectedMacroRecipeRef,
     exportBasis.transcriptForRelease,
     editableVisualPlacements,
+    editableVisualTimeline,
     editableAudioPolish,
     currentPass,
     passStatus,

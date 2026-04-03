@@ -14,6 +14,7 @@ import {
   normalizeHammerVisualPlacementsState,
 } from "../lib/hammerVisualPlacements";
 import { buildHammerVisualTimelineSaveRequest } from "../visuals/persistence/hammerVisualTimelinePersistence";
+import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
 import {
   projectEditPlanFromEditorialAuthorityGraph,
@@ -180,6 +181,12 @@ function toSpeakerMap(snapshot: HammerWorkspaceSnapshot): HammerPersistedSpeaker
 }
 
 function toVisualPlacements(snapshot: HammerWorkspaceSnapshot): HammerPersistedVisualPlacements {
+  if (snapshot.visualTimeline) {
+    const derived = deriveLegacyVisualPlacementsFromTimeline(snapshot.visualTimeline);
+    if (derived) {
+      return derived;
+    }
+  }
   const existingPlacements = cloneVisualPlacements(snapshot.visualPlacements);
   if (existingPlacements) {
     return existingPlacements;
@@ -207,6 +214,7 @@ function toEditorSession(
   snapshot: HammerWorkspaceSnapshot,
   lastOpenedAt: string,
 ): HammerPersistedEditorSession {
+  const selectedOverlayRowId = snapshot.visualTimeline?.selected_clip_id ?? snapshot.selectedOverlayRowId;
   return {
     schema_version: 1,
     session_id: snapshot.sessionId,
@@ -214,7 +222,7 @@ function toEditorSession(
     preview_mode: snapshot.previewMode,
     transcript_source_id: snapshot.transcriptSourceId,
     selected_segment_id: snapshot.selectedSegmentId,
-    selected_overlay_row_id: snapshot.selectedOverlayRowId,
+    selected_overlay_row_id: selectedOverlayRowId,
     media_ref: snapshot.mediaRef ? { ...snapshot.mediaRef } : null,
     workspace_mapping: snapshot.workspaceMapping ? { ...snapshot.workspaceMapping } : null,
     media_source_label: snapshot.mediaSourceLabel,
