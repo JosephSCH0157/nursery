@@ -26,6 +26,7 @@ import type {
   HammerVisualPlacementRecord,
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
+import { createEmptyVisualTimelineState } from "../visuals/model/hammerVisualDefaults";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import {
@@ -77,7 +78,6 @@ import {
   syncEditableTranscriptSegments,
   updateTranscriptSegmentSpeaker,
 } from "./hammerWorkspaceTranscript";
-import { resolveSelectedPlacementId } from "./hammerWorkspaceSelection";
 import {
   previewQuickClean,
   previewRemoveFillers,
@@ -132,6 +132,14 @@ import {
   loadCanonicalAudioPolishPreviewUrl,
 } from "../lib/previewSource";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
+import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
+import {
+  deriveStableHammerVisualAssetId,
+  migrateLegacyPlacementRecordToAsset,
+  migrateLegacyPlacementRecordToClip,
+  migrateLegacyPlacementRecordsToTimelineState,
+} from "../visuals/model/hammerVisualMigrations";
+import { hammerVisualTimelineReducer } from "../visuals/state/hammerVisualReducer";
 import {
   loadHammerSnapshotManifest,
   loadHammerSnapshotPayload,
@@ -887,6 +895,7 @@ function stableHashToken(value: string): string {
 function toEditorState(args: {
   segments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
+  visualTimeline: HammerVisualTimelineState | null;
   studioRack: HammerStudioRackState;
   editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   outputSelection: HammerOutputSelectionState;
@@ -905,6 +914,26 @@ function toEditorState(args: {
           ...placement,
           matched_segment_ids: [...placement.matched_segment_ids],
           uncertainty_flags: [...placement.uncertainty_flags],
+        })),
+      }
+      : null,
+    visualTimeline: args.visualTimeline
+      ? {
+        ...args.visualTimeline,
+        assets: args.visualTimeline.assets.map((asset) => ({ ...asset })),
+        lanes: args.visualTimeline.lanes.map((lane) => ({
+          ...lane,
+          clip_ids: [...lane.clip_ids],
+        })),
+        clips: args.visualTimeline.clips.map((clip) => ({
+          ...clip,
+          uncertainty_flags: [...clip.uncertainty_flags],
+          geometry: { ...clip.geometry },
+          animation: { ...clip.animation },
+          anchor_hint: {
+            ...clip.anchor_hint,
+            matched_segment_ids: [...clip.anchor_hint.matched_segment_ids],
+          },
         })),
       }
       : null,
@@ -951,6 +980,7 @@ function toEditorState(args: {
 function toShellState(state: HammerEditorStateSerializable): {
   segments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
+  visualTimeline: HammerVisualTimelineState | null;
   studioRack: HammerStudioRackState;
   editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   outputSelection: HammerOutputSelectionState;
@@ -960,15 +990,37 @@ function toShellState(state: HammerEditorStateSerializable): {
 } {
   return {
     segments: state.transcriptSegments.map((segment) => ({ ...segment })),
-    visualPlacements: state.visualPlacements
+    visualPlacements: state.visualTimeline
+      ? deriveLegacyVisualPlacementsFromTimeline(state.visualTimeline)
+      : state.visualPlacements
+        ? {
+          ...state.visualPlacements,
+          source_refs: [...state.visualPlacements.source_refs],
+          uncertainty_flags: [...state.visualPlacements.uncertainty_flags],
+          placements: state.visualPlacements.placements.map((placement) => ({
+            ...placement,
+            matched_segment_ids: [...placement.matched_segment_ids],
+            uncertainty_flags: [...placement.uncertainty_flags],
+          })),
+        }
+        : null,
+    visualTimeline: state.visualTimeline
       ? {
-        ...state.visualPlacements,
-        source_refs: [...state.visualPlacements.source_refs],
-        uncertainty_flags: [...state.visualPlacements.uncertainty_flags],
-        placements: state.visualPlacements.placements.map((placement) => ({
-          ...placement,
-          matched_segment_ids: [...placement.matched_segment_ids],
-          uncertainty_flags: [...placement.uncertainty_flags],
+        ...state.visualTimeline,
+        assets: state.visualTimeline.assets.map((asset) => ({ ...asset })),
+        lanes: state.visualTimeline.lanes.map((lane) => ({
+          ...lane,
+          clip_ids: [...lane.clip_ids],
+        })),
+        clips: state.visualTimeline.clips.map((clip) => ({
+          ...clip,
+          uncertainty_flags: [...clip.uncertainty_flags],
+          geometry: { ...clip.geometry },
+          animation: { ...clip.animation },
+          anchor_hint: {
+            ...clip.anchor_hint,
+            matched_segment_ids: [...clip.anchor_hint.matched_segment_ids],
+          },
         })),
       }
       : null,
@@ -1584,22 +1636,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         : null,
     }))}`;
   }, [props.structuredTranscript]);
-  const visualPlacementsResetKey = useMemo(() => {
-    const placements = props.visualPlacements;
-    if (!placements) return "visual-placements:none";
-    return `visual-placements:${stableHashToken(JSON.stringify({
-      placementCount: placements.placements.length,
-      sourceRefs: placements.source_refs,
-      uncertaintyFlags: placements.uncertainty_flags,
-      placements: placements.placements.map((placement) => ({
-        id: placement.placement_id,
-        authorityOperationId: placement.authority_operation_id ?? null,
-        assetRef: placement.asset_ref,
-        start: placement.start_sec,
-        end: placement.end_sec,
-      })),
-    }))}`;
-  }, [props.visualPlacements]);
   const visualTimelineResetKey = useMemo(() => {
     const timeline = props.visualTimeline;
     if (!timeline) return "visual-timeline:none";
@@ -1633,8 +1669,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [editableTranscriptSegments, setEditableTranscriptSegments] = useState<HammerTranscriptSegment[]>(
     () => transcriptSegments,
   );
-  const [editableVisualPlacements, setEditableVisualPlacements] = useState<HammerPersistedVisualPlacements | null>(
-    () => props.visualPlacements ?? null,
+  const [editableVisualTimeline, setEditableVisualTimeline] = useState<HammerVisualTimelineState | null>(
+    () => props.visualTimeline ?? null,
   );
   const [editableOutputSelection, setEditableOutputSelection] = useState<HammerOutputSelectionState>(
     () => resolveOutputSelectionFromTranscript(props.structuredTranscript ?? null),
@@ -1739,7 +1775,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [visualWhiteBalance, setVisualWhiteBalance] = useState(initialVisualPreviewSettings.white_balance);
   const [visualColorAmount, setVisualColorAmount] = useState(initialVisualPreviewSettings.color_amount);
   const [visualBackgroundBlur, setVisualBackgroundBlur] = useState(initialVisualPreviewSettings.background_blur);
-  const [selectedImagePlacementId, setSelectedImagePlacementId] = useState<string | null>(null);
   const [imagePlacementDraftWindows, setImagePlacementDraftWindows] = useState<Record<string, HammerImagePlacementDraftWindow>>({});
   const [timelineImageDragState, setTimelineImageDragState] = useState<HammerTimelineImageDragState | null>(null);
   const [imagePlacementTransforms, setImagePlacementTransforms] = useState<Record<string, HammerImagePlacementTransform>>({});
@@ -1797,6 +1832,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [thumbnailPromptDraft, setThumbnailPromptDraft] = useState("");
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const [playbackMediaSrc, setPlaybackMediaSrc] = useState<string | null>(null);
+  const editableVisualPlacements = useMemo(
+    () => deriveLegacyVisualPlacementsFromTimeline(editableVisualTimeline),
+    [editableVisualTimeline],
+  );
+  const selectedClipId = editableVisualTimeline?.selected_clip_id ?? null;
   const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
   const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -2427,12 +2467,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     [sourceVisualPlacementItems],
   );
   useEffect(() => {
-    const nextPlacementId = resolveSelectedPlacementId(
-      sourceVisualPlacementItems.map((item) => item.id),
-      props.initialSelectedOverlayRowId ?? null,
-    );
-    setSelectedImagePlacementId(nextPlacementId);
+    const candidateIds = sourceVisualPlacementItems.map((item) => item.id);
+    const preferredId = editableVisualTimeline?.selected_clip_id ?? props.initialSelectedOverlayRowId ?? null;
+    const nextClipId = candidateIds.length === 0
+      ? null
+      : preferredId && candidateIds.includes(preferredId)
+        ? preferredId
+        : (candidateIds[0] ?? null);
+    if (nextClipId === (editableVisualTimeline?.selected_clip_id ?? null)) {
+      return;
+    }
+    setSelectedClipId(nextClipId);
   }, [
+    editableVisualTimeline?.selected_clip_id,
     launchContext.workspace_id,
     launchContext.workpiece_id,
     props.initialSelectedOverlayRowId,
@@ -2455,18 +2502,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return byId;
   }, [editableVisualPlacements?.placements]);
   const selectedImagePlacement = useMemo(
-    () => sourceVisualPlacementItems.find((item) => item.id === selectedImagePlacementId) ?? null,
-    [selectedImagePlacementId, sourceVisualPlacementItems],
+    () => sourceVisualPlacementItems.find((item) => item.id === selectedClipId) ?? null,
+    [selectedClipId, sourceVisualPlacementItems],
   );
-  const selectedPlacementRecord = selectedImagePlacementId
-    ? (visualPlacementsById.get(selectedImagePlacementId) ?? null)
+  const selectedPlacementRecord = selectedClipId
+    ? (visualPlacementsById.get(selectedClipId) ?? null)
     : null;
   const selectedImagePlacementTransform = useMemo(() => {
-    if (!selectedImagePlacementId) return DEFAULT_IMAGE_PLACEMENT_TRANSFORM;
-    const draft = imagePlacementTransforms[selectedImagePlacementId];
+    if (!selectedClipId) return DEFAULT_IMAGE_PLACEMENT_TRANSFORM;
+    const draft = imagePlacementTransforms[selectedClipId];
     if (draft) return draft;
     return geometryToTransform(resolvePlacementGeometry(selectedPlacementRecord));
-  }, [imagePlacementTransforms, selectedImagePlacementId, selectedPlacementRecord]);
+  }, [imagePlacementTransforms, selectedClipId, selectedPlacementRecord]);
   const selectedImageAnimationPreset = resolvePlacementAnimationPreset(selectedPlacementRecord);
   const selectedImageAnimationLabel = IMAGE_ANIMATION_PRESET_OPTIONS.find(
     (option) => option.id === selectedImageAnimationPreset,
@@ -2498,12 +2545,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           animationPreset,
           zIndex: Math.round(Number.isFinite(placement.overlay_z_index ?? NaN) ? Number(placement.overlay_z_index) : index + 1),
           opacity: Math.max(0, Math.min(1, Number.isFinite(placement.overlay_opacity ?? NaN) ? Number(placement.overlay_opacity) : 1)),
-          isSelected: placement.placement_id === selectedImagePlacementId,
+          isSelected: placement.placement_id === selectedClipId,
         };
       })
       .filter((item): item is HammerPreviewVisualOverlay => Boolean(item))
       .sort((left, right) => left.zIndex - right.zIndex)
-  ), [editableVisualPlacements?.placements, playheadSec, selectedImagePlacementId, sourceDeskPreviewUrls]);
+  ), [editableVisualPlacements?.placements, playheadSec, selectedClipId, sourceDeskPreviewUrls]);
 
   function applyPreviewOverlayStyle(node: HTMLDivElement | null, overlay: HammerPreviewVisualOverlay): void {
     if (!node) return;
@@ -2516,17 +2563,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   useEffect(() => {
-    if (!selectedImagePlacementId) return;
-    if (sourceVisualPlacementItems.some((item) => item.id === selectedImagePlacementId)) return;
-    setSelectedImagePlacementId(null);
-  }, [selectedImagePlacementId, sourceVisualPlacementItems]);
+    if (!selectedClipId) return;
+    if (sourceVisualPlacementItems.some((item) => item.id === selectedClipId)) return;
+    setSelectedClipId(null);
+  }, [selectedClipId, sourceVisualPlacementItems]);
   useEffect(() => {
     if (currentPass !== "image_placement" && currentPass !== "image_animation") return;
-    if (selectedImagePlacementId) return;
+    if (selectedClipId) return;
     const firstItem = sourceImageItems[0] ?? null;
     if (!firstItem) return;
-    setSelectedImagePlacementId(firstItem.id);
-  }, [currentPass, selectedImagePlacementId, sourceImageItems]);
+    setSelectedClipId(firstItem.id);
+  }, [currentPass, selectedClipId, sourceImageItems]);
   useEffect(() => {
     for (const overlay of activePreviewOverlays) {
       if (overlay.kind !== "broll") continue;
@@ -2762,19 +2809,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       label: item.label,
       startSec: item.startSec,
       endSec: item.endSec,
-      selected: item.id === selectedImagePlacementId,
+      selected: item.id === selectedClipId,
       tone: "image",
       onSelect: () => {
         selectionOriginRef.current = "timeline";
         setFocusOverride("time-focus");
-        setSelectedImagePlacementId(item.id);
+        setSelectedClipId(item.id);
         setSelectedSegmentId(item.anchorSegmentId);
         setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
         setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
         seekPlayheadToTime(item.startSec, "playhead");
       },
     }))
-  ), [selectedImagePlacementId, sourceImageItems]);
+  ), [selectedClipId, sourceImageItems]);
   const brollLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
     sourceBrollPlacementItems
       .map((item) => ({
@@ -2783,19 +2830,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         label: item.label,
         startSec: item.startSec,
         endSec: item.endSec,
-        selected: item.id === selectedImagePlacementId,
+        selected: item.id === selectedClipId,
         tone: "broll",
         onSelect: () => {
           selectionOriginRef.current = "timeline";
           setFocusOverride("time-focus");
-          setSelectedImagePlacementId(item.id);
+          setSelectedClipId(item.id);
           setSelectedSegmentId(item.anchorSegmentId);
           setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
           setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
           seekPlayheadToTime(item.startSec, "playhead");
         },
       }))
-  ), [selectedImagePlacementId, sourceBrollPlacementItems]);
+  ), [selectedClipId, sourceBrollPlacementItems]);
   const timelineLanes = useMemo<HammerTimelineLaneView[]>(() => ([
     { id: "dialogue", label: "Dialogue", tone: "dialogue", blocks: dialogueLaneBlocks },
     { id: "music", label: "Music", tone: "music", blocks: [] },
@@ -2990,6 +3037,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return toEditorState({
       segments: editableTranscriptSegments,
       visualPlacements: editableVisualPlacements,
+      visualTimeline: editableVisualTimeline,
       studioRack: editableStudioRack,
       editorialAuthorityGraph: editableEditorialAuthorityGraph,
       outputSelection: editableOutputSelection,
@@ -2999,10 +3047,64 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
+  function resolveCanonicalVisualTimeline(state: HammerEditorStateSerializable): HammerVisualTimelineState {
+    if (state.visualTimeline) {
+      return state.visualTimeline;
+    }
+    if (state.visualPlacements) {
+      return migrateLegacyPlacementRecordsToTimelineState({
+        placements: state.visualPlacements.placements,
+        selected_overlay_row_id: null,
+        updated_at: new Date().toISOString(),
+      });
+    }
+    return createEmptyVisualTimelineState({
+      updated_at: new Date().toISOString(),
+      debug_origin: "empty_init",
+    });
+  }
+
+  function applyVisualTimelineAction(
+    state: HammerEditorStateSerializable,
+    action: Parameters<typeof hammerVisualTimelineReducer>[1],
+  ): HammerEditorStateSerializable {
+    const nextTimeline = hammerVisualTimelineReducer(resolveCanonicalVisualTimeline(state), action);
+    return {
+      ...state,
+      visualTimeline: nextTimeline,
+      visualPlacements: deriveLegacyVisualPlacementsFromTimeline(nextTimeline),
+    };
+  }
+
+  function applyVisualTimelineActions(
+    state: HammerEditorStateSerializable,
+    actions: Parameters<typeof hammerVisualTimelineReducer>[1][],
+  ): HammerEditorStateSerializable {
+    return actions.reduce(
+      (current, action) => applyVisualTimelineAction(current, action),
+      state,
+    );
+  }
+
+  function replaceVisualTimelineState(
+    state: HammerEditorStateSerializable,
+    updater: (timeline: HammerVisualTimelineState) => HammerVisualTimelineState,
+  ): HammerEditorStateSerializable {
+    const nextTimeline = hammerVisualTimelineReducer(
+      resolveCanonicalVisualTimeline(state),
+      { type: "LOAD_TIMELINE", timeline: updater(resolveCanonicalVisualTimeline(state)) },
+    );
+    return {
+      ...state,
+      visualTimeline: nextTimeline,
+      visualPlacements: deriveLegacyVisualPlacementsFromTimeline(nextTimeline),
+    };
+  }
+
   function applyWorkspaceState(nextState: HammerEditorStateSerializable): void {
     const normalized = toShellState(nextState);
     setEditableTranscriptSegments(normalized.segments);
-    setEditableVisualPlacements(normalized.visualPlacements);
+    setEditableVisualTimeline(normalized.visualTimeline);
     setEditableStudioRack(normalized.studioRack);
     setEditableEditorialAuthorityGraph(normalized.editorialAuthorityGraph);
     setEditableOutputSelection(normalized.outputSelection);
@@ -3010,6 +3112,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setPlayheadSec(normalized.playheadSec);
     setTranscriptTimingHint(normalized.transcriptTimingHint);
     setCleanupPreview(null);
+  }
+
+  function setSelectedClipId(clipId: string | null): void {
+    setEditableVisualTimeline((current) => {
+      const base = current ?? props.visualTimeline ?? createEmptyVisualTimelineState({
+        updated_at: new Date().toISOString(),
+        debug_origin: "empty_init",
+      });
+      return hammerVisualTimelineReducer(base, {
+        type: "SELECT_CLIP",
+        clip_id: clipId,
+      });
+    });
   }
 
   function appendAuthorityInstructionForState(
@@ -3151,6 +3266,31 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }, HISTORY_PERSIST_DEBOUNCE_MS);
   }
 
+  function syncVisualTimelineFromCompatibilityState(
+    state: HammerEditorStateSerializable,
+  ): HammerEditorStateSerializable {
+    if (state.visualTimeline) {
+      return {
+        ...state,
+        visualPlacements: deriveLegacyVisualPlacementsFromTimeline(state.visualTimeline),
+      };
+    }
+    if (!state.visualPlacements) {
+      return {
+        ...state,
+        visualTimeline: props.visualTimeline ?? null,
+      };
+    }
+    return {
+      ...state,
+      visualTimeline: migrateLegacyPlacementRecordsToTimelineState({
+        placements: state.visualPlacements.placements,
+        selected_overlay_row_id: null,
+        updated_at: new Date().toISOString(),
+      }),
+    };
+  }
+
   function applyHistoryMutation(args: {
     label: string;
     kind?: HammerHistoryKind;
@@ -3166,7 +3306,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (!controller) return null;
 
     const before = captureWorkspaceState();
-    const after = cloneEditorState(args.computeAfter(cloneEditorState(before)));
+    const after = cloneEditorState(syncVisualTimelineFromCompatibilityState(
+      args.computeAfter(cloneEditorState(before)),
+    ));
 
     const entry = controller.applyMutation({
       label: args.label,
@@ -3315,6 +3457,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const baselineState = toEditorState({
       segments: synced.segments,
       visualPlacements: props.visualPlacements ?? null,
+      visualTimeline: props.visualTimeline ?? null,
       studioRack: createDefaultHammerStudioRackState(),
       editorialAuthorityGraph: baselineAuthorityGraph,
       outputSelection: baselineOutputSelection,
@@ -3339,7 +3482,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     applyWorkspaceState(baselineState);
     selectionOriginRef.current = "system";
     setTimelineMarkers([]);
-    setSelectedImagePlacementId(null);
+    setSelectedClipId(null);
     setImagePlacementDraftWindows({});
     setTimelineImageDragState(null);
     setImagePlacementTransforms({});
@@ -3452,7 +3595,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       active = false;
       clearPersistTimer();
     };
-  }, [launchContext.workpiece_id, structuredTranscriptResetKey, transcriptSourceId, visualPlacementsResetKey, visualTimelineResetKey]);
+  }, [launchContext.workpiece_id, structuredTranscriptResetKey, transcriptSourceId, visualTimelineResetKey]);
 
   useEffect(() => {
     const selectedStillExists = selectedSegmentId
@@ -4894,54 +5037,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             },
           };
 
-        const currentPlacements = before.visualPlacements;
-        const remappedPlacements = currentPlacements
-          ? currentPlacements.placements.flatMap((placement) => {
-            const operationId = placement.authority_operation_id;
-            if (!operationId) return [placement];
-            if (remapped.summary.removedOperationIds.includes(operationId)) {
-              return [];
-            }
-            if (!remapped.summary.adjustedOperationIds.includes(operationId)) {
-              return [placement];
-            }
-            const placementRemap = remapPlacementForRippleDelete({
-              startSec: placement.start_sec,
-              endSec: placement.end_sec,
-              removedStartSec: cut.removedStartSec ?? 0,
-              removedEndSec: cut.removedEndSec ?? 0,
-            });
-            if (placementRemap.kind === "removed") {
-              return [];
-            }
-            return [{
-              ...placement,
-              start_sec: placementRemap.startSec,
-              end_sec: placementRemap.endSec,
-              status: placementRemap.needsAttention ? "uncertain" : placement.status,
-              uncertainty_flags: placementRemap.needsAttention
-                ? Array.from(new Set([...placement.uncertainty_flags, "timeline_remap_review"]))
-                : placement.uncertainty_flags,
-            }];
-          })
-          : null;
-
         const nextSelection = resolveSelectedSegmentAfterDelete({
           segmentsAfterDelete: cut.segments,
           removedIndex: cut.removedStartIndex,
         });
-
-        return {
+        const nextState = {
           ...before,
           transcriptSegments: cut.segments,
           editorialAuthorityGraph: remapped.graph,
           selectedSegmentId: nextSelection,
-          visualPlacements: currentPlacements
-            ? {
-              ...currentPlacements,
-              placements: remappedPlacements ?? currentPlacements.placements,
-            }
-            : before.visualPlacements,
           playheadSec: resolvePlayheadAfterRangeCut({
             playheadSec: before.playheadSec,
             removedStartSec: cut.removedStartSec,
@@ -4950,6 +5054,51 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           }),
           transcriptTimingHint: null,
         };
+        return replaceVisualTimelineState(nextState, (timeline) => ({
+          ...timeline,
+          clips: timeline.clips.flatMap((clip) => {
+            const operationId = clip.authority_operation_id;
+            if (!operationId) return [clip];
+            if (remapped.summary.removedOperationIds.includes(operationId)) {
+              return [];
+            }
+            if (!remapped.summary.adjustedOperationIds.includes(operationId)) {
+              return [clip];
+            }
+            const placementRemap = remapPlacementForRippleDelete({
+              startSec: clip.start_sec,
+              endSec: clip.end_sec,
+              removedStartSec: cut.removedStartSec ?? 0,
+              removedEndSec: cut.removedEndSec ?? 0,
+            });
+            if (placementRemap.kind === "removed") {
+              return [];
+            }
+            return [{
+              ...clip,
+              start_sec: placementRemap.startSec,
+              end_sec: placementRemap.endSec,
+              placement_status: placementRemap.needsAttention ? "uncertain" : clip.placement_status,
+              uncertainty_flags: placementRemap.needsAttention
+                ? Array.from(new Set([...clip.uncertainty_flags, "timeline_remap_review"]))
+                : [...clip.uncertainty_flags],
+            }];
+          }),
+          lanes: timeline.lanes.map((lane) => ({
+            ...lane,
+            clip_ids: lane.clip_ids.filter((clipId) => (
+              !remapped.summary.removedOperationIds.includes(
+                timeline.clips.find((clip) => clip.clip_id === clipId)?.authority_operation_id ?? "",
+              )
+            )),
+          })),
+          selected_clip_id: timeline.selected_clip_id
+            && remapped.summary.removedOperationIds.includes(
+              timeline.clips.find((clip) => clip.clip_id === timeline.selected_clip_id)?.authority_operation_id ?? "",
+            )
+            ? null
+            : timeline.selected_clip_id,
+        }));
       },
     });
 
@@ -5377,37 +5526,24 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     placementId: string,
     args: { startSec: number; endSec: number; label: string },
   ): void {
+    const clampedStart = Math.max(0, Math.min(timelineDurationSec, roundToTenth(args.startSec)));
+    const clampedEnd = Math.max(
+      roundToTenth(clampedStart + MIN_IMAGE_PLACEMENT_DURATION_SEC),
+      Math.min(timelineDurationSec, roundToTenth(args.endSec)),
+    );
     applyHistoryMutation({
       label: args.label,
       kind: "visual_adjustment",
       toolId: "video",
       affectedPlacementIds: [placementId],
       immediatePersist: true,
-      computeAfter: (before) => {
-        const current = before.visualPlacements;
-        if (!current) return before;
-        const nextPlacements = current.placements.map((placement) => {
-          if (placement.placement_id !== placementId) return placement;
-          const clampedStart = Math.max(0, Math.min(timelineDurationSec, roundToTenth(args.startSec)));
-          const clampedEnd = Math.max(
-            roundToTenth(clampedStart + MIN_IMAGE_PLACEMENT_DURATION_SEC),
-            Math.min(timelineDurationSec, roundToTenth(args.endSec)),
-          );
-          return {
-            ...placement,
-            start_sec: clampedStart,
-            end_sec: clampedEnd,
-          };
-        });
-
-        return {
-          ...before,
-          visualPlacements: {
-            ...current,
-            placements: nextPlacements,
-          },
-        };
-      },
+      computeAfter: (before) => applyVisualTimelineAction(before, {
+        type: "UPDATE_CLIP_TIMING",
+        clip_id: placementId,
+        start_sec: clampedStart,
+        end_sec: clampedEnd,
+        updated_at: new Date().toISOString(),
+      }),
     });
   }
 
@@ -5453,24 +5589,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       toolId: "video",
       affectedPlacementIds: [placementId],
       immediatePersist: true,
-      computeAfter: (before) => {
-        const current = before.visualPlacements;
-        if (!current) return before;
-        return {
-          ...before,
-          visualPlacements: {
-            ...current,
-            placements: current.placements.map((placement) => (
-              placement.placement_id === placementId
-                ? {
-                  ...placement,
-                  overlay_geometry: nextGeometry,
-                }
-                : placement
-            )),
-          },
-        };
-      },
+      computeAfter: (before) => applyVisualTimelineAction(before, {
+        type: "UPDATE_CLIP_GEOMETRY",
+        clip_id: placementId,
+        geometry: nextGeometry,
+        updated_at: new Date().toISOString(),
+      }),
     });
   }
 
@@ -5491,7 +5615,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     event.preventDefault();
     event.stopPropagation();
     setFocusOverride("time-focus");
-    setSelectedImagePlacementId(args.placementId);
+    setSelectedClipId(args.placementId);
     setTimelineImageDragState({
       placementId: args.placementId,
       mode: args.mode,
@@ -5513,7 +5637,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     event.preventDefault();
     event.stopPropagation();
     setFocusOverride("tool-focus");
-    setSelectedImagePlacementId(args.placementId);
+    setSelectedClipId(args.placementId);
     setPreviewCanvasDragState({
       placementId: args.placementId,
       mode: args.mode,
@@ -5529,7 +5653,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     event.preventDefault();
     event.stopPropagation();
     setFocusOverride("time-focus");
-    setSelectedImagePlacementId(placementId);
+    setSelectedClipId(placementId);
     setImageAnimationContextMenu({
       placementId,
       x: event.clientX,
@@ -5544,24 +5668,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       toolId: "video",
       affectedPlacementIds: [placementId],
       immediatePersist: true,
-      computeAfter: (before) => {
-        const current = before.visualPlacements;
-        if (!current) return before;
-        return {
-          ...before,
-          visualPlacements: {
-            ...current,
-            placements: current.placements.map((placement) => (
-              placement.placement_id === placementId
-                ? {
-                  ...placement,
-                  animation_preset: preset,
-                }
-                : placement
-            )),
-          },
-        };
-      },
+      computeAfter: (before) => applyVisualTimelineAction(before, {
+        type: "UPDATE_CLIP_ANIMATION",
+        clip_id: placementId,
+        animation: { preset },
+        updated_at: new Date().toISOString(),
+      }),
     });
     setImageAnimationContextMenu(null);
   }
@@ -5575,18 +5687,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       affectedSegments: placement ? [placement.anchor_segment_id] : undefined,
       affectedPlacementIds: [placementId],
       immediatePersist: true,
-      computeAfter: (before) => {
-        const current = before.visualPlacements;
-        if (!current) return before;
-
-        return {
-          ...before,
-          visualPlacements: {
-            ...current,
-            placements: current.placements.filter((item) => item.placement_id !== placementId),
-          },
-        };
-      },
+      computeAfter: (before) => applyVisualTimelineAction(before, {
+        type: "DELETE_CLIP",
+        clip_id: placementId,
+        updated_at: new Date().toISOString(),
+      }),
     });
   }
 
@@ -5603,9 +5708,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       affectedPlacementIds: [placementId],
       immediatePersist: true,
       computeAfter: (before) => {
-        const current = before.visualPlacements;
-        if (!current) return before;
-
         const anchorSegment = before.selectedSegmentId
           ? before.transcriptSegments.find((segment) => segment.segment_id === before.selectedSegmentId) ?? null
           : before.transcriptSegments[0] ?? null;
@@ -5613,6 +5715,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
         const nextStart = Math.max(0, roundToTenth(before.playheadSec));
         const nextEnd = Math.max(nextStart + 0.5, Math.min(transcriptDurationSec, roundToTenth(nextStart + 3)));
+        const visualTimeline = resolveCanonicalVisualTimeline(before);
+        const updatedAt = new Date().toISOString();
         const nextPlacement: HammerVisualPlacementRecord = {
           placement_id: placementId,
           entry_id: `manual:${placementId}`,
@@ -5635,17 +5739,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           overlay_geometry: DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
           animation_preset: "none",
           overlay_opacity: 1,
-          overlay_z_index: current.placements.length + 1,
+          overlay_z_index: visualTimeline.clips.length + 1,
         };
-
-        return {
+        const assetId = deriveStableHammerVisualAssetId(nextPlacement);
+        return applyVisualTimelineActions({
           ...before,
           selectedSegmentId: anchorSegment.segment_id,
-          visualPlacements: {
-            ...current,
-            placements: [...current.placements, nextPlacement],
+        }, [
+          {
+            type: "UPSERT_ASSETS",
+            assets: [migrateLegacyPlacementRecordToAsset({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt })],
+            updated_at: updatedAt,
           },
-        };
+          {
+            type: "CREATE_CLIP",
+            clip: migrateLegacyPlacementRecordToClip({
+              record: nextPlacement,
+              asset_id: assetId,
+              updated_at: updatedAt,
+            }),
+            updated_at: updatedAt,
+          },
+        ]);
       },
     });
   }
@@ -5666,14 +5781,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       toolId: "finishing",
       immediatePersist: true,
       computeAfter: (before) => {
-        const current = before.visualPlacements;
-        if (!current) return before;
         const anchorSegment = before.transcriptSegments[0] ?? null;
         if (!anchorSegment) return before;
-        const hasExisting = current.placements.some((placement) => placement.entry_id === args.entryId);
-        const placementId = hasExisting
-          ? current.placements.find((placement) => placement.entry_id === args.entryId)?.placement_id ?? createVisualPlacementId()
+        const visualTimeline = resolveCanonicalVisualTimeline(before);
+        const existingClip = visualTimeline.clips.find((clip) => clip.entry_id === args.entryId) ?? null;
+        const placementId = existingClip
+          ? existingClip.clip_id
           : createVisualPlacementId();
+        const updatedAt = new Date().toISOString();
         const nextPlacement: HammerVisualPlacementRecord = {
           placement_id: placementId,
           entry_id: args.entryId,
@@ -5709,16 +5824,127 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             },
           animation_preset: "none",
           overlay_opacity: 1,
-          overlay_z_index: current.placements.length + 1,
+          overlay_z_index: existingClip?.z_index ?? (visualTimeline.clips.length + 1),
         };
-        const basePlacements = current.placements.filter((placement) => placement.entry_id !== args.entryId);
-        return {
-          ...before,
-          visualPlacements: {
-            ...current,
-            placements: [...basePlacements, nextPlacement],
+        const assetId = deriveStableHammerVisualAssetId(nextPlacement);
+        const nextClip = migrateLegacyPlacementRecordToClip({
+          record: nextPlacement,
+          asset_id: assetId,
+          updated_at: updatedAt,
+        });
+        if (existingClip) {
+          let nextState = applyVisualTimelineAction(before, {
+            type: "UPDATE_CLIP_TIMING",
+            clip_id: existingClip.clip_id,
+            start_sec: nextClip.start_sec,
+            end_sec: nextClip.end_sec,
+            updated_at: updatedAt,
+          });
+          nextState = applyVisualTimelineAction(nextState, {
+            type: "UPDATE_CLIP_GEOMETRY",
+            clip_id: existingClip.clip_id,
+            geometry: nextClip.geometry,
+            updated_at: updatedAt,
+          });
+          nextState = applyVisualTimelineAction(nextState, {
+            type: "UPDATE_CLIP_ANIMATION",
+            clip_id: existingClip.clip_id,
+            animation: nextClip.animation,
+            updated_at: updatedAt,
+          });
+          const nextTimeline = resolveCanonicalVisualTimeline(nextState);
+          return {
+            ...nextState,
+            visualTimeline: {
+              ...nextTimeline,
+              assets: nextTimeline.assets.some((asset) => asset.asset_id === assetId)
+                ? nextTimeline.assets.map((asset) => (asset.asset_id === assetId
+                  ? migrateLegacyPlacementRecordToAsset({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt })
+                  : asset))
+                : [...nextTimeline.assets, migrateLegacyPlacementRecordToAsset({
+                  record: nextPlacement,
+                  asset_id: assetId,
+                  updated_at: updatedAt,
+                })],
+              clips: nextTimeline.clips.map((clip) => (
+                clip.clip_id === existingClip.clip_id
+                  ? {
+                    ...clip,
+                    asset_id: assetId,
+                    entry_id: nextClip.entry_id,
+                    label: nextClip.label,
+                    visual_mode: nextClip.visual_mode,
+                    confidence: nextClip.confidence,
+                    placement_status: nextClip.placement_status,
+                    ingest_state: nextClip.ingest_state,
+                    uncertainty_flags: [...nextClip.uncertainty_flags],
+                    source_mode: nextClip.source_mode,
+                    opacity: nextClip.opacity,
+                    z_index: nextClip.z_index,
+                    enabled: nextClip.enabled,
+                    locked: nextClip.locked,
+                    anchor_hint: {
+                      ...nextClip.anchor_hint,
+                      matched_segment_ids: [...nextClip.anchor_hint.matched_segment_ids],
+                    },
+                    authority_operation_id: nextClip.authority_operation_id,
+                    updated_at: updatedAt,
+                  }
+                  : clip
+              )),
+            },
+            visualPlacements: deriveLegacyVisualPlacementsFromTimeline({
+              ...resolveCanonicalVisualTimeline(nextState),
+              assets: resolveCanonicalVisualTimeline(nextState).assets.some((asset) => asset.asset_id === assetId)
+                ? resolveCanonicalVisualTimeline(nextState).assets.map((asset) => (asset.asset_id === assetId
+                  ? migrateLegacyPlacementRecordToAsset({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt })
+                  : asset))
+                : [...resolveCanonicalVisualTimeline(nextState).assets, migrateLegacyPlacementRecordToAsset({
+                  record: nextPlacement,
+                  asset_id: assetId,
+                  updated_at: updatedAt,
+                })],
+              clips: resolveCanonicalVisualTimeline(nextState).clips.map((clip) => (
+                clip.clip_id === existingClip.clip_id
+                  ? {
+                    ...clip,
+                    asset_id: assetId,
+                    entry_id: nextClip.entry_id,
+                    label: nextClip.label,
+                    visual_mode: nextClip.visual_mode,
+                    confidence: nextClip.confidence,
+                    placement_status: nextClip.placement_status,
+                    ingest_state: nextClip.ingest_state,
+                    uncertainty_flags: [...nextClip.uncertainty_flags],
+                    source_mode: nextClip.source_mode,
+                    opacity: nextClip.opacity,
+                    z_index: nextClip.z_index,
+                    enabled: nextClip.enabled,
+                    locked: nextClip.locked,
+                    anchor_hint: {
+                      ...nextClip.anchor_hint,
+                      matched_segment_ids: [...nextClip.anchor_hint.matched_segment_ids],
+                    },
+                    authority_operation_id: nextClip.authority_operation_id,
+                    updated_at: updatedAt,
+                  }
+                  : clip
+              )),
+            }),
+          };
+        }
+        return applyVisualTimelineActions(before, [
+          {
+            type: "UPSERT_ASSETS",
+            assets: [migrateLegacyPlacementRecordToAsset({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt })],
+            updated_at: updatedAt,
           },
-        };
+          {
+            type: "CREATE_CLIP",
+            clip: nextClip,
+            updated_at: updatedAt,
+          },
+        ]);
       },
     });
   }
@@ -5730,15 +5956,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       toolId: "finishing",
       immediatePersist: true,
       computeAfter: (before) => {
-        const current = before.visualPlacements;
-        if (!current) return before;
-        return {
-          ...before,
-          visualPlacements: {
-            ...current,
-            placements: current.placements.filter((placement) => placement.entry_id !== entryId),
-          },
-        };
+        const clip = resolveCanonicalVisualTimeline(before).clips.find((candidate) => candidate.entry_id === entryId) ?? null;
+        if (!clip) return before;
+        return applyVisualTimelineAction(before, {
+          type: "DELETE_CLIP",
+          clip_id: clip.clip_id,
+          updated_at: new Date().toISOString(),
+        });
       },
     });
   }
@@ -5839,26 +6063,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       toolId: "video",
       affectedPlacementIds: [placementId],
       immediatePersist: true,
-      computeAfter: (before) => {
-        const current = before.visualPlacements;
-        if (!current) return before;
-        const nextPlacements = current.placements.map((placement) => (
-          placement.placement_id === placementId
+      computeAfter: (before) => replaceVisualTimelineState(before, (timeline) => ({
+        ...timeline,
+        clips: timeline.clips.map((clip) => (
+          clip.clip_id === placementId
             ? {
-              ...placement,
+              ...clip,
               visual_mode: nextType === "reference_clip" ? "reference_clip" : "broll",
-              label: placement.label ?? (nextType === "reference_clip" ? "Reference Clip" : "B-roll"),
+              label: clip.label ?? (nextType === "reference_clip" ? "Reference Clip" : "B-roll"),
             }
-            : placement
-        ));
-        return {
-          ...before,
-          visualPlacements: {
-            ...current,
-            placements: nextPlacements,
-          },
-        };
-      },
+            : clip
+        )),
+      })),
     });
   }
 
@@ -5943,12 +6159,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         affectedPlacementIds: [referencePlacementId],
         immediatePersist: true,
         computeAfter: (before) => {
-          const current = before.visualPlacements;
-          if (!current) return before;
           const segment = before.transcriptSegments.find((item) => item.segment_id === beat.segmentId) ?? null;
           if (!segment) return before;
           const startSec = Math.max(0, roundToTenth(segment.start_sec));
           const endSec = Math.max(startSec + 0.5, roundToTenth(Math.min(transcriptDurationSec, segment.end_sec + 1.2)));
+          const visualTimeline = resolveCanonicalVisualTimeline(before);
+          const updatedAt = new Date().toISOString();
           const nextRecord: HammerVisualPlacementRecord = {
             placement_id: referencePlacementId,
             entry_id: `reference:${referencePlacementId}`,
@@ -5975,20 +6191,59 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             overlay_geometry: DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
             animation_preset: "none",
             overlay_opacity: 1,
-            overlay_z_index: current.placements.length + 1,
+            overlay_z_index: visualTimeline.clips.find((clip) => clip.clip_id === referencePlacementId)?.z_index ?? (visualTimeline.clips.length + 1),
           };
-          const existingIndex = current.placements.findIndex((item) => item.placement_id === referencePlacementId);
-          const nextPlacements = existingIndex >= 0
-            ? current.placements.map((item, index) => (index === existingIndex ? nextRecord : item))
-            : [...current.placements, nextRecord];
-          return {
+          const assetId = deriveStableHammerVisualAssetId(nextRecord);
+          const nextClip = migrateLegacyPlacementRecordToClip({
+            record: nextRecord,
+            asset_id: assetId,
+            updated_at: updatedAt,
+          });
+          const asset = migrateLegacyPlacementRecordToAsset({
+            record: nextRecord,
+            asset_id: assetId,
+            updated_at: updatedAt,
+          });
+          const nextState = {
             ...before,
             selectedSegmentId: segment.segment_id,
-            visualPlacements: {
-              ...current,
-              placements: nextPlacements,
-            },
           };
+          const existingClip = visualTimeline.clips.find((clip) => clip.clip_id === referencePlacementId) ?? null;
+          if (existingClip) {
+            return replaceVisualTimelineState(nextState, (timeline) => ({
+              ...timeline,
+              assets: timeline.assets.some((item) => item.asset_id === assetId)
+                ? timeline.assets.map((item) => (item.asset_id === assetId ? asset : item))
+                : [...timeline.assets, asset],
+              clips: timeline.clips.map((clip) => (
+                clip.clip_id === referencePlacementId
+                  ? {
+                    ...clip,
+                    ...nextClip,
+                    uncertainty_flags: [...nextClip.uncertainty_flags],
+                    geometry: { ...nextClip.geometry },
+                    animation: { ...nextClip.animation },
+                    anchor_hint: {
+                      ...nextClip.anchor_hint,
+                      matched_segment_ids: [...nextClip.anchor_hint.matched_segment_ids],
+                    },
+                  }
+                  : clip
+              )),
+            }));
+          }
+          return applyVisualTimelineActions(nextState, [
+            {
+              type: "UPSERT_ASSETS",
+              assets: [asset],
+              updated_at: updatedAt,
+            },
+            {
+              type: "CREATE_CLIP",
+              clip: nextClip,
+              updated_at: updatedAt,
+            },
+          ]);
         },
       });
       setMediaMapBeats((current) => current.map((item) => (
@@ -6073,9 +6328,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       affectedPlacementIds: [placementId],
       immediatePersist: true,
       computeAfter: (before) => {
-        const current = before.visualPlacements;
         const graph = before.editorialAuthorityGraph;
-        if (!current || !graph) return before;
+        if (!graph) return before;
         const operation = graph.operations.find((item) => item.operation_id === args.operationId) ?? null;
         if (!operation || operation.instruction.type !== "insert_broll") return before;
         const startSec = Math.max(0, roundToTenth(operation.instruction.start_sec));
@@ -6151,17 +6405,35 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           },
           animation_preset: "none",
           overlay_opacity: 1,
-          overlay_z_index: current.placements.length + 1,
+          overlay_z_index: resolveCanonicalVisualTimeline(before).clips.length + 1,
         };
-
-        return {
+        const updatedAt = new Date().toISOString();
+        const assetId = deriveStableHammerVisualAssetId(brollPlacement);
+        const nextClip = migrateLegacyPlacementRecordToClip({
+          record: brollPlacement,
+          asset_id: assetId,
+          updated_at: updatedAt,
+        });
+        const asset = migrateLegacyPlacementRecordToAsset({
+          record: brollPlacement,
+          asset_id: assetId,
+          updated_at: updatedAt,
+        });
+        return applyVisualTimelineActions({
           ...before,
           editorialAuthorityGraph: nextGraph,
-          visualPlacements: {
-            ...current,
-            placements: [...current.placements, brollPlacement],
+        }, [
+          {
+            type: "UPSERT_ASSETS",
+            assets: [asset],
+            updated_at: updatedAt,
           },
-        };
+          {
+            type: "CREATE_CLIP",
+            clip: nextClip,
+            updated_at: updatedAt,
+          },
+        ]);
       },
     });
   }
@@ -6197,8 +6469,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       immediatePersist: true,
       computeAfter: (before) => {
         const graph = before.editorialAuthorityGraph;
-        const current = before.visualPlacements;
-        if (!graph || !current) return before;
+        if (!graph) return before;
         const op = graph.operations.find((item) => item.operation_id === operationId) ?? null;
         if (!op || op.instruction.type !== "insert_broll" || op.instruction.asset_binding_state === "unresolved") {
           return before;
@@ -6221,22 +6492,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           graph: nextGraph,
           brollOperationId: operationId,
         }) ?? nextGraph;
-        const nextPlacements = current.placements.map((placement) => {
-          if (placement.authority_operation_id !== operationId) return placement;
-          return {
-            ...placement,
-            start_sec: nextStart,
-            end_sec: nextEnd,
-          };
-        });
-        return {
+        return replaceVisualTimelineState({
           ...before,
           editorialAuthorityGraph: synchronizedGraph,
-          visualPlacements: {
-            ...current,
-            placements: nextPlacements,
-          },
-        };
+        }, (timeline) => ({
+          ...timeline,
+          clips: timeline.clips.map((clip) => (
+            clip.authority_operation_id === operationId
+              ? {
+                ...clip,
+                start_sec: nextStart,
+                end_sec: nextEnd,
+              }
+              : clip
+          )),
+        }));
       },
     });
   }
@@ -6253,8 +6523,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       immediatePersist: true,
       computeAfter: (before) => {
         const graph = before.editorialAuthorityGraph;
-        const current = before.visualPlacements;
-        if (!graph || !current) return before;
+        if (!graph) return before;
         const op = graph.operations.find((item) => item.operation_id === operationId) ?? null;
         if (!op || op.instruction.type !== "insert_broll" || op.instruction.asset_binding_state === "unresolved") {
           return before;
@@ -6282,22 +6551,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           graph: nextGraph,
           brollOperationId: operationId,
         }) ?? nextGraph;
-        const nextPlacements = current.placements.map((placement) => {
-          if (placement.authority_operation_id !== operationId) return placement;
-          return {
-            ...placement,
-            start_sec: nextStart,
-            end_sec: nextEnd,
-          };
-        });
-        return {
+        return replaceVisualTimelineState({
           ...before,
           editorialAuthorityGraph: synchronizedGraph,
-          visualPlacements: {
-            ...current,
-            placements: nextPlacements,
-          },
-        };
+        }, (timeline) => ({
+          ...timeline,
+          clips: timeline.clips.map((clip) => (
+            clip.authority_operation_id === operationId
+              ? {
+                ...clip,
+                start_sec: nextStart,
+                end_sec: nextEnd,
+              }
+              : clip
+          )),
+        }));
       },
     });
   }
@@ -6310,8 +6578,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       immediatePersist: true,
       computeAfter: (before) => {
         const graph = before.editorialAuthorityGraph;
-        const current = before.visualPlacements;
-        if (!graph || !current) return before;
+        if (!graph) return before;
         const op = graph.operations.find((item) => item.operation_id === operationId) ?? null;
         if (!op || op.instruction.type !== "insert_broll" || op.instruction.asset_binding_state === "unresolved") {
           return before;
@@ -6328,23 +6595,55 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           graph: nextGraph,
           brollOperationId: operationId,
         }) ?? nextGraph;
-        const nextPlacements = current.placements.map((placement) => {
-          if (placement.authority_operation_id !== operationId) return placement;
-          return {
-            ...placement,
-            asset_ref: assetPath,
-            asset_path: assetPath,
-            storage_key: assetPath,
-          };
-        });
-        return {
+        return replaceVisualTimelineState({
           ...before,
           editorialAuthorityGraph: synchronizedGraph,
-          visualPlacements: {
-            ...current,
-            placements: nextPlacements,
-          },
-        };
+        }, (timeline) => {
+          const clip = timeline.clips.find((candidate) => candidate.authority_operation_id === operationId) ?? null;
+          if (!clip) return timeline;
+          const nextRecord: HammerVisualPlacementRecord = {
+            placement_id: clip.clip_id,
+            authority_operation_id: clip.authority_operation_id,
+            entry_id: clip.entry_id ?? `manual:${clip.clip_id}`,
+            anchor_segment_id: clip.anchor_hint.anchor_segment_id ?? "",
+            matched_segment_ids: [...clip.anchor_hint.matched_segment_ids],
+            anchor_text: clip.anchor_hint.anchor_text ?? null,
+            asset_ref: assetPath,
+            asset_id: null,
+            asset_path: assetPath,
+            storage_key: assetPath,
+            label: clip.label,
+            visual_mode: clip.visual_mode,
+            start_sec: clip.start_sec,
+            end_sec: clip.end_sec,
+            confidence: clip.confidence,
+            timing_source: "ordered_fallback",
+            status: clip.placement_status,
+            ingest_state: clip.ingest_state ?? undefined,
+            uncertainty_flags: [...clip.uncertainty_flags],
+            overlay_geometry: { ...clip.geometry },
+            animation_preset: clip.animation.preset,
+            overlay_opacity: clip.opacity,
+            overlay_z_index: clip.z_index,
+          };
+          const assetId = deriveStableHammerVisualAssetId(nextRecord);
+          const asset = migrateLegacyPlacementRecordToAsset({ record: nextRecord, asset_id: assetId, updated_at: new Date().toISOString() });
+          return {
+            ...timeline,
+            assets: timeline.assets.some((item) => item.asset_id === assetId)
+              ? timeline.assets.map((item) => (item.asset_id === assetId ? asset : item))
+              : [...timeline.assets, asset],
+            clips: timeline.clips.map((candidate) => (
+              candidate.authority_operation_id === operationId
+                ? {
+                  ...candidate,
+                  asset_id: assetId,
+                  updated_at: asset.updated_at,
+                }
+                : candidate
+            )),
+          };
+        });
       },
     });
   }
@@ -6357,8 +6656,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       immediatePersist: true,
       computeAfter: (before) => {
         const graph = before.editorialAuthorityGraph;
-        const current = before.visualPlacements;
-        if (!graph || !current) return before;
+        if (!graph) return before;
         const brollOperation = graph.operations.find((item) => item.operation_id === operationId) ?? null;
         if (!brollOperation || brollOperation.instruction.type !== "insert_broll") return before;
         let nextGraph = setAuthorityOperationLifecycle({
@@ -6374,15 +6672,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             lifecycle: "reverted",
           }) ?? nextGraph;
         }
-        const nextPlacements = current.placements.filter((placement) => placement.authority_operation_id !== operationId);
-        return {
+        return replaceVisualTimelineState({
           ...before,
           editorialAuthorityGraph: nextGraph,
-          visualPlacements: {
-            ...current,
-            placements: nextPlacements,
-          },
-        };
+        }, (timeline) => ({
+          ...timeline,
+          clips: timeline.clips.filter((clip) => clip.authority_operation_id !== operationId),
+          lanes: timeline.lanes.map((lane) => ({
+            ...lane,
+            clip_ids: lane.clip_ids.filter((clipId) => (
+              timeline.clips.find((clip) => clip.clip_id === clipId)?.authority_operation_id !== operationId
+            )),
+          })),
+          selected_clip_id: timeline.selected_clip_id
+            && timeline.clips.find((clip) => clip.clip_id === timeline.selected_clip_id)?.authority_operation_id === operationId
+            ? null
+            : timeline.selected_clip_id,
+        }));
       },
     });
   }
@@ -7066,7 +7372,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         preview_mode: previewMode,
         transcript_source_id: transcriptSourceId,
         selected_segment_id: selectedSegmentId,
-        selected_overlay_row_id: selectedImagePlacementId,
+        selected_overlay_row_id: selectedClipId,
         media_ref: mediaRef ? { ...mediaRef } : null,
         workspace_mapping: workspaceMapping ? { ...workspaceMapping } : null,
         media_source_label: mediaSourceLabel,
@@ -7994,7 +8300,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       passStatus,
       transcriptSegments: editableTranscriptSegments,
       selectedSegmentId,
-      selectedOverlayRowId: selectedImagePlacementId,
+      selectedOverlayRowId: selectedClipId,
       visualPreviewSettings: {
         white_balance: visualWhiteBalance,
         color_amount: visualColorAmount,
@@ -8009,7 +8315,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       editPlan: canonicalEditPlan,
       editorialAuthorityGraph: exportBasis.canonicalGraph,
       visualPlacements: editableVisualPlacements,
-      visualTimeline: props.visualTimeline ?? null,
+      visualTimeline: editableVisualTimeline,
       audioPolish: editableAudioPolish,
     };
 
@@ -8487,7 +8793,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         return (
                           <article
                             key={item.id}
-                            className={selectedImagePlacementId === item.id ? "hammer-source-card is-selected" : "hammer-source-card"}
+                            className={selectedClipId === item.id ? "hammer-source-card is-selected" : "hammer-source-card"}
                           >
                             {item.assetPath && sourceDeskPreviewUrls[item.assetPath] ? (
                               <img
@@ -8541,7 +8847,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                 onClick={() => {
                                   selectionOriginRef.current = "timeline";
                                   setFocusOverride("time-focus");
-                                  setSelectedImagePlacementId(item.id);
+                                  setSelectedClipId(item.id);
                                   setSelectedSegmentId(item.anchorSegmentId);
                                   setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
                                   setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
@@ -9173,10 +9479,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         "hammer-preview-canvas__bbox",
                         resolveImageAnimationClass(overlay.animationPreset),
                         overlay.isSelected ? "is-selected" : "",
-                        currentPass === "image_placement" && selectedImagePlacementId && !overlay.isSelected ? "is-dimmed" : "",
+                        currentPass === "image_placement" && selectedClipId && !overlay.isSelected ? "is-dimmed" : "",
                       ].filter(Boolean).join(" ")}
                       onMouseDown={(event) => {
-                        setSelectedImagePlacementId(overlay.placementId);
+                        setSelectedClipId(overlay.placementId);
                         if (currentPass !== "image_placement") return;
                         beginPreviewCanvasDrag(event, {
                           placementId: overlay.placementId,

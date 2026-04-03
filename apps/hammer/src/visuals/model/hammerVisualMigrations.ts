@@ -135,7 +135,7 @@ export function migrateLegacyPlacementRecordToClip(args: {
   };
 }
 
-function migrateLegacyPlacementRecordToAsset(args: {
+export function migrateLegacyPlacementRecordToAsset(args: {
   record: HammerVisualPlacementRecord;
   asset_id: string;
   updated_at?: string;

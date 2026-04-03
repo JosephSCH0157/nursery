@@ -3,10 +3,13 @@ import type { HammerEditorialAuthorityGraph } from "../../../../packages/contrac
 import type {
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
+import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import {
   cloneVisualPlacements as cloneCanonicalVisualPlacements,
   normalizeHammerVisualPlacementsState,
 } from "../lib/hammerVisualPlacements";
+import { createEmptyVisualTimelineState } from "../visuals/model/hammerVisualDefaults";
+import { assertValidTimelineState } from "../visuals/model/hammerVisualGuards";
 import {
   cloneHammerStudioRackState,
   createDefaultHammerStudioRackState,
@@ -45,6 +48,7 @@ export interface HammerCanonicalOperationDelta {
 export interface HammerEditorStateSerializable {
   transcriptSegments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
+  visualTimeline: HammerVisualTimelineState | null;
   studioRack: HammerStudioRackState;
   editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   outputSelection: HammerOutputSelectionState;
@@ -160,6 +164,13 @@ function cloneVisualPlacements(
   return cloneCanonicalVisualPlacements(placements);
 }
 
+function cloneVisualTimeline(
+  timeline: HammerVisualTimelineState | null,
+): HammerVisualTimelineState | null {
+  if (!timeline) return null;
+  return assertValidTimelineState(createEmptyVisualTimelineState(timeline));
+}
+
 function cloneEditorialAuthorityGraph(
   graph: HammerEditorialAuthorityGraph | null,
 ): HammerEditorialAuthorityGraph | null {
@@ -197,6 +208,7 @@ export function cloneEditorState(state: HammerEditorStateSerializable): HammerEd
   return {
     transcriptSegments: cloneSegments(state.transcriptSegments),
     visualPlacements: cloneVisualPlacements(state.visualPlacements),
+    visualTimeline: cloneVisualTimeline(state.visualTimeline),
     studioRack: cloneHammerStudioRackState(state.studioRack),
     editorialAuthorityGraph: cloneEditorialAuthorityGraph(state.editorialAuthorityGraph),
     outputSelection: {
@@ -466,6 +478,15 @@ function normalizeVisualPlacementsFromValue(value: unknown): HammerPersistedVisu
   return normalizeHammerVisualPlacementsState(value);
 }
 
+function normalizeVisualTimelineFromValue(value: unknown): HammerVisualTimelineState | null {
+  if (value == null) return null;
+  try {
+    return assertValidTimelineState(createEmptyVisualTimelineState(value as HammerVisualTimelineState));
+  } catch {
+    return null;
+  }
+}
+
 function normalizeOutputSelectionFromValue(value: unknown): HammerOutputSelectionState {
   if (value == null) {
     return {
@@ -496,9 +517,9 @@ function areOutputSelectionsEqual(
     && left.sourceRecipeRef === right.sourceRecipeRef;
 }
 
-function areVisualPlacementsEqual(
-  left: HammerPersistedVisualPlacements | null,
-  right: HammerPersistedVisualPlacements | null,
+function areVisualTimelinesEqual(
+  left: HammerVisualTimelineState | null,
+  right: HammerVisualTimelineState | null,
 ): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -733,6 +754,15 @@ function applyPatchToState(state: HammerEditorStateSerializable, patch: JsonPatc
     return next;
   }
 
+  if (root === "visualTimeline") {
+    if (patch.op === "remove") {
+      next.visualTimeline = null;
+      return next;
+    }
+    next.visualTimeline = normalizeVisualTimelineFromValue(patch.value);
+    return next;
+  }
+
   if (root === "studioRack") {
     if (patch.op === "remove") {
       next.studioRack = createDefaultHammerStudioRackState();
@@ -872,16 +902,16 @@ export function buildStatePatches(
     inverse.unshift({ op: "replace", path: "/transcriptTimingHint", value: before.transcriptTimingHint });
   }
 
-  if (!areVisualPlacementsEqual(before.visualPlacements, after.visualPlacements)) {
+  if (!areVisualTimelinesEqual(before.visualTimeline, after.visualTimeline)) {
     forward.push({
       op: "replace",
-      path: "/visualPlacements",
-      value: clonePatchValue(after.visualPlacements),
+      path: "/visualTimeline",
+      value: clonePatchValue(after.visualTimeline),
     });
     inverse.unshift({
       op: "replace",
-      path: "/visualPlacements",
-      value: clonePatchValue(before.visualPlacements),
+      path: "/visualTimeline",
+      value: clonePatchValue(before.visualTimeline),
     });
   }
 

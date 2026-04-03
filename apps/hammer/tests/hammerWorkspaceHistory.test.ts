@@ -11,6 +11,9 @@ import {
   type HammerEditorStateSerializable,
 } from "../src/editor/hammerWorkspaceHistory";
 import { createDefaultHammerStudioRackState } from "../src/editor/hammerStudioRack";
+import { createDefaultVisualAnimation, createDefaultVisualGeometry, createDefaultVisualLane, createEmptyVisualTimelineState } from "../src/visuals/model/hammerVisualDefaults";
+import { deriveLegacyVisualPlacementsFromTimeline } from "../src/visuals/persistence/hammerVisualTimelineLegacyAdapter";
+import type { HammerVisualTimelineState } from "../src/visuals/model/hammerVisualTypes";
 
 function segment(id: string, text: string, start = 0, end = 1): HammerTranscriptSegment {
   return {
@@ -22,10 +25,83 @@ function segment(id: string, text: string, start = 0, end = 1): HammerTranscript
   };
 }
 
+function baseVisualTimeline(): HammerVisualTimelineState {
+  return createEmptyVisualTimelineState({
+    updated_at: "2026-04-03T12:00:00.000Z",
+    assets: [
+      {
+        asset_id: "asset-1",
+        asset_ref: "assets/image.png",
+        kind: "image",
+        label: "Image",
+        path: "assets/image.png",
+        storage_key: "workpieces/example/assets/image.png",
+        mime_type: "image/png",
+        source_mode: "packaging",
+        updated_at: "2026-04-03T12:00:00.000Z",
+      },
+    ],
+    lanes: [
+      createDefaultVisualLane({
+        lane_id: "lane:primary",
+        clip_ids: ["clip-1"],
+      }),
+    ],
+    clips: [
+      {
+        clip_id: "clip-1",
+        asset_id: "asset-1",
+        lane_id: "lane:primary",
+        entry_id: "manual:clip-1",
+        label: "Image",
+        visual_mode: "still_image",
+        confidence: 1,
+        placement_status: "placed",
+        ingest_state: "approved",
+        uncertainty_flags: [],
+        start_sec: 0,
+        end_sec: 2,
+        geometry: createDefaultVisualGeometry({
+          x: 0.2,
+          y: 0.3,
+          width: 0.4,
+          height: 0.5,
+          anchor: "top_left",
+        }),
+        animation: createDefaultVisualAnimation({
+          preset: "fade_in",
+        }),
+        opacity: 0.85,
+        z_index: 7,
+        enabled: true,
+        locked: false,
+        source_mode: "packaging",
+        anchor_hint: {
+          anchor_segment_id: "a",
+          matched_segment_ids: ["a"],
+          anchor_text: "hello",
+          anchor_label: "Image",
+          detached: false,
+        },
+        updated_at: "2026-04-03T12:00:00.000Z",
+      },
+    ],
+    selected_clip_id: "clip-1",
+  });
+}
+
 function baseState(): HammerEditorStateSerializable {
+  const visualTimeline = baseVisualTimeline();
+  const visualPlacements = deriveLegacyVisualPlacementsFromTimeline(visualTimeline);
+  for (const placement of visualPlacements.placements) {
+    if (placement.authority_operation_id === undefined) {
+      delete placement.authority_operation_id;
+    }
+  }
   return {
     transcriptSegments: [segment("a", "hello"), segment("b", "world", 1, 2)],
-    visualPlacements: null,
+    visualPlacements,
+    visualTimeline,
     studioRack: createDefaultHammerStudioRackState(),
     editorialAuthorityGraph: null,
     outputSelection: {
@@ -347,7 +423,8 @@ async function testTranscriptSpanCutMutationUndoRedo() {
       segment("b", "dead", 1, 2),
       segment("c", "world", 2, 3),
     ],
-    visualPlacements: null,
+    visualPlacements: deriveLegacyVisualPlacementsFromTimeline(baseVisualTimeline()),
+    visualTimeline: baseVisualTimeline(),
     studioRack: createDefaultHammerStudioRackState(),
     editorialAuthorityGraph: null,
     outputSelection: {
@@ -399,44 +476,6 @@ async function testTranscriptSpanCutMutationUndoRedo() {
 
 async function testVisualCompositionFieldsPersistAcrossUndoRedo() {
   const initial = baseState();
-  initial.visualPlacements = {
-    schema_version: 1,
-    status: "prepared",
-    source_refs: [],
-    uncertainty_flags: [],
-    placements: [
-      {
-        placement_id: "placement-01",
-        entry_id: "manual:placement-01",
-        anchor_segment_id: "a",
-        matched_segment_ids: ["a"],
-        anchor_text: "hello",
-        asset_ref: "asset-1",
-        asset_id: "asset-1",
-        asset_path: "assets/image.png",
-        storage_key: "workpieces/example/assets/image.png",
-        label: "Image",
-        visual_mode: "still_image",
-        start_sec: 0,
-        end_sec: 2,
-        confidence: 1,
-        timing_source: "ordered_fallback",
-        status: "placed",
-        ingest_state: "approved",
-        uncertainty_flags: [],
-        overlay_geometry: {
-          x: 0.2,
-          y: 0.3,
-          width: 0.4,
-          height: 0.5,
-          anchor: "top_left",
-        },
-        animation_preset: "fade_in",
-        overlay_opacity: 0.85,
-        overlay_z_index: 7,
-      },
-    ],
-  };
   const controller = createHammerHistoryController({
     document: createHammerHistoryDocument({
       workpieceId: "wp-visual",
@@ -447,45 +486,72 @@ async function testVisualCompositionFieldsPersistAcrossUndoRedo() {
   });
 
   const updated = cloneEditorState(initial);
-  if (!updated.visualPlacements?.placements[0]) {
-    throw new Error("Expected seeded visual placement");
+  if (!updated.visualTimeline?.clips[0]) {
+    throw new Error("Expected seeded visual clip");
   }
-  updated.visualPlacements.placements[0].overlay_geometry = {
+  updated.visualTimeline.clips[0].geometry = {
     x: 0.25,
     y: 0.35,
     width: 0.45,
     height: 0.55,
     anchor: "top_left",
   };
-  updated.visualPlacements.placements[0].animation_preset = "shutter_in";
+  updated.visualTimeline.clips[0].animation = {
+    ...updated.visualTimeline.clips[0].animation,
+    preset: "shutter_in",
+  };
+  updated.visualTimeline.revision += 1;
+  updated.visualTimeline.updated_at = "2026-04-03T12:01:00.000Z";
+  updated.visualPlacements = deriveLegacyVisualPlacementsFromTimeline(updated.visualTimeline);
   controller.applyMutation({
     label: "Adjust visual composition",
     kind: "visual_adjustment",
-    affectedPlacementIds: ["placement-01"],
+    affectedPlacementIds: ["clip-1"],
     nextState: updated,
   });
 
-  const after = controller.getState().visualPlacements?.placements[0] ?? null;
+  const after = controller.getState().visualTimeline?.clips[0] ?? null;
   assert.ok(after);
-  assert.deepEqual(after?.overlay_geometry, {
+  assert.deepEqual(after?.geometry, {
     x: 0.25,
     y: 0.35,
     width: 0.45,
     height: 0.55,
     anchor: "top_left",
   });
-  assert.equal(after?.animation_preset, "shutter_in");
+  assert.equal(after?.animation.preset, "shutter_in");
   controller.undo();
-  const undone = controller.getState().visualPlacements?.placements[0] ?? null;
+  const undone = controller.getState().visualTimeline?.clips[0] ?? null;
   assert.ok(undone);
-  assert.deepEqual(undone?.overlay_geometry, {
+  assert.deepEqual(undone?.geometry, {
     x: 0.2,
     y: 0.3,
     width: 0.4,
     height: 0.5,
     anchor: "top_left",
   });
-  assert.equal(undone?.animation_preset, "fade_in");
+  assert.equal(undone?.animation.preset, "fade_in");
+}
+
+async function testCompatibilityPlacementsDoNotDriveHistoryDiffs() {
+  const before = baseState();
+  const after = cloneEditorState(before);
+  if (!after.visualPlacements?.placements[0]) {
+    throw new Error("Expected compatibility placement");
+  }
+
+  after.visualPlacements.placements[0].overlay_geometry = {
+    x: 0.9,
+    y: 0.9,
+    width: 0.1,
+    height: 0.1,
+    anchor: "top_left",
+  };
+  after.visualPlacements.placements[0].animation_preset = "shutter_in";
+
+  const patches = buildStatePatches(before, after);
+  assert.equal(patches.forward.some((patch) => patch.path === "/visualPlacements"), false);
+  assert.equal(patches.forward.some((patch) => patch.path === "/visualTimeline"), false);
 }
 
 async function run() {
@@ -499,6 +565,7 @@ async function run() {
   await testDisabledAndGainPersistThroughHistory();
   await testTranscriptSpanCutMutationUndoRedo();
   await testVisualCompositionFieldsPersistAcrossUndoRedo();
+  await testCompatibilityPlacementsDoNotDriveHistoryDiffs();
   // eslint-disable-next-line no-console
   console.log("Hammer workspace history tests passed.");
 }
