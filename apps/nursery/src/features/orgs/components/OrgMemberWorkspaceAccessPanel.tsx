@@ -43,6 +43,11 @@ export default function OrgMemberWorkspaceAccessPanel({
           You can view assigned workspaces, but only organization owners and admins can change access.
         </p>
       ) : null}
+      {canManage ? (
+        <p className="settings-org__copy">
+          Assignments in this panel apply to organization-owned workspaces only.
+        </p>
+      ) : null}
 
       <WorkspaceAccessGrantForm
         workspaces={access.workspaces}

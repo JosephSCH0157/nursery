@@ -4,10 +4,7 @@ import type {
   OrgWorkspace,
   WorkspaceMembership,
 } from "../types";
-import {
-  MANAGEABLE_WORKSPACE_ACCESS_ROLES,
-  labelWorkspaceRole,
-} from "../types";
+import { labelWorkspaceRole } from "../types";
 
 interface WorkspaceAccessGrantFormProps {
   workspaces: OrgWorkspace[];
@@ -29,7 +26,7 @@ export default function WorkspaceAccessGrantForm({
   onGrant,
 }: WorkspaceAccessGrantFormProps) {
   const [workspaceId, setWorkspaceId] = useState("");
-  const [role, setRole] = useState<ManageableWorkspaceAccessRole | "">("");
+  const [role] = useState<ManageableWorkspaceAccessRole>("viewer");
 
   const assignedWorkspaceIds = useMemo(
     () => new Set(memberships.map((membership) => membership.workspaceId)),
@@ -42,20 +39,22 @@ export default function WorkspaceAccessGrantForm({
   const hasNoAdditionalWorkspaces = availableWorkspaces.length === 0;
   const disableGrantControls = disabled || granting || hasNoAdditionalWorkspaces;
 
-  const canSubmit = canManage && !disableGrantControls && Boolean(workspaceId && role);
+  const canSubmit = canManage && !disableGrantControls && Boolean(workspaceId);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSubmit || !role) return;
+    if (!canSubmit) return;
     await onGrant({ workspaceId, role });
     setWorkspaceId("");
-    setRole("");
   }
 
   if (!canManage) return null;
 
   return (
     <form className="settings-org__access-grant" onSubmit={(event) => void onSubmit(event)}>
+      <p className="settings-org__access-helper">
+        Select an organization-owned workspace to grant explicit access.
+      </p>
       <div className={`settings-org__access-grant-fields${hasNoAdditionalWorkspaces ? " settings-org__access-grant-fields--disabled" : ""}`}>
         <label className="settings-org__label settings-org__access-field">
           <span>Workspace</span>
@@ -73,30 +72,18 @@ export default function WorkspaceAccessGrantForm({
             ))}
           </select>
         </label>
-
-        <label className="settings-org__label settings-org__access-field">
-          <span>Role</span>
-          <select
-            value={role}
-            onChange={(event) => setRole(event.target.value as ManageableWorkspaceAccessRole | "")}
-            disabled={disableGrantControls}
-            className="settings-org__select"
-          >
-            <option value="">Choose role</option>
-            {MANAGEABLE_WORKSPACE_ACCESS_ROLES.map((option) => (
-              <option key={option} value={option}>{labelWorkspaceRole(option)}</option>
-            ))}
-          </select>
-        </label>
       </div>
 
       {hasNoAdditionalWorkspaces ? (
         <p className="settings-org__access-helper">
           {ownerContext
             ? "Owners already have access to their workspaces."
-            : "This member already has access to all workspaces in this organization."}
+            : "This member already has access to all org-owned workspaces in this organization."}
         </p>
       ) : null}
+      <p className="settings-org__access-helper">
+        New grants default to {labelWorkspaceRole("viewer")}. You can adjust role after granting.
+      </p>
 
       <button type="submit" disabled={!canSubmit} className="settings-org__access-button">
         {granting ? "Granting..." : "Grant Access"}

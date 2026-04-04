@@ -11,7 +11,7 @@ import {
   removeWorkspaceParams,
   warnMissingWorkspaceParamInDev,
 } from "../lib/forge-route-context";
-import { workspaceSelectOptionLabel } from "../lib/workspaces/workspaceLabel";
+import { groupWorkspacesBySource, workspaceSelectOptionLabel } from "../lib/workspaces/workspaceLabel";
 import { useForgeCloudStatus, type ForgeCloudState } from "../lib/forge-cloud-status";
 import MobileWarningBanner from "../components/MobileWarningBanner";
 import "./AppShell.css";
@@ -943,6 +943,14 @@ export default function AppShell() {
   );
   const inTrialMode = !session;
   const visibleWorkspaces = session ? workspaces : trialWorkspaces;
+  const groupedVisibleWorkspaces = useMemo(
+    () => groupWorkspacesBySource(visibleWorkspaces),
+    [visibleWorkspaces],
+  );
+  const groupedSessionWorkspaces = useMemo(
+    () => groupWorkspacesBySource(workspaces),
+    [workspaces],
+  );
   const effectiveWorkspaceId = session ? workspaceId : "default";
   const workspaceValue = effectiveWorkspaceId ?? "";
   const workspaceSelectDisabled = !session || loadingWorkspaces;
@@ -1058,9 +1066,28 @@ export default function AppShell() {
                         ? "Select workspace"
                         : "Trial workspace (read-only cloud)"}
                   </option>
-                  {visibleWorkspaces.map(w => (
-                    <option key={w.id} value={w.id}>{workspaceSelectOptionLabel(w)}</option>
-                  ))}
+                  {session ? (
+                    <>
+                      {groupedVisibleWorkspaces.personal.length ? (
+                        <optgroup label="Personal">
+                          {groupedVisibleWorkspaces.personal.map((w) => (
+                            <option key={w.id} value={w.id}>{workspaceSelectOptionLabel(w)}</option>
+                          ))}
+                        </optgroup>
+                      ) : null}
+                      {groupedVisibleWorkspaces.shared.length ? (
+                        <optgroup label="Shared with You">
+                          {groupedVisibleWorkspaces.shared.map((w) => (
+                            <option key={w.id} value={w.id}>{workspaceSelectOptionLabel(w)}</option>
+                          ))}
+                        </optgroup>
+                      ) : null}
+                    </>
+                  ) : (
+                    visibleWorkspaces.map((w) => (
+                      <option key={w.id} value={w.id}>{workspaceSelectOptionLabel(w)}</option>
+                    ))
+                  )}
                   {session ? <option value="__create__">+ Create workspace...</option> : null}
                 </select>
                 <button
@@ -1217,11 +1244,24 @@ export default function AppShell() {
                       className="appshell-gate-select"
                     >
                       <option value="" disabled>Select workspace</option>
-                      {workspaces.map((w) => (
-                        <option key={w.id} value={w.id}>
-                          {workspaceSelectOptionLabel(w)}
-                        </option>
-                      ))}
+                      {groupedSessionWorkspaces.personal.length ? (
+                        <optgroup label="Personal">
+                          {groupedSessionWorkspaces.personal.map((w) => (
+                            <option key={w.id} value={w.id}>
+                              {workspaceSelectOptionLabel(w)}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ) : null}
+                      {groupedSessionWorkspaces.shared.length ? (
+                        <optgroup label="Shared with You">
+                          {groupedSessionWorkspaces.shared.map((w) => (
+                            <option key={w.id} value={w.id}>
+                              {workspaceSelectOptionLabel(w)}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ) : null}
                     </select>
                     <button
                       type="button"

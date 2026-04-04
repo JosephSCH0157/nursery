@@ -189,11 +189,19 @@ export default function SettingsOrg() {
     [orgs, selectedOrgId],
   );
   const actingOrgRole = normalizeOrgRole(activeOrg?.my_org_role);
+  const actingOrgRoleLabel = labelOrgRole(actingOrgRole);
   const canManageWorkspaceAccess = canManageOrgWorkspaceAccess(actingOrgRole);
   const selectedMember = useMemo(
     () => members.find((member) => member.userId === selectedMemberId) ?? members[0] ?? null,
     [members, selectedMemberId],
   );
+  const isLikelyPersonalOrg = useMemo(() => {
+    if (!activeOrg || !session?.user.id) return false;
+    if (actingOrgRole !== "owner") return false;
+    if (!members.length) return false;
+    return members.length === 1 && members[0]?.userId === session.user.id;
+  }, [activeOrg, actingOrgRole, members, session?.user.id]);
+  const orgContextLabel = isLikelyPersonalOrg ? "Personal Organization" : "Collaborative Organization";
 
   useEffect(() => {
     if (!session || !selectedOrgId) {
@@ -565,9 +573,25 @@ export default function SettingsOrg() {
           </div>
 
           {activeOrg ? (
+            <section className="settings-org__context" aria-label="Organization context">
+              <div className="settings-org__context-grid">
+                <div>
+                  <div className="settings-org__label">Current org</div>
+                  <div className="settings-org__context-value">{activeOrg.org_name}</div>
+                </div>
+                <div>
+                  <div className="settings-org__label">Your role</div>
+                  <div className="settings-org__context-value">{actingOrgRoleLabel}</div>
+                </div>
+              </div>
+              <div className="settings-org__context-chip">{orgContextLabel}</div>
+            </section>
+          ) : null}
+
+          {activeOrg ? (
             <div className="settings-org__meta">
               <div><strong>Name:</strong> {activeOrg.org_name}</div>
-              <div><strong>Your role:</strong> {labelOrgRole(normalizeOrgRole(activeOrg.my_org_role))}</div>
+              <div><strong>Your role:</strong> {actingOrgRoleLabel}</div>
               <div><strong>Created:</strong> {formatDate(activeOrg.created_at)}</div>
               <div><strong>Org ID:</strong> {activeOrg.org_id}</div>
             </div>

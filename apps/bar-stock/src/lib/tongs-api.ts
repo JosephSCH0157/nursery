@@ -1,15 +1,12 @@
 import { supabase } from "./supabase";
 import type { Assignment, Spark, SparkSource, SparkStatus } from "./model";
-
-export type Workspace = {
-  id: string;
-  name: string;
-  role?: string | null;
-  createdAt?: string | null;
-  sourceType?: "personal" | "shared" | null;
-  orgId?: string | null;
-  orgName?: string | null;
-};
+import {
+  normalizeWorkspaceAccessRows,
+  type Workspace,
+  type WorkspaceAccessRow,
+} from "./workspace-access";
+export { normalizeWorkspaceAccessRows };
+export type { WorkspaceAccessRow, Workspace };
 
 const WORKPIECE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const APPROVED_SCRIPT_EVENT_NAMES = [
@@ -59,21 +56,6 @@ function normalizeSparkSource(value: unknown): SparkSource {
     return value;
   }
   return FALLBACK_SPARK_SOURCE;
-}
-
-function workspaceRoleRank(value: string | null | undefined): number {
-  switch (value) {
-    case "owner":
-      return 4;
-    case "admin":
-      return 3;
-    case "editor":
-      return 2;
-    case "viewer":
-      return 1;
-    default:
-      return 0;
-  }
 }
 
 function normalizeWorkpieceId(value: unknown): string | null {
@@ -214,15 +196,7 @@ export async function listMyWorkspaces(): Promise<Workspace[]> {
     .schema("tongs")
     .rpc("list_my_workspace_access");
 
-  const data = rpcResponse.data as Array<{
-    workspace_id?: string | null;
-    workspace_name?: string | null;
-    role?: string | null;
-    created_at?: string | null;
-    source_type?: string | null;
-    org_id?: string | null;
-    org_name?: string | null;
-  }> | null;
+  const data = rpcResponse.data as WorkspaceAccessRow[] | null;
   const error = rpcResponse.error;
 
   if (error && typeof error === "object" && "message" in error) {
@@ -232,43 +206,8 @@ export async function listMyWorkspaces(): Promise<Workspace[]> {
     if (looksMissingFunction) {
       const legacy = await supabase.schema("tongs").rpc("list_my_workspaces");
       if (legacy.error) throw legacy.error;
-      const legacyRows = legacy.data as Array<{
-        workspace_id?: string | null;
-        workspace_name?: string | null;
-        role?: string | null;
-        created_at?: string | null;
-      }> | null;
-
-      const legacyOut: Workspace[] = [];
-      for (const row of legacyRows ?? []) {
-        const id = typeof row.workspace_id === "string" ? row.workspace_id : null;
-        const name = typeof row.workspace_name === "string" ? row.workspace_name : null;
-        const role = typeof row.role === "string" ? row.role : null;
-        const createdAt = typeof row.created_at === "string" ? row.created_at : null;
-        if (id && name) {
-          legacyOut.push({
-            id,
-            name,
-            role,
-            createdAt,
-            sourceType: null,
-            orgId: null,
-            orgName: null,
-          });
-        }
-      }
-
-      legacyOut.sort((a, b) => {
-        const aRole = workspaceRoleRank(a.role);
-        const bRole = workspaceRoleRank(b.role);
-        if (aRole !== bRole) return bRole - aRole;
-        const aCreated = parseTimestampToMs(a.createdAt);
-        const bCreated = parseTimestampToMs(b.createdAt);
-        if (aCreated !== bCreated) return aCreated - bCreated;
-        return a.name.localeCompare(b.name);
-      });
-
-      return legacyOut;
+      const legacyRows = legacy.data as WorkspaceAccessRow[] | null;
+      return normalizeWorkspaceAccessRows(legacyRows);
     }
   }
 
@@ -276,31 +215,7 @@ export async function listMyWorkspaces(): Promise<Workspace[]> {
     throw error;
   }
 
-  const out: Workspace[] = [];
-  for (const row of data ?? []) {
-    const id = typeof row.workspace_id === "string" ? row.workspace_id : null;
-    const name = typeof row.workspace_name === "string" ? row.workspace_name : null;
-    const role = typeof row.role === "string" ? row.role : null;
-    const createdAt = typeof row.created_at === "string" ? row.created_at : null;
-    const sourceType = row.source_type === "personal" || row.source_type === "shared"
-      ? row.source_type
-      : null;
-    const orgId = typeof row.org_id === "string" ? row.org_id : null;
-    const orgName = typeof row.org_name === "string" ? row.org_name : null;
-    if (id && name) out.push({ id, name, role, createdAt, sourceType, orgId, orgName });
-  }
-
-  out.sort((a, b) => {
-    const aRole = workspaceRoleRank(a.role);
-    const bRole = workspaceRoleRank(b.role);
-    if (aRole !== bRole) return bRole - aRole;
-    const aCreated = parseTimestampToMs(a.createdAt);
-    const bCreated = parseTimestampToMs(b.createdAt);
-    if (aCreated !== bCreated) return aCreated - bCreated;
-    return a.name.localeCompare(b.name);
-  });
-
-  return out;
+  return normalizeWorkspaceAccessRows(data);
 }
 
 export async function listWorkspaceProjects(workspaceId: string): Promise<Assignment[]> {
