@@ -403,4 +403,3 @@ function createOBSAdapter() {
 export {
   createOBSAdapter
 };
-//# sourceMappingURL=obs.js.map

@@ -28,6 +28,7 @@ function mockService() {
     listWorkspaceCanonicalRecordings: [],
     archiveWorkpiece: [],
     restoreWorkpiece: [],
+    resolveWorkpieceAssetVariant: [],
     listWorkspaceReadyScripts: [],
     getWorkpieceVisualPackage: [],
     getWorkpieceImageMap: [],
@@ -582,6 +583,30 @@ function mockService() {
         archived_at: null,
         archived_by: null,
         archive_reason: null,
+      };
+    },
+    async resolveWorkpieceAssetVariant(workpieceId, input, options) {
+      calls.resolveWorkpieceAssetVariant.push({ workpieceId, input, options: options ?? null });
+      return {
+        status: "resolved",
+        resolved: {
+          asset_id: input.asset_id,
+          variant_kind: input.purpose === "list" ? "thumb" : "preview",
+          variant_version: 1,
+          path: "assets/image-map/thumb_v1.webp",
+          storage_key: `workpieces/${workpieceId}/assets/image-map/thumb_v1.webp`,
+          bytes: 1024,
+          width: 320,
+          height: 180,
+          cache_control: "public, max-age=31536000, immutable",
+          mime_type: "image/webp",
+          identity_key: `${workpieceId}:${input.asset_id}:thumb:v1`,
+          public_url_path: `/storage/episode-media/${workpieceId}/${input.asset_id}/thumb_v1.webp`,
+          purpose: input.purpose,
+          requested_variant_kind: input.purpose === "export" ? "original" : (input.purpose === "list" ? "thumb" : "preview"),
+          fallback_used: input.purpose === "preview",
+        },
+        message: "resolved",
       };
     },
     async listWorkspaceReadyScripts(workspaceId, options) {
@@ -4403,6 +4428,34 @@ test("POST /tongs/workpieces/:id/archive dispatches archiveWorkpiece", async () 
   assert.equal(calls.archiveWorkpiece[0]?.options?.userAccessToken, "user_token_abc");
   assert.equal(body.ok, true);
   assert.equal(body.data?.workpiece?.archived_at, "2026-03-11T14:00:00.000Z");
+});
+
+test("GET /tongs/workpieces/:id/assets/:assetId/variant dispatches resolveWorkpieceAssetVariant", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/assets/22222222-2222-4222-8222-222222222222/variant?workspace_id=33333333-3333-4333-8333-333333333333&purpose=preview",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.resolveWorkpieceAssetVariant.length, 1);
+  assert.equal(calls.resolveWorkpieceAssetVariant[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.resolveWorkpieceAssetVariant[0]?.input?.asset_id, "22222222-2222-4222-8222-222222222222");
+  assert.equal(calls.resolveWorkpieceAssetVariant[0]?.input?.workspace_id, "33333333-3333-4333-8333-333333333333");
+  assert.equal(calls.resolveWorkpieceAssetVariant[0]?.input?.purpose, "preview");
+  assert.equal(calls.resolveWorkpieceAssetVariant[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.status, "resolved");
 });
 
 test("POST /tongs/workpieces/:id/archive returns stable 409 payload when archive is disabled", async () => {

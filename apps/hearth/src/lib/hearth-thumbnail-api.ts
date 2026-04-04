@@ -8,6 +8,7 @@ import {
   type EpisodeThumbnailVersion,
 } from "./episode-package-v2";
 import { resolveAiLaneFromStorage, resolveForgeUserAccessToken } from "./hearth-chat-api";
+import { recordHearthBandwidthFetch } from "./hearthBandwidthTelemetry";
 import { tongsFetch } from "./tongs-fetch";
 
 type GeneratedAsset = {
@@ -78,6 +79,15 @@ export type SaveEpisodePackageResult =
 export type ThumbnailPreviewResult =
   | { ok: true; dataUrl: string; path: string }
   | { ok: false; error: string };
+
+const thumbnailPreviewDataUrlCache = new Map<string, ThumbnailPreviewResult & { ok: true }>();
+
+function estimateBase64Bytes(value: string): number {
+  const trimmed = value.trim();
+  if (!trimmed) return 0;
+  const padding = trimmed.endsWith("==") ? 2 : trimmed.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((trimmed.length * 3) / 4) - padding);
+}
 
 export type UploadThumbnailImageResult =
   | { ok: true; version: EpisodeThumbnailVersion }
@@ -541,6 +551,16 @@ export async function loadThumbnailPreviewDataUrl(args: {
   workpieceId: string;
   version: EpisodeThumbnailVersion;
 }): Promise<ThumbnailPreviewResult> {
+  const cacheKey = `${args.workpieceId}:${args.version.id}:thumb:v1`;
+  const cached = thumbnailPreviewDataUrlCache.get(cacheKey);
+  if (cached) {
+    return {
+      ok: true,
+      dataUrl: cached.dataUrl,
+      path: cached.path,
+    };
+  }
+
   const paths = resolveCandidateAssetPaths(args.workpieceId, args.version);
   for (const path of paths) {
     const response = await tongsFetch(
@@ -553,11 +573,18 @@ export async function loadThumbnailPreviewDataUrl(args: {
     const bytesBase64 = readString(body.data.bytes_base64);
     const contentType = readString(body.data.content_type) ?? readString(args.version.mime_type) ?? "image/png";
     if (!bytesBase64) continue;
-    return {
+    const result: ThumbnailPreviewResult & { ok: true } = {
       ok: true,
       dataUrl: `data:${contentType};base64,${bytesBase64}`,
       path,
     };
+    thumbnailPreviewDataUrlCache.set(cacheKey, result);
+    recordHearthBandwidthFetch({
+      assetKey: cacheKey,
+      surface: "thumbnail_preview",
+      bytes: estimateBase64Bytes(bytesBase64),
+    });
+    return result;
   }
 
   return {

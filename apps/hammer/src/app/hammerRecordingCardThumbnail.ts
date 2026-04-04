@@ -187,6 +187,7 @@ export async function ensureWorkpieceRecordingCardThumbnail(args: {
     workpieceId: args.workpieceId,
     path: normalizedRecordingPath,
     mimeType: inferVideoMimeTypeFromPath(normalizedRecordingPath),
+    surface: "recording_card_preview",
   });
   try {
     const capture = await captureVideoFrameThumbnail({

@@ -58,6 +58,11 @@ import {
 import { normalizeHammerAudioEdit } from "./hammer-audio-edit-contract.js";
 import { normalizeHammerStructuredTranscript } from "./hammer-structured-transcript-contract.js";
 import { normalizeHammerVisualPlacements } from "./hammer-visual-placements-contract.js";
+import {
+  resolveForgeAssetVariant,
+  type ForgeAssetVariantPurpose,
+  type ForgeAssetVariantRow,
+} from "./asset-variant-resolver.js";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
@@ -898,6 +903,12 @@ export type DeleteWorkpieceResult = {
   warnings: string[];
 };
 
+export type ResolveWorkpieceAssetVariantRequest = {
+  workspace_id: string;
+  asset_id: string;
+  purpose: ForgeAssetVariantPurpose;
+};
+
 export type ListWorkspaceReadyScriptsOptions = {
   unrecordedOnly?: boolean;
   includeHidden?: boolean;
@@ -953,6 +964,11 @@ export type TongsCommitApiService = {
     input: DeleteWorkpieceRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<DeleteWorkpieceResult>;
+  resolveWorkpieceAssetVariant(
+    workpieceId: string,
+    input: ResolveWorkpieceAssetVariantRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ReturnType<typeof resolveForgeAssetVariant>>;
   generateEpisodeThumbnail(workpieceId: string, input: GenerateEpisodeThumbnailRequest): Promise<GenerateEpisodeThumbnailResponse>;
   createRecordingSessionRecord(input: CreateRecordingSessionRecordRequest): Promise<RecordingSessionRow>;
   listRecordingSessionsForPlanner(options?: RecordingSessionListOptions): Promise<RecordingSessionRow[]>;
@@ -3188,6 +3204,18 @@ function normalizeDeleteWorkpieceRequest(body: Record<string, unknown>): DeleteW
     workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
     deletion_mode: deletionModeRaw,
   };
+}
+
+function normalizeVariantPurpose(raw: string | null | undefined): ForgeAssetVariantPurpose {
+  const normalized = (raw ?? "").trim().toLowerCase();
+  if (normalized === "list" || normalized === "preview" || normalized === "export") {
+    return normalized;
+  }
+  throw new HttpError(
+    400,
+    "invalid_variant_purpose",
+    "Variant purpose must be one of list, preview, or export.",
+  );
 }
 
 function buildImageMapAssetDocument(
@@ -7769,6 +7797,105 @@ export class TongsCommitService {
     return toWorkspaceEpisodeSummary(data);
   }
 
+  async resolveWorkpieceAssetVariant(
+    workpieceId: string,
+    input: ResolveWorkpieceAssetVariantRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ReturnType<typeof resolveForgeAssetVariant>> {
+    await this.getWorkspaceOrThrow(input.workspace_id);
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "viewer", options?.userAccessToken);
+
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => {
+        select: (columns: string) => {
+          eq: (column: string, value: unknown) => {
+            eq: (nextColumn: string, nextValue: unknown) => {
+              maybeSingle: () => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
+            };
+          };
+        };
+      };
+    };
+
+    const { data: originalAsset, error: originalAssetError } = await tongsUntyped
+      .from("assets")
+      .select("id,workpiece_id,source_asset_id,variant_kind,variant_version,path,storage_key,bytes,width,height,cache_control,mime_type,status")
+      .eq("id", input.asset_id)
+      .eq("workpiece_id", workpieceId)
+      .maybeSingle();
+    if (originalAssetError) {
+      throw new HttpError(502, "db_read_failed", "Failed to resolve requested asset", {
+        reason: originalAssetError.message,
+      });
+    }
+    if (!originalAsset) {
+      throw new HttpError(404, "asset_not_found", "Asset could not be found for this workpiece.");
+    }
+
+    const sourceAssetId = typeof originalAsset.source_asset_id === "string" && originalAsset.source_asset_id.trim()
+      ? originalAsset.source_asset_id
+      : (originalAsset.variant_kind === "original" ? String(originalAsset.id) : null);
+    if (!sourceAssetId) {
+      throw new HttpError(409, "invalid_asset_lineage", "Asset is missing source lineage for variant resolution.");
+    }
+
+    const {
+      data: variantRows,
+      error: variantsError,
+    } = await (this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => {
+        select: (columns: string) => {
+          eq: (column: string, value: unknown) => {
+            eq: (nextColumn: string, nextValue: unknown) => Promise<{
+              data: Record<string, unknown>[] | null;
+              error: { message: string } | null;
+            }>;
+          };
+        };
+      };
+    })
+      .from("assets")
+      .select("id,workpiece_id,source_asset_id,variant_kind,variant_version,path,storage_key,bytes,width,height,cache_control,mime_type,status")
+      .eq("workpiece_id", workpieceId)
+      .eq("source_asset_id", sourceAssetId);
+    if (variantsError) {
+      throw new HttpError(502, "db_read_failed", "Failed to resolve asset variants", {
+        reason: variantsError.message,
+      });
+    }
+
+    const toVariantRow = (row: Record<string, unknown>): ForgeAssetVariantRow => ({
+      id: String(row.id ?? ""),
+      workpiece_id: String(row.workpiece_id ?? ""),
+      source_asset_id: typeof row.source_asset_id === "string" ? row.source_asset_id : null,
+      variant_kind: (row.variant_kind === "preview" || row.variant_kind === "thumb") ? row.variant_kind : "original",
+      variant_version: typeof row.variant_version === "number" && Number.isFinite(row.variant_version)
+        ? Math.max(1, Math.trunc(row.variant_version))
+        : 1,
+      path: String(row.path ?? ""),
+      storage_key: String(row.storage_key ?? ""),
+      bytes: typeof row.bytes === "number" && Number.isFinite(row.bytes) ? row.bytes : null,
+      width: typeof row.width === "number" && Number.isFinite(row.width) ? row.width : null,
+      height: typeof row.height === "number" && Number.isFinite(row.height) ? row.height : null,
+      cache_control: typeof row.cache_control === "string" ? row.cache_control : null,
+      mime_type: typeof row.mime_type === "string" ? row.mime_type : null,
+      status: typeof row.status === "string" ? row.status : null,
+    });
+
+    const allRows = [toVariantRow(originalAsset), ...((variantRows ?? []).map(toVariantRow))];
+    const original = allRows.find((row) => row.variant_kind === "original" && row.id === sourceAssetId)
+      ?? allRows.find((row) => row.variant_kind === "original")
+      ?? toVariantRow(originalAsset);
+    const variants = allRows.filter((row) => row.id !== original.id);
+
+    return resolveForgeAssetVariant({
+      purpose: input.purpose,
+      originalAsset: original,
+      variants,
+    });
+  }
+
   async getWorkpieceImageMap(
     workpieceId: string,
     options?: { userAccessToken?: string | null },
@@ -8936,6 +9063,31 @@ export function createTongsCommitApiHandlerWithService(
           userAccessToken,
         });
         return jsonResponse(200, { ok: true, data: { listing } });
+      }
+
+      if (
+        parts.length === 6
+        && parts[0] === "tongs"
+        && parts[1] === "workpieces"
+        && parts[3] === "assets"
+        && parts[5] === "variant"
+      ) {
+        requireMethod(request, "GET");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const assetId = normalizeUuid(decodeURIComponent(parts[4]), "asset_id");
+        const workspaceId = normalizeUuid(url.searchParams.get("workspace_id"), "workspace_id");
+        const purpose = normalizeVariantPurpose(url.searchParams.get("purpose"));
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.resolveWorkpieceAssetVariant(
+          workpieceId,
+          {
+            workspace_id: workspaceId,
+            asset_id: assetId,
+            purpose,
+          },
+          { userAccessToken },
+        );
+        return jsonResponse(200, { ok: true, data: result });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "archive") {

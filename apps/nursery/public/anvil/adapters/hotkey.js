@@ -22,4 +22,3 @@ export {
   disable,
   enable
 };
-//# sourceMappingURL=hotkey.js.map

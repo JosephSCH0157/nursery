@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
+  buildHammerAssetIdentityKey,
   buildSourceDeskUploadPath,
   isAcceptedSourceDeskMediaUpload,
   loadIntroOutroSelection,
@@ -202,6 +203,49 @@ async function testPreviewRequestUsesNormalizedRelativePath() {
   }
 }
 
+async function testPreviewRequestCachesNetworkFetchPerAssetIdentity() {
+  const calls: FetchCall[] = [];
+  const createObjectUrl = URL.createObjectURL;
+  URL.createObjectURL = ((blob: Blob) => `blob:${blob.type}:${blob.size}`) as typeof URL.createObjectURL;
+  try {
+    const uniquePath = `assets/cache-test-${Date.now()}.png`;
+    const fakeFetch = async (url: string, options: Record<string, unknown>) => {
+      calls.push({ url, options });
+      return new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      });
+    };
+
+    const first = await loadWorkpieceMediaPreviewUrl({
+      workpieceId: "abc123",
+      path: uniquePath,
+      fetcher: fakeFetch as never,
+    });
+    const second = await loadWorkpieceMediaPreviewUrl({
+      workpieceId: "abc123",
+      path: uniquePath,
+      fetcher: fakeFetch as never,
+    });
+
+    assert.equal(first.startsWith("blob:image/png:"), true);
+    assert.equal(second.startsWith("blob:image/png:"), true);
+    assert.equal(calls.length, 1);
+  } finally {
+    URL.createObjectURL = createObjectUrl;
+  }
+}
+
+async function testDeterministicAssetIdentityKey() {
+  const key = buildHammerAssetIdentityKey({
+    workpieceId: "workpiece_01",
+    assetId: "asset_01",
+    variantKind: "preview",
+    variantVersion: 2,
+  });
+  assert.equal(key, "workpiece_01:asset_01:preview:v2");
+}
+
 async function testPreviewErrorIncludesNormalizationDiagnostics() {
   const fakeFetch = async () => new Response(null, { status: 404 });
 
@@ -241,6 +285,8 @@ async function run() {
   await testIntroOutroSelectionSerializationRoundTrip();
   await testNormalizeWorkpieceRelativePath();
   await testPreviewRequestUsesNormalizedRelativePath();
+  await testPreviewRequestCachesNetworkFetchPerAssetIdentity();
+  await testDeterministicAssetIdentityKey();
   await testPreviewErrorIncludesNormalizationDiagnostics();
   await testNoLocalStorageDependencyInApiModule();
   // eslint-disable-next-line no-console

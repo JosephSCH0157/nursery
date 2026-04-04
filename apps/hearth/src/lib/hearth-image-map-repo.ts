@@ -6,7 +6,10 @@ import {
   type EpisodeImageMapEntry,
   type EpisodeSpokenBeat,
 } from "./episode-package-v2";
+import { recordHearthBandwidthFetch } from "./hearthBandwidthTelemetry";
 import { tongsFetch } from "./tongs-fetch";
+
+const imageMapCandidatePreviewCache = new Map<string, { dataUrl: string; path: string }>();
 
 export type WorkpieceImageMapView = {
   workpieceId: string;
@@ -495,6 +498,15 @@ export async function loadImageMapCandidatePreviewDataUrl(args: {
   if (!path) {
     return { ok: false, error: "Candidate preview path is missing." };
   }
+  const cacheKey = `${args.workpieceId}:${path}:preview:v1`;
+  const cached = imageMapCandidatePreviewCache.get(cacheKey);
+  if (cached) {
+    return {
+      ok: true,
+      dataUrl: cached.dataUrl,
+      path: cached.path,
+    };
+  }
 
   const response = await tongsFetch(
     `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent(path)}&encoding=base64`,
@@ -513,11 +525,20 @@ export async function loadImageMapCandidatePreviewDataUrl(args: {
   if (!bytesBase64) {
     return { ok: false, error: "Candidate preview image is empty." };
   }
-  return {
+  const result = {
     ok: true,
     dataUrl: `data:${contentType};base64,${bytesBase64}`,
     path,
-  };
+  } as const;
+  imageMapCandidatePreviewCache.set(cacheKey, { dataUrl: result.dataUrl, path: result.path });
+  const padding = bytesBase64.endsWith("==") ? 2 : bytesBase64.endsWith("=") ? 1 : 0;
+  const estimatedBytes = Math.max(0, Math.floor((bytesBase64.length * 3) / 4) - padding);
+  recordHearthBandwidthFetch({
+    assetKey: cacheKey,
+    surface: "image_map_candidate_preview",
+    bytes: estimatedBytes,
+  });
+  return result;
 }
 
 export async function uploadWorkpieceImageMapCandidateAsset(args: {

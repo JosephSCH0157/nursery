@@ -38,4 +38,3 @@ function createBridgeAdapter() {
 export {
   createBridgeAdapter
 };
-//# sourceMappingURL=bridge.js.map

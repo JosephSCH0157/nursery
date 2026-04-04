@@ -1,6 +1,7 @@
 import { HAMMER_RUNTIME_WRITTEN_BY } from "../prep/hammerPrep";
 import { tongsFetch } from "./tongsFetch";
 import { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
+import { recordHammerBandwidthFetch } from "./hammerBandwidthTelemetry";
 export { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
 
 const INTRO_OUTRO_SELECTION_PATH = "hammer/session/intro-outro.v1.json";
@@ -93,6 +94,26 @@ type HammerMediaPreviewErrorDiagnostics = {
   normalizedPath: string;
   status: number | null;
 };
+
+type HammerPreviewCacheEntry = {
+  bytes: ArrayBuffer;
+  contentType: string;
+};
+
+const previewResponseCache = new Map<string, HammerPreviewCacheEntry>();
+const previewResponseInflight = new Map<string, Promise<HammerPreviewCacheEntry>>();
+
+export function buildHammerAssetIdentityKey(args: {
+  workpieceId: string;
+  assetId: string;
+  variantKind: "thumb" | "preview" | "original";
+  variantVersion: number;
+}): string {
+  const version = Number.isFinite(args.variantVersion) && args.variantVersion > 0
+    ? Math.trunc(args.variantVersion)
+    : 1;
+  return `${args.workpieceId}:${args.assetId}:${args.variantKind}:v${version}`;
+}
 
 type HammerMediaPreviewLoadError = Error & HammerMediaPreviewErrorDiagnostics;
 
@@ -316,36 +337,78 @@ export async function loadWorkpieceMediaPreviewUrl(args: {
   workpieceId: string;
   path: string;
   mimeType?: string | null;
+  variantKind?: "thumb" | "preview";
+  variantVersion?: number;
+  assetId?: string | null;
+  surface?: "source_desk_preview" | "project_library_preview" | "recording_card_preview" | "unknown";
   fetcher?: TongsFetcher;
 }): Promise<string> {
   const normalizedPath = normalizeWorkpieceRelativePath(args.workpieceId, args.path);
+  const variantKind = args.variantKind ?? "preview";
+  const variantVersion = Number.isFinite(args.variantVersion) && (args.variantVersion ?? 0) > 0
+    ? Math.trunc(args.variantVersion ?? 1)
+    : 1;
+  const assetIdentity = (args.assetId?.trim() || normalizedPath);
+  const cacheKey = buildHammerAssetIdentityKey({
+    workpieceId: args.workpieceId,
+    assetId: assetIdentity,
+    variantKind,
+    variantVersion,
+  });
   const params = new URLSearchParams({
     path: normalizedPath,
     encoding: "binary",
   });
   try {
-    const response = await (args.fetcher ?? tongsFetch)(
-      `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?${params.toString()}`,
-      {
-        method: "GET",
-        headers: {
-          accept: "application/octet-stream",
-        },
-        timeoutMs: 45_000,
-      },
-    );
+    let cached = previewResponseCache.get(cacheKey) ?? null;
+    if (!cached) {
+      const inflight = previewResponseInflight.get(cacheKey);
+      if (inflight) {
+        cached = await inflight;
+      } else {
+        const requestPromise = (async () => {
+          const response = await (args.fetcher ?? tongsFetch)(
+            `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?${params.toString()}`,
+            {
+              method: "GET",
+              headers: {
+                accept: "application/octet-stream",
+              },
+              timeoutMs: 45_000,
+            },
+          );
 
-    if (!response.ok) {
-      throw createMediaPreviewLoadError({
-        workpieceId: args.workpieceId,
-        originalPath: args.path,
-        normalizedPath,
-        status: response.status,
-      });
+          if (!response.ok) {
+            throw createMediaPreviewLoadError({
+              workpieceId: args.workpieceId,
+              originalPath: args.path,
+              normalizedPath,
+              status: response.status,
+            });
+          }
+          const bytes = await response.arrayBuffer();
+          const contentType = response.headers.get("content-type")?.trim() || args.mimeType?.trim() || "application/octet-stream";
+          const entry: HammerPreviewCacheEntry = { bytes, contentType };
+          previewResponseCache.set(cacheKey, entry);
+          previewResponseInflight.delete(cacheKey);
+          recordHammerBandwidthFetch({
+            assetKey: cacheKey,
+            surface: args.surface ?? "source_desk_preview",
+            bytes: bytes.byteLength,
+          });
+          return entry;
+        })();
+        previewResponseInflight.set(cacheKey, requestPromise);
+        try {
+          cached = await requestPromise;
+        } catch (error) {
+          previewResponseInflight.delete(cacheKey);
+          throw error;
+        }
+      }
     }
-    const bytes = await response.arrayBuffer();
-    const contentType = response.headers.get("content-type")?.trim() || args.mimeType?.trim() || "application/octet-stream";
-    return URL.createObjectURL(new Blob([bytes], { type: contentType }));
+
+    return URL.createObjectURL(new Blob([cached.bytes], { type: cached.contentType }));
   } catch (error) {
     const diagnostics = readHammerMediaPreviewErrorDiagnostics(error);
     if (diagnostics) throw error;

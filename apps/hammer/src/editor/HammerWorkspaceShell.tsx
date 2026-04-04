@@ -287,6 +287,18 @@ const POST_ROLL_SEC = 1;
 const SCRUB_SEEK_THRESHOLD_SEC = 0.05;
 const PLAYHEAD_WINDOW_EPSILON_SEC = 0.001;
 const MIN_IMAGE_PLACEMENT_DURATION_SEC = 0.5;
+const IMAGE_PLACEMENT_TIME_PRECISION = 100;
+const IMAGE_PLACEMENT_FINE_STEP_SEC = 0.01;
+const IMAGE_PLACEMENT_COARSE_STEP_SEC = 0.1;
+
+function roundImagePlacementTime(value: number): number {
+  return Math.round(value * IMAGE_PLACEMENT_TIME_PRECISION) / IMAGE_PLACEMENT_TIME_PRECISION;
+}
+
+function snapImagePlacementTime(value: number, stepSec: number): number {
+  if (!Number.isFinite(stepSec) || stepSec <= 0) return roundImagePlacementTime(value);
+  return roundImagePlacementTime(Math.round(value / stepSec) * stepSec);
+}
 const SCRUB_RATE_OPTIONS = [1, 0.75, 0.5] as const;
 const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
 type HammerPlaybackAuthorityWindow = Window & typeof globalThis & {
@@ -3784,6 +3796,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           workpieceId: launchContext.workpiece_id,
           path: localRelpath,
           mimeType: mediaRef?.kind === "recording_audio" ? "audio/mpeg" : "video/webm",
+          surface: "unknown",
         });
         if (!active) {
           URL.revokeObjectURL(previewUrl);
@@ -4063,26 +4076,48 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         setTimelineImageDragState(null);
         return;
       }
-      const deltaSec = roundToTenth((event.clientX - timelineImageDragState.pointerStartX) * timelineImageDragState.pxToSec);
+      const dragStepSec = event.shiftKey ? IMAGE_PLACEMENT_COARSE_STEP_SEC : IMAGE_PLACEMENT_FINE_STEP_SEC;
+      const deltaSec = snapImagePlacementTime(
+        (event.clientX - timelineImageDragState.pointerStartX) * timelineImageDragState.pxToSec,
+        dragStepSec,
+      );
       const originalDuration = Math.max(
         MIN_IMAGE_PLACEMENT_DURATION_SEC,
-        roundToTenth(timelineImageDragState.originEndSec - timelineImageDragState.originStartSec),
+        roundImagePlacementTime(timelineImageDragState.originEndSec - timelineImageDragState.originStartSec),
       );
 
       let startSec = timelineImageDragState.originStartSec;
       let endSec = timelineImageDragState.originEndSec;
       if (timelineImageDragState.mode === "move") {
-        const tentativeStart = roundToTenth(timelineImageDragState.originStartSec + deltaSec);
-        const maxStart = Math.max(0, roundToTenth(timelineDurationSec - originalDuration));
+        const tentativeStart = snapImagePlacementTime(timelineImageDragState.originStartSec + deltaSec, dragStepSec);
+        const maxStart = Math.max(0, snapImagePlacementTime(timelineDurationSec - originalDuration, dragStepSec));
         startSec = Math.max(0, Math.min(maxStart, tentativeStart));
-        endSec = Math.min(timelineDurationSec, roundToTenth(startSec + originalDuration));
+        endSec = Math.min(timelineDurationSec, snapImagePlacementTime(startSec + originalDuration, dragStepSec));
       } else if (timelineImageDragState.mode === "resize_start") {
-        const maxStart = roundToTenth(timelineImageDragState.originEndSec - MIN_IMAGE_PLACEMENT_DURATION_SEC);
-        startSec = Math.max(0, Math.min(maxStart, roundToTenth(timelineImageDragState.originStartSec + deltaSec)));
+        const maxStart = snapImagePlacementTime(
+          timelineImageDragState.originEndSec - MIN_IMAGE_PLACEMENT_DURATION_SEC,
+          dragStepSec,
+        );
+        startSec = Math.max(
+          0,
+          Math.min(
+            maxStart,
+            snapImagePlacementTime(timelineImageDragState.originStartSec + deltaSec, dragStepSec),
+          ),
+        );
         endSec = timelineImageDragState.originEndSec;
       } else {
-        const minEnd = roundToTenth(timelineImageDragState.originStartSec + MIN_IMAGE_PLACEMENT_DURATION_SEC);
-        endSec = Math.max(minEnd, Math.min(timelineDurationSec, roundToTenth(timelineImageDragState.originEndSec + deltaSec)));
+        const minEnd = snapImagePlacementTime(
+          timelineImageDragState.originStartSec + MIN_IMAGE_PLACEMENT_DURATION_SEC,
+          dragStepSec,
+        );
+        endSec = Math.max(
+          minEnd,
+          Math.min(
+            timelineDurationSec,
+            snapImagePlacementTime(timelineImageDragState.originEndSec + deltaSec, dragStepSec),
+          ),
+        );
         startSec = timelineImageDragState.originStartSec;
       }
 
@@ -4259,6 +4294,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           const url = await loadWorkpieceMediaPreviewUrl({
             workpieceId: launchContext.workpiece_id,
             path,
+            surface: "source_desk_preview",
           });
           nextUrls[path] = url;
         } catch (error) {
@@ -5626,10 +5662,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     placementId: string,
     args: { startSec: number; endSec: number; label: string },
   ): void {
-    const clampedStart = Math.max(0, Math.min(timelineDurationSec, roundToTenth(args.startSec)));
+    const clampedStart = Math.max(0, Math.min(timelineDurationSec, roundImagePlacementTime(args.startSec)));
     const clampedEnd = Math.max(
-      roundToTenth(clampedStart + MIN_IMAGE_PLACEMENT_DURATION_SEC),
-      Math.min(timelineDurationSec, roundToTenth(args.endSec)),
+      roundImagePlacementTime(clampedStart + MIN_IMAGE_PLACEMENT_DURATION_SEC),
+      Math.min(timelineDurationSec, roundImagePlacementTime(args.endSec)),
     );
     applyHistoryMutation({
       label: args.label,
@@ -5650,11 +5686,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   function updateVisualPlacementTiming(placementId: string, deltaSec: number): void {
     const placement = sourceVisualPlacementItems.find((item) => item.id === placementId) ?? null;
     if (!placement) return;
-    const duration = Math.max(MIN_IMAGE_PLACEMENT_DURATION_SEC, roundToTenth(placement.endSec - placement.startSec));
-    const nextStart = Math.max(0, roundToTenth(placement.startSec + deltaSec));
-    const maxStart = Math.max(0, roundToTenth(timelineDurationSec - duration));
+    const duration = Math.max(MIN_IMAGE_PLACEMENT_DURATION_SEC, roundImagePlacementTime(placement.endSec - placement.startSec));
+    const nextStart = Math.max(0, roundImagePlacementTime(placement.startSec + deltaSec));
+    const maxStart = Math.max(0, roundImagePlacementTime(timelineDurationSec - duration));
     const clampedStart = Math.min(nextStart, maxStart);
-    const nextEnd = Math.min(timelineDurationSec, roundToTenth(clampedStart + duration));
+    const nextEnd = Math.min(timelineDurationSec, roundImagePlacementTime(clampedStart + duration));
     commitVisualPlacementWindow(placementId, {
       startSec: clampedStart,
       endSec: nextEnd,
@@ -5715,8 +5751,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (!visualPlacementEditingEnabled) return;
     if (event.button !== 0) return;
     const currentTarget = event.currentTarget as Element;
+    const laneTrack = currentTarget.closest(".hammer-visual-timeline-lane__track, .hammer-timeline-lane__track");
     const ownerSvg = currentTarget instanceof SVGElement ? currentTarget.ownerSVGElement : null;
-    const trackRect = ownerSvg?.getBoundingClientRect() ?? currentTarget.getBoundingClientRect();
+    const trackRect = laneTrack instanceof HTMLElement
+      ? laneTrack.getBoundingClientRect()
+      : ownerSvg?.getBoundingClientRect() ?? currentTarget.getBoundingClientRect();
     if (trackRect.width <= 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -11042,7 +11081,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Image Placement</header>
                     <div className="hammer-tool-hint">
-                      Direct manipulation mode. Drag and resize image clips in timeline or preview.
+                      Direct manipulation mode. Drag and resize image clips in timeline or preview. Hold Shift while dragging to snap to 0.1s steps.
                     </div>
                     {selectedImagePlacement ? (
                       <>

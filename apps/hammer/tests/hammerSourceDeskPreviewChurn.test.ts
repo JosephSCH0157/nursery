@@ -106,10 +106,34 @@ async function source_desk_effect_depends_on_stable_key() {
   );
 }
 
+async function timeline_transforms_do_not_request_preview_media() {
+  const source = await readFile(
+    "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx",
+    "utf-8",
+  );
+  const dragEffectMatch = source.match(
+    /if \(!timelineImageDragState\) return;([\s\S]*?)useEffect\(\(\) => \{\s*if \(!previewCanvasDragState\) return;/,
+  );
+  const dragEffectSlice = dragEffectMatch?.[1] ?? "";
+
+  caseAssert(
+    dragEffectSlice.length > 0 && !dragEffectSlice.includes("loadWorkpieceMediaPreviewUrl("),
+    {
+      title: "timeline transform path is metadata-only",
+      setup: "Drag/resize timeline interactions should be geometry/timing transforms only.",
+      action: "Inspect timeline image drag effect implementation.",
+      observed: "Timeline transform path contains media preview fetch calls.",
+      expected: "No media fetch calls are allowed during timeline transform effects.",
+      likelyDriftPoint: "Timeline drag/resize useEffect in HammerWorkspaceShell.",
+    },
+  );
+}
+
 async function run() {
   await stable_key_collapses_equivalent_preview_sets();
   await stable_key_changes_when_preview_set_changes();
   await source_desk_effect_depends_on_stable_key();
+  await timeline_transforms_do_not_request_preview_media();
   // eslint-disable-next-line no-console
   console.log("Hammer Source Desk preview churn tests passed.");
 }

@@ -181,6 +181,7 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
             workpieceId: project.workpieceId,
             path: thumbnailPath,
             mimeType: "image/jpeg",
+            surface: "project_library_preview",
           }).catch(() => null);
         }
         if (!previewUrl) {
@@ -194,6 +195,7 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
               workpieceId: project.workpieceId,
               path: thumbnailPath,
               mimeType: "image/jpeg",
+              surface: "project_library_preview",
             }).catch(() => null);
           }
         }
@@ -202,6 +204,7 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
             workpieceId: project.workpieceId,
             path: project.recording.keptTakePath,
             mimeType: inferVideoMimeTypeFromPath(project.recording.keptTakePath),
+            surface: "project_library_preview",
           }).catch(() => null);
           if (previewUrl) {
             nextKinds[project.workpieceId] = "video";
