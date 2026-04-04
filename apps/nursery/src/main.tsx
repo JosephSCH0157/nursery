@@ -35,6 +35,7 @@ const SettingsLayout = lazy(() => import("./routes/SettingsLayout"));
 const SettingsOrg = lazy(() => import("./routes/SettingsOrg"));
 const SettingsOrgTeams = lazy(() => import("./routes/SettingsOrgTeams"));
 const SettingsStorage = lazy(() => import("./routes/SettingsStorage"));
+const AdminRoute = lazy(() => import("./routes/Admin"));
 const HammerRoute = lazy(() => import("./routes/Hammer"));
 const HammerDevCardsRoute = lazy(() => import("./routes/HammerDevCards"));
 const HammerEditorRoute = lazy(() => import("./routes/HammerEditor"));
@@ -84,6 +85,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="calendar" element={<Placeholder name="Calendar" />} />
             <Route path="subscriptions" element={<SubscriptionsRoute />} />
             <Route path="account" element={<SubscriptionsRoute />} />
+            <Route path="admin" element={withRouteFallback(<AdminRoute />, "Loading Admin...")} />
             <Route path="mobile-demo" element={<MobilePrimitivesDemo />} />
             <Route path="settings" element={withRouteFallback(<SettingsLayout />, "Loading Settings...")}>
               <Route index element={withRouteFallback(<SettingsHome />, "Loading Settings...")} />

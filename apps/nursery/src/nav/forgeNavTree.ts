@@ -46,6 +46,7 @@ export const forgeNavTree: ForgeNavSection[] = [
       { id: "org", label: "Organization", to: "/app/settings/org" },
       { id: "org-teams", label: "Org Teams", to: "/app/settings/org/teams" },
       { id: "storage", label: "Storage (Mounts)", to: "/app/settings/storage" },
+      { id: "admin", label: "Admin Panel", to: "/app/admin" },
       { id: "mobile-demo", label: "Mobile Demo", to: "/app/mobile-demo" },
     ],
   },
