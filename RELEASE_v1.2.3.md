@@ -39,3 +39,37 @@
 - `b52ccdb` update live product/price IDs in Stripe catalog
 - `c192509` billing/subscription management enhancements
 - plus supporting refactors/tests in Hearth and registry wiring
+
+---
+
+## Changelog — Forge (Bandwidth Control Phase 1 Foundation)
+
+Date: 2026-04-04  
+Scope: Tongs + Hammer + Hearth
+
+### Added
+- Canonical asset variant contract (`original | preview | thumb`) with lineage support in `tongs.assets`.
+- Centralized variant resolver enforcing:
+  - preview/thumb size ceilings
+  - strict non-escalation rules
+  - deterministic asset identity + URL structure
+- New Tongs API endpoint:
+  - `GET /tongs/workpieces/:workpieceId/assets/:assetId/variant`
+- Session-level media deduplication in Hammer and Hearth.
+- Bandwidth telemetry + debug instrumentation (`FORGE_BANDWIDTH_DEBUG=1`).
+- Initial Supabase egress baseline documentation scaffold.
+
+### Changed
+- Hammer and Hearth now resolve media exclusively through the canonical variant resolver.
+- Media fetch identity stabilized across renders (no URL churn on UI transforms).
+- Preview surfaces no longer implicitly request original assets.
+
+### Fixed
+- Eliminated preview-driven re-fetch churn in Hammer timeline and canvas interactions.
+- Prevented duplicate asset downloads within a session for identical variant requests.
+- Enforced “no network on transform” invariant in Hammer preview workflows.
+
+### Notes
+- This release establishes the foundation for bandwidth control in Forge.
+- Read-through variant generation, bucket policy enforcement, and full payload slimming remain in-progress.
+- No change to export fidelity (original assets still used for final output).
