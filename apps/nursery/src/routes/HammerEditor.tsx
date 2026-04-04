@@ -64,5 +64,15 @@ export default function HammerEditorRoute() {
     );
   }
 
-  return <HammerEditorRuntime releasePrepHref={releasePrepHref} />;
+  return (
+    <HammerEditorRuntime
+      releasePrepHref={releasePrepHref}
+      prepAiNoticeEffectiveLane={context.prepAiNoticeEffectiveLane}
+      prepAiNoticeAcknowledgedLaneSignature={context.prepAiNoticeAcknowledgedLaneSignature}
+      prepAiNoticeResolutionState={context.prepAiNoticeResolutionState}
+      prepAiNoticeResolutionError={context.prepAiNoticeResolutionError}
+      onPrepAiNoticeAcknowledgeLane={context.savePrepAiNoticeAcknowledgedLane}
+      onRequestAiSettings={context.openAiSettings}
+    />
+  );
 }

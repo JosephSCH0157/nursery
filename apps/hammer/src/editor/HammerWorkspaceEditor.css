@@ -123,6 +123,61 @@
   font-family: "IBM Plex Sans", sans-serif;
 }
 
+.hammer-prep-shell__notice-modal {
+  width: min(560px, 100%);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 18px;
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+  background: linear-gradient(180deg, rgba(12, 14, 23, 0.98), rgba(8, 10, 16, 0.94));
+  box-shadow: 0 24px 72px rgba(2, 6, 23, 0.54);
+  color: #e2e8f0;
+  font-family: "IBM Plex Sans", sans-serif;
+}
+
+.hammer-prep-shell__notice-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.hammer-prep-shell__notice-body {
+  font-size: 15px;
+  line-height: 1.6;
+  color: #dbe4ee;
+}
+
+.hammer-prep-shell__notice-detail {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #94a3b8;
+}
+
+.hammer-prep-shell__notice-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.hammer-prep-shell__notice-checkbox input {
+  accent-color: #38bdf8;
+}
+
+.hammer-prep-shell__notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.hammer-prep-shell__notice-actions .hammer-prep-shell__action-button,
+.hammer-prep-shell__notice-actions .hammer-prep-shell__button {
+  flex: 0 0 auto;
+}
+
 .hammer-prep-shell__wheel-row {
   display: grid;
   gap: 18px;

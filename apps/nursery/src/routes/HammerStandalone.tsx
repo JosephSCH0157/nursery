@@ -18,6 +18,13 @@ import { buildForgeRouteHref } from "../lib/forge-route-context";
 import { useWorkspaceBootstrap } from "../hooks/useWorkspaceBootstrap";
 import { supabase } from "../lib/supabase";
 import {
+  loadHammerPrepAiNoticeAcknowledgedLane,
+  resolveHammerPrepAiEffectiveLane,
+  saveHammerPrepAiNoticeAcknowledgedLane,
+  type HammerPrepAiEffectiveLane,
+  type HammerPrepAiNoticeResolutionState,
+} from "../lib/hammer/hammerPrepAiNotice";
+import {
   useEpisodeWorkspaceLoading,
   useEpisodeWorkspaceReadModel,
 } from "../workspace/useEpisodeWorkspaceReadModel";
@@ -94,10 +101,15 @@ export default function HammerStandalone() {
   const [resolvingInferredWorkspace, setResolvingInferredWorkspace] = useState(false);
   const [viewerLabel, setViewerLabel] = useState("Guest");
   const [authUserId, setAuthUserId] = useState<string | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [workpieceLabel, setWorkpieceLabel] = useState<string | null>(null);
   const [workpieceLabelLoading, setWorkpieceLabelLoading] = useState(false);
+  const [prepAiNoticeEffectiveLane, setPrepAiNoticeEffectiveLane] = useState<HammerPrepAiEffectiveLane>("forge-managed");
+  const [prepAiNoticeAcknowledgedLaneSignature, setPrepAiNoticeAcknowledgedLaneSignature] = useState<string | null>(null);
+  const [prepAiNoticeResolutionState, setPrepAiNoticeResolutionState] = useState<HammerPrepAiNoticeResolutionState>("loading");
+  const [prepAiNoticeResolutionError, setPrepAiNoticeResolutionError] = useState<string | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
   const allowStubScenario = import.meta.env.DEV;
@@ -156,6 +168,7 @@ export default function HammerStandalone() {
       setAuthUserId(user?.id ?? null);
       setViewerLabel(describeUser(user));
       setIsAuthenticated(Boolean(user));
+      setAuthResolved(true);
     };
 
     void supabase.auth.getUser().then(({ data }) => {
@@ -181,6 +194,64 @@ export default function HammerStandalone() {
     }
     void refreshWorkspaces();
   }, [authUserId, refreshWorkspaces]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!authResolved) {
+      setPrepAiNoticeResolutionState("loading");
+      setPrepAiNoticeResolutionError(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    if (!authUserId) {
+      setPrepAiNoticeEffectiveLane("forge-managed");
+      setPrepAiNoticeAcknowledgedLaneSignature(null);
+      setPrepAiNoticeResolutionState("ready");
+      setPrepAiNoticeResolutionError(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    const resolveNoticeState = async () => {
+      setPrepAiNoticeResolutionState("loading");
+      setPrepAiNoticeResolutionError(null);
+      try {
+        const [effectiveLane, acknowledgedLane] = await Promise.all([
+          resolveHammerPrepAiEffectiveLane(workspaceId),
+          loadHammerPrepAiNoticeAcknowledgedLane(),
+        ]);
+        if (!active) return;
+        setPrepAiNoticeEffectiveLane(effectiveLane);
+        setPrepAiNoticeAcknowledgedLaneSignature(acknowledgedLane);
+        setPrepAiNoticeResolutionState("ready");
+      } catch (error) {
+        if (!active) return;
+        setPrepAiNoticeResolutionState("error");
+        setPrepAiNoticeResolutionError(getErrorMessage(error, "Hammer could not resolve AI notice policy state."));
+      }
+    };
+
+    void resolveNoticeState();
+
+    const onAiSettingsChanged = () => {
+      void resolveNoticeState();
+    };
+    window.addEventListener("forge:ai:settings", onAiSettingsChanged);
+
+    return () => {
+      active = false;
+      window.removeEventListener("forge:ai:settings", onAiSettingsChanged);
+    };
+  }, [authResolved, authUserId, workspaceId]);
+
+  const persistPrepAiNoticeAcknowledgedLane = useCallback(async (laneSignature: string) => {
+    await saveHammerPrepAiNoticeAcknowledgedLane(laneSignature);
+    setPrepAiNoticeAcknowledgedLaneSignature(laneSignature);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -676,12 +747,19 @@ export default function HammerStandalone() {
             workspaceId,
             workspaceName,
             workpieceId,
+            userId: authUserId,
             workspaces,
             loadingWorkspaces,
             workspaceError,
             workspaceResolutionState,
+            prepAiNoticeEffectiveLane,
+            prepAiNoticeAcknowledgedLaneSignature,
+            prepAiNoticeResolutionState,
+            prepAiNoticeResolutionError,
             selectWorkspace,
             refreshWorkspaces,
+            savePrepAiNoticeAcknowledgedLane: persistPrepAiNoticeAcknowledgedLane,
+            openAiSettings: () => setAiControlsOpen(true),
           } satisfies HammerShellContext}
         />
       </main>

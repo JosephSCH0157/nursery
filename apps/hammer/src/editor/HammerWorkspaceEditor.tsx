@@ -39,6 +39,11 @@ import {
   type HammerPrepState,
 } from "../prep/hammerPrep";
 import {
+  buildHammerPrepAiNoticeModel,
+  shouldShowHammerPrepAiNotice,
+  type HammerPrepAiEffectiveLane,
+} from "../prep/hammerPrepAiNotice";
+import {
   buildFailedHammerAudioPolish,
   buildPreparedHammerAudioPolish,
   buildPreparingHammerAudioPolish,
@@ -70,6 +75,12 @@ export interface HammerWorkspaceEditorProps {
   persistenceMode?: "canonical" | "disabled";
   releasePrepHref?: string | null;
   allowDevLaunchFallback?: boolean;
+  prepAiNoticeEffectiveLane?: HammerPrepAiEffectiveLane;
+  prepAiNoticeAcknowledgedLaneSignature?: string | null;
+  prepAiNoticeResolutionState?: "ready" | "loading" | "error";
+  prepAiNoticeResolutionError?: string | null;
+  onPrepAiNoticeAcknowledgeLane?: (laneSignature: string) => void | Promise<void>;
+  onRequestAiSettings?: () => void;
 }
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -96,6 +107,15 @@ function toErrorMessage(error: unknown, fallback: string): string {
 
 function withSessionId(launchContext?: HammerLaunchContext): HammerLaunchContext | undefined {
   return launchContext ? ensureHammerLaunchSessionId(launchContext) : undefined;
+}
+
+function emitPrepAiNoticeTelemetry(eventName: string, detail: Record<string, unknown>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent(eventName, { detail }));
+  } catch {
+    // keep telemetry best-effort
+  }
 }
 
 function mapAudioPolishPhaseToPrepStep(
@@ -185,11 +205,18 @@ export default function HammerWorkspaceEditor(
   const [presenceConflictDetail, setPresenceConflictDetail] = useState<string | null>(null);
   const [reloadRequestNonce, setReloadRequestNonce] = useState(0);
   const [saveRetryNonce, setSaveRetryNonce] = useState(0);
+  const [showPrepAiNotice, setShowPrepAiNotice] = useState(false);
+  const [prepAiNoticeDontShowAgain, setPrepAiNoticeDontShowAgain] = useState(false);
+  const [prepAiNoticeDecisionNonce, setPrepAiNoticeDecisionNonce] = useState(0);
   const openedAtRef = useRef(new Date().toISOString());
   const saveTimerRef = useRef<number | null>(null);
   const readyTransitionTimerRef = useRef<number | null>(null);
   const lastSavedPayloadRef = useRef<string | null>(null);
   const prepRunKeyRef = useRef<string | null>(null);
+  const prepAiNoticeApprovedRunKeyRef = useRef<string | null>(null);
+  const prepAiNoticeCancelledRunKeyRef = useRef<string | null>(null);
+  const prepAiNoticePendingRunKeyRef = useRef<string | null>(null);
+  const prepAiNoticeShownRunKeyRef = useRef<string | null>(null);
   const prepExecutionIdRef = useRef(0);
   const isMountedRef = useRef(true);
   const dynamicStyleScopeIdRef = useRef(`hammer-workspace-editor-${Math.random().toString(36).slice(2, 10)}`);
@@ -442,11 +469,17 @@ export default function HammerWorkspaceEditor(
     setWorkspaceSnapshot(null);
     setLoadedPersistenceSnapshot(null);
     setShowPreparedHandoff(false);
+    setShowPrepAiNotice(false);
+    setPrepAiNoticeDontShowAgain(false);
     setPreparedActionIntent(null);
     openedAtRef.current = new Date().toISOString();
     setEffectiveLaunchContext(withSessionId(props.launchContext));
 
     clearReadyTransitionTimer();
+    prepAiNoticeApprovedRunKeyRef.current = null;
+    prepAiNoticeCancelledRunKeyRef.current = null;
+    prepAiNoticePendingRunKeyRef.current = null;
+    prepAiNoticeShownRunKeyRef.current = null;
 
     if (persistenceMode !== "canonical" || !persistenceTarget) {
       setPrepState(createHammerPrepState("idle", null));
@@ -646,6 +679,48 @@ export default function HammerWorkspaceEditor(
     if (prepRunKeyRef.current === prepRunKey) {
       return;
     }
+    if (prepAiNoticeCancelledRunKeyRef.current === prepRunKey) {
+      return;
+    }
+
+    const prepAiNoticeEffectiveLane = props.prepAiNoticeEffectiveLane ?? "forge-managed";
+    const prepAiNoticeResolutionState = props.prepAiNoticeResolutionState ?? "ready";
+    const prepAiNoticeModel = buildHammerPrepAiNoticeModel(prepAiNoticeEffectiveLane);
+    const shouldPromptPrepAiNotice = shouldShowHammerPrepAiNotice({
+      effectiveLane: prepAiNoticeModel.laneSignature,
+      acknowledgedLaneSignature: props.prepAiNoticeAcknowledgedLaneSignature ?? null,
+    });
+
+    if (prepAiNoticeResolutionState === "loading") {
+      return;
+    }
+
+    if (prepAiNoticeResolutionState === "error") {
+      setPrepState(createHammerPrepState(
+        "prep_failed",
+        null,
+        props.prepAiNoticeResolutionError?.trim() || "Hammer could not resolve AI policy state for prep.",
+      ));
+      return;
+    }
+
+    if (
+      shouldPromptPrepAiNotice
+      && prepAiNoticeApprovedRunKeyRef.current !== prepRunKey
+    ) {
+      prepAiNoticePendingRunKeyRef.current = prepRunKey;
+      if (prepAiNoticeShownRunKeyRef.current !== prepRunKey) {
+        emitPrepAiNoticeTelemetry("hammer_prep_ai_notice_shown", {
+          lane: prepAiNoticeModel.laneSignature,
+          prep_allowed: prepAiNoticeModel.prepAllowed,
+          workpiece_id: effectiveLaunchContext.workpiece_id,
+          workspace_id: effectiveLaunchContext.workspace_id,
+        });
+        prepAiNoticeShownRunKeyRef.current = prepRunKey;
+      }
+      setShowPrepAiNotice(true);
+      return;
+    }
 
     prepRunKeyRef.current = prepRunKey;
     const executionId = beginPrepExecution();
@@ -785,6 +860,11 @@ export default function HammerWorkspaceEditor(
     prepState.status,
     prepState.step,
     prepAttemptNonce,
+    prepAiNoticeDecisionNonce,
+    props.prepAiNoticeAcknowledgedLaneSignature,
+    props.prepAiNoticeEffectiveLane,
+    props.prepAiNoticeResolutionError,
+    props.prepAiNoticeResolutionState,
     targetKey,
   ]);
 
@@ -905,6 +985,11 @@ export default function HammerWorkspaceEditor(
   ]);
 
   const overlayViewModel = buildHammerPrepOverlayViewModel(prepState);
+  const prepAiNoticeModel = useMemo(
+    () => buildHammerPrepAiNoticeModel(props.prepAiNoticeEffectiveLane ?? "forge-managed"),
+    [props.prepAiNoticeEffectiveLane],
+  );
+  const canRenderPrepAiNoticeSettingsAction = Boolean(props.onRequestAiSettings);
   const shouldRenderEditor = persistenceMode !== "canonical" || prepState.status === "prepared";
   const visualPlacementData = loadedPersistenceSnapshot?.visual_placements.data ?? null;
   const visualTimelineData = useMemo(
@@ -1170,6 +1255,96 @@ export default function HammerWorkspaceEditor(
                   />
                 ))}
               </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {showPrepAiNotice ? (
+        <div className="hammer-prep-shell__overlay" role="presentation">
+          <section
+            className="hammer-prep-shell__notice-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hammer-prep-ai-notice-title"
+            aria-describedby="hammer-prep-ai-notice-body"
+          >
+            <div id="hammer-prep-ai-notice-title" className="hammer-prep-shell__notice-title">
+              {prepAiNoticeModel.title}
+            </div>
+            <div id="hammer-prep-ai-notice-body" className="hammer-prep-shell__notice-body">
+              {prepAiNoticeModel.body}
+            </div>
+            <div className="hammer-prep-shell__notice-detail">
+              {prepAiNoticeModel.laneDetail}
+            </div>
+
+            <label className="hammer-prep-shell__notice-checkbox">
+              <input
+                type="checkbox"
+                checked={prepAiNoticeDontShowAgain}
+                onChange={(event) => setPrepAiNoticeDontShowAgain(event.target.checked)}
+              />
+              <span>Don&apos;t show this again</span>
+            </label>
+
+            <div className="hammer-prep-shell__notice-actions">
+              <button
+                type="button"
+                className="hammer-prep-shell__button"
+                onClick={() => {
+                  const runKey = prepAiNoticePendingRunKeyRef.current;
+                  if (!runKey) return;
+                  prepAiNoticeApprovedRunKeyRef.current = runKey;
+                  prepAiNoticeCancelledRunKeyRef.current = null;
+                  emitPrepAiNoticeTelemetry("hammer_prep_ai_notice_continue", {
+                    lane: prepAiNoticeModel.laneSignature,
+                    prep_allowed: prepAiNoticeModel.prepAllowed,
+                    workpiece_id: effectiveLaunchContext?.workpiece_id ?? null,
+                    workspace_id: effectiveLaunchContext?.workspace_id ?? null,
+                  });
+                  if (prepAiNoticeDontShowAgain) {
+                    emitPrepAiNoticeTelemetry("hammer_prep_ai_notice_dont_show_again", {
+                      lane: prepAiNoticeModel.laneSignature,
+                      workpiece_id: effectiveLaunchContext?.workpiece_id ?? null,
+                      workspace_id: effectiveLaunchContext?.workspace_id ?? null,
+                    });
+                    void props.onPrepAiNoticeAcknowledgeLane?.(prepAiNoticeModel.laneSignature);
+                  }
+                  setShowPrepAiNotice(false);
+                  setPrepAiNoticeDecisionNonce((current) => current + 1);
+                }}
+              >
+                Continue
+              </button>
+              <button
+                type="button"
+                className="hammer-prep-shell__action-button hammer-prep-shell__action-button--dismiss"
+                onClick={() => {
+                  const runKey = prepAiNoticePendingRunKeyRef.current;
+                  if (!runKey) return;
+                  prepAiNoticeCancelledRunKeyRef.current = runKey;
+                  prepAiNoticeApprovedRunKeyRef.current = null;
+                  emitPrepAiNoticeTelemetry("hammer_prep_ai_notice_cancel", {
+                    lane: prepAiNoticeModel.laneSignature,
+                    prep_allowed: prepAiNoticeModel.prepAllowed,
+                    workpiece_id: effectiveLaunchContext?.workpiece_id ?? null,
+                    workspace_id: effectiveLaunchContext?.workspace_id ?? null,
+                  });
+                  setShowPrepAiNotice(false);
+                }}
+              >
+                Cancel
+              </button>
+              {canRenderPrepAiNoticeSettingsAction ? (
+                <button
+                  type="button"
+                  className="hammer-prep-shell__action-button hammer-prep-shell__action-button--placeholder"
+                  onClick={() => props.onRequestAiSettings?.()}
+                >
+                  AI Settings
+                </button>
+              ) : null}
             </div>
           </section>
         </div>
