@@ -133,10 +133,13 @@ export function parseAdminOverview(value: unknown): AdminOverview {
     });
 
   return {
-    totalUsageToday: Math.max(0, Math.trunc(readNumber(row.total_usage_today))),
-    totalEstimatedCostToday: Math.max(0, readNumber(row.total_estimated_cost_today)),
-    totalActualCostToday: Math.max(0, readNumber(row.total_actual_cost_today)),
-    totalBillableTokensToday: Math.max(0, Math.trunc(readNumber(row.total_billable_tokens_today))),
+    totalUsageToday: Math.max(0, Math.trunc(readNumber(row.total_usage_today ?? row.total_usage))),
+    totalEstimatedCostToday: Math.max(0, readNumber(row.total_estimated_cost_today ?? row.total_estimated_cost)),
+    totalActualCostToday: Math.max(0, readNumber(row.total_actual_cost_today ?? row.total_actual_cost)),
+    totalBillableTokensToday: Math.max(
+      0,
+      Math.trunc(readNumber(row.total_billable_tokens_today ?? row.total_billable_tokens)),
+    ),
     usageByFeature,
     usageByLane,
   };

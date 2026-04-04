@@ -4,8 +4,8 @@ import {
   FORGE_REASONING_ORDER,
   type ForgeChatModel,
   type ForgeReasoningEffort,
-} from "./ai-policy";
-import { estimateCost } from "./ai-pricing";
+} from "./ai-policy.js";
+import { estimateCost } from "./ai-pricing.js";
 
 export type TaskTier = "tier0" | "tier1" | "tier2" | "tier3";
 

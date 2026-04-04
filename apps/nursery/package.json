@@ -28,6 +28,7 @@
     "test:forge-ai-router": "tsx tests/forge-ai-policy-router.test.mts",
     "test:ledger": "tsx tests/ledger-costs.test.mts",
     "test:admin-panel": "tsx tests/admin-panel.test.mts",
+    "test:workspace-label": "tsx tests/workspace-label.test.mts",
     "verify:ai-policy-live": "tsx scripts/verify-ai-policy-live.mts",
     "verify:playwright:auth": "tsx scripts/verify-playwright-auth-state.mts",
     "generate:playwright:auth": "tsx scripts/generate-playwright-auth-state.mts && pnpm verify:playwright:auth",

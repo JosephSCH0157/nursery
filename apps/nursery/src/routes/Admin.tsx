@@ -48,6 +48,27 @@ function shortId(value: string | null | undefined): string {
   return value.length <= 12 ? value : `${value.slice(0, 8)}...`;
 }
 
+function csvEscape(value: unknown): string {
+  if (value == null) return "";
+  const text = String(value);
+  if (text.includes(",") || text.includes("\"") || text.includes("\n")) {
+    return `"${text.replaceAll("\"", "\"\"")}"`;
+  }
+  return text;
+}
+
+function triggerCsvDownload(filename: string, content: string): void {
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
 export default function AdminRoute() {
   const shell = useOutletContext<AppShellContext>();
   const session = shell?.session ?? null;
@@ -82,6 +103,8 @@ export default function AdminRoute() {
   const [sharedAiSaving, setSharedAiSaving] = useState(false);
   const [sharedAiNotice, setSharedAiNotice] = useState<string | null>(null);
   const [sharedAiError, setSharedAiError] = useState<string | null>(null);
+  const [downloadBusyWindow, setDownloadBusyWindow] = useState<"daily" | "weekly" | "monthly" | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const selectedOrg = useMemo(
     () => orgs.find((org) => org.org_id === selectedOrgId) ?? null,
@@ -288,6 +311,103 @@ export default function AdminRoute() {
     }
   }
 
+  async function onDownloadWindow(window: "daily" | "weekly" | "monthly") {
+    if (!selectedOrgId || !canManageAdmin || downloadBusyWindow) return;
+    const days = window === "daily" ? 1 : window === "weekly" ? 7 : 30;
+    setDownloadBusyWindow(window);
+    setDownloadError(null);
+    try {
+      const [overviewResponse, rowsResponse] = await Promise.all([
+        tongsRpcClient.rpc("admin_get_ai_usage_overview_window", {
+          p_org_id: selectedOrgId,
+          p_days: days,
+        }),
+        tongsRpcClient.rpc("admin_get_ai_usage_export_rows", {
+          p_org_id: selectedOrgId,
+          p_days: days,
+          p_limit: 5000,
+        }),
+      ]);
+      if (overviewResponse.error) throw overviewResponse.error;
+      if (rowsResponse.error) throw rowsResponse.error;
+
+      const overviewRow = Array.isArray(overviewResponse.data)
+        ? (overviewResponse.data[0] as Record<string, unknown> | undefined)
+        : null;
+      const exportOverview = parseAdminOverview(overviewRow ?? null);
+      const exportRows = parseAdminUsageEvents(rowsResponse.data);
+
+      const lines: string[] = [];
+      lines.push("section,metric,value");
+      lines.push(`summary,window_days,${days}`);
+      lines.push(`summary,total_usage,${exportOverview.totalUsageToday}`);
+      lines.push(`summary,total_estimated_cost_usd,${exportOverview.totalEstimatedCostToday.toFixed(6)}`);
+      lines.push(`summary,total_actual_cost_usd,${exportOverview.totalActualCostToday.toFixed(6)}`);
+      lines.push(`summary,total_billable_tokens,${exportOverview.totalBillableTokensToday}`);
+      lines.push("");
+
+      lines.push("section,feature,subfeature,call_count,estimated_cost_usd,actual_cost_usd,billable_tokens");
+      for (const row of exportOverview.usageByFeature) {
+        lines.push([
+          "usage_by_feature",
+          csvEscape(row.feature),
+          csvEscape(row.subfeature ?? ""),
+          row.callCount,
+          row.estimatedCostUsd.toFixed(6),
+          row.actualCostUsd.toFixed(6),
+          row.billableTokens,
+        ].join(","));
+      }
+      lines.push("");
+
+      lines.push("section,lane,call_count,estimated_cost_usd,actual_cost_usd,billable_tokens");
+      for (const row of exportOverview.usageByLane) {
+        lines.push([
+          "usage_by_lane",
+          csvEscape(row.lane),
+          row.callCount,
+          row.estimatedCostUsd.toFixed(6),
+          row.actualCostUsd.toFixed(6),
+          row.billableTokens,
+        ].join(","));
+      }
+      lines.push("");
+
+      lines.push(
+        "section,created_at,user_id,workspace_id,feature,subfeature,lane,status,estimated_cost_usd,actual_cost_usd,billable_tokens,model,provider,action_id,effective_ai_key_source,effective_billing_lane,policy_decision_type,key_resolution_status",
+      );
+      for (const row of exportRows) {
+        lines.push([
+          "events",
+          csvEscape(row.createdAt),
+          csvEscape(row.userId),
+          csvEscape(row.workspaceId ?? ""),
+          csvEscape(row.feature),
+          csvEscape(row.subfeature ?? ""),
+          csvEscape(row.lane),
+          csvEscape(row.status),
+          row.estimatedCostUsd.toFixed(6),
+          row.actualCostUsd.toFixed(6),
+          row.billableTokens,
+          csvEscape(row.model),
+          csvEscape(row.provider ?? ""),
+          csvEscape(row.actionId ?? ""),
+          csvEscape(row.effectiveAiKeySource ?? ""),
+          csvEscape(row.effectiveBillingLane ?? ""),
+          csvEscape(row.policyDecisionType ?? ""),
+          csvEscape(row.keyResolutionStatus ?? ""),
+        ].join(","));
+      }
+
+      const stamp = new Date().toISOString().slice(0, 10);
+      triggerCsvDownload(`forge-admin-ai-${window}-${stamp}.csv`, `${lines.join("\n")}\n`);
+    } catch (error: unknown) {
+      setDownloadError(toErrorMessage(error, "Failed preparing admin export."));
+    } finally {
+      setDownloadBusyWindow(null);
+    }
+  }
+
   return (
     <section className="admin-route">
       <header className="admin-route__header">
@@ -322,6 +442,30 @@ export default function AdminRoute() {
         <>
           <section className="admin-route__panel">
             <h3>AI Overview</h3>
+            <div className="admin-route__export-actions">
+              <button
+                type="button"
+                onClick={() => void onDownloadWindow("daily")}
+                disabled={downloadBusyWindow !== null}
+              >
+                {downloadBusyWindow === "daily" ? "Preparing..." : "Download Daily CSV"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void onDownloadWindow("weekly")}
+                disabled={downloadBusyWindow !== null}
+              >
+                {downloadBusyWindow === "weekly" ? "Preparing..." : "Download Weekly CSV"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void onDownloadWindow("monthly")}
+                disabled={downloadBusyWindow !== null}
+              >
+                {downloadBusyWindow === "monthly" ? "Preparing..." : "Download Monthly CSV"}
+              </button>
+            </div>
+            {downloadError ? <p className="admin-route__error">{downloadError}</p> : null}
             {overviewLoading ? <p className="admin-route__hint">Loading AI overview...</p> : null}
             {overviewError ? <p className="admin-route__error">{overviewError}</p> : null}
             {overview ? (

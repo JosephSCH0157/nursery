@@ -195,59 +195,6 @@ export default function HammerStandalone() {
     void refreshWorkspaces();
   }, [authUserId, refreshWorkspaces]);
 
-  useEffect(() => {
-    let active = true;
-
-    if (!authResolved) {
-      setPrepAiNoticeResolutionState("loading");
-      setPrepAiNoticeResolutionError(null);
-      return () => {
-        active = false;
-      };
-    }
-
-    if (!authUserId) {
-      setPrepAiNoticeEffectiveLane("forge-managed");
-      setPrepAiNoticeAcknowledgedLaneSignature(null);
-      setPrepAiNoticeResolutionState("ready");
-      setPrepAiNoticeResolutionError(null);
-      return () => {
-        active = false;
-      };
-    }
-
-    const resolveNoticeState = async () => {
-      setPrepAiNoticeResolutionState("loading");
-      setPrepAiNoticeResolutionError(null);
-      try {
-        const [effectiveLane, acknowledgedLane] = await Promise.all([
-          resolveHammerPrepAiEffectiveLane(workspaceId),
-          loadHammerPrepAiNoticeAcknowledgedLane(),
-        ]);
-        if (!active) return;
-        setPrepAiNoticeEffectiveLane(effectiveLane);
-        setPrepAiNoticeAcknowledgedLaneSignature(acknowledgedLane);
-        setPrepAiNoticeResolutionState("ready");
-      } catch (error) {
-        if (!active) return;
-        setPrepAiNoticeResolutionState("error");
-        setPrepAiNoticeResolutionError(getErrorMessage(error, "Hammer could not resolve AI notice policy state."));
-      }
-    };
-
-    void resolveNoticeState();
-
-    const onAiSettingsChanged = () => {
-      void resolveNoticeState();
-    };
-    window.addEventListener("forge:ai:settings", onAiSettingsChanged);
-
-    return () => {
-      active = false;
-      window.removeEventListener("forge:ai:settings", onAiSettingsChanged);
-    };
-  }, [authResolved, authUserId, workspaceId]);
-
   const persistPrepAiNoticeAcknowledgedLane = useCallback(async (laneSignature: string) => {
     await saveHammerPrepAiNoticeAcknowledgedLane(laneSignature);
     setPrepAiNoticeAcknowledgedLaneSignature(laneSignature);
@@ -317,6 +264,59 @@ export default function HammerStandalone() {
     : workspaceId
     ? "ready"
     : "missing";
+
+  useEffect(() => {
+    let active = true;
+
+    if (!authResolved) {
+      setPrepAiNoticeResolutionState("loading");
+      setPrepAiNoticeResolutionError(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    if (!authUserId) {
+      setPrepAiNoticeEffectiveLane("forge-managed");
+      setPrepAiNoticeAcknowledgedLaneSignature(null);
+      setPrepAiNoticeResolutionState("ready");
+      setPrepAiNoticeResolutionError(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    const resolveNoticeState = async () => {
+      setPrepAiNoticeResolutionState("loading");
+      setPrepAiNoticeResolutionError(null);
+      try {
+        const [effectiveLane, acknowledgedLane] = await Promise.all([
+          resolveHammerPrepAiEffectiveLane(workspaceId),
+          loadHammerPrepAiNoticeAcknowledgedLane(),
+        ]);
+        if (!active) return;
+        setPrepAiNoticeEffectiveLane(effectiveLane);
+        setPrepAiNoticeAcknowledgedLaneSignature(acknowledgedLane);
+        setPrepAiNoticeResolutionState("ready");
+      } catch (error) {
+        if (!active) return;
+        setPrepAiNoticeResolutionState("error");
+        setPrepAiNoticeResolutionError(getErrorMessage(error, "Hammer could not resolve AI notice policy state."));
+      }
+    };
+
+    void resolveNoticeState();
+
+    const onAiSettingsChanged = () => {
+      void resolveNoticeState();
+    };
+    window.addEventListener("forge:ai:settings", onAiSettingsChanged);
+
+    return () => {
+      active = false;
+      window.removeEventListener("forge:ai:settings", onAiSettingsChanged);
+    };
+  }, [authResolved, authUserId, workspaceId]);
 
   useEffect(() => {
     if (!workspaceId) return;

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated_at": "2026-04-04T21:16:18.146Z",
+  "generated_at": "2026-04-04T22:00:19.607Z",
   "tree": [
     {
       "id": "forge",
@@ -85,6 +85,11 @@
           "id": "storage",
           "label": "Storage (Mounts)",
           "to": "/app/settings/storage"
+        },
+        {
+          "id": "admin",
+          "label": "Admin Panel",
+          "to": "/app/admin"
         },
         {
           "id": "mobile-demo",

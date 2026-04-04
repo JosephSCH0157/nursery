@@ -2,6 +2,7 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  color: var(--forge-text, #e8e8ea);
 }
 
 .admin-route__header {
@@ -17,7 +18,7 @@
 
 .admin-route__subtitle {
   margin: 6px 0 0;
-  color: var(--forge-muted, #71717a);
+  color: var(--forge-text-muted, #a4a4ad);
 }
 
 .admin-route__org-picker {
@@ -30,18 +31,25 @@
 .admin-route__org-picker select,
 .admin-route__lookup input,
 .admin-route__lookup select {
-  border: 1px solid var(--forge-border, #d4d4d8);
+  border: 1px solid var(--forge-border, rgba(255, 255, 255, 0.16));
   border-radius: 8px;
   padding: 8px 10px;
-  background: var(--forge-panel-bg, #fff);
-  color: inherit;
+  background: var(--forge-bg-raised, rgba(255, 255, 255, 0.05));
+  color: var(--forge-text, #e8e8ea);
+}
+
+.admin-route__org-picker select:focus,
+.admin-route__lookup input:focus,
+.admin-route__lookup select:focus {
+  outline: 1px solid rgba(159, 217, 255, 0.55);
+  outline-offset: 1px;
 }
 
 .admin-route__panel {
-  border: 1px solid var(--forge-border, #d4d4d8);
+  border: 1px solid var(--forge-border, rgba(255, 255, 255, 0.14));
   border-radius: 12px;
   padding: 14px;
-  background: var(--forge-panel-bg, #fff);
+  background: var(--forge-bg-elevated, rgba(255, 255, 255, 0.03));
 }
 
 .admin-route__panel h3 {
@@ -59,15 +67,15 @@
 }
 
 .admin-route__card {
-  border: 1px solid var(--forge-border, #e4e4e7);
+  border: 1px solid var(--forge-border, rgba(255, 255, 255, 0.14));
   border-radius: 10px;
   padding: 10px;
-  background: color-mix(in srgb, var(--forge-panel-bg, #fff) 93%, #f4f4f5 7%);
+  background: var(--forge-bg-raised, rgba(255, 255, 255, 0.04));
 }
 
 .admin-route__card-label {
   font-size: 0.82rem;
-  color: var(--forge-muted, #71717a);
+  color: var(--forge-text-muted, #a4a4ad);
 }
 
 .admin-route__card-value {
@@ -90,7 +98,7 @@
 
 .admin-route__table th,
 .admin-route__table td {
-  border-bottom: 1px solid var(--forge-border, #e4e4e7);
+  border-bottom: 1px solid var(--forge-border, rgba(255, 255, 255, 0.12));
   text-align: left;
   padding: 7px 6px;
   vertical-align: top;
@@ -100,7 +108,7 @@
   font-size: 0.78rem;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  color: var(--forge-muted, #71717a);
+  color: var(--forge-text-muted, #a4a4ad);
 }
 
 .admin-route__lookup {
@@ -125,12 +133,20 @@
   margin-top: 10px;
 }
 
+.admin-route__export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.admin-route__export-actions button,
 .admin-route__actions button {
-  border: 1px solid var(--forge-border, #d4d4d8);
+  border: 1px solid var(--forge-border, rgba(255, 255, 255, 0.18));
   border-radius: 8px;
   padding: 8px 12px;
-  background: #18181b;
-  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--forge-text, #e8e8ea);
   cursor: pointer;
 }
 
@@ -140,15 +156,15 @@
 }
 
 .admin-route__error {
-  color: #b91c1c;
+  color: #ffb7b7;
 }
 
 .admin-route__notice {
-  color: #166534;
+  color: #9fd9ff;
 }
 
 .admin-route__hint {
-  color: var(--forge-muted, #71717a);
+  color: var(--forge-text-muted, #a4a4ad);
 }
 
 @media (max-width: 900px) {
