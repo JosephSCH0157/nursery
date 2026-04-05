@@ -82,6 +82,8 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
   let persistenceUserId: string | null = null;
   let settingsPersistenceInstalled = false;
   let speakerPersistenceInstalled = false;
+  let pendingSave: UserSettings | null = null;
+  let retryScheduled = false;
 
   function log(...args: any[]) {
     try { devLog?.(...args); } catch {}
@@ -308,6 +310,7 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
           log('save:skip-noop');
           return;
         }
+        pendingSave = merged;
         currentSettings = merged;
         setSettingsSaveStatus({ state: 'saving', at: Date.now() });
         const { rev } = await saveProfileSettings({
@@ -316,6 +319,8 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
           expectedRev: profileRev,
         });
         profileRev = rev;
+        pendingSave = null;
+        retryScheduled = false;
         log('save:flushed', { rev });
         if (lastUserChange && Date.now() - lastUserChange <= RECENT_CHANGE_WINDOW_MS) {
           flashSettingsSaved();
@@ -323,21 +328,33 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
         setSettingsSaveStatus({ state: 'saved', at: Date.now() });
       } catch (err) {
         setSettingsSaveStatus({ state: 'failed', at: Date.now(), error: String(err) });
-        try {
-          const { settings, rev } = await loadProfileSettings(persistenceUserId);
-          profileRev = rev;
-          applySettingsToStore(settings);
-          log('save:conflict-reloaded', { rev });
-        } catch (errReload) {
-          try {
-            console.warn('[forge] settings save failed; reload also failed', err, errReload);
-            log('save:conflict-reload-failed');
-          } catch {}
-        }
+        await handleSaveConflict(err);
       } finally {
         saving = false;
       }
     }, SETTINGS_SAVE_DEBOUNCE_MS);
+  }
+
+  async function handleSaveConflict(error: unknown): Promise<void> {
+    if (!pendingSave || !persistenceUserId) return;
+    try {
+      const { settings, rev } = await loadProfileSettings(persistenceUserId);
+      profileRev = rev;
+      const resolved = applySettingsPatch(settings, pendingSave);
+      currentSettings = resolved;
+      applySettingsToStore(resolved);
+      pendingSave = resolved;
+      log('save:conflict-resolved', { rev });
+      if (!retryScheduled) {
+        retryScheduled = true;
+        queueProfileSave();
+      }
+    } catch (reloadErr) {
+      try {
+        console.warn('[forge] settings save failed; reload also failed', error, reloadErr);
+        log('save:conflict-reload-failed');
+      } catch {}
+    }
   }
 
   function installSettingsPersistence(userId: string): void {
