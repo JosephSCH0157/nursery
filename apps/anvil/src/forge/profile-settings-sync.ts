@@ -369,7 +369,8 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
     speakerPersistenceInstalled = true;
     let seenInit = false;
     speakerPersistenceHydrating = true;
-    subscribeSpeakerProfileState(() => {
+    let lastSpeakerSnapshot: string | null = null;
+    subscribeSpeakerProfileState((snapshot) => {
       if (!persistenceUserId) return;
       if (!profileHydrated || suppressSave) return;
       if (!seenInit) {
@@ -377,6 +378,11 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
         speakerPersistenceHydrating = false;
         return;
       }
+      const serialized = (() => {
+        try { return JSON.stringify(snapshot); } catch { return null; }
+      })();
+      if (serialized && serialized === lastSpeakerSnapshot) return;
+      if (serialized) lastSpeakerSnapshot = serialized;
       lastUserChange = Date.now();
       queueProfileSave();
     });
