@@ -133,29 +133,65 @@ export async function saveProfileSettings(opts: {
 }): Promise<{ rev: number }> {
   const { userId, mergedSettings, expectedRev } = opts;
 
+  const parsedRev = Number(expectedRev);
+  const safeExpectedRev = Number.isFinite(parsedRev) ? Math.max(0, Math.trunc(parsedRev)) : 0;
+
   const asrSettings = (mergedSettings as any)?.asrSettings ?? {};
   const asrProfiles = (mergedSettings as any)?.asrProfiles ?? [];
+  const nowIso = new Date().toISOString();
+
+  const fullUpdatePayload = {
+    settings: mergedSettings,
+    settings_rev: safeExpectedRev + 1,
+    settings_updated_at: nowIso,
+    asr_settings: asrSettings,
+    asr_calibration_profiles: asrProfiles,
+    asr_updated_at: nowIso,
+  };
 
   const { data, error } = await supabase
     .from('profiles')
-    .update({
-      settings: mergedSettings,
-      settings_rev: expectedRev + 1,
-      settings_updated_at: new Date().toISOString(),
-      asr_settings: asrSettings,
-      asr_calibration_profiles: asrProfiles,
-      asr_updated_at: new Date().toISOString(),
-    })
+    .update(fullUpdatePayload)
     .eq('user_id', userId)
-    .eq('settings_rev', expectedRev)
+    .eq('settings_rev', safeExpectedRev)
     .select('settings_rev')
     .single();
 
   if (error) {
-    throw error;
+    const message = String((error as { message?: unknown })?.message ?? '').toLowerCase();
+    const code = String((error as { code?: unknown })?.code ?? '').toUpperCase();
+    const missingOptionalAsrColumn =
+      code === 'PGRST204'
+      || (message.includes('column') && (
+        message.includes('asr_settings')
+        || message.includes('asr_calibration_profiles')
+        || message.includes('asr_updated_at')
+      ));
+
+    if (!missingOptionalAsrColumn) {
+      throw error;
+    }
+
+    const legacy = await supabase
+      .from('profiles')
+      .update({
+        settings: mergedSettings,
+        settings_rev: safeExpectedRev + 1,
+        settings_updated_at: nowIso,
+      })
+      .eq('user_id', userId)
+      .eq('settings_rev', safeExpectedRev)
+      .select('settings_rev')
+      .single();
+
+    if (legacy.error) {
+      throw legacy.error;
+    }
+
+    return { rev: Number((legacy.data as any)?.settings_rev ?? safeExpectedRev + 1) };
   }
 
-  return { rev: Number((data as any)?.settings_rev ?? expectedRev + 1) };
+  return { rev: Number((data as any)?.settings_rev ?? safeExpectedRev + 1) };
 }
 
 export function applySettingsPatch(current: UserSettings, patch: Partial<UserSettings>): UserSettings {
