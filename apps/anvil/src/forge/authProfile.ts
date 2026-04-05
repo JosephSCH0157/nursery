@@ -75,6 +75,32 @@ export const DEFAULT_SETTINGS: UserSettings = {
   speakerBindings: { s1: null, s2: null, g1: null, g2: null, activeSlot: 's1' },
 };
 
+const profileSettingsSchemaSupport = {
+  settingsRev: true,
+  asrColumns: true,
+};
+
+function readErrorText(error: unknown): string {
+  if (!error || typeof error !== 'object') return '';
+  const message = String((error as { message?: unknown }).message ?? '');
+  const details = String((error as { details?: unknown }).details ?? '');
+  const hint = String((error as { hint?: unknown }).hint ?? '');
+  return `${message} ${details} ${hint}`.toLowerCase();
+}
+
+function errorMentionsColumn(error: unknown, columnName: string): boolean {
+  return readErrorText(error).includes(columnName.toLowerCase());
+}
+
+function buildProfileSelectColumns(): string {
+  const columns = ['settings'];
+  if (profileSettingsSchemaSupport.settingsRev) columns.push('settings_rev');
+  if (profileSettingsSchemaSupport.asrColumns) {
+    columns.push('asr_settings', 'asr_calibration_profiles', 'asr_updated_at');
+  }
+  return columns.join(', ');
+}
+
 // tiny deep merge (safe for plain objects)
 function deepMerge<T>(base: T, incoming: any): T {
   if (!incoming || typeof incoming !== 'object') return base;
@@ -104,13 +130,36 @@ export async function loadProfileSettings(userId: string): Promise<{
   settings: UserSettings;
   rev: number;
 }> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select(
-      'settings, settings_rev, asr_settings, asr_calibration_profiles, asr_updated_at',
-    )
-    .eq('user_id', userId)
-    .single();
+  let data: any = null;
+  let error: unknown = null;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await supabase
+      .from('profiles')
+      .select(buildProfileSelectColumns())
+      .eq('user_id', userId)
+      .single();
+
+    data = result.data;
+    error = result.error;
+    if (!error) break;
+
+    if (profileSettingsSchemaSupport.asrColumns && (
+      errorMentionsColumn(error, 'asr_settings')
+      || errorMentionsColumn(error, 'asr_calibration_profiles')
+      || errorMentionsColumn(error, 'asr_updated_at')
+    )) {
+      profileSettingsSchemaSupport.asrColumns = false;
+      continue;
+    }
+
+    if (profileSettingsSchemaSupport.settingsRev && errorMentionsColumn(error, 'settings_rev')) {
+      profileSettingsSchemaSupport.settingsRev = false;
+      continue;
+    }
+
+    break;
+  }
 
   if (error) throw error;
 
@@ -140,58 +189,71 @@ export async function saveProfileSettings(opts: {
   const asrProfiles = (mergedSettings as any)?.asrProfiles ?? [];
   const nowIso = new Date().toISOString();
 
-  const fullUpdatePayload = {
+  const updatePayload: Record<string, unknown> = {
     settings: mergedSettings,
-    settings_rev: safeExpectedRev + 1,
     settings_updated_at: nowIso,
-    asr_settings: asrSettings,
-    asr_calibration_profiles: asrProfiles,
-    asr_updated_at: nowIso,
   };
 
-  const { data, error } = await supabase
-    .from('profiles')
-    .update(fullUpdatePayload)
-    .eq('user_id', userId)
-    .eq('settings_rev', safeExpectedRev)
-    .select('settings_rev')
-    .single();
-
-  if (error) {
-    const message = String((error as { message?: unknown })?.message ?? '').toLowerCase();
-    const code = String((error as { code?: unknown })?.code ?? '').toUpperCase();
-    const missingOptionalAsrColumn =
-      code === 'PGRST204'
-      || (message.includes('column') && (
-        message.includes('asr_settings')
-        || message.includes('asr_calibration_profiles')
-        || message.includes('asr_updated_at')
-      ));
-
-    if (!missingOptionalAsrColumn) {
-      throw error;
-    }
-
-    const legacy = await supabase
-      .from('profiles')
-      .update({
-        settings: mergedSettings,
-        settings_rev: safeExpectedRev + 1,
-        settings_updated_at: nowIso,
-      })
-      .eq('user_id', userId)
-      .eq('settings_rev', safeExpectedRev)
-      .select('settings_rev')
-      .single();
-
-    if (legacy.error) {
-      throw legacy.error;
-    }
-
-    return { rev: Number((legacy.data as any)?.settings_rev ?? safeExpectedRev + 1) };
+  if (profileSettingsSchemaSupport.settingsRev) {
+    updatePayload.settings_rev = safeExpectedRev + 1;
+  }
+  if (profileSettingsSchemaSupport.asrColumns) {
+    updatePayload.asr_settings = asrSettings;
+    updatePayload.asr_calibration_profiles = asrProfiles;
+    updatePayload.asr_updated_at = nowIso;
   }
 
-  return { rev: Number((data as any)?.settings_rev ?? safeExpectedRev + 1) };
+  let data: any = null;
+  let error: unknown = null;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let query = supabase
+      .from('profiles')
+      .update(updatePayload)
+      .eq('user_id', userId);
+
+    if (profileSettingsSchemaSupport.settingsRev) {
+      query = query.eq('settings_rev', safeExpectedRev);
+    }
+
+    const result = profileSettingsSchemaSupport.settingsRev
+      ? await query.select('settings_rev').single()
+      : await query.select('user_id').single();
+
+    data = result.data;
+    error = result.error;
+    if (!error) break;
+
+    if (profileSettingsSchemaSupport.asrColumns && (
+      errorMentionsColumn(error, 'asr_settings')
+      || errorMentionsColumn(error, 'asr_calibration_profiles')
+      || errorMentionsColumn(error, 'asr_updated_at')
+    )) {
+      profileSettingsSchemaSupport.asrColumns = false;
+      delete updatePayload.asr_settings;
+      delete updatePayload.asr_calibration_profiles;
+      delete updatePayload.asr_updated_at;
+      continue;
+    }
+
+    if (profileSettingsSchemaSupport.settingsRev && errorMentionsColumn(error, 'settings_rev')) {
+      profileSettingsSchemaSupport.settingsRev = false;
+      delete updatePayload.settings_rev;
+      continue;
+    }
+
+    break;
+  }
+
+  if (error) {
+    throw error;
+  }
+
+  if (profileSettingsSchemaSupport.settingsRev) {
+    return { rev: Number((data as any)?.settings_rev ?? safeExpectedRev + 1) };
+  }
+
+  return { rev: safeExpectedRev + 1 };
 }
 
 export function applySettingsPatch(current: UserSettings, patch: Partial<UserSettings>): UserSettings {

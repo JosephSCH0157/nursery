@@ -51951,6 +51951,24 @@ var init_render_script = __esm({
 });
 
 // src/forge/authProfile.ts
+function readErrorText(error) {
+  if (!error || typeof error !== "object") return "";
+  const message = String(error.message ?? "");
+  const details = String(error.details ?? "");
+  const hint = String(error.hint ?? "");
+  return `${message} ${details} ${hint}`.toLowerCase();
+}
+function errorMentionsColumn(error, columnName) {
+  return readErrorText(error).includes(columnName.toLowerCase());
+}
+function buildProfileSelectColumns() {
+  const columns = ["settings"];
+  if (profileSettingsSchemaSupport.settingsRev) columns.push("settings_rev");
+  if (profileSettingsSchemaSupport.asrColumns) {
+    columns.push("asr_settings", "asr_calibration_profiles", "asr_updated_at");
+  }
+  return columns.join(", ");
+}
 function deepMerge3(base, incoming) {
   if (!incoming || typeof incoming !== "object") return base;
   const out = Array.isArray(base) ? [...base] : { ...base };
@@ -51965,9 +51983,23 @@ function deepMerge3(base, incoming) {
   return out;
 }
 async function loadProfileSettings(userId) {
-  const { data, error } = await supabase.from("profiles").select(
-    "settings, settings_rev, asr_settings, asr_calibration_profiles, asr_updated_at"
-  ).eq("user_id", userId).single();
+  let data = null;
+  let error = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await supabase.from("profiles").select(buildProfileSelectColumns()).eq("user_id", userId).single();
+    data = result.data;
+    error = result.error;
+    if (!error) break;
+    if (profileSettingsSchemaSupport.asrColumns && (errorMentionsColumn(error, "asr_settings") || errorMentionsColumn(error, "asr_calibration_profiles") || errorMentionsColumn(error, "asr_updated_at"))) {
+      profileSettingsSchemaSupport.asrColumns = false;
+      continue;
+    }
+    if (profileSettingsSchemaSupport.settingsRev && errorMentionsColumn(error, "settings_rev")) {
+      profileSettingsSchemaSupport.settingsRev = false;
+      continue;
+    }
+    break;
+  }
   if (error) throw error;
   const baseSettings = data?.settings ?? {};
   const asrSettings = data?.asr_settings ?? {};
@@ -51987,33 +52019,50 @@ async function saveProfileSettings(opts) {
   const asrSettings = mergedSettings?.asrSettings ?? {};
   const asrProfiles = mergedSettings?.asrProfiles ?? [];
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
-  const fullUpdatePayload = {
+  const updatePayload = {
     settings: mergedSettings,
-    settings_rev: safeExpectedRev + 1,
-    settings_updated_at: nowIso,
-    asr_settings: asrSettings,
-    asr_calibration_profiles: asrProfiles,
-    asr_updated_at: nowIso
+    settings_updated_at: nowIso
   };
-  const { data, error } = await supabase.from("profiles").update(fullUpdatePayload).eq("user_id", userId).eq("settings_rev", safeExpectedRev).select("settings_rev").single();
-  if (error) {
-    const message = String(error?.message ?? "").toLowerCase();
-    const code = String(error?.code ?? "").toUpperCase();
-    const missingOptionalAsrColumn = code === "PGRST204" || message.includes("column") && (message.includes("asr_settings") || message.includes("asr_calibration_profiles") || message.includes("asr_updated_at"));
-    if (!missingOptionalAsrColumn) {
-      throw error;
-    }
-    const legacy = await supabase.from("profiles").update({
-      settings: mergedSettings,
-      settings_rev: safeExpectedRev + 1,
-      settings_updated_at: nowIso
-    }).eq("user_id", userId).eq("settings_rev", safeExpectedRev).select("settings_rev").single();
-    if (legacy.error) {
-      throw legacy.error;
-    }
-    return { rev: Number(legacy.data?.settings_rev ?? safeExpectedRev + 1) };
+  if (profileSettingsSchemaSupport.settingsRev) {
+    updatePayload.settings_rev = safeExpectedRev + 1;
   }
-  return { rev: Number(data?.settings_rev ?? safeExpectedRev + 1) };
+  if (profileSettingsSchemaSupport.asrColumns) {
+    updatePayload.asr_settings = asrSettings;
+    updatePayload.asr_calibration_profiles = asrProfiles;
+    updatePayload.asr_updated_at = nowIso;
+  }
+  let data = null;
+  let error = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let query = supabase.from("profiles").update(updatePayload).eq("user_id", userId);
+    if (profileSettingsSchemaSupport.settingsRev) {
+      query = query.eq("settings_rev", safeExpectedRev);
+    }
+    const result = profileSettingsSchemaSupport.settingsRev ? await query.select("settings_rev").single() : await query.select("user_id").single();
+    data = result.data;
+    error = result.error;
+    if (!error) break;
+    if (profileSettingsSchemaSupport.asrColumns && (errorMentionsColumn(error, "asr_settings") || errorMentionsColumn(error, "asr_calibration_profiles") || errorMentionsColumn(error, "asr_updated_at"))) {
+      profileSettingsSchemaSupport.asrColumns = false;
+      delete updatePayload.asr_settings;
+      delete updatePayload.asr_calibration_profiles;
+      delete updatePayload.asr_updated_at;
+      continue;
+    }
+    if (profileSettingsSchemaSupport.settingsRev && errorMentionsColumn(error, "settings_rev")) {
+      profileSettingsSchemaSupport.settingsRev = false;
+      delete updatePayload.settings_rev;
+      continue;
+    }
+    break;
+  }
+  if (error) {
+    throw error;
+  }
+  if (profileSettingsSchemaSupport.settingsRev) {
+    return { rev: Number(data?.settings_rev ?? safeExpectedRev + 1) };
+  }
+  return { rev: safeExpectedRev + 1 };
 }
 function applySettingsPatch(current2, patch) {
   return deepMerge3(current2, patch);
@@ -52080,7 +52129,7 @@ async function ensureUserAndProfile() {
   }
   return { user, profile: inserted };
 }
-var DEFAULT_SETTINGS;
+var DEFAULT_SETTINGS, profileSettingsSchemaSupport;
 var init_authProfile = __esm({
   "src/forge/authProfile.ts"() {
     "use strict";
@@ -52091,6 +52140,10 @@ var init_authProfile = __esm({
       asrProfiles: [],
       speakerProfiles: [],
       speakerBindings: { s1: null, s2: null, g1: null, g2: null, activeSlot: "s1" }
+    };
+    profileSettingsSchemaSupport = {
+      settingsRev: true,
+      asrColumns: true
     };
   }
 });
