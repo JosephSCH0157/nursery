@@ -473,4 +473,3 @@ function initHudPopout() {
 export {
   initHudPopout
 };
-//# sourceMappingURL=popout-entry.js.map

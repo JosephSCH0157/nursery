@@ -216,4 +216,3 @@ export {
   Recognizer,
   createRecognizer
 };
-//# sourceMappingURL=recognizer.real.js.map

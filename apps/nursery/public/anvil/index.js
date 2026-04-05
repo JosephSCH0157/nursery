@@ -51966,20 +51966,38 @@ async function loadProfileSettings(userId) {
 }
 async function saveProfileSettings(opts) {
   const { userId, mergedSettings, expectedRev } = opts;
+  const parsedRev = Number(expectedRev);
+  const safeExpectedRev = Number.isFinite(parsedRev) ? Math.max(0, Math.trunc(parsedRev)) : 0;
   const asrSettings = mergedSettings?.asrSettings ?? {};
   const asrProfiles = mergedSettings?.asrProfiles ?? [];
-  const { data, error } = await supabase.from("profiles").update({
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const fullUpdatePayload = {
     settings: mergedSettings,
-    settings_rev: expectedRev + 1,
-    settings_updated_at: (/* @__PURE__ */ new Date()).toISOString(),
+    settings_rev: safeExpectedRev + 1,
+    settings_updated_at: nowIso,
     asr_settings: asrSettings,
     asr_calibration_profiles: asrProfiles,
-    asr_updated_at: (/* @__PURE__ */ new Date()).toISOString()
-  }).eq("user_id", userId).eq("settings_rev", expectedRev).select("settings_rev").single();
+    asr_updated_at: nowIso
+  };
+  const { data, error } = await supabase.from("profiles").update(fullUpdatePayload).eq("user_id", userId).eq("settings_rev", safeExpectedRev).select("settings_rev").single();
   if (error) {
-    throw error;
+    const message = String(error?.message ?? "").toLowerCase();
+    const code = String(error?.code ?? "").toUpperCase();
+    const missingOptionalAsrColumn = code === "PGRST204" || message.includes("column") && (message.includes("asr_settings") || message.includes("asr_calibration_profiles") || message.includes("asr_updated_at"));
+    if (!missingOptionalAsrColumn) {
+      throw error;
+    }
+    const legacy = await supabase.from("profiles").update({
+      settings: mergedSettings,
+      settings_rev: safeExpectedRev + 1,
+      settings_updated_at: nowIso
+    }).eq("user_id", userId).eq("settings_rev", safeExpectedRev).select("settings_rev").single();
+    if (legacy.error) {
+      throw legacy.error;
+    }
+    return { rev: Number(legacy.data?.settings_rev ?? safeExpectedRev + 1) };
   }
-  return { rev: Number(data?.settings_rev ?? expectedRev + 1) };
+  return { rev: Number(data?.settings_rev ?? safeExpectedRev + 1) };
 }
 function applySettingsPatch(current2, patch) {
   return deepMerge3(current2, patch);
@@ -52631,6 +52649,13 @@ var init_forge_nav = __esm({
 });
 
 // src/forge/profile-settings-sync.ts
+function areSettingsSnapshotsEqual(left, right) {
+  try {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  } catch {
+    return false;
+  }
+}
 function createProfileSettingsSync(options) {
   const {
     store: store3,
@@ -52652,6 +52677,8 @@ function createProfileSettingsSync(options) {
   let persistenceUserId = null;
   let settingsPersistenceInstalled = false;
   let speakerPersistenceInstalled = false;
+  let pendingSave = null;
+  let retryScheduled = false;
   function log(...args) {
     try {
       devLog2?.(...args);
@@ -52872,9 +52899,11 @@ function createProfileSettingsSync(options) {
     };
     return { app, asrSettings, asrProfiles, speakerProfiles, speakerBindings };
   }
+  let speakerPersistenceHydrating = false;
   function queueProfileSave() {
     if (isCiMode) return;
     if (!persistenceUserId || !profileHydrated || suppressSave) return;
+    if (speakerPersistenceHydrating) return;
     if (isSettingsHydrating2()) return;
     if (saveTimer) {
       try {
@@ -52889,6 +52918,11 @@ function createProfileSettingsSync(options) {
       saving = true;
       try {
         const merged = snapshotAppSettings();
+        if (areSettingsSnapshotsEqual(currentSettings, merged)) {
+          log("save:skip-noop");
+          return;
+        }
+        pendingSave = merged;
         currentSettings = merged;
         setSettingsSaveStatus({ state: "saving", at: Date.now() });
         const { rev: rev2 } = await saveProfileSettings({
@@ -52897,6 +52931,8 @@ function createProfileSettingsSync(options) {
           expectedRev: profileRev
         });
         profileRev = rev2;
+        pendingSave = null;
+        retryScheduled = false;
         log("save:flushed", { rev: rev2 });
         if (lastUserChange && Date.now() - lastUserChange <= RECENT_CHANGE_WINDOW_MS) {
           flashSettingsSaved();
@@ -52904,22 +52940,33 @@ function createProfileSettingsSync(options) {
         setSettingsSaveStatus({ state: "saved", at: Date.now() });
       } catch (err) {
         setSettingsSaveStatus({ state: "failed", at: Date.now(), error: String(err) });
-        try {
-          const { settings: settings2, rev: rev2 } = await loadProfileSettings(persistenceUserId);
-          profileRev = rev2;
-          applySettingsToStore(settings2);
-          log("save:conflict-reloaded", { rev: rev2 });
-        } catch (errReload) {
-          try {
-            console.warn("[forge] settings save failed; reload also failed", err, errReload);
-            log("save:conflict-reload-failed");
-          } catch {
-          }
-        }
+        await handleSaveConflict(err);
       } finally {
         saving = false;
       }
     }, SETTINGS_SAVE_DEBOUNCE_MS);
+  }
+  async function handleSaveConflict(error) {
+    if (!pendingSave || !persistenceUserId) return;
+    try {
+      const { settings: settings2, rev: rev2 } = await loadProfileSettings(persistenceUserId);
+      profileRev = rev2;
+      const resolved = applySettingsPatch(settings2, pendingSave);
+      currentSettings = resolved;
+      applySettingsToStore(resolved);
+      pendingSave = resolved;
+      log("save:conflict-resolved", { rev: rev2 });
+      if (!retryScheduled) {
+        retryScheduled = true;
+        queueProfileSave();
+      }
+    } catch (reloadErr) {
+      try {
+        console.warn("[forge] settings save failed; reload also failed", error, reloadErr);
+        log("save:conflict-reload-failed");
+      } catch {
+      }
+    }
   }
   function installSettingsPersistence(userId) {
     persistenceUserId = userId;
@@ -52948,9 +52995,26 @@ function createProfileSettingsSync(options) {
     persistenceUserId = userId;
     if (speakerPersistenceInstalled) return;
     speakerPersistenceInstalled = true;
-    subscribeSpeakerProfileState(() => {
+    let seenInit = false;
+    speakerPersistenceHydrating = true;
+    let lastSpeakerSnapshot = null;
+    subscribeSpeakerProfileState((snapshot) => {
       if (!persistenceUserId) return;
       if (!profileHydrated || suppressSave) return;
+      if (!seenInit) {
+        seenInit = true;
+        speakerPersistenceHydrating = false;
+        return;
+      }
+      const serialized = (() => {
+        try {
+          return JSON.stringify(snapshot);
+        } catch {
+          return null;
+        }
+      })();
+      if (serialized && serialized === lastSpeakerSnapshot) return;
+      if (serialized) lastSpeakerSnapshot = serialized;
       lastUserChange = Date.now();
       queueProfileSave();
     });
@@ -56889,7 +56953,23 @@ var init_local_auto = __esm({
         const sliced = cleaned.slice(0, 64).replace(/^_+|_+$/g, "");
         return sliced || "Script";
       }
+      function getRouteEpisodeTitle() {
+        try {
+          const params = new URLSearchParams(window.location.search || "");
+          const candidate = params.get("episode_title") || params.get("episodeTitle") || params.get("workpiece_title") || params.get("workpieceTitle");
+          if (!candidate) return null;
+          const normalized = candidate.trim();
+          return normalized.length > 0 ? normalized : null;
+        } catch {
+          return null;
+        }
+      }
       function getActiveScriptTitle() {
+        try {
+          const routeEpisodeTitle = getRouteEpisodeTitle();
+          if (routeEpisodeTitle) return routeEpisodeTitle;
+        } catch {
+        }
         try {
           const titleInput = document.getElementById("scriptTitle");
           if (titleInput && titleInput.value) return titleInput.value;
@@ -57457,11 +57537,18 @@ var init_local_auto = __esm({
       } catch {
       }
       try {
+        let autoPreference = true;
         const coreSurface = {
           start: start2,
           stop: stop3,
           isAvailable: () => true,
-          wantsAuto: () => true,
+          wantsAuto: () => autoPreference,
+          setAuto: (value) => {
+            autoPreference = !!value;
+          },
+          setWantsAuto: (value) => {
+            autoPreference = !!value;
+          },
           getAdapter: () => coreSurface
         };
         window.__tpLocalRecorder = coreSurface;
@@ -80745,4 +80832,3 @@ jszip/dist/jszip.min.js:
   https://github.com/nodeca/pako/blob/main/LICENSE
   *)
 */
-//# sourceMappingURL=index.js.map

@@ -19768,4 +19768,3 @@ async function main() {
 main().catch(() => {
   setText("error", "Reset page failed to load. Please refresh.");
 });
-//# sourceMappingURL=reset.js.map

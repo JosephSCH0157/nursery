@@ -139,4 +139,3 @@ if (shouldStart) {
     waitForHandler();
   }
 }
-//# sourceMappingURL=display-ws-display-client.js.map
