@@ -1,4 +1,5 @@
 import { getPrimaryScroller, getScriptRoot } from "../../scroll/scroller";
+import { supabase } from "../../forge/supabaseClient";
 
 type WhisperBridgeEvent = "start" | "end" | "error" | "partial" | "final";
 type WhisperBridgeListener = (payload?: unknown) => void;
@@ -28,6 +29,15 @@ class WhisperBridgeHttpError extends Error {
     super(message);
     this.name = "WhisperBridgeHttpError";
     this.status = status;
+  }
+}
+
+class WhisperBridgeAuthError extends Error {
+  readonly code = "ASR_AUTH_REQUIRED";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "WhisperBridgeAuthError";
   }
 }
 
@@ -67,6 +77,49 @@ const MAX_PROMPT_LOOKBEHIND = 1;
 const MAX_OVERLAP_WORDS = 12;
 const RESET_WINDOW_IDLE_MS = 4000;
 const SOURCE = "openai-whisper-bridge";
+
+function isDevAuthLoggingEnabled(): boolean {
+  try {
+    const host = String(window.location.hostname || "").toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1") return true;
+    return (window as any).__tpDebugAsrAuth === true;
+  } catch {
+    return false;
+  }
+}
+
+function logWhisperAuthAttachment(attached: boolean, reason?: string): void {
+  if (!isDevAuthLoggingEnabled()) return;
+  try {
+    const suffix = reason ? ` (${reason})` : "";
+    console.debug(`[whisper-bridge] auth header attached=${attached}${suffix}`);
+  } catch {
+    // ignore console failures
+  }
+}
+
+async function resolveWhisperAccessToken(): Promise<string> {
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) {
+      logWhisperAuthAttachment(false, "session_error");
+      throw new WhisperBridgeAuthError("ASR_AUTH_REQUIRED: unable to resolve session.");
+    }
+    const token = String(data?.session?.access_token ?? "").trim();
+    if (!token) {
+      logWhisperAuthAttachment(false, "missing_token");
+      throw new WhisperBridgeAuthError("ASR_AUTH_REQUIRED: missing active session token.");
+    }
+    logWhisperAuthAttachment(true);
+    return token;
+  } catch (error) {
+    if (error instanceof WhisperBridgeAuthError) {
+      throw error;
+    }
+    logWhisperAuthAttachment(false, "session_unavailable");
+    throw new WhisperBridgeAuthError("ASR_AUTH_REQUIRED: session unavailable.");
+  }
+}
 
 function dispatchAiActivity(detail: AiActivityPayload): void {
   try {
@@ -414,7 +467,10 @@ class WhisperBridgeRecognizer {
         } catch (error) {
           const message = error instanceof Error ? error.message : "Whisper bridge error";
           this.lastAiError = message;
-          if (error instanceof WhisperBridgeHttpError && error.status === 401) {
+          if (
+            (error instanceof WhisperBridgeHttpError && error.status === 401)
+            || error instanceof WhisperBridgeAuthError
+          ) {
             this.unauthorized = true;
             this.queue = [];
             this.stop();
@@ -436,6 +492,8 @@ class WhisperBridgeRecognizer {
   }
 
   private async transcribe(blob: Blob, seq: number): Promise<WhisperBridgeResponse> {
+    const accessToken = await resolveWhisperAccessToken();
+
     const form = new FormData();
     const mimeType = blob.type || chooseMimeType();
     const extension = extensionFromMimeType(mimeType);
@@ -448,6 +506,9 @@ class WhisperBridgeRecognizer {
 
     const response = await fetch(this.route, {
       method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
       body: form,
       cache: "no-store",
       credentials: "same-origin",

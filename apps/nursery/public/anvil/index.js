@@ -42952,6 +42952,45 @@ var init_backend_guard = __esm({
 });
 
 // src/speech/engines/whisper-bridge.ts
+function isDevAuthLoggingEnabled() {
+  try {
+    const host = String(window.location.hostname || "").toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1") return true;
+    return window.__tpDebugAsrAuth === true;
+  } catch {
+    return false;
+  }
+}
+function logWhisperAuthAttachment(attached, reason) {
+  if (!isDevAuthLoggingEnabled()) return;
+  try {
+    const suffix = reason ? ` (${reason})` : "";
+    console.debug(`[whisper-bridge] auth header attached=${attached}${suffix}`);
+  } catch {
+  }
+}
+async function resolveWhisperAccessToken() {
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) {
+      logWhisperAuthAttachment(false, "session_error");
+      throw new WhisperBridgeAuthError("ASR_AUTH_REQUIRED: unable to resolve session.");
+    }
+    const token = String(data?.session?.access_token ?? "").trim();
+    if (!token) {
+      logWhisperAuthAttachment(false, "missing_token");
+      throw new WhisperBridgeAuthError("ASR_AUTH_REQUIRED: missing active session token.");
+    }
+    logWhisperAuthAttachment(true);
+    return token;
+  } catch (error) {
+    if (error instanceof WhisperBridgeAuthError) {
+      throw error;
+    }
+    logWhisperAuthAttachment(false, "session_unavailable");
+    throw new WhisperBridgeAuthError("ASR_AUTH_REQUIRED: session unavailable.");
+  }
+}
 function dispatchAiActivity(detail) {
   try {
     window.__tpAiActivity = detail;
@@ -43077,17 +43116,25 @@ function readResponseError(payload, status2) {
 function createWhisperBridgeRecognizer(options = {}) {
   return new WhisperBridgeRecognizer(options);
 }
-var WhisperBridgeHttpError, DEFAULT_ROUTE, DEFAULT_SEGMENT_MS, MAX_WINDOW_WORDS, MAX_PROMPT_CHARS, MAX_PROMPT_LOOKAHEAD, MAX_PROMPT_LOOKBEHIND, MAX_OVERLAP_WORDS, RESET_WINDOW_IDLE_MS, SOURCE, WhisperBridgeRecognizer;
+var WhisperBridgeHttpError, WhisperBridgeAuthError, DEFAULT_ROUTE, DEFAULT_SEGMENT_MS, MAX_WINDOW_WORDS, MAX_PROMPT_CHARS, MAX_PROMPT_LOOKAHEAD, MAX_PROMPT_LOOKBEHIND, MAX_OVERLAP_WORDS, RESET_WINDOW_IDLE_MS, SOURCE, WhisperBridgeRecognizer;
 var init_whisper_bridge = __esm({
   "src/speech/engines/whisper-bridge.ts"() {
     "use strict";
     init_scroller();
+    init_supabaseClient();
     WhisperBridgeHttpError = class extends Error {
       status;
       constructor(status2, message) {
         super(message);
         this.name = "WhisperBridgeHttpError";
         this.status = status2;
+      }
+    };
+    WhisperBridgeAuthError = class extends Error {
+      code = "ASR_AUTH_REQUIRED";
+      constructor(message) {
+        super(message);
+        this.name = "WhisperBridgeAuthError";
       }
     };
     DEFAULT_ROUTE = "/api/anvil/asr/whisper";
@@ -43277,7 +43324,7 @@ var init_whisper_bridge = __esm({
             } catch (error) {
               const message = error instanceof Error ? error.message : "Whisper bridge error";
               this.lastAiError = message;
-              if (error instanceof WhisperBridgeHttpError && error.status === 401) {
+              if (error instanceof WhisperBridgeHttpError && error.status === 401 || error instanceof WhisperBridgeAuthError) {
                 this.unauthorized = true;
                 this.queue = [];
                 this.stop();
@@ -43298,6 +43345,7 @@ var init_whisper_bridge = __esm({
         }
       }
       async transcribe(blob, seq) {
+        const accessToken = await resolveWhisperAccessToken();
         const form = new FormData();
         const mimeType = blob.type || chooseMimeType();
         const extension = extensionFromMimeType(mimeType);
@@ -43309,6 +43357,9 @@ var init_whisper_bridge = __esm({
         }
         const response = await fetch(this.route, {
           method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`
+          },
           body: form,
           cache: "no-store",
           credentials: "same-origin"
