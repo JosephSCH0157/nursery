@@ -52,6 +52,21 @@ type HydrateOptions = {
 const SETTINGS_SAVE_DEBOUNCE_MS = 900;
 const RECENT_CHANGE_WINDOW_MS = 10_000;
 
+function isOptimisticRevisionConflict(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = String((error as { code?: unknown }).code ?? '').toUpperCase();
+  const message = String((error as { message?: unknown }).message ?? '').toLowerCase();
+  const details = String((error as { details?: unknown }).details ?? '').toLowerCase();
+  const status = Number((error as { status?: unknown }).status ?? NaN);
+
+  if (code === 'PGRST116') return true;
+  if (status === 406 || status === 409) return true;
+  if ((message.includes('0 rows') || details.includes('0 rows')) && message.includes('json object requested')) {
+    return true;
+  }
+  return false;
+}
+
 function areSettingsSnapshotsEqual(left: UserSettings, right: UserSettings): boolean {
   try {
     return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
@@ -328,7 +343,15 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
         setSettingsSaveStatus({ state: 'saved', at: Date.now() });
       } catch (err) {
         setSettingsSaveStatus({ state: 'failed', at: Date.now(), error: String(err) });
-        await handleSaveConflict(err);
+        if (isOptimisticRevisionConflict(err)) {
+          await handleSaveConflict(err);
+        } else {
+          pendingSave = null;
+          retryScheduled = false;
+          try {
+            console.warn('[forge] settings save failed (non-conflict); retry suppressed', err);
+          } catch {}
+        }
       } finally {
         saving = false;
       }

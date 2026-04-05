@@ -43077,11 +43077,19 @@ function readResponseError(payload, status2) {
 function createWhisperBridgeRecognizer(options = {}) {
   return new WhisperBridgeRecognizer(options);
 }
-var DEFAULT_ROUTE, DEFAULT_SEGMENT_MS, MAX_WINDOW_WORDS, MAX_PROMPT_CHARS, MAX_PROMPT_LOOKAHEAD, MAX_PROMPT_LOOKBEHIND, MAX_OVERLAP_WORDS, RESET_WINDOW_IDLE_MS, SOURCE, WhisperBridgeRecognizer;
+var WhisperBridgeHttpError, DEFAULT_ROUTE, DEFAULT_SEGMENT_MS, MAX_WINDOW_WORDS, MAX_PROMPT_CHARS, MAX_PROMPT_LOOKAHEAD, MAX_PROMPT_LOOKBEHIND, MAX_OVERLAP_WORDS, RESET_WINDOW_IDLE_MS, SOURCE, WhisperBridgeRecognizer;
 var init_whisper_bridge = __esm({
   "src/speech/engines/whisper-bridge.ts"() {
     "use strict";
     init_scroller();
+    WhisperBridgeHttpError = class extends Error {
+      status;
+      constructor(status2, message) {
+        super(message);
+        this.name = "WhisperBridgeHttpError";
+        this.status = status2;
+      }
+    };
     DEFAULT_ROUTE = "/api/anvil/asr/whisper";
     DEFAULT_SEGMENT_MS = 1800;
     MAX_WINDOW_WORDS = 56;
@@ -43266,6 +43274,10 @@ var init_whisper_bridge = __esm({
             } catch (error) {
               const message = error instanceof Error ? error.message : "Whisper bridge error";
               this.lastAiError = message;
+              if (error instanceof WhisperBridgeHttpError && error.status === 401) {
+                this.queue = [];
+                this.stop();
+              }
               this.emit("error", {
                 source: SOURCE,
                 message,
@@ -43299,7 +43311,7 @@ var init_whisper_bridge = __esm({
         });
         const payload = await response.json();
         if (!response.ok || payload.ok === false) {
-          throw new Error(readResponseError(payload, response.status));
+          throw new WhisperBridgeHttpError(response.status, readResponseError(payload, response.status));
         }
         return payload;
       }
@@ -52649,6 +52661,19 @@ var init_forge_nav = __esm({
 });
 
 // src/forge/profile-settings-sync.ts
+function isOptimisticRevisionConflict(error) {
+  if (!error || typeof error !== "object") return false;
+  const code = String(error.code ?? "").toUpperCase();
+  const message = String(error.message ?? "").toLowerCase();
+  const details = String(error.details ?? "").toLowerCase();
+  const status2 = Number(error.status ?? NaN);
+  if (code === "PGRST116") return true;
+  if (status2 === 406 || status2 === 409) return true;
+  if ((message.includes("0 rows") || details.includes("0 rows")) && message.includes("json object requested")) {
+    return true;
+  }
+  return false;
+}
 function areSettingsSnapshotsEqual(left, right) {
   try {
     return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
@@ -52940,7 +52965,16 @@ function createProfileSettingsSync(options) {
         setSettingsSaveStatus({ state: "saved", at: Date.now() });
       } catch (err) {
         setSettingsSaveStatus({ state: "failed", at: Date.now(), error: String(err) });
-        await handleSaveConflict(err);
+        if (isOptimisticRevisionConflict(err)) {
+          await handleSaveConflict(err);
+        } else {
+          pendingSave = null;
+          retryScheduled = false;
+          try {
+            console.warn("[forge] settings save failed (non-conflict); retry suppressed", err);
+          } catch {
+          }
+        }
       } finally {
         saving = false;
       }

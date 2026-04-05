@@ -21,6 +21,16 @@ type WhisperBridgeResponse = {
   provider_request_id?: string | null;
 };
 
+class WhisperBridgeHttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "WhisperBridgeHttpError";
+    this.status = status;
+  }
+}
+
 type WordToken = {
   raw: string;
   normalized: string;
@@ -401,6 +411,10 @@ class WhisperBridgeRecognizer {
         } catch (error) {
           const message = error instanceof Error ? error.message : "Whisper bridge error";
           this.lastAiError = message;
+          if (error instanceof WhisperBridgeHttpError && error.status === 401) {
+            this.queue = [];
+            this.stop();
+          }
           this.emit("error", {
             source: SOURCE,
             message,
@@ -437,7 +451,7 @@ class WhisperBridgeRecognizer {
 
     const payload = (await response.json()) as WhisperBridgeResponse;
     if (!response.ok || payload.ok === false) {
-      throw new Error(readResponseError(payload, response.status));
+      throw new WhisperBridgeHttpError(response.status, readResponseError(payload, response.status));
     }
     return payload;
   }
