@@ -199,11 +199,18 @@ export async function listMyWorkspaces(): Promise<Workspace[]> {
   const data = rpcResponse.data as WorkspaceAccessRow[] | null;
   const error = rpcResponse.error;
 
-  if (error && typeof error === "object" && "message" in error) {
-    const message = String((error as { message?: unknown }).message ?? "").toLowerCase();
-    const looksMissingFunction = message.includes("list_my_workspace_access")
+  if (error) {
+    const message = typeof error === "object" && error && "message" in error
+      ? String((error as { message?: unknown }).message ?? "").toLowerCase()
+      : "";
+    const code = typeof error === "object" && error && "code" in error
+      ? String((error as { code?: unknown }).code ?? "").toUpperCase()
+      : "";
+    const looksMissingFunctionByMessage = message.includes("list_my_workspace_access")
       && (message.includes("function") || message.includes("not found") || message.includes("could not find"));
-    if (looksMissingFunction) {
+    const looksMissingFunctionByCode = code === "PGRST202" || rpcResponse.status === 404;
+
+    if (looksMissingFunctionByMessage || looksMissingFunctionByCode) {
       const legacy = await supabase.schema("tongs").rpc("list_my_workspaces");
       if (legacy.error) throw legacy.error;
       const legacyRows = legacy.data as WorkspaceAccessRow[] | null;
