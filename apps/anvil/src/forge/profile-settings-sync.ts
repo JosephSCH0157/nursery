@@ -99,6 +99,7 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
   let speakerPersistenceInstalled = false;
   let pendingSave: UserSettings | null = null;
   let retryScheduled = false;
+  let persistenceDisabled = false;
 
   function log(...args: any[]) {
     try { devLog?.(...args); } catch {}
@@ -308,6 +309,7 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
 
   function queueProfileSave(): void {
     if (isCiMode) return;
+    if (persistenceDisabled) return;
     if (!persistenceUserId || !profileHydrated || suppressSave) return;
     if (speakerPersistenceHydrating) return;
     if (isSettingsHydrating()) return;
@@ -348,8 +350,9 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
         } else {
           pendingSave = null;
           retryScheduled = false;
+          persistenceDisabled = true;
           try {
-            console.warn('[forge] settings save failed (non-conflict); retry suppressed', err);
+            console.warn('[forge] settings save failed (non-conflict); persistence disabled until reload', err);
           } catch {}
         }
       } finally {
@@ -430,6 +433,7 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
 
   async function hydrateForUser(userId: string, opts: HydrateOptions = {}): Promise<void> {
     persistenceUserId = userId;
+    persistenceDisabled = false;
     const { loadRemote = true, enablePersistence = true, skipLogLabel = 'hydrate:ci-skip' } = opts;
     if (loadRemote) {
       try {

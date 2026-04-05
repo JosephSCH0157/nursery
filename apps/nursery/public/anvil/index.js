@@ -43119,6 +43119,7 @@ var init_whisper_bridge = __esm({
       requestsInFlight = 0;
       lastAiSnapshotKey = "";
       seq = 0;
+      unauthorized = false;
       constructor(options = {}) {
         this.route = options.route || DEFAULT_ROUTE;
         this.lang = options.lang || "en-US";
@@ -43192,6 +43193,7 @@ var init_whisper_bridge = __esm({
         const mimeType = chooseMimeType();
         this.recorder = mimeType ? new MediaRecorder(this.recorderStream, { mimeType }) : new MediaRecorder(this.recorderStream);
         this.recorder.ondataavailable = (event) => {
+          if (this.unauthorized) return;
           const blob = event.data;
           if (!blob || blob.size <= 0) return;
           this.queue.push({ blob, seq: ++this.seq });
@@ -43218,6 +43220,7 @@ var init_whisper_bridge = __esm({
         this.lastAiError = null;
         this.requestsInFlight = 0;
         this.lastAiSnapshotKey = "";
+        this.unauthorized = false;
         this.running = true;
         this.recorder.start(this.segmentMs);
         this.syncAiActivity();
@@ -43275,6 +43278,7 @@ var init_whisper_bridge = __esm({
               const message = error instanceof Error ? error.message : "Whisper bridge error";
               this.lastAiError = message;
               if (error instanceof WhisperBridgeHttpError && error.status === 401) {
+                this.unauthorized = true;
                 this.queue = [];
                 this.stop();
               }
@@ -52704,6 +52708,7 @@ function createProfileSettingsSync(options) {
   let speakerPersistenceInstalled = false;
   let pendingSave = null;
   let retryScheduled = false;
+  let persistenceDisabled = false;
   function log(...args) {
     try {
       devLog2?.(...args);
@@ -52927,6 +52932,7 @@ function createProfileSettingsSync(options) {
   let speakerPersistenceHydrating = false;
   function queueProfileSave() {
     if (isCiMode) return;
+    if (persistenceDisabled) return;
     if (!persistenceUserId || !profileHydrated || suppressSave) return;
     if (speakerPersistenceHydrating) return;
     if (isSettingsHydrating2()) return;
@@ -52970,8 +52976,9 @@ function createProfileSettingsSync(options) {
         } else {
           pendingSave = null;
           retryScheduled = false;
+          persistenceDisabled = true;
           try {
-            console.warn("[forge] settings save failed (non-conflict); retry suppressed", err);
+            console.warn("[forge] settings save failed (non-conflict); persistence disabled until reload", err);
           } catch {
           }
         }
@@ -53055,6 +53062,7 @@ function createProfileSettingsSync(options) {
   }
   async function hydrateForUser(userId, opts = {}) {
     persistenceUserId = userId;
+    persistenceDisabled = false;
     const { loadRemote = true, enablePersistence = true, skipLogLabel = "hydrate:ci-skip" } = opts;
     if (loadRemote) {
       try {

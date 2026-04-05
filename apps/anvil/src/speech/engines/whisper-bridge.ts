@@ -239,6 +239,7 @@ class WhisperBridgeRecognizer {
   private requestsInFlight = 0;
   private lastAiSnapshotKey = "";
   private seq = 0;
+  private unauthorized = false;
 
   constructor(options: WhisperBridgeRecognizerOptions = {}) {
     this.route = options.route || DEFAULT_ROUTE;
@@ -326,6 +327,7 @@ class WhisperBridgeRecognizer {
       : new MediaRecorder(this.recorderStream);
 
     this.recorder.ondataavailable = (event: BlobEvent) => {
+      if (this.unauthorized) return;
       const blob = event.data;
       if (!blob || blob.size <= 0) return;
       this.queue.push({ blob, seq: ++this.seq });
@@ -353,6 +355,7 @@ class WhisperBridgeRecognizer {
     this.lastAiError = null;
     this.requestsInFlight = 0;
     this.lastAiSnapshotKey = "";
+    this.unauthorized = false;
     this.running = true;
     this.recorder.start(this.segmentMs);
     this.syncAiActivity();
@@ -412,6 +415,7 @@ class WhisperBridgeRecognizer {
           const message = error instanceof Error ? error.message : "Whisper bridge error";
           this.lastAiError = message;
           if (error instanceof WhisperBridgeHttpError && error.status === 401) {
+            this.unauthorized = true;
             this.queue = [];
             this.stop();
           }
