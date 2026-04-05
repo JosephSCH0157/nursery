@@ -709,11 +709,18 @@ import {
   // Bridge this implementation to a stable core recorder surface so the registry always
   // targets the MediaRecorder-backed recorder (even if another legacy recorder is present).
   try {
+    let autoPreference = true;
     const coreSurface = {
       start,
       stop,
       isAvailable: () => true,
-      wantsAuto: () => true,
+      wantsAuto: () => autoPreference,
+      setAuto: (value: boolean) => {
+        autoPreference = !!value;
+      },
+      setWantsAuto: (value: boolean) => {
+        autoPreference = !!value;
+      },
       getAdapter: () => coreSurface,
     };
     (window as any).__tpLocalRecorder = coreSurface;

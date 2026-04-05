@@ -287,9 +287,12 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
     return { app, asrSettings, asrProfiles, speakerProfiles, speakerBindings };
   }
 
+  let speakerPersistenceHydrating = false;
+
   function queueProfileSave(): void {
     if (isCiMode) return;
     if (!persistenceUserId || !profileHydrated || suppressSave) return;
+    if (speakerPersistenceHydrating) return;
     if (isSettingsHydrating()) return;
     if (saveTimer) {
       try { clearTimeout(saveTimer); } catch {}
@@ -365,11 +368,13 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
     if (speakerPersistenceInstalled) return;
     speakerPersistenceInstalled = true;
     let seenInit = false;
+    speakerPersistenceHydrating = true;
     subscribeSpeakerProfileState(() => {
       if (!persistenceUserId) return;
       if (!profileHydrated || suppressSave) return;
       if (!seenInit) {
         seenInit = true;
+        speakerPersistenceHydrating = false;
         return;
       }
       lastUserChange = Date.now();
