@@ -1,4 +1,5 @@
 import type { HearthReadyScript } from "../../lib/hearth-ready-scripts";
+import { resolveTongsRequestApiToken } from "../../lib/tongs-fetch";
 
 type ReadyLabel = "hot" | "evergreen" | "series";
 
@@ -51,6 +52,17 @@ export default function HearthReadyMode({
   resolveReadyAttribution,
   resolveReadyLabel,
 }: HearthReadyModeProps) {
+  const persistForgeTongsBridgeToken = () => {
+    try {
+      const token = resolveTongsRequestApiToken();
+      if (token && typeof window !== "undefined") {
+        window.localStorage.setItem("forge_tongs_api_token_v1", token);
+      }
+    } catch {
+      // ignore storage failures
+    }
+  };
+
   return (
     <section className="hs-home">
       <header className="hs-home-header">
@@ -114,6 +126,7 @@ export default function HearthReadyMode({
                   type="button"
                   onClick={() => {
                     if (!anvilHref) return;
+                    persistForgeTongsBridgeToken();
                     window.location.assign(anvilHref);
                   }}
                   disabled={!anvilHref}

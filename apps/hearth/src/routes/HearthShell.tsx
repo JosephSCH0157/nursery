@@ -2794,9 +2794,18 @@ export default function HearthShell({
   const aiRuntimeBusy = isAiProcessing || isThumbnailGenerating || isImageMapCandidateGenerating;
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
   const aiEpisodeReady = Boolean(workpieceId?.trim());
-  const thumbnailConcepts = episodePackage?.thumbnail.concepts ?? [];
-  const thumbnailVersions = episodePackage?.thumbnail.versions ?? [];
-  const launchVariants = episodePackage?.launch_variants ?? [];
+  const thumbnailConcepts = useMemo(
+    () => episodePackage?.thumbnail?.concepts ?? [],
+    [episodePackage?.thumbnail?.concepts],
+  );
+  const thumbnailVersions = useMemo(
+    () => episodePackage?.thumbnail?.versions ?? [],
+    [episodePackage?.thumbnail?.versions],
+  );
+  const launchVariants = useMemo(
+    () => episodePackage?.launch_variants ?? [],
+    [episodePackage?.launch_variants],
+  );
   const selectedLaunchVariant = useMemo(
     () => launchVariants.find((variant) => variant.id === selectedLaunchVariantId) ?? null,
     [launchVariants, selectedLaunchVariantId],
@@ -2824,18 +2833,30 @@ export default function HearthShell({
   const selectedThumbnailBrandLogoWorkpieceId = selectedThumbnailBrandTemplate?.templateJson.logo.workpiece_id ?? null;
   const selectedThumbnailBrandLogoAssetPath = selectedThumbnailBrandTemplate?.templateJson.logo.asset_path ?? null;
   const selectedThumbnailVersion = thumbnailVersions.find((version) => version.id === selectedThumbnailVersionId) ?? null;
-  const imageMapEntries = episodePackage?.image_map.entries ?? [];
+  const imageMapEntries: EpisodeImageMapEntry[] = useMemo(
+    () => episodePackage?.image_map?.entries ?? [],
+    [episodePackage?.image_map?.entries],
+  );
   const mediaMap: EpisodeMediaMap | null = episodePackage?.media_map ?? null;
-  const mediaMapEntries: EpisodeMediaMapEntry[] = mediaMap?.entries ?? [];
+  const mediaMapEntries: EpisodeMediaMapEntry[] = useMemo(
+    () => mediaMap?.entries ?? [],
+    [mediaMap?.entries],
+  );
   const selectedMediaMapEntry = mediaMapEntries.find((entry) => entry.id === selectedMediaMapEntryId) ?? null;
   const selectedImageMapEntry = imageMapEntries.find((entry) => entry.id === selectedImageMapEntryId) ?? null;
   const brollPlan: EpisodeBrollPlan | null = episodePackage?.broll_plan ?? null;
-  const brollBeats: EpisodeBrollPlanBeat[] = brollPlan?.beats ?? [];
+  const brollBeats: EpisodeBrollPlanBeat[] = useMemo(
+    () => brollPlan?.beats ?? [],
+    [brollPlan?.beats],
+  );
   const selectedBrollBeat = brollBeats.find((beat) => beat.id === selectedBrollBeatId) ?? null;
   const brollProviders: ExternalGenerationProvider[] = listExternalGenerationProviders("broll");
   const brollRequestStateLabel = resolveVisualRequestStateLabel(selectedBrollBeat?.external_request?.state);
   const referenceClipPlan: EpisodeReferenceClipPlan | null = episodePackage?.cdc_plan ?? null;
-  const referenceClipEntries: EpisodeContextualDataCompositePlan[] = referenceClipPlan?.entries ?? [];
+  const referenceClipEntries: EpisodeContextualDataCompositePlan[] = useMemo(
+    () => referenceClipPlan?.entries ?? [],
+    [referenceClipPlan?.entries],
+  );
   const selectedReferenceClipEntry = referenceClipEntries.find((entry) => entry.id === selectedReferenceClipEntryId) ?? null;
   const preferredThumbnailTitleId = resolvePrimarySeoTitle(thumbnailTitleOptions)?.id ?? null;
   useThumbnailPreviewLoader({
