@@ -145,6 +145,13 @@ function isDeterministicWhisperRequestError(error: unknown): boolean {
   return false;
 }
 
+function isUnsupportedAudioError(error: unknown): boolean {
+  if (!(error instanceof WhisperBridgeHttpError)) return false;
+  const message = String(error.message || "").toLowerCase();
+  if (!message) return false;
+  return message.includes("audio file") && (message.includes("corrupt") || message.includes("unsupported"));
+}
+
 async function resolveWhisperAccessToken(): Promise<string> {
   try {
     const { data, error } = await supabase.auth.getSession();
@@ -349,6 +356,7 @@ class WhisperBridgeRecognizer {
   private seq = 0;
   private unauthorized = false;
   private requestInvalid = false;
+  private deterministicLatchLogged = false;
 
   constructor(options: WhisperBridgeRecognizerOptions = {}) {
     this.route = options.route || DEFAULT_ROUTE;
@@ -438,9 +446,19 @@ class WhisperBridgeRecognizer {
       : new MediaRecorder(this.recorderStream);
 
     this.recorder.ondataavailable = (event: BlobEvent) => {
-      if (this.unauthorized || this.requestInvalid) return;
       const blob = event.data;
+      const queueBefore = this.queue.length;
       const nextSeq = this.seq + 1;
+      if (this.unauthorized || this.requestInvalid) {
+        this.logChunkLifecycle("dropped", blob, {
+          seq: nextSeq,
+          queueDepthBefore: queueBefore,
+          queueDepthAfter: queueBefore,
+          requestInvalid: this.requestInvalid,
+          reason: this.requestInvalid ? "requestInvalid" : "unauthorized",
+        });
+        return;
+      }
       let chunkDurationMs: number | undefined;
       const timecode = Number(event.timecode);
       if (Number.isFinite(timecode)) {
@@ -454,15 +472,26 @@ class WhisperBridgeRecognizer {
       }
       const skipReason = this.getChunkSkipReason(blob);
       if (skipReason) {
-        this.logChunkSkip(blob, {
+        this.logChunkLifecycle("skipped", blob, {
           seq: nextSeq,
+          queueDepthBefore: queueBefore,
+          queueDepthAfter: queueBefore,
           durationMs: chunkDurationMs,
           reason: skipReason,
+          requestInvalid: this.requestInvalid,
         });
         return;
       }
       this.seq = nextSeq;
       this.queue.push({ blob, seq: this.seq, durationMs: chunkDurationMs });
+      const queueAfter = this.queue.length;
+      this.logChunkLifecycle("queued", blob, {
+        seq: this.seq,
+        queueDepthBefore: queueBefore,
+        queueDepthAfter: queueAfter,
+        durationMs: chunkDurationMs,
+        requestInvalid: this.requestInvalid,
+      });
       this.syncAiActivity();
       void this.flushQueue();
     };
@@ -489,6 +518,7 @@ class WhisperBridgeRecognizer {
     this.lastAiSnapshotKey = "";
     this.unauthorized = false;
     this.requestInvalid = false;
+    this.deterministicLatchLogged = false;
     this.running = true;
     this.recorder.start(this.segmentMs);
     this.syncAiActivity();
@@ -534,18 +564,28 @@ class WhisperBridgeRecognizer {
     if (this.queueRunning) return;
     this.queueRunning = true;
     try {
+      if (this.requestInvalid) return;
       while (this.queue.length > 0) {
+        if (this.requestInvalid) break;
+        const queueDepthBefore = this.queue.length;
         const next = this.queue.shift();
         if (!next) continue;
+        const queueDepthAfter = this.queue.length;
         this.requestsInFlight += 1;
         this.syncAiActivity();
         try {
-          const payload = await this.transcribe(next.blob, next.seq, next.durationMs);
+          const payload = await this.transcribe(
+            next.blob,
+            next.seq,
+            next.durationMs,
+            queueDepthBefore,
+            queueDepthAfter,
+          );
           this.lastModel = payload.model ?? this.lastModel;
           this.lastAiError = null;
           this.handleTranscript(payload);
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Whisper bridge error";
+          let message = error instanceof Error ? error.message : "Whisper bridge error";
           this.lastAiError = message;
           if (
             (error instanceof WhisperBridgeHttpError && error.status === 401)
@@ -555,9 +595,21 @@ class WhisperBridgeRecognizer {
             this.queue = [];
             this.stop();
           } else if (isDeterministicWhisperRequestError(error)) {
+            const queueDepthAtLatch = this.queue.length;
+            const classification = isUnsupportedAudioError(error) ? "unsupported-audio" : "invalid-request";
+            this.logDeterministicLatch(error, {
+              classification,
+              queueDepth: queueDepthAtLatch,
+              requestsInFlight: this.requestsInFlight,
+              queueCleared: queueDepthAtLatch > 0,
+            });
             this.requestInvalid = true;
             this.queue = [];
             this.stop();
+            if (classification === "unsupported-audio") {
+              message = "ASR recorder format is not supported by the current transcription path.";
+              this.lastAiError = message;
+            }
           }
           this.emit("error", {
             source: SOURCE,
@@ -584,56 +636,78 @@ class WhisperBridgeRecognizer {
     return null;
   }
 
-  private logChunkSkip(
+  private logChunkLifecycle(
+    action: "skipped" | "queued" | "sent" | "dropped",
     blob: Blob | null,
-    info: { seq: number; durationMs?: number; reason: string },
-  ): void {
-    if (!shouldLogLevel(2)) return;
-    try {
-      console.debug("[whisper-bridge] skip chunk", {
-        seq: info.seq,
-        filename: buildChunkFilename(info.seq, blob?.type || this.recorderMimeType),
-        size: blob?.size ?? 0,
-        type: blob?.type || "unknown",
-        durationMs: info.durationMs,
-        overrideMimeType: this.recorderMimeType || null,
-        reason: info.reason,
-        language: this.lang,
-      });
-    } catch {
-      // ignore logging failures
-    }
-  }
-
-  private logChunkUpload(
-    blob: Blob,
     info: {
       seq: number;
-      filename: string;
-      normalizedLanguage: string | null;
+      queueDepthBefore?: number;
+      queueDepthAfter?: number;
       durationMs?: number;
-      mimeType: string | undefined;
+      mimeType?: string | undefined;
+      normalizedLanguage?: string | null;
+      reason?: string;
+      requestInvalid: boolean;
     },
   ): void {
     if (!shouldLogLevel(2)) return;
     try {
-      console.info("[whisper-bridge] send chunk", {
+      const payload = {
+        action,
         seq: info.seq,
-        filename: info.filename,
-        size: blob.size,
-        type: blob.type || "unknown",
-        mimeType: info.mimeType || null,
-        overrideMimeType: this.recorderMimeType || null,
+        filename: buildChunkFilename(info.seq, blob?.type || this.recorderMimeType),
+        size: blob?.size ?? 0,
+        blobType: blob?.type || "unknown",
+        mimeType: info.mimeType ?? blob?.type ?? null,
+        recorderMimeType: this.recorderMimeType || null,
+        queueDepthBefore: info.queueDepthBefore,
+        queueDepthAfter: info.queueDepthAfter,
         durationMs: info.durationMs,
-        languageSent: info.normalizedLanguage ?? "auto",
+        normalizedLanguage: info.normalizedLanguage ?? null,
         languageRequested: this.lang,
+        requestInvalid: info.requestInvalid,
+        reason: info.reason ?? null,
+      };
+      const logFn = action === "sent" ? console.info : console.debug;
+      logFn("[whisper-bridge] chunk", payload);
+    } catch {
+      // ignore logging failures
+    }
+  }
+
+  private logDeterministicLatch(
+    error: unknown,
+    info: {
+      classification: string;
+      queueDepth: number;
+      requestsInFlight: number;
+      queueCleared: boolean;
+    },
+  ): void {
+    if (this.deterministicLatchLogged) return;
+    this.deterministicLatchLogged = true;
+    if (!shouldLogLevel(1)) return;
+    try {
+      const message = error instanceof Error ? error.message : String(error ?? "");
+      console.warn("[whisper-bridge] deterministic request stop", {
+        classification: info.classification,
+        queueDepth: info.queueDepth,
+        requestsInFlight: info.requestsInFlight,
+        queueCleared: info.queueCleared,
+        message: message || "",
       });
     } catch {
       // ignore logging failures
     }
   }
 
-  private async transcribe(blob: Blob, seq: number, durationMs?: number): Promise<WhisperBridgeResponse> {
+  private async transcribe(
+    blob: Blob,
+    seq: number,
+    durationMs?: number,
+    queueDepthBefore?: number,
+    queueDepthAfter?: number,
+  ): Promise<WhisperBridgeResponse> {
     const accessToken = await resolveWhisperAccessToken();
 
     const form = new FormData();
@@ -650,12 +724,18 @@ class WhisperBridgeRecognizer {
       form.set("prompt", prompt);
     }
 
-    this.logChunkUpload(blob, {
+    if (this.requestInvalid) {
+      throw new Error("Whisper bridge suppressed due to previous invalid request");
+    }
+
+    this.logChunkLifecycle("sent", blob, {
       seq,
-      filename,
-      normalizedLanguage,
+      queueDepthBefore,
+      queueDepthAfter,
       durationMs,
       mimeType,
+      normalizedLanguage,
+      requestInvalid: this.requestInvalid,
     });
 
     const response = await fetch(this.route, {
