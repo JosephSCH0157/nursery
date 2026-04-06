@@ -1,5 +1,6 @@
 import { getPrimaryScroller, getScriptRoot } from "../../scroll/scroller";
 import { supabase } from "../../forge/supabaseClient";
+import { shouldLogLevel } from "../../env/dev-log";
 
 type WhisperBridgeEvent = "start" | "end" | "error" | "partial" | "final";
 type WhisperBridgeListener = (payload?: unknown) => void;
@@ -77,6 +78,7 @@ const MAX_PROMPT_LOOKBEHIND = 1;
 const MAX_OVERLAP_WORDS = 12;
 const RESET_WINDOW_IDLE_MS = 4000;
 const SOURCE = "openai-whisper-bridge";
+const MIN_CHUNK_SIZE_BYTES = 2048;
 
 function isDevAuthLoggingEnabled(): boolean {
   try {
@@ -126,13 +128,21 @@ function isDeterministicWhisperRequestError(error: unknown): boolean {
   const message = String(error.message || "").toLowerCase();
   if (!message) return false;
 
-  return (
+  if (
     (message.includes("language") && (message.includes("not recognized") || message.includes("invalid")))
     || message.includes("malformed request")
     || message.includes("invalid request")
     || message.includes("bad request config")
     || message.includes("request-shape")
-  );
+  ) {
+    return true;
+  }
+
+  if (message.includes("audio file") && (message.includes("corrupt") || message.includes("unsupported"))) {
+    return true;
+  }
+
+  return false;
 }
 
 async function resolveWhisperAccessToken(): Promise<string> {
@@ -201,8 +211,14 @@ function chooseMimeType(): string | undefined {
 function extensionFromMimeType(mimeType: string | undefined): string {
   const normalized = String(mimeType || "").toLowerCase();
   if (normalized.includes("ogg")) return "ogg";
-  if (normalized.includes("mp4") || normalized.includes("m4a")) return "m4a";
+  if (normalized.includes("m4a")) return "m4a";
+  if (normalized.includes("mp4")) return "mp4";
   return "webm";
+}
+
+function buildChunkFilename(seq: number, mimeType: string | undefined): string {
+  const extension = extensionFromMimeType(mimeType);
+  return `chunk-${seq}.${extension}`;
 }
 
 function splitWords(text: string): string[] {
@@ -315,11 +331,13 @@ class WhisperBridgeRecognizer {
   private readonly lang: string;
   private readonly interim: boolean;
   private readonly segmentMs: number;
-  private queue: Array<{ blob: Blob; seq: number }> = [];
+  private queue: Array<{ blob: Blob; seq: number; durationMs?: number }> = [];
   private queueRunning = false;
   private running = false;
   private recorder: MediaRecorder | null = null;
   private recorderStream: MediaStream | null = null;
+  private recorderMimeType: string | undefined = undefined;
+  private lastChunkTimecode: number | null = null;
   private transcriptWindow: WordToken[] = [];
   private lastTranscriptAt = 0;
   private lastPartialText = "";
@@ -413,6 +431,8 @@ class WhisperBridgeRecognizer {
 
     this.recorderStream = new MediaStream(audioTracks.map((track: MediaStreamTrack) => track.clone()));
     const mimeType = chooseMimeType();
+    this.recorderMimeType = mimeType;
+    this.lastChunkTimecode = null;
     this.recorder = mimeType
       ? new MediaRecorder(this.recorderStream, { mimeType })
       : new MediaRecorder(this.recorderStream);
@@ -420,8 +440,29 @@ class WhisperBridgeRecognizer {
     this.recorder.ondataavailable = (event: BlobEvent) => {
       if (this.unauthorized || this.requestInvalid) return;
       const blob = event.data;
-      if (!blob || blob.size <= 0) return;
-      this.queue.push({ blob, seq: ++this.seq });
+      const nextSeq = this.seq + 1;
+      let chunkDurationMs: number | undefined;
+      const timecode = Number(event.timecode);
+      if (Number.isFinite(timecode)) {
+        if (typeof this.lastChunkTimecode === "number" && Number.isFinite(this.lastChunkTimecode)) {
+          const delta = timecode - this.lastChunkTimecode;
+          if (Number.isFinite(delta) && delta >= 0) {
+            chunkDurationMs = delta;
+          }
+        }
+        this.lastChunkTimecode = timecode;
+      }
+      const skipReason = this.getChunkSkipReason(blob);
+      if (skipReason) {
+        this.logChunkSkip(blob, {
+          seq: nextSeq,
+          durationMs: chunkDurationMs,
+          reason: skipReason,
+        });
+        return;
+      }
+      this.seq = nextSeq;
+      this.queue.push({ blob, seq: this.seq, durationMs: chunkDurationMs });
       this.syncAiActivity();
       void this.flushQueue();
     };
@@ -499,7 +540,7 @@ class WhisperBridgeRecognizer {
         this.requestsInFlight += 1;
         this.syncAiActivity();
         try {
-          const payload = await this.transcribe(next.blob, next.seq);
+          const payload = await this.transcribe(next.blob, next.seq, next.durationMs);
           this.lastModel = payload.model ?? this.lastModel;
           this.lastAiError = null;
           this.handleTranscript(payload);
@@ -534,13 +575,71 @@ class WhisperBridgeRecognizer {
     }
   }
 
-  private async transcribe(blob: Blob, seq: number): Promise<WhisperBridgeResponse> {
+  private getChunkSkipReason(blob: Blob | null): string | null {
+    if (!blob) return "empty";
+    if (blob.size <= 0) return "empty";
+    if (blob.size < MIN_CHUNK_SIZE_BYTES) {
+      return `too-small (${blob.size} < ${MIN_CHUNK_SIZE_BYTES})`;
+    }
+    return null;
+  }
+
+  private logChunkSkip(
+    blob: Blob | null,
+    info: { seq: number; durationMs?: number; reason: string },
+  ): void {
+    if (!shouldLogLevel(2)) return;
+    try {
+      console.debug("[whisper-bridge] skip chunk", {
+        seq: info.seq,
+        filename: buildChunkFilename(info.seq, blob?.type || this.recorderMimeType),
+        size: blob?.size ?? 0,
+        type: blob?.type || "unknown",
+        durationMs: info.durationMs,
+        overrideMimeType: this.recorderMimeType || null,
+        reason: info.reason,
+        language: this.lang,
+      });
+    } catch {
+      // ignore logging failures
+    }
+  }
+
+  private logChunkUpload(
+    blob: Blob,
+    info: {
+      seq: number;
+      filename: string;
+      normalizedLanguage: string | null;
+      durationMs?: number;
+      mimeType: string | undefined;
+    },
+  ): void {
+    if (!shouldLogLevel(2)) return;
+    try {
+      console.info("[whisper-bridge] send chunk", {
+        seq: info.seq,
+        filename: info.filename,
+        size: blob.size,
+        type: blob.type || "unknown",
+        mimeType: info.mimeType || null,
+        overrideMimeType: this.recorderMimeType || null,
+        durationMs: info.durationMs,
+        languageSent: info.normalizedLanguage ?? "auto",
+        languageRequested: this.lang,
+      });
+    } catch {
+      // ignore logging failures
+    }
+  }
+
+  private async transcribe(blob: Blob, seq: number, durationMs?: number): Promise<WhisperBridgeResponse> {
     const accessToken = await resolveWhisperAccessToken();
 
     const form = new FormData();
-    const mimeType = blob.type || chooseMimeType();
-    const extension = extensionFromMimeType(mimeType);
-    form.set("file", blob, `chunk-${seq}.${extension}`);
+    const mimeType = blob.type || this.recorderMimeType || chooseMimeType();
+    const filename = buildChunkFilename(seq, mimeType);
+    form.set("file", blob, filename);
     const normalizedLanguage = normalizeWhisperLanguage(this.lang);
     logWhisperLanguageNormalization(this.lang, normalizedLanguage);
     if (normalizedLanguage) {
@@ -550,6 +649,14 @@ class WhisperBridgeRecognizer {
     if (prompt) {
       form.set("prompt", prompt);
     }
+
+    this.logChunkUpload(blob, {
+      seq,
+      filename,
+      normalizedLanguage,
+      durationMs,
+      mimeType,
+    });
 
     const response = await fetch(this.route, {
       method: "POST",
