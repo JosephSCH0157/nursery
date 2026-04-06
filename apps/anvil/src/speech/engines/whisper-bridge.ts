@@ -79,6 +79,7 @@ const MAX_OVERLAP_WORDS = 12;
 const RESET_WINDOW_IDLE_MS = 4000;
 const SOURCE = "openai-whisper-bridge";
 const MIN_CHUNK_SIZE_BYTES = 2048;
+const MAX_CONSECUTIVE_UNSUPPORTED_AUDIO_ERRORS = 3;
 
 function isDevAuthLoggingEnabled(): boolean {
   try {
@@ -373,6 +374,7 @@ class WhisperBridgeRecognizer {
   private seq = 0;
   private unauthorized = false;
   private requestInvalid = false;
+  private consecutiveUnsupportedAudioErrors = 0;
   private deterministicLatchLogged = false;
 
   constructor(options: WhisperBridgeRecognizerOptions = {}) {
@@ -535,6 +537,7 @@ class WhisperBridgeRecognizer {
     this.lastAiSnapshotKey = "";
     this.unauthorized = false;
     this.requestInvalid = false;
+    this.consecutiveUnsupportedAudioErrors = 0;
     this.deterministicLatchLogged = false;
     this.running = true;
     this.recorder.start(this.segmentMs);
@@ -600,6 +603,7 @@ class WhisperBridgeRecognizer {
           );
           this.lastModel = payload.model ?? this.lastModel;
           this.lastAiError = null;
+          this.consecutiveUnsupportedAudioErrors = 0;
           this.handleTranscript(payload);
         } catch (error) {
           let message = error instanceof Error ? error.message : "Whisper bridge error";
@@ -614,18 +618,35 @@ class WhisperBridgeRecognizer {
           } else if (isDeterministicWhisperRequestError(error)) {
             const queueDepthAtLatch = this.queue.length;
             const classification = isUnsupportedAudioError(error) ? "unsupported-audio" : "invalid-request";
-            this.logDeterministicLatch(error, {
-              classification,
-              queueDepth: queueDepthAtLatch,
-              requestsInFlight: this.requestsInFlight,
-              queueCleared: queueDepthAtLatch > 0,
-            });
-            this.requestInvalid = true;
-            this.queue = [];
-            this.stop();
             if (classification === "unsupported-audio") {
-              message = "ASR recorder format is not supported by the current transcription path.";
-              this.lastAiError = message;
+              this.consecutiveUnsupportedAudioErrors += 1;
+              const shouldStop = this.consecutiveUnsupportedAudioErrors >= MAX_CONSECUTIVE_UNSUPPORTED_AUDIO_ERRORS;
+              if (shouldStop) {
+                this.logDeterministicLatch(error, {
+                  classification,
+                  queueDepth: queueDepthAtLatch,
+                  requestsInFlight: this.requestsInFlight,
+                  queueCleared: queueDepthAtLatch > 0,
+                });
+                this.requestInvalid = true;
+                this.queue = [];
+                this.stop();
+                message = "ASR recorder format is not supported by the current transcription path.";
+                this.lastAiError = message;
+              } else {
+                message = `ASR chunk skipped due to unsupported audio (${this.consecutiveUnsupportedAudioErrors}/${MAX_CONSECUTIVE_UNSUPPORTED_AUDIO_ERRORS}).`;
+                this.lastAiError = message;
+              }
+            } else {
+              this.logDeterministicLatch(error, {
+                classification,
+                queueDepth: queueDepthAtLatch,
+                requestsInFlight: this.requestsInFlight,
+                queueCleared: queueDepthAtLatch > 0,
+              });
+              this.requestInvalid = true;
+              this.queue = [];
+              this.stop();
             }
           }
           this.emit("error", {
