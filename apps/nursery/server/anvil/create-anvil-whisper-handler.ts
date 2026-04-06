@@ -79,6 +79,42 @@ function readUpstreamErrorMessage(detail: string): string | null {
   }
 }
 
+function isInvalidLanguageUpstreamError(detail: string): boolean {
+  const text = String(detail || "").trim();
+  if (!text) return false;
+
+  const lower = text.toLowerCase();
+  if (
+    lower.includes("language")
+    && (
+      lower.includes("invalid")
+      || lower.includes("not recognized")
+      || lower.includes("not supported")
+      || lower.includes("unknown")
+      || lower.includes("unsupported")
+    )
+  ) {
+    return true;
+  }
+
+  try {
+    const payload = JSON.parse(text) as Record<string, unknown>;
+    const rootError = payload.error;
+    if (!rootError || typeof rootError !== "object") return false;
+    const row = rootError as Record<string, unknown>;
+    const param = readOptionalString(row.param)?.toLowerCase() ?? "";
+    const code = readOptionalString(row.code)?.toLowerCase() ?? "";
+    const message = readOptionalString(row.message)?.toLowerCase() ?? "";
+
+    if (param.includes("language")) return true;
+    if (code.includes("language")) return true;
+    if (message.includes("language") && message.includes("invalid")) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function extractTranscriptionText(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "";
   const row = payload as Record<string, unknown>;
@@ -234,12 +270,15 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       const mimeType = readOptionalString((fileValue as { type?: unknown }).type);
       const extension = inferExtension(fileName, mimeType);
 
-      const upstreamForm = new FormData();
-      upstreamForm.set("model", sttModel);
-      upstreamForm.set("response_format", "json");
-      upstreamForm.set("file", fileValue, fileName ?? `chunk.${extension}`);
-      if (language) upstreamForm.set("language", language);
-      if (prompt) upstreamForm.set("prompt", prompt);
+      function buildUpstreamForm(includeLanguage: boolean): FormData {
+        const upstreamForm = new FormData();
+        upstreamForm.set("model", sttModel);
+        upstreamForm.set("response_format", "json");
+        upstreamForm.set("file", fileValue, fileName ?? `chunk.${extension}`);
+        if (includeLanguage && language) upstreamForm.set("language", language);
+        if (prompt) upstreamForm.set("prompt", prompt);
+        return upstreamForm;
+      }
 
       const upstreamAbort = new AbortController();
       let clientAborted = request.signal.aborted;
@@ -251,15 +290,44 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
 
       try {
         let upstream: Response;
+        let usedLanguageHint = Boolean(language);
+        let upstreamDetail = "";
+        let upstreamMessage: string | null = null;
         try {
           upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
             method: "POST",
             headers: {
               authorization: `Bearer ${apiKey}`,
             },
-            body: upstreamForm,
+            body: buildUpstreamForm(usedLanguageHint),
             signal: upstreamAbort.signal,
           });
+
+          if (!upstream.ok) {
+            upstreamDetail = await upstream.text();
+            upstreamMessage = readUpstreamErrorMessage(upstreamDetail) ?? "OpenAI error";
+            const shouldRetryWithoutLanguage =
+              usedLanguageHint
+              && (upstream.status === 400 || upstream.status === 422)
+              && isInvalidLanguageUpstreamError(upstreamDetail);
+
+            if (shouldRetryWithoutLanguage) {
+              usedLanguageHint = false;
+              upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+                method: "POST",
+                headers: {
+                  authorization: `Bearer ${apiKey}`,
+                },
+                body: buildUpstreamForm(false),
+                signal: upstreamAbort.signal,
+              });
+
+              if (!upstream.ok) {
+                upstreamDetail = await upstream.text();
+                upstreamMessage = readUpstreamErrorMessage(upstreamDetail) ?? "OpenAI error";
+              }
+            }
+          }
         } catch (error) {
           if (clientAborted || upstreamAbort.signal.aborted) {
             return new Response(null, { status: 499 });
@@ -272,8 +340,8 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         }
 
         if (!upstream.ok) {
-          const detail = await upstream.text();
-          const upstreamMessage = readUpstreamErrorMessage(detail) ?? "OpenAI error";
+          const detail = upstreamDetail || await upstream.text();
+          const resolvedUpstreamMessage = upstreamMessage ?? readUpstreamErrorMessage(detail) ?? "OpenAI error";
           const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
           await recordAiUsageEvent({
             supabaseService,
@@ -301,7 +369,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           return jsonResponse(status, {
             ok: false,
             text: "",
-            error: upstreamMessage,
+            error: resolvedUpstreamMessage,
             detail,
             model: sttModel,
             provider_request_id: upstream.headers.get("x-request-id"),
