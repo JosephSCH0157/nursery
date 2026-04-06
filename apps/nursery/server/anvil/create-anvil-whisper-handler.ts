@@ -198,6 +198,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           ok: false,
           text: "",
           error: "multipart/form-data body required",
+          code: "invalid_multipart_body",
         });
       }
 
@@ -207,6 +208,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           ok: false,
           text: "",
           error: "file field is required",
+          code: "missing_audio_file",
         });
       }
 
@@ -215,6 +217,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           ok: false,
           text: "",
           error: "audio chunk is empty",
+          code: "empty_audio_chunk",
         });
       }
 
