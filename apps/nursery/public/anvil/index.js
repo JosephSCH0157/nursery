@@ -42989,12 +42989,9 @@ function logWhisperLanguageNormalization(raw, normalized) {
 }
 function isDeterministicWhisperRequestError(error) {
   if (!(error instanceof WhisperBridgeHttpError)) return false;
-  if (error.status !== 400 && error.status !== 413 && error.status !== 422) return false;
+  if (error.status !== 400 && error.status !== 422) return false;
   const message = String(error.message || "").toLowerCase();
   if (!message) return false;
-  if (message.includes("multipart/form-data body required") || message.includes("file field is required") || message.includes("audio chunk is empty") || message.includes("audio chunk exceeds 25mb limit") || message.includes("invalid file format") || message.includes("supported formats") || message.includes("unsupported media type")) {
-    return true;
-  }
   if (message.includes("language") && (message.includes("not recognized") || message.includes("invalid")) || message.includes("malformed request") || message.includes("invalid request") || message.includes("bad request config") || message.includes("request-shape")) {
     return true;
   }
@@ -43007,7 +43004,7 @@ function isUnsupportedAudioError(error) {
   if (!(error instanceof WhisperBridgeHttpError)) return false;
   const message = String(error.message || "").toLowerCase();
   if (!message) return false;
-  return (message.includes("audio file") && (message.includes("corrupt") || message.includes("unsupported")) || message.includes("invalid file format") || message.includes("supported formats") || message.includes("unsupported media type"));
+  return message.includes("audio file") && (message.includes("corrupt") || message.includes("unsupported"));
 }
 async function resolveWhisperAccessToken() {
   try {
@@ -43572,31 +43569,8 @@ var init_whisper_bridge = __esm({
           cache: "no-store",
           credentials: "same-origin"
         });
-        const rawText = await response.text();
-        let payload = {};
-        if (rawText.trim()) {
-          try {
-            payload = JSON.parse(rawText);
-          } catch {
-            payload = {
-              ok: response.ok,
-              error: rawText.trim().slice(0, 400)
-            };
-          }
-        }
+        const payload = await response.json();
         if (!response.ok || payload.ok === false) {
-          if (shouldLogLevel(1)) {
-            try {
-              console.warn("[whisper-bridge] request failed", {
-                status: response.status,
-                statusText: response.statusText,
-                error: payload.error ?? null,
-                model: payload.model ?? null,
-                providerRequestId: payload.provider_request_id ?? null
-              });
-            } catch {
-            }
-          }
           throw new WhisperBridgeHttpError(response.status, readResponseError(payload, response.status));
         }
         return payload;
