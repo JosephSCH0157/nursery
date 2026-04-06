@@ -98,6 +98,43 @@ function logWhisperAuthAttachment(attached: boolean, reason?: string): void {
   }
 }
 
+function normalizeWhisperLanguage(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed) return null;
+  const primary = trimmed.split("-")[0]?.trim() ?? "";
+  if (!/^[a-z]{2,3}$/.test(primary)) return null;
+  return primary;
+}
+
+function logWhisperLanguageNormalization(raw: unknown, normalized: string | null): void {
+  if (!isDevAuthLoggingEnabled()) return;
+  try {
+    const rawValue = typeof raw === "string" ? raw : String(raw ?? "");
+    console.debug(
+      `[whisper-bridge] language raw="${rawValue}" normalized="${normalized ?? ""}" omitted=${normalized ? "false" : "true"}`,
+    );
+  } catch {
+    // ignore console failures
+  }
+}
+
+function isDeterministicWhisperRequestError(error: unknown): boolean {
+  if (!(error instanceof WhisperBridgeHttpError)) return false;
+  if (error.status !== 400 && error.status !== 422) return false;
+
+  const message = String(error.message || "").toLowerCase();
+  if (!message) return false;
+
+  return (
+    (message.includes("language") && (message.includes("not recognized") || message.includes("invalid")))
+    || message.includes("malformed request")
+    || message.includes("invalid request")
+    || message.includes("bad request config")
+    || message.includes("request-shape")
+  );
+}
+
 async function resolveWhisperAccessToken(): Promise<string> {
   try {
     const { data, error } = await supabase.auth.getSession();
@@ -293,6 +330,7 @@ class WhisperBridgeRecognizer {
   private lastAiSnapshotKey = "";
   private seq = 0;
   private unauthorized = false;
+  private requestInvalid = false;
 
   constructor(options: WhisperBridgeRecognizerOptions = {}) {
     this.route = options.route || DEFAULT_ROUTE;
@@ -380,7 +418,7 @@ class WhisperBridgeRecognizer {
       : new MediaRecorder(this.recorderStream);
 
     this.recorder.ondataavailable = (event: BlobEvent) => {
-      if (this.unauthorized) return;
+      if (this.unauthorized || this.requestInvalid) return;
       const blob = event.data;
       if (!blob || blob.size <= 0) return;
       this.queue.push({ blob, seq: ++this.seq });
@@ -409,6 +447,7 @@ class WhisperBridgeRecognizer {
     this.requestsInFlight = 0;
     this.lastAiSnapshotKey = "";
     this.unauthorized = false;
+    this.requestInvalid = false;
     this.running = true;
     this.recorder.start(this.segmentMs);
     this.syncAiActivity();
@@ -474,6 +513,10 @@ class WhisperBridgeRecognizer {
             this.unauthorized = true;
             this.queue = [];
             this.stop();
+          } else if (isDeterministicWhisperRequestError(error)) {
+            this.requestInvalid = true;
+            this.queue = [];
+            this.stop();
           }
           this.emit("error", {
             source: SOURCE,
@@ -498,7 +541,11 @@ class WhisperBridgeRecognizer {
     const mimeType = blob.type || chooseMimeType();
     const extension = extensionFromMimeType(mimeType);
     form.set("file", blob, `chunk-${seq}.${extension}`);
-    form.set("language", this.lang);
+    const normalizedLanguage = normalizeWhisperLanguage(this.lang);
+    logWhisperLanguageNormalization(this.lang, normalizedLanguage);
+    if (normalizedLanguage) {
+      form.set("language", normalizedLanguage);
+    }
     const prompt = buildScriptPrompt();
     if (prompt) {
       form.set("prompt", prompt);
