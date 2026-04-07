@@ -359,4 +359,51 @@ describe('ASR live commit motion', () => {
 
     driver.dispose();
   });
+
+  test('allows a single-step stall recovery override under starvation when live-forward is guard-held', async () => {
+    const driver = createAsrScrollDriver();
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'stall-override-prime',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.88,
+        topScores: [
+          { idx: 1, score: 0.88 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    // Create a starvation window so the next ingest is treated as guard-held.
+    await jest.advanceTimersByTimeAsync(2000);
+
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 1,
+      matchId: 'stall-override-forward',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.84,
+        topScores: [
+          { idx: 2, score: 0.62 },
+          { idx: 3, score: 0.84 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(2);
+
+    driver.dispose();
+  });
 });

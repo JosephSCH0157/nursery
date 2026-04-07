@@ -114,6 +114,11 @@
   background: rgba(15, 23, 42, 0.72);
 }
 
+.hammer-project-library__button--card {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
 .hammer-project-library__dev-link {
   opacity: 0.78;
 }
@@ -335,6 +340,23 @@
 .hammer-project-library__card-details {
   border-top: 1px dashed rgba(148, 163, 184, 0.22);
   padding-top: 8px;
+}
+
+.hammer-project-library__card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.hammer-project-library__intake-error {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(248, 113, 113, 0.34);
+  background: rgba(248, 113, 113, 0.12);
+  color: rgba(254, 202, 202, 0.94);
+  font-size: 13px;
 }
 
 .hammer-project-library__card-details > summary {

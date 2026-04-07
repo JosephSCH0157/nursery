@@ -10,6 +10,7 @@ import {
   saveIntroOutroSelection,
   uploadWorkpieceMediaFile,
 } from "../src/lib/hammerSourceDeskMediaApi";
+import { detectMediaType, intake } from "../src/lib/hammerIntakeRecordingApi";
 import { normalizeWorkpieceRelativePath } from "../../../packages/contracts/workpiece-paths";
 
 type FetchCall = {
@@ -277,6 +278,105 @@ async function testNoLocalStorageDependencyInApiModule() {
   assert.equal(source.includes("localStorage"), false);
 }
 
+async function testHammerIntakeDetectMediaType() {
+  assert.equal(detectMediaType({ name: "clip.wav", type: "" }), "audio");
+  assert.equal(detectMediaType({ name: "clip.mp4", type: "" }), "video");
+  assert.equal(detectMediaType({ name: "clip.unknown", type: "audio/mpeg" }), "audio");
+  assert.equal(detectMediaType({ name: "clip.unknown", type: "video/mp4" }), "video");
+  assert.equal(detectMediaType({ name: "clip.txt", type: "text/plain" }), "unsupported");
+}
+
+async function testHammerIntakeEpisodeAttachedSkipsCradleCreation() {
+  const calls: FetchCall[] = [];
+  const fakeFetch = async (url: string, options: Record<string, unknown>) => {
+    calls.push({ url, options });
+    if (url.includes("/commit-file")) {
+      return createOkJsonResponse({ ok: true, data: {} });
+    }
+    if (url.includes("/append-event")) {
+      return new Response(JSON.stringify({ ok: true, data: { id: 123 } }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ ok: false, error: { message: "unexpected url" } }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const originalInfo = console.info;
+  console.info = (() => {}) as typeof console.info;
+  try {
+    const file = new File([new Uint8Array([1, 2, 3])], "clip.mp4", { type: "video/mp4" });
+    const result = await intake({
+      mode: "episode_attached",
+      workspaceId: "workspace-1",
+      workpieceId: "workpiece-1",
+      file,
+      fetcher: fakeFetch as never,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(calls.some((call) => call.url === "/tongs/cradles"), false);
+    assert.equal(calls.filter((call) => call.url.includes("/commit-file")).length, 1);
+    assert.equal(calls.filter((call) => call.url.includes("/append-event")).length, 1);
+
+    const commitPayload = (calls.find((call) => call.url.includes("/commit-file"))?.options.json ?? null) as Record<string, unknown> | null;
+    assert.ok(commitPayload);
+    assert.equal(typeof commitPayload.path, "string");
+    assert.ok(String(commitPayload.path).startsWith("recordings/imported-"));
+    assert.equal(commitPayload.event_name, "take_completed");
+  } finally {
+    console.info = originalInfo;
+  }
+}
+
+async function testHammerIntakeStandaloneCreatesCradleThenCommits() {
+  const calls: FetchCall[] = [];
+  const fakeFetch = async (url: string, options: Record<string, unknown>) => {
+    calls.push({ url, options });
+    if (url === "/tongs/cradles") {
+      return new Response(JSON.stringify({ ok: true, data: { cradle: { id: "workpiece-new" } } }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("/commit-file")) {
+      return createOkJsonResponse({ ok: true, data: {} });
+    }
+    if (url.includes("/append-event")) {
+      return new Response(JSON.stringify({ ok: true, data: { id: 987 } }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ ok: false, error: { message: "unexpected url" } }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const originalInfo = console.info;
+  console.info = (() => {}) as typeof console.info;
+  try {
+    const file = new File([new Uint8Array([9, 8, 7])], "audio.mp3", { type: "audio/mpeg" });
+    const result = await intake({
+      mode: "standalone",
+      workspaceId: "workspace-2",
+      file,
+      fetcher: fakeFetch as never,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(calls[0]?.url, "/tongs/cradles");
+    assert.equal(calls.filter((call) => call.url.includes("/commit-file")).length, 1);
+    assert.equal(calls.filter((call) => call.url.includes("/append-event")).length, 1);
+  } finally {
+    console.info = originalInfo;
+  }
+}
+
 async function run() {
   await testUploadPathRouting();
   await testMediaTypeAcceptance();
@@ -289,6 +389,9 @@ async function run() {
   await testDeterministicAssetIdentityKey();
   await testPreviewErrorIncludesNormalizationDiagnostics();
   await testNoLocalStorageDependencyInApiModule();
+  await testHammerIntakeDetectMediaType();
+  await testHammerIntakeEpisodeAttachedSkipsCradleCreation();
+  await testHammerIntakeStandaloneCreatesCradleThenCommits();
   // eslint-disable-next-line no-console
   console.log("Hammer Source Desk media API tests passed.");
 }

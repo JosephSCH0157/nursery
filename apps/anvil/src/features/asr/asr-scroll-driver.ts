@@ -3063,6 +3063,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastStableInterimNudgeAt = 0;
   let lastBadCursorOnCueLogAt = 0;
   let lastAutoCueSkipAt = 0;
+  let lastStallRecoveryOverrideAt = 0;
 
   const noteRuntimeSpeechState = (detail: unknown) => {
     const actualRaw = (detail as { speechRunningActual?: unknown } | null | undefined)?.speechRunningActual;
@@ -7118,6 +7119,64 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           requestedTargetLine > liveStepTarget &&
           liveForwardHoldActive
         ) {
+          const sinceCommitMs = Math.max(0, now - lastCommitTime);
+          const starvationDetected =
+            lastCommitIndex != null &&
+            sinceCommitMs >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+            Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex));
+          const stallRecoveryRequired =
+            typeof pendingRequiredThreshold === 'number' && Number.isFinite(pendingRequiredThreshold)
+              ? pendingRequiredThreshold
+              : DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM;
+          const stallRecoveryMinSim = Math.max(
+            DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+            stallRecoveryRequired - 0.18,
+          );
+          const stallRecoveryOverrideEligible =
+            starvationDetected &&
+            isFinal &&
+            asrRuntimeSpeechSeen &&
+            asrRuntimeSpeechRunningActual &&
+            conf >= stallRecoveryMinSim &&
+            now - lastStallRecoveryOverrideAt >= DEFAULT_STARVATION_COMMIT_GAP_MS;
+          if (stallRecoveryOverrideEligible) {
+            lastStallRecoveryOverrideAt = now;
+            const overrideSim = Math.max(
+              conf,
+              DEFAULT_MULTI_JUMP_MIN_SIM,
+              DEFAULT_STRONG_FORWARD_COMMIT_SIM,
+            );
+            const overrideMatchId = matchId
+              ? `${matchId}:stall_override`
+              : `stall-override-${now.toString(36)}-${liveStepTarget}`;
+            try {
+              console.warn(
+                `ASR_STALL_RECOVERY_OVERRIDE current=${lastLineIndex} requested=${requestedTargetLine} committed=${liveStepTarget} reason=stall_recovery_override`,
+              );
+            } catch {}
+            emitHudStatus(
+              'stall_recovery_override',
+              `Rescue: stall override +${liveStepTarget - lastLineIndex}`,
+            );
+            adoptPendingMatch({
+              ...pending,
+              line: liveStepTarget,
+              conf: overrideSim,
+              isFinal: true,
+              hasEvidence: true,
+              forced: true,
+              forceReason: 'stall_recovery_override',
+              matchId: overrideMatchId,
+              // This override is explicitly escaping the live-forward guard once.
+              liveForwardGuardActive: undefined,
+              cursorLine: lastLineIndex,
+              searchWindowFrom: lastLineIndex,
+              searchWindowTo: liveStepTarget,
+              cueBridgeNudgeDelta: Math.max(1, liveStepTarget - lastLineIndex),
+            });
+            schedulePending();
+            return;
+          }
           const liveStepScore = Number(
             rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score,
           );
@@ -7159,7 +7218,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         asrMode &&
         targetLine > lastLineIndex &&
         liveSpeechGuardActive &&
-        forceReason !== 'stall-rescue'
+        forceReason !== 'stall-rescue' &&
+        forceReason !== 'stall_recovery_override'
       ) {
         warnGuard('asr_live_no_input_hold', [
           `current=${lastLineIndex}`,
@@ -11984,6 +12044,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     pendingMatch = null;
     asrSilenceActive = true;
+    lastStallRecoveryOverrideAt = 0;
     _postCommitReadabilitySeq += 1;
     try {
       unsubscribe();

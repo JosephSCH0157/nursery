@@ -9,6 +9,7 @@ import {
 } from "./hammerRuntimeData";
 import { ensureWorkpieceRecordingCardThumbnail } from "./hammerRecordingCardThumbnail";
 import { loadWorkpieceMediaPreviewUrl } from "../lib/hammerSourceDeskMediaApi";
+import { intake, pickMediaFile } from "../lib/hammerIntakeRecordingApi";
 import HammerWorkspaceSelection from "./HammerWorkspaceSelection";
 import type { HammerShellWorkspaceOption, HammerWorkspaceResolutionState } from "./hammerShellContext";
 import "./HammerProjectLibrary.css";
@@ -117,6 +118,9 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
   const [sortMode, setSortMode] = useState<ProjectSortMode>("updated_desc");
   const [recordingThumbnailUrls, setRecordingThumbnailUrls] = useState<Record<string, string>>({});
   const [recordingThumbnailKinds, setRecordingThumbnailKinds] = useState<Record<string, "image" | "video">>({});
+  const [intakeBusy, setIntakeBusy] = useState(false);
+  const [intakeBusyWorkpieceId, setIntakeBusyWorkpieceId] = useState<string | null>(null);
+  const [intakeError, setIntakeError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!routeWorkpieceId) return;
@@ -275,6 +279,76 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
     }));
   }
 
+  async function attachMediaToEpisode(workspaceId: string, workpieceId: string): Promise<void> {
+    if (intakeBusy) return;
+    setIntakeError(null);
+
+    const file = await pickMediaFile();
+    if (!file) return;
+
+    setIntakeBusy(true);
+    setIntakeBusyWorkpieceId(workpieceId);
+    try {
+      const result = await intake({
+        mode: "episode_attached",
+        workspaceId,
+        workpieceId,
+        file,
+      });
+      if (!result.ok) {
+        setIntakeError(result.error);
+        window.alert(result.error);
+        return;
+      }
+
+      setRefreshToken((current) => current + 1);
+      navigate(buildHammerCanonicalEditorHref(location.search, {
+        workspaceId: result.workspace_id,
+        workpieceId: result.workpiece_id,
+      }));
+    } finally {
+      setIntakeBusy(false);
+      setIntakeBusyWorkpieceId(null);
+    }
+  }
+
+  async function importStandalone(workspaceId: string): Promise<void> {
+    if (intakeBusy) return;
+    setIntakeError(null);
+
+    const proceed = window.confirm(
+      "This media will not be attached to any Episode. It will open as a standalone edit.",
+    );
+    if (!proceed) return;
+
+    const file = await pickMediaFile();
+    if (!file) return;
+
+    setIntakeBusy(true);
+    setIntakeBusyWorkpieceId(null);
+    try {
+      const result = await intake({
+        mode: "standalone",
+        workspaceId,
+        file,
+      });
+      if (!result.ok) {
+        setIntakeError(result.error);
+        window.alert(result.error);
+        return;
+      }
+
+      setRefreshToken((current) => current + 1);
+      setSelectedWorkpieceId(result.workpiece_id);
+      navigate(buildHammerCanonicalEditorHref(location.search, {
+        workspaceId: result.workspace_id,
+        workpieceId: result.workpiece_id,
+      }));
+    } finally {
+      setIntakeBusy(false);
+    }
+  }
+
   function renderProjectGrid(items: HammerRuntimeProjectCard[]): JSX.Element {
     return (
       <div className="hammer-project-library__grid">
@@ -361,6 +435,22 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
                     </span>
                   ) : null}
                 </div>
+                <div className="hammer-project-library__card-actions" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    className="hammer-project-library__button hammer-project-library__button--secondary hammer-project-library__button--card"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void attachMediaToEpisode(project.workspaceId, project.workpieceId);
+                    }}
+                    disabled={intakeBusy}
+                  >
+                    {intakeBusy && intakeBusyWorkpieceId === project.workpieceId
+                      ? "Attaching..."
+                      : "Attach Media"}
+                  </button>
+                </div>
                 <details className="hammer-project-library__card-details">
                   <summary>Details</summary>
                   <div className="hammer-project-library__card-details-body">
@@ -413,6 +503,17 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
           </button>
           <button
             type="button"
+            className="hammer-project-library__button hammer-project-library__button--secondary"
+            onClick={() => {
+              if (props.workspaceResolutionState !== "ready" || !props.workspaceId) return;
+              void importStandalone(props.workspaceId);
+            }}
+            disabled={props.workspaceResolutionState !== "ready" || !props.workspaceId || intakeBusy}
+          >
+            {intakeBusy && !intakeBusyWorkpieceId ? "Importing..." : "Standalone Import"}
+          </button>
+          <button
+            type="button"
             className="hammer-project-library__button hammer-project-library__button--primary"
             onClick={() => openProject(selectedProject)}
             disabled={!selectedProject}
@@ -437,6 +538,12 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
           ) : null}
         </div>
       </header>
+
+      {intakeError ? (
+        <div className="hammer-project-library__intake-error" role="alert">
+          {intakeError}
+        </div>
+      ) : null}
 
       {props.workspaceResolutionState !== "ready" ? (
         <HammerWorkspaceSelection
