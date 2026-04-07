@@ -449,6 +449,10 @@ const DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 1400;
 const DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS = 320;
 const DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS = 260;
 const DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS = 220;
+const DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS = DEFAULT_STARVATION_COMMIT_GAP_MS;
+const DEFAULT_RESCUE_MATCH_MIN_SIM = 0.62;
+const DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES = 2;
+const DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS = 1200;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 1;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 1;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS;
@@ -560,7 +564,7 @@ const DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS = 3;
 const DEFAULT_BEHIND_CANDIDATE_MIN_CHARS = 24;
 const DEFAULT_CURRENT_OVERRIDE_MIN_SIM = 0.22;
 const CUE_LINE_BRACKET_RE = /^\s*[\[(][^\])]{0,120}[\])]\s*$/;
-const CUE_LINE_WORD_RE = /\b(pause|beat|silence|breath|breathe|hold|wait|reflective)\b/i;
+const CUE_LINE_WORD_RE = /\b(pause|beat|silence|breath|breathe|hold|wait|reflective|empty)\b/i;
 const SPEAKER_TAG_ONLY_RE = /^\s*\[\s*\/?\s*(s1|s2|guest1|guest2|g1|g2)\s*\]\s*$/i;
 const NOTE_TAG_ONLY_RE = /^\s*\[\s*\/?\s*note(?:[^\]]*)\]\s*$/i;
 const NOTE_INLINE_BLOCK_RE = /^\s*\[\s*note(?:[^\]]*)\][\s\S]*\[\s*\/\s*note\s*\]\s*$/i;
@@ -3032,6 +3036,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastRescueSpeechTokenCount = 0;
   let lastRescueSpeechAt = 0;
   let freshSpeechSinceCommit = false;
+  let lastRescueMatchEvidenceAt = 0;
+  let lastRescueMatchEvidenceLine = -1;
+  let lastRescueMatchEvidenceSim = 0;
+  let lastRescueNoMatchAt = 0;
   let lastStableInterimNudgeAt = 0;
   let lastBadCursorOnCueLogAt = 0;
   let lastAutoCueSkipAt = 0;
@@ -4963,6 +4971,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return true;
   };
 
+  const hasFreshNearbyRescueMatchEvidence = (cursorLine: number, now: number): boolean => {
+    if (!Number.isFinite(cursorLine) || cursorLine < 0) return false;
+    if (lastRescueMatchEvidenceAt <= 0) return false;
+    if (now - lastRescueMatchEvidenceAt > DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS) return false;
+    if (lastRescueNoMatchAt > 0 && now - lastRescueNoMatchAt < DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS) {
+      return false;
+    }
+    const delta = lastRescueMatchEvidenceLine - Math.max(0, Math.floor(cursorLine));
+    if (delta < 0 || delta > DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES) return false;
+    return Number.isFinite(lastRescueMatchEvidenceSim) && lastRescueMatchEvidenceSim >= DEFAULT_RESCUE_MATCH_MIN_SIM;
+  };
+
   function maybeScheduleStallCueRescue(reason: string): boolean {
     if (disposed) return false;
     if (getScrollMode() !== 'asr') return false;
@@ -4973,6 +4993,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!Number.isFinite(cursorRaw) || cursorRaw < 0) return false;
     const cursorLine = Math.max(0, Math.floor(cursorRaw));
     const reasonTag = String(reason || '').trim().toLowerCase();
+    if (reasonTag === 'auto-stall' && !hasFreshNearbyRescueMatchEvidence(cursorLine, now)) {
+      stallRescueRequested = false;
+      if (isDevMode()) {
+        warnGuard('cue_stall_rescue_blocked', [
+          `at=${cursorLine}`,
+          'reason=no-fresh-near-match',
+          `matchAgeMs=${lastRescueMatchEvidenceAt > 0 ? Math.max(0, now - lastRescueMatchEvidenceAt) : -1}`,
+          `matchLine=${lastRescueMatchEvidenceLine}`,
+          `matchSim=${formatLogScore(lastRescueMatchEvidenceSim)}`,
+          `noMatchAgeMs=${lastRescueNoMatchAt > 0 ? Math.max(0, now - lastRescueNoMatchAt) : -1}`,
+          reason ? `source=${reason}` : '',
+        ]);
+      }
+      return false;
+    }
     if (manualAnchorPending && isAutomaticStallRescueReason(reasonTag)) {
       stallRescueRequested = false;
       if (isDevMode()) {
@@ -6791,7 +6826,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       if (
         targetLine > lastLineIndex + effectiveClampDeltaLimit &&
-        !strongForwardCommit
+        !(
+          strongForwardCommit &&
+          (
+            targetLine - lastLineIndex <= DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES ||
+            (Array.isArray(topScores) && topScores.some((entry) => {
+              const idx = Number(entry?.idx);
+              const score = Number(entry?.score);
+              if (!Number.isFinite(idx) || !Number.isFinite(score)) return false;
+              if (idx <= lastLineIndex || idx > lastLineIndex + DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES) return false;
+              return score >= Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, conf - 0.25);
+            }))
+          )
+        )
       ) {
         const requestedLine = targetLine;
         targetLine = lastLineIndex + effectiveClampDeltaLimit;
@@ -7364,6 +7411,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastCommitIndex != null &&
         now - lastCommitTime >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
         Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex)) &&
+        hasFreshNearbyRescueMatchEvidence(lastLineIndex, now) &&
         line > lastLineIndex &&
         line - lastLineIndex <= DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES &&
         conf >= Math.max(
@@ -8087,6 +8135,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       noMatch = false;
     }
     if (noMatch && !incomingMatch) {
+      lastRescueNoMatchAt = now;
+    }
+    if (noMatch && !incomingMatch) {
       rawMatchId = null;
     }
     let hasMatchId = typeof rawMatchId === 'string' && rawMatchId.length > 0;
@@ -8354,6 +8405,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       : driverWindowAhead;
     let rawIdx = Number(match.bestIdx);
     let conf = Number.isFinite(match.bestSim) ? match.bestSim : 0;
+    if (
+      Number.isFinite(rawIdx) &&
+      rawIdx >= 0 &&
+      Number.isFinite(conf) &&
+      conf >= DEFAULT_RESCUE_MATCH_MIN_SIM &&
+      !isIgnorableCueLineText(getLineTextAt(Math.max(0, Math.floor(rawIdx))))
+    ) {
+      lastRescueMatchEvidenceAt = now;
+      lastRescueMatchEvidenceLine = Math.max(0, Math.floor(rawIdx));
+      lastRescueMatchEvidenceSim = conf;
+    }
     if (asrMode && blockWindowRange) {
       const inBlockWindow =
         Number.isFinite(rawIdx) &&
@@ -9298,6 +9360,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         starvationDetected &&
         isFinal &&
         !!forwardPick &&
+        hasFreshNearbyRescueMatchEvidence(cursorLine, now) &&
         forwardPick.idx > cursorLine &&
         forwardPick.idx - cursorLine <= DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES &&
         forwardPick.score >= Math.max(
