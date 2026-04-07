@@ -29,6 +29,7 @@ export function useMediaMapWorkspace() {
   const [mediaMapConversationState, setMediaMapConversationState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [mediaMapConversationError, setMediaMapConversationError] = useState<string | null>(null);
   const hydratedMediaMapEntryIdRef = useRef<string | null>(null);
+  const hydratedMediaMapSnapshotRef = useRef<string>("none");
 
   function setMediaMapDraftEditing<T extends string | boolean>(fieldSetter: (value: T) => void, value: T): void {
     fieldSetter(value);
@@ -61,6 +62,7 @@ export function useMediaMapWorkspace() {
   const syncMediaMapDraftFromEntry = useCallback((selectedMediaMapEntry: EpisodeMediaMapEntry | null): void => {
     if (!selectedMediaMapEntry) {
       hydratedMediaMapEntryIdRef.current = null;
+      hydratedMediaMapSnapshotRef.current = "none";
       setMediaMapTypeDraft("image");
       setMediaMapAnchorModeDraft("phrase_match");
       setMediaMapAnchorTargetDraft("");
@@ -76,6 +78,26 @@ export function useMediaMapWorkspace() {
       setMediaMapSaveState("saved");
       return;
     }
+
+    const nextSnapshot = JSON.stringify({
+      id: selectedMediaMapEntry.id,
+      final_media_kind: selectedMediaMapEntry.final_media_kind,
+      anchor: selectedMediaMapEntry.anchor,
+      timing: selectedMediaMapEntry.timing,
+      description: selectedMediaMapEntry.description,
+      intent: selectedMediaMapEntry.intent,
+      source: selectedMediaMapEntry.source,
+      confidence: selectedMediaMapEntry.confidence,
+      optional: selectedMediaMapEntry.optional,
+      critical: selectedMediaMapEntry.critical,
+    });
+    if (
+      hydratedMediaMapSnapshotRef.current === nextSnapshot
+      && mediaMapSaveState === "saved"
+    ) {
+      return;
+    }
+
     // Do not clobber in-progress edits for the same selected entry.
     if (
       mediaMapSaveState === "editing"
@@ -84,6 +106,7 @@ export function useMediaMapWorkspace() {
       return;
     }
     hydratedMediaMapEntryIdRef.current = selectedMediaMapEntry.id;
+    hydratedMediaMapSnapshotRef.current = nextSnapshot;
     setMediaMapTypeDraft(
       selectedMediaMapEntry.final_media_kind === "contextual_data_composite"
         ? "contextual_data_composite"

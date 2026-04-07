@@ -45,20 +45,20 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
   const [metadataSaveError, setMetadataSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    setMetadataSaveState("saved");
-    setMetadataSaveError(null);
-    setMetadataTagInputDraft("");
+    setMetadataSaveState((prev) => (prev === "saved" ? prev : "saved"));
+    setMetadataSaveError((prev) => (prev === null ? prev : null));
+    setMetadataTagInputDraft((prev) => (prev === "" ? prev : ""));
   }, [workpieceId]);
 
   useEffect(() => {
     if (!episodePackage) {
-      setMetadataTitlesDraft([]);
-      setMetadataTagsDraft([]);
-      setMetadataTagInputDraft("");
-      setMetadataDescriptionShortDraft("");
-      setMetadataDescriptionLongDraft("");
-      setMetadataSaveState("saved");
-      setMetadataSaveError(null);
+      setMetadataTitlesDraft((prev) => (prev.length === 0 ? prev : []));
+      setMetadataTagsDraft((prev) => (prev.length === 0 ? prev : []));
+      setMetadataTagInputDraft((prev) => (prev === "" ? prev : ""));
+      setMetadataDescriptionShortDraft((prev) => (prev === "" ? prev : ""));
+      setMetadataDescriptionLongDraft((prev) => (prev === "" ? prev : ""));
+      setMetadataSaveState((prev) => (prev === "saved" ? prev : "saved"));
+      setMetadataSaveError((prev) => (prev === null ? prev : null));
       return;
     }
     if (metadataSaveState === "editing" || metadataSaveState === "saving") {
