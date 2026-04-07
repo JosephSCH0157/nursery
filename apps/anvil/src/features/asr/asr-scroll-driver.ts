@@ -440,18 +440,19 @@ const DEFAULT_CUE_BRIDGE_LARGE_GAP = 0.12;
 const DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS = 2;
 const DEFAULT_CUE_STALL_RESCUE_DELAY_MS = 900;
 const DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 1800;
-const DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS = 700;
-const DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS = 550;
+const DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS = 600;
+const DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS = 480;
+const DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS = 420;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 3;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 2;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS * 2;
 const DEFAULT_MULTI_JUMP_MIN_SIM = 0.45;
 const DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS = 0.08;
 const DEFAULT_MULTI_JUMP_HARD_DENY_SIM = 0.3;
-const DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES = 3;
-const DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM = 0.5;
+const DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES = 5;
+const DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM = 0.6;
 const DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK = 0.08;
-const DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK = 0.06;
+const DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK = 0.08;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES = 8;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM = 0.75;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP = 0.3;
@@ -1073,7 +1074,9 @@ function resolveCueStallRescueDelayMs(opts: {
     : 0;
   return finalsSinceCommit >= 2
     ? DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS
-    : DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS;
+    : finalsSinceCommit >= 1
+      ? DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS
+      : DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS;
 }
 
 export function evaluateWeakForwardClampSupport(opts: {
@@ -6645,6 +6648,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ) {
         const requestedLine = targetLine;
         targetLine = lastLineIndex + effectiveClampDeltaLimit;
+        const clampedLine = targetLine;
         if (!forced && forceTag !== 'watchdog') {
           const asrHighConfidenceFarForwardAllow =
             asrMode &&
@@ -6669,10 +6673,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           });
           if (!weakForwardClampSupport.allow) {
             if (asrRelaxedForwardClampEligible) {
+              targetLine = requestedLine;
               warnGuard('asr_relaxed_forward_allow', [
                 `current=${lastLineIndex}`,
                 `req=${requestedLine}`,
-                `clamped=${targetLine}`,
+                `clamped=${clampedLine}`,
                 `sim=${formatLogScore(conf)}`,
                 `need=${formatLogScore(weakForwardClampSupport.minSupport)}`,
                 'mode=asr',
