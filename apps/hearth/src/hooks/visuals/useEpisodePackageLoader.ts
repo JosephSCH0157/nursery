@@ -1,4 +1,4 @@
-import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import {
   readEpisodePackageForWorkpiece,
 } from "../../lib/hearth-thumbnail-api";
@@ -55,44 +55,50 @@ type UseEpisodePackageLoaderArgs = {
 export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
   const episodePackageRequestSeqRef = useRef(0);
   const artifactStateWorkpieceIdRef = useRef<string | null>(null);
+  const latestArgsRef = useRef(args);
+
+  useEffect(() => {
+    latestArgsRef.current = args;
+  }, [args]);
 
   return useCallback(async () => {
-    const episodeId = args.workpieceId?.trim() ?? "";
+    const currentArgs = latestArgsRef.current;
+    const episodeId = currentArgs.workpieceId?.trim() ?? "";
     const requestSeq = episodePackageRequestSeqRef.current + 1;
     episodePackageRequestSeqRef.current = requestSeq;
 
     if (artifactStateWorkpieceIdRef.current !== episodeId) {
       // Clear stale artifact state as soon as the active workpiece changes so prior package
       // residue never renders as current truth for the new target.
-      args.setEpisodePackage(null);
-      args.setImageMapMetadataUpdatedAt(null);
-      args.setSelectedThumbnailTitleId(null);
-      args.setSelectedThumbnailConceptId("");
-      args.setSelectedThumbnailVersionId(null);
-      args.setSelectedLaunchVariantId(null);
-      args.setSelectedMediaMapEntryId(null);
-      args.setSelectedImageMapEntryId(null);
-      args.setSelectedBrollBeatId(null);
-      args.setSelectedReferenceClipEntryId(null);
-      args.setThumbnailGenerateError(null);
-      args.setThumbnailUploadError(null);
-      args.setThumbnailPairingError(null);
-      args.setThumbnailPreviewState("idle");
-      args.setThumbnailPreviewDataUrl(null);
-      args.setThumbnailPreviewError(null);
-      args.setImageMapSaveState("saved");
-      args.setImageMapSaveError(null);
-      args.setImageMapExportMessage(null);
-      args.setMediaMapSaveState("saved");
-      args.setMediaMapSaveError(null);
-      args.setMediaMapMessage(null);
-      args.setBrollSaveState("saved");
-      args.setBrollSaveError(null);
-      args.setBrollMessage(null);
-      args.setReferenceClipSaveState("saved");
-      args.setReferenceClipSaveError(null);
-      args.setReferenceClipMessage(null);
-      args.resetReleasePrepState();
+      currentArgs.setEpisodePackage(null);
+      currentArgs.setImageMapMetadataUpdatedAt(null);
+      currentArgs.setSelectedThumbnailTitleId(null);
+      currentArgs.setSelectedThumbnailConceptId("");
+      currentArgs.setSelectedThumbnailVersionId(null);
+      currentArgs.setSelectedLaunchVariantId(null);
+      currentArgs.setSelectedMediaMapEntryId(null);
+      currentArgs.setSelectedImageMapEntryId(null);
+      currentArgs.setSelectedBrollBeatId(null);
+      currentArgs.setSelectedReferenceClipEntryId(null);
+      currentArgs.setThumbnailGenerateError(null);
+      currentArgs.setThumbnailUploadError(null);
+      currentArgs.setThumbnailPairingError(null);
+      currentArgs.setThumbnailPreviewState("idle");
+      currentArgs.setThumbnailPreviewDataUrl(null);
+      currentArgs.setThumbnailPreviewError(null);
+      currentArgs.setImageMapSaveState("saved");
+      currentArgs.setImageMapSaveError(null);
+      currentArgs.setImageMapExportMessage(null);
+      currentArgs.setMediaMapSaveState("saved");
+      currentArgs.setMediaMapSaveError(null);
+      currentArgs.setMediaMapMessage(null);
+      currentArgs.setBrollSaveState("saved");
+      currentArgs.setBrollSaveError(null);
+      currentArgs.setBrollMessage(null);
+      currentArgs.setReferenceClipSaveState("saved");
+      currentArgs.setReferenceClipSaveError(null);
+      currentArgs.setReferenceClipMessage(null);
+      currentArgs.resetReleasePrepState();
       artifactStateWorkpieceIdRef.current = episodeId || null;
     }
 
@@ -101,71 +107,90 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       return;
     }
 
-    const loaded = await readEpisodePackageForWorkpiece(episodeId);
-    if (episodePackageRequestSeqRef.current !== requestSeq || (args.workpieceId?.trim() ?? "") !== episodeId) {
-      return;
-    }
-    if (!loaded.ok) {
-      args.setThumbnailGenerateError("Unable to load thumbnail metadata.");
-      args.setThumbnailPreviewState("error");
-      args.setThumbnailPreviewDataUrl(null);
-      args.setThumbnailPreviewError("Unable to load thumbnail metadata.");
-      return;
-    }
+    try {
+      const loaded = await readEpisodePackageForWorkpiece(episodeId);
+      if (
+        episodePackageRequestSeqRef.current !== requestSeq
+        || (latestArgsRef.current.workpieceId?.trim() ?? "") !== episodeId
+      ) {
+        return;
+      }
+      if (!loaded.ok) {
+        currentArgs.setThumbnailGenerateError("Unable to load thumbnail metadata.");
+        currentArgs.setThumbnailPreviewState("error");
+        currentArgs.setThumbnailPreviewDataUrl(null);
+        currentArgs.setThumbnailPreviewError("Unable to load thumbnail metadata.");
+        return;
+      }
 
-    // Paint baseline episode package immediately so the primary list content can render
-    // before slower image/media map hydration calls complete.
-    args.setEpisodePackage(loaded.episodePackage);
-    artifactStateWorkpieceIdRef.current = episodeId;
-    args.setThumbnailGenerateError(null);
-    args.setImageMapSaveError(null);
-    {
-      const versions = loaded.episodePackage.thumbnail.versions;
-      const preferredVersionId = loaded.episodePackage.thumbnail.primary_version_id
-        ?? versions[versions.length - 1]?.id
-        ?? null;
-      args.setSelectedThumbnailVersionId(preferredVersionId);
-      const initialImageEntries = loaded.episodePackage.image_map.entries;
-      args.setSelectedImageMapEntryId((prev) => {
-        if (prev && initialImageEntries.some((entry) => entry.id === prev)) return prev;
-        return initialImageEntries[0]?.id ?? null;
+      // Paint baseline episode package immediately so the primary list content can render
+      // before slower image/media map hydration calls complete.
+      currentArgs.setEpisodePackage(loaded.episodePackage);
+      artifactStateWorkpieceIdRef.current = episodeId;
+      currentArgs.setThumbnailGenerateError(null);
+      currentArgs.setImageMapSaveError(null);
+      {
+        const versions = loaded.episodePackage.thumbnail.versions;
+        const preferredVersionId = loaded.episodePackage.thumbnail.primary_version_id
+          ?? versions[versions.length - 1]?.id
+          ?? null;
+        currentArgs.setSelectedThumbnailVersionId(preferredVersionId);
+        const initialImageEntries = loaded.episodePackage.image_map.entries;
+        currentArgs.setSelectedImageMapEntryId((prev) => {
+          if (prev && initialImageEntries.some((entry) => entry.id === prev)) return prev;
+          return initialImageEntries[0]?.id ?? null;
+        });
+      }
+
+      const [imageMapLoaded, mediaMapLoaded] = await Promise.all([
+        getWorkpieceImageMap(episodeId),
+        readWorkpieceEpisodeMediaMap(episodeId),
+      ]);
+      if (
+        episodePackageRequestSeqRef.current !== requestSeq
+        || (latestArgsRef.current.workpieceId?.trim() ?? "") !== episodeId
+      ) {
+        return;
+      }
+
+      let nextEpisodePackage = loaded.episodePackage;
+      if (imageMapLoaded.ok) {
+        nextEpisodePackage = currentArgs.replaceEpisodePackageImageMap(
+          loaded.episodePackage,
+          imageMapLoaded.imageMap.entries,
+          imageMapLoaded.imageMap.spokenBeats,
+        );
+        currentArgs.setImageMapMetadataUpdatedAt(imageMapLoaded.imageMap.metadataUpdatedAt);
+      } else {
+        currentArgs.setImageMapMetadataUpdatedAt(null);
+      }
+      if (mediaMapLoaded.ok && mediaMapLoaded.mediaMap) {
+        nextEpisodePackage = {
+          ...nextEpisodePackage,
+          media_map: {
+            ...mediaMapLoaded.mediaMap,
+            workpiece_id: episodeId,
+          },
+        };
+      }
+
+      currentArgs.setEpisodePackage(nextEpisodePackage);
+      const imageEntries = nextEpisodePackage.image_map.entries;
+      currentArgs.setSelectedImageMapEntryId((prev) => {
+        if (prev && imageEntries.some((entry) => entry.id === prev)) return prev;
+        return imageEntries[0]?.id ?? null;
       });
+    } catch {
+      if (
+        episodePackageRequestSeqRef.current !== requestSeq
+        || (latestArgsRef.current.workpieceId?.trim() ?? "") !== episodeId
+      ) {
+        return;
+      }
+      currentArgs.setThumbnailGenerateError("Unable to load thumbnail metadata.");
+      currentArgs.setThumbnailPreviewState("error");
+      currentArgs.setThumbnailPreviewDataUrl(null);
+      currentArgs.setThumbnailPreviewError("Unable to load thumbnail metadata.");
     }
-
-    const [imageMapLoaded, mediaMapLoaded] = await Promise.all([
-      getWorkpieceImageMap(episodeId),
-      readWorkpieceEpisodeMediaMap(episodeId),
-    ]);
-    if (episodePackageRequestSeqRef.current !== requestSeq || (args.workpieceId?.trim() ?? "") !== episodeId) {
-      return;
-    }
-
-    let nextEpisodePackage = loaded.episodePackage;
-    if (imageMapLoaded.ok) {
-      nextEpisodePackage = args.replaceEpisodePackageImageMap(
-        loaded.episodePackage,
-        imageMapLoaded.imageMap.entries,
-        imageMapLoaded.imageMap.spokenBeats,
-      );
-      args.setImageMapMetadataUpdatedAt(imageMapLoaded.imageMap.metadataUpdatedAt);
-    } else {
-      args.setImageMapMetadataUpdatedAt(null);
-    }
-    if (mediaMapLoaded.ok && mediaMapLoaded.mediaMap) {
-      nextEpisodePackage = {
-        ...nextEpisodePackage,
-        media_map: {
-          ...mediaMapLoaded.mediaMap,
-          workpiece_id: episodeId,
-        },
-      };
-    }
-
-    args.setEpisodePackage(nextEpisodePackage);
-    const imageEntries = nextEpisodePackage.image_map.entries;
-    args.setSelectedImageMapEntryId((prev) => {
-      if (prev && imageEntries.some((entry) => entry.id === prev)) return prev;
-      return imageEntries[0]?.id ?? null;
-    });
-  }, [args]);
+  }, [args.workpieceId]);
 }

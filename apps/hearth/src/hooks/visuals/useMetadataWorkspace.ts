@@ -66,13 +66,40 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
     }
 
     const normalized = ensureSeoV2(episodePackage);
-    setMetadataTitlesDraft(normalized.seo.titles);
-    setMetadataTagsDraft(normalized.seo.tags);
-    setMetadataDescriptionShortDraft(normalized.seo.description_short ?? "");
-    setMetadataDescriptionLongDraft(normalized.seo.description_long ?? "");
-    setMetadataSaveState("saved");
-    setMetadataSaveError(null);
-  }, [episodePackage, metadataSaveState]);
+    const nextTitles = normalized.seo.titles;
+    const nextTags = normalized.seo.tags;
+    const nextDescriptionShort = normalized.seo.description_short ?? "";
+    const nextDescriptionLong = normalized.seo.description_long ?? "";
+
+    // Avoid resetting drafts if nothing actually changed. This prevents a render
+    // loop when the parent recreates `episodePackage` on every render.
+    const titlesUnchanged = JSON.stringify(metadataTitlesDraft) === JSON.stringify(nextTitles);
+    const tagsUnchanged = JSON.stringify(metadataTagsDraft) === JSON.stringify(nextTags);
+    const descriptionsUnchanged =
+      metadataDescriptionShortDraft === nextDescriptionShort &&
+      metadataDescriptionLongDraft === nextDescriptionLong;
+
+    if (!titlesUnchanged) setMetadataTitlesDraft(nextTitles);
+    if (!tagsUnchanged) setMetadataTagsDraft(nextTags);
+    if (metadataDescriptionShortDraft !== nextDescriptionShort) {
+      setMetadataDescriptionShortDraft(nextDescriptionShort);
+    }
+    if (metadataDescriptionLongDraft !== nextDescriptionLong) {
+      setMetadataDescriptionLongDraft(nextDescriptionLong);
+    }
+
+    if (!titlesUnchanged || !tagsUnchanged || !descriptionsUnchanged || metadataSaveState !== "saved") {
+      setMetadataSaveState("saved");
+      setMetadataSaveError(null);
+    }
+  }, [
+    episodePackage,
+    metadataSaveState,
+    metadataTitlesDraft,
+    metadataTagsDraft,
+    metadataDescriptionShortDraft,
+    metadataDescriptionLongDraft,
+  ]);
 
   useEffect(() => {
     if (metadataSaveState !== "editing") return;

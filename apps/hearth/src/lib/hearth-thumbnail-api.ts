@@ -335,40 +335,48 @@ function resolveCandidateAssetPaths(workpieceId: string, version: EpisodeThumbna
 }
 
 async function readMetadataDocumentForWorkpiece(workpieceId: string): Promise<MetadataReadResult> {
-  const response = await tongsFetch(
-    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent("metadata.json")}`,
-    { method: "GET" },
-  );
-  const body = await readBodyAsJson(response);
+  try {
+    const response = await tongsFetch(
+      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent("metadata.json")}`,
+      { method: "GET" },
+    );
+    const body = await readBodyAsJson(response);
 
-  if (response.status === 404) {
-    return { ok: true, metadata: null };
-  }
-  if (!response.ok) {
-    const parsed = readErrorBody(body, "Unable to read episode metadata.");
-    return {
-      ok: false,
-      status: response.status,
-      error: parsed.error,
-    };
-  }
-  if (!isRecord(body) || body.ok !== true) {
-    return {
-      ok: false,
-      status: response.status,
-      error: "Invalid metadata response.",
-    };
-  }
-  if (!isRecord(body.data)) {
+    if (response.status === 404) {
+      return { ok: true, metadata: null };
+    }
+    if (!response.ok) {
+      const parsed = readErrorBody(body, "Unable to read episode metadata.");
+      return {
+        ok: false,
+        status: response.status,
+        error: parsed.error,
+      };
+    }
+    if (!isRecord(body) || body.ok !== true) {
+      return {
+        ok: false,
+        status: response.status,
+        error: "Invalid metadata response.",
+      };
+    }
+    if (!isRecord(body.data)) {
+      return {
+        ok: true,
+        metadata: null,
+      };
+    }
     return {
       ok: true,
-      metadata: null,
+      metadata: body.data,
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      error: "Unable to read episode metadata.",
     };
   }
-  return {
-    ok: true,
-    metadata: body.data,
-  };
 }
 
 async function commitMetadataDocument(args: {
