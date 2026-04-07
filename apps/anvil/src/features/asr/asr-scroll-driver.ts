@@ -235,6 +235,7 @@ const LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.75;
 const LIVE_ASR_GLIDE_MIN_MS = 180;
 const LIVE_ASR_GLIDE_MAX_MS = 520;
 const LIVE_ASR_GLIDE_PX_PER_SEC = 900;
+const LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES = 1;
 const DEFAULT_PURSUE_KP = 3.2;
 const DEFAULT_PURSUE_MANUAL_CANCEL_PX = 48;
 const DEFAULT_NO_TARGET_RETRY_SIM = 0.9;
@@ -7407,10 +7408,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           getScrollMode() === 'asr' &&
           isSessionLivePhase() &&
           isSessionAsrArmed();
+        const liveAsrReadabilityMaxForwardLines =
+          liveAsrReadabilitySuppressed
+            ? LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES
+            : undefined;
         const immediateReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
-          // Live ASR should marker-lock to the committed sentence, not shove forward for readability.
-          allowNudge: !writerCommitted && !liveAsrReadabilitySuppressed,
-          maxForwardLines: liveAsrReadabilitySuppressed ? 0 : undefined,
+          // Keep live ASR reactive while still ensuring the next line is visible.
+          allowNudge: !writerCommitted,
+          maxForwardLines: liveAsrReadabilityMaxForwardLines,
         });
         logPostCommitReadabilityProbe(
           writerCommitted ? 'commit:writer-pending' : 'commit:immediate',
@@ -7431,9 +7436,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (writerCommitted) {
           await waitForWriterCommitWindowRelease(writerCommitStartedAt);
           const settledReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
-            allowNudge: !liveAsrReadabilitySuppressed,
+            allowNudge: true,
             forwardOnly: true,
-            maxForwardLines: liveAsrReadabilitySuppressed ? 0 : undefined,
+            maxForwardLines: liveAsrReadabilityMaxForwardLines,
           });
           logPostCommitReadabilityProbe(
             'commit:writer-settle',
