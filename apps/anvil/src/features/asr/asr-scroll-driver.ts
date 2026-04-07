@@ -453,6 +453,7 @@ const DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES = 5;
 const DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM = 0.6;
 const DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK = 0.08;
 const DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK = 0.08;
+const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM = 0.52;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES = 8;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM = 0.75;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP = 0.3;
@@ -6671,6 +6672,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             selectedScore: conf,
             candidates: topScores,
           });
+          const asrWeakClampFallbackAllow =
+            asrMode &&
+            isFinal &&
+            requestedLine > clampedLine &&
+            requestedLine - lastLineIndex <= DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES &&
+            conf >= Math.max(
+              DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM,
+              weakForwardClampSupport.minSupport + 0.04,
+            );
           if (!weakForwardClampSupport.allow) {
             if (asrRelaxedForwardClampEligible) {
               targetLine = requestedLine;
@@ -6695,6 +6705,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 `delta=${requestedLine - lastLineIndex}`,
                 `maxDelta=${DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES}`,
                 `gap=${formatLogScore(DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP)}`,
+                snippet ? `clue="${snippet}"` : '',
+              ]);
+            } else if (asrWeakClampFallbackAllow) {
+              warnGuard('asr_weak_clamp_fallback_allow', [
+                `current=${lastLineIndex}`,
+                `req=${requestedLine}`,
+                `clamped=${clampedLine}`,
+                `sim=${formatLogScore(conf)}`,
+                `need=${formatLogScore(weakForwardClampSupport.minSupport)}`,
+                `minSim=${formatLogScore(DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM)}`,
+                `delta=${requestedLine - lastLineIndex}`,
+                `maxDelta=${DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES}`,
                 snippet ? `clue="${snippet}"` : '',
               ]);
             } else {

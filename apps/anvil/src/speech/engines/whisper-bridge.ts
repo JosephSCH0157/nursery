@@ -519,6 +519,7 @@ class WhisperBridgeRecognizer {
   stop(): void {
     if (!this.recorder && !this.running) return;
     this.running = false;
+    this.queue = [];
     this.pendingRecorderStop = "final";
     this.clearSegmentTimer();
     this.syncAiActivity();
@@ -556,6 +557,16 @@ class WhisperBridgeRecognizer {
       const blob = event.data;
       const queueBefore = this.queue.length;
       const nextSeq = this.seq + 1;
+      if (!this.running) {
+        this.logChunkLifecycle("dropped", blob, {
+          seq: nextSeq,
+          queueDepthBefore: queueBefore,
+          queueDepthAfter: queueBefore,
+          reason: "stopped",
+          requestInvalid: this.requestInvalid,
+        });
+        return;
+      }
       if (this.unauthorized || this.requestInvalid) {
         this.logChunkLifecycle("dropped", blob, {
           seq: nextSeq,
