@@ -42989,9 +42989,12 @@ function logWhisperLanguageNormalization(raw, normalized) {
 }
 function isDeterministicWhisperRequestError(error) {
   if (!(error instanceof WhisperBridgeHttpError)) return false;
-  if (error.status !== 400 && error.status !== 422) return false;
+  if (error.status !== 400 && error.status !== 413 && error.status !== 422) return false;
   const message = String(error.message || "").toLowerCase();
   if (!message) return false;
+  if (message.includes("multipart/form-data body required") || message.includes("file field is required") || message.includes("audio chunk is empty") || message.includes("audio chunk exceeds 25mb limit") || message.includes("invalid file format") || message.includes("supported formats") || message.includes("unsupported media type")) {
+    return true;
+  }
   if (message.includes("language") && (message.includes("not recognized") || message.includes("invalid")) || message.includes("malformed request") || message.includes("invalid request") || message.includes("bad request config") || message.includes("request-shape")) {
     return true;
   }
@@ -43004,7 +43007,7 @@ function isUnsupportedAudioError(error) {
   if (!(error instanceof WhisperBridgeHttpError)) return false;
   const message = String(error.message || "").toLowerCase();
   if (!message) return false;
-  return message.includes("audio file") && (message.includes("corrupt") || message.includes("unsupported"));
+  return message.includes("audio file") && (message.includes("corrupt") || message.includes("unsupported")) || message.includes("invalid file format") || message.includes("supported formats") || message.includes("unsupported media type");
 }
 async function resolveWhisperAccessToken() {
   try {
@@ -43158,7 +43161,7 @@ function readResponseError(payload, status2) {
 function createWhisperBridgeRecognizer(options = {}) {
   return new WhisperBridgeRecognizer(options);
 }
-var WhisperBridgeHttpError, WhisperBridgeAuthError, DEFAULT_ROUTE, DEFAULT_SEGMENT_MS, MAX_WINDOW_WORDS, MAX_PROMPT_CHARS, MAX_PROMPT_LOOKAHEAD, MAX_PROMPT_LOOKBEHIND, MAX_OVERLAP_WORDS, RESET_WINDOW_IDLE_MS, SOURCE, MIN_CHUNK_SIZE_BYTES, WhisperBridgeRecognizer;
+var WhisperBridgeHttpError, WhisperBridgeAuthError, DEFAULT_ROUTE, DEFAULT_SEGMENT_MS, MAX_WINDOW_WORDS, MAX_PROMPT_CHARS, MAX_PROMPT_LOOKAHEAD, MAX_PROMPT_LOOKBEHIND, MAX_OVERLAP_WORDS, RESET_WINDOW_IDLE_MS, SOURCE, MIN_CHUNK_SIZE_BYTES, MAX_CONSECUTIVE_UNSUPPORTED_AUDIO_ERRORS, WhisperBridgeRecognizer;
 var init_whisper_bridge = __esm({
   "src/speech/engines/whisper-bridge.ts"() {
     "use strict";
@@ -43167,10 +43170,12 @@ var init_whisper_bridge = __esm({
     init_dev_log();
     WhisperBridgeHttpError = class extends Error {
       status;
-      constructor(status2, message) {
+      payload;
+      constructor(status2, message, payload = null) {
         super(message);
         this.name = "WhisperBridgeHttpError";
         this.status = status2;
+        this.payload = payload;
       }
     };
     WhisperBridgeAuthError = class extends Error {
@@ -43190,6 +43195,7 @@ var init_whisper_bridge = __esm({
     RESET_WINDOW_IDLE_MS = 4e3;
     SOURCE = "openai-whisper-bridge";
     MIN_CHUNK_SIZE_BYTES = 2048;
+    MAX_CONSECUTIVE_UNSUPPORTED_AUDIO_ERRORS = 3;
     WhisperBridgeRecognizer = class {
       listeners = /* @__PURE__ */ new Map();
       route;
@@ -43202,6 +43208,9 @@ var init_whisper_bridge = __esm({
       recorder = null;
       recorderStream = null;
       recorderMimeType = void 0;
+      segmentTimer = null;
+      pendingRecorderStop = null;
+      endEmitted = false;
       lastChunkTimecode = null;
       transcriptWindow = [];
       lastTranscriptAt = 0;
@@ -43214,6 +43223,7 @@ var init_whisper_bridge = __esm({
       seq = 0;
       unauthorized = false;
       requestInvalid = false;
+      consecutiveUnsupportedAudioErrors = 0;
       deterministicLatchLogged = false;
       constructor(options = {}) {
         this.route = options.route || DEFAULT_ROUTE;
@@ -43287,9 +43297,58 @@ var init_whisper_bridge = __esm({
         this.recorderStream = new MediaStream(audioTracks.map((track) => track.clone()));
         const mimeType = chooseMimeType();
         this.recorderMimeType = mimeType;
+        this.transcriptWindow = [];
+        this.lastTranscriptAt = 0;
+        this.lastPartialText = "";
+        this.lastFinalText = "";
+        this.lastModel = null;
+        this.lastAiError = null;
+        this.requestsInFlight = 0;
+        this.lastAiSnapshotKey = "";
+        this.unauthorized = false;
+        this.requestInvalid = false;
+        this.consecutiveUnsupportedAudioErrors = 0;
+        this.deterministicLatchLogged = false;
+        this.pendingRecorderStop = null;
+        this.endEmitted = false;
+        this.running = true;
+        this.startRecorderSegment();
+        this.syncAiActivity();
+        this.emit("start", { source: SOURCE, timestamp: nowTs() });
+      }
+      stop() {
+        if (!this.recorder && !this.running) return;
+        this.running = false;
+        this.pendingRecorderStop = "final";
+        this.clearSegmentTimer();
+        this.syncAiActivity();
+        try {
+          this.recorder?.requestData();
+        } catch {
+        }
+        try {
+          if (this.recorder && this.recorder.state !== "inactive") {
+            this.recorder.stop();
+          } else {
+            this.finishRecorderSession();
+          }
+        } catch {
+          this.finishRecorderSession();
+        }
+      }
+      abort() {
+        this.stop();
+      }
+      startRecorderSegment() {
+        if (!this.running) return;
+        if (!this.recorderStream) {
+          throw new Error("Recorder stream not available");
+        }
         this.lastChunkTimecode = null;
-        this.recorder = mimeType ? new MediaRecorder(this.recorderStream, { mimeType }) : new MediaRecorder(this.recorderStream);
-        this.recorder.ondataavailable = (event) => {
+        const recorder2 = this.recorderMimeType ? new MediaRecorder(this.recorderStream, { mimeType: this.recorderMimeType }) : new MediaRecorder(this.recorderStream);
+        this.recorder = recorder2;
+        this.pendingRecorderStop = null;
+        recorder2.ondataavailable = (event) => {
           const blob = event.data;
           const queueBefore = this.queue.length;
           const nextSeq2 = this.seq + 1;
@@ -43339,60 +43398,82 @@ var init_whisper_bridge = __esm({
           this.syncAiActivity();
           void this.flushQueue();
         };
-        this.recorder.onerror = (event) => {
+        recorder2.onerror = (event) => {
           const error = event.error;
           const message = error?.message || "Whisper recorder error";
           this.lastAiError = message;
           this.syncAiActivity();
           this.emit("error", { source: SOURCE, message, timestamp: nowTs() });
         };
-        this.recorder.onstop = () => {
-          this.cleanupRecorder();
-          this.syncAiActivity();
-          this.emit("end", { source: SOURCE, timestamp: nowTs() });
+        recorder2.onstop = () => {
+          this.handleRecorderStop(recorder2);
         };
-        this.transcriptWindow = [];
-        this.lastTranscriptAt = 0;
-        this.lastPartialText = "";
-        this.lastFinalText = "";
-        this.lastModel = null;
-        this.lastAiError = null;
-        this.requestsInFlight = 0;
-        this.lastAiSnapshotKey = "";
-        this.unauthorized = false;
-        this.requestInvalid = false;
-        this.deterministicLatchLogged = false;
-        this.running = true;
-        this.recorder.start(this.segmentMs);
-        this.syncAiActivity();
-        this.emit("start", { source: SOURCE, timestamp: nowTs() });
+        recorder2.start();
+        this.armSegmentTimer();
       }
-      stop() {
-        if (!this.recorder && !this.running) return;
-        this.running = false;
-        this.syncAiActivity();
+      armSegmentTimer() {
+        this.clearSegmentTimer();
+        if (!this.running) return;
+        this.segmentTimer = globalThis.setTimeout(() => {
+          this.rotateRecorderSegment();
+        }, this.segmentMs);
+      }
+      clearSegmentTimer() {
+        if (this.segmentTimer == null) return;
+        globalThis.clearTimeout(this.segmentTimer);
+        this.segmentTimer = null;
+      }
+      rotateRecorderSegment() {
+        const recorder2 = this.recorder;
+        if (!this.running || !recorder2) return;
+        if (recorder2.state === "inactive") return;
+        this.pendingRecorderStop = "rotate";
+        this.clearSegmentTimer();
         try {
-          this.recorder?.requestData();
+          recorder2.stop();
         } catch {
+          this.pendingRecorderStop = null;
+          this.finishRecorderSession();
+          this.emit("error", {
+            source: SOURCE,
+            message: "Whisper recorder failed to roll to the next segment.",
+            timestamp: nowTs()
+          });
         }
-        try {
-          if (this.recorder && this.recorder.state !== "inactive") {
-            this.recorder.stop();
-          } else {
-            this.cleanupRecorder();
+      }
+      handleRecorderStop(recorder2) {
+        if (this.recorder === recorder2) {
+          this.recorder = null;
+        }
+        this.clearSegmentTimer();
+        const stopMode = this.pendingRecorderStop;
+        this.pendingRecorderStop = null;
+        if (stopMode === "rotate" && this.running && !this.unauthorized && !this.requestInvalid) {
+          try {
+            this.startRecorderSegment();
             this.syncAiActivity();
-            this.emit("end", { source: SOURCE, timestamp: nowTs() });
+            return;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Whisper recorder restart failed";
+            this.lastAiError = message;
+            this.emit("error", { source: SOURCE, message, timestamp: nowTs() });
           }
-        } catch {
-          this.cleanupRecorder();
-          this.syncAiActivity();
+        }
+        this.finishRecorderSession();
+      }
+      finishRecorderSession() {
+        this.clearSegmentTimer();
+        this.pendingRecorderStop = null;
+        this.recorder = null;
+        this.running = false;
+        this.cleanupRecorderStream();
+        this.syncAiActivity();
+        if (!this.endEmitted) {
+          this.endEmitted = true;
           this.emit("end", { source: SOURCE, timestamp: nowTs() });
         }
       }
-      abort() {
-        this.stop();
-      }
-      cleanupRecorder() {
+      cleanupRecorderStream() {
         const stream = this.recorderStream;
         this.recorder = null;
         this.recorderStream = null;
@@ -43424,6 +43505,8 @@ var init_whisper_bridge = __esm({
               );
               this.lastModel = payload.model ?? this.lastModel;
               this.lastAiError = null;
+              this.consecutiveUnsupportedAudioErrors = 0;
+              this.logRecoveredChunkViaServerFallback(payload, next.seq);
               this.handleTranscript(payload);
             } catch (error) {
               let message = error instanceof Error ? error.message : "Whisper bridge error";
@@ -43435,18 +43518,43 @@ var init_whisper_bridge = __esm({
               } else if (isDeterministicWhisperRequestError(error)) {
                 const queueDepthAtLatch = this.queue.length;
                 const classification = isUnsupportedAudioError(error) ? "unsupported-audio" : "invalid-request";
-                this.logDeterministicLatch(error, {
-                  classification,
-                  queueDepth: queueDepthAtLatch,
-                  requestsInFlight: this.requestsInFlight,
-                  queueCleared: queueDepthAtLatch > 0
-                });
-                this.requestInvalid = true;
-                this.queue = [];
-                this.stop();
                 if (classification === "unsupported-audio") {
-                  message = "ASR recorder format is not supported by the current transcription path.";
-                  this.lastAiError = message;
+                  this.consecutiveUnsupportedAudioErrors += 1;
+                  const shouldStop = this.consecutiveUnsupportedAudioErrors >= MAX_CONSECUTIVE_UNSUPPORTED_AUDIO_ERRORS;
+                  if (shouldStop) {
+                    this.logDeterministicLatch(error, {
+                      classification,
+                      queueDepth: queueDepthAtLatch,
+                      requestsInFlight: this.requestsInFlight,
+                      queueCleared: queueDepthAtLatch > 0
+                    });
+                    this.requestInvalid = true;
+                    this.queue = [];
+                    this.stop();
+                    message = "ASR recorder format is not supported by the current transcription path after repeated chunk failures.";
+                    this.lastAiError = message;
+                  } else {
+                    this.logUnsupportedAudioDrop(error, {
+                      blob: next.blob,
+                      seq: next.seq,
+                      durationMs: next.durationMs,
+                      queueDepthBefore,
+                      queueDepthAfter: this.queue.length,
+                      consecutiveFailures: this.consecutiveUnsupportedAudioErrors
+                    });
+                    message = `ASR chunk dropped: unsupported audio; continuing session (${this.consecutiveUnsupportedAudioErrors}/${MAX_CONSECUTIVE_UNSUPPORTED_AUDIO_ERRORS}).`;
+                    this.lastAiError = message;
+                  }
+                } else {
+                  this.logDeterministicLatch(error, {
+                    classification,
+                    queueDepth: queueDepthAtLatch,
+                    requestsInFlight: this.requestsInFlight,
+                    queueCleared: queueDepthAtLatch > 0
+                  });
+                  this.requestInvalid = true;
+                  this.queue = [];
+                  this.stop();
                 }
               }
               this.emit("error", {
@@ -43512,6 +43620,59 @@ var init_whisper_bridge = __esm({
         } catch {
         }
       }
+      logUnsupportedAudioDrop(error, info) {
+        this.logChunkLifecycle("dropped", info.blob, {
+          seq: info.seq,
+          queueDepthBefore: info.queueDepthBefore,
+          queueDepthAfter: info.queueDepthAfter,
+          durationMs: info.durationMs,
+          reason: "unsupported-audio",
+          requestInvalid: this.requestInvalid
+        });
+        if (!shouldLogLevel(1)) return;
+        const payload = error instanceof WhisperBridgeHttpError ? error.payload : null;
+        const ffmpegFallbackAttempted = payload?.ffmpeg_fallback_attempted === true || payload?.ffmpeg_fallback_used === true;
+        const ffmpegFallbackUsed = payload?.ffmpeg_fallback_used === true;
+        const ffmpegFallbackError = typeof payload?.ffmpeg_fallback_error === "string" ? payload.ffmpeg_fallback_error : null;
+        try {
+          console.warn("[whisper-bridge] chunk dropped: unsupported-audio", {
+            seq: info.seq,
+            consecutiveFailures: info.consecutiveFailures,
+            maxConsecutiveFailures: MAX_CONSECUTIVE_UNSUPPORTED_AUDIO_ERRORS,
+            queueDepthBefore: info.queueDepthBefore,
+            queueDepthAfter: info.queueDepthAfter,
+            durationMs: info.durationMs,
+            providerRequestId: payload?.provider_request_id ?? null,
+            ffmpegFallbackAttempted,
+            ffmpegFallbackUsed,
+            ffmpegFallbackError,
+            detail: payload?.detail ?? null
+          });
+        } catch {
+        }
+        try {
+          console.info("[whisper-bridge] continuing ASR session", {
+            seq: info.seq,
+            consecutiveFailures: info.consecutiveFailures,
+            remainingBeforeLatch: Math.max(
+              0,
+              MAX_CONSECUTIVE_UNSUPPORTED_AUDIO_ERRORS - info.consecutiveFailures
+            )
+          });
+        } catch {
+        }
+      }
+      logRecoveredChunkViaServerFallback(payload, seq) {
+        if (payload.ffmpeg_fallback_used !== true || !shouldLogLevel(1)) return;
+        try {
+          console.info("[whisper-bridge] server ffmpeg fallback recovered chunk", {
+            seq,
+            providerRequestId: payload.provider_request_id ?? null,
+            model: payload.model ?? null
+          });
+        } catch {
+        }
+      }
       async transcribe(blob, seq, durationMs, queueDepthBefore, queueDepthAfter) {
         const accessToken = await resolveWhisperAccessToken();
         const form = new FormData();
@@ -43548,9 +43709,36 @@ var init_whisper_bridge = __esm({
           cache: "no-store",
           credentials: "same-origin"
         });
-        const payload = await response.json();
+        const rawText = await response.text();
+        let payload = {};
+        if (rawText.trim()) {
+          try {
+            payload = JSON.parse(rawText);
+          } catch {
+            payload = {
+              ok: response.ok,
+              error: rawText.trim().slice(0, 400)
+            };
+          }
+        }
         if (!response.ok || payload.ok === false) {
-          throw new WhisperBridgeHttpError(response.status, readResponseError(payload, response.status));
+          if (shouldLogLevel(1)) {
+            try {
+              console.warn("[whisper-bridge] request failed", {
+                status: response.status,
+                statusText: response.statusText,
+                error: payload.error ?? null,
+                detail: payload.detail ?? null,
+                model: payload.model ?? null,
+                providerRequestId: payload.provider_request_id ?? null,
+                ffmpegFallbackAttempted: payload.ffmpeg_fallback_attempted ?? false,
+                ffmpegFallbackUsed: payload.ffmpeg_fallback_used ?? false,
+                ffmpegFallbackError: payload.ffmpeg_fallback_error ?? null
+              });
+            } catch {
+            }
+          }
+          throw new WhisperBridgeHttpError(response.status, readResponseError(payload, response.status), payload);
         }
         return payload;
       }
