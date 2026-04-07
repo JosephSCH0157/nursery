@@ -32450,10 +32450,10 @@ var init_asr_thresholds = __esm({
       anchorMinSim: 0.7,
       maxAnchorJumpLines: 60,
       anchorStreakNeeded: 2,
-      maxLinesPerCommit: 1.6,
-      deltaSmoothingFactor: 0.38,
-      taperExponent: 1.9,
-      taperMin: 0.22,
+      maxLinesPerCommit: 2.2,
+      deltaSmoothingFactor: 0.465,
+      taperExponent: 1.65,
+      taperMin: 0.285,
       glideMinMs: 120,
       glideMaxMs: 250,
       glideDefaultMs: 180,
@@ -42542,10 +42542,10 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_CUE_BRIDGE_LARGE_GAP = 0.12;
     DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS = 2;
     DEFAULT_CUE_STALL_RESCUE_DELAY_MS = 900;
-    DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 1e3;
-    DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS = 280;
-    DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS = 220;
-    DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS = 180;
+    DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 800;
+    DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS = 230;
+    DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS = 180;
+    DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS = 150;
     DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 1;
     DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 1;
     DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS;
