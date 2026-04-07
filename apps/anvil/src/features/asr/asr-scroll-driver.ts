@@ -518,6 +518,10 @@ const DEFAULT_STRONG_FORWARD_COMMIT_SIM = 0.82;
 const DEFAULT_STRONG_MARKER_SNAP_MIN_SIM = 0.76;
 const DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES = 2;
 const DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES = 8;
+const DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES = 2;
+const DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK = 0.08;
+const DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES = 2;
+const DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM = 0.56;
 const DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS = 2;
 const DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS = 2;
 const DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO = 0.25;
@@ -7321,7 +7325,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         return;
       }
 
-      if (!hasEvidence) {
+      const starvationNoEvidenceBypass =
+        isFinal &&
+        lastCommitIndex != null &&
+        now - lastCommitTime >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+        Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex)) &&
+        line > lastLineIndex &&
+        line - lastLineIndex <= DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES &&
+        conf >= Math.max(
+          DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM,
+          baselineRequired - DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK,
+        );
+      if (!hasEvidence && !starvationNoEvidenceBypass) {
         warnGuard('no_evidence', [
           `current=${lastLineIndex}`,
           `best=${line}`,
@@ -7339,6 +7354,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           emitHudStatus('no_evidence', 'Blocked: min evidence');
         }
         return;
+      }
+      if (!hasEvidence && starvationNoEvidenceBypass) {
+        warnGuard('starvation_no_evidence_bypass', [
+          `current=${lastLineIndex}`,
+          `best=${line}`,
+          `delta=${line - lastLineIndex}`,
+          `sim=${formatLogScore(conf)}`,
+          `need=${formatLogScore(Math.max(
+            DEFAULT_STARVATION_NO_EVIDENCE_MIN_SIM,
+            baselineRequired - DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK,
+          ))}`,
+          snippet ? `clue="${snippet}"` : '',
+        ]);
       }
 
       const forwardDelta = targetLine - lastLineIndex;
@@ -9213,7 +9241,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         resetAdjacentTieForward();
       }
       consistentAdjacentForwardBypass = consistentAdjacentTieBypass;
-      if (hasTie && forwardPick && forwardPick.score < tieNeed && !forwardBiasEligible && !outrunEligible && !consistentAdjacentTieBypass) {
+      const starvationTieForwardBypass =
+        starvationDetected &&
+        isFinal &&
+        !!forwardPick &&
+        forwardPick.idx > cursorLine &&
+        forwardPick.idx - cursorLine <= DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES &&
+        forwardPick.score >= Math.max(
+          DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          tieNeed - DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK,
+        );
+      if (hasTie && forwardPick && forwardPick.score < tieNeed && !forwardBiasEligible && !outrunEligible && !consistentAdjacentTieBypass && !starvationTieForwardBypass) {
         warnGuard('tie_forward', [
           `current=${cursorLine}`,
           `best=${rawIdx}`,
@@ -9224,6 +9262,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           snippet ? `clue="${snippet}"` : '',
         ]);
         if (!permissiveMatcher) return;
+      }
+      if (starvationTieForwardBypass) {
+        warnGuard('starvation_tie_forward_bypass', [
+          `current=${cursorLine}`,
+          `best=${rawIdx}`,
+          `forward=${forwardPick?.idx ?? 'na'}`,
+          `sim=${formatLogScore(forwardPick?.score ?? 0)}`,
+          `need=${formatLogScore(tieNeed)}`,
+          snippet ? `clue="${snippet}"` : '',
+        ]);
       }
       if (consistentAdjacentTieBypass && isDevMode()) {
         try {
