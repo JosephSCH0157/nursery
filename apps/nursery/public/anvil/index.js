@@ -32450,10 +32450,10 @@ var init_asr_thresholds = __esm({
       anchorMinSim: 0.7,
       maxAnchorJumpLines: 60,
       anchorStreakNeeded: 2,
-      maxLinesPerCommit: 1.25,
-      deltaSmoothingFactor: 0.3,
-      taperExponent: 2.2,
-      taperMin: 0.15,
+      maxLinesPerCommit: 2.8,
+      deltaSmoothingFactor: 0.55,
+      taperExponent: 1.4,
+      taperMin: 0.35,
       glideMinMs: 120,
       glideMaxMs: 250,
       glideDefaultMs: 180,
@@ -42513,9 +42513,9 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS = 180;
     DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS = 140;
     DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS = 120;
-    DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 3;
-    DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 2;
-    DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS * 2;
+    DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 1;
+    DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 1;
+    DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS;
     DEFAULT_MULTI_JUMP_MIN_SIM = 0.4;
     DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS = 0.08;
     DEFAULT_MULTI_JUMP_HARD_DENY_SIM = 0.26;
