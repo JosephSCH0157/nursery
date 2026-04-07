@@ -53,6 +53,9 @@ type AnvilWhisperResponse = {
   actual_cost_usd?: number;
   billable_tokens?: number;
   credits_warning?: string | null;
+  ffmpeg_fallback_attempted?: boolean;
+  ffmpeg_fallback_used?: boolean;
+  ffmpeg_fallback_error?: string | null;
 };
 
 function jsonResponse(status: number, obj: AnvilWhisperResponse): Response {
@@ -411,6 +414,8 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         let upstream: Response;
         let upstreamDetail = "";
         let upstreamMessage: string | null = null;
+        let ffmpegFallbackAttempted = false;
+        let ffmpegFallbackUsed = false;
         let ffmpegFallbackError: string | null = null;
         try {
           const directAttempt = await sendToOpenAi(fileValue, uploadFileName);
@@ -419,6 +424,17 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           upstreamMessage = directAttempt.message;
 
           if (!upstream.ok && ffmpegClient && isUnsupportedAudioUpstreamError(upstreamDetail)) {
+            ffmpegFallbackAttempted = true;
+            try {
+              console.info("[anvil-whisper] ffmpeg fallback attempting", {
+                fileName: uploadFileName,
+                mimeType: mimeType ?? null,
+                providerRequestId: upstream.headers.get("x-request-id"),
+                status: upstream.status,
+              });
+            } catch {
+              // ignore logging failures
+            }
             try {
               const transcoded = await transcodeToWavWithForgeFfmpeg({
                 client: ffmpegClient,
@@ -434,8 +450,29 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
               upstream = transcodedAttempt.upstream;
               upstreamDetail = transcodedAttempt.detail;
               upstreamMessage = transcodedAttempt.message;
+              ffmpegFallbackUsed = upstream.ok;
+              try {
+                console.info("[anvil-whisper] ffmpeg fallback completed", {
+                  recovered: upstream.ok,
+                  providerRequestId: upstream.headers.get("x-request-id"),
+                  outputFormat: transcoded.outputFormat ?? "wav",
+                  outputSampleRate: transcoded.outputSampleRate,
+                  outputChannels: transcoded.outputChannels,
+                });
+              } catch {
+                // ignore logging failures
+              }
             } catch (error) {
               ffmpegFallbackError = error instanceof Error ? error.message : String(error ?? "Forge FFmpeg fallback failed.");
+              try {
+                console.warn("[anvil-whisper] ffmpeg fallback failed", {
+                  fileName: uploadFileName,
+                  mimeType: mimeType ?? null,
+                  message: ffmpegFallbackError,
+                });
+              } catch {
+                // ignore logging failures
+              }
             }
           }
         } catch (error) {
@@ -490,6 +527,9 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             model: sttModel,
             provider_request_id: upstream.headers.get("x-request-id"),
             billing_mode: lane,
+            ffmpeg_fallback_attempted: ffmpegFallbackAttempted || undefined,
+            ffmpeg_fallback_used: ffmpegFallbackUsed || undefined,
+            ffmpeg_fallback_error: ffmpegFallbackError ?? undefined,
           });
         }
 
@@ -558,6 +598,9 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           actual_cost_usd: accounting.actualCostUsd,
           billable_tokens: accounting.billableTokens,
           credits_warning: null,
+          ffmpeg_fallback_attempted: ffmpegFallbackAttempted || undefined,
+          ffmpeg_fallback_used: ffmpegFallbackUsed || undefined,
+          ffmpeg_fallback_error: ffmpegFallbackError ?? undefined,
         });
       } finally {
         request.signal.removeEventListener("abort", onAborted);

@@ -210,6 +210,8 @@ test("createAnvilWhisperHandler retries unsupported audio through forge-ffmpeg f
     assert.equal(payload.ok, true);
     assert.equal(payload.text, "Recovered via wav fallback");
     assert.equal(payload.provider_request_id, "req_after_ffmpeg");
+    assert.equal(payload.ffmpeg_fallback_attempted, true);
+    assert.equal(payload.ffmpeg_fallback_used, true);
     assert.equal(openAiCalls, 2);
     assert.equal(ffmpegCalls, 1);
     assert.deepEqual(seenOpenAiFileTypes, ["audio/webm", "audio/wav"]);

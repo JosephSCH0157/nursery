@@ -19,17 +19,23 @@ type WhisperBridgeResponse = {
   ok?: boolean;
   text?: string;
   error?: string;
+  detail?: string;
   model?: string;
   provider_request_id?: string | null;
+  ffmpeg_fallback_attempted?: boolean;
+  ffmpeg_fallback_used?: boolean;
+  ffmpeg_fallback_error?: string | null;
 };
 
 class WhisperBridgeHttpError extends Error {
   readonly status: number;
+  readonly payload: WhisperBridgeResponse | null;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, payload: WhisperBridgeResponse | null = null) {
     super(message);
     this.name = "WhisperBridgeHttpError";
     this.status = status;
+    this.payload = payload;
   }
 }
 
@@ -687,6 +693,7 @@ class WhisperBridgeRecognizer {
           this.lastModel = payload.model ?? this.lastModel;
           this.lastAiError = null;
           this.consecutiveUnsupportedAudioErrors = 0;
+          this.logRecoveredChunkViaServerFallback(payload, next.seq);
           this.handleTranscript(payload);
         } catch (error) {
           let message = error instanceof Error ? error.message : "Whisper bridge error";
@@ -714,10 +721,18 @@ class WhisperBridgeRecognizer {
                 this.requestInvalid = true;
                 this.queue = [];
                 this.stop();
-                message = "ASR recorder format is not supported by the current transcription path.";
+                message = "ASR recorder format is not supported by the current transcription path after repeated chunk failures.";
                 this.lastAiError = message;
               } else {
-                message = `ASR chunk skipped due to unsupported audio (${this.consecutiveUnsupportedAudioErrors}/${MAX_CONSECUTIVE_UNSUPPORTED_AUDIO_ERRORS}).`;
+                this.logUnsupportedAudioDrop(error, {
+                  blob: next.blob,
+                  seq: next.seq,
+                  durationMs: next.durationMs,
+                  queueDepthBefore,
+                  queueDepthAfter: this.queue.length,
+                  consecutiveFailures: this.consecutiveUnsupportedAudioErrors,
+                });
+                message = `ASR chunk dropped: unsupported audio; continuing session (${this.consecutiveUnsupportedAudioErrors}/${MAX_CONSECUTIVE_UNSUPPORTED_AUDIO_ERRORS}).`;
                 this.lastAiError = message;
               }
             } else {
@@ -822,6 +837,80 @@ class WhisperBridgeRecognizer {
     }
   }
 
+  private logUnsupportedAudioDrop(
+    error: unknown,
+    info: {
+      blob: Blob;
+      seq: number;
+      durationMs?: number;
+      queueDepthBefore: number;
+      queueDepthAfter: number;
+      consecutiveFailures: number;
+    },
+  ): void {
+    this.logChunkLifecycle("dropped", info.blob, {
+      seq: info.seq,
+      queueDepthBefore: info.queueDepthBefore,
+      queueDepthAfter: info.queueDepthAfter,
+      durationMs: info.durationMs,
+      reason: "unsupported-audio",
+      requestInvalid: this.requestInvalid,
+    });
+
+    if (!shouldLogLevel(1)) return;
+
+    const payload = error instanceof WhisperBridgeHttpError ? error.payload : null;
+    const ffmpegFallbackAttempted = payload?.ffmpeg_fallback_attempted === true || payload?.ffmpeg_fallback_used === true;
+    const ffmpegFallbackUsed = payload?.ffmpeg_fallback_used === true;
+    const ffmpegFallbackError = typeof payload?.ffmpeg_fallback_error === "string"
+      ? payload.ffmpeg_fallback_error
+      : null;
+
+    try {
+      console.warn("[whisper-bridge] chunk dropped: unsupported-audio", {
+        seq: info.seq,
+        consecutiveFailures: info.consecutiveFailures,
+        maxConsecutiveFailures: MAX_CONSECUTIVE_UNSUPPORTED_AUDIO_ERRORS,
+        queueDepthBefore: info.queueDepthBefore,
+        queueDepthAfter: info.queueDepthAfter,
+        durationMs: info.durationMs,
+        providerRequestId: payload?.provider_request_id ?? null,
+        ffmpegFallbackAttempted,
+        ffmpegFallbackUsed,
+        ffmpegFallbackError,
+        detail: payload?.detail ?? null,
+      });
+    } catch {
+      // ignore logging failures
+    }
+
+    try {
+      console.info("[whisper-bridge] continuing ASR session", {
+        seq: info.seq,
+        consecutiveFailures: info.consecutiveFailures,
+        remainingBeforeLatch: Math.max(
+          0,
+          MAX_CONSECUTIVE_UNSUPPORTED_AUDIO_ERRORS - info.consecutiveFailures,
+        ),
+      });
+    } catch {
+      // ignore logging failures
+    }
+  }
+
+  private logRecoveredChunkViaServerFallback(payload: WhisperBridgeResponse, seq: number): void {
+    if (payload.ffmpeg_fallback_used !== true || !shouldLogLevel(1)) return;
+    try {
+      console.info("[whisper-bridge] server ffmpeg fallback recovered chunk", {
+        seq,
+        providerRequestId: payload.provider_request_id ?? null,
+        model: payload.model ?? null,
+      });
+    } catch {
+      // ignore logging failures
+    }
+  }
+
   private async transcribe(
     blob: Blob,
     seq: number,
@@ -889,14 +978,18 @@ class WhisperBridgeRecognizer {
             status: response.status,
             statusText: response.statusText,
             error: payload.error ?? null,
+            detail: payload.detail ?? null,
             model: payload.model ?? null,
             providerRequestId: payload.provider_request_id ?? null,
+            ffmpegFallbackAttempted: payload.ffmpeg_fallback_attempted ?? false,
+            ffmpegFallbackUsed: payload.ffmpeg_fallback_used ?? false,
+            ffmpegFallbackError: payload.ffmpeg_fallback_error ?? null,
           });
         } catch {
           // ignore logging failures
         }
       }
-      throw new WhisperBridgeHttpError(response.status, readResponseError(payload, response.status));
+      throw new WhisperBridgeHttpError(response.status, readResponseError(payload, response.status), payload);
     }
     return payload;
   }
