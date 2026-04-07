@@ -521,6 +521,7 @@ const DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES = 1;
 const DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS = 1;
 const DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS = 3;
 const DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK = 0.1;
+const DEFAULT_WEAK_CURRENT_FORWARD_REQUIRED_LEAD = 0.04;
 const DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK = 0.14;
 const DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP = 0.6;
 const DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO = 0.25;
@@ -1181,7 +1182,11 @@ export function resolveWeakFarForwardHoldCandidate(opts: {
     .sort((a, b) => b.score - a.score || a.idx - b.idx)[0];
   if (!nearCandidate) return null;
   if (nearCandidate.idx >= selectedIdx) return null;
-  if (nearCandidate.score < selectedScore - DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK) return null;
+  const minNearScore = Math.max(
+    selectedScore - DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK,
+    selectedScore + DEFAULT_WEAK_CURRENT_FORWARD_REQUIRED_LEAD,
+  );
+  if (nearCandidate.score < minNearScore) return null;
   return nearCandidate;
 }
 
@@ -6443,6 +6448,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         conf >= DELTA_MIN_SIM_SMALL &&
         isSessionAsrArmed() &&
         isSessionLivePhase();
+      const starvationForwardBypass =
+        asrMode &&
+        isFinal &&
+        line > lastLineIndex &&
+        isSessionAsrArmed() &&
+        isSessionLivePhase() &&
+        now - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
+        conf >= Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, effectiveMatchThreshold - 0.18);
       const strongMatch =
         watchdogBypass ||
         progressiveFloorBypass ||
@@ -6450,6 +6463,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lostForwardBypass ||
         permissiveForwardBypass ||
         finalForwardBypass ||
+        starvationForwardBypass ||
         consistentCatchupBypass ||
         stallRescueBypass ||
         (conf >= effectiveMatchThreshold && tieGateOk);
@@ -6529,6 +6543,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         try {
           console.info(
             `ASR_LOST_FORWARD_BYPASS current=${lastLineIndex} target=${line} delta=${line - lastLineIndex} sim=${formatLogScore(conf)} floor=${formatLogScore(DEFAULT_LOST_FORWARD_MIN_SIM)}`,
+          );
+        } catch {}
+      }
+      if (starvationForwardBypass && isDevMode()) {
+        try {
+          console.info(
+            `ASR_STARVATION_FORWARD_BYPASS current=${lastLineIndex} target=${line} delta=${line - lastLineIndex} sim=${formatLogScore(conf)} since=${Math.round(now - lastForwardCommitAt)}ms`,
           );
         } catch {}
       }
