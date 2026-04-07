@@ -1,6 +1,6 @@
 # File Tree
 
-Current as of 2026-03-18.
+Current as of 2026-04-06.
 
 This is a maintained overview of the repository root and major subtrees. Generated or heavyweight internals are summarized instead of expanded, including `.git/`, `node_modules/`, `dist/`, `test-results/`, `.worktrees/`, and other transient output.
 
@@ -26,6 +26,16 @@ This is a maintained overview of the repository root and major subtrees. Generat
 - `netlify.toml`
 - `build-smoke-out.txt`
 - `build-smoke-err.txt`
+- `build-types.log`
+- `RELEASE_v1.2.3.md`
+- `.codex-temp/`
+- `forge-ffmpeg/`
+- `tmp/`
+- `tmp_print_lines.py`
+- `hammer-images-tab.png`
+- `hammer-timeline-blocks.png`
+- `hammer-transcript-tab.png`
+- `New folder/`
 - `assets/`
   - `forge-interior.png`
 - `apps/`
