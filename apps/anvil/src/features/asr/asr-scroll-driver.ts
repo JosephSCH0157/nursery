@@ -563,8 +563,9 @@ const DEFAULT_BEHIND_CANDIDATE_MIN_SIM = 0.9;
 const DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS = 3;
 const DEFAULT_BEHIND_CANDIDATE_MIN_CHARS = 24;
 const DEFAULT_CURRENT_OVERRIDE_MIN_SIM = 0.22;
-const CUE_LINE_BRACKET_RE = /^\s*[\[(][^\])]{0,120}[\])]\s*$/;
-const CUE_LINE_WORD_RE = /\b(pause|beat|silence|breath|breathe|hold|wait|reflective|empty)\b/i;
+const CUE_LINE_BRACKET_RE = /^\s*[\[(\{][^\]\)\}]{0,120}[\]\)\}]\s*$/;
+const CUE_LINE_WORD_RE = /\b(pause|beat|silence|breath|breathe|hold|wait|reflective)\b/i;
+const STRUCTURAL_EMPTY_LINE_RE = /^\s*empty\s*[.!?]?\s*$/i;
 const SPEAKER_TAG_ONLY_RE = /^\s*\[\s*\/?\s*(s1|s2|guest1|guest2|g1|g2)\s*\]\s*$/i;
 const NOTE_TAG_ONLY_RE = /^\s*\[\s*\/?\s*note(?:[^\]]*)\]\s*$/i;
 const NOTE_INLINE_BLOCK_RE = /^\s*\[\s*note(?:[^\]]*)\][\s\S]*\[\s*\/\s*note\s*\]\s*$/i;
@@ -999,9 +1000,14 @@ function classifySkippableLineForCueBridge(value: string): CueBridgeSkipReason |
 function classifyStrictSkippableLineForCueBridge(value: string): CueBridgeSkipReason | null {
   const raw = String(value || '').trim();
   if (!raw) return 'blank';
+  if (STRUCTURAL_EMPTY_LINE_RE.test(raw)) return 'cue';
   if (SPEAKER_TAG_ONLY_RE.test(raw)) return 'speaker';
   if (NOTE_TAG_ONLY_RE.test(raw) || NOTE_INLINE_BLOCK_RE.test(raw) || /\[\s*\/?\s*note\b/i.test(raw)) return 'note';
   if (CUE_LINE_BRACKET_RE.test(raw)) return 'cue';
+  const normalized = normalizeComparableText(raw);
+  if (!normalized) return 'blank';
+  const tokenCount = normalized.split(' ').filter(Boolean).length;
+  if (tokenCount <= 3 && CUE_LINE_WORD_RE.test(normalized)) return 'cue';
   return null;
 }
 
@@ -4971,15 +4977,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return true;
   };
 
-  const hasFreshNearbyRescueMatchEvidence = (cursorLine: number, now: number): boolean => {
+  const hasFreshNearbyRescueMatchEvidence = (
+    cursorLine: number,
+    landingLine: number,
+    now: number,
+    skippedIgnorableLines: CueBridgeSkipReason[] = [],
+  ): boolean => {
     if (!Number.isFinite(cursorLine) || cursorLine < 0) return false;
+    if (!Number.isFinite(landingLine) || landingLine < 0) return false;
     if (lastRescueMatchEvidenceAt <= 0) return false;
     if (now - lastRescueMatchEvidenceAt > DEFAULT_RESCUE_MATCH_EVIDENCE_WINDOW_MS) return false;
     if (lastRescueNoMatchAt > 0 && now - lastRescueNoMatchAt < DEFAULT_RESCUE_MATCH_BLOCK_AFTER_NOMATCH_MS) {
       return false;
     }
-    const delta = lastRescueMatchEvidenceLine - Math.max(0, Math.floor(cursorLine));
-    if (delta < 0 || delta > DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES) return false;
+    const safeCursor = Math.max(0, Math.floor(cursorLine));
+    const safeLanding = Math.max(0, Math.floor(landingLine));
+    const bridgeAllowance = Math.min(
+      DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
+      Array.isArray(skippedIgnorableLines) ? skippedIgnorableLines.length : 0,
+    );
+    const maxDelta = DEFAULT_RESCUE_MATCH_MAX_DELTA_LINES + bridgeAllowance;
+    const landingDelta = Math.abs(lastRescueMatchEvidenceLine - safeLanding);
+    const cursorDelta = Math.abs(lastRescueMatchEvidenceLine - safeCursor);
+    if (landingDelta > maxDelta && cursorDelta > maxDelta) return false;
     return Number.isFinite(lastRescueMatchEvidenceSim) && lastRescueMatchEvidenceSim >= DEFAULT_RESCUE_MATCH_MIN_SIM;
   };
 
@@ -4993,21 +5013,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!Number.isFinite(cursorRaw) || cursorRaw < 0) return false;
     const cursorLine = Math.max(0, Math.floor(cursorRaw));
     const reasonTag = String(reason || '').trim().toLowerCase();
-    if (reasonTag === 'auto-stall' && !hasFreshNearbyRescueMatchEvidence(cursorLine, now)) {
-      stallRescueRequested = false;
-      if (isDevMode()) {
-        warnGuard('cue_stall_rescue_blocked', [
-          `at=${cursorLine}`,
-          'reason=no-fresh-near-match',
-          `matchAgeMs=${lastRescueMatchEvidenceAt > 0 ? Math.max(0, now - lastRescueMatchEvidenceAt) : -1}`,
-          `matchLine=${lastRescueMatchEvidenceLine}`,
-          `matchSim=${formatLogScore(lastRescueMatchEvidenceSim)}`,
-          `noMatchAgeMs=${lastRescueNoMatchAt > 0 ? Math.max(0, now - lastRescueNoMatchAt) : -1}`,
-          reason ? `source=${reason}` : '',
-        ]);
-      }
-      return false;
-    }
     if (manualAnchorPending && isAutomaticStallRescueReason(reasonTag)) {
       stallRescueRequested = false;
       if (isDevMode()) {
@@ -5032,6 +5037,31 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (deltaLines <= 0 || deltaLines > DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES) return false;
     const targetText = getLineTextAt(targetLine);
     if (!targetText || isIgnorableCueLineText(targetText)) return false;
+    const skippedIgnorableLines = cueBridge.skippedReasons;
+    const landingRequiresEvidence = true;
+    const hasLandingEvidence = hasFreshNearbyRescueMatchEvidence(
+      cursorLine,
+      targetLine,
+      now,
+      skippedIgnorableLines,
+    );
+    if (reasonTag === 'auto-stall' && landingRequiresEvidence && !hasLandingEvidence) {
+      stallRescueRequested = false;
+      warnGuard('blocked_on_content_without_evidence', [
+        `at=${cursorLine}`,
+        `target=${targetLine}`,
+        `delta=${deltaLines}`,
+        `skipped_ignorable_lines=[${skippedIgnorableLines.join(',')}]`,
+        `landing_requires_evidence=${landingRequiresEvidence ? 'true' : 'false'}`,
+        `matchAgeMs=${lastRescueMatchEvidenceAt > 0 ? Math.max(0, now - lastRescueMatchEvidenceAt) : -1}`,
+        `matchLine=${lastRescueMatchEvidenceLine}`,
+        `matchSim=${formatLogScore(lastRescueMatchEvidenceSim)}`,
+        `noMatchAgeMs=${lastRescueNoMatchAt > 0 ? Math.max(0, now - lastRescueNoMatchAt) : -1}`,
+        reason ? `source=${reason}` : '',
+      ]);
+      emitHudStatus('cue_stall_rescue_blocked', 'Blocked: content landing lacks fresh evidence');
+      return false;
+    }
     const rescuePolicy = evaluateStallCueRescuePolicy({
       reasonTag,
       skippedReasons: cueBridge.skippedReasons,
@@ -5135,6 +5165,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       `to=${targetLine}`,
       `delta=${deltaLines}`,
       `mode=${directContentForwardRescue ? 'content-step' : 'cue-bridge'}`,
+      `skipped_ignorable_lines=[${skippedIgnorableLines.join(',')}]`,
+      `landing_requires_evidence=${landingRequiresEvidence ? 'true' : 'false'}`,
       reason ? `reason=${reason}` : '',
       `sim=${formatLogScore(rescueSim)}`,
       `skipped=[${cueBridge.skippedReasons.join(',')}]`,
@@ -7411,7 +7443,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastCommitIndex != null &&
         now - lastCommitTime >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
         Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex)) &&
-        hasFreshNearbyRescueMatchEvidence(lastLineIndex, now) &&
+        hasFreshNearbyRescueMatchEvidence(lastLineIndex, line, now, []) &&
         line > lastLineIndex &&
         line - lastLineIndex <= DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES &&
         conf >= Math.max(
@@ -9360,7 +9392,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         starvationDetected &&
         isFinal &&
         !!forwardPick &&
-        hasFreshNearbyRescueMatchEvidence(cursorLine, now) &&
+        hasFreshNearbyRescueMatchEvidence(cursorLine, forwardPick.idx, now, []) &&
         forwardPick.idx > cursorLine &&
         forwardPick.idx - cursorLine <= DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES &&
         forwardPick.score >= Math.max(
