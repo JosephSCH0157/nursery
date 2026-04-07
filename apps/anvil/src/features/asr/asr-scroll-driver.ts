@@ -229,8 +229,8 @@ const DEFAULT_CATCHUP_MED_MIN_PX = 80;
 const DEFAULT_CATCHUP_FAST_MIN_PX = 250;
 const DEFAULT_MAX_TARGET_JUMP_PX = 180;
 const DEFAULT_MAX_TARGET_JUMP_HYBRID_PX = 80;
-const LIVE_ASR_COMMIT_MIN_PX = 72;
-const LIVE_ASR_COMMIT_MAX_LINES = 3;
+const LIVE_ASR_COMMIT_MIN_PX = 96;
+const LIVE_ASR_COMMIT_MAX_LINES = 8;
 const LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.75;
 const LIVE_ASR_GLIDE_MIN_MS = 180;
 const LIVE_ASR_GLIDE_MAX_MS = 520;
@@ -329,7 +329,7 @@ const DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO = 0.7;
 const DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS = 3;
 const DEFAULT_NOISE_INTERIM_MIN_TOKENS = 3;
 const DEFAULT_NOISE_INTERIM_MIN_CHARS = 12;
-const DEFAULT_STARVATION_COMMIT_GAP_MS = 2200;
+const DEFAULT_STARVATION_COMMIT_GAP_MS = 1500;
 const DEFAULT_STARVATION_WARN_COOLDOWN_MS = 1500;
 const DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES = 5;
 const DEFAULT_STARVATION_RELOCK_SIM_SLACK = 0.08;
@@ -439,10 +439,10 @@ const DEFAULT_CUE_BRIDGE_STRONG_SIM = 0.6;
 const DEFAULT_CUE_BRIDGE_LARGE_GAP = 0.12;
 const DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS = 2;
 const DEFAULT_CUE_STALL_RESCUE_DELAY_MS = 900;
-const DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 1000;
-const DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS = 320;
-const DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS = 260;
-const DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS = 200;
+const DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 600;
+const DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS = 180;
+const DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS = 140;
+const DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS = 120;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 3;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 2;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS * 2;
@@ -6304,6 +6304,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ? tieGap
           : undefined;
       const tieOk = tieMargin === undefined || tieMargin >= thresholds.tieDelta;
+      const asrFinalTieBypass =
+        asrMode &&
+        isFinal &&
+        line >= lastLineIndex &&
+        conf >= Math.max(DEFAULT_MULTI_JUMP_MIN_SIM, effectiveMatchThreshold + 0.06);
+      const tieGateOk = tieOk || asrFinalTieBypass;
       const watchdogThreshold = clamp(Math.max(stuckWatchdogForwardFloor, thresholds.candidateMinSim), 0, 1);
       const watchdogBypass =
         forceReason === 'watchdog' &&
@@ -6403,7 +6409,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         finalForwardBypass ||
         consistentCatchupBypass ||
         stallRescueBypass ||
-        (conf >= effectiveMatchThreshold && tieOk);
+        (conf >= effectiveMatchThreshold && tieGateOk);
       if (!strongMatch) {
         const tieParts = !tieOk && typeof tieMargin === 'number'
           ? [`tie=${formatLogScore(tieMargin)}`, `tieNeed=${formatLogScore(thresholds.tieDelta)}`]
@@ -6422,6 +6428,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ...tieParts,
           ...deltaParts,
           ...riskParts,
+          asrFinalTieBypass ? 'tieBypass=asr-final' : '',
           cueBridgePathEligible ? `cueBridgeDelta=${cueBridgeDelta}` : '',
           relockOverride ? `relock=1` : '',
           relockReason ? `relockReason=${relockReason}` : '',
@@ -6432,10 +6439,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           Number.isFinite(relockRepeat) ? `repeat=${relockRepeat}` : '',
           snippet ? `clue="${snippet}"` : '',
         ]);
-        emitHudStatus(
-          'low_sim',
-          `Low confidence - waiting (sim=${formatLogScore(conf)} < ${formatLogScore(effectiveMatchThreshold)})`,
-        );
+        const lowSimMessage =
+          !tieOk && conf >= effectiveMatchThreshold
+            ? `Ambiguous tie - waiting (gap=${formatLogScore(tieMargin ?? 0)} < ${formatLogScore(thresholds.tieDelta)})`
+            : `Low confidence - waiting (sim=${formatLogScore(conf)} < ${formatLogScore(effectiveMatchThreshold)})`;
+        emitHudStatus('low_sim', lowSimMessage);
         noteLowSimFreeze(Date.now(), {
           cursorLine: lastLineIndex,
           bestIdx: line,

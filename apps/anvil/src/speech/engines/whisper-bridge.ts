@@ -77,7 +77,7 @@ type AiActivityPayload = {
 };
 
 const DEFAULT_ROUTE = "/api/anvil/asr/whisper";
-const DEFAULT_SEGMENT_MS = 1400;
+const DEFAULT_SEGMENT_MS = 1000;
 const MAX_WINDOW_WORDS = 56;
 const MAX_PROMPT_CHARS = 1200;
 const MAX_PROMPT_LOOKAHEAD = 6;
@@ -420,7 +420,7 @@ class WhisperBridgeRecognizer {
     this.interim = options.interim !== false;
     const endpointingMs = Number(options.endpointingMs);
     this.segmentMs = Number.isFinite(endpointingMs)
-      ? Math.max(900, Math.min(2200, Math.round(endpointingMs + 800)))
+      ? Math.max(700, Math.min(1800, Math.round(endpointingMs + 500)))
       : DEFAULT_SEGMENT_MS;
   }
 

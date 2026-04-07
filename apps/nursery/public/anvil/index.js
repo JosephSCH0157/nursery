@@ -37948,6 +37948,8 @@ function createAsrScrollDriver(options = {}) {
         const secondTextForLogs = secondIdx != null ? formatLogSnippet(getLineTextAt(secondIdx), 60) : "";
         const tieMargin = typeof secondSim === "number" && Number.isFinite(secondSim) ? conf - secondSim : typeof tieGap === "number" ? tieGap : void 0;
         const tieOk = tieMargin === void 0 || tieMargin >= thresholds.tieDelta;
+        const asrFinalTieBypass = asrMode && isFinal && line >= lastLineIndex && conf >= Math.max(DEFAULT_MULTI_JUMP_MIN_SIM, effectiveMatchThreshold + 0.06);
+        const tieGateOk = tieOk || asrFinalTieBypass;
         const watchdogThreshold = clamp4(Math.max(stuckWatchdogForwardFloor, thresholds.candidateMinSim), 0, 1);
         const watchdogBypass = forceReason === "watchdog" && line > lastLineIndex && conf >= watchdogThreshold;
         const cueBridgeDelta = Number.isFinite(pendingCueBridgeNudgeDelta ?? NaN) ? Math.max(0, Math.floor(Number(pendingCueBridgeNudgeDelta))) : 0;
@@ -37984,7 +37986,7 @@ function createAsrScrollDriver(options = {}) {
         const finalForwardBypass = (forceReason === "final-forward-nudge" || forceReason === "final-forward-fallback") && line > lastLineIndex && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && isSessionAsrArmed() && isSessionLivePhase();
         const stallRescueBypass = forceReason === "stall-rescue" && line > lastLineIndex && line - lastLineIndex <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && conf >= DEFAULT_MULTI_JUMP_MIN_SIM && isSessionAsrArmed() && isSessionLivePhase();
         const consistentCatchupBypass = forceReason === "catchup-consistent" && line > lastLineIndex && line - lastLineIndex <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES && conf >= DELTA_MIN_SIM_SMALL && isSessionAsrArmed() && isSessionLivePhase();
-        const strongMatch = watchdogBypass || progressiveFloorBypass || cueBridgeBypass || lostForwardBypass || permissiveForwardBypass || finalForwardBypass || consistentCatchupBypass || stallRescueBypass || conf >= effectiveMatchThreshold && tieOk;
+        const strongMatch = watchdogBypass || progressiveFloorBypass || cueBridgeBypass || lostForwardBypass || permissiveForwardBypass || finalForwardBypass || consistentCatchupBypass || stallRescueBypass || conf >= effectiveMatchThreshold && tieGateOk;
         if (!strongMatch) {
           const tieParts = !tieOk && typeof tieMargin === "number" ? [`tie=${formatLogScore(tieMargin)}`, `tieNeed=${formatLogScore(thresholds.tieDelta)}`] : [];
           const deltaParts = deltaMinSim > matchThreshold ? [`deltaNeed=${formatLogScore(deltaMinSim)}`] : [];
@@ -37999,6 +38001,7 @@ function createAsrScrollDriver(options = {}) {
             ...tieParts,
             ...deltaParts,
             ...riskParts,
+            asrFinalTieBypass ? "tieBypass=asr-final" : "",
             cueBridgePathEligible ? `cueBridgeDelta=${cueBridgeDelta}` : "",
             relockOverride ? `relock=1` : "",
             relockReason ? `relockReason=${relockReason}` : "",
@@ -38007,10 +38010,8 @@ function createAsrScrollDriver(options = {}) {
             Number.isFinite(relockRepeat) ? `repeat=${relockRepeat}` : "",
             snippet ? `clue="${snippet}"` : ""
           ]);
-          emitHudStatus(
-            "low_sim",
-            `Low confidence - waiting (sim=${formatLogScore(conf)} < ${formatLogScore(effectiveMatchThreshold)})`
-          );
+          const lowSimMessage = !tieOk && conf >= effectiveMatchThreshold ? `Ambiguous tie - waiting (gap=${formatLogScore(tieMargin ?? 0)} < ${formatLogScore(thresholds.tieDelta)})` : `Low confidence - waiting (sim=${formatLogScore(conf)} < ${formatLogScore(effectiveMatchThreshold)})`;
+          emitHudStatus("low_sim", lowSimMessage);
           noteLowSimFreeze(Date.now(), {
             cursorLine: lastLineIndex,
             bestIdx: line,
@@ -42290,8 +42291,8 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_CATCHUP_FAST_MIN_PX = 250;
     DEFAULT_MAX_TARGET_JUMP_PX = 180;
     DEFAULT_MAX_TARGET_JUMP_HYBRID_PX = 80;
-    LIVE_ASR_COMMIT_MIN_PX = 72;
-    LIVE_ASR_COMMIT_MAX_LINES = 3;
+    LIVE_ASR_COMMIT_MIN_PX = 96;
+    LIVE_ASR_COMMIT_MAX_LINES = 8;
     LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.75;
     LIVE_ASR_GLIDE_MIN_MS = 180;
     LIVE_ASR_GLIDE_MAX_MS = 520;
@@ -42390,7 +42391,7 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS = 3;
     DEFAULT_NOISE_INTERIM_MIN_TOKENS = 3;
     DEFAULT_NOISE_INTERIM_MIN_CHARS = 12;
-    DEFAULT_STARVATION_COMMIT_GAP_MS = 2200;
+    DEFAULT_STARVATION_COMMIT_GAP_MS = 1500;
     DEFAULT_STARVATION_WARN_COOLDOWN_MS = 1500;
     DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES = 5;
     DEFAULT_STARVATION_RELOCK_SIM_SLACK = 0.08;
@@ -42500,10 +42501,10 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_CUE_BRIDGE_LARGE_GAP = 0.12;
     DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS = 2;
     DEFAULT_CUE_STALL_RESCUE_DELAY_MS = 900;
-    DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 1e3;
-    DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS = 320;
-    DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS = 260;
-    DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS = 200;
+    DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 600;
+    DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS = 180;
+    DEFAULT_ASR_CUE_STALL_RESCUE_FRESH_FINAL_DELAY_MS = 140;
+    DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS = 120;
     DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 3;
     DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 2;
     DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS * 2;
@@ -43421,7 +43422,7 @@ var init_whisper_bridge = __esm({
       }
     };
     DEFAULT_ROUTE = "/api/anvil/asr/whisper";
-    DEFAULT_SEGMENT_MS = 1400;
+    DEFAULT_SEGMENT_MS = 1e3;
     MAX_WINDOW_WORDS = 56;
     MAX_PROMPT_CHARS = 1200;
     MAX_PROMPT_LOOKAHEAD = 6;
@@ -43465,7 +43466,7 @@ var init_whisper_bridge = __esm({
         this.lang = options.lang || "en-US";
         this.interim = options.interim !== false;
         const endpointingMs = Number(options.endpointingMs);
-        this.segmentMs = Number.isFinite(endpointingMs) ? Math.max(900, Math.min(2200, Math.round(endpointingMs + 800))) : DEFAULT_SEGMENT_MS;
+        this.segmentMs = Number.isFinite(endpointingMs) ? Math.max(700, Math.min(1800, Math.round(endpointingMs + 500))) : DEFAULT_SEGMENT_MS;
       }
       on(event, listener) {
         const listeners3 = this.listeners.get(event) || /* @__PURE__ */ new Set();
