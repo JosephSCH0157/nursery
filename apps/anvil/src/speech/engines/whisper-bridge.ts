@@ -1,5 +1,6 @@
 import { getPrimaryScroller, getScriptRoot } from "../../scroll/scroller";
 import { supabase } from "../../forge/supabaseClient";
+import { resolveForgeUserAccessToken } from "../../forge/tongs-user-auth";
 import { shouldLogLevel } from "../../env/dev-log";
 
 type WhisperBridgeEvent = "start" | "end" | "error" | "partial" | "final";
@@ -116,6 +117,12 @@ function normalizeWhisperLanguage(raw: unknown): string | null {
   return primary;
 }
 
+function readNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function logWhisperLanguageNormalization(raw: unknown, normalized: string | null): void {
   if (!isDevAuthLoggingEnabled()) return;
   try {
@@ -177,6 +184,27 @@ function isUnsupportedAudioError(error: unknown): boolean {
 }
 
 async function resolveWhisperAccessToken(): Promise<string> {
+  try {
+    const forgeToken = await resolveForgeUserAccessToken();
+    if (forgeToken) {
+      logWhisperAuthAttachment(true, "forge_resolver");
+      return forgeToken;
+    }
+  } catch {
+    // continue to additional fallbacks
+  }
+
+  try {
+    const w = window as any;
+    const fromWindow = readNonEmptyString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken);
+    if (fromWindow) {
+      logWhisperAuthAttachment(true, "window_token");
+      return fromWindow;
+    }
+  } catch {
+    // continue to Supabase session fallback
+  }
+
   try {
     const { data, error } = await supabase.auth.getSession();
     if (error) {

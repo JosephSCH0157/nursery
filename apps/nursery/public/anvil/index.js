@@ -43049,6 +43049,103 @@ var init_backend_guard = __esm({
   }
 });
 
+// src/forge/tongs-user-auth.ts
+function readString2(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+function extractAccessTokenFromAuthPayload(value) {
+  if (!value || typeof value !== "object") return null;
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const token = extractAccessTokenFromAuthPayload(entry);
+      if (token) return token;
+    }
+    return null;
+  }
+  const row = value;
+  const direct = readString2(row.access_token);
+  if (direct) return direct;
+  const currentSession3 = row.currentSession;
+  if (currentSession3 && typeof currentSession3 === "object") {
+    const token = readString2(currentSession3.access_token);
+    if (token) return token;
+  }
+  const session = row.session;
+  if (session && typeof session === "object") {
+    const token = readString2(session.access_token);
+    if (token) return token;
+  }
+  const nested = row.data;
+  if (nested && typeof nested === "object") {
+    const token = extractAccessTokenFromAuthPayload(nested);
+    if (token) return token;
+  }
+  return null;
+}
+function readAccessTokenFromStorageKey(key) {
+  if (typeof window === "undefined") return null;
+  let raw = null;
+  try {
+    raw = window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  const direct = readString2(raw);
+  if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
+    return direct;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return extractAccessTokenFromAuthPayload(parsed);
+  } catch {
+    return null;
+  }
+}
+async function resolveForgeUserAccessToken() {
+  if (typeof window !== "undefined") {
+    const primary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
+    if (primary) return primary;
+    try {
+      for (let index = 0; index < window.localStorage.length; index += 1) {
+        const key = window.localStorage.key(index);
+        if (!key || key === SUPABASE_AUTH_STORAGE_KEY) continue;
+        if (!SUPABASE_AUTH_KEY_RE.test(key)) continue;
+        const token = readAccessTokenFromStorageKey(key);
+        if (token) return token;
+      }
+    } catch {
+    }
+  }
+  if (!hasSupabaseConfig) return null;
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) return null;
+    return readString2(data.session?.access_token ?? null);
+  } catch {
+    return null;
+  }
+}
+async function appendForgeUserAuthorization(headersInit) {
+  const headers = new Headers(headersInit ?? {});
+  const userAccessToken = await resolveForgeUserAccessToken();
+  if (userAccessToken && !headers.has("x-forge-user-authorization")) {
+    headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
+  }
+  return headers;
+}
+var SUPABASE_AUTH_STORAGE_KEY, SUPABASE_AUTH_KEY_RE;
+var init_tongs_user_auth = __esm({
+  "src/forge/tongs-user-auth.ts"() {
+    "use strict";
+    init_supabaseClient();
+    SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
+    SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
+  }
+});
+
 // src/speech/engines/whisper-bridge.ts
 function isDevAuthLoggingEnabled() {
   try {
@@ -43074,6 +43171,11 @@ function normalizeWhisperLanguage(raw) {
   const primary = trimmed.split("-")[0]?.trim() ?? "";
   if (!/^[a-z]{2,3}$/.test(primary)) return null;
   return primary;
+}
+function readNonEmptyString(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 function logWhisperLanguageNormalization(raw, normalized) {
   if (!isDevAuthLoggingEnabled()) return;
@@ -43108,6 +43210,23 @@ function isUnsupportedAudioError(error) {
   return message.includes("audio file") && (message.includes("corrupt") || message.includes("unsupported")) || message.includes("invalid file format") || message.includes("supported formats") || message.includes("unsupported media type");
 }
 async function resolveWhisperAccessToken() {
+  try {
+    const forgeToken = await resolveForgeUserAccessToken();
+    if (forgeToken) {
+      logWhisperAuthAttachment(true, "forge_resolver");
+      return forgeToken;
+    }
+  } catch {
+  }
+  try {
+    const w3 = window;
+    const fromWindow = readNonEmptyString(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+    if (fromWindow) {
+      logWhisperAuthAttachment(true, "window_token");
+      return fromWindow;
+    }
+  } catch {
+  }
   try {
     const { data, error } = await supabase.auth.getSession();
     if (error) {
@@ -43265,6 +43384,7 @@ var init_whisper_bridge = __esm({
     "use strict";
     init_scroller();
     init_supabaseClient();
+    init_tongs_user_auth();
     init_dev_log();
     WhisperBridgeHttpError = class extends Error {
       status;
@@ -52670,7 +52790,7 @@ var init_authProfile = __esm({
 });
 
 // src/forge/forge-nav.ts
-function readString2(value) {
+function readString3(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
@@ -52683,17 +52803,17 @@ function normalizePayload(raw) {
   const tree = [];
   for (const section of raw.tree) {
     if (!isRecord(section)) continue;
-    const id = readString2(section.id);
-    const title = readString2(section.title) ?? void 0;
+    const id = readString3(section.id);
+    const title = readString3(section.title) ?? void 0;
     const rawItems = Array.isArray(section.items) ? section.items : [];
     if (!id || rawItems.length === 0) continue;
     const items = [];
     for (const item of rawItems) {
       if (!isRecord(item)) continue;
-      const itemId = readString2(item.id);
-      const label = readString2(item.label);
-      const to = readString2(item.to) ?? void 0;
-      const href = readString2(item.href) ?? void 0;
+      const itemId = readString3(item.id);
+      const label = readString3(item.label);
+      const to = readString3(item.to) ?? void 0;
+      const href = readString3(item.href) ?? void 0;
       if (!itemId || !label || !to && !href) continue;
       items.push({ id: itemId, label, to, href });
     }
@@ -52703,16 +52823,16 @@ function normalizePayload(raw) {
   if (!tree.length) return null;
   return {
     schema: typeof raw.schema === "number" ? raw.schema : 1,
-    generated_at: readString2(raw.generated_at),
+    generated_at: readString3(raw.generated_at),
     tree
   };
 }
 function getForgeHubOrigin2() {
   const win = window;
-  const fromEnv = readString2(win.FORGE_HUB_ORIGIN);
+  const fromEnv = readString3(win.FORGE_HUB_ORIGIN);
   if (fromEnv) return fromEnv;
-  const fromForgeConfig = readString2(win.__forgeAppOrigin);
-  const currentOrigin = readString2(window.location.origin);
+  const fromForgeConfig = readString3(win.__forgeAppOrigin);
+  const currentOrigin = readString3(window.location.origin);
   if (!fromForgeConfig) return currentOrigin ?? "";
   try {
     const current2 = new URL(currentOrigin ?? "http://localhost");
@@ -52726,9 +52846,9 @@ function getForgeHubOrigin2() {
 }
 function getBuildId() {
   const win = window;
-  const explicit = readString2(win.FORGE_BUILD_ID);
+  const explicit = readString3(win.FORGE_BUILD_ID);
   if (explicit) return explicit;
-  return readString2(win.APP_VERSION) ?? null;
+  return readString3(win.APP_VERSION) ?? null;
 }
 function buildNavUrl() {
   const base = getForgeHubOrigin2() || window.location.origin;
@@ -53102,7 +53222,7 @@ function wireOverlayLinks(panel, closeOverlay, extraActionHandlers) {
     const actionTrigger = target.closest("[data-forge-nav-action-id]");
     if (actionTrigger) {
       event.preventDefault();
-      const actionId = readString2(actionTrigger.dataset.forgeNavActionId) ?? null;
+      const actionId = readString3(actionTrigger.dataset.forgeNavActionId) ?? null;
       if (!actionId) return;
       const action2 = extraActionHandlers.get(actionId);
       if (!action2) return;
@@ -53116,7 +53236,7 @@ function wireOverlayLinks(panel, closeOverlay, extraActionHandlers) {
     const action = target.closest("[data-forge-nav-href]");
     if (!action) return;
     event.preventDefault();
-    const targetHref = readString2(action.dataset.forgeNavHref) ?? null;
+    const targetHref = readString3(action.dataset.forgeNavHref) ?? null;
     if (!targetHref || targetHref === "#") return;
     closeOverlay();
     navigateFromOverlay(targetHref);
@@ -53142,7 +53262,7 @@ async function openForgeMenuOverlay() {
   wireOverlayLinks(panel, closeOverlay, extraActionHandlers);
 }
 function initForgeMenu(opts = {}) {
-  const mountId = readString2(opts.mountId) ?? DEFAULT_MOUNT_ID;
+  const mountId = readString3(opts.mountId) ?? DEFAULT_MOUNT_ID;
   const mount = document.getElementById(mountId);
   if (!mount) return;
   const win = window;
@@ -53692,7 +53812,7 @@ var init_profile_settings_sync = __esm({
 });
 
 // src/net/display-ws-endpoint.ts
-function readString3(value) {
+function readString4(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -53700,7 +53820,7 @@ function readString3(value) {
 function resolveConfiguredBase() {
   const w3 = typeof window !== "undefined" ? window : {};
   const metaEnv3 = typeof import.meta !== "undefined" ? import.meta.env || {} : {};
-  return readString3(w3.__TP_DISPLAY_WS_URL) || readString3(metaEnv3.VITE_DISPLAY_WS_URL) || DEFAULT_DISPLAY_WS_BASE;
+  return readString4(w3.__TP_DISPLAY_WS_URL) || readString4(metaEnv3.VITE_DISPLAY_WS_URL) || DEFAULT_DISPLAY_WS_BASE;
 }
 function normalizeWsBase(candidate) {
   try {
@@ -53722,7 +53842,7 @@ function resolveDisplayWsBase() {
   return normalizeWsBase(resolveConfiguredBase()) || DEFAULT_DISPLAY_WS_BASE;
 }
 function buildDisplayWsUrl(pairToken) {
-  const token = readString3(pairToken);
+  const token = readString4(pairToken);
   if (!token) return null;
   try {
     const url = new URL(resolveDisplayWsBase());
@@ -54323,19 +54443,19 @@ var init_apply_script = __esm({
 });
 
 // src/forge/workpiece-script-handoff.ts
-function readString4(value) {
+function readString5(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 function normalizeUuid(value) {
-  const str = readString4(value);
+  const str = readString5(value);
   if (!str) return null;
   return UUID_RE.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage(key) {
   try {
-    return readString4(window.localStorage.getItem(key));
+    return readString5(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -54350,7 +54470,7 @@ function getQueryParam(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString4(q3.get(key));
+      const value = readString5(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -54394,25 +54514,25 @@ function persistWorkpiece(workspaceId, workpieceId) {
   }
 }
 function shouldAutoloadWorkpieceScript() {
-  const open = readString4(getQueryParam("open", "intent", "action"))?.toLowerCase();
+  const open = readString5(getQueryParam("open", "intent", "action"))?.toLowerCase();
   if (open === "script" || open === "script_primary") return true;
-  return Boolean(readString4(getQueryParam("script_path", "path")));
+  return Boolean(readString5(getQueryParam("script_path", "path")));
 }
 function resolveScriptPath() {
-  const fromQuery = readString4(getQueryParam("script_path", "path"));
+  const fromQuery = readString5(getQueryParam("script_path", "path"));
   if (!fromQuery) return DEFAULT_SCRIPT_PATH;
   if (fromQuery.startsWith("/") || fromQuery.includes("..")) return DEFAULT_SCRIPT_PATH;
   return fromQuery;
 }
 function resolveTongsApiToken() {
-  const fromQuery = readString4(getQueryParam("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString5(getQueryParam("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = readString4(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  const fromWindow = readString5(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   try {
     const meta3 = import.meta;
-    const fromEnv = readString4(meta3.env?.VITE_TONGS_API_TOKEN);
+    const fromEnv = readString5(meta3.env?.VITE_TONGS_API_TOKEN);
     if (fromEnv) return fromEnv;
   } catch {
   }
@@ -54940,7 +55060,7 @@ function readNumber(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
-function readString5(value, fallback) {
+function readString6(value, fallback) {
   if (typeof value !== "string") return fallback;
   const v = value.trim();
   if (!v || v === "undefined" || v === "null") return fallback;
@@ -54949,14 +55069,14 @@ function readString5(value, fallback) {
 function normalizeTypography(input, fallback) {
   const src = input && typeof input === "object" ? input : {};
   return clampTypography({
-    fontFamily: readString5(src.fontFamily, fallback.fontFamily),
+    fontFamily: readString6(src.fontFamily, fallback.fontFamily),
     fontSizePx: readNumber(src.fontSizePx, fallback.fontSizePx),
     lineHeight: readNumber(src.lineHeight, fallback.lineHeight),
     weight: readNumber(src.weight, fallback.weight),
     letterSpacingEm: readNumber(src.letterSpacingEm, fallback.letterSpacingEm),
     wordSpacingEm: readNumber(src.wordSpacingEm, fallback.wordSpacingEm),
-    color: readString5(src.color, fallback.color),
-    background: readString5(src.background, fallback.background),
+    color: readString6(src.color, fallback.color),
+    background: readString6(src.background, fallback.background),
     maxLineWidthCh: readNumber(src.maxLineWidthCh, fallback.maxLineWidthCh),
     dimOthers: readNumber(src.dimOthers, fallback.dimOthers)
   });
@@ -56502,103 +56622,6 @@ var init_rec_pills = __esm({
 .rec-pill-live{min-width:1px;min-height:1px}
 @keyframes recPulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.03);opacity:.95}100%{transform:scale(1);opacity:1}}
 `;
-  }
-});
-
-// src/forge/tongs-user-auth.ts
-function readString6(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
-}
-function extractAccessTokenFromAuthPayload(value) {
-  if (!value || typeof value !== "object") return null;
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const token = extractAccessTokenFromAuthPayload(entry);
-      if (token) return token;
-    }
-    return null;
-  }
-  const row = value;
-  const direct = readString6(row.access_token);
-  if (direct) return direct;
-  const currentSession3 = row.currentSession;
-  if (currentSession3 && typeof currentSession3 === "object") {
-    const token = readString6(currentSession3.access_token);
-    if (token) return token;
-  }
-  const session = row.session;
-  if (session && typeof session === "object") {
-    const token = readString6(session.access_token);
-    if (token) return token;
-  }
-  const nested = row.data;
-  if (nested && typeof nested === "object") {
-    const token = extractAccessTokenFromAuthPayload(nested);
-    if (token) return token;
-  }
-  return null;
-}
-function readAccessTokenFromStorageKey(key) {
-  if (typeof window === "undefined") return null;
-  let raw = null;
-  try {
-    raw = window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-  if (!raw) return null;
-  const direct = readString6(raw);
-  if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
-    return direct;
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    return extractAccessTokenFromAuthPayload(parsed);
-  } catch {
-    return null;
-  }
-}
-async function resolveForgeUserAccessToken() {
-  if (typeof window !== "undefined") {
-    const primary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
-    if (primary) return primary;
-    try {
-      for (let index = 0; index < window.localStorage.length; index += 1) {
-        const key = window.localStorage.key(index);
-        if (!key || key === SUPABASE_AUTH_STORAGE_KEY) continue;
-        if (!SUPABASE_AUTH_KEY_RE.test(key)) continue;
-        const token = readAccessTokenFromStorageKey(key);
-        if (token) return token;
-      }
-    } catch {
-    }
-  }
-  if (!hasSupabaseConfig) return null;
-  try {
-    const { data, error } = await supabase.auth.getSession();
-    if (error) return null;
-    return readString6(data.session?.access_token ?? null);
-  } catch {
-    return null;
-  }
-}
-async function appendForgeUserAuthorization(headersInit) {
-  const headers = new Headers(headersInit ?? {});
-  const userAccessToken = await resolveForgeUserAccessToken();
-  if (userAccessToken && !headers.has("x-forge-user-authorization")) {
-    headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
-  }
-  return headers;
-}
-var SUPABASE_AUTH_STORAGE_KEY, SUPABASE_AUTH_KEY_RE;
-var init_tongs_user_auth = __esm({
-  "src/forge/tongs-user-auth.ts"() {
-    "use strict";
-    init_supabaseClient();
-    SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
-    SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
   }
 });
 
