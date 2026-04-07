@@ -451,10 +451,10 @@ const DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COM
 const DEFAULT_MULTI_JUMP_MIN_SIM = 0.4;
 const DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS = 0.08;
 const DEFAULT_MULTI_JUMP_HARD_DENY_SIM = 0.26;
-const DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES = 2;
+const DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES = 3;
 const DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM = 0.72;
 const DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK = 0.08;
-const DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK = 0.02;
+const DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK = 0.06;
 const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM = 0.55;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES = 3;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM = 0.75;
@@ -7474,8 +7474,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             ? LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES
             : undefined;
         const immediateReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
-          // Keep live ASR reactive while still ensuring the next line is visible.
-          allowNudge: !writerCommitted,
+          // In live ASR, avoid a second write in the same commit frame; that causes visible snap/flicker.
+          allowNudge: !writerCommitted && !liveAsrReadabilitySuppressed,
           maxForwardLines: liveAsrReadabilityMaxForwardLines,
         });
         logPostCommitReadabilityProbe(
