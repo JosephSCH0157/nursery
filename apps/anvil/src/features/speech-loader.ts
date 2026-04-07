@@ -3493,6 +3493,7 @@ function syncAsrDriverFromBlocks(reason: string, opts?: { mode?: string; allowCr
 function pushAsrTranscript(text: string, isFinal: boolean, detail?: any): void {
   const t = String(text || '').trim();
   if (!t) return;
+  const session = getSession();
   const payload = {
     text: t,
     isFinal: !!isFinal,
@@ -3506,6 +3507,26 @@ function pushAsrTranscript(text: string, isFinal: boolean, detail?: any): void {
     });
   }
   const mode = String(detail?.mode || getScrollMode() || '').toLowerCase();
+  const liveSessionActive = session.phase === 'live';
+  const allowAsrIngest =
+    running ||
+    asrSessionIntentActive ||
+    (liveSessionActive && (mode === 'hybrid' || (mode === 'asr' && session.asrArmed)));
+  if (!allowAsrIngest) {
+    if (isDevMode() && shouldLogTag('ASR:ingest:ignored-inactive-session', 2, 500)) {
+      try {
+        console.debug('[ASR] transcript ignored (inactive session)', {
+          mode,
+          phase: session.phase,
+          running,
+          asrSessionIntentActive,
+          asrArmed: session.asrArmed,
+          text: t.slice(0, 60),
+        });
+      } catch {}
+    }
+    return;
+  }
   attachAsrScrollDriver({ reason: 'transcript', mode, allowCreate: true });
   bootTrace('ASR:ingest', {
     raw: t,
@@ -4263,12 +4284,14 @@ export function stopSpeechBackendForSession(reason?: string): void {
     currentActualSpeechEngine = '';
     currentFallbackReason = '';
     setSpeechRunningActual(false, 'stop-idle');
+    try { window.__tpEmitSpeech = undefined; } catch {}
     detachAsrScrollDriver();
     emitAsrHeartbeat(`stop:${String(reason || 'unspecified')}`, { force: true });
     emitAsrRuntimeStatus(`stop:${String(reason || 'unspecified')}:idle`);
     return;
   }
   running = false;
+  try { window.__tpEmitSpeech = undefined; } catch {}
   detachAsrScrollDriver();
   asrBrainLogged = false;
   try { rec?.abort?.(); } catch {}

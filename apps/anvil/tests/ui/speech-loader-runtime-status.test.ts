@@ -136,7 +136,9 @@ describe('speech loader runtime status', () => {
         status.actualEngine === 'webspeech'
       )),
     ).toBe(true);
+    expect(typeof (window as any).__tpEmitSpeech).toBe('function');
 
     stopSpeechBackendForSession('test-runtime-fallback');
+    expect((window as any).__tpEmitSpeech).toBeUndefined();
   });
 });

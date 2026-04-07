@@ -1035,15 +1035,17 @@ export function scanCueBridgeWindow(
 export function evaluateStallCueRescuePolicy(opts: {
   reasonTag: string;
   skippedReasons: CueBridgeSkipReason[];
+  cursorLineSkippable?: boolean;
 }): StallCueRescuePolicy {
   const reasonTag = String(opts.reasonTag || '').trim().toLowerCase();
   const skippedReasons = Array.isArray(opts.skippedReasons) ? opts.skippedReasons : [];
+  const cursorLineSkippable = opts.cursorLineSkippable === true;
   if (reasonTag === 'auto-stall') {
-    if (!skippedReasons.length) {
+    if (!cursorLineSkippable) {
       return {
-        allow: true,
-        directContentForwardRescue: true,
-        blockedReason: '',
+        allow: false,
+        directContentForwardRescue: false,
+        blockedReason: 'content-line',
       };
     }
     return {
@@ -1052,7 +1054,7 @@ export function evaluateStallCueRescuePolicy(opts: {
       blockedReason: '',
     };
   }
-  if (!skippedReasons.length) {
+  if (!cursorLineSkippable) {
     return {
       allow: false,
       directContentForwardRescue: false,
@@ -5031,6 +5033,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return false;
     }
     const cursorLineText = getLineTextAt(cursorLine);
+    const cursorLineSkippable =
+      classifyStrictSkippableLineForCueBridge(cursorLineText) != null;
     const cueBridge = findNextSpeakableWithinBridge(
       cursorLine,
       DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
@@ -5070,6 +5074,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const rescuePolicy = evaluateStallCueRescuePolicy({
       reasonTag,
       skippedReasons: cueBridge.skippedReasons,
+      cursorLineSkippable,
     });
     if (!rescuePolicy.allow) {
       stallRescueRequested = false;
@@ -5968,26 +5973,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     stopCommitPursuit('pixel-commit');
     if (liveAsrStrongMarkerSnap) {
-      const distancePx = Math.abs(targetTop - beforeTop);
-      const durationMs = clamp(
-        (distancePx / LIVE_ASR_STRONG_SNAP_GLIDE_PX_PER_SEC) * 1000,
-        LIVE_ASR_STRONG_SNAP_GLIDE_MIN_MS,
-        LIVE_ASR_STRONG_SNAP_GLIDE_MAX_MS,
-      );
-      const glided = startGlideTo(targetTop, {
+      stopCommitPursuit('strong-marker-snap');
+      const appliedTop = applyCanonicalScrollTop(targetTop, {
         scroller: deps.scroller,
         reason,
         source: 'asr-commit',
-        durationMs,
-        easing: 'linear',
       });
-      const appliedTop = glided
-        ? targetTop
-        : applyCanonicalScrollTop(targetTop, {
-          scroller: deps.scroller,
-          reason,
-          source: 'asr-commit',
-        });
       const afterTop =
         finiteNumberOrNull(
           'commit.afterTop.strongSnap',
@@ -5997,7 +5988,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       bootTrace('SCROLL:apply', {
         y: Math.round(afterTop),
         from: Math.round(beforeTop),
-        via: glided ? 'strong-marker-glide' : 'strong-marker-snap',
+        via: 'strong-marker-snap',
         reason,
         lineIdx: commit.lineIdx,
         blockId: commit.blockId,
@@ -6021,39 +6012,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         movedPx: Math.round(afterTop - beforeTop),
       };
     }
-    if (liveAsrGlideActive && Math.abs(targetTop - beforeTop) > 0.5) {
-      const distancePx = Math.abs(targetTop - beforeTop);
-      const durationMs = clamp(
-        (distancePx / LIVE_ASR_GLIDE_PX_PER_SEC) * 1000,
-        Math.max(motionTuning.glideDefaultMs, LIVE_ASR_GLIDE_MIN_MS),
-        Math.max(motionTuning.glideMaxMs, LIVE_ASR_GLIDE_MAX_MS),
-      );
-      const glided = startGlideTo(targetTop, {
-        scroller: deps.scroller,
-        reason,
-        source: 'asr-commit',
-        durationMs,
-        easing: 'linear',
-      });
-      if (glided) {
-        bootTrace('SCROLL:apply', {
-          y: Math.round(targetTop),
-          from: Math.round(beforeTop),
-          via: 'glide',
-          reason,
-          lineIdx: commit.lineIdx,
-          blockId: commit.blockId,
-        });
-        pursuitTargetTop = targetTop;
-        lastMoveAt = Date.now();
-        return {
-          method: 'pixel',
-          writerCommitted: false,
-          beforeTop,
-          afterTop: targetTop,
-          movedPx: Math.round(targetTop - beforeTop),
-        };
-      }
+    if (liveAsrGlideActive) {
+      stopCommitPursuit('live-asr-commit');
     }
     const appliedTop = applyCanonicalScrollTop(targetTop, {
       scroller: deps.scroller,
@@ -6103,26 +6063,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     const cappedTop = clamp(Math.min(afterTop, beforeTop + liveAsrCommitCapPx), 0, maxTop);
     if (cappedTop >= afterTop - 0.5) return afterTop;
-    const distancePx = Math.abs(cappedTop - beforeTop);
-    const durationMs = clamp(
-      (distancePx / LIVE_ASR_GLIDE_PX_PER_SEC) * 1000,
-      Math.max(motionTuning.glideDefaultMs, LIVE_ASR_GLIDE_MIN_MS),
-      Math.max(motionTuning.glideMaxMs, LIVE_ASR_GLIDE_MAX_MS),
-    );
-    const glided = startGlideTo(cappedTop, {
+    stopGlide('live-asr-commit-cap');
+    const applied = applyCanonicalScrollTop(cappedTop, {
       scroller,
       reason: 'asr-live-commit-cap',
-      source: 'asr-commit-cap',
-      durationMs,
-      easing: 'linear',
+      source: 'asr-commit',
     });
-    const applied = glided
-      ? cappedTop
-      : applyCanonicalScrollTop(cappedTop, {
-        scroller,
-        reason: 'asr-live-commit-cap',
-        source: 'asr-commit',
-      });
     const finalTop =
       finiteNumberOrNull(
         'commit.afterTop.liveCap',

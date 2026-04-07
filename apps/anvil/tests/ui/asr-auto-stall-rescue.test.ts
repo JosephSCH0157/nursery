@@ -121,7 +121,7 @@ describe('ASR auto stall rescue', () => {
     driver.dispose();
   });
 
-  test('self-recovers one content line forward after the session has established multiple real commits', async () => {
+  test('does not self-advance onto content even after the session has established multiple real commits', async () => {
     const scroller = document.getElementById('viewer') as HTMLElement;
     const driver = createAsrScrollDriver();
 
@@ -178,7 +178,7 @@ describe('ASR auto stall rescue', () => {
       await jest.advanceTimersByTimeAsync(500);
     }
 
-    expect(driver.getLastLineIndex()).toBe(4);
+    expect(driver.getLastLineIndex()).toBe(3);
     expect(scroller.scrollTop).toBeGreaterThan(0);
 
     driver.dispose();

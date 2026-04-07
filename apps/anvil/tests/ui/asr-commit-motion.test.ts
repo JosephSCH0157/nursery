@@ -75,7 +75,7 @@ describe('ASR live commit motion', () => {
     delete (window as any).__TP_MARKER_PCT;
   });
 
-  test('caps a forward commit below the wrapped block jump distance', async () => {
+  test('caps a forward commit below the wrapped block jump distance without continuing to glide afterward', async () => {
     const driver = createAsrScrollDriver();
     const scroller = document.getElementById('viewer') as HTMLElement;
 
@@ -90,11 +90,15 @@ describe('ASR live commit motion', () => {
       },
     });
 
+    await jest.advanceTimersByTimeAsync(32);
+
+    const settledTop = scroller.scrollTop;
+
     await jest.advanceTimersByTimeAsync(800);
 
     expect(driver.getLastLineIndex()).toBe(1);
     expect(scroller.scrollTop).toBeGreaterThan(0);
-    expect(scroller.scrollTop).toBeLessThan(160);
+    expect(scroller.scrollTop).toBe(settledTop);
 
     driver.dispose();
   });

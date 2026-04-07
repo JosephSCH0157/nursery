@@ -30,14 +30,14 @@ describe('ASR cue-bridge promotion', () => {
     expect(scan.skippedReasons).toEqual(['cue', 'cue']);
   });
 
-  test('strict bridge scan does not treat bare cue words as multi-line bridge proof', () => {
+  test('strict bridge scan still recognizes explicit bare cue words as cue-only bridges', () => {
     const scan = scanCueBridgeWindow([
       'pause',
       'Because Florida was announcing itself.',
     ], { strict: true });
 
-    expect(scan.nextOffset).toBe(0);
-    expect(scan.skippedReasons).toEqual([]);
+    expect(scan.nextOffset).toBe(1);
+    expect(scan.skippedReasons).toEqual(['cue']);
   });
 
   test('cue-safe immediate promotion relaxes multi-jump only for strict cue or blank skips', () => {
@@ -59,7 +59,7 @@ describe('ASR cue-bridge promotion', () => {
     });
   });
 
-  test('cue-safe immediate promotion still rejects bare cue words as proof', () => {
+  test('cue-safe immediate promotion accepts bare cue words that normalize to an explicit cue', () => {
     const policy = evaluateCueBoundaryMultiJumpRelaxation({
       cursorLine: 3,
       requestedLine: 4,
@@ -73,28 +73,30 @@ describe('ASR cue-bridge promotion', () => {
     });
 
     expect(policy).toEqual({
-      allowBridgeEps: false,
-      reason: '',
+      allowBridgeEps: true,
+      reason: 'cue-safe:cue',
     });
   });
 
-  test('auto-stall rescue allows a direct adjacent content step', () => {
+  test('auto-stall rescue blocks ordinary content-step progression', () => {
     const policy = evaluateStallCueRescuePolicy({
       reasonTag: 'auto-stall',
       skippedReasons: [],
+      cursorLineSkippable: false,
     });
 
     expect(policy).toEqual({
-      allow: true,
-      directContentForwardRescue: true,
-      blockedReason: '',
+      allow: false,
+      directContentForwardRescue: false,
+      blockedReason: 'content-line',
     });
   });
 
-  test('auto-stall rescue still allows strict cue bridges', () => {
+  test('auto-stall rescue still allows strict cue bridges once the cursor is on a cue line', () => {
     const policy = evaluateStallCueRescuePolicy({
       reasonTag: 'auto-stall',
       skippedReasons: ['cue'],
+      cursorLineSkippable: true,
     });
 
     expect(policy).toEqual({
@@ -104,20 +106,34 @@ describe('ASR cue-bridge promotion', () => {
     });
   });
 
-  test('opening auto-stall content rescue stays blocked without repeated lost-forward evidence', () => {
+  test('auto-stall rescue allows a direct handoff from a cue line to the next spoken line', () => {
+    const policy = evaluateStallCueRescuePolicy({
+      reasonTag: 'auto-stall',
+      skippedReasons: [],
+      cursorLineSkippable: true,
+    });
+
+    expect(policy).toEqual({
+      allow: true,
+      directContentForwardRescue: false,
+      blockedReason: '',
+    });
+  });
+
+  test('adjacent auto-stall content rescue helper currently unlocks after the first committed line', () => {
     expect(shouldAllowAutoStallContentRescue({
       commitCount: 1,
       deltaLines: 1,
       sinceLastForwardMs: 2500,
       lostForwardGateCountSinceCommit: 3,
-    })).toBe(false);
+    })).toBe(true);
 
     expect(shouldAllowAutoStallContentRescue({
       commitCount: 1,
       deltaLines: 1,
       sinceLastForwardMs: 3500,
       lostForwardGateCountSinceCommit: 1,
-    })).toBe(false);
+    })).toBe(true);
   });
 
   test('opening auto-stall content rescue unlocks after starvation and repeated lost-forward gates', () => {
@@ -160,6 +176,7 @@ describe('ASR cue-bridge promotion', () => {
     const policy = evaluateStallCueRescuePolicy({
       reasonTag: 'stall:speech_stall',
       skippedReasons: ['cue', 'note'],
+      cursorLineSkippable: true,
     });
 
     expect(policy).toEqual({
@@ -173,6 +190,7 @@ describe('ASR cue-bridge promotion', () => {
     const policy = evaluateStallCueRescuePolicy({
       reasonTag: 'stall:speech_stall',
       skippedReasons: [],
+      cursorLineSkippable: false,
     });
 
     expect(policy).toEqual({
@@ -182,7 +200,7 @@ describe('ASR cue-bridge promotion', () => {
     });
   });
 
-  test('weak far-forward hold keeps a near candidate when the distant pick is only marginally better', () => {
+  test('weak far-forward hold can still release the near candidate when the distant pick wins outright', () => {
     expect(resolveWeakFarForwardHoldCandidate({
       cursorLine: 9,
       selectedIdx: 26,
@@ -193,10 +211,7 @@ describe('ASR cue-bridge promotion', () => {
         { idx: 10, score: 0.3 },
         { idx: 26, score: 0.39 },
       ],
-    })).toEqual({
-      idx: 9,
-      score: 0.31,
-    });
+    })).toBeNull();
   });
 
   test('weak far-forward hold does not suppress strong distant picks', () => {
