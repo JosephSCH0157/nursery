@@ -20,6 +20,7 @@ describe('ASR live commit motion', () => {
           <div class="line" data-line="0" style="line-height:24px;">Doors sigh.</div>
           <div class="line" data-line="1" style="line-height:24px;">Farebox chirps, coffee lids do that little click.</div>
           <div class="line" data-line="2" style="line-height:24px;">The seats remember every early shift.</div>
+          <div class="line" data-line="3" style="line-height:24px;">Neon ads hum above the aisle.</div>
         </div>
       </main>
     `;
@@ -36,6 +37,7 @@ describe('ASR live commit motion', () => {
       { top: 0, height: 236 },
       { top: 567, height: 236 },
       { top: 1134, height: 236 },
+      { top: 1701, height: 236 },
     ];
     Array.from(document.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
       const metric = metrics[idx];
@@ -99,6 +101,168 @@ describe('ASR live commit motion', () => {
     expect(driver.getLastLineIndex()).toBe(1);
     expect(scroller.scrollTop).toBeGreaterThan(0);
     expect(scroller.scrollTop).toBe(settledTop);
+
+    driver.dispose();
+  });
+
+  test('caps a far future live ASR match to the next readable line when that line has local support', async () => {
+    const driver = createAsrScrollDriver();
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'single-step-prime-cap',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.88,
+        topScores: [
+          { idx: 1, score: 0.88 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 1,
+      matchId: 'single-step-cap',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.95,
+        topScores: [
+          { idx: 2, score: 0.74 },
+          { idx: 3, score: 0.95 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(2);
+
+    driver.dispose();
+  });
+
+  test('still caps a far future live ASR match to the next readable line when later content matches more strongly', async () => {
+    const driver = createAsrScrollDriver();
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'single-step-prime-cap-late',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.88,
+        topScores: [
+          { idx: 1, score: 0.88 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 1,
+      matchId: 'single-step-cap-late',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.95,
+        topScores: [
+          { idx: 3, score: 0.95 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(2);
+
+    driver.dispose();
+  });
+
+  test('does not let a stalled far-future final keep the script walking forward on its own', async () => {
+    const driver = createAsrScrollDriver();
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'stalled-prime-hold',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.88,
+        topScores: [
+          { idx: 1, score: 0.88 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    await jest.advanceTimersByTimeAsync(2000);
+
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 1,
+      matchId: 'stalled-far-future-hold',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.95,
+        topScores: [
+          { idx: 3, score: 0.95 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    driver.dispose();
+  });
+
+  test('does not let stalled tie-forward evidence promote the next readable line by itself', async () => {
+    const driver = createAsrScrollDriver();
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'stalled-tie-prime',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.88,
+        topScores: [
+          { idx: 1, score: 0.88 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    await jest.advanceTimersByTimeAsync(2000);
+
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 1,
+      matchId: 'stalled-tie-forward-hold',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.84,
+        topScores: [
+          { idx: 2, score: 0.82 },
+          { idx: 3, score: 0.84 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
 
     driver.dispose();
   });

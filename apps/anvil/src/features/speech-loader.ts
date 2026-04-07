@@ -3260,7 +3260,14 @@ function shouldCreateAsrDriver(mode: string, reason: string): boolean {
   const blocks = getAsrBlockSnapshot();
   const blocksReady = blocks.ready && blocks.count > 0;
   const backendReady = canAttachAsrBackend();
-  const allowed = isAsrLikeMode(mode) && blocksReady && backendReady;
+  const session = getSession();
+  const phaseAllowsAsrDriver =
+    mode !== 'asr' ||
+    running ||
+    asrSessionIntentActive ||
+    session.phase === 'preroll' ||
+    session.phase === 'live';
+  const allowed = isAsrLikeMode(mode) && blocksReady && backendReady && phaseAllowsAsrDriver;
   if (!allowed && isDevMode()) {
     try {
       console.debug('[ASR] driver create blocked', {
@@ -3269,6 +3276,10 @@ function shouldCreateAsrDriver(mode: string, reason: string): boolean {
         blocksReady,
         blockCount: blocks.count,
         backendReady,
+        phaseAllowsAsrDriver,
+        sessionPhase: session.phase,
+        running,
+        asrSessionIntentActive,
       });
     } catch {}
   }

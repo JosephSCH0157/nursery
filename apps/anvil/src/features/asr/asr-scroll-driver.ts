@@ -80,6 +80,7 @@ type PendingMatch = {
   searchWindowTo?: number;
   lostMode?: boolean;
   cueBridgeNudgeDelta?: number;
+  liveForwardGuardActive?: boolean;
 };
 
 type AsrEventSnapshot = {
@@ -6691,6 +6692,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
         targetLine = continuityLine;
       }
+      const requestedTargetLine = targetLine;
       if (
         commitCount === 0 &&
         lastLineIndex <= 3 &&
@@ -7041,6 +7043,56 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             snippet ? `clue="${snippet}"` : '',
           ]);
           targetLine = safeMarkerAnchorLine;
+        }
+      }
+      if (asrMode && isSessionLivePhase() && isSessionAsrArmed()) {
+        const liveStep = findNextSpeakableWithinBridge(
+          lastLineIndex,
+          DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES + 1,
+          { strict: true },
+        );
+        const liveStepTarget =
+          liveStep.nextLine != null && liveStep.nextLine > lastLineIndex
+            ? Math.max(0, Math.floor(liveStep.nextLine))
+            : null;
+        const liveForwardHoldActive =
+          !hasRecentFreshSpeech || !!pending.liveForwardGuardActive;
+        if (
+          liveStepTarget != null &&
+          requestedTargetLine > liveStepTarget &&
+          liveForwardHoldActive
+        ) {
+          const liveStepScore = Number(
+            rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score,
+          );
+          warnGuard('asr_live_single_step_hold', [
+            `current=${lastLineIndex}`,
+            `requested=${requestedTargetLine}`,
+            `held=${liveStepTarget}`,
+            Number.isFinite(liveStepScore) ? `stepSim=${formatLogScore(liveStepScore)}` : 'stepSim=na',
+            liveStep.skippedReasons.length
+              ? `skipped=[${liveStep.skippedReasons.join(',')}]`
+              : '',
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+          emitHudStatus('asr_live_single_step_hold', 'Hold: waiting for fresh next-line evidence');
+          return;
+        }
+        if (liveStepTarget != null && targetLine > liveStepTarget) {
+          const liveStepScore = Number(
+            rankedTopScores.find((entry) => entry.idx === liveStepTarget)?.score,
+          );
+          warnGuard('asr_live_single_step_cap', [
+            `current=${lastLineIndex}`,
+            `requested=${targetLine}`,
+            `capped=${liveStepTarget}`,
+            Number.isFinite(liveStepScore) ? `stepSim=${formatLogScore(liveStepScore)}` : 'stepSim=na',
+            liveStep.skippedReasons.length
+              ? `skipped=[${liveStep.skippedReasons.join(',')}]`
+              : '',
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+          targetLine = liveStepTarget;
         }
       }
       const multiJumpDelta = targetLine - lastLineIndex;
@@ -8283,6 +8335,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     maybeBumpForStall(now);
     const mode = getScrollMode();
     const asrMode = mode === 'asr';
+    const liveForwardGuardActive =
+      asrMode &&
+      isSessionAsrArmed() &&
+      isSessionLivePhase() &&
+      (starvationDetected || !freshSpeechSinceCommit);
     const cueStallRescueDelayMs = resolveCueStallRescueDelayMs({
       asrMode,
       finalsSinceCommit,
@@ -9375,6 +9432,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       consistentAdjacentForwardBypass = consistentAdjacentTieBypass;
       const starvationTieForwardBypass =
+        !liveForwardGuardActive &&
         starvationDetected &&
         isFinal &&
         !!forwardPick &&
@@ -9431,18 +9489,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (!permissiveMatcher) return;
       }
       if (forwardPick && (forwardPick.idx !== rawIdx || forwardPick.score !== conf)) {
-        const before = rawIdx;
-        rawIdx = forwardPick.idx;
-        conf = forwardPick.score;
-        if (hasTie) {
-          warnGuard('tie_forward', [
+        if (liveForwardGuardActive) {
+          warnGuard('asr_live_tie_hold', [
             `current=${cursorLine}`,
-            `best=${before}`,
-            `forward=${rawIdx}`,
-            `sim=${formatLogScore(conf)}`,
-            `eps=${forwardTieEps}`,
+            `best=${rawIdx}`,
+            `forward=${forwardPick.idx}`,
+            `sim=${formatLogScore(forwardPick.score)}`,
+            `guard=live-forward`,
             snippet ? `clue="${snippet}"` : '',
           ]);
+        } else {
+          const before = rawIdx;
+          rawIdx = forwardPick.idx;
+          conf = forwardPick.score;
+          if (hasTie) {
+            warnGuard('tie_forward', [
+              `current=${cursorLine}`,
+              `best=${before}`,
+              `forward=${rawIdx}`,
+              `sim=${formatLogScore(conf)}`,
+              `eps=${forwardTieEps}`,
+              snippet ? `clue="${snippet}"` : '',
+            ]);
+          }
         }
       }
     }
@@ -9600,24 +9669,36 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         weakForwardCandidate.score >= weakForwardMinSim &&
         weakForwardCandidate.score >= weakForwardNeed
       ) {
-        const before = rawIdx;
-        rawIdx = weakForwardCandidate.idx;
-        conf = weakForwardCandidate.score;
-        effectiveThreshold = Math.min(effectiveThreshold, weakForwardFloor);
-        warnGuard('weak_current_forward', [
-          `current=${cursorLine}`,
-          `best=${before}`,
-          `forward=${rawIdx}`,
-          `delta=${rawIdx - cursorLine}`,
-          `span=${weakForwardCandidate.span}`,
-          `maxDelta=${weakForwardMaxDelta}`,
-          `sim=${formatLogScore(conf)}`,
-          `need=${formatLogScore(effectiveThreshold)}`,
-          `minSim=${formatLogScore(weakForwardMinSim)}`,
-          `overlapTokens=${overlapTokensCurrent.length}`,
-          `overlapRatio=${formatLogScore(overlapRatioCurrent)}`,
-          snippet ? `clue="${snippet}"` : '',
-        ]);
+        if (liveForwardGuardActive) {
+          warnGuard('weak_current_forward_hold', [
+            `current=${cursorLine}`,
+            `best=${rawIdx}`,
+            `forward=${weakForwardCandidate.idx}`,
+            `delta=${weakForwardCandidate.idx - cursorLine}`,
+            `sim=${formatLogScore(weakForwardCandidate.score)}`,
+            `guard=live-forward`,
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+        } else {
+          const before = rawIdx;
+          rawIdx = weakForwardCandidate.idx;
+          conf = weakForwardCandidate.score;
+          effectiveThreshold = Math.min(effectiveThreshold, weakForwardFloor);
+          warnGuard('weak_current_forward', [
+            `current=${cursorLine}`,
+            `best=${before}`,
+            `forward=${rawIdx}`,
+            `delta=${rawIdx - cursorLine}`,
+            `span=${weakForwardCandidate.span}`,
+            `maxDelta=${weakForwardMaxDelta}`,
+            `sim=${formatLogScore(conf)}`,
+            `need=${formatLogScore(effectiveThreshold)}`,
+            `minSim=${formatLogScore(weakForwardMinSim)}`,
+            `overlapTokens=${overlapTokensCurrent.length}`,
+            `overlapRatio=${formatLogScore(overlapRatioCurrent)}`,
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+        }
       }
     }
     if (shortFinalRecent && rawIdx >= cursorLine) {
@@ -11776,6 +11857,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       searchWindowTo: bandEnd,
       lostMode,
       cueBridgeNudgeDelta,
+      liveForwardGuardActive: liveForwardGuardActive || undefined,
     });
     schedulePending();
   };
