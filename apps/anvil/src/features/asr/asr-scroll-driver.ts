@@ -150,6 +150,7 @@ type AsrCommit = {
   fromTop: number;
   targetTop: number;
   nextTargetTop: number;
+  snapToMarker: boolean;
 };
 
 type ViewerRole = 'main' | 'display';
@@ -514,6 +515,9 @@ const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES = 1;
 const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM = 0.84;
 const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM = 0.32;
 const DEFAULT_STRONG_FORWARD_COMMIT_SIM = 0.82;
+const DEFAULT_STRONG_MARKER_SNAP_MIN_SIM = 0.76;
+const DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES = 2;
+const DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES = 8;
 const DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS = 2;
 const DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS = 2;
 const DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO = 0.25;
@@ -5808,6 +5812,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       getScrollMode() === 'asr' &&
       isSessionLivePhase() &&
       isSessionAsrArmed();
+    const liveAsrStrongMarkerSnap = liveAsrGlideActive && commit.snapToMarker;
     if (isDevMode() && shouldLogLevel(2)) {
       try {
         console.debug('[ASR_COMMIT_MOVE]', {
@@ -5875,6 +5880,45 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     }
     stopCommitPursuit('pixel-commit');
+    if (liveAsrStrongMarkerSnap) {
+      const appliedTop = applyCanonicalScrollTop(targetTop, {
+        scroller: deps.scroller,
+        reason,
+        source: 'asr-commit',
+      });
+      const afterTop =
+        finiteNumberOrNull(
+          'commit.afterTop.strongSnap',
+          Number.isFinite(appliedTop) ? appliedTop : readAfterTop(),
+          { reason, lineIdx: commit.lineIdx, blockId: commit.blockId },
+        ) ?? beforeTop;
+      bootTrace('SCROLL:apply', {
+        y: Math.round(afterTop),
+        from: Math.round(beforeTop),
+        via: 'strong-marker-snap',
+        reason,
+        lineIdx: commit.lineIdx,
+        blockId: commit.blockId,
+      });
+      pursuitTargetTop = afterTop;
+      lastKnownScrollTop = afterTop;
+      lastMoveAt = Date.now();
+      markProgrammaticScroll();
+      if (isDevMode()) {
+        try {
+          console.info(
+            `ASR_STRONG_MARKER_SNAP line=${commit.lineIdx} before=${Math.round(beforeTop)} after=${Math.round(afterTop)} moved=${Math.round(afterTop - beforeTop)}`,
+          );
+        } catch {}
+      }
+      return {
+        method: 'pixel',
+        writerCommitted: false,
+        beforeTop,
+        afterTop,
+        movedPx: Math.round(afterTop - beforeTop),
+      };
+    }
     if (liveAsrGlideActive && Math.abs(targetTop - beforeTop) > 0.5) {
       const distancePx = Math.abs(targetTop - beforeTop);
       const durationMs = clamp(
@@ -7439,6 +7483,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const commitBeforeTop = currentTop;
       let commitAfterTop = currentTop;
       if (modeNow === 'asr') {
+        const strongMarkerSnapEligible =
+          !!isFinal &&
+          targetLine > prevLineIndex &&
+          targetLine - prevLineIndex >= DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES &&
+          targetLine - prevLineIndex <= DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES &&
+          conf >= DEFAULT_STRONG_MARKER_SNAP_MIN_SIM;
         const writerCommitStartedAt = nowMonotonicMs();
         const role = resolveViewerRole();
         const path = typeof window !== 'undefined' ? window.location?.pathname || '' : '';
@@ -7450,6 +7500,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             fromTop: commitBeforeTop,
             targetTop,
             nextTargetTop,
+            snapToMarker: strongMarkerSnapEligible,
           },
           {
             scroller,
