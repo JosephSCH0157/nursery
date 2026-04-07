@@ -440,12 +440,18 @@ const DEFAULT_CUE_BRIDGE_LARGE_GAP = 0.12;
 const DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS = 2;
 const DEFAULT_CUE_STALL_RESCUE_DELAY_MS = 900;
 const DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 1800;
+const DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS = 700;
+const DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS = 550;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 3;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 2;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS * 2;
 const DEFAULT_MULTI_JUMP_MIN_SIM = 0.45;
 const DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS = 0.08;
 const DEFAULT_MULTI_JUMP_HARD_DENY_SIM = 0.3;
+const DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES = 3;
+const DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM = 0.5;
+const DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK = 0.08;
+const DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK = 0.06;
 const DEFAULT_AMBIGUITY_HOLD_MIN_SIM = 0.35;
 const DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES = 2;
 const DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS = 7;
@@ -1050,6 +1056,21 @@ export function shouldAllowAutoStallContentRescue(opts: {
       ? 1
       : DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES;
   return lostForwardGateCountSinceCommit >= neededLostForwardGates;
+}
+
+function resolveCueStallRescueDelayMs(opts: {
+  asrMode: boolean;
+  finalsSinceCommit: number;
+  isFinal: boolean;
+}): number {
+  if (!opts.asrMode) return DEFAULT_CUE_STALL_RESCUE_DELAY_MS;
+  if (opts.isFinal) return DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS;
+  const finalsSinceCommit = Number.isFinite(opts.finalsSinceCommit)
+    ? Math.max(0, Math.floor(opts.finalsSinceCommit))
+    : 0;
+  return finalsSinceCommit >= 2
+    ? DEFAULT_ASR_CUE_STALL_RESCUE_FINAL_BURST_DELAY_MS
+    : DEFAULT_ASR_CUE_STALL_RESCUE_DELAY_MS;
 }
 
 export function evaluateWeakForwardClampSupport(opts: {
@@ -6512,6 +6533,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const forceTag = String(forceReason || '').toLowerCase();
       const strongForwardCommit = conf >= DEFAULT_STRONG_FORWARD_COMMIT_SIM;
       const clampDeltaLimit = DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES;
+      const asrRelaxedForwardClampEligible =
+        asrMode &&
+        isFinal &&
+        targetLine > lastLineIndex &&
+        targetLine - lastLineIndex <= DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES &&
+        conf >= Math.max(
+          DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
+          DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM,
+          requiredThreshold,
+        );
       const cueBridgeClampEligible =
         cueBridgeBypass &&
         cueBridgeDelta > clampDeltaLimit &&
@@ -6553,13 +6584,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               clampDeltaLimit,
               Math.min(getLostForwardLookaheadLines(), getLostForwardCommitCapLines()),
             )
+          : (asrRelaxedForwardClampEligible
+            ? Math.max(clampDeltaLimit, DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES)
           : (finalNudgeClampEligible
             ? Math.max(clampDeltaLimit, cueBridgeDelta)
           : (watchdogClampEligible
             ? Math.max(clampDeltaLimit, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES)
             : (cueBridgeClampEligible
               ? cueBridgeDelta
-              : clampDeltaLimit))));
+              : clampDeltaLimit)))));
       if (cueBridgeClampEligible && isDevMode()) {
         try {
           console.info(
@@ -6595,6 +6628,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           );
         } catch {}
       }
+      if (asrRelaxedForwardClampEligible && isDevMode()) {
+        try {
+          console.info(
+            `ASR_RELAXED_CLAMP carry=+${DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES} clamp=${clampDeltaLimit}->${effectiveClampDeltaLimit} current=${lastLineIndex} target=${targetLine} sim=${formatLogScore(conf)} final=1`,
+          );
+        } catch {}
+      }
       if (
         targetLine > lastLineIndex + effectiveClampDeltaLimit &&
         !strongForwardCommit
@@ -6610,22 +6650,36 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             candidates: topScores,
           });
           if (!weakForwardClampSupport.allow) {
-            warnGuard('weak_forward_clamp_blocked', [
-              `current=${lastLineIndex}`,
-              `req=${requestedLine}`,
-              `clamped=${targetLine}`,
-              `sim=${formatLogScore(conf)}`,
-              `need=${formatLogScore(weakForwardClampSupport.minSupport)}`,
-              weakForwardClampSupport.localBestIdx != null
-                ? `local=${weakForwardClampSupport.localBestIdx}`
-                : 'local=na',
-              weakForwardClampSupport.localBestScore != null
-                ? `localSim=${formatLogScore(weakForwardClampSupport.localBestScore)}`
-                : '',
-              snippet ? `clue="${snippet}"` : '',
-            ]);
-            emitHudStatus('weak_forward_clamp_blocked', 'Low-confidence far jump held');
-            return;
+            if (asrRelaxedForwardClampEligible) {
+              warnGuard('asr_relaxed_forward_allow', [
+                `current=${lastLineIndex}`,
+                `req=${requestedLine}`,
+                `clamped=${targetLine}`,
+                `sim=${formatLogScore(conf)}`,
+                `need=${formatLogScore(weakForwardClampSupport.minSupport)}`,
+                'mode=asr',
+                'final=1',
+                `delta<=${DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES}`,
+                snippet ? `clue="${snippet}"` : '',
+              ]);
+            } else {
+              warnGuard('weak_forward_clamp_blocked', [
+                `current=${lastLineIndex}`,
+                `req=${requestedLine}`,
+                `clamped=${targetLine}`,
+                `sim=${formatLogScore(conf)}`,
+                `need=${formatLogScore(weakForwardClampSupport.minSupport)}`,
+                weakForwardClampSupport.localBestIdx != null
+                  ? `local=${weakForwardClampSupport.localBestIdx}`
+                  : 'local=na',
+                weakForwardClampSupport.localBestScore != null
+                  ? `localSim=${formatLogScore(weakForwardClampSupport.localBestScore)}`
+                  : '',
+                snippet ? `clue="${snippet}"` : '',
+              ]);
+              emitHudStatus('weak_forward_clamp_blocked', 'Low-confidence far jump held');
+              return;
+            }
           }
         }
         if (isDevMode()) {
@@ -6716,10 +6770,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       targetLine = cueSafeTargetLine;
       const multiJumpDelta = targetLine - lastLineIndex;
       if (multiJumpDelta > 1) {
-        const multiJumpNeed = Math.max(
+        const multiJumpNeedBase = Math.max(
           DEFAULT_MULTI_JUMP_HARD_DENY_SIM,
           DEFAULT_MULTI_JUMP_MIN_SIM - (multiJumpRelaxation.allowBridgeEps ? DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS : 0),
         );
+        const asrRelaxedMultiJump =
+          asrMode &&
+          isFinal &&
+          multiJumpDelta <= DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES &&
+          conf >= DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM;
+        const multiJumpNeed = asrRelaxedMultiJump
+          ? Math.max(DEFAULT_MULTI_JUMP_HARD_DENY_SIM, multiJumpNeedBase - DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK)
+          : multiJumpNeedBase;
         const hardDeny = conf < DEFAULT_MULTI_JUMP_HARD_DENY_SIM;
         if (hardDeny || conf < multiJumpNeed) {
           warnGuard('multi_jump_low_sim', [
@@ -6729,6 +6791,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `sim=${formatLogScore(conf)}`,
             `need=${formatLogScore(multiJumpNeed)}`,
             multiJumpRelaxation.allowBridgeEps ? `eps=${formatLogScore(DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS)}` : '',
+            asrRelaxedMultiJump ? `asrRelaxedSlack=${formatLogScore(DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK)}` : '',
             multiJumpRelaxation.reason ? `bridge=${multiJumpRelaxation.reason}` : '',
             hardDeny ? `hardFloor=${formatLogScore(DEFAULT_MULTI_JUMP_HARD_DENY_SIM)}` : '',
             forceReason ? `force=${forceReason}` : '',
@@ -6739,6 +6802,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `Hold: ambiguous jump blocked (sim=${formatLogScore(conf)}, need=${formatLogScore(multiJumpNeed)})`,
           );
           return;
+        }
+        if (asrRelaxedMultiJump && isDevMode()) {
+          try {
+            console.info(
+              `ASR_RELAXED_MULTI_JUMP_ALLOW current=${lastLineIndex} target=${targetLine} delta=${multiJumpDelta} sim=${formatLogScore(conf)} needBase=${formatLogScore(multiJumpNeedBase)} need=${formatLogScore(multiJumpNeed)} final=1`,
+            );
+          } catch {}
         }
       }
       const confirmDelta = targetLine - lastLineIndex;
@@ -7860,10 +7930,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
 
     maybeBumpForStall(now);
+    const mode = getScrollMode();
+    const asrMode = mode === 'asr';
+    const cueStallRescueDelayMs = resolveCueStallRescueDelayMs({
+      asrMode,
+      finalsSinceCommit,
+      isFinal,
+    });
     if (
       commitCount > 0 &&
       eventsSinceCommit >= 2 &&
-      now - lastForwardCommitAt >= DEFAULT_CUE_STALL_RESCUE_DELAY_MS
+      now - lastForwardCommitAt >= cueStallRescueDelayMs
     ) {
       if (maybeScheduleStallCueRescue('auto-stall')) {
         return;
@@ -7887,8 +7964,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     }
 
-    const mode = getScrollMode();
-    const asrMode = mode === 'asr';
     const legacyWindowIdx = stateCurrentIdx ?? (asrMode ? -1 : 0);
     const anchorIdx = stateCurrentIdx != null
       ? stateCurrentIdx
@@ -8138,7 +8213,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ? thresholds.commitFinalMinSim
       : clamp(thresholds.commitInterimMinSim * interimScale, 0, 1);
     const shortBoost = tokenCount <= shortTokenMax ? shortTokenBoost : 0;
-    const requiredThreshold = clamp(baseCommitThreshold + shortBoost, 0, 1);
+    let requiredThreshold = clamp(baseCommitThreshold + shortBoost, 0, 1);
+    const immediateForwardDelta =
+      Number.isFinite(rawIdx) && rawIdx >= cursorLine
+        ? Math.max(0, Math.floor(rawIdx) - Math.max(0, cursorLine))
+        : 0;
+    const asrRelaxedForwardThresholdEligible =
+      asrMode &&
+      isFinal &&
+      immediateForwardDelta > 0 &&
+      immediateForwardDelta <= DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES;
+    if (asrRelaxedForwardThresholdEligible) {
+      const relaxedThreshold = clamp(requiredThreshold - DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK, 0, 1);
+      if (relaxedThreshold < requiredThreshold) {
+        if (isDevMode()) {
+          try {
+            console.info(
+              `ASR_RELAXED_THRESHOLD current=${cursorLine} best=${Math.floor(rawIdx)} delta=${immediateForwardDelta} final=1 base=${formatLogScore(requiredThreshold)} relaxed=${formatLogScore(relaxedThreshold)} slack=${formatLogScore(DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK)}`,
+            );
+          } catch {}
+        }
+        requiredThreshold = relaxedThreshold;
+      }
+    }
     const interimHighThreshold = clamp(requiredThreshold + interimHysteresisBonus, 0, 1);
     const consistencyMinSim = clamp(requiredThreshold - consistencySimSlack, 0, 1);
     const catchupMinSim = clamp(requiredThreshold - catchupSimSlack, 0, 1);
@@ -9949,7 +10046,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ]);
           if (
             commitCount > 0 &&
-            now - lastForwardCommitAt >= DEFAULT_CUE_STALL_RESCUE_DELAY_MS &&
+            now - lastForwardCommitAt >= cueStallRescueDelayMs &&
             maybeScheduleStallCueRescue('auto-stall')
           ) {
             return;
