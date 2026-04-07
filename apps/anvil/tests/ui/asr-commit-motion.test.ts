@@ -266,4 +266,49 @@ describe('ASR live commit motion', () => {
 
     driver.dispose();
   });
+
+  test('does not keep walking forward on stale transcript output after VAD goes quiet', async () => {
+    const driver = createAsrScrollDriver();
+
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true, rmsDbfs: -18 } }));
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'vad-quiet-prime',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.88,
+        topScores: [
+          { idx: 1, score: 0.88 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: false, rmsDbfs: -70 } }));
+    await jest.advanceTimersByTimeAsync(1200);
+
+    driver.ingest('Neon ads hum above the aisle.', true, {
+      currentIdx: 1,
+      matchId: 'vad-quiet-stale-forward',
+      match: {
+        bestIdx: 3,
+        bestSim: 0.95,
+        topScores: [
+          { idx: 2, score: 0.82 },
+          { idx: 3, score: 0.95 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    driver.dispose();
+  });
 });

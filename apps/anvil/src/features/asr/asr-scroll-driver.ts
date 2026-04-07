@@ -337,6 +337,7 @@ const DEFAULT_NOISE_INTERIM_MIN_TOKENS = 3;
 const DEFAULT_NOISE_INTERIM_MIN_CHARS = 12;
 const DEFAULT_STARVATION_COMMIT_GAP_MS = 1500;
 const DEFAULT_STARVATION_WARN_COOLDOWN_MS = 1500;
+const DEFAULT_ASR_VAD_SPEECH_GRACE_MS = 900;
 const DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES = 5;
 const DEFAULT_STARVATION_RELOCK_SIM_SLACK = 0.08;
 const DEFAULT_STARVATION_RELOCK_COOLDOWN_MS = 1200;
@@ -3048,6 +3049,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastRescueSpeechAt = 0;
   let freshSpeechSinceCommit = false;
   let asrSilenceActive = true;
+  let asrVadSeen = false;
+  let asrVadSpeaking = false;
+  let lastVadSpeechAt = 0;
   let lastRescueMatchEvidenceAt = 0;
   let lastRescueMatchEvidenceLine = -1;
   let lastRescueMatchEvidenceSim = 0;
@@ -4316,6 +4320,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       clearEvidenceBuffer('silence');
     }
   };
+  const vadHandler = (event: Event) => {
+    const detail = (event as CustomEvent)?.detail || {};
+    const speaking = !!(detail && detail.speaking);
+    asrVadSeen = true;
+    asrVadSpeaking = speaking;
+    if (speaking) {
+      lastVadSpeechAt = Date.now();
+    }
+  };
 
   const resetHandler = () => {
     clearEvidenceBuffer('script-reset');
@@ -4334,6 +4347,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
 
   try { window.addEventListener('tp:asr:silence', silenceHandler as EventListener); } catch {}
+  try { window.addEventListener('tp:vad', vadHandler as EventListener); } catch {}
   try { window.addEventListener('tp:script:reset', resetHandler as EventListener); } catch {}
   try { window.addEventListener('tp:asr:rescue', rescueHandler as EventListener); } catch {}
   try { window.addEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal as EventListener); } catch {}
@@ -6365,7 +6379,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lastRescueSpeechAt > 0 ? Math.max(0, now - lastRescueSpeechAt) : Number.POSITIVE_INFINITY;
       const hasRecentFreshSpeech =
         freshSpeechSinceCommit && freshSpeechAgeMs <= noInputSpeechWindowMs;
-      const noInputGuardActive = asrSilenceActive || !hasRecentFreshSpeech;
+      const vadSpeechAgeMs =
+        lastVadSpeechAt > 0 ? Math.max(0, now - lastVadSpeechAt) : Number.POSITIVE_INFINITY;
+      const hasRecentVadSpeech =
+        !asrVadSeen ||
+        asrVadSpeaking ||
+        vadSpeechAgeMs <= DEFAULT_ASR_VAD_SPEECH_GRACE_MS;
+      const noInputGuardActive = asrSilenceActive || !hasRecentFreshSpeech || !hasRecentVadSpeech;
       const {
         line,
         conf,
@@ -6716,6 +6736,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const asrRelaxedForwardClampEligible =
         asrMode &&
         isFinal &&
+        hasRecentVadSpeech &&
         targetLine > lastLineIndex &&
         targetLine - lastLineIndex <= DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES &&
         conf >= Math.max(
@@ -6838,6 +6859,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const asrHighConfidenceFarForwardAllow =
             asrMode &&
             isFinal &&
+            hasRecentVadSpeech &&
             requestedLine > targetLine &&
             requestedLine - lastLineIndex <= DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES &&
             conf >= DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM &&
@@ -6870,6 +6892,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const asrWeakClampFallbackAllow =
             asrMode &&
             isFinal &&
+            hasRecentVadSpeech &&
             requestedLine > clampedLine &&
             weakClampFallbackDelta <= DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES &&
             conf >= weakClampFallbackMinSim;
@@ -7056,7 +7079,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             ? Math.max(0, Math.floor(liveStep.nextLine))
             : null;
         const liveForwardHoldActive =
-          !hasRecentFreshSpeech || !!pending.liveForwardGuardActive;
+          !hasRecentFreshSpeech || !hasRecentVadSpeech || !!pending.liveForwardGuardActive;
         if (
           liveStepTarget != null &&
           requestedTargetLine > liveStepTarget &&
@@ -7104,6 +7127,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const asrRelaxedMultiJump =
           asrMode &&
           isFinal &&
+          hasRecentVadSpeech &&
           multiJumpDelta <= DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES &&
           conf >= DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM;
         const multiJumpNeed = asrRelaxedMultiJump
@@ -8335,11 +8359,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     maybeBumpForStall(now);
     const mode = getScrollMode();
     const asrMode = mode === 'asr';
+    const vadSpeechAgeMs =
+      lastVadSpeechAt > 0 ? Math.max(0, now - lastVadSpeechAt) : Number.POSITIVE_INFINITY;
+    const hasRecentVadSpeech =
+      !asrVadSeen ||
+      asrVadSpeaking ||
+      vadSpeechAgeMs <= DEFAULT_ASR_VAD_SPEECH_GRACE_MS;
     const liveForwardGuardActive =
       asrMode &&
       isSessionAsrArmed() &&
       isSessionLivePhase() &&
-      (starvationDetected || !freshSpeechSinceCommit);
+      (starvationDetected || !freshSpeechSinceCommit || !hasRecentVadSpeech);
     const cueStallRescueDelayMs = resolveCueStallRescueDelayMs({
       asrMode,
       finalsSinceCommit,
@@ -11910,6 +11940,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       // ignore
     }
     try { window.removeEventListener('tp:asr:silence', silenceHandler as EventListener); } catch {}
+    try { window.removeEventListener('tp:vad', vadHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:script:reset', resetHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:asr:rescue', rescueHandler as EventListener); } catch {}
     try { window.removeEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal as EventListener); } catch {}
