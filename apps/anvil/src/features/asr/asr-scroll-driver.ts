@@ -6210,6 +6210,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
 
       const now = Date.now();
+      const asrMode = getScrollMode() === 'asr';
       const jumpCap = getMaxTargetJumpPx();
       const {
         line,
@@ -6541,7 +6542,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         conf >= Math.max(
           DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM,
           DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM,
-          requiredThreshold,
+          baselineRequired,
         );
       const cueBridgeClampEligible =
         cueBridgeBypass &&
