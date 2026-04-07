@@ -7445,7 +7445,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         forced && !liveAsrCommitCapActive
           ? candidate
           : Math.min(candidate, baseClamped + effectiveJumpCap);
-      const nextTargetTop = Math.max(baseClamped, limitedTarget);
+      let nextTargetTop = Math.max(baseClamped, limitedTarget);
+      if (liveAsrCommitCapActive) {
+        const markerTargetTop = clamp(targetTop, 0, max);
+        const liveCappedMarkerTop = Math.min(markerTargetTop, currentTop + liveAsrCommitCapPx);
+        nextTargetTop = Math.max(currentTop, liveCappedMarkerTop);
+      }
       pursuitTargetTop = nextTargetTop;
       if (modeNow === 'asr' && (!isSessionLivePhase() || !isSessionAsrArmed())) {
         if (isDevMode() && shouldLogTag('ASR:movement-blocked:not-armed', 1, 1000)) {
