@@ -337,6 +337,7 @@ const DEFAULT_STARVATION_RELOCK_COOLDOWN_MS = 1200;
 const DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK = 3;
 const DEFAULT_FINAL_CONTINUATION_SIM_EPS = 0.02;
 const BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS = 1500;
+const AUTO_CUE_SKIP_COOLDOWN_MS = 150;
 const DEFAULT_STALL_COMMIT_MS = 15000;
 const DEFAULT_STALL_LOG_COOLDOWN_MS = 4000;
 const DEFAULT_LOW_SIM_FLOOR = 0.25;
@@ -3003,6 +3004,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let stableInterimLastMeaningfulChangeAt = 0;
   let lastStableInterimNudgeAt = 0;
   let lastBadCursorOnCueLogAt = 0;
+  let lastAutoCueSkipAt = 0;
   let noProgressStreak = 0;
   let lostForwardWallStreak = 0;
   let lastProgressCursorLine = -1;
@@ -8216,6 +8218,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             );
           } catch {
             // ignore
+          }
+        }
+        if (now - lastAutoCueSkipAt >= AUTO_CUE_SKIP_COOLDOWN_MS) {
+          if (maybeSkipCueLine(cursorLine, now, 'cursor-cue-auto', formatLogSnippet(compacted, 80))) {
+            lastAutoCueSkipAt = now;
+            return;
           }
         }
       }
