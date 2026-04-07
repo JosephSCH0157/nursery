@@ -236,6 +236,9 @@ const LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.75;
 const LIVE_ASR_GLIDE_MIN_MS = 180;
 const LIVE_ASR_GLIDE_MAX_MS = 520;
 const LIVE_ASR_GLIDE_PX_PER_SEC = 900;
+const LIVE_ASR_STRONG_SNAP_GLIDE_MIN_MS = 260;
+const LIVE_ASR_STRONG_SNAP_GLIDE_MAX_MS = 760;
+const LIVE_ASR_STRONG_SNAP_GLIDE_PX_PER_SEC = 560;
 const LIVE_ASR_POST_COMMIT_READABILITY_MAX_FORWARD_LINES = 1;
 const DEFAULT_PURSUE_KP = 3.2;
 const DEFAULT_PURSUE_MANUAL_CANCEL_PX = 48;
@@ -457,6 +460,9 @@ const DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM = 0.72;
 const DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK = 0.08;
 const DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK = 0.06;
 const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM = 0.55;
+const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES = 4;
+const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES = 5;
+const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM = 0.86;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES = 3;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM = 0.75;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP = 0.3;
@@ -518,6 +524,11 @@ const DEFAULT_STRONG_FORWARD_COMMIT_SIM = 0.82;
 const DEFAULT_STRONG_MARKER_SNAP_MIN_SIM = 0.76;
 const DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES = 2;
 const DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES = 8;
+const DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE = 0.03;
+const DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM = 0.9;
+const DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES = 4;
+const DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM = 0.84;
+const DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES = 3;
 const DEFAULT_STARVATION_TIE_FORWARD_MAX_DELTA_LINES = 2;
 const DEFAULT_STARVATION_TIE_FORWARD_SIM_SLACK = 0.08;
 const DEFAULT_STARVATION_NO_EVIDENCE_MAX_DELTA_LINES = 2;
@@ -5885,11 +5896,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     stopCommitPursuit('pixel-commit');
     if (liveAsrStrongMarkerSnap) {
-      const appliedTop = applyCanonicalScrollTop(targetTop, {
+      const distancePx = Math.abs(targetTop - beforeTop);
+      const durationMs = clamp(
+        (distancePx / LIVE_ASR_STRONG_SNAP_GLIDE_PX_PER_SEC) * 1000,
+        LIVE_ASR_STRONG_SNAP_GLIDE_MIN_MS,
+        LIVE_ASR_STRONG_SNAP_GLIDE_MAX_MS,
+      );
+      const glided = startGlideTo(targetTop, {
         scroller: deps.scroller,
         reason,
         source: 'asr-commit',
+        durationMs,
+        easing: 'linear',
       });
+      const appliedTop = glided
+        ? targetTop
+        : applyCanonicalScrollTop(targetTop, {
+          scroller: deps.scroller,
+          reason,
+          source: 'asr-commit',
+        });
       const afterTop =
         finiteNumberOrNull(
           'commit.afterTop.strongSnap',
@@ -5899,7 +5925,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       bootTrace('SCROLL:apply', {
         y: Math.round(afterTop),
         from: Math.round(beforeTop),
-        via: 'strong-marker-snap',
+        via: glided ? 'strong-marker-glide' : 'strong-marker-snap',
         reason,
         lineIdx: commit.lineIdx,
         blockId: commit.blockId,
@@ -6792,15 +6818,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             selectedScore: conf,
             candidates: topScores,
           });
+          const weakClampFallbackDelta = requestedLine - lastLineIndex;
+          const weakClampFallbackMinSim =
+            weakClampFallbackDelta >= DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES
+              ? Math.max(
+                DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM,
+                weakForwardClampSupport.minSupport + 0.06,
+              )
+              : Math.max(
+                DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM,
+                weakForwardClampSupport.minSupport + 0.04,
+              );
           const asrWeakClampFallbackAllow =
             asrMode &&
             isFinal &&
             requestedLine > clampedLine &&
-            requestedLine - lastLineIndex <= DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES &&
-            conf >= Math.max(
-              DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM,
-              weakForwardClampSupport.minSupport + 0.04,
-            );
+            weakClampFallbackDelta <= DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES &&
+            conf >= weakClampFallbackMinSim;
           if (!weakForwardClampSupport.allow) {
             if (asrRelaxedForwardClampEligible) {
               targetLine = requestedLine;
@@ -6835,9 +6869,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 `clamped=${clampedLine}`,
                 `sim=${formatLogScore(conf)}`,
                 `need=${formatLogScore(weakForwardClampSupport.minSupport)}`,
-                `minSim=${formatLogScore(DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM)}`,
-                `delta=${requestedLine - lastLineIndex}`,
-                `maxDelta=${DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES}`,
+                `minSim=${formatLogScore(weakClampFallbackMinSim)}`,
+                `delta=${weakClampFallbackDelta}`,
+                `maxDelta=${DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES}`,
                 snippet ? `clue="${snippet}"` : '',
               ]);
             } else {
@@ -7438,8 +7472,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const liveAsrCommitCapPx = liveAsrCommitCapActive
         ? resolveLiveAsrCommitCapPx(scroller, targetLine, lineEl)
         : jumpCap;
+      const softCommitCapPx =
+        liveAsrCommitCapActive &&
+        forwardDelta >= DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES &&
+        conf < DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM
+          ? Math.max(lineHeightPx * DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES, LIVE_ASR_COMMIT_MIN_PX)
+          : liveAsrCommitCapPx;
       const effectiveJumpCap = liveAsrCommitCapActive
-        ? liveAsrCommitCapPx
+        ? Math.min(liveAsrCommitCapPx, softCommitCapPx)
         : jumpCap;
       const limitedTarget =
         forced && !liveAsrCommitCapActive
@@ -7516,12 +7556,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const commitBeforeTop = currentTop;
       let commitAfterTop = currentTop;
       if (modeNow === 'asr') {
+        const strongSnapDeltaLines = targetLine - prevLineIndex;
+        const strongMarkerSnapRequiredSim = clamp(
+          DEFAULT_STRONG_MARKER_SNAP_MIN_SIM +
+            Math.max(0, strongSnapDeltaLines - DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES) *
+              DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE,
+          DEFAULT_STRONG_MARKER_SNAP_MIN_SIM,
+          DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM,
+        );
         const strongMarkerSnapEligible =
           !!isFinal &&
           targetLine > prevLineIndex &&
-          targetLine - prevLineIndex >= DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES &&
-          targetLine - prevLineIndex <= DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES &&
-          conf >= DEFAULT_STRONG_MARKER_SNAP_MIN_SIM;
+          strongSnapDeltaLines >= DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES &&
+          strongSnapDeltaLines <= DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES &&
+          conf >= strongMarkerSnapRequiredSim;
         const writerCommitStartedAt = nowMonotonicMs();
         const role = resolveViewerRole();
         const path = typeof window !== 'undefined' ? window.location?.pathname || '' : '';
