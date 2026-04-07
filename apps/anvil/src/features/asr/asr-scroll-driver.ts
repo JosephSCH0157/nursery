@@ -452,6 +452,9 @@ const DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES = 3;
 const DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM = 0.5;
 const DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK = 0.08;
 const DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK = 0.06;
+const DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES = 8;
+const DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM = 0.75;
+const DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP = 0.3;
 const DEFAULT_AMBIGUITY_HOLD_MIN_SIM = 0.35;
 const DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES = 2;
 const DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS = 7;
@@ -6643,6 +6646,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const requestedLine = targetLine;
         targetLine = lastLineIndex + effectiveClampDeltaLimit;
         if (!forced && forceTag !== 'watchdog') {
+          const asrHighConfidenceFarForwardAllow =
+            asrMode &&
+            isFinal &&
+            requestedLine > targetLine &&
+            requestedLine - lastLineIndex <= DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES &&
+            conf >= DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM &&
+            !(Array.isArray(topScores) && topScores.some((entry) => {
+              const idx = Number(entry?.idx);
+              const score = Number(entry?.score);
+              if (!Number.isFinite(idx) || !Number.isFinite(score)) return false;
+              if (Math.floor(idx) === requestedLine) return false;
+              if (idx <= lastLineIndex || idx > requestedLine) return false;
+              return score >= conf - DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP;
+            }));
           const weakForwardClampSupport = evaluateWeakForwardClampSupport({
             cursorLine: lastLineIndex,
             requestedIdx: requestedLine,
@@ -6661,6 +6678,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 'mode=asr',
                 'final=1',
                 `delta<=${DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES}`,
+                snippet ? `clue="${snippet}"` : '',
+              ]);
+            } else if (asrHighConfidenceFarForwardAllow) {
+              targetLine = requestedLine;
+              warnGuard('asr_high_conf_forward_allow', [
+                `current=${lastLineIndex}`,
+                `req=${requestedLine}`,
+                `sim=${formatLogScore(conf)}`,
+                `minSim=${formatLogScore(DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM)}`,
+                `delta=${requestedLine - lastLineIndex}`,
+                `maxDelta=${DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES}`,
+                `gap=${formatLogScore(DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP)}`,
                 snippet ? `clue="${snippet}"` : '',
               ]);
             } else {
