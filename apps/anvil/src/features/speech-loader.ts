@@ -339,6 +339,10 @@ const ASR_STALL_SPEECH_THRESHOLD_MS = 2500;
 const ASR_DEAF_RECOGNIZER_MS = 6000;
 const ASR_STALL_MATCHER_THRESHOLD_MS = 4500;
 const ASR_STALL_MATCHER_STABLE_COMMIT_MS = 1500;
+const DIRECT_MATCHER_MULTI_LINE_MIN_LINES = 2;
+const DIRECT_MATCHER_MULTI_LINE_MAX_LINES = 5;
+const DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES = 3;
+const DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD = 10;
 const ASR_STALL_AUTORESTART_COOLDOWN_MS = 15000;
 const ASR_STALL_AUTORESTART_SUPPRESS_MS = 30000;
 const ASR_STALL_RESCUE_COOLDOWN_MS = 2000;
@@ -2009,6 +2013,10 @@ function deriveDirectMatcherResult(
   if (typeof window === 'undefined') return null;
   const { matchTokens } = prepareMatcherInput(String(transcript || ''), normTokens);
   if (!matchTokens.length) return null;
+  const adaptiveMultiLineMax =
+    matchTokens.length <= DIRECT_MATCHER_SHORT_UTTERANCE_TOKEN_THRESHOLD
+      ? DIRECT_MATCHER_SHORT_UTTERANCE_MULTI_LINE_MAX_LINES
+      : DIRECT_MATCHER_MULTI_LINE_MAX_LINES;
   const blockSnapshot = getAsrBlockSnapshot();
   if (!(blockSnapshot.ready && blockSnapshot.count > 0)) {
     return null;
@@ -2038,6 +2046,10 @@ function deriveDirectMatcherResult(
       cfg,
       currentIndex,
       viterbiState ?? undefined,
+      {
+        multiLineMinLines: DIRECT_MATCHER_MULTI_LINE_MIN_LINES,
+        multiLineMaxLines: adaptiveMultiLineMax,
+      },
     );
     const normalized = normalizeMatcherResult(raw);
     if (!normalized) return null;
