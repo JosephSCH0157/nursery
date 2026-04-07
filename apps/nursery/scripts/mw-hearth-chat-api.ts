@@ -86,13 +86,32 @@ export function mwHearthChatApi() {
           signal: requestAbort.signal,
         });
 
-        const response = await handler(request);
+        let response: Response;
+        try {
+          response = await handler(request);
+        } catch (err) {
+          // Normalize unexpected failures (e.g., offline env, missing env keys) to a JSON 503
+          // instead of letting Vite's default error handler emit an HTML 500 page.
+          const message = err instanceof Error ? err.message : "Unknown Hearth chat error";
+          const payload = {
+            ok: false,
+            error: message,
+            code: "hearth_chat_middleware_error",
+          };
+          res.statusCode = 503;
+          res.setHeader("content-type", "application/json; charset=utf-8");
+          res.end(JSON.stringify(payload));
+          return;
+        }
         await writeFetchResponse(res, response);
       } finally {
         req.removeListener("aborted", onAborted);
       }
     } catch (error) {
-      next(error);
+      const message = error instanceof Error ? error.message : "Unknown Hearth chat error";
+      res.statusCode = 503;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ ok: false, error: message, code: "hearth_chat_middleware_error" }));
     }
   };
 }
