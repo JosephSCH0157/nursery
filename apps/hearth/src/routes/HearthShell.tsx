@@ -243,6 +243,7 @@ import type {
   EpisodeBrollPlan,
   EpisodeBrollPlanBeat,
   EpisodeContextualDataCompositePlan,
+  EpisodeImageMapEntry,
   EpisodeMediaMap,
   EpisodeMediaMapEntry,
   EpisodePackageV2,

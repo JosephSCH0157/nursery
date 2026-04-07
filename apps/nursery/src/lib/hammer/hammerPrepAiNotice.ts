@@ -1,12 +1,13 @@
 import { resolveAiPolicy } from "@forge/tongs/ai-policy";
 import { loadAiSettings } from "../hearth/ai-settings";
-import { supabase, tongsSupabase } from "../supabase";
+import { supabase } from "../supabase";
+import type { Json } from "../supabase/database.types";
 
 export type HammerPrepAiEffectiveLane = "forge-managed" | "personal-byo" | "ai-disabled";
 export type HammerPrepAiNoticeResolutionState = "loading" | "ready" | "error";
 
 type ProfilesRow = {
-  settings: unknown;
+  settings: Json | null;
 };
 
 function readObject(value: unknown): Record<string, unknown> | null {
@@ -27,7 +28,7 @@ function readAckLaneSignature(settings: unknown): string | null {
   return readString(prepNotice?.acknowledged_lane);
 }
 
-function mergeAckLaneSignature(settings: unknown, laneSignature: string): Record<string, unknown> {
+function mergeAckLaneSignature(settings: unknown, laneSignature: string): Json {
   const root = readObject(settings) ?? {};
   const hammer = readObject(root.hammer) ?? {};
   const prepNotice = readObject(hammer.prep_ai_notice) ?? {};
@@ -44,17 +45,6 @@ function mergeAckLaneSignature(settings: unknown, laneSignature: string): Record
   };
 }
 
-async function resolveOrgIdForWorkspace(workspaceId: string | null): Promise<string | null> {
-  if (!workspaceId) return null;
-  const { data, error } = await tongsSupabase
-    .from("workspaces")
-    .select("org_id")
-    .eq("id", workspaceId)
-    .maybeSingle();
-  if (error) return null;
-  return readString(data?.org_id);
-}
-
 export async function resolveHammerPrepAiEffectiveLane(
   workspaceId: string | null,
 ): Promise<HammerPrepAiEffectiveLane> {
@@ -67,9 +57,8 @@ export async function resolveHammerPrepAiEffectiveLane(
       : "forge-managed";
   }
 
-  const orgId = await resolveOrgIdForWorkspace(workspaceId);
-  const policy = await resolveAiPolicy(tongsSupabase, {
-    orgId,
+  const policy = await resolveAiPolicy(supabase, {
+    orgId: null,
     workspaceId,
     userId: authData.user.id,
     tool: "hammer",
@@ -97,15 +86,15 @@ export async function loadHammerPrepAiNoticeAcknowledgedLane(): Promise<string |
   const { data: authData, error: authError } = await supabase.auth.getUser();
   if (authError || !authData.user?.id) return null;
 
-  const { data, error } = await tongsSupabase
+  const { data, error } = await supabase
     .from("profiles")
     .select("settings")
     .eq("user_id", authData.user.id)
-    .maybeSingle<ProfilesRow>();
+    .maybeSingle();
   if (error) {
     throw new Error(error.message || "Failed loading Hammer prep AI notice preference.");
   }
-  return readAckLaneSignature(data?.settings);
+  return readAckLaneSignature((data as ProfilesRow | null)?.settings);
 }
 
 export async function saveHammerPrepAiNoticeAcknowledgedLane(
@@ -116,22 +105,24 @@ export async function saveHammerPrepAiNoticeAcknowledgedLane(
     throw new Error("Sign in required to save Hammer prep AI notice preference.");
   }
   const user = authData.user;
-  await tongsSupabase.rpc("ensure_profile_for_user", {
-    p_user_id: user.id,
-    p_email: user.email ?? null,
-  });
+  const { error: ensureError } = await supabase
+    .from("profiles")
+    .upsert({ user_id: user.id }, { onConflict: "user_id", ignoreDuplicates: true });
+  if (ensureError) {
+    throw new Error(ensureError.message || "Failed ensuring profile row.");
+  }
 
-  const { data: profileRow, error: readError } = await tongsSupabase
+  const { data: profileRow, error: readError } = await supabase
     .from("profiles")
     .select("settings")
     .eq("user_id", user.id)
-    .single<ProfilesRow>();
+    .single();
   if (readError) {
     throw new Error(readError.message || "Failed loading profile settings.");
   }
 
-  const nextSettings = mergeAckLaneSignature(profileRow?.settings, laneSignature);
-  const { error: updateError } = await tongsSupabase
+  const nextSettings = mergeAckLaneSignature((profileRow as ProfilesRow | null)?.settings, laneSignature);
+  const { error: updateError } = await supabase
     .from("profiles")
     .update({ settings: nextSettings })
     .eq("user_id", user.id);

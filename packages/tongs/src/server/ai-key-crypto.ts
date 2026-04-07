@@ -1,11 +1,13 @@
 import crypto from "node:crypto";
+import process from "node:process";
 
 const CIPHERTEXT_VERSION = "v1";
 const CIPHER_ALGORITHM = "aes-256-gcm";
 const IV_BYTE_LENGTH = 12;
 
 function assertServerOnlyModule(): void {
-  if (typeof window !== "undefined") {
+  const runtimeGlobal = globalThis as { window?: unknown };
+  if (typeof runtimeGlobal.window !== "undefined") {
     throw new Error("ai-key-crypto is server-only and cannot run in browser context");
   }
 }
