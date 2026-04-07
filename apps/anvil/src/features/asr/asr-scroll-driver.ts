@@ -455,7 +455,7 @@ const DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES = 2;
 const DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM = 0.72;
 const DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK = 0.08;
 const DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK = 0.02;
-const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM = 0.7;
+const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM = 0.66;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES = 3;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM = 0.82;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP = 0.3;
@@ -3004,6 +3004,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const behindRecoveryHits: Array<{ ts: number; idx: number; sim: number; isFinal: boolean }> = [];
   let stableInterimTranscriptNorm = '';
   let stableInterimLastMeaningfulChangeAt = 0;
+  let lastRescueSpeechTranscriptNorm = '';
+  let lastRescueSpeechTokenCount = 0;
+  let lastRescueSpeechAt = 0;
+  let freshSpeechSinceCommit = false;
   let lastStableInterimNudgeAt = 0;
   let lastBadCursorOnCueLogAt = 0;
   let lastAutoCueSkipAt = 0;
@@ -5025,6 +5029,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       return false;
     }
+    const recentSpeechWindowMs = DEFAULT_STARVATION_COMMIT_GAP_MS;
+    const recentSpeechAgeMs =
+      lastRescueSpeechAt > 0 ? Math.max(0, now - lastRescueSpeechAt) : Number.POSITIVE_INFINITY;
+    const hasRecentFreshSpeech = freshSpeechSinceCommit && recentSpeechAgeMs <= recentSpeechWindowMs;
+    if (reasonTag === 'auto-stall' && !hasRecentFreshSpeech) {
+      stallRescueRequested = false;
+      if (isDevMode()) {
+        warnGuard('cue_stall_rescue_blocked', [
+          `at=${cursorLine}`,
+          'reason=no-fresh-speech',
+          `freshSpeech=${freshSpeechSinceCommit ? 1 : 0}`,
+          `speechAgeMs=${Number.isFinite(recentSpeechAgeMs) ? recentSpeechAgeMs : -1}`,
+          `speechWindowMs=${recentSpeechWindowMs}`,
+          reason ? `source=${reason}` : '',
+          cursorLineText ? `line="${formatLogSnippet(cursorLineText, 56)}"` : '',
+        ]);
+      }
+      return false;
+    }
     const rescueSim = Math.max(DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_MULTI_JUMP_MIN_SIM);
     const matchId = `stall-rescue-${Date.now().toString(36)}-${targetLine}`;
     adoptPendingMatch({
@@ -5071,6 +5094,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     commitCount += 1;
     finalsSinceCommit = 0;
     eventsSinceCommit = 0;
+    freshSpeechSinceCommit = false;
     lostForwardGateCountAtLastCommit = getGuardCount('lost_forward_gate');
     logDriverActive('commit');
     stallHudEmitted = false;
@@ -7743,6 +7767,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const permissiveMatcher = isPermissiveAsrMatcherEnabled();
     const compactedComparable = normalizeComparableText(compacted);
     const compactedTokenCount = normTokens(compactedComparable).length;
+    if (compactedComparable.length > 0) {
+      const rescueMeaningfulChange = hasMeaningfulTranscriptChange(
+        lastRescueSpeechTranscriptNorm,
+        compactedComparable,
+      );
+      const rescueTokenGrowth = compactedTokenCount - lastRescueSpeechTokenCount;
+      const rescueCharGrowth = compactedComparable.length - lastRescueSpeechTranscriptNorm.length;
+      const freshSpeechEvidence =
+        rescueMeaningfulChange || rescueTokenGrowth >= 2 || rescueCharGrowth >= 8;
+      if (freshSpeechEvidence) {
+        lastRescueSpeechAt = now;
+        freshSpeechSinceCommit = true;
+      }
+      lastRescueSpeechTranscriptNorm = compactedComparable;
+      lastRescueSpeechTokenCount = compactedTokenCount;
+    }
     if (
       !isFinal &&
       compactedTokenCount < DEFAULT_NOISE_INTERIM_MIN_TOKENS &&
