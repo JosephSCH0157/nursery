@@ -3044,6 +3044,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastRescueSpeechTokenCount = 0;
   let lastRescueSpeechAt = 0;
   let freshSpeechSinceCommit = false;
+  let asrSilenceActive = true;
   let lastRescueMatchEvidenceAt = 0;
   let lastRescueMatchEvidenceLine = -1;
   let lastRescueMatchEvidenceSim = 0;
@@ -4306,7 +4307,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const silenceHandler = (event: Event) => {
     const detail = (event as CustomEvent)?.detail || {};
-    if (detail && detail.silent) {
+    const silent = !!(detail && detail.silent);
+    asrSilenceActive = silent;
+    if (silent) {
       clearEvidenceBuffer('silence');
     }
   };
@@ -6410,6 +6413,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const now = Date.now();
       const asrMode = getScrollMode() === 'asr';
       const jumpCap = getMaxTargetJumpPx();
+      const noInputSpeechWindowMs = DEFAULT_STARVATION_COMMIT_GAP_MS;
+      const freshSpeechAgeMs =
+        lastRescueSpeechAt > 0 ? Math.max(0, now - lastRescueSpeechAt) : Number.POSITIVE_INFINITY;
+      const hasRecentFreshSpeech =
+        freshSpeechSinceCommit && freshSpeechAgeMs <= noInputSpeechWindowMs;
+      const noInputGuardActive = asrSilenceActive || !hasRecentFreshSpeech;
       const {
         line,
         conf,
@@ -7270,6 +7279,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             hasEvidence &&
             strongMatch &&
             deltaPx > 0 &&
+            !noInputGuardActive &&
             conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM;
           if (sameLineFinalAdvanceEligible) {
             const cueBridge = findNextSpeakableWithinBridge(
@@ -7469,6 +7479,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
       const starvationNoEvidenceBypass =
         isFinal &&
+        !noInputGuardActive &&
         lastCommitIndex != null &&
         now - lastCommitTime >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
         Math.max(0, Math.floor(lastLineIndex)) === Math.max(0, Math.floor(lastCommitIndex)) &&
@@ -11846,6 +11857,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     emitSummary('dispose');
     disposed = true;
     releaseCommitWindow('dispose');
+    stopGlide('dispose');
+    pursuitTargetTop = null;
+    pursuitVel = 0;
+    pursuitActive = false;
+    microPursuitUntil = 0;
+    creepBudgetLine = -1;
+    creepBudgetUsed = 0;
+    if (pendingRaf) {
+      try { cancelAnimationFrame(pendingRaf); } catch {}
+      pendingRaf = 0;
+    }
+    pendingMatch = null;
+    asrSilenceActive = true;
     _postCommitReadabilitySeq += 1;
     try {
       unsubscribe();
@@ -11861,6 +11885,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     try { window.removeEventListener('tp:script:reset', resetHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:asr:rescue', rescueHandler as EventListener); } catch {}
     try { window.removeEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal as EventListener); } catch {}
+    try {
+      if ((window as any).__tpAsrRequestRescue === rescueHandler) {
+        (window as any).__tpAsrRequestRescue = undefined;
+      }
+    } catch {
+      // ignore
+    }
     detachManualScrollWatcher();
     manualAnchorPending = null;
     resetAmbiguityHoldState();
