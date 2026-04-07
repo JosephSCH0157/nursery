@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { Buffer } from "node:buffer";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
 import {
@@ -19,6 +20,11 @@ import {
   resolveUserIdFromAccessToken,
   type BillingMode,
 } from "../ai-usage-accounting";
+import {
+  readForgeFfmpegClientConfig,
+  transcodeToWavWithForgeFfmpeg,
+  type ForgeFfmpegClientConfig,
+} from "../forge-ffmpeg-client";
 
 export const ANVIL_WHISPER_ROUTE = "/api/anvil/asr/whisper";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
@@ -31,6 +37,7 @@ export type AnvilWhisperRuntimeConfig = {
   configuredBillingMode?: BillingMode;
   supabaseUrl?: string | null;
   supabaseServiceRoleKey?: string | null;
+  ffmpegClient?: ForgeFfmpegClientConfig | null;
 };
 
 type AnvilWhisperResponse = {
@@ -115,6 +122,19 @@ function isInvalidLanguageUpstreamError(detail: string): boolean {
   }
 }
 
+function isUnsupportedAudioUpstreamError(detail: string): boolean {
+  const text = String(detail || "").trim();
+  if (!text) return false;
+
+  const lower = text.toLowerCase();
+  return (
+    (lower.includes("audio file") && (lower.includes("corrupt") || lower.includes("unsupported")))
+    || lower.includes("invalid file format")
+    || lower.includes("supported formats")
+    || lower.includes("unsupported media type")
+  );
+}
+
 function extractTranscriptionText(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "";
   const row = payload as Record<string, unknown>;
@@ -137,6 +157,14 @@ function inferExtension(fileName: string | null, mimeType: string | null): strin
   return "webm";
 }
 
+function replaceFileExtension(fileName: string, nextExtension: string): string {
+  const normalizedExt = nextExtension.startsWith(".") ? nextExtension : `.${nextExtension}`;
+  const trimmed = readOptionalString(fileName) ?? "";
+  if (!trimmed) return `chunk${normalizedExt}`;
+  const next = trimmed.replace(/\.[^./\\]+$/u, "");
+  return `${next || "chunk"}${normalizedExt}`;
+}
+
 export function resolveAnvilWhisperRuntimeConfig(): AnvilWhisperRuntimeConfig {
   const runtime = resolveHearthRuntimeConfig();
   const modelOverride = readOptionalString(process.env.ANVIL_STT_MODEL);
@@ -146,6 +174,28 @@ export function resolveAnvilWhisperRuntimeConfig(): AnvilWhisperRuntimeConfig {
     configuredBillingMode: runtime.configuredBillingMode,
     supabaseUrl: runtime.supabaseUrl,
     supabaseServiceRoleKey: runtime.supabaseServiceRoleKey,
+    ffmpegClient: readForgeFfmpegClientConfig(process.env, {
+      baseUrlEnvNames: [
+        "ANVIL_FORGE_FFMPEG_BASE_URL",
+        "FORGE_FFMPEG_BASE_URL",
+        "HAMMER_FORGE_FFMPEG_BASE_URL",
+      ],
+      timeoutEnvNames: [
+        "ANVIL_FORGE_FFMPEG_TIMEOUT_MS",
+        "FORGE_FFMPEG_TIMEOUT_MS",
+        "HAMMER_FORGE_FFMPEG_TIMEOUT_MS",
+      ],
+      maxAttemptsEnvNames: [
+        "ANVIL_FORGE_FFMPEG_MAX_ATTEMPTS",
+        "FORGE_FFMPEG_MAX_ATTEMPTS",
+        "HAMMER_FORGE_FFMPEG_MAX_ATTEMPTS",
+      ],
+      retryDelayEnvNames: [
+        "ANVIL_FORGE_FFMPEG_RETRY_DELAY_MS",
+        "FORGE_FFMPEG_RETRY_DELAY_MS",
+        "HAMMER_FORGE_FFMPEG_RETRY_DELAY_MS",
+      ],
+    }),
   };
 }
 
@@ -153,6 +203,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
   const apiKey = readOptionalString(config.apiKey);
   const sttModel = readOptionalString(config.sttModel) ?? DEFAULT_MODEL;
   const configuredBillingMode = normalizeBillingMode(config.configuredBillingMode, "forge");
+  const ffmpegClient = config.ffmpegClient ?? null;
   const supabaseService: SupabaseClient<Database> | null = config.supabaseUrl && config.supabaseServiceRoleKey
     ? createClient<Database>(config.supabaseUrl, config.supabaseServiceRoleKey, {
         auth: {
@@ -272,15 +323,80 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       const fileName = readOptionalString((fileValue as { name?: unknown }).name);
       const mimeType = readOptionalString((fileValue as { type?: unknown }).type);
       const extension = inferExtension(fileName, mimeType);
+      const uploadFileName = fileName ?? `chunk.${extension}`;
 
-      function buildUpstreamForm(includeLanguage: boolean): FormData {
+      function buildUpstreamForm(
+        nextFileValue: Blob,
+        nextFileName: string,
+        includeLanguage: boolean,
+      ): FormData {
         const upstreamForm = new FormData();
         upstreamForm.set("model", sttModel);
         upstreamForm.set("response_format", "json");
-        upstreamForm.set("file", fileValue, fileName ?? `chunk.${extension}`);
+        upstreamForm.set("file", nextFileValue, nextFileName);
         if (includeLanguage && language) upstreamForm.set("language", language);
         if (prompt) upstreamForm.set("prompt", prompt);
         return upstreamForm;
+      }
+
+      async function sendToOpenAi(
+        nextFileValue: Blob,
+        nextFileName: string,
+      ): Promise<{
+        upstream: Response;
+        detail: string;
+        message: string | null;
+      }> {
+        let upstream: Response;
+        let usedLanguageHint = Boolean(language);
+        let detail = "";
+        let message: string | null = null;
+        try {
+          upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${apiKey}`,
+            },
+            body: buildUpstreamForm(nextFileValue, nextFileName, usedLanguageHint),
+            signal: upstreamAbort.signal,
+          });
+
+          if (!upstream.ok) {
+            detail = await upstream.text();
+            message = readUpstreamErrorMessage(detail) ?? "OpenAI error";
+            const shouldRetryWithoutLanguage =
+              usedLanguageHint
+              && (upstream.status === 400 || upstream.status === 422)
+              && isInvalidLanguageUpstreamError(detail);
+
+            if (shouldRetryWithoutLanguage) {
+              usedLanguageHint = false;
+              upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+                method: "POST",
+                headers: {
+                  authorization: `Bearer ${apiKey}`,
+                },
+                body: buildUpstreamForm(nextFileValue, nextFileName, false),
+                signal: upstreamAbort.signal,
+              });
+
+              if (!upstream.ok) {
+                detail = await upstream.text();
+                message = readUpstreamErrorMessage(detail) ?? "OpenAI error";
+              } else {
+                detail = "";
+                message = null;
+              }
+            }
+          }
+        } catch (error) {
+          if (clientAborted || upstreamAbort.signal.aborted) {
+            throw new Response(null, { status: 499 });
+          }
+          throw error;
+        }
+
+        return { upstream, detail, message };
       }
 
       const upstreamAbort = new AbortController();
@@ -293,45 +409,39 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
 
       try {
         let upstream: Response;
-        let usedLanguageHint = Boolean(language);
         let upstreamDetail = "";
         let upstreamMessage: string | null = null;
+        let ffmpegFallbackError: string | null = null;
         try {
-          upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${apiKey}`,
-            },
-            body: buildUpstreamForm(usedLanguageHint),
-            signal: upstreamAbort.signal,
-          });
+          const directAttempt = await sendToOpenAi(fileValue, uploadFileName);
+          upstream = directAttempt.upstream;
+          upstreamDetail = directAttempt.detail;
+          upstreamMessage = directAttempt.message;
 
-          if (!upstream.ok) {
-            upstreamDetail = await upstream.text();
-            upstreamMessage = readUpstreamErrorMessage(upstreamDetail) ?? "OpenAI error";
-            const shouldRetryWithoutLanguage =
-              usedLanguageHint
-              && (upstream.status === 400 || upstream.status === 422)
-              && isInvalidLanguageUpstreamError(upstreamDetail);
-
-            if (shouldRetryWithoutLanguage) {
-              usedLanguageHint = false;
-              upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-                method: "POST",
-                headers: {
-                  authorization: `Bearer ${apiKey}`,
-                },
-                body: buildUpstreamForm(false),
-                signal: upstreamAbort.signal,
+          if (!upstream.ok && ffmpegClient && isUnsupportedAudioUpstreamError(upstreamDetail)) {
+            try {
+              const transcoded = await transcodeToWavWithForgeFfmpeg({
+                client: ffmpegClient,
+                sourceBytes: Buffer.from(await fileValue.arrayBuffer()),
+                sourceFilename: uploadFileName,
+                contentType: mimeType ?? undefined,
               });
-
-              if (!upstream.ok) {
-                upstreamDetail = await upstream.text();
-                upstreamMessage = readUpstreamErrorMessage(upstreamDetail) ?? "OpenAI error";
-              }
+              const transcodedBlob = new Blob([transcoded.audioBytes], { type: "audio/wav" });
+              const transcodedAttempt = await sendToOpenAi(
+                transcodedBlob,
+                replaceFileExtension(uploadFileName, "wav"),
+              );
+              upstream = transcodedAttempt.upstream;
+              upstreamDetail = transcodedAttempt.detail;
+              upstreamMessage = transcodedAttempt.message;
+            } catch (error) {
+              ffmpegFallbackError = error instanceof Error ? error.message : String(error ?? "Forge FFmpeg fallback failed.");
             }
           }
         } catch (error) {
+          if (error instanceof Response) {
+            return error;
+          }
           if (clientAborted || upstreamAbort.signal.aborted) {
             return new Response(null, { status: 499 });
           }
@@ -346,6 +456,9 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           const detail = upstreamDetail || await upstream.text();
           const resolvedUpstreamMessage = upstreamMessage ?? readUpstreamErrorMessage(detail) ?? "OpenAI error";
           const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
+          const responseDetail = ffmpegFallbackError
+            ? `${detail}\n\n[forge-ffmpeg fallback] ${ffmpegFallbackError}`
+            : detail;
           await recordAiUsageEvent({
             supabaseService,
             userId,
@@ -373,7 +486,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             ok: false,
             text: "",
             error: resolvedUpstreamMessage,
-            detail,
+            detail: responseDetail,
             model: sttModel,
             provider_request_id: upstream.headers.get("x-request-id"),
             billing_mode: lane,
