@@ -465,6 +465,7 @@ const DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK = 0.08;
 const DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK = 0.06;
 const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM = 0.55;
 const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES = 4;
+const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES = 1;
 const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_DELTA_LINES = 5;
 const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_FAR_MIN_SIM = 0.86;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES = 3;
@@ -530,6 +531,7 @@ const DEFAULT_STRONG_MARKER_SNAP_MIN_DELTA_LINES = 2;
 const DEFAULT_STRONG_MARKER_SNAP_MAX_DELTA_LINES = 8;
 const DEFAULT_STRONG_MARKER_SNAP_SIM_PER_EXTRA_LINE = 0.03;
 const DEFAULT_STRONG_MARKER_SNAP_MAX_REQUIRED_SIM = 0.9;
+const DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES = 2;
 const DEFAULT_LIVE_ASR_SOFT_COMMIT_MIN_DELTA_LINES = 4;
 const DEFAULT_LIVE_ASR_SOFT_COMMIT_LOW_CONF_SIM = 0.84;
 const DEFAULT_LIVE_ASR_SOFT_COMMIT_MAX_LINES = 3;
@@ -6941,16 +6943,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 snippet ? `clue="${snippet}"` : '',
               ]);
             } else if (asrWeakClampFallbackAllow) {
-              targetLine = requestedLine;
+              targetLine = Math.min(
+                requestedLine,
+                clampedLine + DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES,
+              );
               warnGuard('asr_weak_clamp_fallback_allow', [
                 `current=${lastLineIndex}`,
                 `req=${requestedLine}`,
                 `clamped=${clampedLine}`,
+                `promoted=${targetLine}`,
                 `sim=${formatLogScore(conf)}`,
                 `need=${formatLogScore(weakForwardClampSupport.minSupport)}`,
                 `minSim=${formatLogScore(weakClampFallbackMinSim)}`,
                 `delta=${weakClampFallbackDelta}`,
                 `maxDelta=${DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MAX_DELTA_LINES}`,
+                `stepMax=${DEFAULT_ASR_WEAK_CLAMP_FALLBACK_PROMOTE_MAX_LINES}`,
                 snippet ? `clue="${snippet}"` : '',
               ]);
             } else {
@@ -7059,6 +7066,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         cueBridgeDelta,
       });
       targetLine = cueSafeTargetLine;
+      if (asrMode && !forced && !forceReason) {
+        const markerAnchorMaxLine = lastLineIndex + DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES;
+        if (targetLine > markerAnchorMaxLine) {
+          const markerAnchorCapped = resolveCueSafeCommitLine(
+            markerAnchorMaxLine,
+            lastLineIndex,
+            DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES,
+          ).nextLine;
+          const safeMarkerAnchorLine =
+            markerAnchorCapped != null && markerAnchorCapped > lastLineIndex
+              ? markerAnchorCapped
+              : markerAnchorMaxLine;
+          warnGuard('asr_marker_anchor_cap', [
+            `current=${lastLineIndex}`,
+            `requested=${targetLine}`,
+            `capped=${safeMarkerAnchorLine}`,
+            `maxDelta=${DEFAULT_ASR_MARKER_ANCHOR_MAX_DELTA_LINES}`,
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+          targetLine = safeMarkerAnchorLine;
+        }
+      }
       const multiJumpDelta = targetLine - lastLineIndex;
       if (multiJumpDelta > 1) {
         const multiJumpNeedBase = Math.max(
