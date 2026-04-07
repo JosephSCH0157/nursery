@@ -322,7 +322,7 @@ const GUARD_THROTTLE_MS = 750;
 const DEFAULT_SHORT_TOKEN_MAX = 4;
 const DEFAULT_SHORT_TOKEN_BOOST = 0.12;
 const DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM = 0.2;
-const DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES = 1;
+const DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES = 2;
 const DEFAULT_STABLE_INTERIM_NUDGE_MS = 450;
 const DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS = 900;
 const DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS = 3;
@@ -5952,11 +5952,26 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     const cappedTop = clamp(Math.min(afterTop, beforeTop + liveAsrCommitCapPx), 0, maxTop);
     if (cappedTop >= afterTop - 0.5) return afterTop;
-    const applied = applyCanonicalScrollTop(cappedTop, {
+    const distancePx = Math.abs(cappedTop - beforeTop);
+    const durationMs = clamp(
+      (distancePx / LIVE_ASR_GLIDE_PX_PER_SEC) * 1000,
+      Math.max(motionTuning.glideDefaultMs, LIVE_ASR_GLIDE_MIN_MS),
+      Math.max(motionTuning.glideMaxMs, LIVE_ASR_GLIDE_MAX_MS),
+    );
+    const glided = startGlideTo(cappedTop, {
       scroller,
       reason: 'asr-live-commit-cap',
-      source: 'asr-commit',
+      source: 'asr-commit-cap',
+      durationMs,
+      easing: 'linear',
     });
+    const applied = glided
+      ? cappedTop
+      : applyCanonicalScrollTop(cappedTop, {
+        scroller,
+        reason: 'asr-live-commit-cap',
+        source: 'asr-commit',
+      });
     const finalTop =
       finiteNumberOrNull(
         'commit.afterTop.liveCap',
@@ -6744,6 +6759,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 snippet ? `clue="${snippet}"` : '',
               ]);
             } else if (asrWeakClampFallbackAllow) {
+              targetLine = requestedLine;
               warnGuard('asr_weak_clamp_fallback_allow', [
                 `current=${lastLineIndex}`,
                 `req=${requestedLine}`,
