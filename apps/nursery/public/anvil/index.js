@@ -40855,6 +40855,27 @@ function createAsrScrollDriver(options = {}) {
       return;
     }
     const markerIdx = consistencyRequireNearMarker ? computeCueSafeMarkerIndex(scrollerForMatch, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES) : -1;
+    const markerLeadLine = markerIdx >= 0 ? findNextSpokenLineIndexWithin(
+      markerIdx,
+      markerIdx + Math.max(DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, 4)
+    ) : null;
+    const markerLeadLockEligible = isSessionAsrArmed() && markerLeadLine != null && markerLeadLine > cursorLine && rawIdx < markerLeadLine && (isFinal || noProgressStreak >= 2 || now3 - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS);
+    if (markerLeadLockEligible && markerLeadLine != null) {
+      const before = rawIdx;
+      rawIdx = markerLeadLine;
+      forceReason = forceReason || "marker-next-spoken-lock";
+      relockOverride = true;
+      relockReason = relockReason || "marker-next-spoken-lock";
+      warnGuard("marker_next_spoken_lock", [
+        `current=${cursorLine}`,
+        `best=${before}`,
+        `marker=${markerIdx}`,
+        `nextSpoken=${markerLeadLine}`,
+        `sim=${formatLogScore(conf)}`,
+        `isFinal=${isFinal ? 1 : 0}`,
+        `noProgress=${noProgressStreak}`
+      ]);
+    }
     const nearMarker = consistencyRequireNearMarker ? markerIdx < 0 || Math.abs(rawIdx - markerIdx) <= Math.max(1, consistencyMarkerBandLines) : true;
     if (allowCatchup) {
       const lagSample = {
