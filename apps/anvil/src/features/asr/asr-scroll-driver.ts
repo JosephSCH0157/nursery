@@ -434,7 +434,7 @@ const DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES = 2;
 const DEFAULT_ALLOW_BEHIND_REANCHOR = false;
 const DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS = 8;
 const DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS = 1500;
-const DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES = 1;
+const DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES = 2;
 const DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES = 3;
 const DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES = 2;
 const DEFAULT_CUE_BRIDGE_STRONG_SIM = 0.6;
@@ -455,9 +455,9 @@ const DEFAULT_ASR_RELAXED_FORWARD_DELTA_MAX_LINES = 2;
 const DEFAULT_ASR_RELAXED_FORWARD_FINAL_MIN_SIM = 0.72;
 const DEFAULT_ASR_RELAXED_FORWARD_THRESHOLD_SLACK = 0.08;
 const DEFAULT_ASR_RELAXED_MULTI_JUMP_SLACK = 0.02;
-const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM = 0.66;
+const DEFAULT_ASR_WEAK_CLAMP_FALLBACK_MIN_SIM = 0.55;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MAX_DELTA_LINES = 3;
-const DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM = 0.82;
+const DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_SIM = 0.75;
 const DEFAULT_ASR_HIGH_CONF_FORWARD_MIN_GAP = 0.3;
 const DEFAULT_AMBIGUITY_HOLD_MIN_SIM = 0.35;
 const DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES = 2;
@@ -6786,8 +6786,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                   : '',
                 snippet ? `clue="${snippet}"` : '',
               ]);
-              emitHudStatus('weak_forward_clamp_blocked', 'Low-confidence far jump held');
-              return;
+              emitHudStatus('weak_forward_clamp_blocked', 'Low-confidence far jump stepped');
+              targetLine = clampedLine;
             }
           }
         }
