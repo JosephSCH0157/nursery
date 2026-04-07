@@ -338,6 +338,7 @@ const DEFAULT_NOISE_INTERIM_MIN_CHARS = 12;
 const DEFAULT_STARVATION_COMMIT_GAP_MS = 1500;
 const DEFAULT_STARVATION_WARN_COOLDOWN_MS = 1500;
 const DEFAULT_ASR_VAD_SPEECH_GRACE_MS = 900;
+const DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS = 900;
 const DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES = 5;
 const DEFAULT_STARVATION_RELOCK_SIM_SLACK = 0.08;
 const DEFAULT_STARVATION_RELOCK_COOLDOWN_MS = 1200;
@@ -3052,6 +3053,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let asrVadSeen = false;
   let asrVadSpeaking = false;
   let lastVadSpeechAt = 0;
+  let asrRuntimeSpeechSeen = false;
+  let asrRuntimeSpeechRunningActual = false;
+  let lastRuntimeSpeechAt = 0;
   let lastRescueMatchEvidenceAt = 0;
   let lastRescueMatchEvidenceLine = -1;
   let lastRescueMatchEvidenceSim = 0;
@@ -3059,6 +3063,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastStableInterimNudgeAt = 0;
   let lastBadCursorOnCueLogAt = 0;
   let lastAutoCueSkipAt = 0;
+
+  const noteRuntimeSpeechState = (detail: unknown) => {
+    const actualRaw = (detail as { speechRunningActual?: unknown } | null | undefined)?.speechRunningActual;
+    if (typeof actualRaw !== 'boolean') return;
+    asrRuntimeSpeechSeen = true;
+    asrRuntimeSpeechRunningActual = actualRaw;
+    if (actualRaw) {
+      lastRuntimeSpeechAt = Date.now();
+    }
+  };
+
+  const hasRecentActualSpeech = (now: number) => {
+    if (!asrRuntimeSpeechSeen) return true;
+    if (asrRuntimeSpeechRunningActual) return true;
+    if (lastRuntimeSpeechAt <= 0) return false;
+    return Math.max(0, now - lastRuntimeSpeechAt) <= DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS;
+  };
   let noProgressStreak = 0;
   let lostForwardWallStreak = 0;
   let lastProgressCursorLine = -1;
@@ -4329,6 +4350,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       lastVadSpeechAt = Date.now();
     }
   };
+  const runtimeStatusHandler = (event: Event) => {
+    noteRuntimeSpeechState((event as CustomEvent)?.detail);
+  };
 
   const resetHandler = () => {
     clearEvidenceBuffer('script-reset');
@@ -4348,6 +4372,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   try { window.addEventListener('tp:asr:silence', silenceHandler as EventListener); } catch {}
   try { window.addEventListener('tp:vad', vadHandler as EventListener); } catch {}
+  noteRuntimeSpeechState((window as any).__tpAsrRuntimeStatus);
+  try { window.addEventListener('tp:asr:runtime-status', runtimeStatusHandler as EventListener); } catch {}
   try { window.addEventListener('tp:script:reset', resetHandler as EventListener); } catch {}
   try { window.addEventListener('tp:asr:rescue', rescueHandler as EventListener); } catch {}
   try { window.addEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal as EventListener); } catch {}
@@ -6385,7 +6411,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !asrVadSeen ||
         asrVadSpeaking ||
         vadSpeechAgeMs <= DEFAULT_ASR_VAD_SPEECH_GRACE_MS;
-      const noInputGuardActive = asrSilenceActive || !hasRecentFreshSpeech || !hasRecentVadSpeech;
+      const runtimeSpeechFresh = hasRecentActualSpeech(now);
+      const noInputGuardActive =
+        asrSilenceActive ||
+        !hasRecentFreshSpeech ||
+        !hasRecentVadSpeech ||
+        !runtimeSpeechFresh;
       const {
         line,
         conf,
@@ -6551,6 +6582,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         (forceReason === 'final-forward-nudge' || forceReason === 'final-forward-fallback') &&
         line > lastLineIndex &&
         conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM &&
+        runtimeSpeechFresh &&
         isSessionAsrArmed() &&
         isSessionLivePhase();
       const stallRescueBypass =
@@ -6571,6 +6603,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         asrMode &&
         isFinal &&
         line > lastLineIndex &&
+        runtimeSpeechFresh &&
         isSessionAsrArmed() &&
         isSessionLivePhase() &&
         now - lastForwardCommitAt >= DEFAULT_STARVATION_COMMIT_GAP_MS &&
@@ -7117,6 +7150,28 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ]);
           targetLine = liveStepTarget;
         }
+      }
+      const liveSpeechGuardActive =
+        !hasRecentVadSpeech ||
+        !runtimeSpeechFresh ||
+        !!pending.liveForwardGuardActive;
+      if (
+        asrMode &&
+        targetLine > lastLineIndex &&
+        liveSpeechGuardActive &&
+        forceReason !== 'stall-rescue'
+      ) {
+        warnGuard('asr_live_no_input_hold', [
+          `current=${lastLineIndex}`,
+          `requested=${targetLine}`,
+          `freshSpeech=${hasRecentFreshSpeech ? 1 : 0}`,
+          `vadSpeech=${hasRecentVadSpeech ? 1 : 0}`,
+          `runtimeSpeech=${runtimeSpeechFresh ? 1 : 0}`,
+          `liveForwardGuard=${pending.liveForwardGuardActive ? 1 : 0}`,
+          snippet ? `clue="${snippet}"` : '',
+        ]);
+        emitHudStatus('asr_live_no_input_hold', 'Hold: waiting for live speech before advancing');
+        return;
       }
       const multiJumpDelta = targetLine - lastLineIndex;
       if (multiJumpDelta > 1) {
@@ -8365,11 +8420,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       !asrVadSeen ||
       asrVadSpeaking ||
       vadSpeechAgeMs <= DEFAULT_ASR_VAD_SPEECH_GRACE_MS;
+    const runtimeSpeechFresh = hasRecentActualSpeech(now);
     const liveForwardGuardActive =
       asrMode &&
       isSessionAsrArmed() &&
       isSessionLivePhase() &&
-      (starvationDetected || !freshSpeechSinceCommit || !hasRecentVadSpeech);
+      (starvationDetected || !freshSpeechSinceCommit || !hasRecentVadSpeech || !runtimeSpeechFresh);
     const cueStallRescueDelayMs = resolveCueStallRescueDelayMs({
       asrMode,
       finalsSinceCommit,
@@ -11941,6 +11997,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     try { window.removeEventListener('tp:asr:silence', silenceHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:vad', vadHandler as EventListener); } catch {}
+    try { window.removeEventListener('tp:asr:runtime-status', runtimeStatusHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:script:reset', resetHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:asr:rescue', rescueHandler as EventListener); } catch {}
     try { window.removeEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal as EventListener); } catch {}

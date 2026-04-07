@@ -311,4 +311,52 @@ describe('ASR live commit motion', () => {
 
     driver.dispose();
   });
+
+  test('does not nudge a same-line final forward after runtime speech goes quiet', async () => {
+    const driver = createAsrScrollDriver();
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: true },
+    }));
+
+    driver.setLastLineIndex(0);
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 0,
+      matchId: 'runtime-quiet-prime',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.88,
+        topScores: [
+          { idx: 1, score: 0.88 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+      detail: { speechRunningActual: false },
+    }));
+    await jest.advanceTimersByTimeAsync(1200);
+
+    driver.ingest('Farebox chirps, coffee lids do that little click.', true, {
+      currentIdx: 1,
+      matchId: 'runtime-quiet-same-line-nudge',
+      match: {
+        bestIdx: 1,
+        bestSim: 0.97,
+        topScores: [
+          { idx: 1, score: 0.97 },
+        ],
+      },
+    });
+
+    await jest.advanceTimersByTimeAsync(200);
+
+    expect(driver.getLastLineIndex()).toBe(1);
+
+    driver.dispose();
+  });
 });
