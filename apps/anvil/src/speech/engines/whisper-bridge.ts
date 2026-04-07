@@ -362,6 +362,9 @@ class WhisperBridgeRecognizer {
   private recorder: MediaRecorder | null = null;
   private recorderStream: MediaStream | null = null;
   private recorderMimeType: string | undefined = undefined;
+  private segmentTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+  private pendingRecorderStop: "rotate" | "final" | null = null;
+  private endEmitted = false;
   private lastChunkTimecode: number | null = null;
   private transcriptWindow: WordToken[] = [];
   private lastTranscriptAt = 0;
@@ -459,12 +462,63 @@ class WhisperBridgeRecognizer {
     this.recorderStream = new MediaStream(audioTracks.map((track: MediaStreamTrack) => track.clone()));
     const mimeType = chooseMimeType();
     this.recorderMimeType = mimeType;
-    this.lastChunkTimecode = null;
-    this.recorder = mimeType
-      ? new MediaRecorder(this.recorderStream, { mimeType })
-      : new MediaRecorder(this.recorderStream);
+    this.transcriptWindow = [];
+    this.lastTranscriptAt = 0;
+    this.lastPartialText = "";
+    this.lastFinalText = "";
+    this.lastModel = null;
+    this.lastAiError = null;
+    this.requestsInFlight = 0;
+    this.lastAiSnapshotKey = "";
+    this.unauthorized = false;
+    this.requestInvalid = false;
+    this.consecutiveUnsupportedAudioErrors = 0;
+    this.deterministicLatchLogged = false;
+    this.pendingRecorderStop = null;
+    this.endEmitted = false;
+    this.running = true;
+    this.startRecorderSegment();
+    this.syncAiActivity();
+    this.emit("start", { source: SOURCE, timestamp: nowTs() });
+  }
 
-    this.recorder.ondataavailable = (event: BlobEvent) => {
+  stop(): void {
+    if (!this.recorder && !this.running) return;
+    this.running = false;
+    this.pendingRecorderStop = "final";
+    this.clearSegmentTimer();
+    this.syncAiActivity();
+    try { this.recorder?.requestData(); } catch {}
+    try {
+      if (this.recorder && this.recorder.state !== "inactive") {
+        this.recorder.stop();
+      } else {
+        this.finishRecorderSession();
+      }
+    } catch {
+      this.finishRecorderSession();
+    }
+  }
+
+  abort(): void {
+    this.stop();
+  }
+
+  private startRecorderSegment(): void {
+    if (!this.running) return;
+    if (!this.recorderStream) {
+      throw new Error("Recorder stream not available");
+    }
+
+    // Rolling full recorder sessions keeps each upload as a standalone media file.
+    this.lastChunkTimecode = null;
+    const recorder = this.recorderMimeType
+      ? new MediaRecorder(this.recorderStream, { mimeType: this.recorderMimeType })
+      : new MediaRecorder(this.recorderStream);
+    this.recorder = recorder;
+    this.pendingRecorderStop = null;
+
+    recorder.ondataavailable = (event: BlobEvent) => {
       const blob = event.data;
       const queueBefore = this.queue.length;
       const nextSeq = this.seq + 1;
@@ -514,62 +568,91 @@ class WhisperBridgeRecognizer {
       this.syncAiActivity();
       void this.flushQueue();
     };
-    this.recorder.onerror = (event: Event) => {
+    recorder.onerror = (event: Event) => {
       const error = (event as Event & { error?: { message?: string } }).error;
       const message = error?.message || "Whisper recorder error";
       this.lastAiError = message;
       this.syncAiActivity();
       this.emit("error", { source: SOURCE, message, timestamp: nowTs() });
     };
-    this.recorder.onstop = () => {
-      this.cleanupRecorder();
-      this.syncAiActivity();
-      this.emit("end", { source: SOURCE, timestamp: nowTs() });
+    recorder.onstop = () => {
+      this.handleRecorderStop(recorder);
     };
 
-    this.transcriptWindow = [];
-    this.lastTranscriptAt = 0;
-    this.lastPartialText = "";
-    this.lastFinalText = "";
-    this.lastModel = null;
-    this.lastAiError = null;
-    this.requestsInFlight = 0;
-    this.lastAiSnapshotKey = "";
-    this.unauthorized = false;
-    this.requestInvalid = false;
-    this.consecutiveUnsupportedAudioErrors = 0;
-    this.deterministicLatchLogged = false;
-    this.running = true;
-    this.recorder.start(this.segmentMs);
-    this.syncAiActivity();
-    this.emit("start", { source: SOURCE, timestamp: nowTs() });
+    recorder.start();
+    this.armSegmentTimer();
   }
 
-  stop(): void {
-    if (!this.recorder && !this.running) return;
-    this.running = false;
-    this.syncAiActivity();
-    try { this.recorder?.requestData(); } catch {}
+  private armSegmentTimer(): void {
+    this.clearSegmentTimer();
+    if (!this.running) return;
+    this.segmentTimer = globalThis.setTimeout(() => {
+      this.rotateRecorderSegment();
+    }, this.segmentMs);
+  }
+
+  private clearSegmentTimer(): void {
+    if (this.segmentTimer == null) return;
+    globalThis.clearTimeout(this.segmentTimer);
+    this.segmentTimer = null;
+  }
+
+  private rotateRecorderSegment(): void {
+    const recorder = this.recorder;
+    if (!this.running || !recorder) return;
+    if (recorder.state === "inactive") return;
+    this.pendingRecorderStop = "rotate";
+    this.clearSegmentTimer();
     try {
-      if (this.recorder && this.recorder.state !== "inactive") {
-        this.recorder.stop();
-      } else {
-        this.cleanupRecorder();
-        this.syncAiActivity();
-        this.emit("end", { source: SOURCE, timestamp: nowTs() });
-      }
+      recorder.stop();
     } catch {
-      this.cleanupRecorder();
-      this.syncAiActivity();
+      this.pendingRecorderStop = null;
+      this.finishRecorderSession();
+      this.emit("error", {
+        source: SOURCE,
+        message: "Whisper recorder failed to roll to the next segment.",
+        timestamp: nowTs(),
+      });
+    }
+  }
+
+  private handleRecorderStop(recorder: MediaRecorder): void {
+    if (this.recorder === recorder) {
+      this.recorder = null;
+    }
+    this.clearSegmentTimer();
+    const stopMode = this.pendingRecorderStop;
+    this.pendingRecorderStop = null;
+
+    if (stopMode === "rotate" && this.running && !this.unauthorized && !this.requestInvalid) {
+      try {
+        this.startRecorderSegment();
+        this.syncAiActivity();
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Whisper recorder restart failed";
+        this.lastAiError = message;
+        this.emit("error", { source: SOURCE, message, timestamp: nowTs() });
+      }
+    }
+
+    this.finishRecorderSession();
+  }
+
+  private finishRecorderSession(): void {
+    this.clearSegmentTimer();
+    this.pendingRecorderStop = null;
+    this.recorder = null;
+    this.running = false;
+    this.cleanupRecorderStream();
+    this.syncAiActivity();
+    if (!this.endEmitted) {
+      this.endEmitted = true;
       this.emit("end", { source: SOURCE, timestamp: nowTs() });
     }
   }
 
-  abort(): void {
-    this.stop();
-  }
-
-  private cleanupRecorder(): void {
+  private cleanupRecorderStream(): void {
     const stream = this.recorderStream;
     this.recorder = null;
     this.recorderStream = null;
