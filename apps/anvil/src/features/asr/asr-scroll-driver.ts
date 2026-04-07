@@ -9784,7 +9784,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       emitHudStatus('match_out_of_band', 'Out-of-band match ignored');
       return;
     }
-    const markerIdx = consistencyRequireNearMarker
+    const markerIdx = (consistencyRequireNearMarker || (isSessionAsrArmed() && isSessionLivePhase()))
       ? computeCueSafeMarkerIndex(scrollerForMatch, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES)
       : -1;
     const markerLeadLine = markerIdx >= 0
@@ -9814,6 +9814,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         `isFinal=${isFinal ? 1 : 0}`,
         `noProgress=${noProgressStreak}`,
       ]);
+    }
+    const holdAheadOfMarker =
+      isSessionAsrArmed() &&
+      isSessionLivePhase() &&
+      markerIdx >= 0 &&
+      rawIdx < markerIdx;
+    if (holdAheadOfMarker) {
+      warnGuard('ahead_of_marker_hold', [
+        `current=${cursorLine}`,
+        `best=${rawIdx}`,
+        `marker=${markerIdx}`,
+        `deltaToMarker=${markerIdx - rawIdx}`,
+        `sim=${formatLogScore(conf)}`,
+      ]);
+      emitHudStatus('ahead_of_marker_hold', 'Ahead of marker - holding scroll');
+      return;
     }
     const nearMarker = consistencyRequireNearMarker
       ? (markerIdx < 0 || Math.abs(rawIdx - markerIdx) <= Math.max(1, consistencyMarkerBandLines))
