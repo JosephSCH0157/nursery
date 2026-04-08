@@ -1730,9 +1730,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     suppressShortCrossTalk: true,
     maxInterruptionSec: 0.8,
   }));
-  const [candidateCards, setCandidateCards] = useState<HammerCandidateCard[]>([]);
-  const [activeCandidateIndex, setActiveCandidateIndex] = useState(0);
-  const [candidateDecisionInFlight, setCandidateDecisionInFlight] = useState(false);
+  const [fillerCandidateCards, setFillerCandidateCards] = useState<HammerCandidateCard[]>([]);
+  const [fillerActiveCandidateIndex, setFillerActiveCandidateIndex] = useState(0);
+  const [fillerDecisionInFlight, setFillerDecisionInFlight] = useState(false);
+  const [retakeCandidateCards, setRetakeCandidateCards] = useState<HammerCandidateCard[]>([]);
+  const [retakeActiveCandidateIndex, setRetakeActiveCandidateIndex] = useState(0);
+  const [retakeDecisionInFlight, setRetakeDecisionInFlight] = useState(false);
+  const [activeReviewKind, setActiveReviewKind] = useState<HammerCandidateReviewKind>("fillers");
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
   const [editableAudioPolish, setEditableAudioPolish] = useState<HammerPersistedAudioPolish | null>(
@@ -1846,7 +1850,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     fillers: new Set(),
     retakes: new Set(),
   });
-  const candidateDecisionInFlightRef = useRef(false);
+  const candidateDecisionInFlightRef = useRef<{ fillers: boolean; retakes: boolean }>({
+    fillers: false,
+    retakes: false,
+  });
   const lastHandledCandidateIdRef = useRef<{ fillers: string | null; retakes: string | null }>({
     fillers: null,
     retakes: null,
@@ -2097,16 +2104,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   );
 
   const selectedSegment = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId) ?? null;
-  const activeCandidateCard = candidateCards[activeCandidateIndex] ?? null;
-  const activeCandidateDiffOps = useMemo(() => {
-    if (!activeCandidateCard) return null;
-    if (activeCandidateCard.kind !== "fillers") return null;
-    if (activeCandidateCard.afterText == null) return null;
-    return diffWords(activeCandidateCard.beforeText, activeCandidateCard.afterText);
-  }, [activeCandidateCard?.beforeText, activeCandidateCard?.afterText]);
+  const activeFillerCandidateCard = fillerCandidateCards[fillerActiveCandidateIndex] ?? null;
+  const activeRetakeCandidateCard = retakeCandidateCards[retakeActiveCandidateIndex] ?? null;
+  const activeCandidateCard = activeReviewKind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
+  const activeFillerCandidateDiffOps = useMemo(() => {
+    if (!activeFillerCandidateCard) return null;
+    if (activeFillerCandidateCard.afterText == null) return null;
+    return diffWords(activeFillerCandidateCard.beforeText, activeFillerCandidateCard.afterText);
+  }, [activeFillerCandidateCard?.beforeText, activeFillerCandidateCard?.afterText]);
   const candidateSegmentIdSet = useMemo(
-    () => new Set(candidateCards.flatMap((card) => card.segmentIds)),
-    [candidateCards],
+    () => new Set([
+      ...fillerCandidateCards.flatMap((card) => card.segmentIds),
+      ...retakeCandidateCards.flatMap((card) => card.segmentIds),
+    ]),
+    [fillerCandidateCards, retakeCandidateCards],
   );
   const activeCandidatePrimarySegmentId = activeCandidateCard?.primarySegmentId ?? null;
   const activeCandidateSegmentIdSet = useMemo(
@@ -5327,7 +5338,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
 
     const handled = handledCandidateIdsRef.current[args.kind];
-    const { preview, cards } = buildCandidateQueue({
+    const { cards } = buildCandidateQueue({
       kind: args.kind,
       segments: args.segments,
       fillerOptions: fillerCleanupOptions,
@@ -5335,19 +5346,26 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       handledCandidateIds: handled,
     });
 
-    setCandidateCards(cards);
-    setActiveCandidateIndex((previous) => clampActiveCandidateIndex(
-      args.preserveIndex ?? previous,
-      cards.length,
-    ));
-    setCleanupPreview(preview);
+    if (args.kind === "fillers") {
+      setFillerCandidateCards(cards);
+      setFillerActiveCandidateIndex((previous) => clampActiveCandidateIndex(
+        args.preserveIndex ?? previous,
+        cards.length,
+      ));
+    } else {
+      setRetakeCandidateCards(cards);
+      setRetakeActiveCandidateIndex((previous) => clampActiveCandidateIndex(
+        args.preserveIndex ?? previous,
+        cards.length,
+      ));
+    }
+    // Avoid mixing queue review with one-off preview summaries.
+    setCleanupPreview(null);
     setCleanupReceipt(null);
-    setTranscriptTimingHint(cards.length === 0
-      ? `No ${args.kind === "fillers" ? "filler" : "retake"} candidates detected in this pass.`
-      : null);
   }
 
   function refreshCandidateQueue(kind: HammerCandidateReviewKind): void {
+    setActiveReviewKind(kind);
     rebuildCandidateQueue({
       kind,
       segments: editableTranscriptSegments,
@@ -5356,19 +5374,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
-  function handleCandidateDecision(approve: boolean): void {
-    const card = activeCandidateCard;
+  function handleCandidateDecision(kind: HammerCandidateReviewKind, approve: boolean): void {
+    setActiveReviewKind(kind);
+    const card = kind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
     if (!card) return;
-    if (candidateDecisionInFlightRef.current) return;
+    if (candidateDecisionInFlightRef.current[kind]) return;
     if (lastHandledCandidateIdRef.current[card.kind] === card.id) return;
 
-    candidateDecisionInFlightRef.current = true;
+    candidateDecisionInFlightRef.current[kind] = true;
     lastHandledCandidateIdRef.current[card.kind] = card.id;
-    setCandidateDecisionInFlight(true);
+    if (kind === "fillers") setFillerDecisionInFlight(true);
+    else setRetakeDecisionInFlight(true);
 
     try {
       handledCandidateIdsRef.current[card.kind].add(card.id);
-      const preserveIndex = activeCandidateIndex;
+      const preserveIndex = kind === "retakes" ? retakeActiveCandidateIndex : fillerActiveCandidateIndex;
 
       const beforeState = captureWorkspaceState();
       let nextSegments = beforeState.transcriptSegments;
@@ -5411,9 +5431,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         segments: nextSegments,
         preserveIndex,
       });
+      // Keep the other queue in sync with the new canonical transcript without resetting handled/index.
+      const otherKind: HammerCandidateReviewKind = kind === "fillers" ? "retakes" : "fillers";
+      const otherIndex = otherKind === "retakes" ? retakeActiveCandidateIndex : fillerActiveCandidateIndex;
+      rebuildCandidateQueue({
+        kind: otherKind,
+        segments: nextSegments,
+        preserveIndex: otherIndex,
+      });
     } finally {
-      candidateDecisionInFlightRef.current = false;
-      setCandidateDecisionInFlight(false);
+      candidateDecisionInFlightRef.current[kind] = false;
+      if (kind === "fillers") setFillerDecisionInFlight(false);
+      else setRetakeDecisionInFlight(false);
     }
   }
 
@@ -5453,16 +5482,30 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   useEffect(() => {
-    if (currentPass === "transcript_cleanup") {
-      refreshCandidateQueue("fillers");
+    if (currentPass === "transcript_cleanup" || currentPass === "retakes") {
+      const nextActive: HammerCandidateReviewKind = currentPass === "retakes" ? "retakes" : "fillers";
+      setActiveReviewKind(nextActive);
+      rebuildCandidateQueue({
+        kind: "fillers",
+        segments: editableTranscriptSegments,
+        resetHandled: true,
+        preserveIndex: 0,
+      });
+      rebuildCandidateQueue({
+        kind: "retakes",
+        segments: editableTranscriptSegments,
+        resetHandled: true,
+        preserveIndex: 0,
+      });
       return;
     }
-    if (currentPass === "retakes") {
-      refreshCandidateQueue("retakes");
-      return;
-    }
-    setCandidateCards([]);
-    setActiveCandidateIndex(0);
+
+    setFillerCandidateCards([]);
+    setFillerActiveCandidateIndex(0);
+    setFillerDecisionInFlight(false);
+    setRetakeCandidateCards([]);
+    setRetakeActiveCandidateIndex(0);
+    setRetakeDecisionInFlight(false);
   }, [currentPass]);
   useEffect(() => {
     if (currentPass === "image_placement") return;
@@ -5541,14 +5584,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return () => window.clearTimeout(timerId);
   }, [currentPass, gapCleanupOptions, editableTranscriptSegments]);
   useEffect(() => {
-    if (candidateCards.length === 0 && activeCandidateIndex !== 0) {
-      setActiveCandidateIndex(0);
+    if (fillerCandidateCards.length === 0 && fillerActiveCandidateIndex !== 0) {
+      setFillerActiveCandidateIndex(0);
       return;
     }
-    if (activeCandidateIndex >= candidateCards.length && candidateCards.length > 0) {
-      setActiveCandidateIndex(candidateCards.length - 1);
+    if (fillerActiveCandidateIndex >= fillerCandidateCards.length && fillerCandidateCards.length > 0) {
+      setFillerActiveCandidateIndex(fillerCandidateCards.length - 1);
     }
-  }, [activeCandidateIndex, candidateCards.length]);
+  }, [fillerActiveCandidateIndex, fillerCandidateCards.length]);
+  useEffect(() => {
+    if (retakeCandidateCards.length === 0 && retakeActiveCandidateIndex !== 0) {
+      setRetakeActiveCandidateIndex(0);
+      return;
+    }
+    if (retakeActiveCandidateIndex >= retakeCandidateCards.length && retakeCandidateCards.length > 0) {
+      setRetakeActiveCandidateIndex(retakeCandidateCards.length - 1);
+    }
+  }, [retakeActiveCandidateIndex, retakeCandidateCards.length]);
 
   function handlePlaybackProgress(nextTimeSec: number): void {
     const transportProgress = resolvePlaybackTransportProgress(nextTimeSec);
@@ -9766,14 +9818,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 currentPass === "transcript_cleanup" || currentPass === "retakes" ? (
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">
-                      {currentPass === "transcript_cleanup" ? "Transcript Cleanup" : "Retake Review"}
+                      Transcript Cleanup
                     </header>
                     <div className="hammer-tool-hint">
-                      {currentPass === "transcript_cleanup"
-                        ? "Review filler candidates and approve or reject each one."
-                        : "Review retake candidates and approve or reject each one."}
+                      Review filler candidates first, then retake candidates below. Approve applies immediately; reject leaves source unchanged.
                     </div>
-                    {currentPass === "transcript_cleanup" ? (
+
+                    <div onMouseDown={() => setActiveReviewKind("fillers")}>
+                      <header className="hammer-cleanup-tool__head">
+                        <strong>Filler Cleanup</strong>
+                        <span>Intent: Remove filler phrases without rewriting surrounding content.</span>
+                      </header>
                       <label className="hammer-tool-field">
                         <span>Aggressiveness</span>
                         <select
@@ -9788,7 +9843,113 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <option value="strong">Strong</option>
                         </select>
                       </label>
-                    ) : (
+                      <div className="hammer-candidate-review__actions">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFocusOverride("tool-focus");
+                            refreshCandidateQueue("fillers");
+                          }}
+                        >
+                          Refresh Candidates
+                        </button>
+                      </div>
+                      {activeFillerCandidateCard ? (
+                        <article className={`hammer-candidate-card ${activeReviewKind === "fillers" ? "hammer-candidate-card--active" : ""}`}>
+                          <header className="hammer-candidate-card__head">
+                            <strong>
+                              {fillerActiveCandidateIndex + 1} / {fillerCandidateCards.length}
+                            </strong>
+                            <span>{activeFillerCandidateCard.primarySegmentId}</span>
+                          </header>
+                          <p className="hammer-candidate-card__description">{activeFillerCandidateCard.description}</p>
+                          <div className="hammer-candidate-card__context">
+                            <header>Current</header>
+                            <p className="hammer-candidate-diff">
+                              {activeFillerCandidateDiffOps ? (() => {
+                                const parts: JSX.Element[] = [];
+                                let first = true;
+                                for (let idx = 0; idx < activeFillerCandidateDiffOps.length; idx += 1) {
+                                  const op = activeFillerCandidateDiffOps[idx];
+                                  if (op.type === "insert") continue;
+                                  const text = op.words.join(" ");
+                                  const prefix = first ? "" : " ";
+                                  first = false;
+                                  const className = op.type === "delete" ? "hammer-candidate-diff__del" : undefined;
+                                  parts.push(
+                                    <span key={`cur-${idx}`} className={className}>
+                                      {prefix}{text}
+                                    </span>,
+                                  );
+                                }
+                                return parts;
+                              })() : activeFillerCandidateCard.beforeText}
+                            </p>
+                          </div>
+                          <div className="hammer-candidate-card__context">
+                            <header>Proposed</header>
+                            <p className="hammer-candidate-diff">
+                              {activeFillerCandidateCard.afterText == null
+                                ? "[segment removed]"
+                                : activeFillerCandidateDiffOps ? (() => {
+                                  const parts: JSX.Element[] = [];
+                                  let first = true;
+                                  for (let idx = 0; idx < activeFillerCandidateDiffOps.length; idx += 1) {
+                                    const op = activeFillerCandidateDiffOps[idx];
+                                    if (op.type === "delete") continue;
+                                    const text = op.words.join(" ");
+                                    const prefix = first ? "" : " ";
+                                    first = false;
+                                    const className = op.type === "insert" ? "hammer-candidate-diff__ins" : undefined;
+                                    parts.push(
+                                      <span key={`prop-${idx}`} className={className}>
+                                        {prefix}{text}
+                                      </span>,
+                                    );
+                                  }
+                                  return parts;
+                                })() : activeFillerCandidateCard.afterText}
+                            </p>
+                          </div>
+                          <div className="hammer-candidate-card__meta">
+                            <span>Confidence {Math.round(activeFillerCandidateCard.confidence * 100)}%</span>
+                            <span>Time saved {activeFillerCandidateCard.timeSavedSec.toFixed(1)}s</span>
+                          </div>
+                          <div className="hammer-candidate-review__actions">
+                            <button
+                              type="button"
+                              disabled={fillerDecisionInFlight}
+                              onClick={() => {
+                                setFocusOverride("tool-focus");
+                                handleCandidateDecision("fillers", true);
+                              }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              disabled={fillerDecisionInFlight}
+                              onClick={() => {
+                                setFocusOverride("tool-focus");
+                                handleCandidateDecision("fillers", false);
+                              }}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </article>
+                      ) : (
+                        <div className="hammer-tool-hint">No filler candidates detected in this pass.</div>
+                      )}
+                    </div>
+
+                    <hr className="hammer-divider" />
+
+                    <div onMouseDown={() => setActiveReviewKind("retakes")}>
+                      <header className="hammer-cleanup-tool__head">
+                        <strong>Retake Review</strong>
+                        <span>Intent: Detect adjacent restarts and false starts for optional removal.</span>
+                      </header>
                       <label className="hammer-tool-field">
                         <span>Detection mode</span>
                         <select
@@ -9803,103 +9964,67 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <option value="aggressive">Aggressive</option>
                         </select>
                       </label>
-                    )}
-                    <div className="hammer-candidate-review__actions">
-                      <button
-                        type="button"
-                        onClick={() => refreshCandidateQueue(currentPass === "transcript_cleanup" ? "fillers" : "retakes")}
-                      >
-                        Refresh Candidates
-                      </button>
-                    </div>
-                    {activeCandidateCard ? (
-                      <article className="hammer-candidate-card">
-                        <header className="hammer-candidate-card__head">
-                          <strong>
-                            {activeCandidateIndex + 1} / {candidateCards.length}
-                          </strong>
-                          <span>
-                            {activeCandidateCard.segmentIds.length > 1
-                              ? `${activeCandidateCard.segmentIds[0]} → ${activeCandidateCard.segmentIds[1]}`
-                              : activeCandidateCard.primarySegmentId}
-                          </span>
-                        </header>
-                        <p className="hammer-candidate-card__description">{activeCandidateCard.description}</p>
-                        <div className="hammer-candidate-card__context">
-                          <header>Current</header>
-                          <p className="hammer-candidate-diff">
-                            {activeCandidateDiffOps ? (() => {
-                              const parts: JSX.Element[] = [];
-                              let first = true;
-                              for (let idx = 0; idx < activeCandidateDiffOps.length; idx += 1) {
-                                const op = activeCandidateDiffOps[idx];
-                                if (op.type === "insert") continue;
-                                const text = op.words.join(" ");
-                                const prefix = first ? "" : " ";
-                                first = false;
-                                const className = op.type === "delete" ? "hammer-candidate-diff__del" : undefined;
-                                parts.push(
-                                  <span key={`cur-${idx}`} className={className}>
-                                    {prefix}{text}
-                                  </span>,
-                                );
-                              }
-                              return parts;
-                            })() : activeCandidateCard.beforeText}
-                          </p>
-                        </div>
-                        <div className="hammer-candidate-card__context">
-                          <header>Proposed</header>
-                          <p className="hammer-candidate-diff">
-                            {activeCandidateCard.afterText == null
-                              ? "[segment removed]"
-                              : activeCandidateDiffOps ? (() => {
-                                const parts: JSX.Element[] = [];
-                                let first = true;
-                                for (let idx = 0; idx < activeCandidateDiffOps.length; idx += 1) {
-                                  const op = activeCandidateDiffOps[idx];
-                                  if (op.type === "delete") continue;
-                                  const text = op.words.join(" ");
-                                  const prefix = first ? "" : " ";
-                                  first = false;
-                                  const className = op.type === "insert" ? "hammer-candidate-diff__ins" : undefined;
-                                  parts.push(
-                                    <span key={`prop-${idx}`} className={className}>
-                                      {prefix}{text}
-                                    </span>,
-                                  );
-                                }
-                                return parts;
-                              })() : activeCandidateCard.afterText}
-                          </p>
-                        </div>
-                        <div className="hammer-candidate-card__meta">
-                          <span>Confidence {Math.round(activeCandidateCard.confidence * 100)}%</span>
-                          <span>Time saved {activeCandidateCard.timeSavedSec.toFixed(1)}s</span>
-                        </div>
-                        <div className="hammer-candidate-review__actions">
-                          <button
-                            type="button"
-                            disabled={candidateDecisionInFlight}
-                            onClick={() => handleCandidateDecision(true)}
-                          >
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            disabled={candidateDecisionInFlight}
-                            onClick={() => handleCandidateDecision(false)}
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      </article>
-                    ) : (
-                      <div className="hammer-tool-hint">
-                        No pending candidates in this pass.
+                      <div className="hammer-candidate-review__actions">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFocusOverride("tool-focus");
+                            refreshCandidateQueue("retakes");
+                          }}
+                        >
+                          Refresh Candidates
+                        </button>
                       </div>
-                    )}
-                    <div className="hammer-tool-hint">Approve applies immediately. Reject leaves source unchanged.</div>
+                      {activeRetakeCandidateCard ? (
+                        <article className={`hammer-candidate-card ${activeReviewKind === "retakes" ? "hammer-candidate-card--active" : ""}`}>
+                          <header className="hammer-candidate-card__head">
+                            <strong>
+                              {retakeActiveCandidateIndex + 1} / {retakeCandidateCards.length}
+                            </strong>
+                            <span>{activeRetakeCandidateCard.segmentIds[0]} → {activeRetakeCandidateCard.segmentIds[1]}</span>
+                          </header>
+                          <p className="hammer-candidate-card__description">{activeRetakeCandidateCard.description}</p>
+                          <div className="hammer-candidate-card__context">
+                            <header>Current</header>
+                            {activeRetakeCandidateCard.beforeText.split("\n").map((line, idx) => (
+                              <p key={`retake-cur-${idx}`} className="hammer-candidate-diff">{line}</p>
+                            ))}
+                          </div>
+                          <div className="hammer-candidate-card__context">
+                            <header>Proposed</header>
+                            <p className="hammer-candidate-diff">{activeRetakeCandidateCard.afterText ?? "[segment removed]"}</p>
+                          </div>
+                          <div className="hammer-candidate-card__meta">
+                            <span>Confidence {Math.round(activeRetakeCandidateCard.confidence * 100)}%</span>
+                            <span>Time saved {activeRetakeCandidateCard.timeSavedSec.toFixed(1)}s</span>
+                          </div>
+                          <div className="hammer-candidate-review__actions">
+                            <button
+                              type="button"
+                              disabled={retakeDecisionInFlight}
+                              onClick={() => {
+                                setFocusOverride("tool-focus");
+                                handleCandidateDecision("retakes", true);
+                              }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              disabled={retakeDecisionInFlight}
+                              onClick={() => {
+                                setFocusOverride("tool-focus");
+                                handleCandidateDecision("retakes", false);
+                              }}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </article>
+                      ) : (
+                        <div className="hammer-tool-hint">No retake candidates detected in this pass.</div>
+                      )}
+                    </div>
                   </section>
                 ) : currentPass === "gap_pacing" ? (
                   <section className="hammer-tool-card">
