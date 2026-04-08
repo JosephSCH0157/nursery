@@ -10053,12 +10053,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       <div className="hammer-candidate-review__actions">
                         <button
                           type="button"
+                          aria-label="Refresh filler candidates"
                           onClick={() => {
                             setFocusOverride("tool-focus");
                             refreshCandidateQueue("fillers");
                           }}
                         >
-                          Refresh Candidates
+                          Refresh Fillers
                         </button>
                       </div>
                       {activeFillerCandidateCard ? (
@@ -10177,12 +10178,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       <div className="hammer-candidate-review__actions">
                         <button
                           type="button"
+                          aria-label="Refresh retake candidates"
                           onClick={() => {
                             setFocusOverride("tool-focus");
                             refreshCandidateQueue("retakes");
                           }}
                         >
-                          Refresh Candidates
+                          Refresh Retakes
                         </button>
                       </div>
                       {activeRetakeCandidateCard ? (
