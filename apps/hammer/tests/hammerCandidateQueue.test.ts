@@ -41,6 +41,7 @@ async function testBuildQueueFiltersHandledCandidates() {
 
   assert.equal(first.cards.length, 1);
   assert.equal(first.cards[0]?.id, "filler:seg_1");
+  assert.deepEqual(first.cards[0]?.segmentIds, ["seg_1"]);
 
   handled.add("filler:seg_1");
   const second = buildCandidateQueue({
@@ -63,6 +64,42 @@ async function testBuildQueueFiltersHandledCandidates() {
   assert.equal(third.cards.length, 0);
 }
 
+async function testRetakePairCardBuildsFromSuggestionId() {
+  const segments = [
+    {
+      segment_id: "seg_a",
+      start_sec: 0,
+      end_sec: 1.2,
+      speaker: "S1",
+      text: "Florida's citrus really sta—",
+    },
+    {
+      segment_id: "seg_b",
+      start_sec: 1.25,
+      end_sec: 3.0,
+      speaker: "S1",
+      text: "Florida's citrus didn't start small.",
+    },
+  ];
+
+  const handled = new Set<string>();
+  const result = buildCandidateQueue({
+    kind: "retakes",
+    segments: segments as never,
+    fillerOptions: fillerOptions as never,
+    retakeOptions: retakeOptions as never,
+    handledCandidateIds: handled,
+  });
+
+  assert.equal(result.cards.length, 1);
+  const card = result.cards[0]!;
+  assert.equal(card.segmentIds.length, 2);
+  assert.equal(card.segmentIds[0], "seg_a");
+  assert.equal(card.segmentIds[1], "seg_b");
+  assert.equal(card.apply.removeSegmentIds.includes("seg_a"), true);
+  assert.equal(card.afterText, "Florida's citrus didn't start small.");
+}
+
 async function testClampIndex() {
   assert.equal(clampActiveCandidateIndex(0, 0), 0);
   assert.equal(clampActiveCandidateIndex(5, 1), 0);
@@ -72,6 +109,7 @@ async function testClampIndex() {
 
 async function run() {
   await testBuildQueueFiltersHandledCandidates();
+  await testRetakePairCardBuildsFromSuggestionId();
   await testClampIndex();
   // eslint-disable-next-line no-console
   console.log("Hammer candidate queue tests passed.");
@@ -82,4 +120,3 @@ run().catch((error) => {
   console.error("Hammer candidate queue tests failed:", error);
   process.exit(1);
 });
-

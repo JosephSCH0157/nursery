@@ -2100,14 +2100,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const activeCandidateCard = candidateCards[activeCandidateIndex] ?? null;
   const activeCandidateDiffOps = useMemo(() => {
     if (!activeCandidateCard) return null;
+    if (activeCandidateCard.kind !== "fillers") return null;
     if (activeCandidateCard.afterText == null) return null;
     return diffWords(activeCandidateCard.beforeText, activeCandidateCard.afterText);
   }, [activeCandidateCard?.beforeText, activeCandidateCard?.afterText]);
   const candidateSegmentIdSet = useMemo(
-    () => new Set(candidateCards.map((card) => card.segmentId)),
+    () => new Set(candidateCards.flatMap((card) => card.segmentIds)),
     [candidateCards],
   );
-  const activeCandidateSegmentId = activeCandidateCard?.segmentId ?? null;
+  const activeCandidatePrimarySegmentId = activeCandidateCard?.primarySegmentId ?? null;
+  const activeCandidateSegmentIdSet = useMemo(
+    () => new Set(activeCandidateCard ? activeCandidateCard.segmentIds : []),
+    [activeCandidateCard],
+  );
   const transcriptSelectionRange = useMemo(
     () => resolveTranscriptSegmentRange({
       segments: editableTranscriptSegments,
@@ -2188,12 +2193,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     )
   ), [hasTranscriptSelection, transcriptSelectionRange.segmentIds, transcriptSegmentsById]);
   useEffect(() => {
-    if (!activeCandidateSegmentId) return;
-    if (!editableTranscriptSegments.some((segment) => segment.segment_id === activeCandidateSegmentId)) return;
-    setSelectedSegmentId(activeCandidateSegmentId);
-    setTranscriptSelectionAnchorSegmentId(activeCandidateSegmentId);
-    setTranscriptSelectionFocusSegmentId(activeCandidateSegmentId);
-  }, [activeCandidateSegmentId, editableTranscriptSegments]);
+    if (!activeCandidatePrimarySegmentId) return;
+    if (!editableTranscriptSegments.some((segment) => segment.segment_id === activeCandidatePrimarySegmentId)) return;
+    setSelectedSegmentId(activeCandidatePrimarySegmentId);
+    setTranscriptSelectionAnchorSegmentId(activeCandidatePrimarySegmentId);
+    setTranscriptSelectionFocusSegmentId(activeCandidatePrimarySegmentId);
+  }, [activeCandidatePrimarySegmentId, editableTranscriptSegments]);
   useEffect(() => {
     imagePlacementDraftWindowsRef.current = imagePlacementDraftWindows;
   }, [imagePlacementDraftWindows]);
@@ -5370,13 +5375,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
       if (approve) {
         const computeAfter = (before: HammerEditorStateSerializable): HammerEditorStateSerializable => {
-          let updatedSegments = before.transcriptSegments;
-          if (card.afterText == null) {
-            updatedSegments = before.transcriptSegments.filter((segment) => segment.segment_id !== card.segmentId);
-          } else {
-            updatedSegments = updateSegmentInTimeline(before.transcriptSegments, card.segmentId, (segment) => ({
+          let updatedSegments = before.transcriptSegments.filter((segment) => (
+            !card.apply.removeSegmentIds.includes(segment.segment_id)
+          ));
+          for (const update of card.apply.updateSegments) {
+            updatedSegments = updateSegmentInTimeline(updatedSegments, update.segmentId, (segment) => ({
               ...segment,
-              text: card.afterText ?? segment.text,
+              text: update.text ?? segment.text,
             }));
           }
           const synced = syncEditableTranscriptSegments(updatedSegments, before.selectedSegmentId);
@@ -5392,7 +5397,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           label: card.kind === "fillers" ? "Approve filler removal" : "Approve retake removal",
           kind: "cleanup_tool",
           toolId: "polish",
-          affectedSegments: [card.segmentId],
+          affectedSegments: card.segmentIds,
           immediatePersist: true,
           computeAfter,
         });
@@ -8930,7 +8935,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             transcriptSelectionSegmentIdSet.has(segment.segment_id) ? "is-range" : "",
                             modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
                             candidateSegmentIdSet.has(segment.segment_id) ? "is-candidate" : "",
-                            activeCandidateSegmentId === segment.segment_id ? "is-candidate-active" : "",
+                            activeCandidateSegmentIdSet.has(segment.segment_id) ? "is-candidate-active" : "",
                             segment.is_disabled ? "is-disabled" : "",
                           ].filter(Boolean).join(" ")}
                           onClick={(event) => {
@@ -9813,7 +9818,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <strong>
                             {activeCandidateIndex + 1} / {candidateCards.length}
                           </strong>
-                          <span>{activeCandidateCard.segmentId}</span>
+                          <span>
+                            {activeCandidateCard.segmentIds.length > 1
+                              ? `${activeCandidateCard.segmentIds[0]} → ${activeCandidateCard.segmentIds[1]}`
+                              : activeCandidateCard.primarySegmentId}
+                          </span>
                         </header>
                         <p className="hammer-candidate-card__description">{activeCandidateCard.description}</p>
                         <div className="hammer-candidate-card__context">

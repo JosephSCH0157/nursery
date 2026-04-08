@@ -333,15 +333,39 @@ export function previewRemoveFillers(
 
 const RETAKE_PHRASES = /\b(redo|retake|take that again|scratch that|let me do that again|let me redo that)\b/i;
 
-function overlapScore(a: string[], b: string[]): number {
-  if (!a.length || !b.length) return 0;
-  const left = a.slice(0, 5);
-  const right = b.slice(0, 5);
-  let overlap = 0;
-  for (const token of left) {
-    if (right.includes(token)) overlap += 1;
+function endsWithAbortMark(text: string): boolean {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return false;
+  return /[—-…]$/.test(trimmed) || /\.\.\.$/.test(trimmed);
+}
+
+function endsWithWeakContinuation(text: string): boolean {
+  const trimmed = normalizeTextSpacing(String(text || ""));
+  if (!trimmed) return false;
+  if (/[.!?]$/.test(trimmed)) return false;
+  return /\b(?:and|but|or|so|because|which|that|to|with|for|of|in|on|at|as)\s*$/i.test(trimmed);
+}
+
+function isLikelyAborted(text: string): boolean {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return true;
+  if (endsWithAbortMark(trimmed)) return true;
+  if (endsWithWeakContinuation(trimmed)) return true;
+  // Short non-terminal fragments are likely false starts.
+  const normalized = normalizeTextSpacing(trimmed);
+  const words = tokenCount(normalized);
+  if (!/[.!?]$/.test(normalized) && words > 0 && words <= 6) return true;
+  return false;
+}
+
+function commonPrefixLength(a: string[], b: string[], limit = 12): number {
+  const max = Math.min(a.length, b.length, Math.max(0, Math.trunc(limit)));
+  let count = 0;
+  for (let idx = 0; idx < max; idx += 1) {
+    if (a[idx] !== b[idx]) break;
+    count += 1;
   }
-  return overlap / Math.max(left.length, right.length);
+  return count;
 }
 
 export function previewRemoveRetakes(
@@ -357,23 +381,37 @@ export function previewRemoveRetakes(
     const next = sorted[index + 1];
     if (options.sameSpeakerOnly && current.speaker !== next.speaker) continue;
 
-    const explicit = options.honorExplicitRetakePhrases && RETAKE_PHRASES.test(current.text);
-    const score = overlapScore(tokens(current.text), tokens(next.text));
-    const threshold = options.detection === "aggressive" ? 0.4 : options.detection === "normal" ? 0.55 : 0.7;
-    const nearDuplicate = score >= threshold;
-    if (!explicit && !nearDuplicate) continue;
+    const gapSec = Math.max(0, next.start_sec - current.end_sec);
+    if (gapSec > 0.8) continue;
 
-    const removeTarget = options.preferLaterCleanerTake ? current : next;
+    const explicit = options.honorExplicitRetakePhrases && RETAKE_PHRASES.test(current.text);
+    const aborted = isLikelyAborted(current.text);
+    if (!explicit && !aborted) continue;
+
+    const aTokens = tokens(current.text);
+    const bTokens = tokens(next.text);
+    const prefix = commonPrefixLength(aTokens, bTokens, 12);
+    const prefixStrong = (
+      (prefix >= 3 && prefix >= Math.ceil(Math.min(8, aTokens.length) * 0.6))
+      // Very short aborted false-starts often only share 2 tokens before diverging (e.g. "Florida's citrus—" restart).
+      || (aborted && aTokens.length <= 4 && prefix >= 2)
+    );
+    if (!explicit && !prefixStrong) continue;
+
+    // Narrow conservative pass: treat as a restart; remove earlier, keep later.
+    const removeTarget = current;
+    const keepTarget = next;
     if (removeIds.has(removeTarget.segment_id)) continue;
+    if (removeIds.has(keepTarget.segment_id)) continue;
     removeIds.add(removeTarget.segment_id);
     suggestions.push({
-      id: `retake:${removeTarget.segment_id}:${index}`,
+      id: `retake_pair:${removeTarget.segment_id}:${keepTarget.segment_id}:${index}`,
       type: "retake_remove",
       segmentId: removeTarget.segment_id,
       description: explicit
-        ? "Remove explicit retake phrase segment."
-        : "Remove likely repeated take in adjacent same-speaker pair.",
-      confidence: explicit ? 0.95 : Math.max(0.55, Math.min(0.93, score)),
+        ? "Possible retake detected (explicit retake phrase). Keep cleaner second delivery?"
+        : "Possible retake detected. Earlier phrase appears restarted.",
+      confidence: explicit ? 0.95 : 0.86,
       timeSavedSec: roundToTenth(Math.max(0.1, removeTarget.end_sec - removeTarget.start_sec)),
     });
   }
