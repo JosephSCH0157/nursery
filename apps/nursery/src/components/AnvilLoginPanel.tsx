@@ -79,20 +79,26 @@ export default function AnvilLoginPanel({ onSuccess }: Props) {
         </p>
 
         <form onSubmit={onSubmit} className="anvil-login-panel__form">
-          <label className="anvil-login-panel__label">Email</label>
+          <label htmlFor="anvil-login-email" className="anvil-login-panel__label">Email</label>
           <input
+            id="anvil-login-email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             autoComplete="email"
+            title="Email"
+            placeholder="Enter your email"
             className="anvil-login-panel__input"
           />
 
-          <label className="anvil-login-panel__label anvil-login-panel__label--spaced">Password</label>
+          <label htmlFor="anvil-login-password" className="anvil-login-panel__label anvil-login-panel__label--spaced">Password</label>
           <input
+            id="anvil-login-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             type="password"
             autoComplete="current-password"
+            title="Password"
+            placeholder="Enter your password"
             className="anvil-login-panel__input"
           />
 
