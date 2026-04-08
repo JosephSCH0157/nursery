@@ -1986,6 +1986,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setFocusOverride("tool-focus");
   }
 
+  function isTextEditingTarget(target: EventTarget | null): boolean {
+    if (!target) return false;
+    if (!(target instanceof HTMLElement)) return false;
+    const tag = target.tagName.toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return true;
+    if (target.isContentEditable) return true;
+    const role = target.getAttribute("role")?.toLowerCase() ?? "";
+    if (role === "textbox" || role === "combobox") return true;
+    return false;
+  }
+
   function markCurrentPassComplete(): void {
     if (currentPassSelectorResult.isBlocking || currentPassSelectorResult.isDegraded) {
       setTranscriptTimingHint(
@@ -2127,6 +2138,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => new Set(activeCandidateCard ? activeCandidateCard.segmentIds : []),
     [activeCandidateCard],
   );
+  const isTranscriptCandidateReviewPass = activeTool === "polish"
+    && (currentPass === "transcript_cleanup" || currentPass === "retakes");
+  const isDeadAirClosurePass = activeTool === "polish" && currentPass === "gap_pacing";
   const transcriptSelectionRange = useMemo(
     () => resolveTranscriptSegmentRange({
       segments: editableTranscriptSegments,
@@ -2492,6 +2506,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     [sourceVisualPlacementItems],
   );
   useEffect(() => {
+    const allowVisualAutoSelection = (
+      selectedSourceTab === "images"
+      || selectedSourceTab === "broll"
+      || currentPass === "visual_finishing"
+      || currentPass === "image_placement"
+      || currentPass === "image_animation"
+    );
+    if (!allowVisualAutoSelection) return;
+
     const candidateIds = sourceVisualPlacementItems.map((item) => item.id);
     const preferredId = editableVisualTimeline?.selected_clip_id ?? props.initialSelectedOverlayRowId ?? null;
     const nextClipId = candidateIds.length === 0
@@ -2499,15 +2522,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       : preferredId && candidateIds.includes(preferredId)
         ? preferredId
         : (candidateIds[0] ?? null);
-    if (nextClipId === (editableVisualTimeline?.selected_clip_id ?? null)) {
+    if (nextClipId === (selectedClipId ?? null)) {
       return;
     }
     setSelectedClipId(nextClipId);
   }, [
     editableVisualTimeline?.selected_clip_id,
+    currentPass,
     launchContext.workspace_id,
     launchContext.workpiece_id,
     props.initialSelectedOverlayRowId,
+    selectedClipId,
+    selectedSourceTab,
     sourceVisualPlacementItems,
   ]);
   const sourceVisualPlacementBySegmentId = useMemo(() => {
@@ -2552,13 +2578,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     (option) => option.id === selectedImageAnimationPreset,
   )?.label ?? "None";
   const previewSurfaceLabel = useMemo(() => {
-    if (selectedVisualClip) {
+    const allowSelectedVisualLabel = (
+      selectedSourceTab === "images"
+      || selectedSourceTab === "broll"
+      || currentPass === "visual_finishing"
+      || currentPass === "image_placement"
+      || currentPass === "image_animation"
+    );
+    if (selectedVisualClip && allowSelectedVisualLabel) {
       const visualLabel = selectedVisualClip.label?.trim() || selectedVisualClip.clip_id;
       return `Selected visual: ${visualLabel} (${selectedVisualClip.start_sec.toFixed(1)}s-${selectedVisualClip.end_sec.toFixed(1)}s)`;
     }
     const fallback = resolvePreviewLabel(playheadSegment, playheadSec);
     return fallback.length > 120 ? `${fallback.slice(0, 117)}...` : fallback;
-  }, [playheadSec, playheadSegment, selectedVisualClip]);
+  }, [currentPass, playheadSec, playheadSegment, selectedSourceTab, selectedVisualClip]);
 
   useEffect(() => {
     if (!previewSurfaceRef.current) return;
@@ -5591,6 +5624,101 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useEffect(() => {
     setDeadAirAnalysis(null);
   }, [deadAirThresholdSec, editableTranscriptSegments]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.defaultPrevented) return;
+      if (isTextEditingTarget(event.target)) return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+      const key = event.key;
+      const lower = key.toLowerCase();
+
+      if (isTranscriptCandidateReviewPass) {
+        if (!event.shiftKey && (key === "1" || key === "2")) {
+          if (event.repeat) return;
+          event.preventDefault();
+          setActiveReviewKind(key === "1" ? "fillers" : "retakes");
+          setFocusOverride("tool-focus");
+          return;
+        }
+
+        if (!event.shiftKey && (lower === "j" || lower === "k")) {
+          event.preventDefault();
+          const kind = activeReviewKind;
+          if (kind === "fillers") {
+            const length = fillerCandidateCards.length;
+            if (length <= 1) return;
+            setFillerActiveCandidateIndex((previous) => clampActiveCandidateIndex(
+              previous + (lower === "j" ? 1 : -1),
+              length,
+            ));
+          } else {
+            const length = retakeCandidateCards.length;
+            if (length <= 1) return;
+            setRetakeActiveCandidateIndex((previous) => clampActiveCandidateIndex(
+              previous + (lower === "j" ? 1 : -1),
+              length,
+            ));
+          }
+          setFocusOverride("tool-focus");
+          return;
+        }
+
+        if (!event.shiftKey && (lower === "a" || lower === "r")) {
+          if (event.repeat) return;
+          event.preventDefault();
+          const kind = activeReviewKind;
+          const activeCard = kind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
+          const inFlight = kind === "retakes" ? retakeDecisionInFlight : fillerDecisionInFlight;
+          if (!activeCard) return;
+          if (inFlight) return;
+          handleCandidateDecision(kind, lower === "a");
+          return;
+        }
+      }
+
+      if (event.shiftKey && lower === "d") {
+        if (event.repeat) return;
+        event.preventDefault();
+        selectPass("gap_pacing");
+        return;
+      }
+
+      if (isDeadAirClosurePass) {
+        if (event.shiftKey && lower === "a") {
+          if (event.repeat) return;
+          event.preventDefault();
+          analyzeDeadAirClosure();
+          return;
+        }
+
+        if (!event.shiftKey && key === "Enter") {
+          if (event.repeat) return;
+          event.preventDefault();
+          if (!deadAirAnalysis) return;
+          if (deadAirApplyInFlight) return;
+          if (deadAirAnalysis.eligibleGapCount === 0) return;
+          applyDeadAirClosureBatch();
+        }
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    activeFillerCandidateCard,
+    activeReviewKind,
+    activeRetakeCandidateCard,
+    deadAirAnalysis,
+    deadAirApplyInFlight,
+    fillerCandidateCards.length,
+    fillerDecisionInFlight,
+    isDeadAirClosurePass,
+    isTranscriptCandidateReviewPass,
+    retakeCandidateCards.length,
+    retakeDecisionInFlight,
+  ]);
   useEffect(() => {
     if (fillerCandidateCards.length === 0 && fillerActiveCandidateIndex !== 0) {
       setFillerActiveCandidateIndex(0);
@@ -9829,7 +9957,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       Transcript Cleanup
                     </header>
                     <div className="hammer-tool-hint">
-                      Review filler candidates first, then retake candidates below. Approve applies immediately; reject leaves source unchanged.
+                      Review filler candidates first, then retake candidates below. Shortcuts: Fillers (1), Retakes (2), Approve (A), Reject (R), Prev/Next (K/J).
                     </div>
 
                     <div onMouseDown={() => setActiveReviewKind("fillers")}>
@@ -10039,6 +10167,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     <header className="hammer-tool-card__head">Dead Air Closure</header>
                     <div className="hammer-tool-hint">
                       Intent: Trim long silent pauses between spoken segments without changing transcript wording.
+                    </div>
+                    <div className="hammer-tool-hint">
+                      Shortcuts: Open tool (Shift+D), Analyze (Shift+A), Apply (Enter).
                     </div>
                     <label className="hammer-tool-field">
                       <span>Max allowed gap</span>
