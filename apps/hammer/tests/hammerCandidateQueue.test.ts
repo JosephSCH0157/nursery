@@ -100,6 +100,50 @@ async function testRetakePairCardBuildsFromSuggestionId() {
   assert.equal(card.afterText, "Florida's citrus didn't start small.");
 }
 
+async function testRetakeChainCardRemovesMarkerAndAbort() {
+  const segments = [
+    {
+      segment_id: "seg_a",
+      start_sec: 0,
+      end_sec: 1.0,
+      speaker: "S1",
+      text: "Florida oranges really sta—",
+    },
+    {
+      segment_id: "seg_b",
+      start_sec: 1.05,
+      end_sec: 1.4,
+      speaker: "S1",
+      text: "let me start that again",
+    },
+    {
+      segment_id: "seg_c",
+      start_sec: 1.45,
+      end_sec: 3.0,
+      speaker: "S1",
+      text: "Florida oranges didn't start small.",
+    },
+  ];
+
+  const handled = new Set<string>();
+  const result = buildCandidateQueue({
+    kind: "retakes",
+    segments: segments as never,
+    fillerOptions: fillerOptions as never,
+    retakeOptions: retakeOptions as never,
+    handledCandidateIds: handled,
+  });
+
+  assert.equal(result.cards.length, 1);
+  const card = result.cards[0]!;
+  assert.equal(card.segmentIds.includes("seg_a"), true);
+  assert.equal(card.segmentIds.includes("seg_b"), true);
+  assert.equal(card.segmentIds.includes("seg_c"), true);
+  assert.equal(card.apply.removeSegmentIds.includes("seg_a"), true);
+  assert.equal(card.apply.removeSegmentIds.includes("seg_b"), true);
+  assert.equal(card.afterText, "Florida oranges didn't start small.");
+}
+
 async function testClampIndex() {
   assert.equal(clampActiveCandidateIndex(0, 0), 0);
   assert.equal(clampActiveCandidateIndex(5, 1), 0);
@@ -110,6 +154,7 @@ async function testClampIndex() {
 async function run() {
   await testBuildQueueFiltersHandledCandidates();
   await testRetakePairCardBuildsFromSuggestionId();
+  await testRetakeChainCardRemovesMarkerAndAbort();
   await testClampIndex();
   // eslint-disable-next-line no-console
   console.log("Hammer candidate queue tests passed.");

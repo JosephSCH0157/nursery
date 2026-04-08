@@ -50,6 +50,55 @@ async function testRetakeRemovalDeterministic() {
   assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
 }
 
+async function testRetakeRemovalCatchesStartThatAgainMarkerOnly() {
+  const segments = [
+    s("a", 0, 0.9, "Host", "let me start that again"),
+    s("b", 1.0, 2.4, "Host", "Florida oranges didn't start small."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 1);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
+}
+
+async function testRetakeRemovalCatchesNearImmediateReread() {
+  const segments = [
+    s("a", 0, 1.3, "Host", "Florida oranges didn't start small."),
+    s("b", 1.35, 2.8, "Host", "Florida oranges didn't start small."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 1);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "b"), true);
+}
+
+async function testRetakeRemovalCatchesAbortThenMarkerThenRedoChain() {
+  const segments = [
+    s("a", 0, 1.0, "Host", "Florida oranges really sta—"),
+    s("b", 1.05, 1.5, "Host", "let me start that again"),
+    s("c", 1.55, 3.0, "Host", "Florida oranges didn't start small."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 2);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "b"), false);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "c"), true);
+}
+
 async function testQuickCleanOrderDeterministic() {
   const segments = [
     s("a", 0, 1, "Host", "uh intro"),
@@ -266,6 +315,9 @@ async function run() {
   await testShortenGapsDeterministic();
   await testFillerRemovalDeterministic();
   await testRetakeRemovalDeterministic();
+  await testRetakeRemovalCatchesStartThatAgainMarkerOnly();
+  await testRetakeRemovalCatchesNearImmediateReread();
+  await testRetakeRemovalCatchesAbortThenMarkerThenRedoChain();
   await testQuickCleanOrderDeterministic();
   await testTightenSelectionPreservesUnselectedSegments();
   await testTightenSelectionRejectsInlineSpeakerTagAsTextMutationRisk();
