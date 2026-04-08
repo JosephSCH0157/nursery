@@ -1741,6 +1741,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [retakeActiveCandidateIndex, setRetakeActiveCandidateIndex] = useState(0);
   const [retakeDecisionInFlight, setRetakeDecisionInFlight] = useState(false);
   const [activeReviewKind, setActiveReviewKind] = useState<HammerCandidateReviewKind>("fillers");
+  const [activeTranscriptToolSection, setActiveTranscriptToolSection] = useState<"fillers" | "retakes" | "silence_gaps">("fillers");
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
   const [editableAudioPolish, setEditableAudioPolish] = useState<HammerPersistedAudioPolish | null>(
@@ -2140,7 +2141,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   );
   const isTranscriptCandidateReviewPass = activeTool === "polish"
     && (currentPass === "transcript_cleanup" || currentPass === "retakes");
-  const isDeadAirClosurePass = activeTool === "polish" && currentPass === "gap_pacing";
+  const isTranscriptToolSurface = activeTool === "polish"
+    && (currentPass === "transcript_cleanup" || currentPass === "retakes" || currentPass === "gap_pacing");
   const transcriptSelectionRange = useMemo(
     () => resolveTranscriptSegmentRange({
       segments: editableTranscriptSegments,
@@ -5634,7 +5636,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         if (!event.shiftKey && (key === "1" || key === "2")) {
           if (event.repeat) return;
           event.preventDefault();
-          setActiveReviewKind(key === "1" ? "fillers" : "retakes");
+          const nextKind = key === "1" ? "fillers" : "retakes";
+          setActiveReviewKind(nextKind);
+          setActiveTranscriptToolSection(nextKind);
           setFocusOverride("tool-focus");
           return;
         }
@@ -5665,6 +5669,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           if (event.repeat) return;
           event.preventDefault();
           const kind = activeReviewKind;
+          setActiveTranscriptToolSection(kind);
           const activeCard = kind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
           const inFlight = kind === "retakes" ? retakeDecisionInFlight : fillerDecisionInFlight;
           if (!activeCard) return;
@@ -5678,10 +5683,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         if (event.repeat) return;
         event.preventDefault();
         selectPass("gap_pacing");
+        setActiveTranscriptToolSection("silence_gaps");
         return;
       }
 
-      if (isDeadAirClosurePass) {
+      if (isTranscriptToolSurface && activeTranscriptToolSection === "silence_gaps") {
         if (event.shiftKey && lower === "a") {
           if (event.repeat) return;
           event.preventDefault();
@@ -5710,8 +5716,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     deadAirApplyInFlight,
     fillerCandidateCards.length,
     fillerDecisionInFlight,
-    isDeadAirClosurePass,
     isTranscriptCandidateReviewPass,
+    isTranscriptToolSurface,
+    activeTranscriptToolSection,
     retakeCandidateCards.length,
     retakeDecisionInFlight,
   ]);
@@ -9949,17 +9956,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               </div>
             </header>
             <div className="hammer-bay-body">
-              {activeTool === "polish" ? (
-                currentPass === "transcript_cleanup" || currentPass === "retakes" ? (
-                  <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">
-                      Transcript Cleanup
-                    </header>
-                    <div className="hammer-tool-hint">
-                      Review filler candidates first, then retake candidates below. Shortcuts: Fillers (1), Retakes (2), Approve (A), Reject (R), Prev/Next (K/J).
-                    </div>
+                  {activeTool === "polish" ? (
+                    currentPass === "transcript_cleanup" || currentPass === "retakes" || currentPass === "gap_pacing" ? (
+                      <section className="hammer-tool-card">
+                        <header className="hammer-tool-card__head">
+                          Transcript Cleanup
+                        </header>
+                        <div className="hammer-tool-hint">
+                          Review filler candidates first, then retake candidates below. Shortcuts: Fillers (1), Retakes (2), Approve (A), Reject (R), Prev/Next (K/J).
+                        </div>
 
-                    <div onMouseDown={() => setActiveReviewKind("fillers")}>
+                    <div onMouseDown={() => {
+                      setActiveReviewKind("fillers");
+                      setActiveTranscriptToolSection("fillers");
+                    }}>
                       <header className="hammer-cleanup-tool__head">
                         <strong>Filler Cleanup</strong>
                         <span>Intent: Remove filler phrases without rewriting surrounding content.</span>
@@ -10080,7 +10090,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
                     <hr className="hammer-divider" />
 
-                    <div onMouseDown={() => setActiveReviewKind("retakes")}>
+                    <div onMouseDown={() => {
+                      setActiveReviewKind("retakes");
+                      setActiveTranscriptToolSection("retakes");
+                    }}>
                       <header className="hammer-cleanup-tool__head">
                         <strong>Retake Review</strong>
                         <span>Intent: Detect adjacent restarts and false starts for optional removal.</span>
@@ -10160,61 +10173,63 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         <div className="hammer-tool-hint">No retake candidates detected in this pass.</div>
                       )}
                     </div>
-                  </section>
-                ) : currentPass === "gap_pacing" ? (
-                  <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Silence Gaps</header>
-                    <div className="hammer-tool-hint">
-                      Intent: Trim long silent pauses between spoken segments without changing transcript wording.
-                    </div>
-                    <div className="hammer-tool-hint">
-                      Shortcuts: Open tool (Shift+D), Analyze (Shift+A), Apply (Enter).
-                    </div>
-                    <label className="hammer-tool-field">
-                      <span>Max allowed gap</span>
-                      <select
-                        value={deadAirThresholdSec}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setDeadAirThresholdSec(Number(event.target.value) || 1.5);
-                        }}
-                      >
-                        <option value={1.0}>1.0s</option>
-                        <option value={1.5}>1.5s</option>
-                        <option value={2.0}>2.0s</option>
-                      </select>
-                    </label>
-                    <div className="hammer-candidate-review__actions">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          analyzeDeadAirClosure();
-                        }}
-                      >
-                        Analyze
-                      </button>
-                      <button
-                        type="button"
-                        disabled={
-                          deadAirApplyInFlight
-                          || !deadAirAnalysis
-                          || deadAirAnalysis.eligibleGapCount === 0
-                        }
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          applyDeadAirClosureBatch();
-                        }}
-                      >
-                        Apply
-                      </button>
-                    </div>
-                    <div className="hammer-tool-hint">
-                      {!deadAirAnalysis
-                        ? "Analyze to preview how many gaps exceed the selected threshold."
-                        : deadAirAnalysis.eligibleGapCount === 0
-                          ? "No dead air gaps exceed the selected threshold."
-                          : `${deadAirAnalysis.eligibleGapCount} gap${deadAirAnalysis.eligibleGapCount === 1 ? "" : "s"} exceed ${deadAirAnalysis.thresholdSec.toFixed(1)}s; applying would remove ${deadAirAnalysis.totalRemovableSec.toFixed(1)}s of dead air.`}
+
+                    <hr className="hammer-divider" />
+
+                    <div onMouseDown={() => setActiveTranscriptToolSection("silence_gaps")}>
+                      <header className="hammer-cleanup-tool__head">
+                        <strong>Silence Gaps</strong>
+                        <span>Intent: Trim long silent pauses between spoken segments without changing transcript wording.</span>
+                      </header>
+                      <div className="hammer-tool-hint">
+                        Shortcuts: Focus (Shift+D), Analyze (Shift+A), Apply (Enter).
+                      </div>
+                      <label className="hammer-tool-field">
+                        <span>Max allowed gap</span>
+                        <select
+                          value={deadAirThresholdSec}
+                          onChange={(event) => {
+                            setFocusOverride("tool-focus");
+                            setDeadAirThresholdSec(Number(event.target.value) || 1.5);
+                          }}
+                        >
+                          <option value={1.0}>1.0s</option>
+                          <option value={1.5}>1.5s</option>
+                          <option value={2.0}>2.0s</option>
+                        </select>
+                      </label>
+                      <div className="hammer-candidate-review__actions">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFocusOverride("tool-focus");
+                            analyzeDeadAirClosure();
+                          }}
+                        >
+                          Analyze
+                        </button>
+                        <button
+                          type="button"
+                          disabled={
+                            deadAirApplyInFlight
+                            || !deadAirAnalysis
+                            || deadAirAnalysis.eligibleGapCount === 0
+                          }
+                          onClick={() => {
+                            setFocusOverride("tool-focus");
+                            applyDeadAirClosureBatch();
+                          }}
+                        >
+                          Apply
+                        </button>
+                      </div>
+                      <div className="hammer-tool-hint">
+                        {!deadAirAnalysis
+                          ? "Analyze to preview how many gaps exceed the selected threshold."
+                          : deadAirAnalysis.eligibleGapCount === 0
+                            ? "No silence gaps exceed the selected threshold."
+                            : `${deadAirAnalysis.eligibleGapCount} gap${deadAirAnalysis.eligibleGapCount === 1 ? "" : "s"} exceed ${deadAirAnalysis.thresholdSec.toFixed(1)}s; applying would remove ${deadAirAnalysis.totalRemovableSec.toFixed(1)}s of silence.`}
+                      </div>
                     </div>
                   </section>
                 ) : (
