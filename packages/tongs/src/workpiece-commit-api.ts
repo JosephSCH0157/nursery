@@ -467,6 +467,20 @@ export type SaveHammerWorkpieceStateRequest = {
   edit_plan?: HammerArtifactWriteRequest;
 };
 
+export type ResetHammerWorkpieceToRawRequest = {
+  written_by: WrittenBy;
+  reason?: string | null;
+};
+
+export type ResetHammerWorkpieceToRawResult = {
+  reset_at: string;
+  deleted_file_count: number;
+  deleted_paths: string[];
+  deleted_hammer_state: boolean;
+  cleared_presence: boolean;
+  warnings: string[];
+};
+
 export type HammerPersistedArtifactRecord = {
   path: string | null;
   file_updated_at: string | null;
@@ -1005,6 +1019,12 @@ export type TongsCommitApiService = {
     input: SaveHammerWorkpieceStateRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<HammerPersistenceSnapshot>;
+  resetHammerWorkpieceToRaw(
+    workspaceId: string,
+    workpieceId: string,
+    input: ResetHammerWorkpieceToRawRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ResetHammerWorkpieceToRawResult>;
   listHammerWorkpiecePresence(
     workspaceId: string,
     workpieceId: string,
@@ -2530,6 +2550,21 @@ function normalizeHammerStateRow(
     edit_plan_signature: orchestration.edit_plan_signature,
     macro_recipe_ref: orchestration.macro_recipe_ref,
     last_macro_run_ref: orchestration.last_macro_run_ref,
+  };
+}
+
+function normalizeResetHammerWorkpieceToRawRequest(
+  body: Record<string, unknown>,
+): ResetHammerWorkpieceToRawRequest {
+  const writtenBy = normalizeWrittenBy(body.written_by);
+  const reason = typeof body.reason === "undefined"
+    ? undefined
+    : body.reason === null
+      ? null
+      : normalizeNonEmptyString(body.reason, "reason");
+  return {
+    written_by: writtenBy,
+    ...(typeof reason === "undefined" ? {} : { reason }),
   };
 }
 
@@ -5200,6 +5235,161 @@ export class TongsCommitService {
     }
 
     return this.readHammerWorkpieceState(workspaceId, workpieceId, options);
+  }
+
+  async resetHammerWorkpieceToRaw(
+    workspaceId: string,
+    workpieceId: string,
+    input: ResetHammerWorkpieceToRawRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ResetHammerWorkpieceToRawResult> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+
+    const warnings: string[] = [];
+    const nowIso = new Date().toISOString();
+    const writtenBy = normalizeWrittenBy(input.written_by);
+
+    const { data: hammerFiles, error: hammerFilesError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_files")
+      .select("path,storage_bucket,storage_key,bytes")
+      .eq("workpiece_id", workpieceId)
+      .like("path", "hammer/%");
+
+    if (hammerFilesError) {
+      throw new HttpError(502, "db_read_failed", "Failed to list Hammer workpiece files for reset", {
+        reason: hammerFilesError.message,
+      });
+    }
+
+    const deletedPaths = Array.from(new Set((hammerFiles ?? []).map((row) => row.path))).sort();
+
+    if (deletedPaths.length > 0) {
+      const manifest = await this.loadManifestOrDefault(cradle);
+      manifest.updated_at = nowIso;
+
+      for (const path of deletedPaths) {
+        delete manifest.files[path];
+      }
+
+      const deletedPathSet = new Set(deletedPaths);
+      for (const pointerKey of Object.keys(manifest.pointers) as ManifestPointerKey[]) {
+        if (deletedPathSet.has(manifest.pointers[pointerKey] ?? "")) {
+          manifest.pointers[pointerKey] = null;
+        }
+      }
+
+      const finalized = await finalizeManifestTwoPass(manifest, writtenBy, nowIso);
+      await uploadStorageObject(
+        this.supabase,
+        this.bucket,
+        buildStorageKey(cradle.id, MANIFEST_PATH),
+        finalized.manifestBytes,
+        "application/json",
+      );
+      await this.upsertWorkpieceFile([
+        {
+          workpiece_id: cradle.id,
+          path: MANIFEST_PATH,
+          file_type: "manifest",
+          content_type: "application/json",
+          bytes: finalized.finalBytes,
+          hash_algo: SHA256_ALGO,
+          hash_value: finalized.finalHash,
+          storage_bucket: this.bucket,
+          storage_key: buildStorageKey(cradle.id, MANIFEST_PATH),
+          written_by_tool: writtenBy.tool,
+          written_by_tool_version: writtenBy.tool_version,
+          written_by_lane: writtenBy.lane,
+        },
+      ]);
+
+      const { error: deleteFileRowsError } = await this.supabase
+        .schema("tongs")
+        .from("workpiece_files")
+        .delete()
+        .eq("workpiece_id", workpieceId)
+        .like("path", "hammer/%");
+
+      if (deleteFileRowsError) {
+        throw new HttpError(502, "db_write_failed", "Failed to delete Hammer workpiece file rows during reset", {
+          reason: deleteFileRowsError.message,
+        });
+      }
+
+      const storageKeysByBucket = new Map<string, string[]>();
+      for (const row of hammerFiles ?? []) {
+        const storageBucket = row.storage_bucket?.trim() || this.bucket;
+        const storageKey = row.storage_key?.trim() || buildStorageKey(workpieceId, row.path);
+        const existing = storageKeysByBucket.get(storageBucket);
+        if (existing) {
+          if (!existing.includes(storageKey)) existing.push(storageKey);
+        } else {
+          storageKeysByBucket.set(storageBucket, [storageKey]);
+        }
+      }
+
+      for (const [bucket, keys] of storageKeysByBucket.entries()) {
+        const { error: storageDeleteError } = await this.supabase.storage
+          .from(bucket)
+          .remove(keys);
+        if (storageDeleteError) {
+          logStorageError("delete", bucket, keys.join(","), storageDeleteError);
+          warnings.push("storage_delete_failed");
+        }
+      }
+    }
+
+    const [deleteStateResult, deletePresenceResult] = await Promise.all([
+      this.supabase
+        .schema("tongs")
+        .from("hammer_workpiece_state")
+        .delete()
+        .eq("workspace_id", workspaceId)
+        .eq("workpiece_id", workpieceId)
+        .select("workpiece_id"),
+      this.supabase
+        .schema("tongs")
+        .from("hammer_workpiece_presence")
+        .delete()
+        .eq("workspace_id", workspaceId)
+        .eq("workpiece_id", workpieceId)
+        .select("workpiece_id"),
+    ]);
+
+    if (deleteStateResult.error || deletePresenceResult.error) {
+      throw new HttpError(502, "db_write_failed", "Failed to clear Hammer state rows during reset", {
+        reason: deleteStateResult.error?.message ?? deletePresenceResult.error?.message ?? "unknown",
+      });
+    }
+
+    await this.insertEvent({
+      workpieceId,
+      eventName: "hammer.reset_to_raw.v1",
+      payload: {
+        schema_version: 1,
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        reset_at: nowIso,
+        deleted_file_count: deletedPaths.length,
+        deleted_paths: deletedPaths,
+        reason: input.reason ?? null,
+      } as Json,
+      writtenBy,
+      correlationId: null,
+    });
+
+    return {
+      reset_at: nowIso,
+      deleted_file_count: deletedPaths.length,
+      deleted_paths: deletedPaths,
+      deleted_hammer_state: (deleteStateResult.data ?? []).length > 0,
+      cleared_presence: (deletePresenceResult.data ?? []).length > 0,
+      warnings,
+    };
   }
 
   async listHammerWorkpiecePresence(
@@ -9214,6 +9404,29 @@ export function createTongsCommitApiHandlerWithService(
         }
 
         throw new HttpError(405, "method_not_allowed", "Expected GET or PUT for this endpoint");
+      }
+
+      if (
+        parts.length === 7
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "workpieces"
+        && parts[5] === "hammer"
+        && parts[6] === "reset-to-raw"
+      ) {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const payload = normalizeResetHammerWorkpieceToRawRequest(body);
+        const result = await service.resetHammerWorkpieceToRaw(
+          workspaceId,
+          workpieceId,
+          payload,
+          { userAccessToken },
+        );
+        return jsonResponse(200, { ok: true, data: { result } });
       }
 
       if (

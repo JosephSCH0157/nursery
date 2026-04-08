@@ -731,6 +731,10 @@ function buildPresenceUrl(target: HammerPersistenceTarget): string {
   return `/tongs/workspaces/${encodeURIComponent(target.workspaceId)}/workpieces/${encodeURIComponent(target.workpieceId)}/hammer/presence`;
 }
 
+function buildResetToRawUrl(target: HammerPersistenceTarget): string {
+  return `/tongs/workspaces/${encodeURIComponent(target.workspaceId)}/workpieces/${encodeURIComponent(target.workpieceId)}/hammer/reset-to-raw`;
+}
+
 export async function loadHammerPersistenceSnapshot(
   target: HammerPersistenceTarget,
 ): Promise<PersistenceResult<HammerPersistenceSnapshot>> {
@@ -812,6 +816,56 @@ export async function saveHammerPersistenceSnapshot(
     ok: true,
     status: response.status,
     data: snapshot,
+  };
+}
+
+export async function resetHammerWorkpieceToRaw(
+  target: HammerPersistenceTarget,
+  args?: { reason?: string | null },
+): Promise<PersistenceResult<{ reset_at: string }>> {
+  let response: Response;
+  try {
+    response = await tongsFetch(buildResetToRawUrl(target), {
+      method: "POST",
+      json: {
+        written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
+        reason: typeof args?.reason === "undefined" ? undefined : args?.reason,
+      },
+      timeoutMs: HAMMER_PERSISTENCE_SAVE_TIMEOUT_MS,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      status: 504,
+      error: toRequestErrorMessage(error, "Hammer reset to raw timed out."),
+    };
+  }
+
+  const payload = await readJsonBody(response);
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: readErrorMessage(payload, "Failed to reset Hammer episode to raw."),
+    };
+  }
+
+  const root = readJsonObject(payload);
+  const data = readJsonObject(root?.data);
+  const result = readJsonObject(data?.result);
+  const resetAt = readString(result?.reset_at);
+  if (!resetAt) {
+    return {
+      ok: false,
+      status: response.status,
+      error: "Hammer reset-to-raw response was invalid.",
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    data: { reset_at: resetAt },
   };
 }
 

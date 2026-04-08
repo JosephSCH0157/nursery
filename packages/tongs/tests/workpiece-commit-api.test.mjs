@@ -37,6 +37,7 @@ function mockService() {
     deleteReadyScript: [],
     readHammerWorkpieceState: [],
     saveHammerWorkpieceState: [],
+    resetHammerWorkpieceToRaw: [],
     listHammerWorkpiecePresence: [],
     upsertHammerWorkpiecePresence: [],
     getWorkpieceRecordingTruth: [],
@@ -829,6 +830,17 @@ function mockService() {
       calls.saveHammerWorkpieceState.push({ workspaceId, workpieceId, input, options: options ?? null });
       return service.readHammerWorkpieceState(workspaceId, workpieceId, options);
     },
+    async resetHammerWorkpieceToRaw(workspaceId, workpieceId, input, options) {
+      calls.resetHammerWorkpieceToRaw.push({ workspaceId, workpieceId, input, options: options ?? null });
+      return {
+        reset_at: "2026-03-13T12:00:00.000Z",
+        deleted_file_count: 0,
+        deleted_paths: [],
+        deleted_hammer_state: true,
+        cleared_presence: true,
+        warnings: [],
+      };
+    },
     async listHammerWorkpiecePresence(workspaceId, workpieceId, options) {
       calls.listHammerWorkpiecePresence.push({ workspaceId, workpieceId, options: options ?? null });
       return [
@@ -1059,6 +1071,39 @@ test("PUT /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/state no
   assert.equal(body.ok, true);
   assert.equal(calls.saveHammerWorkpieceState.length, 1);
   assert.equal(calls.saveHammerWorkpieceState[0]?.input?.audio_polish?.data?.audio_edit, null);
+});
+
+test("POST /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/reset-to-raw forwards reset request and token", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/reset-to-raw",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer hammer_user_token",
+      },
+      body: JSON.stringify({
+        written_by: {
+          tool: "hammer",
+          tool_version: "forge-v1.2.0",
+          lane: "forge-managed",
+        },
+        reason: "user_requested_reset",
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(calls.resetHammerWorkpieceToRaw.length, 1);
+  assert.equal(calls.resetHammerWorkpieceToRaw[0]?.options?.userAccessToken, "hammer_user_token");
+  assert.equal(calls.resetHammerWorkpieceToRaw[0]?.input?.reason, "user_requested_reset");
+  assert.equal(calls.resetHammerWorkpieceToRaw[0]?.input?.written_by?.tool, "hammer");
 });
 
 test("TongsCommitService.readHammerWorkpieceState normalizes malformed structured_transcript on read", async () => {

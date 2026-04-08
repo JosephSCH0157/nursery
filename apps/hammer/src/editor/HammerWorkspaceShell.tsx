@@ -396,6 +396,9 @@ type HammerWorkspaceShellProps = {
     token: number;
   } | null;
   aiInUse?: boolean;
+  resetToRawInFlight?: boolean;
+  resetToRawError?: string | null;
+  onRequestResetToRaw?: () => void;
   onHistoryRecoveryStatusChange?: (status: string | null) => void;
   onWorkspaceSnapshotChange?: (snapshot: HammerWorkspaceSnapshot) => void;
 };
@@ -9232,6 +9235,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 <header className="hammer-history-panel__head">
                   <strong>History</strong>
                   <div className="hammer-history-panel__head-actions">
+                    {props.onRequestResetToRaw ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const ok = window.confirm(
+                            "Reset to Raw removes all Hammer edits (cleanup cuts, timing shifts, visuals, audio edits) and restores the original imported episode baseline. Continue?",
+                          );
+                          if (!ok) return;
+                          props.onRequestResetToRaw?.();
+                        }}
+                        className="hammer-history-panel__action"
+                        disabled={props.resetToRawInFlight}
+                        title="Restore this episode to its original imported state (clears all Hammer edits)"
+                      >
+                        {props.resetToRawInFlight ? "Resetting..." : "Reset to Raw"}
+                      </button>
+                    ) : null}
                     {canRedo ? (
                       <button
                         type="button"
@@ -9244,6 +9264,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     <span>{recentHistoryEntries.length} shown</span>
                   </div>
                 </header>
+                {props.resetToRawError ? (
+                  <div className="hammer-history-panel__empty" role="status">
+                    {props.resetToRawError}
+                  </div>
+                ) : null}
                 {recentHistoryEntries.length === 0 ? (
                   <div className="hammer-history-panel__empty">No edits recorded yet.</div>
                 ) : (

@@ -23,6 +23,7 @@ import {
   loadHammerPresence,
   loadHammerPersistenceSnapshot,
   readHammerPersistenceTarget,
+  resetHammerWorkpieceToRaw,
   saveHammerPersistenceSnapshot,
   upsertHammerPresence,
 } from "../persistence/hammerPersistence";
@@ -203,6 +204,8 @@ export default function HammerWorkspaceEditor(
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [historyRecoveryStatus, setHistoryRecoveryStatus] = useState<string | null>(null);
   const [presenceConflictDetail, setPresenceConflictDetail] = useState<string | null>(null);
+  const [resetToRawInFlight, setResetToRawInFlight] = useState(false);
+  const [resetToRawError, setResetToRawError] = useState<string | null>(null);
   const [reloadRequestNonce, setReloadRequestNonce] = useState(0);
   const [saveRetryNonce, setSaveRetryNonce] = useState(0);
   const [showPrepAiNotice, setShowPrepAiNotice] = useState(false);
@@ -1107,6 +1110,27 @@ export default function HammerWorkspaceEditor(
     setSaveRetryNonce(next.saveRetryNonce);
   }
 
+  async function handleResetToRaw(): Promise<void> {
+    if (resetToRawInFlight) return;
+    if (persistenceMode !== "canonical" || !persistenceTarget) {
+      setResetToRawError("Reset to Raw is only available in canonical sessions.");
+      return;
+    }
+
+    setResetToRawInFlight(true);
+    setResetToRawError(null);
+    try {
+      const result = await resetHammerWorkpieceToRaw(persistenceTarget, { reason: "user_requested_reset" });
+      if (!result.ok) {
+        setResetToRawError(result.error);
+        return;
+      }
+      setReloadRequestNonce((current) => current + 1);
+    } finally {
+      setResetToRawInFlight(false);
+    }
+  }
+
   useEffect(() => {
     if (!showPreparedHandoff || !shouldRenderEditor) return;
 
@@ -1199,6 +1223,9 @@ export default function HammerWorkspaceEditor(
             lastMacroRunRef={loadedPersistenceSnapshot?.macro_hooks.last_run_ref ?? null}
             prepHandoffAction={preparedActionIntent}
             aiInUse={prepState.status === "preparing"}
+            resetToRawInFlight={resetToRawInFlight}
+            resetToRawError={resetToRawError}
+            onRequestResetToRaw={canPersistCanonicalState ? handleResetToRaw : undefined}
             onHistoryRecoveryStatusChange={setHistoryRecoveryStatus}
             onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
           />
