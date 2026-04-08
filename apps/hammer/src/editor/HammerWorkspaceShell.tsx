@@ -411,7 +411,7 @@ const PASS_ORDER: Array<{
 }> = [
   { id: "transcript_cleanup", shortLabel: "T1", label: "Transcript Cleanup", toolId: "polish", sourceTab: "transcript" },
   { id: "retakes", shortLabel: "T2", label: "Retakes", toolId: "polish", sourceTab: "transcript" },
-  { id: "gap_pacing", shortLabel: "T3", label: "Gap/Pacing", toolId: "polish", sourceTab: "transcript" },
+  { id: "gap_pacing", shortLabel: "T3", label: "Silence Gaps", toolId: "polish", sourceTab: "transcript" },
   { id: "visual_finishing", shortLabel: "V1", label: "Visual Finishing", toolId: "video", sourceTab: "images" },
   { id: "image_placement", shortLabel: "V2", label: "Image Placement", toolId: "video", sourceTab: "images" },
   { id: "image_animation", shortLabel: "V3", label: "Image Animation", toolId: "video", sourceTab: "images" },
@@ -2505,15 +2505,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => sourceVisualPlacementItems.filter((item) => item.kind === "broll" || item.kind === "reference_clip"),
     [sourceVisualPlacementItems],
   );
+  const isVisualPreviewAuthority = (
+    selectedSourceTab === "images"
+    || selectedSourceTab === "broll"
+    || currentPass === "visual_finishing"
+    || currentPass === "image_placement"
+    || currentPass === "image_animation"
+  );
   useEffect(() => {
-    const allowVisualAutoSelection = (
-      selectedSourceTab === "images"
-      || selectedSourceTab === "broll"
-      || currentPass === "visual_finishing"
-      || currentPass === "image_placement"
-      || currentPass === "image_animation"
-    );
-    if (!allowVisualAutoSelection) return;
+    if (!isVisualPreviewAuthority) return;
 
     const candidateIds = sourceVisualPlacementItems.map((item) => item.id);
     const preferredId = editableVisualTimeline?.selected_clip_id ?? props.initialSelectedOverlayRowId ?? null;
@@ -2529,6 +2529,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [
     editableVisualTimeline?.selected_clip_id,
     currentPass,
+    isVisualPreviewAuthority,
     launchContext.workspace_id,
     launchContext.workpiece_id,
     props.initialSelectedOverlayRowId,
@@ -2578,20 +2579,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     (option) => option.id === selectedImageAnimationPreset,
   )?.label ?? "None";
   const previewSurfaceLabel = useMemo(() => {
-    const allowSelectedVisualLabel = (
-      selectedSourceTab === "images"
-      || selectedSourceTab === "broll"
-      || currentPass === "visual_finishing"
-      || currentPass === "image_placement"
-      || currentPass === "image_animation"
-    );
-    if (selectedVisualClip && allowSelectedVisualLabel) {
+    if (selectedVisualClip && isVisualPreviewAuthority) {
       const visualLabel = selectedVisualClip.label?.trim() || selectedVisualClip.clip_id;
       return `Selected visual: ${visualLabel} (${selectedVisualClip.start_sec.toFixed(1)}s-${selectedVisualClip.end_sec.toFixed(1)}s)`;
     }
     const fallback = resolvePreviewLabel(playheadSegment, playheadSec);
     return fallback.length > 120 ? `${fallback.slice(0, 117)}...` : fallback;
-  }, [currentPass, playheadSec, playheadSegment, selectedSourceTab, selectedVisualClip]);
+  }, [isVisualPreviewAuthority, playheadSec, playheadSegment, selectedVisualClip]);
 
   useEffect(() => {
     if (!previewSurfaceRef.current) return;
@@ -2599,6 +2593,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [visualPreviewFilter]);
 
   const activePreviewOverlays = useMemo<VisualPreviewOverlayModel[]>(() => {
+    if (!isVisualPreviewAuthority) return [];
     if (!editableVisualTimeline) return [];
     const selectedClip = selectClipById(editableVisualTimeline, selectedClipId);
     const shouldFocusSelectedInPreview = (
@@ -2641,6 +2636,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     currentPass,
     editableVisualTimeline,
     imagePlacementTransforms,
+    isVisualPreviewAuthority,
     playheadSec,
     selectedClipId,
     sourceDeskPreviewUrls,
@@ -9873,12 +9869,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 />
                 <div className="hammer-preview-surface__label">{previewSurfaceLabel}</div>
                 <VisualPreviewComposer
-                  overlays={activePreviewOverlays}
-                  editable={visualPlacementEditingEnabled}
+                  overlays={isVisualPreviewAuthority ? activePreviewOverlays : []}
+                  editable={isVisualPreviewAuthority && visualPlacementEditingEnabled}
                   onSelectClip={(clipId) => {
+                    if (!isVisualPreviewAuthority) return;
                     setSelectedClipId(clipId);
                   }}
                   onBeginMove={(event, clipId) => {
+                    if (!isVisualPreviewAuthority) return;
                     if (!visualPlacementEditingEnabled) return;
                     beginPreviewCanvasDrag(event, {
                       placementId: clipId,
@@ -9886,6 +9884,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     });
                   }}
                   onBeginResize={(event, clipId) => {
+                    if (!isVisualPreviewAuthority) return;
                     if (!visualPlacementEditingEnabled) return;
                     beginPreviewCanvasDrag(event, {
                       placementId: clipId,
@@ -10164,7 +10163,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   </section>
                 ) : currentPass === "gap_pacing" ? (
                   <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Dead Air Closure</header>
+                    <header className="hammer-tool-card__head">Silence Gaps</header>
                     <div className="hammer-tool-hint">
                       Intent: Trim long silent pauses between spoken segments without changing transcript wording.
                     </div>
