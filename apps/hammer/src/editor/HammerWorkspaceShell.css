@@ -231,6 +231,24 @@ Guardrails:
   font-size: 12px;
 }
 
+.hammer-candidate-edit {
+  width: 100%;
+  min-height: 86px;
+  resize: vertical;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.45);
+  color: #e2e8f0;
+  font-size: 12px;
+  padding: 8px;
+  outline: none;
+}
+
+.hammer-candidate-edit:focus-visible {
+  border-color: rgba(96, 165, 250, 0.7);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.35);
+}
+
 .hammer-candidate-diff {
   white-space: pre-wrap;
   word-break: break-word;
