@@ -1,7 +1,7 @@
 import { tongsFetch } from "../lib/tongsFetch";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { MediaKind, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
-import { loadHammerPersistenceSnapshot } from "../persistence/hammerPersistence";
+import { openHammerRecordingSession } from "../persistence/hammerRecordingRevisionPersistence";
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const HAMMER_ACTIVE_WORKSPACE_KEY = "hammer_workspace_id_v1";
@@ -510,8 +510,8 @@ export async function loadHammerWorkspaceProjects(
   const episodes = await listHammerWorkspaceEpisodes(workspaceId);
   const detailResults = await Promise.allSettled(
     episodes.map(async (episode) => {
-      const [snapshotResult, truthResult] = await Promise.allSettled([
-        loadHammerPersistenceSnapshot({
+      const [sessionResult, truthResult] = await Promise.allSettled([
+        openHammerRecordingSession({
           workspaceId,
           workpieceId: episode.id,
         }),
@@ -519,7 +519,7 @@ export async function loadHammerWorkspaceProjects(
       ]);
 
       return {
-        snapshotResult: snapshotResult.status === "fulfilled" ? snapshotResult.value : null,
+        sessionResult: sessionResult.status === "fulfilled" ? sessionResult.value : null,
         recordingTruth: truthResult.status === "fulfilled"
           ? truthResult.value
           : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null },
@@ -530,37 +530,26 @@ export async function loadHammerWorkspaceProjects(
 
   return episodes.map((episode, index) => {
     const detailResult = detailResults[index];
-    const snapshotResult = detailResult?.status === "fulfilled"
-      ? detailResult.value.snapshotResult
+    const sessionResult = detailResult?.status === "fulfilled"
+      ? detailResult.value.sessionResult
       : null;
     const recordingTruth = detailResult?.status === "fulfilled"
       ? detailResult.value.recordingTruth
       : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null };
-    const snapshot = snapshotResult?.ok
-      ? snapshotResult.data
+    const canonicalRecording = sessionResult?.ok ? sessionResult.data.canonical_recording : null;
+    const revision = sessionResult?.ok ? sessionResult.data.revision : null;
+    const prepStatus = canonicalRecording?.baseline_transcript_path
+      ? "prepared"
+      : revision?.revision_transcript_path
+      ? "prepared"
       : null;
-    const prepStatus = readString(snapshot?.state?.prep_status);
-    const hasEditorSession = Boolean(snapshot?.state?.editor_session_path || snapshot?.editor_session.path || snapshot?.editor_session.data);
+    const hasEditorSession = Boolean(revision?.editor_session_path);
     const hasStructuredTranscript = Boolean(
-      snapshot?.state?.transcript_artifact_path
-      || snapshot?.structured_transcript.path
-      || snapshot?.structured_transcript.data?.segments?.length,
+      canonicalRecording?.baseline_transcript_path || revision?.revision_transcript_path,
     );
-    const hasVisualPlacements = Boolean(
-      snapshot?.state?.visual_placement_artifact_path
-      || snapshot?.visual_placements.path
-      || snapshot?.visual_placements.data,
-    );
-    const hasAudioPolish = Boolean(
-      snapshot?.state?.audio_polish_artifact_path
-      || snapshot?.audio_polish.path
-      || snapshot?.audio_polish.data,
-    );
-    const hasEditPlan = Boolean(
-      snapshot?.state?.edit_plan_artifact_path
-      || snapshot?.edit_plan.path
-      || snapshot?.edit_plan.data,
-    );
+    const hasVisualPlacements = Boolean(revision?.visual_placements_path);
+    const hasAudioPolish = Boolean(revision?.audio_polish_path);
+    const hasEditPlan = false;
     const editReadiness = classifyHammerRuntimeProject({
       hasKeptTake: recordingTruth.hasKeptTake,
       hasEditorSession,
@@ -569,9 +558,9 @@ export async function loadHammerWorkspaceProjects(
       hasAudioPolish,
       hasEditPlan,
     });
-    const editInstructionCount = snapshot?.edit_plan.data?.instructions.length ?? 0;
+    const editInstructionCount = 0;
     const stateUnavailable = detailResult?.status === "rejected"
-      || (detailResult?.status === "fulfilled" && (!snapshotResult?.ok || detailResult.value.recordingTruthUnavailable));
+      || (detailResult?.status === "fulfilled" && (!sessionResult?.ok || detailResult.value.recordingTruthUnavailable));
 
     return {
       workpieceId: episode.id,

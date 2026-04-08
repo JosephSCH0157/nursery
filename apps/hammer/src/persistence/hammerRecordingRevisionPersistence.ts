@@ -12,6 +12,9 @@ import type { HammerPersistedVisualPlacements } from "./hammerPersistenceContrac
 
 type JsonObject = Record<string, unknown>;
 
+const LEGACY_STRUCTURED_TRANSCRIPT_PATH = "hammer/transcript/structured.v1.json";
+const LEGACY_SPEAKER_MAP_PATH = "hammer/transcript/speaker-map.v1.json";
+
 export type HammerCanonicalRecordingStatus = "draft" | "sealed" | "archived";
 
 export type HammerCanonicalRecordingRecord = {
@@ -264,6 +267,29 @@ export async function loadHammerRecordingRevisionArtifacts(
   };
 }
 
+export async function loadLegacyHammerTranscriptArtifacts(
+  workpieceId: string,
+): Promise<PersistenceResult<{ structured_transcript: HammerPersistedStructuredTranscript | null; speaker_map: HammerPersistedSpeakerMap | null }>> {
+  const [transcriptResult, speakerMapResult] = await Promise.all([
+    readWorkpieceJsonFile<HammerPersistedStructuredTranscript>(workpieceId, LEGACY_STRUCTURED_TRANSCRIPT_PATH, 30_000),
+    readWorkpieceJsonFile<HammerPersistedSpeakerMap>(workpieceId, LEGACY_SPEAKER_MAP_PATH, 20_000),
+  ]);
+
+  const failures = [transcriptResult, speakerMapResult].filter((entry) => !entry.ok) as Array<{ ok: false; status: number; error: string }>;
+  if (failures.length > 0) {
+    return { ok: false, status: failures[0].status, error: failures[0].error };
+  }
+
+  return {
+    ok: true,
+    status: 200,
+    data: {
+      structured_transcript: transcriptResult.ok ? transcriptResult.data : null,
+      speaker_map: speakerMapResult.ok ? speakerMapResult.data : null,
+    },
+  };
+}
+
 export type SaveHammerRecordingRevisionRequest = {
   written_by: typeof HAMMER_RUNTIME_WRITTEN_BY;
   label?: string | null;
@@ -402,4 +428,3 @@ export async function sealHammerCanonicalBaseline(
 
   return { ok: true, status: response.status, data: { canonical_recording: canonical } };
 }
-

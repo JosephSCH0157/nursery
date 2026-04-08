@@ -1,6 +1,8 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
+import { normalizeHammerOrchestrationState } from "../../../../packages/tongs/src/hammer-orchestration-contract";
+import { HAMMER_PASS_ORDER_VERSION } from "../../../../packages/tongs/src/hammer-orchestration-contract";
 import HammerWorkspaceShell from "./HammerWorkspaceShell";
 import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import "./HammerWorkspaceEditor.css";
@@ -28,6 +30,7 @@ import type { HammerPersistenceSnapshot, HammerPersistenceTarget, HammerPresence
 import {
   loadHammerCanonicalBaselineArtifacts,
   loadHammerRecordingRevisionArtifacts,
+  loadLegacyHammerTranscriptArtifacts,
   openHammerRecordingSession,
   resetHammerRecordingRevision,
   saveHammerRecordingRevision,
@@ -207,6 +210,9 @@ export default function HammerWorkspaceEditor(
   const [showPreparedHandoff, setShowPreparedHandoff] = useState(false);
   const [preparedActionIntent, setPreparedActionIntent] = useState<HammerPreparedActionIntent | null>(null);
   const [prepAttemptNonce, setPrepAttemptNonce] = useState(0);
+  const [prepFailureKind, setPrepFailureKind] = useState<"non_ai_missing" | "ai_failed" | null>(null);
+  const [prepAiFallbackRequested, setPrepAiFallbackRequested] = useState(false);
+  const [lastPrepRunKey, setLastPrepRunKey] = useState<string | null>(null);
   const [hasPendingSaveChanges, setHasPendingSaveChanges] = useState(false);
   const [saveInFlight, setSaveInFlight] = useState(false);
   const [saveFailureMessage, setSaveFailureMessage] = useState<string | null>(null);
@@ -503,16 +509,16 @@ export default function HammerWorkspaceEditor(
     const transcript = args.revisionTranscript ?? args.canonicalTranscript ?? null;
     const hasTranscript = Boolean(transcript?.segments?.length);
     const nowIso = new Date().toISOString();
-    const orchestration = {
+    const orchestration = normalizeHammerOrchestrationState({
       prep_status: hasTranscript ? "prepared" : "idle",
       alignment_status: hasTranscript ? "aligned" : "not_started",
       current_pass: "transcript_cleanup",
-      pass_order_version: 2,
+      pass_order_version: HAMMER_PASS_ORDER_VERSION,
       pass_status: {},
       edit_plan_signature: null,
       macro_recipe_ref: null,
       last_macro_run_ref: null,
-    } as const;
+    });
 
     return {
       schema_version: 1,
@@ -531,11 +537,11 @@ export default function HammerWorkspaceEditor(
         audio_polish_artifact_path: args.revision.audio_polish_path,
         edit_plan_artifact_path: null,
         editorial_authority_artifact_path: null,
-        edit_plan_signature: null,
+        edit_plan_signature: orchestration.edit_plan_signature,
         prep_status: orchestration.prep_status,
         alignment_status: orchestration.alignment_status,
-        macro_recipe_ref: null,
-        last_macro_run_ref: null,
+        macro_recipe_ref: orchestration.macro_recipe_ref,
+        last_macro_run_ref: orchestration.last_macro_run_ref,
         last_opened_at: nowIso,
         updated_at: nowIso,
         updated_by: "revision",
@@ -593,6 +599,9 @@ export default function HammerWorkspaceEditor(
     setSaveInFlight(false);
     setLastSavedAt(null);
     prepRunKeyRef.current = null;
+    setPrepFailureKind(null);
+    setPrepAiFallbackRequested(false);
+    setLastPrepRunKey(null);
     setWorkspaceSnapshot(null);
     setLoadedPersistenceSnapshot(null);
     setActiveCanonicalRecording(null);
@@ -834,10 +843,11 @@ export default function HammerWorkspaceEditor(
     }
 
     const prepRunKey = `${targetKey ?? "hammer"}:${prepSource.media_signature}:${prepAttemptNonce}`;
+    setLastPrepRunKey(prepRunKey);
     if (prepRunKeyRef.current === prepRunKey) {
       return;
     }
-    if (prepAiNoticeCancelledRunKeyRef.current === prepRunKey) {
+    if (!prepAiFallbackRequested && prepAiNoticeCancelledRunKeyRef.current === prepRunKey) {
       return;
     }
 
@@ -849,11 +859,11 @@ export default function HammerWorkspaceEditor(
       acknowledgedLaneSignature: props.prepAiNoticeAcknowledgedLaneSignature ?? null,
     });
 
-    if (prepAiNoticeResolutionState === "loading") {
+    if (prepAiFallbackRequested && prepAiNoticeResolutionState === "loading") {
       return;
     }
 
-    if (prepAiNoticeResolutionState === "error") {
+    if (prepAiFallbackRequested && prepAiNoticeResolutionState === "error") {
       setPrepState(createHammerPrepState(
         "prep_failed",
         null,
@@ -862,21 +872,21 @@ export default function HammerWorkspaceEditor(
       return;
     }
 
+    // AI consent prompt must only appear after the user explicitly selects AI fallback.
     if (
-      shouldPromptPrepAiNotice
+      prepAiFallbackRequested
+      && shouldPromptPrepAiNotice
       && prepAiNoticeApprovedRunKeyRef.current !== prepRunKey
     ) {
-      prepAiNoticePendingRunKeyRef.current = prepRunKey;
-      if (prepAiNoticeShownRunKeyRef.current !== prepRunKey) {
-        emitPrepAiNoticeTelemetry("hammer_prep_ai_notice_shown", {
-          lane: prepAiNoticeModel.laneSignature,
-          prep_allowed: prepAiNoticeModel.prepAllowed,
-          workpiece_id: effectiveLaunchContext.workpiece_id,
-          workspace_id: effectiveLaunchContext.workspace_id,
-        });
-        prepAiNoticeShownRunKeyRef.current = prepRunKey;
-      }
-      setShowPrepAiNotice(true);
+      // Do not auto-open the modal here; wait for explicit user action.
+      setPrepState(createHammerPrepState(
+        "prep_failed",
+        null,
+        prepAiNoticeModel.prepAllowed
+          ? "AI prep is available if you confirm the fallback."
+          : "AI is currently disabled. Retry without AI or enable an AI lane and try again.",
+      ));
+      setPrepFailureKind("ai_failed");
       return;
     }
 
@@ -886,9 +896,116 @@ export default function HammerWorkspaceEditor(
     const runPrep = async () => {
       clearReadyTransitionTimer();
       setShowPreparedHandoff(false);
-      setPrepState(createHammerPrepState("preparing", "transcribing_audio"));
+      setPrepState(createHammerPrepState("preparing", "loading_context"));
+      setPrepFailureKind(null);
 
       try {
+        // Non-AI attempt first: reuse any existing transcript artifacts before starting AI transcription.
+        if (!prepAiFallbackRequested && persistenceTarget && activeCanonicalRecording && !activeCanonicalRecording.sealed_at) {
+          const legacyResult = await loadLegacyHammerTranscriptArtifacts(activeCanonicalRecording.workpiece_id);
+          if (legacyResult.ok && legacyResult.data.structured_transcript && legacyResult.data.speaker_map) {
+            const sealResult = await sealHammerCanonicalBaseline(
+              persistenceTarget,
+              activeCanonicalRecording.id,
+              {
+                structured_transcript: legacyResult.data.structured_transcript,
+                speaker_map: legacyResult.data.speaker_map,
+              },
+            );
+            if (!sealResult.ok) {
+              throw new Error(sealResult.error);
+            }
+            setActiveCanonicalRecording(sealResult.data.canonical_recording);
+
+            const [baselineResult, revisionArtifactsResult] = await Promise.all([
+              loadHammerCanonicalBaselineArtifacts(sealResult.data.canonical_recording),
+              activeRevision ? loadHammerRecordingRevisionArtifacts(activeRevision) : Promise.resolve({ ok: true as const, status: 200, data: null as any }),
+            ]);
+            const canonicalTranscript = baselineResult.ok ? baselineResult.data.structured_transcript : null;
+            const canonicalSpeakerMap = baselineResult.ok ? baselineResult.data.speaker_map : null;
+            if (canonicalTranscript && canonicalSpeakerMap) {
+              const hydratedSnapshot = buildHydratedSnapshot({
+                target: persistenceTarget,
+                canonicalRecording: sealResult.data.canonical_recording,
+                revision: activeRevision ?? {
+                  id: "revision_missing",
+                  workspace_id: persistenceTarget.workspaceId,
+                  workpiece_id: persistenceTarget.workpieceId,
+                  canonical_recording_id: sealResult.data.canonical_recording.id,
+                  status: "active",
+                  label: null,
+                  editor_session_path: null,
+                  revision_transcript_path: null,
+                  audio_polish_path: null,
+                  visual_timeline_path: null,
+                  visual_placements_path: null,
+                  history_path: null,
+                  snapshots_manifest_path: null,
+                },
+                canonicalTranscript,
+                canonicalSpeakerMap,
+                revisionEditorSession: revisionArtifactsResult.ok ? revisionArtifactsResult.data?.editor_session ?? null : null,
+                revisionTranscript: revisionArtifactsResult.ok ? revisionArtifactsResult.data?.revision_transcript ?? null : null,
+                revisionAudioPolish: revisionArtifactsResult.ok ? revisionArtifactsResult.data?.audio_polish ?? null : null,
+                revisionVisualTimeline: revisionArtifactsResult.ok ? revisionArtifactsResult.data?.visual_timeline ?? null : null,
+                revisionVisualPlacements: revisionArtifactsResult.ok ? revisionArtifactsResult.data?.visual_placements ?? null : null,
+              });
+
+              setLoadedPersistenceSnapshot(hydratedSnapshot);
+              setHasCanonicalBasis(true);
+              startTransition(() => {
+                setEffectiveLaunchContext((current) => current ?? effectiveLaunchContext);
+              });
+
+              // Continue the normal prep pipeline (visual placements + audio polish) without starting any AI STT.
+              const transcriptSourceId = canonicalTranscript.transcript_id;
+              const preparedTranscript = {
+                transcriptId: transcriptSourceId,
+                preparedAt: canonicalTranscript.prepared_at,
+                turns: canonicalTranscript.segments,
+                structuredTranscript: canonicalTranscript,
+                speakerMap: canonicalSpeakerMap,
+              };
+              const nextLaunchContext = applyPreparedTranscriptToLaunchContext(effectiveLaunchContext, preparedTranscript);
+              setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
+
+              const nextSnapshot = await ensureVisualPlacements({
+                launchContext: nextLaunchContext,
+                transcriptSourceId,
+                transcriptSegments: canonicalTranscript.segments,
+                currentSnapshot: hydratedSnapshot,
+              });
+              if (!isPrepExecutionActive(executionId)) return;
+              setLoadedPersistenceSnapshot(nextSnapshot);
+
+              setPrepState(createHammerPrepState("preparing", "extracting_working_audio"));
+              const audioSnapshot = await ensureAudioPolish({
+                launchContext: nextLaunchContext,
+                currentSnapshot: nextSnapshot,
+                onPhaseChange: (phase) => {
+                  if (!isPrepExecutionActive(executionId)) return;
+                  setPrepState(createHammerPrepState("preparing", mapAudioPolishPhaseToPrepStep(phase)));
+                },
+              });
+              if (!isPrepExecutionActive(executionId)) return;
+              if (audioSnapshot) setLoadedPersistenceSnapshot(audioSnapshot);
+
+              setPrepState(createHammerPrepState("prepared", "ready_for_next_step"));
+              setShowPreparedHandoff(true);
+              return;
+            }
+          }
+
+          // Legacy transcript not available: stop here and offer AI fallback explicitly.
+          setPrepState(createHammerPrepState(
+            "prep_failed",
+            null,
+            "No reusable transcript was found yet. Retry without AI, or choose AI fallback to generate one.",
+          ));
+          setPrepFailureKind("non_ai_missing");
+          return;
+        }
+
         const preparingRequest = buildHammerPrepPersistenceSaveRequest({
           launchContext: effectiveLaunchContext,
           status: "preparing",
@@ -906,6 +1023,17 @@ export default function HammerWorkspaceEditor(
           }
         }
 
+        if (!prepAiFallbackRequested) {
+          setPrepState(createHammerPrepState(
+            "prep_failed",
+            null,
+            "No reusable transcript was found yet. Retry without AI, or choose AI fallback to generate one.",
+          ));
+          setPrepFailureKind("non_ai_missing");
+          return;
+        }
+
+        setPrepState(createHammerPrepState("preparing", "transcribing_audio"));
         const preparedResponse = await requestHammerTranscriptPrep({
           workspace_id: effectiveLaunchContext.workspace_id,
           workpiece_id: effectiveLaunchContext.workpiece_id,
@@ -1047,6 +1175,7 @@ export default function HammerWorkspaceEditor(
         const message = toErrorMessage(error, "Hammer could not prepare the transcript.");
         setPrepState(createHammerPrepState("prep_failed", null, message));
         setShowPreparedHandoff(false);
+        setPrepFailureKind("ai_failed");
 
         try {
           const failedRequest = buildHammerPrepPersistenceSaveRequest({
@@ -1080,6 +1209,7 @@ export default function HammerWorkspaceEditor(
     prepState.step,
     prepAttemptNonce,
     prepAiNoticeDecisionNonce,
+    prepAiFallbackRequested,
     props.prepAiNoticeAcknowledgedLaneSignature,
     props.prepAiNoticeEffectiveLane,
     props.prepAiNoticeResolutionError,
@@ -1393,14 +1523,14 @@ export default function HammerWorkspaceEditor(
   }, [showPreparedHandoff, shouldRenderEditor]);
 
   if (persistenceMode === "canonical" && prepState.status === "prep_failed") {
+    const canOfferAiFallback = prepFailureKind === "non_ai_missing";
     return (
       <section className="hammer-prep-shell__failure">
         <div className="hammer-prep-shell__failure-card">
           <h2>Hammer transcript prep stopped.</h2>
           <p>{prepState.error ?? "Hammer could not prepare this episode transcript."}</p>
           <p>
-            Hammer keeps transcript prep transcript-first in production runtime. Fix the media context
-            or retry once the recording is available.
+            Hammer will always try to reuse an existing transcript first. AI transcription only runs if you explicitly choose the AI fallback.
           </p>
           <div className="hammer-prep-shell__handoff-actions">
             <button
@@ -1408,13 +1538,41 @@ export default function HammerWorkspaceEditor(
               className="hammer-prep-shell__button"
               onClick={() => {
                 prepRunKeyRef.current = null;
+                setPrepAiFallbackRequested(false);
                 setShowPreparedHandoff(false);
                 setPrepState(createHammerPrepState("preparing", "loading_context"));
                 setPrepAttemptNonce((current) => current + 1);
               }}
             >
-              Retry prep
+              Retry non-AI
             </button>
+            {canOfferAiFallback ? (
+              <button
+                type="button"
+                className="hammer-prep-shell__button"
+                onClick={() => {
+                  if (!lastPrepRunKey) return;
+                  prepAiNoticePendingRunKeyRef.current = lastPrepRunKey;
+                  setPrepAiFallbackRequested(true);
+                  setShowPrepAiNotice(true);
+                }}
+              >
+                Use AI fallback
+              </button>
+            ) : null}
+            {canOfferAiFallback ? (
+              <button
+                type="button"
+                className="hammer-prep-shell__action-button hammer-prep-shell__action-button--dismiss"
+                onClick={() => {
+                  setPrepAiFallbackRequested(false);
+                  setPrepFailureKind(null);
+                  setPrepState(createHammerPrepState("prep_failed", null, "Prep cancelled. You can retry later."));
+                }}
+              >
+                Cancel
+              </button>
+            ) : null}
           </div>
         </div>
       </section>
@@ -1583,6 +1741,9 @@ export default function HammerWorkspaceEditor(
                     void props.onPrepAiNoticeAcknowledgeLane?.(prepAiNoticeModel.laneSignature);
                   }
                   setShowPrepAiNotice(false);
+                  prepRunKeyRef.current = null;
+                  setPrepState(createHammerPrepState("preparing", "loading_context"));
+                  setPrepAttemptNonce((current) => current + 1);
                   setPrepAiNoticeDecisionNonce((current) => current + 1);
                 }}
               >
@@ -1602,6 +1763,7 @@ export default function HammerWorkspaceEditor(
                     workpiece_id: effectiveLaunchContext?.workpiece_id ?? null,
                     workspace_id: effectiveLaunchContext?.workspace_id ?? null,
                   });
+                  setPrepAiFallbackRequested(false);
                   setShowPrepAiNotice(false);
                 }}
               >
