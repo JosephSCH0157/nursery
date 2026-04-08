@@ -112,6 +112,7 @@ import {
   type SpeakerInterviewOptions,
   type SpeakerSoloOptions,
 } from "./hammerCleanupTools";
+import { analyzeDeadAirGaps, applyDeadAirClosure, type HammerDeadAirAnalysis } from "./hammerDeadAirClosure";
 import { requestHammerTranscriptCleanupAssist } from "./hammerTranscriptCleanupAssistApi";
 import PolishResultSummary, {
   buildPolishResultSummaryFromCleanupPreview,
@@ -1691,6 +1692,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     minPauseSec: 0.1,
     preserveDramaticPauses: true,
   });
+  const [deadAirThresholdSec, setDeadAirThresholdSec] = useState(1.5);
+  const [deadAirAnalysis, setDeadAirAnalysis] = useState<HammerDeadAirAnalysis | null>(null);
+  const [deadAirApplyInFlight, setDeadAirApplyInFlight] = useState(false);
   const [fillerCleanupOptions, setFillerCleanupOptions] = useState<FillerCleanupOptions>({
     aggressiveness: "medium",
     protectIntentionalPhrasing: true,
@@ -1845,7 +1849,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const scrubReturnToPausedRef = useRef(false);
   const copiedPromptTimerRef = useRef<number | null>(null);
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
-  const lastGapAutoApplySignatureRef = useRef<string | null>(null);
   const handledCandidateIdsRef = useRef<{ fillers: Set<string>; retakes: Set<string> }>({
     fillers: new Set(),
     retakes: new Set(),
@@ -5446,39 +5449,48 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
   }
 
-  function applyGapPacingAuto(): void {
-    const preview = previewShortenGaps(editableTranscriptSegments, gapCleanupOptions);
-    const signature = stableHashToken(JSON.stringify({
-      pass: currentPass,
-      options: gapCleanupOptions,
-      summary: preview.summary,
-    }));
-    if (signature === lastGapAutoApplySignatureRef.current) return;
-    lastGapAutoApplySignatureRef.current = signature;
-    if (preview.suggestions.length === 0) {
-      setTranscriptTimingHint("Gap/Pacing is already within the selected max pause length.");
-      return;
+  function analyzeDeadAirClosure(): void {
+    setDeadAirAnalysis(analyzeDeadAirGaps(editableTranscriptSegments, deadAirThresholdSec));
+  }
+
+  function applyDeadAirClosureBatch(): void {
+    if (deadAirApplyInFlight) return;
+    setDeadAirApplyInFlight(true);
+    try {
+      const { segments: updated, analysis } = applyDeadAirClosure({
+        segments: editableTranscriptSegments,
+        thresholdSec: deadAirThresholdSec,
+      });
+      setDeadAirAnalysis(analysis);
+      if (analysis.eligibleGapCount === 0) return;
+
+      const affected = new Set<string>();
+      for (const gap of analysis.gaps) {
+        affected.add(gap.currentSegmentId);
+        affected.add(gap.nextSegmentId);
+      }
+
+      const applied = applyHistoryMutation({
+        label: `Trim dead air (${analysis.thresholdSec.toFixed(1)}s threshold)`,
+        kind: "timing_adjustment",
+        toolId: "polish",
+        affectedSegments: Array.from(affected),
+        immediatePersist: true,
+        computeAfter: (before) => {
+          const synced = syncEditableTranscriptSegments(updated, before.selectedSegmentId);
+          return {
+            ...before,
+            transcriptSegments: synced.segments,
+            selectedSegmentId: synced.selectedSegmentId,
+            transcriptTimingHint: null,
+          };
+        },
+      });
+      if (!applied) return;
+      setTranscriptTimingHint(`${analysis.eligibleGapCount} gap${analysis.eligibleGapCount === 1 ? "" : "s"} exceed ${analysis.thresholdSec.toFixed(1)}s; removed ${analysis.totalRemovableSec.toFixed(1)}s of dead air.`);
+    } finally {
+      setDeadAirApplyInFlight(false);
     }
-    const applied = applyHistoryMutation({
-      label: "Auto apply gap pacing",
-      kind: "timing_adjustment",
-      toolId: "polish",
-      affectedSegments: preview.suggestions.map((suggestion) => suggestion.segmentId),
-      immediatePersist: true,
-      computeAfter: (before) => {
-        const synced = syncEditableTranscriptSegments(preview.resultSegments, before.selectedSegmentId);
-        return {
-          ...before,
-          transcriptSegments: synced.segments,
-          selectedSegmentId: synced.selectedSegmentId,
-          transcriptTimingHint: null,
-        };
-      },
-    });
-    if (!applied) return;
-    setCleanupReceipt(buildPolishResultSummaryFromCleanupPreview(preview));
-    setCleanupPreview(null);
-    setTranscriptTimingHint(`Gap pacing applied to ${preview.summary.changedSegments} segment${preview.summary.changedSegments === 1 ? "" : "s"}.`);
   }
 
   useEffect(() => {
@@ -5577,12 +5589,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useEffect(() => {
   }, [sourceImageItems]);
   useEffect(() => {
-    if (currentPass !== "gap_pacing") return;
-    const timerId = window.setTimeout(() => {
-      applyGapPacingAuto();
-    }, 180);
-    return () => window.clearTimeout(timerId);
-  }, [currentPass, gapCleanupOptions, editableTranscriptSegments]);
+    setDeadAirAnalysis(null);
+  }, [deadAirThresholdSec, editableTranscriptSegments]);
   useEffect(() => {
     if (fillerCandidateCards.length === 0 && fillerActiveCandidateIndex !== 0) {
       setFillerActiveCandidateIndex(0);
@@ -10028,44 +10036,56 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   </section>
                 ) : currentPass === "gap_pacing" ? (
                   <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Gap / Pacing</header>
+                    <header className="hammer-tool-card__head">Dead Air Closure</header>
                     <div className="hammer-tool-hint">
-                      Deterministic global pacing pass. Changes apply instantly as you adjust controls.
+                      Intent: Trim long silent pauses between spoken segments without changing transcript wording.
                     </div>
                     <label className="hammer-tool-field">
-                      <span>Max Pause Length (sec)</span>
-                      <input
-                        type="number"
-                        min={0.1}
-                        step={0.05}
-                        value={gapCleanupOptions.maxGapSec}
+                      <span>Max allowed gap</span>
+                      <select
+                        value={deadAirThresholdSec}
                         onChange={(event) => {
                           setFocusOverride("tool-focus");
-                          setGapCleanupOptions((current) => ({
-                            ...current,
-                            maxGapSec: Math.max(0.1, Number(event.target.value) || 0.4),
-                          }));
+                          setDeadAirThresholdSec(Number(event.target.value) || 1.5);
                         }}
-                      />
+                      >
+                        <option value={1.0}>1.0s</option>
+                        <option value={1.5}>1.5s</option>
+                        <option value={2.0}>2.0s</option>
+                      </select>
                     </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={gapCleanupOptions.preserveDramaticPauses}
-                        onChange={(event) => {
+                    <div className="hammer-candidate-review__actions">
+                      <button
+                        type="button"
+                        onClick={() => {
                           setFocusOverride("tool-focus");
-                          setGapCleanupOptions((current) => ({
-                            ...current,
-                            preserveDramaticPauses: event.target.checked,
-                          }));
+                          analyzeDeadAirClosure();
                         }}
-                      />
-                      <span>Preserve dramatic pauses</span>
-                    </label>
-                    {cleanupReceipt ? (
-                      <PolishResultSummary phase="applied" summary={cleanupReceipt} />
-                    ) : null}
-                    <div className="hammer-tool-hint">No per-gap approval cards in this pass.</div>
+                      >
+                        Analyze
+                      </button>
+                      <button
+                        type="button"
+                        disabled={
+                          deadAirApplyInFlight
+                          || !deadAirAnalysis
+                          || deadAirAnalysis.eligibleGapCount === 0
+                        }
+                        onClick={() => {
+                          setFocusOverride("tool-focus");
+                          applyDeadAirClosureBatch();
+                        }}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                    <div className="hammer-tool-hint">
+                      {!deadAirAnalysis
+                        ? "Analyze to preview how many gaps exceed the selected threshold."
+                        : deadAirAnalysis.eligibleGapCount === 0
+                          ? "No dead air gaps exceed the selected threshold."
+                          : `${deadAirAnalysis.eligibleGapCount} gap${deadAirAnalysis.eligibleGapCount === 1 ? "" : "s"} exceed ${deadAirAnalysis.thresholdSec.toFixed(1)}s; applying would remove ${deadAirAnalysis.totalRemovableSec.toFixed(1)}s of dead air.`}
+                    </div>
                   </section>
                 ) : (
                 <section className="hammer-tool-card">
