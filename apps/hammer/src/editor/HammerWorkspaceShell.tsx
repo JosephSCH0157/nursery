@@ -5657,6 +5657,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   const handleTimelineTrackWheelZoom = useCallback((event: ReactWheelEvent<HTMLDivElement>): void => {
     if (isTextEditingTarget(event.target)) return;
+    if (!(event.target instanceof Element)) return;
+    const isOverTimelineSurface = Boolean(
+      event.target.closest(".hammer-timeline-ruler, .hammer-timeline-lane__track"),
+    );
+    if (!isOverTimelineSurface) return;
     if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
     event.preventDefault();
     if (event.deltaY < 0) {
