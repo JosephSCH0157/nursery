@@ -10129,7 +10129,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             <strong>
                               {retakeActiveCandidateIndex + 1} / {retakeCandidateCards.length}
                             </strong>
-                            <span>{activeRetakeCandidateCard.segmentIds[0]} → {activeRetakeCandidateCard.segmentIds[1]}</span>
+                            <span>
+                              {activeRetakeCandidateCard.segmentIds.length <= 2
+                                ? `${activeRetakeCandidateCard.segmentIds[0] ?? "?"} → ${activeRetakeCandidateCard.segmentIds[1] ?? "?"}`
+                                : `${activeRetakeCandidateCard.segmentIds.slice(0, -1).join(", ")} → ${activeRetakeCandidateCard.segmentIds[activeRetakeCandidateCard.segmentIds.length - 1] ?? "?"}`}
+                            </span>
                           </header>
                           <p className="hammer-candidate-card__description">{activeRetakeCandidateCard.description}</p>
                           <div className="hammer-candidate-card__context">

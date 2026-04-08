@@ -521,6 +521,8 @@ export function previewRemoveRetakes(
         const similarity = tokenOverlapScore(aTokens, cTokens);
         const resemblesRedo = (
           (prefix >= 3 && prefix >= Math.ceil(Math.min(10, aTokens.length) * 0.55))
+          // Very short aborted false-starts often only share 2 tokens before diverging.
+          || (isLikelyAborted(current.text) && aTokens.length <= 4 && prefix >= 2)
           || (similarity.overlap >= 0.78 && similarity.jaccard >= 0.6 && Math.min(aTokens.length, cTokens.length) >= 5)
         );
         if (resemblesRedo && (isLikelyAborted(current.text) || hasLocalRepairMarker(current.text) || allowSimilarityOnly)) {
