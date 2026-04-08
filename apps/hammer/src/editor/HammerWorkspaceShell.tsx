@@ -10820,11 +10820,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                   </button>
                                 </div>
                                 <div className="hammer-source-summary">
-                                  <span>Start (sec)</span>
+                                  <label htmlFor={`hammer-retake-cut-start-${candidateId}`}>Start (sec)</label>
                                   <input
+                                    id={`hammer-retake-cut-start-${candidateId}`}
                                     type="number"
                                     step={0.1}
                                     value={draft?.startSec ?? ""}
+                                    title="Retake cut start time in seconds"
+                                    placeholder="0.0"
                                     onChange={(event) => {
                                       setFocusOverride("tool-focus");
                                       const value = event.target.value;
@@ -10835,11 +10838,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                     }}
                                     disabled={!enabled}
                                   />
-                                  <span>End (sec)</span>
+                                  <label htmlFor={`hammer-retake-cut-end-${candidateId}`}>End (sec)</label>
                                   <input
+                                    id={`hammer-retake-cut-end-${candidateId}`}
                                     type="number"
                                     step={0.1}
                                     value={draft?.endSec ?? ""}
+                                    title="Retake cut end time in seconds"
+                                    placeholder="0.0"
                                     onChange={(event) => {
                                       setFocusOverride("tool-focus");
                                       const value = event.target.value;
