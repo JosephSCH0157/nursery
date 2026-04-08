@@ -2561,7 +2561,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => (editableVisualTimeline ? selectClipById(editableVisualTimeline, selectedClipId) : null),
     [editableVisualTimeline, selectedClipId],
   );
-  const visualPlacementEditingEnabled = currentPass === "image_placement" || currentPass === "image_animation";
+  // Visual placements should be editable whenever the operator is explicitly in the Images posture,
+  // even if the current "pass" is something else (reduces mode confusion and matches editor intent).
+  const visualPlacementEditingEnabled = currentPass === "image_placement"
+    || currentPass === "image_animation"
+    || selectedSourceTab === "images";
   const selectedImagePlacement = useMemo(
     () => sourceVisualPlacementItems.find((item) => item.id === selectedClipId) ?? null,
     [selectedClipId, sourceVisualPlacementItems],
@@ -13100,6 +13104,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           {lane.blocks.map((block) => {
                             const x = (block.startSec / timelineDurationSec) * 1000;
                             const width = Math.max(14, ((block.endSec - block.startSec) / timelineDurationSec) * 1000);
+                            const hideBlockLabel = lane.id === "stills" || lane.id === "broll";
                             const imagePlacementEditable = visualPlacementEditingEnabled
                               && (lane.id === "stills" || lane.id === "broll")
                               && (block.tone === "image" || block.tone === "broll")
@@ -13143,9 +13148,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                   event.stopPropagation();
                                   block.onSelect();
                                 }}
-                                aria-label={`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}
+                                aria-label={hideBlockLabel
+                                  ? `Visual clip ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`
+                                  : `${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}
                               >
-                                <title>{`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}</title>
+                                {hideBlockLabel ? null : (
+                                  <title>{`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}</title>
+                                )}
                                 <rect className="hammer-timeline-block__rect" width={width} height={22} rx={3} ry={3} />
                                 {imagePlacementEditable ? (
                                   <>
@@ -13187,9 +13196,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                     />
                                   </>
                                 ) : null}
-                                <text className="hammer-timeline-block__text" x={5} y={14}>
-                                  {block.label}
-                                </text>
+                                {hideBlockLabel ? null : (
+                                  <text className="hammer-timeline-block__text" x={5} y={14}>
+                                    {block.label}
+                                  </text>
+                                )}
                               </g>
                             );
                           })}
