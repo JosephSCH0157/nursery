@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import "./ResetPassword.css";
 
 export default function ResetPassword() {
   const nav = useNavigate();
@@ -27,9 +28,9 @@ export default function ResetPassword() {
   }
 
   return (
-    <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 520 }}>
+    <div className="reset-password">
       <h1>Set a new password</h1>
-      <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
+      <form onSubmit={onSubmit} className="reset-password__form">
         <input
           type="password"
           value={pw}
@@ -40,8 +41,8 @@ export default function ResetPassword() {
         <button type="submit" disabled={busy}>
           {busy ? "Saving..." : "Save password"}
         </button>
-        {err ? <div style={{ color: "crimson" }}>{err}</div> : null}
-        {msg ? <div style={{ color: "green" }}>{msg}</div> : null}
+        {err ? <div className="reset-password__error">{err}</div> : null}
+        {msg ? <div className="reset-password__success">{msg}</div> : null}
       </form>
     </div>
   );
