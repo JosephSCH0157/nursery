@@ -310,6 +310,7 @@ function snapImagePlacementTime(value: number, stepSec: number): number {
   return roundImagePlacementTime(Math.round(value / stepSec) * stepSec);
 }
 const SCRUB_RATE_OPTIONS = [1, 0.75, 0.5] as const;
+const TIMELINE_ZOOM_LEVELS = [100, 125, 150, 200, 300] as const;
 const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
 type HammerPlaybackAuthorityWindow = Window & typeof globalThis & {
   __forgeHammerActivePreviewOwnerId__?: string;

@@ -1882,6 +1882,14 @@ Guardrails:
   cursor: pointer;
 }
 
+.hammer-visual-clip-block.is-editable {
+  cursor: grab;
+}
+
+.hammer-visual-clip-block.is-editable:active {
+  cursor: grabbing;
+}
+
 .hammer-visual-clip-block.is-selected {
   border-color: rgba(255, 205, 108, 0.92);
   box-shadow: 0 0 0 1px rgba(255, 205, 108, 0.6);

@@ -41,9 +41,10 @@ export default function VisualClipBlock(props: VisualClipBlockProps) {
       role="button"
       tabIndex={0}
       data-clip-id={clip.clipId}
-      aria-label={`${clip.label} ${clip.startSec.toFixed(1)}-${clip.endSec.toFixed(1)}s`}
+      aria-label={`Visual clip ${clip.startSec.toFixed(1)}-${clip.endSec.toFixed(1)}s`}
       className={[
         "hammer-visual-clip-block",
+        props.showTrimHandles ? "is-editable" : "",
         clip.selected ? "is-selected" : "",
         clip.disabled ? "is-disabled" : "",
         clip.locked ? "is-locked" : "",
@@ -82,7 +83,7 @@ export default function VisualClipBlock(props: VisualClipBlockProps) {
           />
         </>
       ) : null}
-      <span className="hammer-visual-clip-block__label">{clip.label}</span>
+      <span className="hammer-visual-clip-block__label" aria-hidden="true" />
     </div>
   );
 }
