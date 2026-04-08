@@ -335,6 +335,11 @@ const TIMELINE_ZOOM_OPTIONS = [
 
 type TimelineZoomId = (typeof TIMELINE_ZOOM_OPTIONS)[number]["id"];
 
+const TIMELINE_ZOOM_STEP = {
+  in: 1,
+  out: -1,
+} as const;
+
 const FILLER_PATTERN = /\b(um|uh|you know|like|sort of|kind of|i mean)\b/i;
 const GAP_TIGHTENING_THRESHOLD_SEC = 0.35;
 const TIMELINE_RULER_DIVISIONS = 6;
@@ -2883,10 +2888,54 @@ export default function TranscriptSeekMock(
     selectedSegments.forEach((segmentId) => setDeleteInstructionApplied(segmentId, false));
   }
 
+  function stepTimelineZoom(direction: (typeof TIMELINE_ZOOM_STEP)[keyof typeof TIMELINE_ZOOM_STEP]) {
+    setTimelineZoomId((current) => {
+      const currentIndex = TIMELINE_ZOOM_OPTIONS.findIndex((option) => option.id === current);
+      const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+      const nextIndex = clamp(
+        safeCurrentIndex + direction,
+        0,
+        TIMELINE_ZOOM_OPTIONS.length - 1,
+      );
+      return TIMELINE_ZOOM_OPTIONS[nextIndex]?.id ?? current;
+    });
+  }
+
+  function zoomTimelineIn() {
+    stepTimelineZoom(TIMELINE_ZOOM_STEP.in);
+  }
+
+  function zoomTimelineOut() {
+    stepTimelineZoom(TIMELINE_ZOOM_STEP.out);
+  }
+
+  function handleTimelineZoomWheel(event: React.WheelEvent<HTMLDivElement>) {
+    if (isEditableTarget(event.target)) return;
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    event.preventDefault();
+    if (event.deltaY < 0) {
+      zoomTimelineIn();
+      return;
+    }
+    zoomTimelineOut();
+  }
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       if (isEditableTarget(event.target)) return;
+
+      const isZoomInKey = event.code === "NumpadAdd" || event.key === "+" || event.key === "=";
+      const isZoomOutKey = event.code === "NumpadSubtract" || event.key === "-" || event.key === "_";
+      if ((isZoomInKey || isZoomOutKey) && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        if (isZoomInKey) {
+          zoomTimelineIn();
+        } else {
+          zoomTimelineOut();
+        }
+        return;
+      }
 
       if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
 
@@ -6451,28 +6500,29 @@ export default function TranscriptSeekMock(
           staged {selectedRowHasTimelineEditCue ? selectedRowEffects : "none"}
         </span>
       </div>
-      <div className="hammer-timeline-ruler">
-        <div className="hammer-timeline-ruler__label">Time</div>
-        <div className={cx("hammer-timeline-ruler__track", dynamicStyles.timelineCanvasClassName)}>
-          {timelineRulerTicks.map((tick, index) => (
+      <div className="hammer-timeline-zoom-surface" onWheel={handleTimelineZoomWheel}>
+        <div className="hammer-timeline-ruler">
+          <div className="hammer-timeline-ruler__label">Time</div>
+          <div className={cx("hammer-timeline-ruler__track", dynamicStyles.timelineCanvasClassName)}>
+            {timelineRulerTicks.map((tick, index) => (
+              <div
+                key={tick.id}
+                className={cx("hammer-timeline-ruler__tick", dynamicStyles.rulerTickClassNames[index])}
+              >
+                <span className="hammer-timeline-ruler__tick-label">{tick.label}</span>
+              </div>
+            ))}
             <div
-              key={tick.id}
-              className={cx("hammer-timeline-ruler__tick", dynamicStyles.rulerTickClassNames[index])}
-            >
-              <span className="hammer-timeline-ruler__tick-label">{tick.label}</span>
-            </div>
-          ))}
-          <div
-            aria-hidden="true"
-            className={cx(
-              "hammer-track-viewport__playhead",
-              "hammer-track-viewport__playhead--ruler",
-              dynamicStyles.playheadClassName,
-            )}
-          />
+              aria-hidden="true"
+              className={cx(
+                "hammer-track-viewport__playhead",
+                "hammer-track-viewport__playhead--ruler",
+                dynamicStyles.playheadClassName,
+              )}
+            />
+          </div>
         </div>
-      </div>
-      <div className="hammer-timeline-track-list">
+        <div className="hammer-timeline-track-list">
           {timelineTracks.map((track) => (
             <div key={track.id} className="hammer-timeline-track">
               {(() => {
@@ -6619,6 +6669,7 @@ export default function TranscriptSeekMock(
             })()}
           </div>
         ))}
+      </div>
       </div>
     </HammerPaneSection>
   );
