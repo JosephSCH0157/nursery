@@ -6,6 +6,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "@forge/bellows": ["../bellows/dist/index.d.ts"],
       "@forge/shared": ["../../packages/shared/index.ts"],
