@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import type { CSSProperties, JSX } from "react";
+import type { JSX } from "react";
 import { Link, useLocation } from "react-router-dom";
+import "./RelinkStubPanel.css";
 
 type RelinkQueryState = {
   workspaceId: string | null;
@@ -10,43 +11,6 @@ type RelinkQueryState = {
 };
 
 const DEFAULT_RETURN_TO = "/app/hammer/dev/cards";
-
-const PANEL_STYLE: CSSProperties = {
-  border: "1px solid rgba(148, 163, 184, 0.3)",
-  borderRadius: 12,
-  padding: 16,
-  background: "rgba(15, 23, 38, 0.82)",
-  color: "#e6edf7",
-  display: "grid",
-  gap: 12,
-};
-
-const FIELD_GRID_STYLE: CSSProperties = {
-  display: "grid",
-  gap: 8,
-  border: "1px solid rgba(148, 163, 184, 0.26)",
-  borderRadius: 10,
-  padding: 10,
-  background: "rgba(2, 6, 23, 0.4)",
-};
-
-const STATUS_OK_STYLE: CSSProperties = {
-  border: "1px solid rgba(34, 197, 94, 0.45)",
-  borderRadius: 10,
-  padding: "8px 10px",
-  background: "rgba(34, 197, 94, 0.12)",
-  color: "#bbf7d0",
-  fontWeight: 700,
-};
-
-const STATUS_WARN_STYLE: CSSProperties = {
-  border: "1px solid rgba(245, 158, 11, 0.45)",
-  borderRadius: 10,
-  padding: "8px 10px",
-  background: "rgba(245, 158, 11, 0.12)",
-  color: "#fde68a",
-  fontWeight: 700,
-};
 
 function readTrimmed(params: URLSearchParams, key: string): string | null {
   const raw = params.get(key);
@@ -97,21 +61,24 @@ export default function RelinkStubPanel(): JSX.Element {
   const payloadReceived = missingFields.length === 0;
 
   return (
-    <section style={PANEL_STYLE}>
-      <header style={{ display: "grid", gap: 4 }}>
-        <h2 style={{ margin: 0 }}>Relink Media (Stub)</h2>
-        <div style={{ opacity: 0.82, fontSize: 13 }}>
+    <section className="hammer-relink-stub-panel">
+      <header className="hammer-relink-stub-panel__header">
+        <h2 className="hammer-relink-stub-panel__title">Relink Media (Stub)</h2>
+        <div className="hammer-relink-stub-panel__subtitle">
           Stub route for validating RELINK_MEDIA CTA payload propagation.
         </div>
       </header>
 
-      <div style={payloadReceived ? STATUS_OK_STYLE : STATUS_WARN_STYLE}>
+      <div className={payloadReceived
+        ? "hammer-relink-stub-panel__status hammer-relink-stub-panel__status--ok"
+        : "hammer-relink-stub-panel__status hammer-relink-stub-panel__status--warn"}
+      >
         {payloadReceived
           ? "Payload received."
           : `Missing required query params: ${missingFields.join(", ")}`}
       </div>
 
-      <div style={FIELD_GRID_STYLE}>
+      <div className="hammer-relink-stub-panel__fields">
         <div>
           <strong>workspace_id:</strong> {formatValue(query.workspaceId)}
         </div>
@@ -129,7 +96,7 @@ export default function RelinkStubPanel(): JSX.Element {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 13 }}>
+      <div className="hammer-relink-stub-panel__links">
         <Link to={query.returnTo}>Back</Link>
         <Link to={DEFAULT_RETURN_TO}>Back to Cards</Link>
       </div>
