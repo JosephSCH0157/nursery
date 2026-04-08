@@ -10168,6 +10168,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             {candidateEditModeById[activeFillerCandidateCard.id] ? (
                               <textarea
                                 className="hammer-candidate-edit"
+                                aria-label="Edit filler candidate proposed text"
+                                title="Edit filler candidate proposed text"
                                 value={candidateProposedTextById[activeFillerCandidateCard.id] ?? (activeFillerCandidateCard.afterText ?? "")}
                                 placeholder={activeFillerCandidateCard.afterText == null ? "" : undefined}
                                 onChange={(event) => {
@@ -10327,6 +10329,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             {candidateEditModeById[activeRetakeCandidateCard.id] ? (
                               <textarea
                                 className="hammer-candidate-edit"
+                                aria-label="Edit retake candidate proposed text"
+                                title="Edit retake candidate proposed text"
                                 value={candidateProposedTextById[activeRetakeCandidateCard.id] ?? (activeRetakeCandidateCard.afterText ?? "")}
                                 onChange={(event) => {
                                   const value = event.target.value;
