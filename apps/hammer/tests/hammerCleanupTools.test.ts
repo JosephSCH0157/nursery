@@ -10,6 +10,8 @@ import {
   previewSpeakerSolo,
   previewTightenSelection,
 } from "../src/editor/hammerCleanupTools";
+import type { HammerDeadAirAnalysis } from "../src/editor/hammerDeadAirClosure";
+import { deriveAudioCutsForDeadAirClosure, deriveAudioCutsForRemovedSegments } from "../src/editor/hammerCleanupExecution";
 
 function s(id: string, start: number, end: number, speaker: string, text: string): HammerTranscriptSegment {
   return { segment_id: id, start_sec: start, end_sec: end, speaker, text };
@@ -343,6 +345,45 @@ async function testSpeakerPanelHostFavoringKeepsHostPresence() {
   );
 }
 
+async function testCleanupExecutionDerivesAudioCutsForRemovedSegments() {
+  const segments: HammerTranscriptSegment[] = [
+    { segment_id: "a", speaker: "S1", start_sec: 1, end_sec: 2, text: "a" },
+    { segment_id: "b", speaker: "S1", start_sec: 2.0002, end_sec: 3, text: "b" },
+    { segment_id: "c", speaker: "S1", start_sec: 5, end_sec: 6, text: "c" },
+  ];
+
+  const cuts = deriveAudioCutsForRemovedSegments({
+    segments,
+    removeSegmentIds: ["a", "b", "missing"],
+    durationSec: 10,
+  });
+
+  assert.deepEqual(cuts, [{ startSec: 1, endSec: 3 }]);
+}
+
+async function testCleanupExecutionDerivesAudioCutsForDeadAirClosure() {
+  const analysis: HammerDeadAirAnalysis = {
+    thresholdSec: 1.5,
+    eligibleGapCount: 1,
+    totalRemovableSec: 2.0,
+    gaps: [{
+      currentSegmentId: "s1",
+      nextSegmentId: "s2",
+      currentEndSec: 10,
+      nextStartSec: 13.5,
+      gapSec: 3.5,
+      removableSec: 2.0,
+    }],
+  };
+
+  const cuts = deriveAudioCutsForDeadAirClosure({
+    analysis,
+    durationSec: 60,
+  });
+
+  assert.deepEqual(cuts, [{ startSec: 11.5, endSec: 13.5 }]);
+}
+
 async function run() {
   await testShortenGapsDeterministic();
   await testFillerRemovalDeterministic();
@@ -360,6 +401,8 @@ async function run() {
   await testSpeakerPanelSuppressesLowSignalCrossTalkDeterministically();
   await testSpeakerPanelPreservesLegitBackAndForth();
   await testSpeakerPanelHostFavoringKeepsHostPresence();
+  await testCleanupExecutionDerivesAudioCutsForRemovedSegments();
+  await testCleanupExecutionDerivesAudioCutsForDeadAirClosure();
   // eslint-disable-next-line no-console
   console.log("Hammer cleanup tools tests passed.");
 }

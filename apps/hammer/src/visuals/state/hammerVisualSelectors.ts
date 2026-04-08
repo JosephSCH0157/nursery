@@ -66,6 +66,34 @@ export function selectEnabledClipsAtTimeSorted(
     });
 }
 
+export function selectPrimaryActiveClipAtTime(
+  state: HammerVisualTimelineState,
+  timeSec: number,
+): HammerVisualClip | null {
+  const active = selectEnabledClipsAtTimeSorted(state, timeSec);
+  return active.at(-1) ?? null;
+}
+
+export function selectPreviewClips(args: {
+  state: HammerVisualTimelineState;
+  playheadSec: number;
+  selectedClipId: string | null;
+  focusSelectedClipWhenPaused: boolean;
+  isPlaybackActive: boolean;
+  isScrubbing: boolean;
+}): HammerVisualClip[] {
+  if (args.isPlaybackActive || args.isScrubbing) {
+    return selectEnabledClipsAtTimeSorted(args.state, args.playheadSec);
+  }
+
+  if (args.focusSelectedClipWhenPaused && args.selectedClipId) {
+    const selected = selectClipById(args.state, args.selectedClipId);
+    if (selected) return [selected];
+  }
+
+  return selectEnabledClipsAtTimeSorted(args.state, args.playheadSec);
+}
+
 export function selectRenderModelAtPlayhead(
   state: HammerVisualTimelineState,
   playheadSec: number,

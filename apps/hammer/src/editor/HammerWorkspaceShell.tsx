@@ -37,7 +37,8 @@ import {
 } from "../visuals/model/visualPlacementGeometry";
 import {
   selectClipById,
-  selectEnabledClipsAtTimeSorted,
+  selectPrimaryActiveClipAtTime,
+  selectPreviewClips,
 } from "../visuals/state/hammerVisualSelectors";
 import VisualTimelineDock from "../visuals/components/VisualTimelineDock";
 import type { VisualClipBlockModel } from "../visuals/components/VisualClipBlock";
@@ -88,6 +89,10 @@ import {
   buildSilenceCutSuggestions,
   filterDismissedSilenceCutSuggestions,
 } from "./hammerSilenceCutSuggestions";
+import {
+  deriveAudioCutsForDeadAirClosure,
+  deriveAudioCutsForRemovedSegments,
+} from "./hammerCleanupExecution";
 import {
   resolveSelectedSegmentId,
   resolveTranscriptDurationSec,
@@ -486,6 +491,8 @@ type HammerSourceImageItem = {
   label: string;
   kind: "image" | "broll" | "reference_clip";
   anchorSegmentId: string;
+  anchorText: string | null;
+  anchorLabel: string | null;
   startSec: number;
   endSec: number;
   status: "placed" | "uncertain";
@@ -1746,6 +1753,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [activeTranscriptToolSection, setActiveTranscriptToolSection] = useState<"fillers" | "retakes" | "silence_gaps">("fillers");
   const [candidateEditModeById, setCandidateEditModeById] = useState<Record<string, boolean>>({});
   const [candidateProposedTextById, setCandidateProposedTextById] = useState<Record<string, string>>({});
+  const [candidateCutEnabledById, setCandidateCutEnabledById] = useState<Record<string, boolean>>({});
+  const [candidateCutDraftById, setCandidateCutDraftById] = useState<Record<string, { startSec: string; endSec: string }>>({});
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
   const [editableAudioPolish, setEditableAudioPolish] = useState<HammerPersistedAudioPolish | null>(
@@ -1826,6 +1835,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     [editableVisualTimeline],
   );
   const selectedClipId = editableVisualTimeline?.selected_clip_id ?? null;
+  const playheadPrimaryVisualClip = useMemo(
+    () => (editableVisualTimeline ? selectPrimaryActiveClipAtTime(editableVisualTimeline, playheadSec) : null),
+    [editableVisualTimeline, playheadSec],
+  );
+  const playheadPrimaryClipId = playheadPrimaryVisualClip?.clip_id ?? null;
+  const effectiveSelectedClipId = (isPlaybackActive || isScrubbing)
+    ? (playheadPrimaryClipId ?? selectedClipId)
+    : selectedClipId;
   const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
   const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -1838,6 +1855,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const captionEditorRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const lastHandledHandoffTokenRef = useRef<number | null>(null);
   const transcriptLineRefs = useRef(new Map<string, HTMLButtonElement>());
+  const visualPlacementCardRefs = useRef(new Map<string, HTMLElement>());
   const timelineTrackScrollRef = useRef<HTMLDivElement | null>(null);
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
   const historyControllerRef = useRef<HammerHistoryController | null>(null);
@@ -2126,6 +2144,29 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const activeFillerCandidateCard = fillerCandidateCards[fillerActiveCandidateIndex] ?? null;
   const activeRetakeCandidateCard = retakeCandidateCards[retakeActiveCandidateIndex] ?? null;
   const activeCandidateCard = activeReviewKind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
+
+  useEffect(() => {
+    if (!activeCandidateCard) return;
+    const candidateId = activeCandidateCard.id;
+    const defaultCutEnabled = activeCandidateCard.apply.removeSegmentIds.length > 0;
+    setCandidateCutEnabledById((current) => (
+      Object.prototype.hasOwnProperty.call(current, candidateId)
+        ? current
+        : { ...current, [candidateId]: defaultCutEnabled }
+    ));
+    setCandidateCutDraftById((current) => {
+      if (Object.prototype.hasOwnProperty.call(current, candidateId)) return current;
+      const suggested = resolveCandidateSuggestedCut(activeCandidateCard);
+      if (!suggested) return current;
+      return {
+        ...current,
+        [candidateId]: {
+          startSec: String(suggested.startSec),
+          endSec: String(suggested.endSec),
+        },
+      };
+    });
+  }, [activeCandidateCard, transcriptSegmentsById]);
   useEffect(() => {
     if (!activeCandidateCard) return;
     setCandidateProposedTextById((current) => {
@@ -2503,6 +2544,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           label: clip.label ?? asset?.label ?? asset?.asset_ref ?? clip.entry_id ?? clip.clip_id,
           kind,
           anchorSegmentId: fallbackAnchorSegmentId,
+          anchorText: clip.anchor_hint.anchor_text ?? null,
+          anchorLabel: clip.anchor_hint.anchor_label ?? null,
           startSec: imagePlacementDraftWindows[clip.clip_id]?.startSec ?? clip.start_sec,
           endSec: imagePlacementDraftWindows[clip.clip_id]?.endSec ?? clip.end_sec,
           status: clip.placement_status,
@@ -2570,8 +2613,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return byId;
   }, [editableVisualPlacements?.placements]);
   const selectedVisualClip = useMemo(
-    () => (editableVisualTimeline ? selectClipById(editableVisualTimeline, selectedClipId) : null),
-    [editableVisualTimeline, selectedClipId],
+    () => (editableVisualTimeline ? selectClipById(editableVisualTimeline, effectiveSelectedClipId) : null),
+    [editableVisualTimeline, effectiveSelectedClipId],
   );
   // Visual placements should be editable whenever the operator is explicitly in the Images posture,
   // even if the current "pass" is something else (reduces mode confusion and matches editor intent).
@@ -2579,25 +2622,46 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     || currentPass === "image_animation"
     || selectedSourceTab === "images";
   const selectedImagePlacement = useMemo(
-    () => sourceVisualPlacementItems.find((item) => item.id === selectedClipId) ?? null,
-    [selectedClipId, sourceVisualPlacementItems],
+    () => sourceVisualPlacementItems.find((item) => item.id === effectiveSelectedClipId) ?? null,
+    [effectiveSelectedClipId, sourceVisualPlacementItems],
   );
-  const selectedPlacementRecord = selectedClipId
-    ? (visualPlacementsById.get(selectedClipId) ?? null)
+  const selectedPlacementRecord = effectiveSelectedClipId
+    ? (visualPlacementsById.get(effectiveSelectedClipId) ?? null)
     : null;
   const selectedImagePlacementTransform = useMemo(() => {
-    if (!selectedClipId) return DEFAULT_IMAGE_PLACEMENT_TRANSFORM;
-    const draft = imagePlacementTransforms[selectedClipId];
+    if (!effectiveSelectedClipId) return DEFAULT_IMAGE_PLACEMENT_TRANSFORM;
+    const draft = imagePlacementTransforms[effectiveSelectedClipId];
     if (draft) return draft;
     if (selectedVisualClip) {
       return geometryToTransform(selectedVisualClip.geometry);
     }
     return geometryToTransform(resolvePlacementGeometry(selectedPlacementRecord));
-  }, [imagePlacementTransforms, selectedClipId, selectedPlacementRecord, selectedVisualClip]);
+  }, [imagePlacementTransforms, effectiveSelectedClipId, selectedPlacementRecord, selectedVisualClip]);
   const selectedImageAnimationPreset = selectedVisualClip?.animation.preset ?? resolvePlacementAnimationPreset(selectedPlacementRecord);
   const selectedImageAnimationLabel = IMAGE_ANIMATION_PRESET_OPTIONS.find(
     (option) => option.id === selectedImageAnimationPreset,
   )?.label ?? "None";
+  const selectedVisualAnchorSegmentId = selectedVisualClip?.anchor_hint.anchor_segment_id
+    ?? selectedVisualClip?.anchor_hint.matched_segment_ids[0]
+    ?? null;
+  const selectedVisualAnchorSegment = selectedVisualAnchorSegmentId
+    ? (transcriptSegmentsById.get(selectedVisualAnchorSegmentId) ?? null)
+    : null;
+  const [anchorTextDraft, setAnchorTextDraft] = useState("");
+  const [anchorLabelDraft, setAnchorLabelDraft] = useState("");
+  useEffect(() => {
+    if (!selectedVisualClip) {
+      setAnchorTextDraft("");
+      setAnchorLabelDraft("");
+      return;
+    }
+    setAnchorTextDraft(selectedVisualClip.anchor_hint.anchor_text ?? "");
+    setAnchorLabelDraft(selectedVisualClip.anchor_hint.anchor_label ?? "");
+  }, [
+    selectedVisualClip?.clip_id,
+    selectedVisualClip?.anchor_hint.anchor_text,
+    selectedVisualClip?.anchor_hint.anchor_label,
+  ]);
   const previewSurfaceLabel = useMemo(() => {
     if (selectedVisualClip && isVisualPreviewAuthority) {
       const visualLabel = selectedVisualClip.label?.trim() || selectedVisualClip.clip_id;
@@ -2615,15 +2679,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const activePreviewOverlays = useMemo<VisualPreviewOverlayModel[]>(() => {
     if (!isVisualPreviewAuthority) return [];
     if (!editableVisualTimeline) return [];
-    const selectedClip = selectClipById(editableVisualTimeline, selectedClipId);
-    const shouldFocusSelectedInPreview = (
+    const focusSelectedClipWhenPaused = (
       currentPass === "visual_finishing"
       || currentPass === "image_placement"
       || currentPass === "image_animation"
     );
-    const clipCandidates = shouldFocusSelectedInPreview && selectedClip
-      ? [selectedClip]
-      : selectEnabledClipsAtTimeSorted(editableVisualTimeline, playheadSec);
+    const clipCandidates = selectPreviewClips({
+      state: editableVisualTimeline,
+      playheadSec,
+      selectedClipId,
+      focusSelectedClipWhenPaused,
+      isPlaybackActive,
+      isScrubbing,
+    });
     const overlays = clipCandidates
       .map((clip): VisualPreviewOverlayModel | null => {
         const asset = clip.asset_id ? (visualAssetsById.get(clip.asset_id) ?? null) : null;
@@ -2646,7 +2714,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           opacity: clip.opacity,
           fit_mode: clip.fit_mode ?? "contain",
           animation_class: resolveImageAnimationClass(clip.animation.preset),
-          selected: clip.clip_id === selectedClipId,
+          selected: clip.clip_id === effectiveSelectedClipId,
           dimmed: false,
         };
       })
@@ -2656,12 +2724,24 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     currentPass,
     editableVisualTimeline,
     imagePlacementTransforms,
+    isPlaybackActive,
+    isScrubbing,
     isVisualPreviewAuthority,
     playheadSec,
+    effectiveSelectedClipId,
     selectedClipId,
     sourceDeskPreviewUrls,
     visualAssetsById,
   ]);
+
+  useEffect(() => {
+    if (isPlaybackActive || isScrubbing) return;
+    if (!effectiveSelectedClipId) return;
+    if (selectedSourceTab !== "images") return;
+    const node = visualPlacementCardRefs.current.get(effectiveSelectedClipId) ?? null;
+    if (!node) return;
+    node.scrollIntoView({ block: "nearest" });
+  }, [effectiveSelectedClipId, isPlaybackActive, isScrubbing, selectedSourceTab]);
 
   useEffect(() => {
     if (!selectedClipId) return;
@@ -2670,14 +2750,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, [selectedClipId, sourceVisualPlacementItems]);
   useEffect(() => {
     if (!import.meta.env.DEV) return;
-    if (!selectedClipId) return;
+    const expectedClipId = (isPlaybackActive || isScrubbing) ? effectiveSelectedClipId : selectedClipId;
+    if (!expectedClipId) return;
     const selectedTimelineClip = editableVisualTimeline
-      ? selectClipById(editableVisualTimeline, selectedClipId)
+      ? selectClipById(editableVisualTimeline, expectedClipId)
       : null;
     const renderedClipId = activePreviewOverlays.find((overlay) => overlay.selected)?.clip_id ?? null;
     if (!selectedTimelineClip) {
       console.warn("[HammerVisuals] selected clip is missing from canonical timeline", {
-        selected_clip_id: selectedClipId,
+        selected_clip_id: expectedClipId,
       });
       return;
     }
@@ -2687,7 +2768,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         rendered_clip_id: renderedClipId,
       });
     }
-  }, [activePreviewOverlays, editableVisualTimeline, selectedClipId]);
+  }, [activePreviewOverlays, editableVisualTimeline, effectiveSelectedClipId, isPlaybackActive, isScrubbing, selectedClipId]);
   useEffect(() => {
     if (currentPass !== "image_placement" && currentPass !== "image_animation") return;
     if (selectedClipId) return;
@@ -2907,6 +2988,56 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       }))
       .filter((tick) => !tick.isMajor);
   }, []);
+
+  const revealBottomTimelineAtTime = useCallback((timeSec: number) => {
+    const container = timelineTrackScrollRef.current;
+    if (!container) return;
+    const clamped = Math.max(0, Math.min(timelineDurationSec, timeSec));
+    const ratio = timelineDurationSec > 0 ? (clamped / timelineDurationSec) : 0;
+    const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+    const target = Math.max(0, Math.min(maxScrollLeft, (container.scrollWidth * ratio) - (container.clientWidth / 2)));
+    container.scrollTo({ left: target, behavior: "smooth" });
+  }, [timelineDurationSec]);
+
+  const selectVisualClip = useCallback((args: {
+    clipId: string;
+    origin: "tool_window" | "timeline" | "preview";
+    snapPlayhead?: boolean;
+    revealUI?: boolean;
+  }) => {
+    const placement = sourceVisualPlacementItems.find((item) => item.id === args.clipId) ?? null;
+    const anchorSegmentId = placement?.anchorSegmentId ?? null;
+    const startSec = placement?.startSec ?? null;
+
+    if (args.revealUI && placement) {
+      setSelectedSourceTab(placement.kind === "image" ? "images" : "broll");
+    }
+
+    selectionOriginRef.current = "timeline";
+    setFocusOverride("time-focus");
+    setSelectedClipId(args.clipId);
+    setVisualTimelineFocusNonce((current) => current + 1);
+
+    if (anchorSegmentId) {
+      setSelectedSegmentId(anchorSegmentId);
+      setTranscriptSelectionAnchorSegmentId(anchorSegmentId);
+      setTranscriptSelectionFocusSegmentId(anchorSegmentId);
+    }
+
+    if (args.snapPlayhead !== false && startSec != null) {
+      seekPlayheadToTime(startSec, "timeline", { snapToBoundary: false });
+      revealBottomTimelineAtTime(startSec);
+    }
+  }, [
+    revealBottomTimelineAtTime,
+    sourceVisualPlacementItems,
+    seekPlayheadToTime,
+    setSelectedClipId,
+    setSelectedSegmentId,
+    setSelectedSourceTab,
+    setTranscriptSelectionAnchorSegmentId,
+    setTranscriptSelectionFocusSegmentId,
+  ]);
   const dialogueLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
     editableTranscriptSegments.map((segment) => ({
       id: `dialogue:${segment.segment_id}`,
@@ -2934,19 +3065,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       label: item.label,
       startSec: item.startSec,
       endSec: item.endSec,
-      selected: item.id === selectedClipId,
+      selected: item.id === effectiveSelectedClipId,
       tone: "image",
       onSelect: () => {
-        selectionOriginRef.current = "timeline";
-        setFocusOverride("time-focus");
-        setSelectedClipId(item.id);
-        setSelectedSegmentId(item.anchorSegmentId);
-        setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
-        setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
-        seekPlayheadToTime(item.startSec, "playhead");
+        selectVisualClip({ clipId: item.id, origin: "timeline", revealUI: true });
       },
     }))
-  ), [selectedClipId, sourceImageItems]);
+  ), [effectiveSelectedClipId, selectVisualClip, sourceImageItems]);
   const brollLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
     sourceBrollPlacementItems
       .map((item) => ({
@@ -2955,19 +3080,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         label: item.label,
         startSec: item.startSec,
         endSec: item.endSec,
-        selected: item.id === selectedClipId,
+        selected: item.id === effectiveSelectedClipId,
         tone: "broll",
         onSelect: () => {
-          selectionOriginRef.current = "timeline";
-          setFocusOverride("time-focus");
-          setSelectedClipId(item.id);
-          setSelectedSegmentId(item.anchorSegmentId);
-          setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
-          setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
-          seekPlayheadToTime(item.startSec, "playhead");
+          selectVisualClip({ clipId: item.id, origin: "timeline", revealUI: true });
         },
       }))
-  ), [selectedClipId, sourceBrollPlacementItems]);
+  ), [effectiveSelectedClipId, selectVisualClip, sourceBrollPlacementItems]);
   const visualTimelineLaneClips = useMemo<VisualClipBlockModel[]>(() => (
     [...sourceImageItems, ...sourceBrollPlacementItems]
       .map((item) => ({
@@ -2975,10 +3094,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         label: item.label,
         startSec: item.startSec,
         endSec: item.endSec,
-        selected: item.id === selectedClipId,
+        selected: item.id === effectiveSelectedClipId,
       }))
       .sort((left, right) => left.startSec - right.startSec)
-  ), [selectedClipId, sourceBrollPlacementItems, sourceImageItems]);
+  ), [effectiveSelectedClipId, sourceBrollPlacementItems, sourceImageItems]);
   const timelineLanes = useMemo<HammerTimelineLaneView[]>(() => ([
     { id: "dialogue", label: "Dialogue", tone: "dialogue", blocks: dialogueLaneBlocks },
     { id: "music", label: "Music", tone: "music", blocks: [] },
@@ -4585,6 +4704,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return true;
   }
 
+  function commitAudioCuts(selections: Array<{ startSec: number; endSec: number }>): number {
+    if (!Array.isArray(selections) || selections.length === 0) return 0;
+    let appliedCount = 0;
+    for (const selection of selections) {
+      const applied = commitEditableAudioCut({
+        startSec: selection.startSec,
+        endSec: selection.endSec,
+      });
+      if (applied) {
+        appliedCount += 1;
+      }
+    }
+    return appliedCount;
+  }
+
   function applyAudioCutSelection(): void {
     const applied = commitEditableAudioCut({
       startSec: audioCutSelectionStartSec,
@@ -5383,6 +5517,41 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     lastHandledCandidateIdRef.current[kind] = null;
   }
 
+  function resolveCandidateSuggestedCut(card: HammerCandidateCard): { startSec: number; endSec: number } | null {
+    if (!card) return null;
+    const ids = card.apply.removeSegmentIds.length > 0 ? card.apply.removeSegmentIds : card.segmentIds;
+    if (ids.length === 0) return null;
+    let startSec: number | null = null;
+    let endSec: number | null = null;
+    for (const segmentId of ids) {
+      const segment = transcriptSegmentsById.get(segmentId) ?? null;
+      if (!segment) continue;
+      const segStart = Number(segment.start_sec);
+      const segEnd = Number(segment.end_sec);
+      if (!Number.isFinite(segStart) || !Number.isFinite(segEnd)) continue;
+      startSec = startSec == null ? segStart : Math.min(startSec, segStart);
+      endSec = endSec == null ? segEnd : Math.max(endSec, segEnd);
+    }
+    if (startSec == null || endSec == null) return null;
+    if (endSec <= startSec) return null;
+    return { startSec: roundToTenth(startSec), endSec: roundToTenth(endSec) };
+  }
+
+  function resolveCandidateCutOverride(card: HammerCandidateCard): { startSec: number; endSec: number } | null {
+    const enabled = candidateCutEnabledById[card.id] === true;
+    if (!enabled) return null;
+    const draft = candidateCutDraftById[card.id] ?? null;
+    if (!draft) return null;
+    const normalized = normalizeAudioCutSelection({
+      selection: {
+        startSec: Number(draft.startSec),
+        endSec: Number(draft.endSec),
+      },
+      durationSec: playbackTransportDurationSec,
+    });
+    return normalized ? { startSec: normalized.startSec, endSec: normalized.endSec } : null;
+  }
+
   function rebuildCandidateQueue(args: {
     kind: HammerCandidateReviewKind;
     segments: HammerTranscriptSegment[];
@@ -5424,6 +5593,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setActiveReviewKind(kind);
     setCandidateEditModeById({});
     setCandidateProposedTextById({});
+    setCandidateCutEnabledById({});
+    setCandidateCutDraftById({});
     rebuildCandidateQueue({
       kind,
       segments: editableTranscriptSegments,
@@ -5435,7 +5606,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   function handleCandidateDecision(
     kind: HammerCandidateReviewKind,
     approve: boolean,
-    options?: { useEditedProposal?: boolean; editedProposalText?: string | null },
+    options?: { useEditedProposal?: boolean; editedProposalText?: string | null; cutOverride?: { startSec: number; endSec: number } | null },
   ): void {
     setActiveReviewKind(kind);
     const card = kind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
@@ -5530,6 +5701,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           computeAfter,
         });
         if (!applied) return;
+
+        const cutOverride = options?.cutOverride ?? null;
+        if (cutOverride) {
+          commitAudioCuts([cutOverride]);
+        } else {
+          const cutSelections = deriveAudioCutsForRemovedSegments({
+            segments: beforeState.transcriptSegments,
+            removeSegmentIds: approvePlan.removeSegmentIds,
+            durationSec: playbackTransportDurationSec,
+          });
+          commitAudioCuts(cutSelections);
+        }
         nextSegments = computeAfter(cloneEditorState(beforeState)).transcriptSegments;
       }
 
@@ -5568,6 +5751,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       });
       setDeadAirAnalysis(analysis);
       if (analysis.eligibleGapCount === 0) return;
+
+      const cutSelections = deriveAudioCutsForDeadAirClosure({
+        analysis,
+        durationSec: playbackTransportDurationSec,
+      });
+      commitAudioCuts(cutSelections);
 
       const affected = new Set<string>();
       for (const gap of analysis.gaps) {
@@ -6074,6 +6263,40 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       startSec: clampedStart,
       endSec: nextEnd,
       label: "Adjust visual placement timing",
+    });
+  }
+
+  function commitVisualAnchorRefinement(args: {
+    clipId: string;
+    anchorText: string;
+    anchorLabel: string;
+    detached: boolean;
+    label: string;
+  }): void {
+    const nextAnchorText = args.anchorText.trim();
+    const nextAnchorLabel = args.anchorLabel.trim();
+    applyHistoryMutation({
+      label: args.label,
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedPlacementIds: [args.clipId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const timeline = resolveCanonicalVisualTimeline(before);
+        const clip = selectClipById(timeline, args.clipId);
+        if (!clip) return before;
+        return applyVisualTimelineAction(before, {
+          type: "RELABEL_CLIP_ANCHOR",
+          clip_id: args.clipId,
+          anchor_hint: {
+            ...clip.anchor_hint,
+            anchor_text: nextAnchorText.length > 0 ? nextAnchorText : null,
+            anchor_label: nextAnchorLabel.length > 0 ? nextAnchorLabel : null,
+            detached: args.detached,
+          },
+          updated_at: new Date().toISOString(),
+        });
+      },
     });
   }
 
@@ -9321,14 +9544,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       (() => {
                         const anchorSegment = transcriptSegmentsById.get(item.anchorSegmentId) ?? null;
                         const timelinePrompt = buildTimelineImagePrompt({
-                          text: anchorSegment?.text ?? item.label,
+                          text: item.anchorText ?? anchorSegment?.text ?? item.label,
                           tweak: "",
                         });
                         const imageCopyKey = `timeline-image:${item.id}`;
                         return (
                           <article
                             key={item.id}
-                            className={selectedClipId === item.id ? "hammer-source-card is-selected" : "hammer-source-card"}
+                            ref={(node) => {
+                              if (node) {
+                                visualPlacementCardRefs.current.set(item.id, node);
+                              } else {
+                                visualPlacementCardRefs.current.delete(item.id);
+                              }
+                            }}
+                            className={effectiveSelectedClipId === item.id ? "hammer-source-card is-selected" : "hammer-source-card"}
                           >
                             {item.assetPath && sourceDeskPreviewUrls[item.assetPath] ? (
                               <img
@@ -9354,6 +9584,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             </div>
                             <div className="hammer-source-card__path">Prompt: {timelinePrompt}</div>
                             <div className="hammer-source-card__actions">
+                              <button
+                                type="button"
+                                onClick={() => selectVisualClip({ clipId: item.id, origin: "tool_window", revealUI: true })}
+                              >
+                                Select
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => {
@@ -10011,7 +10247,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   editable={isVisualPreviewAuthority && visualPlacementEditingEnabled}
                   onSelectClip={(clipId) => {
                     if (!isVisualPreviewAuthority) return;
-                    setSelectedClipId(clipId);
+                    selectVisualClip({ clipId, origin: "preview", revealUI: true, snapPlayhead: false });
                   }}
                   onBeginMove={(event, clipId) => {
                     if (!isVisualPreviewAuthority) return;
@@ -10209,6 +10445,140 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             <span>Confidence {Math.round(activeFillerCandidateCard.confidence * 100)}%</span>
                             <span>Time saved {activeFillerCandidateCard.timeSavedSec.toFixed(1)}s</span>
                           </div>
+                          {(() => {
+                            const candidateId = activeFillerCandidateCard.id;
+                            const enabled = candidateCutEnabledById[candidateId] === true;
+                            const suggested = resolveCandidateSuggestedCut(activeFillerCandidateCard);
+                            const segmentIdsForCut = activeFillerCandidateCard.apply.removeSegmentIds.length > 0
+                              ? activeFillerCandidateCard.apply.removeSegmentIds
+                              : activeFillerCandidateCard.segmentIds;
+                            const draft = candidateCutDraftById[candidateId] ?? null;
+                            return (
+                              <section className="hammer-tool-card">
+                                <header className="hammer-tool-card__head">Cut Span</header>
+                                <label className="hammer-tool-check">
+                                  <input
+                                    type="checkbox"
+                                    checked={enabled}
+                                    onChange={(event) => {
+                                      setFocusOverride("tool-focus");
+                                      setCandidateCutEnabledById((current) => ({
+                                        ...current,
+                                        [candidateId]: event.target.checked,
+                                      }));
+                                    }}
+                                  />
+                                  <span>Apply a timeline cut (time coordinates)</span>
+                                </label>
+                                {suggested ? (
+                                  <div className="hammer-tool-hint">
+                                    Suggested: {suggested.startSec.toFixed(1)}s - {suggested.endSec.toFixed(1)}s
+                                  </div>
+                                ) : null}
+                                <div className="hammer-source-card__actions">
+                                  <button
+                                    type="button"
+                                    disabled={!suggested}
+                                    onClick={() => {
+                                      if (!suggested) return;
+                                      setFocusOverride("tool-focus");
+                                      setCandidateCutDraftById((current) => ({
+                                        ...current,
+                                        [candidateId]: {
+                                          startSec: String(suggested.startSec),
+                                          endSec: String(suggested.endSec),
+                                        },
+                                      }));
+                                    }}
+                                  >
+                                    Use Suggested
+                                  </button>
+                                </div>
+                                <div className="hammer-source-summary">
+                                  <span>Start (sec)</span>
+                                  <input
+                                    type="number"
+                                    step={0.1}
+                                    value={draft?.startSec ?? ""}
+                                    onChange={(event) => {
+                                      setFocusOverride("tool-focus");
+                                      const value = event.target.value;
+                                      setCandidateCutDraftById((current) => ({
+                                        ...current,
+                                        [candidateId]: { startSec: value, endSec: current[candidateId]?.endSec ?? "" },
+                                      }));
+                                    }}
+                                    disabled={!enabled}
+                                  />
+                                  <span>End (sec)</span>
+                                  <input
+                                    type="number"
+                                    step={0.1}
+                                    value={draft?.endSec ?? ""}
+                                    onChange={(event) => {
+                                      setFocusOverride("tool-focus");
+                                      const value = event.target.value;
+                                      setCandidateCutDraftById((current) => ({
+                                        ...current,
+                                        [candidateId]: { startSec: current[candidateId]?.startSec ?? "", endSec: value },
+                                      }));
+                                    }}
+                                    disabled={!enabled}
+                                  />
+                                </div>
+                                {segmentIdsForCut.length > 0 ? (
+                                  <div className="hammer-source-list">
+                                    {segmentIdsForCut.map((segmentId) => {
+                                      const segment = transcriptSegmentsById.get(segmentId) ?? null;
+                                      if (!segment) return null;
+                                      return (
+                                        <article key={`cut-seg-${candidateId}-${segmentId}`} className="hammer-source-card">
+                                          <header className="hammer-source-card__head">
+                                            <strong>{segmentId}</strong>
+                                            <span>{segment.start_sec.toFixed(1)}s - {segment.end_sec.toFixed(1)}s</span>
+                                          </header>
+                                          <div className="hammer-source-card__actions">
+                                            <button
+                                              type="button"
+                                              disabled={!enabled}
+                                              onClick={() => {
+                                                setFocusOverride("tool-focus");
+                                                setCandidateCutDraftById((current) => ({
+                                                  ...current,
+                                                  [candidateId]: {
+                                                    startSec: String(segment.start_sec),
+                                                    endSec: current[candidateId]?.endSec ?? "",
+                                                  },
+                                                }));
+                                              }}
+                                            >
+                                              Set Start
+                                            </button>
+                                            <button
+                                              type="button"
+                                              disabled={!enabled}
+                                              onClick={() => {
+                                                setFocusOverride("tool-focus");
+                                                setCandidateCutDraftById((current) => ({
+                                                  ...current,
+                                                  [candidateId]: {
+                                                    startSec: current[candidateId]?.startSec ?? "",
+                                                    endSec: String(segment.end_sec),
+                                                  },
+                                                }));
+                                              }}
+                                            >
+                                              Set End
+                                            </button>
+                                          </div>
+                                        </article>
+                                      );
+                                    })}
+                                  </div>
+                                ) : null}
+                              </section>
+                            );
+                          })()}
                           <div className="hammer-candidate-review__actions">
                             <button
                               type="button"
@@ -10232,9 +10602,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                     useEditedProposal: true,
                                     editedProposalText: candidateProposedTextById[activeFillerCandidateCard.id]
                                       ?? (activeFillerCandidateCard.afterText ?? ""),
+                                    cutOverride: resolveCandidateCutOverride(activeFillerCandidateCard),
                                   });
                                 } else {
-                                  handleCandidateDecision("fillers", true);
+                                  handleCandidateDecision("fillers", true, {
+                                    cutOverride: resolveCandidateCutOverride(activeFillerCandidateCard),
+                                  });
                                 }
                               }}
                             >
@@ -10246,7 +10619,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                 disabled={fillerDecisionInFlight}
                                 onClick={() => {
                                   setFocusOverride("tool-focus");
-                                  handleCandidateDecision("fillers", true, { useEditedProposal: false });
+                                  handleCandidateDecision("fillers", true, {
+                                    useEditedProposal: false,
+                                    cutOverride: resolveCandidateCutOverride(activeFillerCandidateCard),
+                                  });
                                 }}
                               >
                                 Approve As-Is
@@ -11776,6 +12152,59 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             Remove Clip
                           </button>
                         </div>
+                        <div className="hammer-tool-hint">
+                          Anchor segment: {selectedVisualAnchorSegmentId ?? "n/a"}
+                          {` · matches ${selectedVisualClip?.anchor_hint.matched_segment_ids.length ?? 0}`}
+                          {selectedVisualClip?.anchor_hint.detached ? " · detached" : " · attached"}
+                        </div>
+                        <label className="hammer-tool-field">
+                          <span>Anchor Text</span>
+                          <textarea
+                            value={anchorTextDraft}
+                            rows={3}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setAnchorTextDraft(event.target.value);
+                            }}
+                          />
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Anchor Label</span>
+                          <input
+                            value={anchorLabelDraft}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setAnchorLabelDraft(event.target.value);
+                            }}
+                          />
+                        </label>
+                        <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => commitVisualAnchorRefinement({
+                              clipId: selectedImagePlacement.id,
+                              anchorText: anchorTextDraft,
+                              anchorLabel: anchorLabelDraft,
+                              detached: true,
+                              label: "Refine visual anchor",
+                            })}
+                          >
+                            Save Anchor
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => commitVisualAnchorRefinement({
+                              clipId: selectedImagePlacement.id,
+                              anchorText: selectedVisualAnchorSegment?.text ?? "",
+                              anchorLabel: anchorLabelDraft,
+                              detached: false,
+                              label: "Reset visual anchor",
+                            })}
+                            disabled={!selectedVisualAnchorSegment}
+                          >
+                            Reset to Segment
+                          </button>
+                        </div>
                         <label className="hammer-tool-field">
                           <span>Position X ({Math.round(selectedImagePlacementTransform.leftPct)}%)</span>
                           <input
@@ -13111,18 +13540,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               clips={visualTimelineLaneClips}
               playheadSec={playheadSec}
               durationSec={timelineDurationSec}
-              selectedClipId={selectedClipId}
+              selectedClipId={effectiveSelectedClipId}
               editable={visualPlacementEditingEnabled}
               focusToken={visualTimelineFocusNonce}
               onSelectClip={(clipId) => {
-                const clip = sourceVisualPlacementItems.find((item) => item.id === clipId) ?? null;
-                setSelectedClipId(clipId);
-                if (clip) {
-                  selectionOriginRef.current = "timeline";
-                  setSelectedSegmentId(clip.anchorSegmentId);
-                  setTranscriptSelectionAnchorSegmentId(clip.anchorSegmentId);
-                  setTranscriptSelectionFocusSegmentId(clip.anchorSegmentId);
-                }
+                selectVisualClip({ clipId, origin: "timeline", revealUI: true });
               }}
               onMoveClip={(event, clip) => {
                 if (!visualPlacementEditingEnabled) return;

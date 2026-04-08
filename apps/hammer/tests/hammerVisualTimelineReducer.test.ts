@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createDefaultVisualAnimation, createDefaultVisualGeometry, createEmptyVisualTimelineState } from "../src/visuals/model/hammerVisualDefaults";
 import { hammerVisualTimelineReducer } from "../src/visuals/state/hammerVisualReducer";
-import { selectClipById, selectEnabledClipsAtTimeSorted } from "../src/visuals/state/hammerVisualSelectors";
+import { selectClipById, selectEnabledClipsAtTimeSorted, selectPreviewClips, selectPrimaryActiveClipAtTime } from "../src/visuals/state/hammerVisualSelectors";
 import type { HammerVisualClip } from "../src/visuals/model/hammerVisualTypes";
 
 function buildClip(overrides?: Partial<HammerVisualClip>): HammerVisualClip {
@@ -203,4 +203,73 @@ test("fit mode updates on canonical clip state", () => {
   });
 
   assert.equal(next.clips[0]?.fit_mode, "cover");
+});
+
+test("selectPrimaryActiveClipAtTime returns the topmost active clip", () => {
+  const state = createEmptyVisualTimelineState({
+    clips: [
+      buildClip({ clip_id: "clip_low", z_index: 1 }),
+      buildClip({ clip_id: "clip_high", z_index: 9 }),
+    ],
+    lanes: [{
+      lane_id: "lane:primary",
+      label: "Visuals",
+      clip_ids: ["clip_low", "clip_high"],
+    }],
+  });
+
+  const primary = selectPrimaryActiveClipAtTime(state, 1.5);
+  assert.equal(primary?.clip_id, "clip_high");
+});
+
+test("selectPreviewClips follows playhead time during playback regardless of selected clip", () => {
+  const state = createEmptyVisualTimelineState({
+    clips: [
+      buildClip({ clip_id: "clip_a", start_sec: 0, end_sec: 2 }),
+      buildClip({ clip_id: "clip_b", start_sec: 4, end_sec: 6 }),
+    ],
+    lanes: [{
+      lane_id: "lane:primary",
+      label: "Visuals",
+      clip_ids: ["clip_a", "clip_b"],
+    }],
+    selected_clip_id: "clip_a",
+  });
+
+  const candidates = selectPreviewClips({
+    state,
+    playheadSec: 4.5,
+    selectedClipId: "clip_a",
+    focusSelectedClipWhenPaused: true,
+    isPlaybackActive: true,
+    isScrubbing: false,
+  });
+
+  assert.deepEqual(candidates.map((clip) => clip.clip_id), ["clip_b"]);
+});
+
+test("selectPreviewClips focuses selected clip when paused in direct manipulation mode", () => {
+  const state = createEmptyVisualTimelineState({
+    clips: [
+      buildClip({ clip_id: "clip_a", start_sec: 0, end_sec: 2 }),
+      buildClip({ clip_id: "clip_b", start_sec: 4, end_sec: 6 }),
+    ],
+    lanes: [{
+      lane_id: "lane:primary",
+      label: "Visuals",
+      clip_ids: ["clip_a", "clip_b"],
+    }],
+    selected_clip_id: "clip_a",
+  });
+
+  const candidates = selectPreviewClips({
+    state,
+    playheadSec: 4.5,
+    selectedClipId: "clip_a",
+    focusSelectedClipWhenPaused: true,
+    isPlaybackActive: false,
+    isScrubbing: false,
+  });
+
+  assert.deepEqual(candidates.map((clip) => clip.clip_id), ["clip_a"]);
 });
