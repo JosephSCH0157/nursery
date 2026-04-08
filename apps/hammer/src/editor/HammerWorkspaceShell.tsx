@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX, MouseEvent, WheelEvent as ReactWheelEvent } from "react";
-const TIMELINE_ZOOM_LEVELS = [100, 125, 150, 200, 300] as const;
 import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type {
   HammerEditInstruction,
