@@ -497,6 +497,18 @@ export type CanonicalRecordingRecord = {
   updated_by: string;
 };
 
+export type SealHammerCanonicalBaselineRequest = {
+  written_by: WrittenBy;
+  structured_transcript: HammerArtifactWriteRequest;
+  speaker_map: HammerArtifactWriteRequest;
+  timing_baseline?: HammerArtifactWriteRequest;
+};
+
+export type SealHammerCanonicalBaselineResult = {
+  sealed_at: string;
+  canonical_recording: CanonicalRecordingRecord;
+};
+
 export type CreateHammerRecordingRevisionRequest = {
   written_by: WrittenBy;
   label?: string | null;
@@ -554,6 +566,16 @@ export type ResetHammerRecordingRevisionResult = {
   reset_at: string;
   discarded_revision_id: string;
   new_revision_id: string;
+};
+
+export type OpenHammerRecordingSessionRequest = {
+  written_by: WrittenBy;
+  revision_label?: string | null;
+};
+
+export type OpenHammerRecordingSessionResult = {
+  canonical_recording: CanonicalRecordingRecord;
+  revision: RecordingRevisionRecord;
 };
 
 export type ResetHammerWorkpieceToRawRequest = {
@@ -1114,6 +1136,13 @@ export type TongsCommitApiService = {
     input: EnsureHammerCanonicalRecordingRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<CanonicalRecordingRecord>;
+  sealHammerCanonicalBaseline(
+    workspaceId: string,
+    workpieceId: string,
+    canonicalRecordingId: string,
+    input: SealHammerCanonicalBaselineRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<SealHammerCanonicalBaselineResult>;
   createHammerRecordingRevision(
     workspaceId: string,
     workpieceId: string,
@@ -1143,6 +1172,12 @@ export type TongsCommitApiService = {
     input: ResetHammerRecordingRevisionRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<ResetHammerRecordingRevisionResult>;
+  openHammerRecordingSession(
+    workspaceId: string,
+    workpieceId: string,
+    input: OpenHammerRecordingSessionRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<OpenHammerRecordingSessionResult>;
   resetHammerWorkpieceToRaw(
     workspaceId: string,
     workpieceId: string,
@@ -2763,6 +2798,46 @@ function normalizeResetHammerRecordingRevisionRequest(
   return {
     written_by: writtenBy,
     ...(typeof reason === "undefined" ? {} : { reason }),
+  };
+}
+
+function normalizeSealHammerCanonicalBaselineRequest(
+  body: Record<string, unknown>,
+): SealHammerCanonicalBaselineRequest {
+  const writtenBy = normalizeWrittenBy(body.written_by);
+  const structuredTranscript = normalizeHammerArtifactWriteRequest(body.structured_transcript, "structured_transcript");
+  const speakerMap = normalizeHammerArtifactWriteRequest(body.speaker_map, "speaker_map");
+  const timingBaseline = typeof body.timing_baseline === "undefined"
+    ? undefined
+    : normalizeHammerArtifactWriteRequest(body.timing_baseline, "timing_baseline");
+
+  if (!structuredTranscript) {
+    throw new HttpError(400, "invalid_payload", "structured_transcript is required");
+  }
+  if (!speakerMap) {
+    throw new HttpError(400, "invalid_payload", "speaker_map is required");
+  }
+
+  return {
+    written_by: writtenBy,
+    structured_transcript: structuredTranscript,
+    speaker_map: speakerMap,
+    ...(typeof timingBaseline === "undefined" ? {} : { timing_baseline: timingBaseline }),
+  };
+}
+
+function normalizeOpenHammerRecordingSessionRequest(
+  body: Record<string, unknown>,
+): OpenHammerRecordingSessionRequest {
+  const writtenBy = normalizeWrittenBy(body.written_by);
+  const revisionLabel = typeof body.revision_label === "undefined"
+    ? undefined
+    : body.revision_label === null
+      ? null
+      : normalizeNonEmptyString(body.revision_label, "revision_label");
+  return {
+    written_by: writtenBy,
+    ...(typeof revisionLabel === "undefined" ? {} : { revision_label: revisionLabel }),
   };
 }
 
@@ -5580,6 +5655,175 @@ export class TongsCommitService {
     return canonical;
   }
 
+  async sealHammerCanonicalBaseline(
+    workspaceId: string,
+    workpieceId: string,
+    canonicalRecordingId: string,
+    input: SealHammerCanonicalBaselineRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<SealHammerCanonicalBaselineResult> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    const writtenBy = normalizeWrittenBy(input.written_by);
+
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => any;
+    };
+
+    const existingResult = await tongsUntyped
+      .from("canonical_recordings")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .eq("id", canonicalRecordingId)
+      .maybeSingle();
+    if (existingResult.error) {
+      throw new HttpError(502, "db_read_failed", "Failed to read canonical recording for sealing", {
+        reason: existingResult.error.message,
+      });
+    }
+    const canonical = existingResult.data as CanonicalRecordingRecord | null;
+    if (!canonical) {
+      throw new HttpError(404, "canonical_recording_not_found", "Canonical recording not found", {
+        canonical_recording_id: canonicalRecordingId,
+      });
+    }
+    if (canonical.sealed_at) {
+      throw new HttpError(409, "canonical_recording_already_sealed", "Canonical recording baseline is already sealed", {
+        canonical_recording_id: canonicalRecordingId,
+      });
+    }
+
+    const expectedTranscriptPath = `hammer/recordings/${canonicalRecordingId}/baseline/transcript.v1.json`;
+    const expectedSpeakerMapPath = `hammer/recordings/${canonicalRecordingId}/baseline/speaker-map.v1.json`;
+    const expectedTimingPath = `hammer/recordings/${canonicalRecordingId}/baseline/timing.v1.json`;
+
+    const providedTranscriptPath = typeof input.structured_transcript.path === "string"
+      ? normalizeRelativePath(input.structured_transcript.path)
+      : null;
+    if (providedTranscriptPath && providedTranscriptPath !== expectedTranscriptPath) {
+      throw new HttpError(400, "invalid_canonical_baseline_path", "structured_transcript path must match canonical baseline path", {
+        provided_path: providedTranscriptPath,
+        expected_path: expectedTranscriptPath,
+      });
+    }
+
+    const providedSpeakerMapPath = typeof input.speaker_map.path === "string"
+      ? normalizeRelativePath(input.speaker_map.path)
+      : null;
+    if (providedSpeakerMapPath && providedSpeakerMapPath !== expectedSpeakerMapPath) {
+      throw new HttpError(400, "invalid_canonical_baseline_path", "speaker_map path must match canonical baseline path", {
+        provided_path: providedSpeakerMapPath,
+        expected_path: expectedSpeakerMapPath,
+      });
+    }
+
+    const providedTimingPath = typeof input.timing_baseline?.path === "string"
+      ? normalizeRelativePath(input.timing_baseline.path)
+      : null;
+    if (providedTimingPath && providedTimingPath !== expectedTimingPath) {
+      throw new HttpError(400, "invalid_canonical_baseline_path", "timing_baseline path must match canonical baseline path", {
+        provided_path: providedTimingPath,
+        expected_path: expectedTimingPath,
+      });
+    }
+
+    await this.commitFile(workpieceId, {
+      path: expectedTranscriptPath,
+      content_type: "application/json",
+      file_type: "hammer_canonical_baseline",
+      written_by: writtenBy,
+      expected_previous_updated_at: input.structured_transcript.expected_previous_updated_at ?? undefined,
+      event_name: "hammer.canonical_recording.baseline.saved.v1",
+      event_payload: {
+        schema_version: 1,
+        artifact: "baseline_transcript",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        canonical_recording_id: canonicalRecordingId,
+      } as Json,
+      json: input.structured_transcript.data as Json,
+      user_access_token: options?.userAccessToken ?? null,
+    });
+
+    await this.commitFile(workpieceId, {
+      path: expectedSpeakerMapPath,
+      content_type: "application/json",
+      file_type: "hammer_canonical_baseline",
+      written_by: writtenBy,
+      expected_previous_updated_at: input.speaker_map.expected_previous_updated_at ?? undefined,
+      event_name: "hammer.canonical_recording.baseline.saved.v1",
+      event_payload: {
+        schema_version: 1,
+        artifact: "baseline_speaker_map",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        canonical_recording_id: canonicalRecordingId,
+      } as Json,
+      json: input.speaker_map.data as Json,
+      user_access_token: options?.userAccessToken ?? null,
+    });
+
+    if (input.timing_baseline) {
+      await this.commitFile(workpieceId, {
+        path: expectedTimingPath,
+        content_type: "application/json",
+        file_type: "hammer_canonical_baseline",
+        written_by: writtenBy,
+        expected_previous_updated_at: input.timing_baseline.expected_previous_updated_at ?? undefined,
+        event_name: "hammer.canonical_recording.baseline.saved.v1",
+        event_payload: {
+          schema_version: 1,
+          artifact: "baseline_timing",
+          workspace_id: workspaceId,
+          workpiece_id: workpieceId,
+          canonical_recording_id: canonicalRecordingId,
+        } as Json,
+        json: input.timing_baseline.data as Json,
+        user_access_token: options?.userAccessToken ?? null,
+      });
+    }
+
+    const sealedAt = new Date().toISOString();
+    const updateResult = await tongsUntyped
+      .from("canonical_recordings")
+      .update({
+        status: "sealed",
+        sealed_at: sealedAt,
+        baseline_transcript_path: expectedTranscriptPath,
+        baseline_speaker_map_path: expectedSpeakerMapPath,
+        baseline_timing_path: input.timing_baseline ? expectedTimingPath : null,
+        updated_at: sealedAt,
+        updated_by: auth.userId,
+      })
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .eq("id", canonicalRecordingId)
+      .select("*")
+      .single();
+    if (updateResult.error) {
+      throw new HttpError(502, "db_write_failed", "Failed to seal canonical baseline pointers", {
+        reason: updateResult.error.message,
+      });
+    }
+
+    // Ensure episode pointer is correct.
+    await tongsUntyped
+      .from("episodes")
+      .update({
+        canonical_recording_id: canonicalRecordingId,
+        updated_at: sealedAt,
+      })
+      .eq("workspace_id", workspaceId)
+      .eq("id", workpieceId);
+
+    return {
+      sealed_at: sealedAt,
+      canonical_recording: updateResult.data as CanonicalRecordingRecord,
+    };
+  }
+
   async createHammerRecordingRevision(
     workspaceId: string,
     workpieceId: string,
@@ -5655,6 +5899,63 @@ export class TongsCommitService {
     });
 
     return revision;
+  }
+
+  async openHammerRecordingSession(
+    workspaceId: string,
+    workpieceId: string,
+    input: OpenHammerRecordingSessionRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<OpenHammerRecordingSessionResult> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    const writtenBy = normalizeWrittenBy(input.written_by);
+
+    const canonical = await this.ensureHammerCanonicalRecording(
+      workspaceId,
+      workpieceId,
+      { written_by: writtenBy },
+      options,
+    );
+
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => any;
+    };
+
+    const episodeResult = await tongsUntyped
+      .from("episodes")
+      .select("canonical_recording_id,active_revision_id")
+      .eq("workspace_id", workspaceId)
+      .eq("id", workpieceId)
+      .maybeSingle();
+    const activeRevisionId = !episodeResult?.error && episodeResult?.data
+      ? (episodeResult.data.active_revision_id as string | null)
+      : null;
+
+    if (activeRevisionId) {
+      const revisionResult = await tongsUntyped
+        .from("recording_revisions")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .eq("workpiece_id", workpieceId)
+        .eq("id", activeRevisionId)
+        .maybeSingle();
+      if (!revisionResult.error && revisionResult.data) {
+        const revision = revisionResult.data as RecordingRevisionRecord;
+        if (revision.status === "active" && revision.canonical_recording_id === canonical.id) {
+          return { canonical_recording: canonical, revision };
+        }
+      }
+    }
+
+    const revision = await this.createHammerRecordingRevision(
+      workspaceId,
+      workpieceId,
+      { written_by: writtenBy, label: input.revision_label ?? null },
+      options,
+    );
+    return { canonical_recording: canonical, revision };
   }
 
   async readHammerRecordingRevision(
@@ -10120,6 +10421,32 @@ export function createTongsCommitApiHandlerWithService(
       }
 
       if (
+        parts.length === 9
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "workpieces"
+        && parts[5] === "hammer"
+        && parts[6] === "canonical-recording"
+        && parts[8] === "seal-baseline"
+      ) {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const canonicalRecordingId = normalizeUuid(decodeURIComponent(parts[7]), "canonical_recording_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const payload = normalizeSealHammerCanonicalBaselineRequest(body);
+        const result = await service.sealHammerCanonicalBaseline(
+          workspaceId,
+          workpieceId,
+          canonicalRecordingId,
+          payload,
+          { userAccessToken },
+        );
+        return jsonResponse(200, { ok: true, data: { result } });
+      }
+
+      if (
         parts.length === 7
         && parts[0] === "tongs"
         && parts[1] === "workspaces"
@@ -10140,6 +10467,29 @@ export function createTongsCommitApiHandlerWithService(
           { userAccessToken },
         );
         return jsonResponse(201, { ok: true, data: { revision } });
+      }
+
+      if (
+        parts.length === 7
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "workpieces"
+        && parts[5] === "hammer"
+        && parts[6] === "session"
+      ) {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const payload = normalizeOpenHammerRecordingSessionRequest(body);
+        const session = await service.openHammerRecordingSession(
+          workspaceId,
+          workpieceId,
+          payload,
+          { userAccessToken },
+        );
+        return jsonResponse(200, { ok: true, data: session });
       }
 
       if (

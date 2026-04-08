@@ -148,7 +148,9 @@ import {
 import {
   loadHammerHistoryDocument,
   loadHammerHistoryPresence,
+  loadHammerRevisionHistoryDocument,
   saveHammerHistoryDocument,
+  saveHammerRevisionHistoryDocument,
 } from "../lib/hammerHistoryArtifactApi";
 import { resolveHammerHistoryStatus } from "../lib/hammerHistoryStatus";
 import { diffWords } from "../lib/hammerWordDiff";
@@ -380,6 +382,7 @@ type HammerScrubRate = (typeof SCRUB_RATE_OPTIONS)[number];
 
 type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
+  recordingRevisionId?: string | null;
   structuredTranscript?: HammerPersistedStructuredTranscript | null;
   visualPlacements?: HammerPersistedVisualPlacements | null;
   visualTimeline?: HammerVisualTimelineState | null;
@@ -3480,15 +3483,26 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     };
     controller.document.updatedAt = new Date().toISOString();
 
-    const result = await saveHammerHistoryDocument({
-      workpieceId: launchContext.workpiece_id,
-      document: controller.document,
-    });
+    const result = props.recordingRevisionId
+      ? await saveHammerRevisionHistoryDocument({
+        workspaceId: launchContext.workspace_id,
+        workpieceId: launchContext.workpiece_id,
+        revisionId: props.recordingRevisionId,
+        document: controller.document,
+      })
+      : await saveHammerHistoryDocument({
+        workpieceId: launchContext.workpiece_id,
+        document: controller.document,
+      });
     if (!result.ok) {
       setHistoryStatus(result.error);
       return;
     }
     setHistoryStatus(null);
+
+    if (props.recordingRevisionId) {
+      return;
+    }
 
     const headEntryId = controller.document.headEntryId ?? null;
     const undoDepth = controller.document.undoStack.length;
@@ -3809,11 +3823,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setCaptionBuildFeedback(null);
 
     void (async () => {
-      const [historyResult, snapshotManifestResult, historyPresenceResult] = await Promise.all([
-        loadHammerHistoryDocument(launchContext.workpiece_id),
-        loadHammerSnapshotManifest(launchContext.workpiece_id),
-        loadHammerHistoryPresence(launchContext.workpiece_id),
-      ]);
+      const revisionId = props.recordingRevisionId ?? null;
+      const historyResult = revisionId
+        ? await loadHammerRevisionHistoryDocument({
+          workpieceId: launchContext.workpiece_id,
+          revisionId,
+        })
+        : await loadHammerHistoryDocument(launchContext.workpiece_id);
+      const snapshotManifestResult = revisionId
+        ? { ok: true as const, status: 200, exists: false, data: null as HammerSnapshotManifestV1 | null }
+        : await loadHammerSnapshotManifest(launchContext.workpiece_id);
+      const historyPresenceResult = revisionId
+        ? { ok: true as const, status: 200, exists: true, data: null as { version: number } | null }
+        : await loadHammerHistoryPresence(launchContext.workpiece_id);
       if (!active) return;
 
       let snapshotRecoveryStatus: string | null = null;
@@ -3920,7 +3942,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       active = false;
       clearPersistTimer();
     };
-  }, [launchContext.workpiece_id, structuredTranscriptResetKey, transcriptSourceId, visualTimelineResetKey]);
+  }, [
+    launchContext.workpiece_id,
+    props.recordingRevisionId,
+    structuredTranscriptResetKey,
+    transcriptSourceId,
+    visualTimelineResetKey,
+  ]);
 
   useEffect(() => {
     const selectedStillExists = selectedSegmentId
@@ -9240,7 +9268,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         type="button"
                         onClick={() => {
                           const ok = window.confirm(
-                            "Reset to Raw removes all Hammer edits (cleanup cuts, timing shifts, visuals, audio edits) and restores the original imported episode baseline. Continue?",
+                            "Reset to Original discards the current revision edits (cleanup cuts, timing shifts, visuals, audio edits) and restores the immutable canonical baseline. Continue?",
                           );
                           if (!ok) return;
                           props.onRequestResetToRaw?.();
@@ -9249,7 +9277,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         disabled={props.resetToRawInFlight}
                         title="Restore this episode to its original imported state (clears all Hammer edits)"
                       >
-                        {props.resetToRawInFlight ? "Resetting..." : "Reset to Raw"}
+                        {props.resetToRawInFlight ? "Resetting..." : "Reset to Original"}
                       </button>
                     ) : null}
                     {canRedo ? (

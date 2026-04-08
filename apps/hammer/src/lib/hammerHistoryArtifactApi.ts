@@ -4,6 +4,9 @@ import { tongsFetch } from "./tongsFetch";
 
 export const HAMMER_HISTORY_ARTIFACT_PATH = "hammer/history.v1.json";
 export const HAMMER_HISTORY_PRESENCE_PATH = "hammer/history.present.v1.json";
+export function buildHammerRevisionHistoryArtifactPath(revisionId: string): string {
+  return `hammer/revisions/${revisionId}/history.v1.json`;
+}
 
 type TongsFetcher = typeof tongsFetch;
 
@@ -70,6 +73,58 @@ export async function loadHammerHistoryDocument(
       ok: false,
       status: response.status,
       error: readString(readJsonObject(row?.error)?.message) ?? "Hammer could not load persistent history.",
+    };
+  }
+
+  const root = readJsonObject(payload);
+  const exists = root?.exists === true;
+  const data = (root?.data ?? null) as HammerHistoryDocumentV1 | null;
+  return {
+    ok: true,
+    status: response.status,
+    exists,
+    data: exists ? data : null,
+  };
+}
+
+export async function loadHammerRevisionHistoryDocument(args: {
+  workpieceId: string;
+  revisionId: string;
+  fetcher?: TongsFetcher;
+}): Promise<HammerHistoryResult<HammerHistoryDocumentV1>> {
+  const path = buildHammerRevisionHistoryArtifactPath(args.revisionId);
+  let response: Response;
+  try {
+    response = await (args.fetcher ?? tongsFetch)(
+      `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent(path)}`,
+      {
+        method: "GET",
+        timeoutMs: 30_000,
+      },
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      status: 504,
+      error: toErrorMessage(error, "Hammer could not load revision history."),
+    };
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    if (isMissingFileResponse(response.status, payload)) {
+      return {
+        ok: true,
+        status: response.status,
+        exists: false,
+        data: null,
+      };
+    }
+    const row = readJsonObject(payload);
+    return {
+      ok: false,
+      status: response.status,
+      error: readString(readJsonObject(row?.error)?.message) ?? "Hammer could not load revision history.",
     };
   }
 
@@ -190,6 +245,53 @@ export async function saveHammerHistoryDocument(args: {
       ok: false,
       status: 500,
       error: toErrorMessage(error, "Hammer could not save persistent history."),
+    };
+  }
+
+  return {
+    ok: true,
+    status: 200,
+    exists: true,
+    data: args.document,
+  };
+}
+
+export async function saveHammerRevisionHistoryDocument(args: {
+  workspaceId: string;
+  workpieceId: string;
+  revisionId: string;
+  document: HammerHistoryDocumentV1;
+  fetcher?: TongsFetcher;
+}): Promise<HammerHistoryResult<HammerHistoryDocumentV1>> {
+  const fetcher = args.fetcher ?? tongsFetch;
+  try {
+    const response = await fetcher(
+      `/tongs/workspaces/${encodeURIComponent(args.workspaceId)}/workpieces/${encodeURIComponent(args.workpieceId)}/hammer/revisions/${encodeURIComponent(args.revisionId)}`,
+      {
+        method: "PUT",
+        json: {
+          written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
+          history: {
+            data: args.document,
+          },
+        },
+        timeoutMs: 45_000,
+      },
+    );
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const row = readJsonObject(payload);
+      return {
+        ok: false,
+        status: response.status,
+        error: readString(readJsonObject(row?.error)?.message) ?? "Hammer could not save revision history.",
+      };
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      status: 500,
+      error: toErrorMessage(error, "Hammer could not save revision history."),
     };
   }
 
