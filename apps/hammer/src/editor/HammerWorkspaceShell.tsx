@@ -2144,29 +2144,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const activeFillerCandidateCard = fillerCandidateCards[fillerActiveCandidateIndex] ?? null;
   const activeRetakeCandidateCard = retakeCandidateCards[retakeActiveCandidateIndex] ?? null;
   const activeCandidateCard = activeReviewKind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
-
-  useEffect(() => {
-    if (!activeCandidateCard) return;
-    const candidateId = activeCandidateCard.id;
-    const defaultCutEnabled = activeCandidateCard.apply.removeSegmentIds.length > 0;
-    setCandidateCutEnabledById((current) => (
-      Object.prototype.hasOwnProperty.call(current, candidateId)
-        ? current
-        : { ...current, [candidateId]: defaultCutEnabled }
-    ));
-    setCandidateCutDraftById((current) => {
-      if (Object.prototype.hasOwnProperty.call(current, candidateId)) return current;
-      const suggested = resolveCandidateSuggestedCut(activeCandidateCard);
-      if (!suggested) return current;
-      return {
-        ...current,
-        [candidateId]: {
-          startSec: String(suggested.startSec),
-          endSec: String(suggested.endSec),
-        },
-      };
-    });
-  }, [activeCandidateCard, transcriptSegmentsById]);
   useEffect(() => {
     if (!activeCandidateCard) return;
     setCandidateProposedTextById((current) => {
@@ -10495,11 +10472,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                   </button>
                                 </div>
                                 <div className="hammer-source-summary">
-                                  <span>Start (sec)</span>
+                                  <label htmlFor={`hammer-cut-start-${candidateId}`}>Start (sec)</label>
                                   <input
+                                    id={`hammer-cut-start-${candidateId}`}
                                     type="number"
                                     step={0.1}
                                     value={draft?.startSec ?? ""}
+                                    title="Cut start time in seconds"
+                                    placeholder="0.0"
                                     onChange={(event) => {
                                       setFocusOverride("tool-focus");
                                       const value = event.target.value;
@@ -10510,11 +10490,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                     }}
                                     disabled={!enabled}
                                   />
-                                  <span>End (sec)</span>
+                                  <label htmlFor={`hammer-cut-end-${candidateId}`}>End (sec)</label>
                                   <input
+                                    id={`hammer-cut-end-${candidateId}`}
                                     type="number"
                                     step={0.1}
                                     value={draft?.endSec ?? ""}
+                                    title="Cut end time in seconds"
+                                    placeholder="0.0"
                                     onChange={(event) => {
                                       setFocusOverride("tool-focus");
                                       const value = event.target.value;
@@ -10724,6 +10707,140 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             <span>Confidence {Math.round(activeRetakeCandidateCard.confidence * 100)}%</span>
                             <span>Time saved {activeRetakeCandidateCard.timeSavedSec.toFixed(1)}s</span>
                           </div>
+                          {(() => {
+                            const candidateId = activeRetakeCandidateCard.id;
+                            const enabled = candidateCutEnabledById[candidateId] === true;
+                            const suggested = resolveCandidateSuggestedCut(activeRetakeCandidateCard);
+                            const segmentIdsForCut = activeRetakeCandidateCard.apply.removeSegmentIds.length > 0
+                              ? activeRetakeCandidateCard.apply.removeSegmentIds
+                              : activeRetakeCandidateCard.segmentIds;
+                            const draft = candidateCutDraftById[candidateId] ?? null;
+                            return (
+                              <section className="hammer-tool-card">
+                                <header className="hammer-tool-card__head">Cut Span</header>
+                                <label className="hammer-tool-check">
+                                  <input
+                                    type="checkbox"
+                                    checked={enabled}
+                                    onChange={(event) => {
+                                      setFocusOverride("tool-focus");
+                                      setCandidateCutEnabledById((current) => ({
+                                        ...current,
+                                        [candidateId]: event.target.checked,
+                                      }));
+                                    }}
+                                  />
+                                  <span>Apply a timeline cut (time coordinates)</span>
+                                </label>
+                                {suggested ? (
+                                  <div className="hammer-tool-hint">
+                                    Suggested: {suggested.startSec.toFixed(1)}s - {suggested.endSec.toFixed(1)}s
+                                  </div>
+                                ) : null}
+                                <div className="hammer-source-card__actions">
+                                  <button
+                                    type="button"
+                                    disabled={!suggested}
+                                    onClick={() => {
+                                      if (!suggested) return;
+                                      setFocusOverride("tool-focus");
+                                      setCandidateCutDraftById((current) => ({
+                                        ...current,
+                                        [candidateId]: {
+                                          startSec: String(suggested.startSec),
+                                          endSec: String(suggested.endSec),
+                                        },
+                                      }));
+                                    }}
+                                  >
+                                    Use Suggested
+                                  </button>
+                                </div>
+                                <div className="hammer-source-summary">
+                                  <span>Start (sec)</span>
+                                  <input
+                                    type="number"
+                                    step={0.1}
+                                    value={draft?.startSec ?? ""}
+                                    onChange={(event) => {
+                                      setFocusOverride("tool-focus");
+                                      const value = event.target.value;
+                                      setCandidateCutDraftById((current) => ({
+                                        ...current,
+                                        [candidateId]: { startSec: value, endSec: current[candidateId]?.endSec ?? "" },
+                                      }));
+                                    }}
+                                    disabled={!enabled}
+                                  />
+                                  <span>End (sec)</span>
+                                  <input
+                                    type="number"
+                                    step={0.1}
+                                    value={draft?.endSec ?? ""}
+                                    onChange={(event) => {
+                                      setFocusOverride("tool-focus");
+                                      const value = event.target.value;
+                                      setCandidateCutDraftById((current) => ({
+                                        ...current,
+                                        [candidateId]: { startSec: current[candidateId]?.startSec ?? "", endSec: value },
+                                      }));
+                                    }}
+                                    disabled={!enabled}
+                                  />
+                                </div>
+                                {segmentIdsForCut.length > 0 ? (
+                                  <div className="hammer-source-list">
+                                    {segmentIdsForCut.map((segmentId) => {
+                                      const segment = transcriptSegmentsById.get(segmentId) ?? null;
+                                      if (!segment) return null;
+                                      return (
+                                        <article key={`cut-seg-${candidateId}-${segmentId}`} className="hammer-source-card">
+                                          <header className="hammer-source-card__head">
+                                            <strong>{segmentId}</strong>
+                                            <span>{segment.start_sec.toFixed(1)}s - {segment.end_sec.toFixed(1)}s</span>
+                                          </header>
+                                          <div className="hammer-source-card__actions">
+                                            <button
+                                              type="button"
+                                              disabled={!enabled}
+                                              onClick={() => {
+                                                setFocusOverride("tool-focus");
+                                                setCandidateCutDraftById((current) => ({
+                                                  ...current,
+                                                  [candidateId]: {
+                                                    startSec: String(segment.start_sec),
+                                                    endSec: current[candidateId]?.endSec ?? "",
+                                                  },
+                                                }));
+                                              }}
+                                            >
+                                              Set Start
+                                            </button>
+                                            <button
+                                              type="button"
+                                              disabled={!enabled}
+                                              onClick={() => {
+                                                setFocusOverride("tool-focus");
+                                                setCandidateCutDraftById((current) => ({
+                                                  ...current,
+                                                  [candidateId]: {
+                                                    startSec: current[candidateId]?.startSec ?? "",
+                                                    endSec: String(segment.end_sec),
+                                                  },
+                                                }));
+                                              }}
+                                            >
+                                              Set End
+                                            </button>
+                                          </div>
+                                        </article>
+                                      );
+                                    })}
+                                  </div>
+                                ) : null}
+                              </section>
+                            );
+                          })()}
                           <div className="hammer-candidate-review__actions">
                             <button
                               type="button"
@@ -10747,9 +10864,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                     useEditedProposal: true,
                                     editedProposalText: candidateProposedTextById[activeRetakeCandidateCard.id]
                                       ?? (activeRetakeCandidateCard.afterText ?? ""),
+                                    cutOverride: resolveCandidateCutOverride(activeRetakeCandidateCard),
                                   });
                                 } else {
-                                  handleCandidateDecision("retakes", true);
+                                  handleCandidateDecision("retakes", true, {
+                                    cutOverride: resolveCandidateCutOverride(activeRetakeCandidateCard),
+                                  });
                                 }
                               }}
                             >
@@ -10761,7 +10881,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                 disabled={retakeDecisionInFlight}
                                 onClick={() => {
                                   setFocusOverride("tool-focus");
-                                  handleCandidateDecision("retakes", true, { useEditedProposal: false });
+                                  handleCandidateDecision("retakes", true, {
+                                    useEditedProposal: false,
+                                    cutOverride: resolveCandidateCutOverride(activeRetakeCandidateCard),
+                                  });
                                 }}
                               >
                                 Approve As-Is
