@@ -1649,6 +1649,26 @@ Guardrails:
   min-width: 780px;
 }
 
+.hammer-timeline-board.is-zoom-100 {
+  width: 100%;
+}
+
+.hammer-timeline-board.is-zoom-125 {
+  width: 125%;
+}
+
+.hammer-timeline-board.is-zoom-150 {
+  width: 150%;
+}
+
+.hammer-timeline-board.is-zoom-200 {
+  width: 200%;
+}
+
+.hammer-timeline-board.is-zoom-300 {
+  width: 300%;
+}
+
 .hammer-timeline-ruler {
   position: relative;
   height: 28px;

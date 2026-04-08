@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { JSX, MouseEvent } from "react";
+import type { JSX, MouseEvent, WheelEvent as ReactWheelEvent } from "react";
+const TIMELINE_ZOOM_LEVELS = [100, 125, 150, 200, 300] as const;
 import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type {
   HammerEditInstruction,
@@ -1685,6 +1686,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [timelineMarkers, setTimelineMarkers] = useState<HammerTimelineMarker[]>([]);
   const [scrubRate, setScrubRate] = useState<HammerScrubRate>(1);
+  const [timelineZoomPercent, setTimelineZoomPercent] = useState<number>(TIMELINE_ZOOM_LEVELS[0]);
   const [focusOverride, setFocusOverride] = useState<HammerWorkspaceFocusOverride>("auto");
   const [polishStrength, setPolishStrength] = useState(60);
   const [gapCleanupOptions, setGapCleanupOptions] = useState<GapCleanupOptions>({
@@ -2974,6 +2976,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return byLane;
   }, [timelineDurationSec, timelineLanes]);
+  const timelineBoardZoomClassName = useMemo(
+    () => `is-zoom-${timelineZoomPercent}`,
+    [timelineZoomPercent],
+  );
   const playheadRatioPercent = Math.min(100, (playheadSec / timelineDurationSec) * 100);
   const sourceTranscriptById = useMemo(() => {
     const byId = new Map<string, HammerTranscriptSegment>();
@@ -5623,6 +5629,43 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setDeadAirAnalysis(null);
   }, [deadAirThresholdSec, editableTranscriptSegments]);
 
+  const stepTimelineZoom = useCallback((direction: -1 | 1) => {
+    setTimelineZoomPercent((current) => {
+      const currentIndex = TIMELINE_ZOOM_LEVELS.findIndex((zoom) => zoom === current);
+      const fallbackIndex = TIMELINE_ZOOM_LEVELS.findIndex((zoom) => zoom >= current);
+      const resolvedIndex = currentIndex >= 0
+        ? currentIndex
+        : fallbackIndex >= 0
+        ? fallbackIndex
+        : TIMELINE_ZOOM_LEVELS.length - 1;
+      const nextIndex = clampNumber(resolvedIndex + direction, 0, TIMELINE_ZOOM_LEVELS.length - 1);
+      return TIMELINE_ZOOM_LEVELS[nextIndex] ?? current;
+    });
+  }, []);
+
+  const zoomTimelineIn = useCallback(() => {
+    stepTimelineZoom(1);
+  }, [stepTimelineZoom]);
+
+  const zoomTimelineOut = useCallback(() => {
+    stepTimelineZoom(-1);
+  }, [stepTimelineZoom]);
+
+  const resetTimelineZoom = useCallback(() => {
+    setTimelineZoomPercent(TIMELINE_ZOOM_LEVELS[0]);
+  }, []);
+
+  const handleTimelineTrackWheelZoom = useCallback((event: ReactWheelEvent<HTMLDivElement>): void => {
+    if (isTextEditingTarget(event.target)) return;
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    event.preventDefault();
+    if (event.deltaY < 0) {
+      zoomTimelineIn();
+      return;
+    }
+    zoomTimelineOut();
+  }, [zoomTimelineIn, zoomTimelineOut]);
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
       if (event.defaultPrevented) return;
@@ -5631,6 +5674,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
       const key = event.key;
       const lower = key.toLowerCase();
+
+      const isTimelineZoomInKey = event.code === "NumpadAdd" || key === "+" || key === "=";
+      const isTimelineZoomOutKey = event.code === "NumpadSubtract" || key === "-" || key === "_";
+      if (isTimelineZoomInKey || isTimelineZoomOutKey) {
+        event.preventDefault();
+        if (isTimelineZoomInKey) {
+          zoomTimelineIn();
+        } else {
+          zoomTimelineOut();
+        }
+        return;
+      }
 
       if (isTranscriptCandidateReviewPass) {
         if (!event.shiftKey && (key === "1" || key === "2")) {
@@ -5721,6 +5776,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     activeTranscriptToolSection,
     retakeCandidateCards.length,
     retakeDecisionInFlight,
+    zoomTimelineIn,
+    zoomTimelineOut,
   ]);
   useEffect(() => {
     if (fillerCandidateCards.length === 0 && fillerActiveCandidateIndex !== 0) {
@@ -12646,6 +12703,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   ))}
                 </select>
               </label>
+              <button type="button" onClick={zoomTimelineOut} title="Zoom out (-)">
+                Zoom -
+              </button>
+              <button type="button" onClick={zoomTimelineIn} title="Zoom in (+)">
+                Zoom +
+              </button>
+              <button type="button" onClick={resetTimelineZoom} title="Reset timeline zoom">
+                Fit ({timelineZoomPercent}%)
+              </button>
               <button type="button" onClick={() => nudgePlayhead(-SMALL_PLAYHEAD_NUDGE_SEC)}>
                 -0.1s (←)
               </button>
@@ -12913,9 +12979,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                 });
               }}
             />
-            <div className="hammer-timeline-track-scroll" ref={timelineTrackScrollRef}>
+            <div
+              className="hammer-timeline-track-scroll"
+              ref={timelineTrackScrollRef}
+              onWheel={handleTimelineTrackWheelZoom}
+            >
               {editableTranscriptSegments.length > 0 ? (
-                <section className="hammer-timeline-board" aria-label="Track-based timeline">
+                <section
+                  className={`hammer-timeline-board ${timelineBoardZoomClassName}`}
+                  aria-label="Track-based timeline"
+                >
                   <div
                     className="hammer-timeline-ruler"
                     onMouseDown={(event) => {
