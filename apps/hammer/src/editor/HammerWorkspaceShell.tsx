@@ -5719,14 +5719,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
         const cutOverride = options?.cutOverride ?? null;
         if (cutOverride) {
-          commitAudioCuts([cutOverride]);
+          commitAudioCuts([cutOverride], { operationIdPrefix: `cleanup:${card.kind}:${card.id}:override` });
         } else {
           const cutSelections = deriveAudioCutsForRemovedSegments({
             segments: beforeState.transcriptSegments,
             removeSegmentIds: approvePlan.removeSegmentIds,
             durationSec: playbackTransportDurationSec,
           });
-          commitAudioCuts(cutSelections);
+          commitAudioCuts(cutSelections, { operationIdPrefix: `cleanup:${card.kind}:${card.id}` });
         }
         nextSegments = computeAfter(cloneEditorState(beforeState)).transcriptSegments;
       }
@@ -5771,7 +5771,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         analysis,
         durationSec: playbackTransportDurationSec,
       });
-      commitAudioCuts(cutSelections);
+      commitAudioCuts(cutSelections, { operationIdPrefix: `dead_air:${analysis.thresholdSec.toFixed(1)}` });
 
       const affected = new Set<string>();
       for (const gap of analysis.gaps) {
