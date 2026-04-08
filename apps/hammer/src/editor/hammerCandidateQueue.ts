@@ -25,6 +25,21 @@ export type HammerCandidateCard = {
   };
 };
 
+function parseRetakeSuggestionId(id: string): { removeIds: string[]; keepId: string | null } {
+  const parts = String(id).split(":");
+  if (parts[0] === "retake_pair") {
+    return { removeIds: [parts[1] ?? ""].filter(Boolean), keepId: parts[2] ?? null };
+  }
+  if (parts[0] === "retake_chain") {
+    const remove = (parts[1] ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return { removeIds: remove, keepId: parts[2] ?? null };
+  }
+  return { removeIds: [], keepId: null };
+}
+
 export function buildCandidateQueue(args: {
   kind: HammerCandidateReviewKind;
   segments: HammerTranscriptSegment[];
@@ -53,23 +68,30 @@ export function buildCandidateQueue(args: {
     const after = afterById.get(suggestion.segmentId) ?? null;
 
     if (args.kind === "retakes") {
-      // Suggestion id encodes the kept segment id for pair review.
-      const parts = String(suggestion.id).split(":");
-      const keptSegmentId = parts[0] === "retake_pair" ? (parts[2] ?? null) : null;
-      const kept = keptSegmentId ? beforeById.get(keptSegmentId) ?? null : null;
+      // Suggestion id encodes the kept segment id and any remove segment ids.
+      const parsed = parseRetakeSuggestionId(suggestion.id);
+      const keepId = parsed.keepId;
+      const kept = keepId ? beforeById.get(keepId) ?? null : null;
       if (!kept) continue;
+      const removeSegments = parsed.removeIds
+        .map((segmentId) => beforeById.get(segmentId) ?? null)
+        .filter((segment): segment is HammerTranscriptSegment => Boolean(segment));
+      if (removeSegments.length === 0) continue;
+
+      const orderedSegmentIds = Array.from(new Set([...removeSegments.map((seg) => seg.segment_id), kept.segment_id]));
+      const beforeText = [...removeSegments.map((seg) => seg.text), kept.text].join("\n");
       cards.push({
         id: suggestion.id,
         kind: args.kind,
-        primarySegmentId: before.segment_id,
-        segmentIds: [before.segment_id, kept.segment_id],
+        primarySegmentId: removeSegments[0]!.segment_id,
+        segmentIds: orderedSegmentIds,
         description: suggestion.description,
-        beforeText: `${before.text}\n${kept.text}`,
+        beforeText,
         afterText: kept.text,
         confidence: suggestion.confidence,
         timeSavedSec: suggestion.timeSavedSec,
         apply: {
-          removeSegmentIds: [before.segment_id],
+          removeSegmentIds: removeSegments.map((seg) => seg.segment_id),
           updateSegments: [],
         },
       });
