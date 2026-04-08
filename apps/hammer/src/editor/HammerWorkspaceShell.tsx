@@ -141,8 +141,17 @@ import {
 } from "../macros/hammerDerivedTranscriptLayers";
 import {
   loadHammerHistoryDocument,
+  loadHammerHistoryPresence,
   saveHammerHistoryDocument,
 } from "../lib/hammerHistoryArtifactApi";
+import { resolveHammerHistoryStatus } from "../lib/hammerHistoryStatus";
+import { diffWords } from "../lib/hammerWordDiff";
+import {
+  buildCandidateQueue,
+  clampActiveCandidateIndex,
+  type HammerCandidateCard,
+  type HammerCandidateReviewKind,
+} from "./hammerCandidateQueue";
 import {
   buildHammerDevMediaUrl,
   loadCanonicalAudioPolishPreviewUrl,
@@ -467,19 +476,6 @@ function normalizeVisualPreviewSettings(
     background_blur: Boolean(value.background_blur),
   };
 }
-
-type HammerCandidateReviewKind = "fillers" | "retakes";
-
-type HammerCandidateCard = {
-  id: string;
-  kind: HammerCandidateReviewKind;
-  segmentId: string;
-  description: string;
-  beforeText: string;
-  afterText: string | null;
-  confidence: number;
-  timeSavedSec: number;
-};
 
 type HammerVisualLutPreset = HammerLookPreset | "neutral";
 
@@ -1736,6 +1732,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }));
   const [candidateCards, setCandidateCards] = useState<HammerCandidateCard[]>([]);
   const [activeCandidateIndex, setActiveCandidateIndex] = useState(0);
+  const [candidateDecisionInFlight, setCandidateDecisionInFlight] = useState(false);
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
   const [editableAudioPolish, setEditableAudioPolish] = useState<HammerPersistedAudioPolish | null>(
@@ -1845,6 +1842,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const copiedPromptTimerRef = useRef<number | null>(null);
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
   const lastGapAutoApplySignatureRef = useRef<string | null>(null);
+  const handledCandidateIdsRef = useRef<{ fillers: Set<string>; retakes: Set<string> }>({
+    fillers: new Set(),
+    retakes: new Set(),
+  });
+  const candidateDecisionInFlightRef = useRef(false);
+  const lastHandledCandidateIdRef = useRef<{ fillers: string | null; retakes: string | null }>({
+    fillers: null,
+    retakes: null,
+  });
   const imagePlacementDraftWindowsRef = useRef<Record<string, HammerImagePlacementDraftWindow>>({});
   const audioPolishHasLocalEditsRef = useRef(false);
   const editableAudioPolishRef = useRef<HammerPersistedAudioPolish | null>(
@@ -2092,6 +2098,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   const selectedSegment = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId) ?? null;
   const activeCandidateCard = candidateCards[activeCandidateIndex] ?? null;
+  const activeCandidateDiffOps = useMemo(() => {
+    if (!activeCandidateCard) return null;
+    if (activeCandidateCard.afterText == null) return null;
+    return diffWords(activeCandidateCard.beforeText, activeCandidateCard.afterText);
+  }, [activeCandidateCard?.beforeText, activeCandidateCard?.afterText]);
   const candidateSegmentIdSet = useMemo(
     () => new Set(candidateCards.map((card) => card.segmentId)),
     [candidateCards],
@@ -3605,9 +3616,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setCaptionBuildFeedback(null);
 
     void (async () => {
-      const [historyResult, snapshotManifestResult] = await Promise.all([
+      const [historyResult, snapshotManifestResult, historyPresenceResult] = await Promise.all([
         loadHammerHistoryDocument(launchContext.workpiece_id),
         loadHammerSnapshotManifest(launchContext.workpiece_id),
+        loadHammerHistoryPresence(launchContext.workpiece_id),
       ]);
       if (!active) return;
 
@@ -3625,8 +3637,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         setHistoryStatus(historyResult.error);
         return;
       }
-      if (!historyResult.exists || !historyResult.data) {
-        setHistoryStatus(snapshotRecoveryStatus);
+      const snapshotManifestExists = snapshotManifestResult.ok && snapshotManifestResult.exists;
+      const historyPresenceSentinelExists = historyPresenceResult.ok
+        ? historyPresenceResult.exists
+        : true; // unknown -> do not suppress warnings
+      const historyExists = historyResult.exists && Boolean(historyResult.data);
+      if (!historyExists) {
+        setHistoryStatus(resolveHammerHistoryStatus({
+          historyExists: false,
+          snapshotManifestExists,
+          historyPresenceSentinelExists,
+          snapshotRecoveryStatus,
+        }));
         return;
       }
 
@@ -3690,7 +3712,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       controller.replaceState(replayed);
       historyControllerRef.current = controller;
       applyWorkspaceState(replayed);
-      setHistoryStatus(snapshotRecoveryStatus);
+      setHistoryStatus(resolveHammerHistoryStatus({
+        historyExists: true,
+        snapshotManifestExists,
+        historyPresenceSentinelExists,
+        snapshotRecoveryStatus,
+      }));
     })().catch((error) => {
       if (!active) return;
       setHistoryStatus(toErrorMessage(error, "Hammer could not recover persistent history."));
@@ -5279,84 +5306,110 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     })();
   }
 
-  function buildCandidateCardsFromPreview(
-    kind: HammerCandidateReviewKind,
-    preview: HammerCleanupPreview,
-  ): HammerCandidateCard[] {
-    const beforeById = new Map(editableTranscriptSegments.map((segment) => [segment.segment_id, segment] as const));
-    const afterById = new Map(preview.resultSegments.map((segment) => [segment.segment_id, segment] as const));
-    const cards: HammerCandidateCard[] = [];
-    for (const suggestion of preview.suggestions) {
-      const matchesKind = kind === "fillers"
-        ? suggestion.type === "filler_remove"
-        : suggestion.type === "retake_remove";
-      if (!matchesKind) continue;
-      const before = beforeById.get(suggestion.segmentId);
-      if (!before) continue;
-      const after = afterById.get(suggestion.segmentId) ?? null;
-      cards.push({
-        id: suggestion.id,
-        kind,
-        segmentId: suggestion.segmentId,
-        description: suggestion.description,
-        beforeText: before.text,
-        afterText: after ? after.text : null,
-        confidence: suggestion.confidence,
-        timeSavedSec: suggestion.timeSavedSec,
-      });
-    }
-    return cards;
+  function resetHandledCandidates(kind: HammerCandidateReviewKind): void {
+    handledCandidateIdsRef.current[kind] = new Set();
+    lastHandledCandidateIdRef.current[kind] = null;
   }
 
-  function refreshCandidateQueue(kind: HammerCandidateReviewKind): void {
-    const preview = kind === "fillers"
-      ? previewRemoveFillers(editableTranscriptSegments, fillerCleanupOptions)
-      : previewRemoveRetakes(editableTranscriptSegments, retakeCleanupOptions);
-    const cards = buildCandidateCardsFromPreview(kind, preview);
+  function rebuildCandidateQueue(args: {
+    kind: HammerCandidateReviewKind;
+    segments: HammerTranscriptSegment[];
+    resetHandled?: boolean;
+    preserveIndex?: number;
+  }): void {
+    if (args.resetHandled) {
+      resetHandledCandidates(args.kind);
+    }
+
+    const handled = handledCandidateIdsRef.current[args.kind];
+    const { preview, cards } = buildCandidateQueue({
+      kind: args.kind,
+      segments: args.segments,
+      fillerOptions: fillerCleanupOptions,
+      retakeOptions: retakeCleanupOptions,
+      handledCandidateIds: handled,
+    });
+
     setCandidateCards(cards);
-    setActiveCandidateIndex(0);
+    setActiveCandidateIndex((previous) => clampActiveCandidateIndex(
+      args.preserveIndex ?? previous,
+      cards.length,
+    ));
     setCleanupPreview(preview);
     setCleanupReceipt(null);
     setTranscriptTimingHint(cards.length === 0
-      ? `No ${kind === "fillers" ? "filler" : "retake"} candidates detected in this pass.`
+      ? `No ${args.kind === "fillers" ? "filler" : "retake"} candidates detected in this pass.`
       : null);
+  }
+
+  function refreshCandidateQueue(kind: HammerCandidateReviewKind): void {
+    rebuildCandidateQueue({
+      kind,
+      segments: editableTranscriptSegments,
+      resetHandled: true,
+      preserveIndex: 0,
+    });
   }
 
   function handleCandidateDecision(approve: boolean): void {
     const card = activeCandidateCard;
     if (!card) return;
-    if (approve) {
-      applyHistoryMutation({
-        label: card.kind === "fillers" ? "Approve filler removal" : "Approve retake removal",
-        kind: "cleanup_tool",
-        toolId: "polish",
-        affectedSegments: [card.segmentId],
-        immediatePersist: true,
-        computeAfter: (before) => {
-          let nextSegments = before.transcriptSegments;
+    if (candidateDecisionInFlightRef.current) return;
+    if (lastHandledCandidateIdRef.current[card.kind] === card.id) return;
+
+    candidateDecisionInFlightRef.current = true;
+    lastHandledCandidateIdRef.current[card.kind] = card.id;
+    setCandidateDecisionInFlight(true);
+
+    try {
+      handledCandidateIdsRef.current[card.kind].add(card.id);
+      const preserveIndex = activeCandidateIndex;
+
+      const beforeState = captureWorkspaceState();
+      let nextSegments = beforeState.transcriptSegments;
+
+      if (approve) {
+        const computeAfter = (before: HammerEditorStateSerializable): HammerEditorStateSerializable => {
+          let updatedSegments = before.transcriptSegments;
           if (card.afterText == null) {
-            nextSegments = before.transcriptSegments.filter((segment) => segment.segment_id !== card.segmentId);
+            updatedSegments = before.transcriptSegments.filter((segment) => segment.segment_id !== card.segmentId);
           } else {
-            nextSegments = updateSegmentInTimeline(before.transcriptSegments, card.segmentId, (segment) => ({
+            updatedSegments = updateSegmentInTimeline(before.transcriptSegments, card.segmentId, (segment) => ({
               ...segment,
               text: card.afterText ?? segment.text,
             }));
           }
-          const synced = syncEditableTranscriptSegments(nextSegments, before.selectedSegmentId);
+          const synced = syncEditableTranscriptSegments(updatedSegments, before.selectedSegmentId);
           return {
             ...before,
             transcriptSegments: synced.segments,
             selectedSegmentId: synced.selectedSegmentId,
             transcriptTimingHint: null,
           };
-        },
+        };
+
+        const applied = applyHistoryMutation({
+          label: card.kind === "fillers" ? "Approve filler removal" : "Approve retake removal",
+          kind: "cleanup_tool",
+          toolId: "polish",
+          affectedSegments: [card.segmentId],
+          immediatePersist: true,
+          computeAfter,
+        });
+        if (!applied) return;
+        nextSegments = computeAfter(cloneEditorState(beforeState)).transcriptSegments;
+      }
+
+      // Queue is always rebuilt from the current transcript state, not any cached candidate list.
+      rebuildCandidateQueue({
+        kind: card.kind,
+        segments: nextSegments,
+        preserveIndex,
       });
-      window.setTimeout(() => {
-        refreshCandidateQueue(card.kind);
-      }, 0);
+    } finally {
+      candidateDecisionInFlightRef.current = false;
+      setCandidateDecisionInFlight(false);
     }
-    setCandidateCards((previous) => previous.filter((item) => item.id !== card.id));
-    setActiveCandidateIndex((previous) => Math.max(0, previous - (previous > 0 ? 1 : 0)));
   }
 
   function applyGapPacingAuto(): void {
@@ -9765,19 +9818,71 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         <p className="hammer-candidate-card__description">{activeCandidateCard.description}</p>
                         <div className="hammer-candidate-card__context">
                           <header>Current</header>
-                          <p>{activeCandidateCard.beforeText}</p>
+                          <p className="hammer-candidate-diff">
+                            {activeCandidateDiffOps ? (() => {
+                              const parts: JSX.Element[] = [];
+                              let first = true;
+                              for (let idx = 0; idx < activeCandidateDiffOps.length; idx += 1) {
+                                const op = activeCandidateDiffOps[idx];
+                                if (op.type === "insert") continue;
+                                const text = op.words.join(" ");
+                                const prefix = first ? "" : " ";
+                                first = false;
+                                const className = op.type === "delete" ? "hammer-candidate-diff__del" : undefined;
+                                parts.push(
+                                  <span key={`cur-${idx}`} className={className}>
+                                    {prefix}{text}
+                                  </span>,
+                                );
+                              }
+                              return parts;
+                            })() : activeCandidateCard.beforeText}
+                          </p>
                         </div>
                         <div className="hammer-candidate-card__context">
                           <header>Proposed</header>
-                          <p>{activeCandidateCard.afterText ?? "[segment removed]"}</p>
+                          <p className="hammer-candidate-diff">
+                            {activeCandidateCard.afterText == null
+                              ? "[segment removed]"
+                              : activeCandidateDiffOps ? (() => {
+                                const parts: JSX.Element[] = [];
+                                let first = true;
+                                for (let idx = 0; idx < activeCandidateDiffOps.length; idx += 1) {
+                                  const op = activeCandidateDiffOps[idx];
+                                  if (op.type === "delete") continue;
+                                  const text = op.words.join(" ");
+                                  const prefix = first ? "" : " ";
+                                  first = false;
+                                  const className = op.type === "insert" ? "hammer-candidate-diff__ins" : undefined;
+                                  parts.push(
+                                    <span key={`prop-${idx}`} className={className}>
+                                      {prefix}{text}
+                                    </span>,
+                                  );
+                                }
+                                return parts;
+                              })() : activeCandidateCard.afterText}
+                          </p>
                         </div>
                         <div className="hammer-candidate-card__meta">
                           <span>Confidence {Math.round(activeCandidateCard.confidence * 100)}%</span>
                           <span>Time saved {activeCandidateCard.timeSavedSec.toFixed(1)}s</span>
                         </div>
                         <div className="hammer-candidate-review__actions">
-                          <button type="button" onClick={() => handleCandidateDecision(true)}>Approve</button>
-                          <button type="button" onClick={() => handleCandidateDecision(false)}>Reject</button>
+                          <button
+                            type="button"
+                            disabled={candidateDecisionInFlight}
+                            onClick={() => handleCandidateDecision(true)}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            disabled={candidateDecisionInFlight}
+                            onClick={() => handleCandidateDecision(false)}
+                          >
+                            Reject
+                          </button>
                         </div>
                       </article>
                     ) : (

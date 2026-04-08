@@ -231,6 +231,25 @@ Guardrails:
   font-size: 12px;
 }
 
+.hammer-candidate-diff {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hammer-candidate-diff__del {
+  text-decoration-line: line-through;
+  text-decoration-color: rgba(248, 113, 113, 0.7);
+  background: rgba(248, 113, 113, 0.14);
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+.hammer-candidate-diff__ins {
+  background: rgba(34, 197, 94, 0.14);
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
 .hammer-candidate-card__meta {
   display: flex;
   gap: 10px;

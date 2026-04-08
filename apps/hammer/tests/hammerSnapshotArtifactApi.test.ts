@@ -25,6 +25,15 @@ function createOkJsonResponse(payload: unknown): Response {
   });
 }
 
+function createMissingJsonResponse(): Response {
+  return new Response(JSON.stringify({ ok: true, exists: false }), {
+    status: 404,
+    headers: {
+      "content-type": "application/json",
+    },
+  });
+}
+
 function buildManifest(): HammerSnapshotManifestV1 {
   return {
     version: 1,
@@ -131,6 +140,14 @@ async function testManifestNotFoundIsNonError() {
   assert.equal(result.ok ? result.data : "x", null);
 }
 
+async function testManifestMissing404IsNonError() {
+  const fakeFetch = async () => createMissingJsonResponse();
+  const result = await loadHammerSnapshotManifest("workpiece-123", fakeFetch as never);
+  assert.equal(result.ok, true);
+  assert.equal(result.ok && result.exists, false);
+  assert.equal(result.ok ? result.data : "x", null);
+}
+
 async function testSaveAndLoadSnapshotPayload() {
   const calls: FetchCall[] = [];
   const snapshot = buildSnapshot();
@@ -185,12 +202,26 @@ async function testPayloadLoadUsesComputedPath() {
   );
 }
 
+async function testPayloadMissing404IsNonError() {
+  const fakeFetch = async () => createMissingJsonResponse();
+  const result = await loadHammerSnapshotPayload({
+    workpieceId: "workpiece-123",
+    snapshotRef: "snap-xyz",
+    fetcher: fakeFetch as never,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.ok && result.exists, false);
+  assert.equal(result.ok ? result.data : "x", null);
+}
+
 async function run() {
   await testSnapshotPathConvention();
   await testSaveAndLoadSnapshotManifest();
   await testManifestNotFoundIsNonError();
+  await testManifestMissing404IsNonError();
   await testSaveAndLoadSnapshotPayload();
   await testPayloadLoadUsesComputedPath();
+  await testPayloadMissing404IsNonError();
   // eslint-disable-next-line no-console
   console.log("Hammer snapshot artifact API tests passed.");
 }

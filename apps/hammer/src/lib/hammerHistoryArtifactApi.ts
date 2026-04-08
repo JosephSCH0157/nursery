@@ -3,6 +3,9 @@ import { HAMMER_RUNTIME_WRITTEN_BY } from "../prep/hammerPrep";
 import { tongsFetch } from "./tongsFetch";
 
 export const HAMMER_HISTORY_ARTIFACT_PATH = "hammer/history.v1.json";
+export const HAMMER_HISTORY_PRESENCE_PATH = "hammer/history.present.v1.json";
+
+type TongsFetcher = typeof tongsFetch;
 
 type HammerHistoryResult<T> =
   | { ok: true; status: number; exists: boolean; data: T | null }
@@ -25,12 +28,19 @@ function toErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function isMissingFileResponse(status: number, payload: unknown): boolean {
+  if (status !== 404) return false;
+  const root = readJsonObject(payload);
+  return root?.ok === true && root?.exists === false;
+}
+
 export async function loadHammerHistoryDocument(
   workpieceId: string,
+  fetcher: TongsFetcher = tongsFetch,
 ): Promise<HammerHistoryResult<HammerHistoryDocumentV1>> {
   let response: Response;
   try {
-    response = await tongsFetch(
+    response = await fetcher(
       `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(HAMMER_HISTORY_ARTIFACT_PATH)}`,
       {
         method: "GET",
@@ -47,6 +57,14 @@ export async function loadHammerHistoryDocument(
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
+    if (isMissingFileResponse(response.status, payload)) {
+      return {
+        ok: true,
+        status: response.status,
+        exists: false,
+        data: null,
+      };
+    }
     const row = readJsonObject(payload);
     return {
       ok: false,
@@ -66,12 +84,63 @@ export async function loadHammerHistoryDocument(
   };
 }
 
+export async function loadHammerHistoryPresence(
+  workpieceId: string,
+  fetcher: TongsFetcher = tongsFetch,
+): Promise<HammerHistoryResult<{ version: number; workpieceId?: string; writtenAt?: string }>> {
+  let response: Response;
+  try {
+    response = await fetcher(
+      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(HAMMER_HISTORY_PRESENCE_PATH)}`,
+      {
+        method: "GET",
+        timeoutMs: 15_000,
+      },
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      status: 504,
+      error: toErrorMessage(error, "Hammer could not verify persistent history presence."),
+    };
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    if (isMissingFileResponse(response.status, payload)) {
+      return {
+        ok: true,
+        status: response.status,
+        exists: false,
+        data: null,
+      };
+    }
+    const row = readJsonObject(payload);
+    return {
+      ok: false,
+      status: response.status,
+      error: readString(readJsonObject(row?.error)?.message) ?? "Hammer could not verify persistent history presence.",
+    };
+  }
+
+  const root = readJsonObject(payload);
+  const exists = root?.exists === true;
+  const data = (root?.data ?? null) as { version: number; workpieceId?: string; writtenAt?: string } | null;
+  return {
+    ok: true,
+    status: response.status,
+    exists,
+    data: exists ? data : null,
+  };
+}
+
 export async function saveHammerHistoryDocument(args: {
   workpieceId: string;
   document: HammerHistoryDocumentV1;
+  fetcher?: TongsFetcher;
 }): Promise<HammerHistoryResult<HammerHistoryDocumentV1>> {
   try {
-    const response = await tongsFetch(
+    const response = await (args.fetcher ?? tongsFetch)(
       `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`,
       {
         method: "POST",
@@ -92,6 +161,29 @@ export async function saveHammerHistoryDocument(args: {
         status: response.status,
         error: readString(readJsonObject(row?.error)?.message) ?? "Hammer could not save persistent history.",
       };
+    }
+
+    // Best-effort: write a sentinel so future opens can distinguish "first open" from "missing unexpectedly".
+    try {
+      await (args.fetcher ?? tongsFetch)(
+        `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`,
+        {
+          method: "POST",
+          json: {
+            path: HAMMER_HISTORY_PRESENCE_PATH,
+            content_type: "application/json",
+            written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
+            json: {
+              version: 1,
+              workpieceId: args.workpieceId,
+              writtenAt: new Date().toISOString(),
+            },
+          },
+          timeoutMs: 20_000,
+        },
+      );
+    } catch {
+      // ignore sentinel failures
     }
   } catch (error) {
     return {

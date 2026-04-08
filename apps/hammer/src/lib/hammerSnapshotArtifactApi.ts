@@ -64,6 +64,12 @@ function toErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function isMissingFileResponse(status: number, payload: unknown): boolean {
+  if (status !== 404) return false;
+  const root = readJsonObject(payload);
+  return root?.ok === true && root?.exists === false;
+}
+
 function readNumber(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return value;
@@ -203,6 +209,14 @@ export async function loadHammerSnapshotManifest(
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
+    if (isMissingFileResponse(response.status, payload)) {
+      return {
+        ok: true,
+        status: response.status,
+        exists: false,
+        data: null,
+      };
+    }
     const row = readJsonObject(payload);
     return {
       ok: false,
@@ -311,6 +325,14 @@ export async function loadHammerSnapshotPayload(args: {
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
+    if (isMissingFileResponse(response.status, payload)) {
+      return {
+        ok: true,
+        status: response.status,
+        exists: false,
+        data: null,
+      };
+    }
     const row = readJsonObject(payload);
     return {
       ok: false,

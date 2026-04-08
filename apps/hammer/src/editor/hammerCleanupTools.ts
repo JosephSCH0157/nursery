@@ -302,7 +302,12 @@ export function previewRemoveFillers(
     const cleaned = cleanFillerText(before, dictionary);
     if (cleaned.removed <= 0) continue;
     if (options.protectIntentionalPhrasing && /^like\s/i.test(before) && options.aggressiveness !== "strong") continue;
-    segment.text = cleaned.text.length ? cleaned.text : before;
+    const normalizedBefore = normalizeTextSpacing(before);
+    const normalizedAfter = normalizeTextSpacing(cleaned.text);
+    // Conservative pass: only emit a candidate when the proposed text is meaningfully different and non-empty.
+    if (!normalizedAfter) continue;
+    if (normalizedAfter === normalizedBefore) continue;
+    segment.text = normalizedAfter;
     changed.add(segment.segment_id);
     suggestions.push({
       id: `filler:${segment.segment_id}`,
