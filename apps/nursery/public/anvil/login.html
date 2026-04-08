@@ -1,0 +1,425 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Podcaster's Forge - Log In</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="icon" type="image/png" sizes="512x512" href="assets/anvil-favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=UnifrakturCook:wght@700&family=Cinzel+Decorative:wght@700&display=swap" rel="stylesheet">
+    <style>
+      /* Login page shell */
+      body, html {
+        margin: 0;
+        padding: 0;
+      }
+      .tp-login-page {
+        min-height: 100vh;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        padding: 2rem 4rem;
+        box-sizing: border-box;
+        background-image: url("assets/login.png");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        position: relative;
+        color: #f5f5f5;
+        font-family: "Segoe UI", Arial, sans-serif;
+      }
+      .tp-login-page::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at 25% 50%, rgba(0,0,0,0.35), rgba(0,0,0,0.75));
+        pointer-events: none;
+      }
+      .tp-login-content {
+        position: relative;
+        width: 100%;
+        max-width: 420px;
+      }
+      .tp-login-card {
+        background: rgba(15, 15, 20, 0.68);
+        backdrop-filter: blur(10px);
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 18px 45px rgba(0, 0, 0, 0.7);
+        padding: 2.5rem 2.75rem;
+      }
+      .tp-login-title {
+        font-size: 1.6rem;
+        font-weight: 600;
+        margin: 0 0 0.25rem;
+      }
+      .tp-login-subtitle {
+        font-size: 0.95rem;
+        opacity: 0.85;
+        margin: 0 0 1.75rem;
+      }
+      .tp-login-subtitle span {
+        margin-top: 4px;
+        display: inline-block;
+      }
+      .tp-beta-banner {
+        margin: 0 0 1rem;
+        padding: 0.75rem 0.85rem;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 213, 107, 0.45);
+        background: rgba(255, 149, 15, 0.14);
+        color: rgba(255, 241, 215, 0.98);
+        font-size: 0.87rem;
+        line-height: 1.45;
+      }
+      .tp-beta-banner strong {
+        font-weight: 700;
+      }
+      .tp-beta-banner a {
+        color: #ffd56b;
+        font-weight: 700;
+        text-decoration: none;
+      }
+      .tp-beta-banner a:hover {
+        text-decoration: underline;
+      }
+      .tp-login-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        margin-bottom: 1.1rem;
+      }
+      .tp-login-field label {
+        font-size: 0.85rem;
+        opacity: 0.9;
+      }
+      .tp-login-field input {
+        background: rgba(5,5,10,0.9);
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.14);
+        padding: 0.6rem 0.75rem;
+        color: #f8f8f8;
+        font-size: 0.95rem;
+      }
+      .tp-login-field input:focus {
+        outline: none;
+        border-color: #d66a2e;
+        box-shadow: 0 0 0 1px rgba(214,106,46,0.6);
+      }
+      .tp-login-button {
+        width: 100%;
+        margin-top: 0.5rem;
+        padding: 0.7rem 0.9rem;
+        border-radius: 999px;
+        border: none;
+        font-size: 0.95rem;
+        font-weight: 600;
+        cursor: pointer;
+        background: linear-gradient(135deg, #d66a2e, #f4cfa0);
+        color: #151515;
+        box-shadow: inset 0 0 6px rgba(0,0,0,0.25);
+      }
+      .tp-login-button:hover { filter: brightness(1.05); }
+      .tp-login-back {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1rem;
+        padding: 0.5rem 0.95rem;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.2);
+        background: rgba(0,0,0,0.35);
+        color: #f5f5f5;
+        cursor: pointer;
+      }
+      .tp-login-back:hover { background: rgba(0,0,0,0.48); }
+      .tp-beta-cta {
+        margin-top: 1.25rem;
+        text-align: center;
+      }
+      .tp-beta-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.85rem 1.6rem;
+        border-radius: 999px;
+        font-size: 0.95rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        background: linear-gradient(135deg, #ffd56b, #ff8b00);
+        color: #1a1a1a;
+        box-shadow: 0 16px 35px rgba(255, 168, 57, 0.45);
+        text-decoration: none;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+      }
+      .tp-beta-link:hover {
+        filter: brightness(1.05);
+        box-shadow: 0 18px 40px rgba(255, 168, 57, 0.55);
+      }
+      .tp-login-secondary {
+        margin-top: 0.9rem;
+        margin-bottom: 1.75rem;
+        font-size: 0.85rem;
+        text-align: center;
+        opacity: 0.85;
+      }
+      .tp-beta-notice {
+        margin-top: 0.1rem;
+        font-size: 1rem;
+        text-align: center;
+        font-weight: 600;
+        color: #f4cfa0;
+        text-transform: uppercase;
+      }
+      .tp-login-secondary a {
+        color: #f4cfa0;
+        text-decoration: none;
+      }
+      .tp-login-secondary a:hover { text-decoration: underline; }
+      #error {
+        color: #ffb3b3;
+        min-height: 1.2rem;
+        margin-top: 0.75rem;
+        font-size: 0.9rem;
+      }
+      /* Brand masthead: Podcaster's Forge */
+      .tp-brand-forge {
+        position: absolute;
+        top: 1.75rem;
+        left: 2.5rem;
+        font-family: 'UnifrakturCook', 'Cinzel Decorative', 'Times New Roman', serif;
+        font-size: clamp(1.9rem, 2.4vw + 1rem, 2.7rem);
+        letter-spacing: 0.06em;
+        color: #f5f0e6;
+        text-shadow:
+          0 0 6px rgba(0, 0, 0, 0.75),
+          0 0 18px rgba(0, 0, 0, 0.65);
+        pointer-events: none;
+        user-select: none;
+      }
+      .tp-login-video {
+        position: absolute;
+        left: 2.5rem;
+        top: 50%;
+        transform: translateY(-50%);
+        width: min(38vw, 560px);
+        aspect-ratio: 16 / 9;
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 18px 55px rgba(0, 0, 0, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(0, 0, 0, 0.35);
+        z-index: 2;
+      }
+      .tp-login-video:hover {
+        transform: translateY(-50%) scale(1.01);
+        border-color: rgba(255, 255, 255, 0.18);
+      }
+      .tp-login-video iframe {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        display: block;
+      }
+      .tp-brand-forge .tp-brand-accent {
+        color: #f4cfa0;
+      }
+      @media (max-width: 768px) {
+        .tp-login-video {
+          display: none;
+        }
+        .tp-login-page {
+          justify-content: center;
+          padding: 1.5rem;
+        }
+        .tp-login-card {
+          padding: 2rem 1.75rem;
+        }
+        .tp-brand-forge {
+          top: 1.25rem;
+          left: 1.5rem;
+          font-size: clamp(1.5rem, 4vw + 0.6rem, 2.1rem);
+        }
+      }
+      .ui-crawl-anchors {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 12px;
+        height: 12px;
+        opacity: 0.001;
+        overflow: hidden;
+        pointer-events: auto;
+        z-index: 2147483647;
+      }
+      .ui-crawl-anchors * {
+        pointer-events: auto;
+        width: 12px;
+        height: 12px;
+        margin: 0;
+        padding: 0;
+        font-size: 1px !important;
+        line-height: 1px !important;
+      }
+    </style>
+    <script>
+      try {
+        window.APP_VERSION = window.APP_VERSION || "1.8.5";
+      } catch (err) {
+        console.warn("Failed to set APP_VERSION:", err && err.message);
+      }
+    </script>
+  </head>
+  <body>
+    <main id="forge-login-root" class="tp-login-page">
+      <div class="tp-brand-forge">
+        Podcaster's <span class="tp-brand-accent">Forge</span>
+      </div>
+      <div class="tp-login-video" aria-label="Anvil intro video">
+        <iframe
+          src="https://www.youtube-nocookie.com/embed/lH1E6ojjSsg?rel=0&modestbranding=1"
+    title="Anvil - Intro & Demo"
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen
+        ></iframe>
+      </div>
+      <div class="tp-login-content">
+        <div class="tp-login-card">
+          <div class="tp-login-title">Login Moved to Podcaster's Forge</div>
+          <div class="tp-login-subtitle">
+            Nursery is the canonical home for sign-in.<br>
+            <span style="font-size:0.8rem; opacity:0.7;">You are being redirected there now.</span>
+          </div>
+          <div class="tp-beta-banner" role="note" aria-live="polite">
+            <strong>Open for beta requests.</strong> New sign-ups are currently disabled.
+            <a href="/beta/index.html">Request access via the beta form.</a>
+          </div>
+          <button type="button" id="loginBackBtn" class="tp-login-back">Back</button>
+
+          <div class="tp-beta-cta">
+            <a
+              id="canonical-login-link"
+              href="/login?next=%2Fapp%2Fanvil"
+              class="tp-beta-link"
+            >
+              Continue to Login
+            </a>
+          </div>
+
+          <p id="error" aria-live="polite">Redirecting to the Nursery login...</p>
+          <div class="tp-login-footnote">If the redirect stalls, use Continue to Login.</div>
+          <div class="tp-login-footnote" style="margin-top:0.4rem;">Anvil now lives inside Nursery.</div>
+        </div>
+      </div>
+    </main>
+
+    <div id="uiCrawlAnchors" class="ui-crawl-anchors">
+      <span id="appVersion">v?.?.?</span>
+
+      <button id="presentBtn" type="button">Present</button>
+      <button id="displayToggleBtn" type="button">Display</button>
+      <button id="settingsBtn" type="button">Settings</button>
+      <button id="shortcutsBtn" type="button">Help</button>
+
+      <button id="uploadBtn" type="button">Upload</button>
+      <button id="openFile" type="button">Open File</button>
+      <button id="openFileBtn" type="button">Open File</button>
+      <button id="chooseFile" type="button">Choose File</button>
+      <button id="loadFile" type="button">Load File</button>
+      <button id="uploadFileBtn" type="button">Upload</button>
+
+      <input id="fileInput" type="file" hidden aria-label="Upload script file" />
+      <input id="fileUpload" type="file" hidden aria-label="Upload script file" />
+      <input id="uploadFile" type="file" hidden aria-label="Upload script file" />
+
+      <button id="startCam" type="button">StartCam</button>
+      <button id="stopCam" type="button">StopCam</button>
+
+      <button id="recBtn" type="button">Rec</button>
+    </div>
+
+    <script>
+      (function () {
+        var v = window.APP_VERSION || "";
+        var versionEl = document.getElementById("appVersion");
+        if (versionEl) {
+          versionEl.textContent = v ? "v" + v : "v?.?.?";
+        }
+        var fileInputIds = ["fileInput", "fileUpload", "uploadFile"];
+        var fileInput = fileInputIds.map(function (id) {
+          return document.getElementById(id);
+        }).find(function (el) {
+          return el;
+        });
+        var wireUpload = function (btnId) {
+          var btn = document.getElementById(btnId);
+          if (btn && fileInput) {
+            btn.addEventListener("click", function () {
+              fileInput.value = "";
+              fileInput.click();
+            });
+          }
+        };
+        ["uploadBtn", "openFile", "openFileBtn", "chooseFile", "loadFile", "uploadFileBtn"].forEach(wireUpload);
+      })();
+    </script>
+    <script>
+      (function () {
+        var link = document.getElementById('canonical-login-link');
+        if (link) {
+          try {
+            var params = new URLSearchParams(window.location.search || '');
+            var target = params.get('next') || params.get('redirect') || params.get('return') || '/app/anvil';
+            link.href = '/login?next=' + encodeURIComponent(target);
+          } catch (_) {}
+        }
+      })();
+    </script>
+    <script>
+      (function () {
+        var backBtn = document.getElementById('loginBackBtn');
+        if (!backBtn) return;
+        backBtn.addEventListener('click', function () {
+          try {
+            if (window.history && window.history.length > 1) {
+              window.history.back();
+              return;
+            }
+          } catch (_) {}
+          window.location.href = '/app';
+        });
+      })();
+    </script>
+
+    <script src="/forge-config.js"></script>
+    <!-- Adjust path if your bundler outputs somewhere else -->
+    <script>
+      (function () {
+        const candidates = [
+          '/anvil/dist/forge/login.js',
+          '/anvil/forge/login.js',
+          '/dist/forge/login.js',
+          '/forge/login.js'
+        ];
+        function tryPath(index) {
+          if (index >= candidates.length) {
+            console.error('Unable to load /forge/login.js from any expected path.');
+            return;
+          }
+          const script = document.createElement('script');
+          script.type = 'module';
+          script.src = candidates[index];
+          script.onerror = () => {
+            script.remove();
+            tryPath(index + 1);
+          };
+          document.body.appendChild(script);
+        }
+        tryPath(0);
+      })();
+    </script>
+  </body>
+</html>
