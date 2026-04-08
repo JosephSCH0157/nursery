@@ -99,6 +99,38 @@ async function testRetakeRemovalCatchesAbortThenMarkerThenRedoChain() {
   assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "c"), true);
 }
 
+async function testRetakeRemovalAllowsMarkerOnlyAcrossSpeakerMismatch() {
+  const segments = [
+    s("a", 0, 0.6, "S1", "let me start that again"),
+    s("b", 0.65, 2.1, "S2", "The market moved sharply in the first quarter."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 1);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "b"), true);
+}
+
+async function testRetakeRemovalCatchesShortAbortedLeadInReread() {
+  const segments = [
+    s("a", 0, 0.7, "Host", "I was..."),
+    s("b", 0.75, 2.8, "Host", "I was going to walk through the launch timeline in detail."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 1);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "b"), true);
+}
+
 async function testQuickCleanOrderDeterministic() {
   const segments = [
     s("a", 0, 1, "Host", "uh intro"),
@@ -318,6 +350,8 @@ async function run() {
   await testRetakeRemovalCatchesStartThatAgainMarkerOnly();
   await testRetakeRemovalCatchesNearImmediateReread();
   await testRetakeRemovalCatchesAbortThenMarkerThenRedoChain();
+  await testRetakeRemovalAllowsMarkerOnlyAcrossSpeakerMismatch();
+  await testRetakeRemovalCatchesShortAbortedLeadInReread();
   await testQuickCleanOrderDeterministic();
   await testTightenSelectionPreservesUnselectedSegments();
   await testTightenSelectionRejectsInlineSpeakerTagAsTextMutationRisk();

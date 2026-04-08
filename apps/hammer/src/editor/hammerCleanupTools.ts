@@ -442,6 +442,17 @@ function commonPrefixLength(a: string[], b: string[], limit = 12): number {
   return count;
 }
 
+function isShortAbortedLeadInReread(currentText: string, nextText: string): boolean {
+  if (!isLikelyAborted(currentText)) return false;
+  const currentRawTokens = tokens(currentText);
+  const nextRawTokens = tokens(nextText);
+  if (currentRawTokens.length === 0) return false;
+  if (currentRawTokens.length > 6) return false;
+  if (nextRawTokens.length < currentRawTokens.length + 3) return false;
+  const rawPrefix = commonPrefixLength(currentRawTokens, nextRawTokens, 8);
+  return rawPrefix >= Math.min(2, currentRawTokens.length);
+}
+
 export function previewRemoveRetakes(
   segments: HammerTranscriptSegment[],
   options: RetakeCleanupOptions,
@@ -504,17 +515,19 @@ export function previewRemoveRetakes(
     const current = sorted[index];
     const next = sorted[index + 1];
     if (removeIds.has(current.segment_id) || removeIds.has(next.segment_id)) continue;
-    if (!speakersCompatible(current, next)) continue;
+    const pairSpeakersCompatible = speakersCompatible(current, next);
 
     const gapSec = Math.max(0, next.start_sec - current.end_sec);
     if (gapSec > maxGapSec) continue;
 
     // --- 3-segment chain: aborted take -> explicit marker -> clean take ---
     const third = sorted[index + 2] ?? null;
-    if (third && !removeIds.has(third.segment_id) && speakersCompatible(current, next, third)) {
+    if (third && !removeIds.has(third.segment_id)) {
       const gapToMarker = Math.max(0, next.start_sec - current.end_sec);
       const gapToRedo = Math.max(0, third.start_sec - next.end_sec);
-      if (gapToMarker <= maxGapSec && gapToRedo <= maxGapSec && isRetakeMarkerOnly(next.text)) {
+      const chainSpeakersCompatible = speakersCompatible(current, next, third);
+      const nextIsMarkerOnly = isRetakeMarkerOnly(next.text);
+      if (gapToMarker <= maxGapSec && gapToRedo <= maxGapSec && nextIsMarkerOnly && (chainSpeakersCompatible || nextIsMarkerOnly)) {
         const aTokens = contentTokens(current.text);
         const cTokens = contentTokens(third.text);
         const prefix = commonPrefixLength(aTokens, cTokens, 14);
@@ -546,6 +559,9 @@ export function previewRemoveRetakes(
     const explicit = explicitStrong || (options.detection === "aggressive" && explicitWeak);
     const aborted = isLikelyAborted(currentText);
     const repaired = hasLocalRepairMarker(currentText);
+    const shortLeadInReread = isShortAbortedLeadInReread(currentText, nextText);
+
+    if (!pairSpeakersCompatible && !explicit && !isRetakeMarkerOnly(currentText)) continue;
 
     // Marker-only segments should be removable without requiring overlap evidence.
     if (markerOnly) {
@@ -573,12 +589,12 @@ export function previewRemoveRetakes(
       && similarity.jaccard >= (options.detection === "aggressive" ? 0.5 : 0.62)
       && Math.min(aTokens.length, bTokens.length) >= 5
     );
-    const reread = prefixStrong || nearDuplicate;
+    const reread = prefixStrong || nearDuplicate || shortLeadInReread;
 
     // Conservative pass: only treat as retake when explicit or aborted.
     if (options.detection === "conservative") {
       if (!explicit && !aborted) continue;
-      if (!prefixStrong) continue;
+      if (!prefixStrong && !shortLeadInReread) continue;
     } else {
       // Normal/aggressive: allow similarity-only reread detection, but keep it tight.
       if (!explicit && !aborted && !repaired && !nearDuplicate) continue;

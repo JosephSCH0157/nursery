@@ -6064,7 +6064,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     },
   ): void {
     if (!visualPlacementEditingEnabled) return;
-    if (event.button !== 0) return;
+    const button = (event as unknown as { button?: number }).button;
+    if (button != null && button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
     const currentTarget = event.currentTarget as Element;
     const laneTrack = currentTarget.closest(".hammer-visual-timeline-lane__track, .hammer-timeline-lane__track");
     const ownerSvg = currentTarget instanceof SVGElement ? currentTarget.ownerSVGElement : null;
@@ -6072,8 +6075,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       ? laneTrack.getBoundingClientRect()
       : ownerSvg?.getBoundingClientRect() ?? currentTarget.getBoundingClientRect();
     if (trackRect.width <= 0) return;
-    event.preventDefault();
-    event.stopPropagation();
     setFocusOverride("time-focus");
     setSelectedClipId(args.placementId);
     setTimelineImageDragState({
@@ -13074,6 +13075,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       <div
                         className={`hammer-timeline-lane__track hammer-timeline-lane__track--${lane.tone}`}
                         onMouseDown={(event) => {
+                          const target = event.target as Element | null;
+                          if (target?.closest?.(".hammer-timeline-block.is-image-placement-editable")) {
+                            return;
+                          }
                           beginTimelineScrub(event);
                         }}
                       >
