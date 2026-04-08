@@ -2249,6 +2249,28 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return byId;
   }, [editableTranscriptSegments]);
+  useEffect(() => {
+    if (!activeCandidateCard) return;
+    const candidateId = activeCandidateCard.id;
+    const defaultCutEnabled = activeCandidateCard.apply.removeSegmentIds.length > 0;
+    setCandidateCutEnabledById((current) => (
+      Object.prototype.hasOwnProperty.call(current, candidateId)
+        ? current
+        : { ...current, [candidateId]: defaultCutEnabled }
+    ));
+    setCandidateCutDraftById((current) => {
+      if (Object.prototype.hasOwnProperty.call(current, candidateId)) return current;
+      const suggested = resolveCandidateSuggestedCut(activeCandidateCard);
+      if (!suggested) return current;
+      return {
+        ...current,
+        [candidateId]: {
+          startSec: String(suggested.startSec),
+          endSec: String(suggested.endSec),
+        },
+      };
+    });
+  }, [activeCandidateCard, transcriptSegmentsById]);
   const transcriptSelectionAllDisabled = useMemo(() => (
     hasTranscriptSelection && transcriptSelectionRange.segmentIds.every(
       (segmentId) => transcriptSegmentsById.get(segmentId)?.is_disabled === true,
@@ -4661,7 +4683,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   function commitEditableAudioCut(args: {
     startSec: number | null;
     endSec: number | null;
+    operationId?: string;
   }): boolean {
+    if (args.operationId) {
+      const existing = editableAudioPolishRef.current?.audio_edit?.operations ?? [];
+      if (existing.some((op) => op.id === args.operationId)) {
+        return false;
+      }
+    }
     const committed = commitAudioCutSelection({
       audioPolish: editableAudioPolishRef.current,
       selection: {
@@ -4669,6 +4698,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         endSec: args.endSec,
       },
       durationSec: playbackTransportDurationSec,
+      operationId: args.operationId,
     });
     if (!committed) {
       return false;
@@ -4681,13 +4711,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return true;
   }
 
-  function commitAudioCuts(selections: Array<{ startSec: number; endSec: number }>): number {
+  function commitAudioCuts(
+    selections: Array<{ startSec: number; endSec: number }>,
+    options?: { operationIdPrefix?: string },
+  ): number {
     if (!Array.isArray(selections) || selections.length === 0) return 0;
     let appliedCount = 0;
-    for (const selection of selections) {
+    for (let index = 0; index < selections.length; index += 1) {
+      const selection = selections[index];
+      const operationId = options?.operationIdPrefix
+        ? `${options.operationIdPrefix}:${index}`
+        : undefined;
       const applied = commitEditableAudioCut({
         startSec: selection.startSec,
         endSec: selection.endSec,
+        operationId,
       });
       if (applied) {
         appliedCount += 1;
