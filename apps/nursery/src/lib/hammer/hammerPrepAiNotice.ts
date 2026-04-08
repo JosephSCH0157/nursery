@@ -1,6 +1,6 @@
 import { resolveAiPolicy } from "@forge/tongs/ai-policy";
 import { loadAiSettings } from "../hearth/ai-settings";
-import { supabase } from "../supabase";
+import { supabase, tongsSupabase } from "../supabase";
 import type { Json } from "../supabase/database.types";
 
 export type HammerPrepAiEffectiveLane = "forge-managed" | "personal-byo" | "ai-disabled";
@@ -57,7 +57,8 @@ export async function resolveHammerPrepAiEffectiveLane(
       : "forge-managed";
   }
 
-  const policy = await resolveAiPolicy(supabase, {
+  // resolve_ai_policy lives in the tongs schema; use the tongs-profile client so PostgREST can find the RPC.
+  const policy = await resolveAiPolicy(tongsSupabase, {
     orgId: null,
     workspaceId,
     userId: authData.user.id,

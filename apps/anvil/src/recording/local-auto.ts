@@ -11,6 +11,7 @@ import {
   showRecordingDecisionDialog,
   showRecordingFinalizeIndicator,
 } from './recording-decision-dialog';
+import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name';
 
 (() => {
   const RECORDING_STORAGE_LIMIT_HINT_KEY = 'forge_anvil_recording_storage_limit_hint_bytes_v1';
@@ -131,27 +132,6 @@ import {
     });
   }
 
-  function formatTimestamp(date: Date): string {
-    const year = date.getFullYear();
-    const month = pad(date.getMonth() + 1);
-    const day = pad(date.getDate());
-    const hour = pad(date.getHours());
-    const minute = pad(date.getMinutes());
-    const second = pad(date.getSeconds());
-    return `${year}-${month}-${day}_${hour}-${minute}-${second}`;
-  }
-
-  function sanitizeTitle(title: string): string {
-    const trimmed = String(title || 'Script').trim() || 'Script';
-    const cleaned = trimmed
-      .replace(/[:/\\?<>|*"']/g, '-')
-      .replace(/[^\w\s-]/g, '')
-      .replace(/\s+/g, '_')
-      .replace(/_+/g, '_');
-    const sliced = cleaned.slice(0, 64).replace(/^_+|_+$/g, '');
-    return sliced || 'Script';
-  }
-
   function getRouteEpisodeTitle(): string | null {
     try {
       const params = new URLSearchParams(window.location.search || '');
@@ -167,31 +147,41 @@ import {
     }
   }
 
-  function getActiveScriptTitle(): string {
-    try {
-      const routeEpisodeTitle = getRouteEpisodeTitle();
-      if (routeEpisodeTitle) return routeEpisodeTitle;
-    } catch {}
-    try {
-      const titleInput = document.getElementById('scriptTitle') as HTMLInputElement | null;
-      if (titleInput && titleInput.value) return titleInput.value;
-    } catch {}
-    try {
-      const stored = localStorage.getItem('tp_last_script_title') || localStorage.getItem('tp_last_script_name');
-      if (stored) return stored;
-    } catch {}
-    return 'Script';
-  }
-
   const nowName = (mode: 'av' | 'audio'): string => {
     try {
-      const date = new Date();
-      const title = sanitizeTitle(getActiveScriptTitle());
-      const ts = formatTimestamp(date);
-      if (mode === 'audio') return `${title}_${ts}_audio.wav`;
-      return `${title}_${ts}.webm`;
+      const titleInput = (() => {
+        try {
+          return (document.getElementById('scriptTitle') as HTMLInputElement | null)?.value ?? null;
+        } catch {
+          return null;
+        }
+      })();
+      const storedTitle = (() => {
+        try {
+          return localStorage.getItem('tp_last_script_title') || localStorage.getItem('tp_last_script_name');
+        } catch {
+          return null;
+        }
+      })();
+
+      return buildRecordingFilename({
+        mode,
+        baseTitle: pickRecordingBaseTitle({
+          inputTitle: titleInput,
+          routeEpisodeTitle: getRouteEpisodeTitle(),
+          storedTitle,
+        }),
+      });
     } catch {
-      const fallback = formatTimestamp(new Date());
+      // Preserve existing fallback shape.
+      const date = new Date();
+      const year = date.getFullYear();
+      const month = pad(date.getMonth() + 1);
+      const day = pad(date.getDate());
+      const hour = pad(date.getHours());
+      const minute = pad(date.getMinutes());
+      const second = pad(date.getSeconds());
+      const fallback = `${year}-${month}-${day}_${hour}-${minute}-${second}`;
       return mode === 'audio' ? `Script_${fallback}_audio.wav` : `Script_${fallback}.webm`;
     }
   };
