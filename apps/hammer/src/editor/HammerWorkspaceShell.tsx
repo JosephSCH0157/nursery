@@ -12742,6 +12742,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           {visualBackgroundBlurRuntimeStatus ? (
                             <>
                               Segmentation: {backgroundBlurProviderDescriptor?.displayName ?? visualBackgroundBlurRuntimeStatus.provider.name} · {visualBackgroundBlurRuntimeStatus.provider.readiness.status}
+                              {` · quality ${visualBackgroundBlurRuntimeStatus.quality.mode} (${visualBackgroundBlurRuntimeStatus.quality.policy.maxSegmentationFps}fps)`}
                               {visualBackgroundBlurRuntimeStatus.initMs != null ? ` · init ${visualBackgroundBlurRuntimeStatus.initMs.toFixed(1)}ms` : ""}
                               {visualBackgroundBlurRuntimeStatus.lastConfidence != null ? ` · confidence ${visualBackgroundBlurRuntimeStatus.lastConfidence.toFixed(1)}` : ""}
                               {visualBackgroundBlurRuntimeStatus.lastSegmentationMs != null ? ` · seg ${visualBackgroundBlurRuntimeStatus.lastSegmentationMs.toFixed(1)}ms` : ""}

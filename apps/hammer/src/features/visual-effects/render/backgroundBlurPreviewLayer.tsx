@@ -6,11 +6,21 @@ import { createSegmentationProvider, isSegmentationProviderId } from "../provide
 import { SimpleMatteRefiner } from "../matte/simpleMatteRefiner";
 import { BackgroundBlurRenderer } from "../effects/backgroundBlurRenderer";
 import { BackgroundReplacementRenderer } from "../effects/backgroundReplacementRenderer";
+import { resolveVisualPreviewQualityPolicy } from "./previewQualityPolicy";
 
 export type HammerBackgroundBlurRuntimeStatus = {
   provider: {
     name: string;
     readiness: SegmentationProviderReadiness;
+  };
+  quality: {
+    mode: BackgroundBlurSettings["qualityMode"];
+    policy: {
+      maxSegmentationFps: number;
+      edgeFeatherCapPx: number;
+      subjectExpansionCapPx: number;
+      temporalSmoothingCap: number;
+    };
   };
   initMs: number | null;
   avgSegmentationMs: number | null;
@@ -80,6 +90,7 @@ export default function BackgroundBlurPreviewLayer(props: {
   const resolvedProviderId: SegmentationProviderId = isSegmentationProviderId(props.providerId)
     ? props.providerId
     : "mediapipe_selfie_segmentation";
+  const qualityPolicy = resolveVisualPreviewQualityPolicy(props.settings.qualityMode);
   const provider = useDefaultSegmentationProvider(props.enabled, resolvedProviderId);
   const matteRefiner = useMemo(() => new SimpleMatteRefiner(), []);
   const blurRenderer = useMemo(() => new BackgroundBlurRenderer(), []);
@@ -101,6 +112,15 @@ export default function BackgroundBlurPreviewLayer(props: {
 
   const [runtimeStatus, setRuntimeStatus] = useState<HammerBackgroundBlurRuntimeStatus>(() => ({
     provider: { name: provider.name, readiness: provider.getReadiness() },
+    quality: {
+      mode: props.settings.qualityMode,
+      policy: {
+        maxSegmentationFps: qualityPolicy.maxSegmentationFps,
+        edgeFeatherCapPx: qualityPolicy.edgeFeatherCapPx,
+        subjectExpansionCapPx: qualityPolicy.subjectExpansionCapPx,
+        temporalSmoothingCap: qualityPolicy.temporalSmoothingCap,
+      },
+    },
     initMs: null,
     avgSegmentationMs: null,
     avgCompositeMs: null,
@@ -292,8 +312,7 @@ export default function BackgroundBlurPreviewLayer(props: {
 
       // Basic throttling: cap segmentation to ~10fps in v1.
       const now = nowMs();
-      const maxFps = 10;
-      const minFrameGapMs = 1000 / maxFps;
+      const minFrameGapMs = 1000 / Math.max(1, qualityPolicy.maxSegmentationFps);
       const lastAt = lastFrameAtMsRef.current;
       if (lastAt != null && (now - lastAt) < minFrameGapMs) return;
 
@@ -302,6 +321,15 @@ export default function BackgroundBlurPreviewLayer(props: {
         setRuntimeStatus((prev) => ({
           ...prev,
           provider: { name: provider.name, readiness: provider.getReadiness() },
+          quality: {
+            mode: props.settings.qualityMode,
+            policy: {
+              maxSegmentationFps: qualityPolicy.maxSegmentationFps,
+              edgeFeatherCapPx: qualityPolicy.edgeFeatherCapPx,
+              subjectExpansionCapPx: qualityPolicy.subjectExpansionCapPx,
+              temporalSmoothingCap: qualityPolicy.temporalSmoothingCap,
+            },
+          },
           droppedFrames: droppedFramesRef.current,
           degradedReason: prev.degradedReason ?? "segmentation_busy",
         }));
@@ -313,10 +341,13 @@ export default function BackgroundBlurPreviewLayer(props: {
       try {
         await provider.initialize();
         const seg = await provider.segmentFrame({ video, timestampSec: video.currentTime || 0 });
+        const effectiveFeatherPx = Math.min(props.settings.edgeFeatherPx, qualityPolicy.edgeFeatherCapPx);
+        const effectiveExpansionPx = Math.min(props.settings.subjectExpansionPx, qualityPolicy.subjectExpansionCapPx);
+        const effectiveTemporal = Math.min(props.settings.temporalSmoothing, qualityPolicy.temporalSmoothingCap);
         const matte = matteRefiner.buildMatte(seg, {
-          featherPx: props.settings.edgeFeatherPx,
-          subjectExpansionPx: props.settings.subjectExpansionPx,
-          temporalSmoothing: props.settings.temporalSmoothing,
+          featherPx: effectiveFeatherPx,
+          subjectExpansionPx: effectiveExpansionPx,
+          temporalSmoothing: effectiveTemporal,
           quality: props.settings.qualityMode,
         });
         const composite = props.settings.replacementEnabled
@@ -347,6 +378,15 @@ export default function BackgroundBlurPreviewLayer(props: {
 
         setRuntimeStatus({
           provider: { name: provider.name, readiness: provider.getReadiness() },
+          quality: {
+            mode: props.settings.qualityMode,
+            policy: {
+              maxSegmentationFps: qualityPolicy.maxSegmentationFps,
+              edgeFeatherCapPx: qualityPolicy.edgeFeatherCapPx,
+              subjectExpansionCapPx: qualityPolicy.subjectExpansionCapPx,
+              temporalSmoothingCap: qualityPolicy.temporalSmoothingCap,
+            },
+          },
           initMs: initMsRef.current,
           avgSegmentationMs: avgSegMsRef.current,
           avgCompositeMs: avgCompMsRef.current,
@@ -367,6 +407,15 @@ export default function BackgroundBlurPreviewLayer(props: {
         setRuntimeStatus((prev) => ({
           ...prev,
           provider: { name: provider.name, readiness: provider.getReadiness() },
+          quality: {
+            mode: props.settings.qualityMode,
+            policy: {
+              maxSegmentationFps: qualityPolicy.maxSegmentationFps,
+              edgeFeatherCapPx: qualityPolicy.edgeFeatherCapPx,
+              subjectExpansionCapPx: qualityPolicy.subjectExpansionCapPx,
+              temporalSmoothingCap: qualityPolicy.temporalSmoothingCap,
+            },
+          },
           initMs: initMsRef.current,
           degradedReason: "segmentation_error",
           warnings: [error instanceof Error ? error.message : "Segmentation failed."],
@@ -402,7 +451,7 @@ export default function BackgroundBlurPreviewLayer(props: {
       cancelled = true;
       window.cancelAnimationFrame(raf);
     };
-  }, [blurRenderer, matteRefiner, props.enabled, props.settings, props.videoRef, provider, replacementRenderer]);
+  }, [blurRenderer, matteRefiner, props.enabled, props.settings, props.videoRef, provider, qualityPolicy, replacementRenderer]);
 
   if (!props.enabled) return null;
 
