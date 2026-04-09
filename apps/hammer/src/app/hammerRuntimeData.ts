@@ -510,20 +510,25 @@ export async function loadHammerWorkspaceProjects(
   const episodes = await listHammerWorkspaceEpisodes(workspaceId);
   const detailResults = await Promise.allSettled(
     episodes.map(async (episode) => {
-      const [sessionResult, truthResult] = await Promise.allSettled([
-        openHammerRecordingSession({
-          workspaceId,
-          workpieceId: episode.id,
-        }),
-        loadHammerWorkpieceRecordingTruth(episode.id),
-      ]);
+      const truthResult = await Promise.allSettled([loadHammerWorkpieceRecordingTruth(episode.id)]);
+      const recordingTruth = truthResult[0]?.status === "fulfilled"
+        ? truthResult[0].value
+        : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null };
+
+      // Avoid POST /hammer/session when the workpiece has no kept take; session open would correctly 409 but it clutters the runtime library.
+      const sessionResult = recordingTruth.hasKeptTake
+        ? await Promise.allSettled([
+            openHammerRecordingSession({
+              workspaceId,
+              workpieceId: episode.id,
+            }),
+          ])
+        : [{ status: "fulfilled" as const, value: null }];
 
       return {
-        sessionResult: sessionResult.status === "fulfilled" ? sessionResult.value : null,
-        recordingTruth: truthResult.status === "fulfilled"
-          ? truthResult.value
-          : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null },
-        recordingTruthUnavailable: truthResult.status === "rejected",
+        sessionResult: sessionResult[0]?.status === "fulfilled" ? sessionResult[0].value : null,
+        recordingTruth,
+        recordingTruthUnavailable: truthResult[0]?.status === "rejected",
       };
     }),
   );

@@ -1512,6 +1512,100 @@ export default function HammerWorkspaceEditor(
     };
   }, [showPreparedHandoff, shouldRenderEditor]);
 
+  const prepAiNoticeModal = showPrepAiNotice ? (
+    <div className="hammer-prep-shell__overlay" role="presentation">
+      <section
+        className="hammer-prep-shell__notice-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="hammer-prep-ai-notice-title"
+        aria-describedby="hammer-prep-ai-notice-body"
+      >
+        <div id="hammer-prep-ai-notice-title" className="hammer-prep-shell__notice-title">
+          {prepAiNoticeModel.title}
+        </div>
+        <div id="hammer-prep-ai-notice-body" className="hammer-prep-shell__notice-body">
+          {prepAiNoticeModel.body}
+        </div>
+        <div className="hammer-prep-shell__notice-detail">
+          {prepAiNoticeModel.laneDetail}
+        </div>
+
+        <label className="hammer-prep-shell__notice-checkbox">
+          <input
+            type="checkbox"
+            checked={prepAiNoticeDontShowAgain}
+            onChange={(event) => setPrepAiNoticeDontShowAgain(event.target.checked)}
+          />
+          <span>Don&apos;t show this again</span>
+        </label>
+
+        <div className="hammer-prep-shell__notice-actions">
+          <button
+            type="button"
+            className="hammer-prep-shell__button"
+            onClick={() => {
+              const runKey = prepAiNoticePendingRunKeyRef.current;
+              if (!runKey) return;
+              prepAiNoticeApprovedRunKeyRef.current = runKey;
+              prepAiNoticeCancelledRunKeyRef.current = null;
+              emitPrepAiNoticeTelemetry("hammer_prep_ai_notice_continue", {
+                lane: prepAiNoticeModel.laneSignature,
+                prep_allowed: prepAiNoticeModel.prepAllowed,
+                workpiece_id: effectiveLaunchContext?.workpiece_id ?? null,
+                workspace_id: effectiveLaunchContext?.workspace_id ?? null,
+              });
+              if (prepAiNoticeDontShowAgain) {
+                emitPrepAiNoticeTelemetry("hammer_prep_ai_notice_dont_show_again", {
+                  lane: prepAiNoticeModel.laneSignature,
+                  workpiece_id: effectiveLaunchContext?.workpiece_id ?? null,
+                  workspace_id: effectiveLaunchContext?.workspace_id ?? null,
+                });
+                void props.onPrepAiNoticeAcknowledgeLane?.(prepAiNoticeModel.laneSignature);
+              }
+              setShowPrepAiNotice(false);
+              prepRunKeyRef.current = null;
+              setPrepState(createHammerPrepState("preparing", "loading_context"));
+              setPrepAttemptNonce((current) => current + 1);
+              setPrepAiNoticeDecisionNonce((current) => current + 1);
+            }}
+          >
+            Continue
+          </button>
+          <button
+            type="button"
+            className="hammer-prep-shell__action-button hammer-prep-shell__action-button--dismiss"
+            onClick={() => {
+              const runKey = prepAiNoticePendingRunKeyRef.current;
+              if (!runKey) return;
+              prepAiNoticeCancelledRunKeyRef.current = runKey;
+              prepAiNoticeApprovedRunKeyRef.current = null;
+              emitPrepAiNoticeTelemetry("hammer_prep_ai_notice_cancel", {
+                lane: prepAiNoticeModel.laneSignature,
+                prep_allowed: prepAiNoticeModel.prepAllowed,
+                workpiece_id: effectiveLaunchContext?.workpiece_id ?? null,
+                workspace_id: effectiveLaunchContext?.workspace_id ?? null,
+              });
+              setPrepAiFallbackRequested(false);
+              setShowPrepAiNotice(false);
+            }}
+          >
+            Cancel
+          </button>
+          {canRenderPrepAiNoticeSettingsAction ? (
+            <button
+              type="button"
+              className="hammer-prep-shell__action-button hammer-prep-shell__action-button--placeholder"
+              onClick={() => props.onRequestAiSettings?.()}
+            >
+              AI Settings
+            </button>
+          ) : null}
+        </div>
+      </section>
+    </div>
+  ) : null;
+
   if (persistenceMode === "canonical" && prepState.status === "prep_failed") {
     const canOfferAiFallback = prepFailureKind === "non_ai_missing";
     return (
@@ -1542,21 +1636,11 @@ export default function HammerWorkspaceEditor(
                 className="hammer-prep-shell__button"
                 onClick={() => {
                   const runKey = lastPrepRunKeyRef.current;
-                  if (!runKey) return;
-                  prepAiNoticePendingRunKeyRef.current = runKey;
+                  prepAiNoticePendingRunKeyRef.current = runKey ?? `manual_ai_fallback:${Date.now()}`;
                   setPrepAiFallbackRequested(true);
-                  // If consent isn't required (already acknowledged), start immediately.
-                  const prepAiNoticeEffectiveLane = props.prepAiNoticeEffectiveLane ?? "forge-managed";
-                  const prepAiNoticeModel = buildHammerPrepAiNoticeModel(prepAiNoticeEffectiveLane);
-                  const shouldPromptPrepAiNotice = shouldShowHammerPrepAiNotice({
-                    effectiveLane: prepAiNoticeModel.laneSignature,
-                    acknowledgedLaneSignature: props.prepAiNoticeAcknowledgedLaneSignature ?? null,
-                  });
-                  if (shouldPromptPrepAiNotice) {
-                    setShowPrepAiNotice(true);
-                    return;
-                  }
+                  // Always restart prep; the prep effect is the single authority for showing AI consent and starting AI transcription.
                   prepRunKeyRef.current = null;
+                  setShowPrepAiNotice(false);
                   setPrepState(createHammerPrepState("preparing", "loading_context"));
                   setPrepAttemptNonce((current) => current + 1);
                 }}
@@ -1579,6 +1663,7 @@ export default function HammerWorkspaceEditor(
             ) : null}
           </div>
         </div>
+        {prepAiNoticeModal}
       </section>
     );
   }
@@ -1693,99 +1778,7 @@ export default function HammerWorkspaceEditor(
         </div>
       ) : null}
 
-      {showPrepAiNotice ? (
-        <div className="hammer-prep-shell__overlay" role="presentation">
-          <section
-            className="hammer-prep-shell__notice-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="hammer-prep-ai-notice-title"
-            aria-describedby="hammer-prep-ai-notice-body"
-          >
-            <div id="hammer-prep-ai-notice-title" className="hammer-prep-shell__notice-title">
-              {prepAiNoticeModel.title}
-            </div>
-            <div id="hammer-prep-ai-notice-body" className="hammer-prep-shell__notice-body">
-              {prepAiNoticeModel.body}
-            </div>
-            <div className="hammer-prep-shell__notice-detail">
-              {prepAiNoticeModel.laneDetail}
-            </div>
-
-            <label className="hammer-prep-shell__notice-checkbox">
-              <input
-                type="checkbox"
-                checked={prepAiNoticeDontShowAgain}
-                onChange={(event) => setPrepAiNoticeDontShowAgain(event.target.checked)}
-              />
-              <span>Don&apos;t show this again</span>
-            </label>
-
-            <div className="hammer-prep-shell__notice-actions">
-              <button
-                type="button"
-                className="hammer-prep-shell__button"
-                onClick={() => {
-                  const runKey = prepAiNoticePendingRunKeyRef.current;
-                  if (!runKey) return;
-                  prepAiNoticeApprovedRunKeyRef.current = runKey;
-                  prepAiNoticeCancelledRunKeyRef.current = null;
-                  emitPrepAiNoticeTelemetry("hammer_prep_ai_notice_continue", {
-                    lane: prepAiNoticeModel.laneSignature,
-                    prep_allowed: prepAiNoticeModel.prepAllowed,
-                    workpiece_id: effectiveLaunchContext?.workpiece_id ?? null,
-                    workspace_id: effectiveLaunchContext?.workspace_id ?? null,
-                  });
-                  if (prepAiNoticeDontShowAgain) {
-                    emitPrepAiNoticeTelemetry("hammer_prep_ai_notice_dont_show_again", {
-                      lane: prepAiNoticeModel.laneSignature,
-                      workpiece_id: effectiveLaunchContext?.workpiece_id ?? null,
-                      workspace_id: effectiveLaunchContext?.workspace_id ?? null,
-                    });
-                    void props.onPrepAiNoticeAcknowledgeLane?.(prepAiNoticeModel.laneSignature);
-                  }
-                  setShowPrepAiNotice(false);
-                  prepRunKeyRef.current = null;
-                  setPrepState(createHammerPrepState("preparing", "loading_context"));
-                  setPrepAttemptNonce((current) => current + 1);
-                  setPrepAiNoticeDecisionNonce((current) => current + 1);
-                }}
-              >
-                Continue
-              </button>
-              <button
-                type="button"
-                className="hammer-prep-shell__action-button hammer-prep-shell__action-button--dismiss"
-                onClick={() => {
-                  const runKey = prepAiNoticePendingRunKeyRef.current;
-                  if (!runKey) return;
-                  prepAiNoticeCancelledRunKeyRef.current = runKey;
-                  prepAiNoticeApprovedRunKeyRef.current = null;
-                  emitPrepAiNoticeTelemetry("hammer_prep_ai_notice_cancel", {
-                    lane: prepAiNoticeModel.laneSignature,
-                    prep_allowed: prepAiNoticeModel.prepAllowed,
-                    workpiece_id: effectiveLaunchContext?.workpiece_id ?? null,
-                    workspace_id: effectiveLaunchContext?.workspace_id ?? null,
-                  });
-                  setPrepAiFallbackRequested(false);
-                  setShowPrepAiNotice(false);
-                }}
-              >
-                Cancel
-              </button>
-              {canRenderPrepAiNoticeSettingsAction ? (
-                <button
-                  type="button"
-                  className="hammer-prep-shell__action-button hammer-prep-shell__action-button--placeholder"
-                  onClick={() => props.onRequestAiSettings?.()}
-                >
-                  AI Settings
-                </button>
-              ) : null}
-            </div>
-          </section>
-        </div>
-      ) : null}
+      {prepAiNoticeModal}
 
       {showPreparedHandoff ? (
         <section

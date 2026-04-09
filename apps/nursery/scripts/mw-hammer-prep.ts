@@ -1476,7 +1476,13 @@ export function createHammerPrepMiddleware() {
           });
           return;
         }
-        throw error;
+        sendJson(res, 502, {
+          ok: false,
+          error: {
+            message: `Hammer transcript prep could not reach OpenAI transcription (${error instanceof Error ? error.message : "unknown error"}).`,
+          },
+        });
+        return;
       } finally {
         upstreamTimeout.dispose();
       }
