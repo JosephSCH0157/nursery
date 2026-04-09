@@ -5,6 +5,7 @@ import type { SegmentationProviderId } from "../providers/segmentationProviderRe
 import { createSegmentationProvider, isSegmentationProviderId } from "../providers/segmentationProviderRegistry";
 import { SimpleMatteRefiner } from "../matte/simpleMatteRefiner";
 import { BackgroundBlurRenderer } from "../effects/backgroundBlurRenderer";
+import { BackgroundReplacementRenderer } from "../effects/backgroundReplacementRenderer";
 
 export type HammerBackgroundBlurRuntimeStatus = {
   provider: {
@@ -81,7 +82,8 @@ export default function BackgroundBlurPreviewLayer(props: {
     : "mediapipe_selfie_segmentation";
   const provider = useDefaultSegmentationProvider(props.enabled, resolvedProviderId);
   const matteRefiner = useMemo(() => new SimpleMatteRefiner(), []);
-  const renderer = useMemo(() => new BackgroundBlurRenderer(), []);
+  const blurRenderer = useMemo(() => new BackgroundBlurRenderer(), []);
+  const replacementRenderer = useMemo(() => new BackgroundReplacementRenderer(), []);
 
   const inFlightRef = useRef(false);
   const lastFrameAtMsRef = useRef<number | null>(null);
@@ -226,7 +228,7 @@ export default function BackgroundBlurPreviewLayer(props: {
       return;
     }
     // Keep the last matte for temporal smoothing while enabled.
-  }, [matteRefiner, props.enabled]);
+  }, [matteRefiner, props.enabled, resolvedProviderId]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -317,12 +319,9 @@ export default function BackgroundBlurPreviewLayer(props: {
           temporalSmoothing: props.settings.temporalSmoothing,
           quality: props.settings.qualityMode,
         });
-        const composite = renderer.render({
-          source: video,
-          matte,
-          settings: props.settings,
-          output: canvas,
-        });
+        const composite = props.settings.replacementEnabled
+          ? replacementRenderer.render({ source: video, matte, settings: props.settings, output: canvas })
+          : blurRenderer.render({ source: video, matte, settings: props.settings, output: canvas });
 
         avgSegMsRef.current = avgSegMsRef.current == null
           ? seg.processingMs
@@ -403,11 +402,11 @@ export default function BackgroundBlurPreviewLayer(props: {
       cancelled = true;
       window.cancelAnimationFrame(raf);
     };
-  }, [matteRefiner, props.enabled, props.settings, props.videoRef, provider, renderer]);
+  }, [blurRenderer, matteRefiner, props.enabled, props.settings, props.videoRef, provider, replacementRenderer]);
 
   if (!props.enabled) return null;
 
-  const show = props.settings.enabled && (
+  const show = (props.settings.enabled || props.settings.replacementEnabled) && (
     props.settings.fallbackMode === "passthrough"
       ? true
       : runtimeStatus.degradedReason == null

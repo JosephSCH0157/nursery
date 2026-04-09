@@ -80,6 +80,10 @@ export interface HammerPersistedVisualPreviewSettings {
   background_blur_quality_mode?: "low" | "medium" | "high";
   background_blur_fallback_mode?: "disable" | "passthrough";
   background_blur_provider?: string | null;
+  background_replace_enabled?: boolean;
+  background_replace_mode?: "solid" | "image" | "checkerboard";
+  background_replace_color?: string;
+  background_replace_image_url?: string | null;
 }
 
 export type HammerDerivedTextMacroKind =

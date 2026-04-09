@@ -84,6 +84,10 @@ function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPreviewSettin
     background_blur_quality_mode: "medium",
     background_blur_fallback_mode: "disable",
     background_blur_provider: "mediapipe_selfie_segmentation",
+    background_replace_enabled: false,
+    background_replace_mode: "solid",
+    background_replace_color: "#2b2b2b",
+    background_replace_image_url: null,
   };
 }
 
@@ -112,6 +116,10 @@ function normalizeVisualPreviewSettings(
   const provider = readString(row?.background_blur_provider)
     ?? readString(readJsonObject(row?.background_blur)?.provider)
     ?? defaults.background_blur_provider!;
+  const replaceEnabled = typeof row?.background_replace_enabled === "boolean" ? row.background_replace_enabled : defaults.background_replace_enabled!;
+  const replaceMode = readString(row?.background_replace_mode) ?? defaults.background_replace_mode!;
+  const replaceColor = readString(row?.background_replace_color) ?? defaults.background_replace_color!;
+  const replaceImageUrl = readString(row?.background_replace_image_url) ?? defaults.background_replace_image_url!;
   return {
     white_balance: whiteBalance == null ? defaults.white_balance : clamp(Math.round(whiteBalance), -100, 100),
     color_amount: colorAmount == null ? defaults.color_amount : clamp(Math.round(colorAmount), -100, 100),
@@ -123,6 +131,10 @@ function normalizeVisualPreviewSettings(
     background_blur_quality_mode: (quality === "low" || quality === "high") ? quality : "medium",
     background_blur_fallback_mode: fallback === "passthrough" ? "passthrough" : "disable",
     background_blur_provider: provider,
+    background_replace_enabled: replaceEnabled,
+    background_replace_mode: replaceMode === "image" ? "image" : replaceMode === "checkerboard" ? "checkerboard" : "solid",
+    background_replace_color: replaceColor,
+    background_replace_image_url: replaceImageUrl,
   };
 }
 

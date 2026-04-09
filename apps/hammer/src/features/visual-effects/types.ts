@@ -62,6 +62,10 @@ export interface MatteRefiner {
 export type BackgroundBlurSettings = {
   enabled: boolean;
   blurPx: number;
+  replacementEnabled: boolean;
+  replacementMode: "solid" | "image" | "checkerboard";
+  replacementColor: string; // css color
+  replacementImageUrl: string | null;
   edgeFeatherPx: number;
   temporalSmoothing: number; // 0..1
   subjectExpansionPx: number;
@@ -84,4 +88,3 @@ export interface BackgroundEffectRenderer {
     output: HTMLCanvasElement;
   }): BackgroundEffectFrameResult;
 }
-

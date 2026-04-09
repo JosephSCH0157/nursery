@@ -1,4 +1,10 @@
 import type { ForegroundMatte, MatteBuildOptions, MatteRefiner, SegmentationResult } from "../types";
+import {
+  blendAlphaEma,
+  computeEffectiveTemporalWeight,
+  shouldResetTemporalHistory,
+  type TemporalMatteHistory,
+} from "./temporalMatteSmoothing";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -60,16 +66,18 @@ function applyFeather(args: { canvas: HTMLCanvasElement; featherPx: number }): U
 
 export class SimpleMatteRefiner implements MatteRefiner {
   private previousAlpha: Uint8ClampedArray | null = null;
+  private history: TemporalMatteHistory | null = null;
 
   public reset(): void {
     this.previousAlpha = null;
+    this.history = null;
   }
 
   public buildMatte(input: SegmentationResult, options: MatteBuildOptions): ForegroundMatte {
     const width = input.width;
     const height = input.height;
     const featherPx = clamp(options.featherPx, 0, 64);
-    const temporalWeight = clamp(options.temporalSmoothing, 0, 1);
+    const requestedTemporalWeight = clamp(options.temporalSmoothing, 0, 1);
 
     const baseMask = new Uint8ClampedArray(input.personMask);
 
@@ -86,31 +94,61 @@ export class SimpleMatteRefiner implements MatteRefiner {
 
     // Temporal smoothing hook: exponential blend against previous alpha.
     let alphaMask = feathered;
-    if (temporalWeight > 0 && this.previousAlpha && this.previousAlpha.length === alphaMask.length) {
-      const blended = new Uint8ClampedArray(alphaMask.length);
-      const wPrev = temporalWeight;
-      const wNow = 1 - wPrev;
-      for (let i = 0; i < blended.length; i += 1) {
-        blended[i] = Math.round((alphaMask[i]! * wNow) + (this.previousAlpha[i]! * wPrev));
-      }
-      alphaMask = blended;
+    const resetDecision = shouldResetTemporalHistory({
+      previous: this.history,
+      next: {
+        width,
+        height,
+        providerName: input.providerName,
+        timestampSec: input.sourceTimestampSec,
+        confidence: input.confidenceSummary,
+      },
+    });
+    if (resetDecision.reset) {
+      this.previousAlpha = null;
+      this.history = null;
+    }
+
+    const effectiveTemporalWeight = computeEffectiveTemporalWeight({
+      requestedWeight: requestedTemporalWeight,
+      previousConfidenceScore: this.history?.lastConfidenceScore ?? null,
+      nextConfidenceScore: input.confidenceSummary.score,
+    });
+
+    if (effectiveTemporalWeight > 0 && this.previousAlpha && this.previousAlpha.length === alphaMask.length) {
+      alphaMask = blendAlphaEma({
+        previousAlpha: this.previousAlpha,
+        nextAlpha: alphaMask,
+        previousWeight: effectiveTemporalWeight,
+      });
     }
 
     this.previousAlpha = alphaMask;
+    this.history = {
+      width,
+      height,
+      providerName: input.providerName,
+      lastTimestampSec: input.sourceTimestampSec,
+      lastConfidenceScore: input.confidenceSummary.score,
+      lastForegroundRatio: input.confidenceSummary.foregroundRatio,
+    };
 
     return {
       width,
       height,
       alphaMask,
       featherPx: roundToTenth(featherPx),
-      temporalWeight: roundToTenth(temporalWeight),
+      temporalWeight: roundToTenth(effectiveTemporalWeight),
       quality: options.quality,
       metadata: {
         providerName: input.providerName,
         confidenceScore: input.confidenceSummary.score,
-        warnings: [...new Set([...input.warnings, ...warned])],
+        warnings: [...new Set([
+          ...input.warnings,
+          ...warned,
+          ...(resetDecision.reset ? resetDecision.reasons.map((r) => `temporal_reset:${r}`) : []),
+        ])],
       },
     };
   }
 }
-

@@ -489,6 +489,10 @@ function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPreviewSettin
     background_blur_quality_mode: "medium",
     background_blur_fallback_mode: "disable",
     background_blur_provider: "mediapipe_selfie_segmentation",
+    background_replace_enabled: false,
+    background_replace_mode: "solid",
+    background_replace_color: "#2b2b2b",
+    background_replace_image_url: null,
   };
 }
 
@@ -512,6 +516,14 @@ function normalizeVisualPreviewSettings(
       : "medium",
     background_blur_fallback_mode: value.background_blur_fallback_mode === "passthrough" ? "passthrough" : "disable",
     background_blur_provider: typeof value.background_blur_provider === "string" ? value.background_blur_provider : defaults.background_blur_provider,
+    background_replace_enabled: Boolean(value.background_replace_enabled ?? defaults.background_replace_enabled),
+    background_replace_mode: value.background_replace_mode === "image"
+      ? "image"
+      : value.background_replace_mode === "checkerboard"
+      ? "checkerboard"
+      : "solid",
+    background_replace_color: typeof value.background_replace_color === "string" ? value.background_replace_color : defaults.background_replace_color,
+    background_replace_image_url: typeof value.background_replace_image_url === "string" ? value.background_replace_image_url : null,
   };
 }
 
@@ -1829,6 +1841,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       ? initialVisualPreviewSettings.background_blur_provider
       : "mediapipe_selfie_segmentation",
   );
+  const [visualBackgroundReplaceEnabled, setVisualBackgroundReplaceEnabled] = useState<boolean>(
+    Boolean(initialVisualPreviewSettings.background_replace_enabled ?? false),
+  );
+  const [visualBackgroundReplaceMode, setVisualBackgroundReplaceMode] = useState<"solid" | "image" | "checkerboard">(
+    (initialVisualPreviewSettings.background_replace_mode === "image"
+      ? "image"
+      : initialVisualPreviewSettings.background_replace_mode === "checkerboard"
+      ? "checkerboard"
+      : "solid"),
+  );
+  const [visualBackgroundReplaceColor, setVisualBackgroundReplaceColor] = useState<string>(
+    String(initialVisualPreviewSettings.background_replace_color ?? "#2b2b2b"),
+  );
+  const [visualBackgroundReplaceImageUrl, setVisualBackgroundReplaceImageUrl] = useState<string>(
+    String(initialVisualPreviewSettings.background_replace_image_url ?? ""),
+  );
   const [visualBackgroundBlurDebugMask, setVisualBackgroundBlurDebugMask] = useState(false);
   const [visualBackgroundBlurRuntimeStatus, setVisualBackgroundBlurRuntimeStatus] = useState<HammerBackgroundBlurRuntimeStatus | null>(null);
   const [imagePlacementDraftWindows, setImagePlacementDraftWindows] = useState<Record<string, HammerImagePlacementDraftWindow>>({});
@@ -2030,6 +2058,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         ? nextVisualPreviewSettings.background_blur_provider
         : "mediapipe_selfie_segmentation",
     );
+    setVisualBackgroundReplaceEnabled(Boolean(nextVisualPreviewSettings.background_replace_enabled ?? false));
+    setVisualBackgroundReplaceMode(
+      nextVisualPreviewSettings.background_replace_mode === "image"
+        ? "image"
+        : nextVisualPreviewSettings.background_replace_mode === "checkerboard"
+        ? "checkerboard"
+        : "solid",
+    );
+    setVisualBackgroundReplaceColor(String(nextVisualPreviewSettings.background_replace_color ?? "#2b2b2b"));
+    setVisualBackgroundReplaceImageUrl(String(nextVisualPreviewSettings.background_replace_image_url ?? ""));
   }, [props.initialVisualPreviewSettings]);
 
   useEffect(() => {
@@ -2747,6 +2785,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const backgroundBlurSettings = useMemo<BackgroundBlurSettings>(() => ({
     enabled: visualBackgroundBlur,
     blurPx: Math.max(0, Math.min(64, Number(visualBackgroundBlurPx) || 0)),
+    replacementEnabled: visualBackgroundReplaceEnabled,
+    replacementMode: visualBackgroundReplaceMode,
+    replacementColor: visualBackgroundReplaceColor,
+    replacementImageUrl: visualBackgroundReplaceImageUrl.trim() ? visualBackgroundReplaceImageUrl.trim() : null,
     edgeFeatherPx: Math.max(0, Math.min(64, Number(visualBackgroundBlurFeatherPx) || 0)),
     temporalSmoothing: Math.max(0, Math.min(1, Number(visualBackgroundBlurTemporalSmoothing) || 0)),
     subjectExpansionPx: Math.max(0, Math.min(48, Number(visualBackgroundBlurSubjectExpansionPx) || 0)),
@@ -2761,6 +2803,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     visualBackgroundBlurQualityMode,
     visualBackgroundBlurSubjectExpansionPx,
     visualBackgroundBlurTemporalSmoothing,
+    visualBackgroundReplaceColor,
+    visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceImageUrl,
+    visualBackgroundReplaceMode,
   ]);
 
   const backgroundBlurProviderDescriptor = useMemo(
@@ -8290,6 +8336,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           background_blur_quality_mode: visualBackgroundBlurQualityMode,
           background_blur_fallback_mode: visualBackgroundBlurFallbackMode,
           background_blur_provider: visualBackgroundBlurProviderId ?? "mediapipe_selfie_segmentation",
+          background_replace_enabled: visualBackgroundReplaceEnabled,
+          background_replace_mode: visualBackgroundReplaceMode,
+          background_replace_color: visualBackgroundReplaceColor,
+          background_replace_image_url: visualBackgroundReplaceImageUrl.trim() ? visualBackgroundReplaceImageUrl.trim() : null,
         },
         last_opened_at: new Date().toISOString(),
       },
@@ -8330,6 +8380,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     visualBackgroundBlurQualityMode,
     visualBackgroundBlurSubjectExpansionPx,
     visualBackgroundBlurTemporalSmoothing,
+    visualBackgroundReplaceColor,
+    visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceImageUrl,
+    visualBackgroundReplaceMode,
     visualColorAmount,
     visualWhiteBalance,
     transcriptSourceId,
@@ -9232,6 +9286,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         background_blur_quality_mode: visualBackgroundBlurQualityMode,
         background_blur_fallback_mode: visualBackgroundBlurFallbackMode,
         background_blur_provider: visualBackgroundBlurProviderId ?? "mediapipe_selfie_segmentation",
+        background_replace_enabled: visualBackgroundReplaceEnabled,
+        background_replace_mode: visualBackgroundReplaceMode,
+        background_replace_color: visualBackgroundReplaceColor,
+        background_replace_image_url: visualBackgroundReplaceImageUrl.trim() ? visualBackgroundReplaceImageUrl.trim() : null,
       },
       mediaRef,
       workspaceMapping,
@@ -9271,6 +9329,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     visualBackgroundBlurQualityMode,
     visualBackgroundBlurSubjectExpansionPx,
     visualBackgroundBlurTemporalSmoothing,
+    visualBackgroundReplaceColor,
+    visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceImageUrl,
+    visualBackgroundReplaceMode,
     visualColorAmount,
     visualWhiteBalance,
     editableTranscriptSegments,
@@ -10442,7 +10504,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   className="hammer-preview-media"
                 />
                 <BackgroundBlurPreviewLayer
-                  enabled={visualBackgroundBlur}
+                  enabled={visualBackgroundBlur || visualBackgroundReplaceEnabled}
                   settings={backgroundBlurSettings}
                   providerId={visualBackgroundBlurProviderId}
                   videoRef={previewAudioRef}
@@ -12473,10 +12535,25 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         checked={visualBackgroundBlur}
                         onChange={(event) => {
                           setFocusOverride("tool-focus");
-                          setVisualBackgroundBlur(event.target.checked);
+                          const enabled = event.target.checked;
+                          setVisualBackgroundBlur(enabled);
+                          if (enabled) setVisualBackgroundReplaceEnabled(false);
                         }}
                       />
                       <span>Background Blur (Segmentation Preview)</span>
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={visualBackgroundReplaceEnabled}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          const enabled = event.target.checked;
+                          setVisualBackgroundReplaceEnabled(enabled);
+                          if (enabled) setVisualBackgroundBlur(false);
+                        }}
+                      />
+                      <span>Background Replace (Segmentation Preview)</span>
                     </label>
                     {visualBackgroundBlur ? (
                       <>
@@ -12511,6 +12588,90 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             }}
                           />
                         </label>
+                      </>
+                    ) : null}
+                    {visualBackgroundReplaceEnabled ? (
+                      <>
+                        <label className="hammer-tool-field">
+                          <span>Segmentation Provider</span>
+                          <select
+                            value={backgroundBlurProviderDescriptor?.id ?? "mediapipe_selfie_segmentation"}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundBlurProviderId(event.target.value);
+                              setVisualBackgroundBlurRuntimeStatus(null);
+                            }}
+                          >
+                            {SEGMENTATION_PROVIDER_DESCRIPTORS.map((descriptor) => (
+                              <option key={descriptor.id} value={descriptor.id}>
+                                {descriptor.displayName}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Replacement Mode</span>
+                          <select
+                            value={visualBackgroundReplaceMode}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundReplaceMode(event.target.value as "solid" | "image" | "checkerboard");
+                            }}
+                          >
+                            <option value="solid">Solid Color</option>
+                            <option value="checkerboard">Checkerboard (Debug)</option>
+                            <option value="image">Image (Preview)</option>
+                          </select>
+                        </label>
+                        {visualBackgroundReplaceMode === "solid" ? (
+                          <label className="hammer-tool-field">
+                            <span>Replacement Color</span>
+                            <input
+                              type="color"
+                              value={visualBackgroundReplaceColor}
+                              onChange={(event) => {
+                                setFocusOverride("tool-focus");
+                                setVisualBackgroundReplaceColor(event.target.value);
+                              }}
+                            />
+                          </label>
+                        ) : visualBackgroundReplaceMode === "image" ? (
+                          <label className="hammer-tool-field">
+                            <span>Replacement Image URL</span>
+                            <input
+                              type="text"
+                              value={visualBackgroundReplaceImageUrl}
+                              placeholder="https://..."
+                              onChange={(event) => {
+                                setFocusOverride("tool-focus");
+                                setVisualBackgroundReplaceImageUrl(event.target.value);
+                              }}
+                            />
+                            {visualBackgroundBlurRuntimeStatus?.degradedReason === "replacement_image_load_failed" ? (
+                              <div className="hammer-tool-hint">
+                                Image load failed. If this is a remote URL, it may be blocked by CORS. Try an image host that sends permissive CORS headers, or use a local/static asset URL.
+                              </div>
+                            ) : null}
+                          </label>
+                        ) : null}
+                        <label className="hammer-tool-field">
+                          <span>Edge feather ({Math.round(visualBackgroundBlurFeatherPx)}px)</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={24}
+                            step={1}
+                            value={visualBackgroundBlurFeatherPx}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundBlurFeatherPx(Number(event.target.value));
+                            }}
+                          />
+                        </label>
+                      </>
+                    ) : null}
+                    {visualBackgroundBlur || visualBackgroundReplaceEnabled ? (
+                      <>
                         <label className="hammer-tool-field">
                           <span>Edge feather ({Math.round(visualBackgroundBlurFeatherPx)}px)</span>
                           <input
@@ -12535,10 +12696,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                             value={visualBackgroundBlurTemporalSmoothing}
                             onChange={(event) => {
                               setFocusOverride("tool-focus");
-                              setVisualBackgroundBlurTemporalSmoothing(Number(event.target.value));
-                            }}
-                          />
-                        </label>
+                                setVisualBackgroundBlurTemporalSmoothing(Number(event.target.value));
+                              }}
+                            />
+                          </label>
                         <label className="hammer-tool-field">
                           <span>Quality</span>
                           <select
@@ -12628,7 +12789,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       </>
                     ) : null}
                     <div className="hammer-tool-hint">
-                      White balance, color, and background blur remain preview-only in Phase 1. Look Preset and Exposure carry into the export packet.
+                      White balance, color, background blur, and background replacement remain preview-only in Phase 1. Look Preset and Exposure carry into the export packet.
                     </div>
                   </section>
                 ) : currentPass === "image_placement" ? (

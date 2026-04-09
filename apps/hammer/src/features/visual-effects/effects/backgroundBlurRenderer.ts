@@ -46,6 +46,11 @@ export class BackgroundBlurRenderer implements BackgroundEffectRenderer {
     const confidence = args.matte.metadata.confidenceScore;
     if (confidence < 0.25) {
       const degradedReason = "segmentation_low_confidence";
+      const outputCtx = args.output.getContext("2d");
+      if (outputCtx && args.settings.fallbackMode === "passthrough") {
+        outputCtx.clearRect(0, 0, args.output.width, args.output.height);
+        outputCtx.drawImage(args.source, 0, 0, args.output.width, args.output.height);
+      }
       return { compositingMs: 0, droppedFrame: false, degradedReason, warnings: [...args.matte.metadata.warnings] };
     }
 
@@ -107,4 +112,3 @@ export class BackgroundBlurRenderer implements BackgroundEffectRenderer {
     };
   }
 }
-
