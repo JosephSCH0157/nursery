@@ -1,3 +1,8 @@
+import type {
+  HammerBackgroundEffectKind,
+  HammerBackgroundEffectSettingsV1,
+} from "./visual-effects-export.contract";
+
 export type HammerEditInstructionType =
   | "delete"
   | "mute"
@@ -15,6 +20,7 @@ export type HammerEditInstructionType =
   | "audio_duck"
   | "apply_look"
   | "apply_exposure"
+  | "apply_background_effect"
   | "podcast_master_pass";
 
 export type HammerEditInstructionOperationFamily =
@@ -164,6 +170,15 @@ export interface HammerApplyExposureInstruction extends HammerEditInstructionBas
   exposure: number;
 }
 
+export interface HammerApplyBackgroundEffectInstruction extends HammerEditInstructionBase {
+  type: "apply_background_effect";
+  effect_kind: HammerBackgroundEffectKind;
+  settings_v1: HammerBackgroundEffectSettingsV1;
+  provider_id: string;
+  applies_to: "primary_video";
+  window?: null;
+}
+
 export interface HammerPodcastMasterPassInstruction extends HammerEditInstructionBase {
   type: "podcast_master_pass";
   preset: "podcast_master_v1";
@@ -190,6 +205,7 @@ export type HammerEditInstruction =
   | HammerAudioDuckInstruction
   | HammerApplyLookInstruction
   | HammerApplyExposureInstruction
+  | HammerApplyBackgroundEffectInstruction
   | HammerPodcastMasterPassInstruction;
 
 export type HammerCutInstructionType = HammerEditInstructionType;

@@ -333,7 +333,7 @@ type HammerPlaybackAuthorityWindow = Window & typeof globalThis & {
   __forgeHammerActivePreviewAudio__?: HTMLMediaElement;
 };
 const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
-  preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut", "apply_look", "apply_exposure"],
+  preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut", "apply_look", "apply_exposure", "apply_background_effect"],
   export_supported_operation_types: [
     "delete",
     "mute",

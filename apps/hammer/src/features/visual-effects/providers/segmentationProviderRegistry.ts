@@ -1,25 +1,29 @@
 import type { SegmentationProvider, SegmentationProviderReadiness } from "../types";
 import { MediapipeSelfieSegmentationProvider } from "./mediapipeSelfieSegmentationProvider";
+import type { HammerSegmentationProviderCapabilities } from "../../../../../../packages/contracts/hammer/visual-effects-export.contract";
 
 export type SegmentationProviderId =
   | "mediapipe_selfie_segmentation";
 
-export type SegmentationProviderCapability = {
-  previewSupported: boolean;
-  exportSupported: boolean;
-};
-
 export type SegmentationProviderDescriptor = {
   id: SegmentationProviderId;
   displayName: string;
-  capability: SegmentationProviderCapability;
+  capabilities: HammerSegmentationProviderCapabilities;
 };
 
 export const SEGMENTATION_PROVIDER_DESCRIPTORS: readonly SegmentationProviderDescriptor[] = [
   {
     id: "mediapipe_selfie_segmentation",
     displayName: "MediaPipe Selfie Segmentation",
-    capability: { previewSupported: true, exportSupported: false },
+    capabilities: {
+      preview_safe: true,
+      export_safe: false,
+      supports_frame_source: false,
+      notes: [
+        "Browser-only provider (MediaPipe Selfie Segmentation).",
+        "Export path is planned to run in Server/Node + ffmpeg; this provider is preview-safe only.",
+      ],
+    },
   },
 ] as const;
 
@@ -60,4 +64,3 @@ export function createSegmentationProvider(
 export function isSegmentationProviderId(value: unknown): value is SegmentationProviderId {
   return SEGMENTATION_PROVIDER_DESCRIPTORS.some((descriptor) => descriptor.id === value);
 }
-

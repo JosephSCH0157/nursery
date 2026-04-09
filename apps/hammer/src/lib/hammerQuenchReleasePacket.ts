@@ -1,6 +1,10 @@
 import type { HammerReleasePrepPackage } from "./hammerReleasePrepPackage";
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import type { HammerLookPreset } from "../../../../packages/contracts/hammer/edit-instruction.contract";
+import type {
+  HammerBackgroundEffectKind,
+  HammerBackgroundEffectSettingsV1,
+} from "../../../../packages/contracts/hammer/visual-effects-export.contract";
 import type { HammerRenderAssemblyResult } from "../editor/hammerRenderAssembly";
 import type { HammerReadinessGateResult } from "../editor/hammerReadinessGate";
 import type { HammerReadinessReason, HammerReadinessReasonCode, HammerReadinessVerdictStatus } from "../editor/hammerReadinessTypes";
@@ -160,7 +164,7 @@ export interface HammerQuenchReleasePacketManifest {
         preview_mode?: "previewable" | "export_only";
       }>;
       visual_layers: Array<{
-        kind: "primary_video" | "broll" | "dip_to_black" | "look_treatment" | "exposure_adjustment";
+        kind: "primary_video" | "broll" | "dip_to_black" | "look_treatment" | "exposure_adjustment" | "background_effect";
         operation_id: string | null;
         start_sec: number;
         end_sec: number;
@@ -169,6 +173,10 @@ export interface HammerQuenchReleasePacketManifest {
         reason_codes: string[];
         preset?: HammerLookPreset;
         exposure?: number;
+        effect_kind?: HammerBackgroundEffectKind;
+        provider_id?: string;
+        settings_v1?: HammerBackgroundEffectSettingsV1;
+        export_policy_ref?: string;
         preview_mode?: "previewable" | "export_only";
       }>;
       transition_layers: Array<{
