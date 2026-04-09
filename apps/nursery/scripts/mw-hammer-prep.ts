@@ -50,6 +50,7 @@ import { QUENCH_METADATA_ASSIST_ROUTE } from "../../quench/src/core/quenchMetada
 type Next = (err?: unknown) => void;
 
 const DEFAULT_TRANSCRIBE_MODEL = "gpt-4o-transcribe-diarize";
+const DEFAULT_CHAT_FALLBACK_MODEL = "gpt-4o-mini";
 const ALLOWED_MEDIA_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".wav", ".mp3", ".m4a"]);
 const MAX_TRANSCRIBE_SOURCE_BYTES = 96 * 1024 * 1024;
 const CANONICAL_MEDIA_FETCH_TIMEOUT_MS = 60_000;
@@ -696,6 +697,13 @@ function normalizeOpenAiCleanupChanges(payload: unknown): Array<{ segment_id: st
   return changes;
 }
 
+function isModelAccessError(message: string, model: string): boolean {
+  const normalized = message.toLowerCase();
+  const modelNeedle = model.toLowerCase();
+  if (!normalized.includes(modelNeedle)) return false;
+  return normalized.includes("does not exist") || normalized.includes("do not have access");
+}
+
 async function runOpenAiTranscriptCleanupAssist(args: {
   apiKey: string;
   model: string;
@@ -731,33 +739,51 @@ async function runOpenAiTranscriptCleanupAssist(args: {
     })),
   });
 
-  const upstreamTimeout = createTimeoutAbortController(OPENAI_CLEANUP_TIMEOUT_MS);
+  const runRequest = async (model: string): Promise<Response> => {
+    const upstreamTimeout = createTimeoutAbortController(OPENAI_CLEANUP_TIMEOUT_MS);
+    try {
+      return await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${args.apiKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+        }),
+        signal: upstreamTimeout.controller.signal,
+      });
+    } finally {
+      upstreamTimeout.dispose();
+    }
+  };
+
   let upstream: Response;
   try {
-    upstream = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${args.apiKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: args.model,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-      }),
-      signal: upstreamTimeout.controller.signal,
-    });
-  } finally {
-    upstreamTimeout.dispose();
+    upstream = await runRequest(args.model);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : "OpenAI transcript cleanup assist failed.");
   }
 
   if (!upstream.ok) {
     const detail = await upstream.text().catch(() => "");
-    throw new Error(readUpstreamErrorMessage(detail) ?? "OpenAI transcript cleanup assist failed.");
+    const message = readUpstreamErrorMessage(detail) ?? "OpenAI transcript cleanup assist failed.";
+    if (args.model !== DEFAULT_CHAT_FALLBACK_MODEL && isModelAccessError(message, args.model)) {
+      const fallbackUpstream = await runRequest(DEFAULT_CHAT_FALLBACK_MODEL);
+      if (!fallbackUpstream.ok) {
+        const fallbackDetail = await fallbackUpstream.text().catch(() => "");
+        throw new Error(readUpstreamErrorMessage(fallbackDetail) ?? message);
+      }
+      upstream = fallbackUpstream;
+    } else {
+      throw new Error(message);
+    }
   }
 
   const payload = await upstream.json().catch(() => null);
@@ -1602,7 +1628,16 @@ export function createHammerPrepMiddleware() {
         },
       });
     } catch (error) {
-      next(error);
+      if (res.headersSent) {
+        next(error);
+        return;
+      }
+      sendJson(res, 500, {
+        ok: false,
+        error: {
+          message: error instanceof Error ? error.message : "Hammer prep middleware crashed unexpectedly.",
+        },
+      });
     }
   };
 }
