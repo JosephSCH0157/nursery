@@ -32,6 +32,43 @@ function buildMaskCanvas(args: { width: number; height: number; alphaMask: Uint8
   return canvas;
 }
 
+function applySubjectExpansion(args: { canvas: HTMLCanvasElement; expansionPx: number }): void {
+  const expansionPx = Math.max(0, Math.round(args.expansionPx));
+  if (expansionPx <= 0) return;
+
+  const w = args.canvas.width;
+  const h = args.canvas.height;
+  const ctx = args.canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return;
+
+  const scratch = document.createElement("canvas");
+  scratch.width = w;
+  scratch.height = h;
+  const scratchCtx = scratch.getContext("2d", { willReadFrequently: true });
+  if (!scratchCtx) return;
+
+  // Approximate dilation: blur then threshold back to a hard mask.
+  scratchCtx.clearRect(0, 0, w, h);
+  scratchCtx.filter = `blur(${expansionPx}px)`;
+  scratchCtx.drawImage(args.canvas, 0, 0, w, h);
+  scratchCtx.filter = "none";
+
+  const image = scratchCtx.getImageData(0, 0, w, h);
+  const data = image.data;
+  // Low threshold keeps shoulders/hairline more filled while avoiding aggressive growth.
+  const threshold = clamp(20, 4, 96);
+  for (let i = 0; i < data.length; i += 4) {
+    const a = data[i + 3] ?? 0;
+    const hard = a >= threshold ? 255 : 0;
+    data[i] = 255;
+    data[i + 1] = 255;
+    data[i + 2] = 255;
+    data[i + 3] = hard;
+  }
+
+  ctx.putImageData(image, 0, 0);
+}
+
 function applyFeather(args: { canvas: HTMLCanvasElement; featherPx: number }): Uint8ClampedArray {
   const featherPx = Math.max(0, Math.round(args.featherPx));
   if (featherPx <= 0) {
@@ -81,15 +118,12 @@ export class SimpleMatteRefiner implements MatteRefiner {
 
     const baseMask = new Uint8ClampedArray(input.personMask);
 
-    // Subject expansion hook: conservative v1 (no dilation). Keep the option for future upgrades.
     const subjectExpansionPx = clamp(options.subjectExpansionPx, 0, 48);
     const warned: string[] = [];
-    if (subjectExpansionPx > 0.1) {
-      warned.push("subject_expansion_not_implemented_v1");
-    }
 
     // Feather hook via blur of the alpha channel.
     const maskCanvas = buildMaskCanvas({ width, height, alphaMask: baseMask });
+    applySubjectExpansion({ canvas: maskCanvas, expansionPx: subjectExpansionPx });
     const feathered = applyFeather({ canvas: maskCanvas, featherPx });
 
     // Temporal smoothing hook: exponential blend against previous alpha.

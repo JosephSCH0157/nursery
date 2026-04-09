@@ -460,20 +460,14 @@ export default function BackgroundBlurPreviewLayer(props: {
       ? true
       : runtimeStatus.degradedReason == null
   );
-  const opacity = show ? 1 : 0;
+  const canvasClassName = show
+    ? "hammer-preview-matte-canvas is-visible"
+    : "hammer-preview-matte-canvas";
 
   return (
     <canvas
       ref={canvasRef}
-      className="hammer-preview-matte-canvas"
-      style={{
-        position: "absolute",
-        inset: 0,
-        width: "100%",
-        height: "100%",
-        pointerEvents: "none",
-        opacity,
-      }}
+      className={canvasClassName}
     />
   );
 }
