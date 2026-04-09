@@ -1014,6 +1014,32 @@ Guardrails:
   font-size: 11px;
 }
 
+.hammer-background-blur-debug {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hammer-background-blur-debug__row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.hammer-background-blur-debug__card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hammer-background-blur-debug__image {
+  width: 120px;
+  height: 90px;
+  object-fit: contain;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
 .hammer-caption-source-card {
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 10px;

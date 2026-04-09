@@ -12755,30 +12755,30 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           )}
                         </div>
                         {visualBackgroundBlurDebugMask && visualBackgroundBlurRuntimeStatus ? (
-                          <div className="hammer-tool-hint" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                          <div className="hammer-tool-hint hammer-background-blur-debug">
                             {visualBackgroundBlurStatusSummary?.debugLine ? (
                               <div>{visualBackgroundBlurStatusSummary.debugLine}</div>
                             ) : null}
-                            <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            <div className="hammer-background-blur-debug__row">
+                              <div className="hammer-background-blur-debug__card">
                                 <strong>Raw Mask</strong>
                                 {visualBackgroundBlurRuntimeStatus.debug?.rawMaskDataUrl ? (
                                   <img
                                     src={visualBackgroundBlurRuntimeStatus.debug.rawMaskDataUrl}
                                     alt="Raw segmentation mask"
-                                    style={{ width: 120, height: 90, objectFit: "contain", border: "1px solid rgba(255,255,255,0.12)" }}
+                                    className="hammer-background-blur-debug__image"
                                   />
                                 ) : (
                                   <span>Unavailable</span>
                                 )}
                               </div>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <div className="hammer-background-blur-debug__card">
                                 <strong>Refined Matte</strong>
                                 {visualBackgroundBlurRuntimeStatus.debug?.matteDataUrl ? (
                                   <img
                                     src={visualBackgroundBlurRuntimeStatus.debug.matteDataUrl}
                                     alt="Refined foreground matte"
-                                    style={{ width: 120, height: 90, objectFit: "contain", border: "1px solid rgba(255,255,255,0.12)" }}
+                                    className="hammer-background-blur-debug__image"
                                   />
                                 ) : (
                                   <span>Unavailable</span>
