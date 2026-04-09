@@ -212,7 +212,6 @@ export default function HammerWorkspaceEditor(
   const [prepAttemptNonce, setPrepAttemptNonce] = useState(0);
   const [prepFailureKind, setPrepFailureKind] = useState<"non_ai_missing" | "ai_failed" | null>(null);
   const [prepAiFallbackRequested, setPrepAiFallbackRequested] = useState(false);
-  const [lastPrepRunKey, setLastPrepRunKey] = useState<string | null>(null);
   const [hasPendingSaveChanges, setHasPendingSaveChanges] = useState(false);
   const [saveInFlight, setSaveInFlight] = useState(false);
   const [saveFailureMessage, setSaveFailureMessage] = useState<string | null>(null);
@@ -235,6 +234,7 @@ export default function HammerWorkspaceEditor(
   const prepAiNoticeCancelledRunKeyRef = useRef<string | null>(null);
   const prepAiNoticePendingRunKeyRef = useRef<string | null>(null);
   const prepAiNoticeShownRunKeyRef = useRef<string | null>(null);
+  const lastPrepRunKeyRef = useRef<string | null>(null);
   const prepExecutionIdRef = useRef(0);
   const isMountedRef = useRef(true);
   const dynamicStyleScopeIdRef = useRef(`hammer-workspace-editor-${Math.random().toString(36).slice(2, 10)}`);
@@ -601,7 +601,6 @@ export default function HammerWorkspaceEditor(
     prepRunKeyRef.current = null;
     setPrepFailureKind(null);
     setPrepAiFallbackRequested(false);
-    setLastPrepRunKey(null);
     setWorkspaceSnapshot(null);
     setLoadedPersistenceSnapshot(null);
     setActiveCanonicalRecording(null);
@@ -618,6 +617,7 @@ export default function HammerWorkspaceEditor(
     prepAiNoticeCancelledRunKeyRef.current = null;
     prepAiNoticePendingRunKeyRef.current = null;
     prepAiNoticeShownRunKeyRef.current = null;
+    lastPrepRunKeyRef.current = null;
 
     if (persistenceMode !== "canonical" || !persistenceTarget) {
       setPrepState(createHammerPrepState("idle", null));
@@ -843,7 +843,7 @@ export default function HammerWorkspaceEditor(
     }
 
     const prepRunKey = `${targetKey ?? "hammer"}:${prepSource.media_signature}:${prepAttemptNonce}`;
-    setLastPrepRunKey(prepRunKey);
+    lastPrepRunKeyRef.current = prepRunKey;
     if (prepRunKeyRef.current === prepRunKey) {
       return;
     }
@@ -873,20 +873,10 @@ export default function HammerWorkspaceEditor(
     }
 
     // AI consent prompt must only appear after the user explicitly selects AI fallback.
-    if (
-      prepAiFallbackRequested
-      && shouldPromptPrepAiNotice
-      && prepAiNoticeApprovedRunKeyRef.current !== prepRunKey
-    ) {
-      // Do not auto-open the modal here; wait for explicit user action.
-      setPrepState(createHammerPrepState(
-        "prep_failed",
-        null,
-        prepAiNoticeModel.prepAllowed
-          ? "AI prep is available if you confirm the fallback."
-          : "AI is currently disabled. Retry without AI or enable an AI lane and try again.",
-      ));
-      setPrepFailureKind("ai_failed");
+    // Once requested, show the consent modal (if required) and then proceed.
+    if (prepAiFallbackRequested && shouldPromptPrepAiNotice && prepAiNoticeApprovedRunKeyRef.current !== prepRunKey) {
+      prepAiNoticePendingRunKeyRef.current = prepRunKey;
+      setShowPrepAiNotice(true);
       return;
     }
 
@@ -1551,10 +1541,24 @@ export default function HammerWorkspaceEditor(
                 type="button"
                 className="hammer-prep-shell__button"
                 onClick={() => {
-                  if (!lastPrepRunKey) return;
-                  prepAiNoticePendingRunKeyRef.current = lastPrepRunKey;
+                  const runKey = lastPrepRunKeyRef.current;
+                  if (!runKey) return;
+                  prepAiNoticePendingRunKeyRef.current = runKey;
                   setPrepAiFallbackRequested(true);
-                  setShowPrepAiNotice(true);
+                  // If consent isn't required (already acknowledged), start immediately.
+                  const prepAiNoticeEffectiveLane = props.prepAiNoticeEffectiveLane ?? "forge-managed";
+                  const prepAiNoticeModel = buildHammerPrepAiNoticeModel(prepAiNoticeEffectiveLane);
+                  const shouldPromptPrepAiNotice = shouldShowHammerPrepAiNotice({
+                    effectiveLane: prepAiNoticeModel.laneSignature,
+                    acknowledgedLaneSignature: props.prepAiNoticeAcknowledgedLaneSignature ?? null,
+                  });
+                  if (shouldPromptPrepAiNotice) {
+                    setShowPrepAiNotice(true);
+                    return;
+                  }
+                  prepRunKeyRef.current = null;
+                  setPrepState(createHammerPrepState("preparing", "loading_context"));
+                  setPrepAttemptNonce((current) => current + 1);
                 }}
               >
                 Use AI fallback

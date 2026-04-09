@@ -1761,6 +1761,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [candidateProposedTextById, setCandidateProposedTextById] = useState<Record<string, string>>({});
   const [candidateCutEnabledById, setCandidateCutEnabledById] = useState<Record<string, boolean>>({});
   const [candidateCutDraftById, setCandidateCutDraftById] = useState<Record<string, { startSec: string; endSec: string }>>({});
+  const [candidateReceiptByKind, setCandidateReceiptByKind] = useState<Record<HammerCandidateReviewKind, string | null>>({
+    fillers: null,
+    retakes: null,
+  });
   const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
   const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
   const [editableAudioPolish, setEditableAudioPolish] = useState<HammerPersistedAudioPolish | null>(
@@ -5641,6 +5645,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setCandidateProposedTextById({});
     setCandidateCutEnabledById({});
     setCandidateCutDraftById({});
+    setCandidateReceiptByKind((current) => ({ ...current, [kind]: null }));
     rebuildCandidateQueue({
       kind,
       segments: editableTranscriptSegments,
@@ -5749,7 +5754,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         if (!applied) return;
 
         const cutOverride = options?.cutOverride ?? null;
+        let committedCutCount = 0;
         if (cutOverride) {
+          committedCutCount = 1;
           commitAudioCuts([cutOverride], { operationIdPrefix: `cleanup:${card.kind}:${card.id}:override` });
         } else {
           const cutSelections = deriveAudioCutsForRemovedSegments({
@@ -5757,9 +5764,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             removeSegmentIds: approvePlan.removeSegmentIds,
             durationSec: playbackTransportDurationSec,
           });
+          committedCutCount = cutSelections.length;
           commitAudioCuts(cutSelections, { operationIdPrefix: `cleanup:${card.kind}:${card.id}` });
         }
+        setCandidateReceiptByKind((current) => ({
+          ...current,
+          [card.kind]: committedCutCount === 0
+            ? "Applied transcript cleanup only (audio unchanged). To change playback, enable a Cut Span and commit time coordinates."
+            : `Applied transcript cleanup + ${committedCutCount} timeline cut${committedCutCount === 1 ? "" : "s"}.`,
+        }));
         nextSegments = computeAfter(cloneEditorState(beforeState)).transcriptSegments;
+      } else {
+        setCandidateReceiptByKind((current) => ({
+          ...current,
+          [card.kind]: "Candidate discarded (no transcript or audio change).",
+        }));
       }
 
       // Queue is always rebuilt from the current transcript state, not any cached candidate list.
@@ -10511,12 +10530,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           </div>
                           <div className="hammer-candidate-card__meta">
                             <span>Confidence {Math.round(activeFillerCandidateCard.confidence * 100)}%</span>
-                            <span>Time saved {activeFillerCandidateCard.timeSavedSec.toFixed(1)}s</span>
+                            <span>Est. time saved (if cut) {activeFillerCandidateCard.timeSavedSec.toFixed(1)}s</span>
                           </div>
                           {(() => {
                             const candidateId = activeFillerCandidateCard.id;
                             const enabled = candidateCutEnabledById[candidateId] === true;
                             const suggested = resolveCandidateSuggestedCut(activeFillerCandidateCard);
+                            const transcriptOnlyCandidate = activeFillerCandidateCard.apply.removeSegmentIds.length === 0;
+                            const cutOverride = resolveCandidateCutOverride(activeFillerCandidateCard);
                             const segmentIdsForCut = activeFillerCandidateCard.apply.removeSegmentIds.length > 0
                               ? activeFillerCandidateCard.apply.removeSegmentIds
                               : activeFillerCandidateCard.segmentIds;
@@ -10538,6 +10559,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                   />
                                   <span>Apply a timeline cut (time coordinates)</span>
                                 </label>
+                                {transcriptOnlyCandidate && !enabled ? (
+                                  <div className="hammer-tool-hint">
+                                    Transcript-only cleanup unless you enable a Cut Span and commit time coordinates.
+                                  </div>
+                                ) : null}
+                                {transcriptOnlyCandidate && enabled && !cutOverride ? (
+                                  <div className="hammer-tool-hint">
+                                    No cut span selected yet. Set Start/End to change playback.
+                                  </div>
+                                ) : null}
                                 {suggested ? (
                                   <div className="hammer-tool-hint">
                                     Suggested: {suggested.startSec.toFixed(1)}s - {suggested.endSec.toFixed(1)}s
@@ -10653,6 +10684,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                               </section>
                             );
                           })()}
+                          {candidateReceiptByKind.fillers ? (
+                            <div className="hammer-tool-hint">{candidateReceiptByKind.fillers}</div>
+                          ) : null}
                           <div className="hammer-candidate-review__actions">
                             <button
                               type="button"
@@ -10685,7 +10719,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                 }
                               }}
                             >
-                              {candidateEditModeById[activeFillerCandidateCard.id] ? "Approve Edited" : "Approve"}
+                              {(() => {
+                                const willCutAudio = Boolean(resolveCandidateCutOverride(activeFillerCandidateCard))
+                                  || activeFillerCandidateCard.apply.removeSegmentIds.length > 0;
+                                return candidateEditModeById[activeFillerCandidateCard.id]
+                                  ? (willCutAudio ? "Approve Edited + Cut" : "Approve Edited (Transcript Only)")
+                                  : (willCutAudio ? "Approve + Cut" : "Approve (Transcript Only)");
+                              })()}
                             </button>
                             {candidateEditModeById[activeFillerCandidateCard.id] ? (
                               <button
