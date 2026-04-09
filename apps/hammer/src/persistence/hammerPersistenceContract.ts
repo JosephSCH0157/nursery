@@ -73,6 +73,13 @@ export interface HammerPersistedVisualPreviewSettings {
   white_balance: number;
   color_amount: number;
   background_blur: boolean;
+  background_blur_px?: number;
+  background_blur_feather_px?: number;
+  background_blur_temporal_smoothing?: number;
+  background_blur_subject_expansion_px?: number;
+  background_blur_quality_mode?: "low" | "medium" | "high";
+  background_blur_fallback_mode?: "disable" | "passthrough";
+  background_blur_provider?: string | null;
 }
 
 export type HammerDerivedTextMacroKind =

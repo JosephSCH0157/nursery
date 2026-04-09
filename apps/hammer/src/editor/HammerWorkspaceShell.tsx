@@ -45,6 +45,14 @@ import type { VisualClipBlockModel } from "../visuals/components/VisualClipBlock
 import VisualPreviewComposer, {
   type VisualPreviewOverlayModel,
 } from "../visuals/components/VisualPreviewComposer";
+import BackgroundBlurPreviewLayer, {
+  type HammerBackgroundBlurRuntimeStatus,
+} from "../features/visual-effects/render/backgroundBlurPreviewLayer";
+import type { BackgroundBlurSettings } from "../features/visual-effects/types";
+import {
+  SEGMENTATION_PROVIDER_DESCRIPTORS,
+  resolveSegmentationProviderDescriptor,
+} from "../features/visual-effects/providers/segmentationProviderRegistry";
 import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import {
   DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
@@ -474,6 +482,13 @@ function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPreviewSettin
     white_balance: 0,
     color_amount: 0,
     background_blur: false,
+    background_blur_px: 14,
+    background_blur_feather_px: 6,
+    background_blur_temporal_smoothing: 0.25,
+    background_blur_subject_expansion_px: 0,
+    background_blur_quality_mode: "medium",
+    background_blur_fallback_mode: "disable",
+    background_blur_provider: "mediapipe_selfie_segmentation",
   };
 }
 
@@ -483,10 +498,20 @@ function normalizeVisualPreviewSettings(
   if (!value) {
     return buildDefaultVisualPreviewSettings();
   }
+  const defaults = buildDefaultVisualPreviewSettings();
   return {
     white_balance: Math.max(-100, Math.min(100, Math.round(value.white_balance))),
     color_amount: Math.max(-100, Math.min(100, Math.round(value.color_amount))),
     background_blur: Boolean(value.background_blur),
+    background_blur_px: Math.max(0, Math.min(64, Number(value.background_blur_px ?? defaults.background_blur_px))),
+    background_blur_feather_px: Math.max(0, Math.min(64, Number(value.background_blur_feather_px ?? defaults.background_blur_feather_px))),
+    background_blur_temporal_smoothing: Math.max(0, Math.min(1, Number(value.background_blur_temporal_smoothing ?? defaults.background_blur_temporal_smoothing))),
+    background_blur_subject_expansion_px: Math.max(0, Math.min(48, Number(value.background_blur_subject_expansion_px ?? defaults.background_blur_subject_expansion_px))),
+    background_blur_quality_mode: value.background_blur_quality_mode === "low" || value.background_blur_quality_mode === "high"
+      ? value.background_blur_quality_mode
+      : "medium",
+    background_blur_fallback_mode: value.background_blur_fallback_mode === "passthrough" ? "passthrough" : "disable",
+    background_blur_provider: typeof value.background_blur_provider === "string" ? value.background_blur_provider : defaults.background_blur_provider,
   };
 }
 
@@ -1781,6 +1806,31 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [visualWhiteBalance, setVisualWhiteBalance] = useState(initialVisualPreviewSettings.white_balance);
   const [visualColorAmount, setVisualColorAmount] = useState(initialVisualPreviewSettings.color_amount);
   const [visualBackgroundBlur, setVisualBackgroundBlur] = useState(initialVisualPreviewSettings.background_blur);
+  const [visualBackgroundBlurPx, setVisualBackgroundBlurPx] = useState<number>(
+    Number(initialVisualPreviewSettings.background_blur_px ?? 14),
+  );
+  const [visualBackgroundBlurFeatherPx, setVisualBackgroundBlurFeatherPx] = useState<number>(
+    Number(initialVisualPreviewSettings.background_blur_feather_px ?? 6),
+  );
+  const [visualBackgroundBlurTemporalSmoothing, setVisualBackgroundBlurTemporalSmoothing] = useState<number>(
+    Number(initialVisualPreviewSettings.background_blur_temporal_smoothing ?? 0.25),
+  );
+  const [visualBackgroundBlurSubjectExpansionPx, setVisualBackgroundBlurSubjectExpansionPx] = useState<number>(
+    Number(initialVisualPreviewSettings.background_blur_subject_expansion_px ?? 0),
+  );
+  const [visualBackgroundBlurQualityMode, setVisualBackgroundBlurQualityMode] = useState<BackgroundBlurSettings["qualityMode"]>(
+    (initialVisualPreviewSettings.background_blur_quality_mode as BackgroundBlurSettings["qualityMode"]) ?? "medium",
+  );
+  const [visualBackgroundBlurFallbackMode, setVisualBackgroundBlurFallbackMode] = useState<BackgroundBlurSettings["fallbackMode"]>(
+    (initialVisualPreviewSettings.background_blur_fallback_mode as BackgroundBlurSettings["fallbackMode"]) ?? "disable",
+  );
+  const [visualBackgroundBlurProviderId, setVisualBackgroundBlurProviderId] = useState<string | null>(
+    typeof initialVisualPreviewSettings.background_blur_provider === "string"
+      ? initialVisualPreviewSettings.background_blur_provider
+      : "mediapipe_selfie_segmentation",
+  );
+  const [visualBackgroundBlurDebugMask, setVisualBackgroundBlurDebugMask] = useState(false);
+  const [visualBackgroundBlurRuntimeStatus, setVisualBackgroundBlurRuntimeStatus] = useState<HammerBackgroundBlurRuntimeStatus | null>(null);
   const [imagePlacementDraftWindows, setImagePlacementDraftWindows] = useState<Record<string, HammerImagePlacementDraftWindow>>({});
   const [timelineImageDragState, setTimelineImageDragState] = useState<HammerTimelineImageDragState | null>(null);
   const [imagePlacementTransforms, setImagePlacementTransforms] = useState<Record<string, HammerImagePlacementTransform>>({});
@@ -1969,6 +2019,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setVisualWhiteBalance(nextVisualPreviewSettings.white_balance);
     setVisualColorAmount(nextVisualPreviewSettings.color_amount);
     setVisualBackgroundBlur(nextVisualPreviewSettings.background_blur);
+    setVisualBackgroundBlurPx(Number(nextVisualPreviewSettings.background_blur_px ?? 14));
+    setVisualBackgroundBlurFeatherPx(Number(nextVisualPreviewSettings.background_blur_feather_px ?? 6));
+    setVisualBackgroundBlurTemporalSmoothing(Number(nextVisualPreviewSettings.background_blur_temporal_smoothing ?? 0.25));
+    setVisualBackgroundBlurSubjectExpansionPx(Number(nextVisualPreviewSettings.background_blur_subject_expansion_px ?? 0));
+    setVisualBackgroundBlurQualityMode((nextVisualPreviewSettings.background_blur_quality_mode as BackgroundBlurSettings["qualityMode"]) ?? "medium");
+    setVisualBackgroundBlurFallbackMode((nextVisualPreviewSettings.background_blur_fallback_mode as BackgroundBlurSettings["fallbackMode"]) ?? "disable");
+    setVisualBackgroundBlurProviderId(
+      typeof nextVisualPreviewSettings.background_blur_provider === "string"
+        ? nextVisualPreviewSettings.background_blur_provider
+        : "mediapipe_selfie_segmentation",
+    );
   }, [props.initialVisualPreviewSettings]);
 
   useEffect(() => {
@@ -2242,16 +2303,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const exposureBoost = 1 + ((activeExposureAdjustment ?? 0) / 100) * 0.35;
     const temperatureShift = visualWhiteBalance / 3;
     const colorBoost = 1 + (visualColorAmount / 100) * 0.25;
-    const blurPx = visualBackgroundBlur ? 1.4 : 0;
     const filterParts = [
       base !== "none" ? base : "",
       `brightness(${exposureBoost.toFixed(2)})`,
       `hue-rotate(${temperatureShift.toFixed(1)}deg)`,
       `saturate(${colorBoost.toFixed(2)})`,
-      blurPx > 0 ? `blur(${blurPx.toFixed(1)}px)` : "",
     ].filter(Boolean);
     return filterParts.join(" ");
-  }, [activeExposureAdjustment, activeLookPreset, visualBackgroundBlur, visualColorAmount, visualWhiteBalance]);
+  }, [activeExposureAdjustment, activeLookPreset, visualColorAmount, visualWhiteBalance]);
   const transcriptSegmentsById = useMemo(() => {
     const byId = new Map<string, HammerTranscriptSegment>();
     for (const segment of editableTranscriptSegments) {
@@ -2684,6 +2743,30 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (!previewSurfaceRef.current) return;
     previewSurfaceRef.current.style.filter = visualPreviewFilter || "";
   }, [visualPreviewFilter]);
+
+  const backgroundBlurSettings = useMemo<BackgroundBlurSettings>(() => ({
+    enabled: visualBackgroundBlur,
+    blurPx: Math.max(0, Math.min(64, Number(visualBackgroundBlurPx) || 0)),
+    edgeFeatherPx: Math.max(0, Math.min(64, Number(visualBackgroundBlurFeatherPx) || 0)),
+    temporalSmoothing: Math.max(0, Math.min(1, Number(visualBackgroundBlurTemporalSmoothing) || 0)),
+    subjectExpansionPx: Math.max(0, Math.min(48, Number(visualBackgroundBlurSubjectExpansionPx) || 0)),
+    qualityMode: visualBackgroundBlurQualityMode,
+    fallbackMode: visualBackgroundBlurFallbackMode,
+  }), [
+    visualBackgroundBlur,
+    visualBackgroundBlurFeatherPx,
+    visualBackgroundBlurFallbackMode,
+    visualBackgroundBlurPx,
+    visualBackgroundBlurProviderId,
+    visualBackgroundBlurQualityMode,
+    visualBackgroundBlurSubjectExpansionPx,
+    visualBackgroundBlurTemporalSmoothing,
+  ]);
+
+  const backgroundBlurProviderDescriptor = useMemo(
+    () => resolveSegmentationProviderDescriptor(visualBackgroundBlurProviderId) ?? resolveSegmentationProviderDescriptor("mediapipe_selfie_segmentation"),
+    [visualBackgroundBlurProviderId],
+  );
 
   const activePreviewOverlays = useMemo<VisualPreviewOverlayModel[]>(() => {
     if (!isVisualPreviewAuthority) return [];
@@ -8200,6 +8283,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           white_balance: visualWhiteBalance,
           color_amount: visualColorAmount,
           background_blur: visualBackgroundBlur,
+          background_blur_px: visualBackgroundBlurPx,
+          background_blur_feather_px: visualBackgroundBlurFeatherPx,
+          background_blur_temporal_smoothing: visualBackgroundBlurTemporalSmoothing,
+          background_blur_subject_expansion_px: visualBackgroundBlurSubjectExpansionPx,
+          background_blur_quality_mode: visualBackgroundBlurQualityMode,
+          background_blur_fallback_mode: visualBackgroundBlurFallbackMode,
+          background_blur_provider: visualBackgroundBlurProviderId ?? "mediapipe_selfie_segmentation",
         },
         last_opened_at: new Date().toISOString(),
       },
@@ -8232,6 +8322,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     editableAudioPolish,
     selectedCaptionArtifactFormat,
     selectedSegmentId,
+    visualBackgroundBlur,
+    visualBackgroundBlurFallbackMode,
+    visualBackgroundBlurFeatherPx,
+    visualBackgroundBlurPx,
+    visualBackgroundBlurProviderId,
+    visualBackgroundBlurQualityMode,
+    visualBackgroundBlurSubjectExpansionPx,
+    visualBackgroundBlurTemporalSmoothing,
+    visualColorAmount,
+    visualWhiteBalance,
     transcriptSourceId,
     workspaceMapping,
     editableEditorialAuthorityGraph,
@@ -9125,6 +9225,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         white_balance: visualWhiteBalance,
         color_amount: visualColorAmount,
         background_blur: visualBackgroundBlur,
+        background_blur_px: visualBackgroundBlurPx,
+        background_blur_feather_px: visualBackgroundBlurFeatherPx,
+        background_blur_temporal_smoothing: visualBackgroundBlurTemporalSmoothing,
+        background_blur_subject_expansion_px: visualBackgroundBlurSubjectExpansionPx,
+        background_blur_quality_mode: visualBackgroundBlurQualityMode,
+        background_blur_fallback_mode: visualBackgroundBlurFallbackMode,
+        background_blur_provider: visualBackgroundBlurProviderId ?? "mediapipe_selfie_segmentation",
       },
       mediaRef,
       workspaceMapping,
@@ -9158,6 +9265,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     passStatus,
     selectedSegmentId,
     visualBackgroundBlur,
+    visualBackgroundBlurFeatherPx,
+    visualBackgroundBlurFallbackMode,
+    visualBackgroundBlurPx,
+    visualBackgroundBlurQualityMode,
+    visualBackgroundBlurSubjectExpansionPx,
+    visualBackgroundBlurTemporalSmoothing,
     visualColorAmount,
     visualWhiteBalance,
     editableTranscriptSegments,
@@ -10327,6 +10440,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     }
                   }}
                   className="hammer-preview-media"
+                />
+                <BackgroundBlurPreviewLayer
+                  enabled={visualBackgroundBlur}
+                  settings={backgroundBlurSettings}
+                  providerId={visualBackgroundBlurProviderId}
+                  videoRef={previewAudioRef}
+                  onStatus={setVisualBackgroundBlurRuntimeStatus}
+                  debugMasks={visualBackgroundBlurDebugMask}
                 />
                 <div className="hammer-preview-surface__label">{previewSurfaceLabel}</div>
                 <VisualPreviewComposer
@@ -12355,10 +12476,159 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           setVisualBackgroundBlur(event.target.checked);
                         }}
                       />
-                      <span>Preview Blur</span>
+                      <span>Background Blur (Segmentation Preview)</span>
                     </label>
+                    {visualBackgroundBlur ? (
+                      <>
+                        <label className="hammer-tool-field">
+                          <span>Segmentation Provider</span>
+                          <select
+                            value={backgroundBlurProviderDescriptor?.id ?? "mediapipe_selfie_segmentation"}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundBlurProviderId(event.target.value);
+                              setVisualBackgroundBlurRuntimeStatus(null);
+                            }}
+                          >
+                            {SEGMENTATION_PROVIDER_DESCRIPTORS.map((descriptor) => (
+                              <option key={descriptor.id} value={descriptor.id}>
+                                {descriptor.displayName}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Blur strength ({Math.round(visualBackgroundBlurPx)}px)</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={40}
+                            step={1}
+                            value={visualBackgroundBlurPx}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundBlurPx(Number(event.target.value));
+                            }}
+                          />
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Edge feather ({Math.round(visualBackgroundBlurFeatherPx)}px)</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={24}
+                            step={1}
+                            value={visualBackgroundBlurFeatherPx}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundBlurFeatherPx(Number(event.target.value));
+                            }}
+                          />
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Temporal smoothing ({visualBackgroundBlurTemporalSmoothing.toFixed(2)})</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            value={visualBackgroundBlurTemporalSmoothing}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundBlurTemporalSmoothing(Number(event.target.value));
+                            }}
+                          />
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Quality</span>
+                          <select
+                            value={visualBackgroundBlurQualityMode}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundBlurQualityMode(event.target.value as BackgroundBlurSettings["qualityMode"]);
+                            }}
+                          >
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                          </select>
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Fallback</span>
+                          <select
+                            value={visualBackgroundBlurFallbackMode}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundBlurFallbackMode(event.target.value as BackgroundBlurSettings["fallbackMode"]);
+                            }}
+                          >
+                            <option value="disable">Disable on degraded</option>
+                            <option value="passthrough">Show passthrough</option>
+                          </select>
+                        </label>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={visualBackgroundBlurDebugMask}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundBlurDebugMask(event.target.checked);
+                            }}
+                          />
+                          <span>Show mask thumbnails (debug)</span>
+                        </label>
+                        <div className="hammer-tool-hint">
+                          {visualBackgroundBlurRuntimeStatus ? (
+                            <>
+                              Segmentation: {backgroundBlurProviderDescriptor?.displayName ?? visualBackgroundBlurRuntimeStatus.provider.name} · {visualBackgroundBlurRuntimeStatus.provider.readiness.status}
+                              {visualBackgroundBlurRuntimeStatus.initMs != null ? ` · init ${visualBackgroundBlurRuntimeStatus.initMs.toFixed(1)}ms` : ""}
+                              {visualBackgroundBlurRuntimeStatus.lastConfidence != null ? ` · confidence ${visualBackgroundBlurRuntimeStatus.lastConfidence.toFixed(1)}` : ""}
+                              {visualBackgroundBlurRuntimeStatus.lastSegmentationMs != null ? ` · seg ${visualBackgroundBlurRuntimeStatus.lastSegmentationMs.toFixed(1)}ms` : ""}
+                              {visualBackgroundBlurRuntimeStatus.lastCompositeMs != null ? ` · comp ${visualBackgroundBlurRuntimeStatus.lastCompositeMs.toFixed(1)}ms` : ""}
+                              {visualBackgroundBlurRuntimeStatus.avgSegmentationMs != null ? ` · avg seg ${visualBackgroundBlurRuntimeStatus.avgSegmentationMs.toFixed(1)}ms` : ""}
+                              {visualBackgroundBlurRuntimeStatus.avgCompositeMs != null ? ` · avg comp ${visualBackgroundBlurRuntimeStatus.avgCompositeMs.toFixed(1)}ms` : ""}
+                              {visualBackgroundBlurRuntimeStatus.droppedFrames > 0 ? ` · dropped ${visualBackgroundBlurRuntimeStatus.droppedFrames}` : ""}
+                              {visualBackgroundBlurRuntimeStatus.degradedReason ? ` · degraded: ${visualBackgroundBlurRuntimeStatus.degradedReason}` : ""}
+                              {visualBackgroundBlurRuntimeStatus.warnings.length > 0 ? ` · warnings: ${visualBackgroundBlurRuntimeStatus.warnings.join(", ")}` : ""}
+                            </>
+                          ) : (
+                            "Segmentation status unavailable."
+                          )}
+                        </div>
+                        {visualBackgroundBlurDebugMask && visualBackgroundBlurRuntimeStatus?.debug ? (
+                          <div className="hammer-tool-hint">
+                            <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                <strong>Raw Mask</strong>
+                                {visualBackgroundBlurRuntimeStatus.debug.rawMaskDataUrl ? (
+                                  <img
+                                    src={visualBackgroundBlurRuntimeStatus.debug.rawMaskDataUrl}
+                                    alt="Raw segmentation mask"
+                                    style={{ width: 120, height: 90, objectFit: "contain", border: "1px solid rgba(255,255,255,0.12)" }}
+                                  />
+                                ) : (
+                                  <span>Unavailable</span>
+                                )}
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                <strong>Refined Matte</strong>
+                                {visualBackgroundBlurRuntimeStatus.debug.matteDataUrl ? (
+                                  <img
+                                    src={visualBackgroundBlurRuntimeStatus.debug.matteDataUrl}
+                                    alt="Refined foreground matte"
+                                    style={{ width: 120, height: 90, objectFit: "contain", border: "1px solid rgba(255,255,255,0.12)" }}
+                                  />
+                                ) : (
+                                  <span>Unavailable</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
                     <div className="hammer-tool-hint">
-                      White balance, color, and blur remain preview-only. Look Preset and Exposure now carry into the export packet.
+                      White balance, color, and background blur remain preview-only in Phase 1. Look Preset and Exposure carry into the export packet.
                     </div>
                   </section>
                 ) : currentPass === "image_placement" ? (

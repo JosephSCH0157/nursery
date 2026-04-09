@@ -44,6 +44,7 @@
     "test:quench-release-packet": "tsx tests/hammerQuenchReleasePacket.test.ts"
   },
   "dependencies": {
+    "@mediapipe/selfie_segmentation": "^0.1.1675465747",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1"

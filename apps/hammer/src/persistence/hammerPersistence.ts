@@ -77,6 +77,13 @@ function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPreviewSettin
     white_balance: 0,
     color_amount: 0,
     background_blur: false,
+    background_blur_px: 14,
+    background_blur_feather_px: 6,
+    background_blur_temporal_smoothing: 0.25,
+    background_blur_subject_expansion_px: 0,
+    background_blur_quality_mode: "medium",
+    background_blur_fallback_mode: "disable",
+    background_blur_provider: "mediapipe_selfie_segmentation",
   };
 }
 
@@ -87,10 +94,35 @@ function normalizeVisualPreviewSettings(
   const defaults = buildDefaultVisualPreviewSettings();
   const whiteBalance = readNumber(row?.white_balance);
   const colorAmount = readNumber(row?.color_amount);
+  const blurEnabled = typeof row?.background_blur === "boolean"
+    ? row.background_blur
+    : typeof row?.background_blur === "object" && row.background_blur != null
+    ? true
+    : defaults.background_blur;
+  const blurPx = readNumber(row?.background_blur_px) ?? readNumber(readJsonObject(row?.background_blur)?.blur_px) ?? defaults.background_blur_px!;
+  const featherPx = readNumber(row?.background_blur_feather_px) ?? readNumber(readJsonObject(row?.background_blur)?.edge_feather_px) ?? defaults.background_blur_feather_px!;
+  const temporal = readNumber(row?.background_blur_temporal_smoothing) ?? readNumber(readJsonObject(row?.background_blur)?.temporal_smoothing) ?? defaults.background_blur_temporal_smoothing!;
+  const expansion = readNumber(row?.background_blur_subject_expansion_px) ?? readNumber(readJsonObject(row?.background_blur)?.subject_expansion_px) ?? defaults.background_blur_subject_expansion_px!;
+  const quality = readString(row?.background_blur_quality_mode)
+    ?? readString(readJsonObject(row?.background_blur)?.quality_mode)
+    ?? defaults.background_blur_quality_mode!;
+  const fallback = readString(row?.background_blur_fallback_mode)
+    ?? readString(readJsonObject(row?.background_blur)?.fallback_mode)
+    ?? defaults.background_blur_fallback_mode!;
+  const provider = readString(row?.background_blur_provider)
+    ?? readString(readJsonObject(row?.background_blur)?.provider)
+    ?? defaults.background_blur_provider!;
   return {
     white_balance: whiteBalance == null ? defaults.white_balance : clamp(Math.round(whiteBalance), -100, 100),
     color_amount: colorAmount == null ? defaults.color_amount : clamp(Math.round(colorAmount), -100, 100),
-    background_blur: typeof row?.background_blur === "boolean" ? row.background_blur : defaults.background_blur,
+    background_blur: blurEnabled,
+    background_blur_px: clamp(blurPx, 0, 64),
+    background_blur_feather_px: clamp(featherPx, 0, 64),
+    background_blur_temporal_smoothing: clamp(temporal, 0, 1),
+    background_blur_subject_expansion_px: clamp(expansion, 0, 48),
+    background_blur_quality_mode: (quality === "low" || quality === "high") ? quality : "medium",
+    background_blur_fallback_mode: fallback === "passthrough" ? "passthrough" : "disable",
+    background_blur_provider: provider,
   };
 }
 
