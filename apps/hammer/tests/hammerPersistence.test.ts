@@ -367,6 +367,17 @@ assert.deepEqual(saveRequest.editor_session?.data.visual_preview, {
   white_balance: 12,
   color_amount: 18,
   background_blur: true,
+  background_blur_px: 14,
+  background_blur_feather_px: 6,
+  background_blur_temporal_smoothing: 0.25,
+  background_blur_subject_expansion_px: 0,
+  background_blur_quality_mode: "medium",
+  background_blur_fallback_mode: "disable",
+  background_blur_provider: "mediapipe_selfie_segmentation",
+  background_replace_enabled: false,
+  background_replace_mode: "solid",
+  background_replace_color: "#2b2b2b",
+  background_replace_image_url: null,
 });
 assert.equal(saveRequest.editorial_authority?.data.graph_id, "plan_01:authority");
 
@@ -938,6 +949,17 @@ try {
       white_balance: 100,
       color_amount: -100,
       background_blur: false,
+      background_blur_px: 14,
+      background_blur_feather_px: 6,
+      background_blur_temporal_smoothing: 0.25,
+      background_blur_subject_expansion_px: 0,
+      background_blur_quality_mode: "medium",
+      background_blur_fallback_mode: "disable",
+      background_blur_provider: "mediapipe_selfie_segmentation",
+      background_replace_enabled: false,
+      background_replace_mode: "solid",
+      background_replace_color: "#2b2b2b",
+      background_replace_image_url: null,
     });
 
     const roundTripSaveRequest = buildHammerPersistenceSaveRequest({
@@ -948,10 +970,104 @@ try {
       white_balance: 100,
       color_amount: -100,
       background_blur: false,
+      background_blur_px: 14,
+      background_blur_feather_px: 6,
+      background_blur_temporal_smoothing: 0.25,
+      background_blur_subject_expansion_px: 0,
+      background_blur_quality_mode: "medium",
+      background_blur_fallback_mode: "disable",
+      background_blur_provider: "mediapipe_selfie_segmentation",
+      background_replace_enabled: false,
+      background_replace_mode: "solid",
+      background_replace_color: "#2b2b2b",
+      background_replace_image_url: null,
     });
   }
 
   await assertVisualPreviewSettingsRoundTripToCanonicalShape();
+
+  async function assertVisualPreviewCheckerboardReplacementRoundTrip(): Promise<void> {
+    globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
+      ok: true,
+      data: {
+        snapshot: {
+          schema_version: 1,
+          state: persistedSnapshot.state,
+          editor_session: {
+            path: persistedSnapshot.editor_session.path,
+            file_updated_at: persistedSnapshot.editor_session.updated_at,
+            data: {
+              ...persistedSnapshot.editor_session.data,
+              visual_preview: {
+                white_balance: 0,
+                color_amount: 0,
+                background_blur: false,
+                background_replace_enabled: true,
+                background_replace_mode: "checkerboard",
+                background_replace_color: "#2b2b2b",
+              },
+            },
+          },
+          structured_transcript: toApiArtifact(persistedSnapshot.structured_transcript),
+          speaker_map: toApiArtifact(persistedSnapshot.speaker_map),
+          visual_placements: toApiArtifact(persistedSnapshot.visual_placements),
+          audio_polish: toApiArtifact(persistedSnapshot.audio_polish),
+          edit_plan: toApiArtifact(persistedSnapshot.edit_plan),
+          editorial_authority: toApiArtifact(persistedSnapshot.editorial_authority),
+          macro_hooks: persistedSnapshot.macro_hooks,
+        },
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+    const loaded = await loadHammerPersistenceSnapshot(target);
+    assert.equal(loaded.ok, true);
+    if (!loaded.ok) {
+      throw new Error("Expected visual_preview checkerboard to load.");
+    }
+
+    assert.deepEqual(loaded.data.editor_session.data?.visual_preview, {
+      white_balance: 0,
+      color_amount: 0,
+      background_blur: false,
+      background_blur_px: 14,
+      background_blur_feather_px: 6,
+      background_blur_temporal_smoothing: 0.25,
+      background_blur_subject_expansion_px: 0,
+      background_blur_quality_mode: "medium",
+      background_blur_fallback_mode: "disable",
+      background_blur_provider: "mediapipe_selfie_segmentation",
+      background_replace_enabled: true,
+      background_replace_mode: "checkerboard",
+      background_replace_color: "#2b2b2b",
+      background_replace_image_url: null,
+    });
+
+    const roundTripSaveRequest = buildHammerPersistenceSaveRequest({
+      ...snapshot,
+      visualPreviewSettings: loaded.data.editor_session.data?.visual_preview ?? snapshot.visualPreviewSettings,
+    });
+    assert.deepEqual(roundTripSaveRequest.editor_session?.data.visual_preview, {
+      white_balance: 0,
+      color_amount: 0,
+      background_blur: false,
+      background_blur_px: 14,
+      background_blur_feather_px: 6,
+      background_blur_temporal_smoothing: 0.25,
+      background_blur_subject_expansion_px: 0,
+      background_blur_quality_mode: "medium",
+      background_blur_fallback_mode: "disable",
+      background_blur_provider: "mediapipe_selfie_segmentation",
+      background_replace_enabled: true,
+      background_replace_mode: "checkerboard",
+      background_replace_color: "#2b2b2b",
+      background_replace_image_url: null,
+    });
+  }
+
+  await assertVisualPreviewCheckerboardReplacementRoundTrip();
 
   globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
     ok: true,
