@@ -66,6 +66,9 @@ export type BackgroundBlurSettings = {
   replacementMode: "solid" | "image" | "checkerboard";
   replacementColor: string; // css color
   replacementImageUrl: string | null;
+  washEnabled: boolean;
+  washDimAmount: number; // 0..1
+  washDesaturateAmount: number; // 0..1
   edgeFeatherPx: number;
   temporalSmoothing: number; // 0..1
   subjectExpansionPx: number;

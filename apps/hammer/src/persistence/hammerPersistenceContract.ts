@@ -84,6 +84,9 @@ export interface HammerPersistedVisualPreviewSettings {
   background_replace_mode?: "solid" | "image" | "checkerboard";
   background_replace_color?: string;
   background_replace_image_url?: string | null;
+  background_wash_enabled?: boolean;
+  background_wash_dim_amount?: number;
+  background_wash_desaturate_amount?: number;
 }
 
 export type HammerDerivedTextMacroKind =

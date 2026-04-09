@@ -378,6 +378,9 @@ assert.deepEqual(saveRequest.editor_session?.data.visual_preview, {
   background_replace_mode: "solid",
   background_replace_color: "#2b2b2b",
   background_replace_image_url: null,
+  background_wash_enabled: false,
+  background_wash_dim_amount: 0.35,
+  background_wash_desaturate_amount: 0.25,
 });
 assert.equal(saveRequest.editorial_authority?.data.graph_id, "plan_01:authority");
 
@@ -960,6 +963,9 @@ try {
       background_replace_mode: "solid",
       background_replace_color: "#2b2b2b",
       background_replace_image_url: null,
+      background_wash_enabled: false,
+      background_wash_dim_amount: 0.35,
+      background_wash_desaturate_amount: 0.25,
     });
 
     const roundTripSaveRequest = buildHammerPersistenceSaveRequest({
@@ -981,6 +987,9 @@ try {
       background_replace_mode: "solid",
       background_replace_color: "#2b2b2b",
       background_replace_image_url: null,
+      background_wash_enabled: false,
+      background_wash_dim_amount: 0.35,
+      background_wash_desaturate_amount: 0.25,
     });
   }
 
@@ -1043,6 +1052,9 @@ try {
       background_replace_mode: "checkerboard",
       background_replace_color: "#2b2b2b",
       background_replace_image_url: null,
+      background_wash_enabled: false,
+      background_wash_dim_amount: 0.35,
+      background_wash_desaturate_amount: 0.25,
     });
 
     const roundTripSaveRequest = buildHammerPersistenceSaveRequest({
@@ -1064,6 +1076,9 @@ try {
       background_replace_mode: "checkerboard",
       background_replace_color: "#2b2b2b",
       background_replace_image_url: null,
+      background_wash_enabled: false,
+      background_wash_dim_amount: 0.35,
+      background_wash_desaturate_amount: 0.25,
     });
   }
 

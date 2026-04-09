@@ -88,6 +88,9 @@ function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPreviewSettin
     background_replace_mode: "solid",
     background_replace_color: "#2b2b2b",
     background_replace_image_url: null,
+    background_wash_enabled: false,
+    background_wash_dim_amount: 0.35,
+    background_wash_desaturate_amount: 0.25,
   };
 }
 
@@ -120,6 +123,9 @@ function normalizeVisualPreviewSettings(
   const replaceMode = readString(row?.background_replace_mode) ?? defaults.background_replace_mode!;
   const replaceColor = readString(row?.background_replace_color) ?? defaults.background_replace_color!;
   const replaceImageUrl = readString(row?.background_replace_image_url) ?? defaults.background_replace_image_url!;
+  const washEnabled = typeof row?.background_wash_enabled === "boolean" ? row.background_wash_enabled : defaults.background_wash_enabled!;
+  const washDim = readNumber(row?.background_wash_dim_amount) ?? defaults.background_wash_dim_amount!;
+  const washDesat = readNumber(row?.background_wash_desaturate_amount) ?? defaults.background_wash_desaturate_amount!;
   return {
     white_balance: whiteBalance == null ? defaults.white_balance : clamp(Math.round(whiteBalance), -100, 100),
     color_amount: colorAmount == null ? defaults.color_amount : clamp(Math.round(colorAmount), -100, 100),
@@ -135,6 +141,9 @@ function normalizeVisualPreviewSettings(
     background_replace_mode: replaceMode === "image" ? "image" : replaceMode === "checkerboard" ? "checkerboard" : "solid",
     background_replace_color: replaceColor,
     background_replace_image_url: replaceImageUrl,
+    background_wash_enabled: washEnabled,
+    background_wash_dim_amount: clamp(washDim, 0, 1),
+    background_wash_desaturate_amount: clamp(washDesat, 0, 1),
   };
 }
 

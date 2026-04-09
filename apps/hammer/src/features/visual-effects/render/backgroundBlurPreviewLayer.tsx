@@ -6,6 +6,7 @@ import { createSegmentationProvider, isSegmentationProviderId } from "../provide
 import { SimpleMatteRefiner } from "../matte/simpleMatteRefiner";
 import { BackgroundBlurRenderer } from "../effects/backgroundBlurRenderer";
 import { BackgroundReplacementRenderer } from "../effects/backgroundReplacementRenderer";
+import { BackgroundWashRenderer } from "../effects/backgroundWashRenderer";
 import { resolveVisualPreviewQualityPolicy } from "./previewQualityPolicy";
 
 export type HammerBackgroundBlurRuntimeStatus = {
@@ -95,6 +96,7 @@ export default function BackgroundBlurPreviewLayer(props: {
   const matteRefiner = useMemo(() => new SimpleMatteRefiner(), []);
   const blurRenderer = useMemo(() => new BackgroundBlurRenderer(), []);
   const replacementRenderer = useMemo(() => new BackgroundReplacementRenderer(), []);
+  const washRenderer = useMemo(() => new BackgroundWashRenderer(), []);
 
   const inFlightRef = useRef(false);
   const lastFrameAtMsRef = useRef<number | null>(null);
@@ -350,7 +352,9 @@ export default function BackgroundBlurPreviewLayer(props: {
           temporalSmoothing: effectiveTemporal,
           quality: props.settings.qualityMode,
         });
-        const composite = props.settings.replacementEnabled
+        const composite = props.settings.washEnabled
+          ? washRenderer.render({ source: video, matte, settings: props.settings, output: canvas })
+          : props.settings.replacementEnabled
           ? replacementRenderer.render({ source: video, matte, settings: props.settings, output: canvas })
           : blurRenderer.render({ source: video, matte, settings: props.settings, output: canvas });
 
@@ -455,7 +459,7 @@ export default function BackgroundBlurPreviewLayer(props: {
 
   if (!props.enabled) return null;
 
-  const show = (props.settings.enabled || props.settings.replacementEnabled) && (
+  const show = (props.settings.enabled || props.settings.replacementEnabled || props.settings.washEnabled) && (
     props.settings.fallbackMode === "passthrough"
       ? true
       : runtimeStatus.degradedReason == null

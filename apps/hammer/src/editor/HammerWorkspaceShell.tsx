@@ -494,6 +494,9 @@ function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPreviewSettin
     background_replace_mode: "solid",
     background_replace_color: "#2b2b2b",
     background_replace_image_url: null,
+    background_wash_enabled: false,
+    background_wash_dim_amount: 0.35,
+    background_wash_desaturate_amount: 0.25,
   };
 }
 
@@ -525,6 +528,9 @@ function normalizeVisualPreviewSettings(
       : "solid",
     background_replace_color: typeof value.background_replace_color === "string" ? value.background_replace_color : defaults.background_replace_color,
     background_replace_image_url: typeof value.background_replace_image_url === "string" ? value.background_replace_image_url : null,
+    background_wash_enabled: Boolean(value.background_wash_enabled ?? defaults.background_wash_enabled),
+    background_wash_dim_amount: Math.max(0, Math.min(1, Number(value.background_wash_dim_amount ?? defaults.background_wash_dim_amount))),
+    background_wash_desaturate_amount: Math.max(0, Math.min(1, Number(value.background_wash_desaturate_amount ?? defaults.background_wash_desaturate_amount))),
   };
 }
 
@@ -1858,6 +1864,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [visualBackgroundReplaceImageUrl, setVisualBackgroundReplaceImageUrl] = useState<string>(
     String(initialVisualPreviewSettings.background_replace_image_url ?? ""),
   );
+  const [visualBackgroundWashEnabled, setVisualBackgroundWashEnabled] = useState<boolean>(
+    Boolean(initialVisualPreviewSettings.background_wash_enabled ?? false),
+  );
+  const [visualBackgroundWashDimAmount, setVisualBackgroundWashDimAmount] = useState<number>(
+    Number(initialVisualPreviewSettings.background_wash_dim_amount ?? 0.35),
+  );
+  const [visualBackgroundWashDesaturateAmount, setVisualBackgroundWashDesaturateAmount] = useState<number>(
+    Number(initialVisualPreviewSettings.background_wash_desaturate_amount ?? 0.25),
+  );
   const [visualBackgroundBlurDebugMask, setVisualBackgroundBlurDebugMask] = useState(false);
   const [visualBackgroundBlurRuntimeStatus, setVisualBackgroundBlurRuntimeStatus] = useState<HammerBackgroundBlurRuntimeStatus | null>(null);
   const [imagePlacementDraftWindows, setImagePlacementDraftWindows] = useState<Record<string, HammerImagePlacementDraftWindow>>({});
@@ -2069,6 +2084,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     );
     setVisualBackgroundReplaceColor(String(nextVisualPreviewSettings.background_replace_color ?? "#2b2b2b"));
     setVisualBackgroundReplaceImageUrl(String(nextVisualPreviewSettings.background_replace_image_url ?? ""));
+    setVisualBackgroundWashEnabled(Boolean(nextVisualPreviewSettings.background_wash_enabled ?? false));
+    setVisualBackgroundWashDimAmount(Number(nextVisualPreviewSettings.background_wash_dim_amount ?? 0.35));
+    setVisualBackgroundWashDesaturateAmount(Number(nextVisualPreviewSettings.background_wash_desaturate_amount ?? 0.25));
   }, [props.initialVisualPreviewSettings]);
 
   useEffect(() => {
@@ -2790,6 +2808,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     replacementMode: visualBackgroundReplaceMode,
     replacementColor: visualBackgroundReplaceColor,
     replacementImageUrl: visualBackgroundReplaceImageUrl.trim() ? visualBackgroundReplaceImageUrl.trim() : null,
+    washEnabled: visualBackgroundWashEnabled,
+    washDimAmount: Math.max(0, Math.min(1, Number(visualBackgroundWashDimAmount) || 0)),
+    washDesaturateAmount: Math.max(0, Math.min(1, Number(visualBackgroundWashDesaturateAmount) || 0)),
     edgeFeatherPx: Math.max(0, Math.min(64, Number(visualBackgroundBlurFeatherPx) || 0)),
     temporalSmoothing: Math.max(0, Math.min(1, Number(visualBackgroundBlurTemporalSmoothing) || 0)),
     subjectExpansionPx: Math.max(0, Math.min(48, Number(visualBackgroundBlurSubjectExpansionPx) || 0)),
@@ -2808,6 +2829,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     visualBackgroundReplaceEnabled,
     visualBackgroundReplaceImageUrl,
     visualBackgroundReplaceMode,
+    visualBackgroundWashDesaturateAmount,
+    visualBackgroundWashDimAmount,
+    visualBackgroundWashEnabled,
   ]);
 
   const backgroundBlurProviderDescriptor = useMemo(
@@ -8349,6 +8373,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           background_replace_mode: visualBackgroundReplaceMode,
           background_replace_color: visualBackgroundReplaceColor,
           background_replace_image_url: visualBackgroundReplaceImageUrl.trim() ? visualBackgroundReplaceImageUrl.trim() : null,
+          background_wash_enabled: visualBackgroundWashEnabled,
+          background_wash_dim_amount: visualBackgroundWashDimAmount,
+          background_wash_desaturate_amount: visualBackgroundWashDesaturateAmount,
         },
         last_opened_at: new Date().toISOString(),
       },
@@ -10513,7 +10540,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   className="hammer-preview-media"
                 />
                 <BackgroundBlurPreviewLayer
-                  enabled={visualBackgroundBlur || visualBackgroundReplaceEnabled}
+                  enabled={visualBackgroundBlur || visualBackgroundReplaceEnabled || visualBackgroundWashEnabled}
                   settings={backgroundBlurSettings}
                   providerId={visualBackgroundBlurProviderId}
                   videoRef={previewAudioRef}
@@ -12546,7 +12573,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           setFocusOverride("tool-focus");
                           const enabled = event.target.checked;
                           setVisualBackgroundBlur(enabled);
-                          if (enabled) setVisualBackgroundReplaceEnabled(false);
+                          if (enabled) {
+                            setVisualBackgroundReplaceEnabled(false);
+                            setVisualBackgroundWashEnabled(false);
+                          }
                         }}
                       />
                       <span>Background Blur (Segmentation Preview)</span>
@@ -12559,10 +12589,29 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           setFocusOverride("tool-focus");
                           const enabled = event.target.checked;
                           setVisualBackgroundReplaceEnabled(enabled);
-                          if (enabled) setVisualBackgroundBlur(false);
+                          if (enabled) {
+                            setVisualBackgroundBlur(false);
+                            setVisualBackgroundWashEnabled(false);
+                          }
                         }}
                       />
                       <span>Background Replace (Segmentation Preview)</span>
+                    </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={visualBackgroundWashEnabled}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          const enabled = event.target.checked;
+                          setVisualBackgroundWashEnabled(enabled);
+                          if (enabled) {
+                            setVisualBackgroundBlur(false);
+                            setVisualBackgroundReplaceEnabled(false);
+                          }
+                        }}
+                      />
+                      <span>Background Wash (Segmentation Preview)</span>
                     </label>
                     {visualBackgroundBlur ? (
                       <>
@@ -12679,7 +12728,56 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         </label>
                       </>
                     ) : null}
-                    {visualBackgroundBlur || visualBackgroundReplaceEnabled ? (
+                    {visualBackgroundWashEnabled ? (
+                      <>
+                        <label className="hammer-tool-field">
+                          <span>Segmentation Provider</span>
+                          <select
+                            value={backgroundBlurProviderDescriptor?.id ?? "mediapipe_selfie_segmentation"}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundBlurProviderId(event.target.value);
+                              setVisualBackgroundBlurRuntimeStatus(null);
+                            }}
+                          >
+                            {SEGMENTATION_PROVIDER_DESCRIPTORS.map((descriptor) => (
+                              <option key={descriptor.id} value={descriptor.id}>
+                                {descriptor.displayName}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Background dim ({Math.round(visualBackgroundWashDimAmount * 100)}%)</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            value={visualBackgroundWashDimAmount}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundWashDimAmount(Number(event.target.value));
+                            }}
+                          />
+                        </label>
+                        <label className="hammer-tool-field">
+                          <span>Desaturate ({Math.round(visualBackgroundWashDesaturateAmount * 100)}%)</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            value={visualBackgroundWashDesaturateAmount}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundWashDesaturateAmount(Number(event.target.value));
+                            }}
+                          />
+                        </label>
+                      </>
+                    ) : null}
+                    {visualBackgroundBlur || visualBackgroundReplaceEnabled || visualBackgroundWashEnabled ? (
                       <>
                         <label className="hammer-tool-field">
                           <span>Edge feather ({Math.round(visualBackgroundBlurFeatherPx)}px)</span>
