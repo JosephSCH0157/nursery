@@ -49,6 +49,10 @@ import BackgroundBlurPreviewLayer, {
   type HammerBackgroundBlurRuntimeStatus,
 } from "../features/visual-effects/render/backgroundBlurPreviewLayer";
 import { summarizeBackgroundEffectRuntimeStatus } from "../features/visual-effects/render/backgroundEffectStatusSummary";
+import EyeContactAssistPreviewLayer, {
+  type HammerEyeContactAssistRuntimeStatus,
+} from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
+import { summarizeEyeContactAssistRuntimeStatus } from "../features/eye-contact-assist/render/eyeContactAssistStatusSummary";
 import type { BackgroundBlurSettings } from "../features/visual-effects/types";
 import {
   SEGMENTATION_PROVIDER_DESCRIPTORS,
@@ -484,6 +488,8 @@ function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPreviewSettin
     white_balance: 0,
     color_amount: 0,
     background_blur: false,
+    eye_contact_assist_enabled: false,
+    eye_contact_assist_strength: 0.25,
     background_blur_px: 14,
     background_blur_feather_px: 6,
     background_blur_temporal_smoothing: 0.25,
@@ -512,6 +518,8 @@ function normalizeVisualPreviewSettings(
     white_balance: Math.max(-100, Math.min(100, Math.round(value.white_balance))),
     color_amount: Math.max(-100, Math.min(100, Math.round(value.color_amount))),
     background_blur: Boolean(value.background_blur),
+    eye_contact_assist_enabled: Boolean(value.eye_contact_assist_enabled ?? defaults.eye_contact_assist_enabled),
+    eye_contact_assist_strength: Math.max(0, Math.min(1, Number(value.eye_contact_assist_strength ?? defaults.eye_contact_assist_strength))),
     background_blur_px: Math.max(0, Math.min(64, Number(value.background_blur_px ?? defaults.background_blur_px))),
     background_blur_feather_px: Math.max(0, Math.min(64, Number(value.background_blur_feather_px ?? defaults.background_blur_feather_px))),
     background_blur_temporal_smoothing: Math.max(0, Math.min(1, Number(value.background_blur_temporal_smoothing ?? defaults.background_blur_temporal_smoothing))),
@@ -1825,6 +1833,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const initialVisualPreviewSettings = normalizeVisualPreviewSettings(props.initialVisualPreviewSettings);
   const [visualWhiteBalance, setVisualWhiteBalance] = useState(initialVisualPreviewSettings.white_balance);
   const [visualColorAmount, setVisualColorAmount] = useState(initialVisualPreviewSettings.color_amount);
+  const [visualEyeContactAssistEnabled, setVisualEyeContactAssistEnabled] = useState<boolean>(
+    Boolean(initialVisualPreviewSettings.eye_contact_assist_enabled ?? false),
+  );
+  const [visualEyeContactAssistStrength, setVisualEyeContactAssistStrength] = useState<number>(
+    Number(initialVisualPreviewSettings.eye_contact_assist_strength ?? 0.25),
+  );
   const [visualBackgroundBlur, setVisualBackgroundBlur] = useState(initialVisualPreviewSettings.background_blur);
   const [visualBackgroundBlurPx, setVisualBackgroundBlurPx] = useState<number>(
     Number(initialVisualPreviewSettings.background_blur_px ?? 14),
@@ -1876,6 +1890,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   );
   const [visualBackgroundBlurDebugMask, setVisualBackgroundBlurDebugMask] = useState(false);
   const [visualBackgroundBlurRuntimeStatus, setVisualBackgroundBlurRuntimeStatus] = useState<HammerBackgroundBlurRuntimeStatus | null>(null);
+  const [visualEyeContactAssistDebugOverlay, setVisualEyeContactAssistDebugOverlay] = useState(false);
+  const [visualEyeContactAssistRuntimeStatus, setVisualEyeContactAssistRuntimeStatus] = useState<HammerEyeContactAssistRuntimeStatus | null>(null);
+  const visualBackgroundEffectCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [imagePlacementDraftWindows, setImagePlacementDraftWindows] = useState<Record<string, HammerImagePlacementDraftWindow>>({});
   const [timelineImageDragState, setTimelineImageDragState] = useState<HammerTimelineImageDragState | null>(null);
   const [imagePlacementTransforms, setImagePlacementTransforms] = useState<Record<string, HammerImagePlacementTransform>>({});
@@ -1956,6 +1973,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const previewSurfaceRef = useRef<HTMLDivElement | null>(null);
   const imageAnimationContextMenuRef = useRef<HTMLDivElement | null>(null);
   const previewBrollVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const handleBackgroundEffectCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
+    visualBackgroundEffectCanvasRef.current = canvas;
+  }, []);
   const workspaceShellRef = useRef<HTMLElement | null>(null);
   const lastPlaybackMediaSrcRef = useRef<string | null>(null);
   const captionEditorRefs = useRef(new Map<string, HTMLTextAreaElement>());
@@ -2064,6 +2084,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     const nextVisualPreviewSettings = normalizeVisualPreviewSettings(props.initialVisualPreviewSettings);
     setVisualWhiteBalance(nextVisualPreviewSettings.white_balance);
     setVisualColorAmount(nextVisualPreviewSettings.color_amount);
+    setVisualEyeContactAssistEnabled(Boolean(nextVisualPreviewSettings.eye_contact_assist_enabled ?? false));
+    setVisualEyeContactAssistStrength(Math.max(0, Math.min(1, Number(nextVisualPreviewSettings.eye_contact_assist_strength ?? 0.25))));
     setVisualBackgroundBlur(nextVisualPreviewSettings.background_blur);
     setVisualBackgroundBlurPx(Number(nextVisualPreviewSettings.background_blur_px ?? 14));
     setVisualBackgroundBlurFeatherPx(Number(nextVisualPreviewSettings.background_blur_feather_px ?? 6));
@@ -2848,6 +2870,27 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       showDebugDetails: visualBackgroundBlurDebugMask,
     });
   }, [backgroundBlurProviderDescriptor, visualBackgroundBlurDebugMask, visualBackgroundBlurRuntimeStatus]);
+
+  const eyeContactUseBackgroundCanvasAsSource = useMemo(() => {
+    if (!(visualBackgroundBlur || visualBackgroundReplaceEnabled || visualBackgroundWashEnabled)) return false;
+    if (!visualBackgroundBlurRuntimeStatus) return false;
+    if (backgroundBlurSettings.fallbackMode === "passthrough") return true;
+    return visualBackgroundBlurRuntimeStatus.degradedReason == null;
+  }, [
+    backgroundBlurSettings.fallbackMode,
+    visualBackgroundBlur,
+    visualBackgroundBlurRuntimeStatus,
+    visualBackgroundReplaceEnabled,
+    visualBackgroundWashEnabled,
+  ]);
+
+  const visualEyeContactAssistStatusSummary = useMemo(() => {
+    if (!visualEyeContactAssistRuntimeStatus) return null;
+    return summarizeEyeContactAssistRuntimeStatus({
+      status: visualEyeContactAssistRuntimeStatus,
+      showDebugDetails: visualEyeContactAssistDebugOverlay,
+    });
+  }, [visualEyeContactAssistDebugOverlay, visualEyeContactAssistRuntimeStatus]);
 
   const activePreviewOverlays = useMemo<VisualPreviewOverlayModel[]>(() => {
     if (!isVisualPreviewAuthority) return [];
@@ -8449,6 +8492,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           white_balance: visualWhiteBalance,
           color_amount: visualColorAmount,
           background_blur: visualBackgroundBlur,
+          eye_contact_assist_enabled: visualEyeContactAssistEnabled,
+          eye_contact_assist_strength: visualEyeContactAssistStrength,
           background_blur_px: visualBackgroundBlurPx,
           background_blur_feather_px: visualBackgroundBlurFeatherPx,
           background_blur_temporal_smoothing: visualBackgroundBlurTemporalSmoothing,
@@ -8508,6 +8553,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     visualBackgroundReplaceImageUrl,
     visualBackgroundReplaceMode,
     visualColorAmount,
+    visualEyeContactAssistEnabled,
+    visualEyeContactAssistStrength,
     visualWhiteBalance,
     transcriptSourceId,
     workspaceMapping,
@@ -9402,6 +9449,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         white_balance: visualWhiteBalance,
         color_amount: visualColorAmount,
         background_blur: visualBackgroundBlur,
+        eye_contact_assist_enabled: visualEyeContactAssistEnabled,
+        eye_contact_assist_strength: visualEyeContactAssistStrength,
         background_blur_px: visualBackgroundBlurPx,
         background_blur_feather_px: visualBackgroundBlurFeatherPx,
         background_blur_temporal_smoothing: visualBackgroundBlurTemporalSmoothing,
@@ -9457,6 +9506,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     visualBackgroundReplaceImageUrl,
     visualBackgroundReplaceMode,
     visualColorAmount,
+    visualEyeContactAssistEnabled,
+    visualEyeContactAssistStrength,
     visualWhiteBalance,
     editableTranscriptSegments,
     transcriptSourceId,
@@ -10659,6 +10710,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   videoRef={previewAudioRef}
                   onStatus={setVisualBackgroundBlurRuntimeStatus}
                   debugMasks={visualBackgroundBlurDebugMask}
+                  onCanvas={handleBackgroundEffectCanvas}
+                />
+                <EyeContactAssistPreviewLayer
+                  enabled={visualEyeContactAssistEnabled}
+                  settings={{
+                    enabled: visualEyeContactAssistEnabled,
+                    strength: Math.max(0, Math.min(1, Number(visualEyeContactAssistStrength) || 0)),
+                  }}
+                  videoRef={previewAudioRef}
+                  backgroundCanvasRef={visualBackgroundEffectCanvasRef}
+                  useBackgroundCanvasAsSource={eyeContactUseBackgroundCanvasAsSource}
+                  debugOverlay={visualEyeContactAssistDebugOverlay}
+                  onStatus={setVisualEyeContactAssistRuntimeStatus}
                 />
                 <div className="hammer-preview-surface__label">{previewSurfaceLabel}</div>
                 <VisualPreviewComposer
@@ -12650,6 +12714,65 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         }}
                       />
                     </label>
+                    <label className="hammer-tool-check">
+                      <input
+                        type="checkbox"
+                        checked={visualEyeContactAssistEnabled}
+                        onChange={(event) => {
+                          setFocusOverride("tool-focus");
+                          setVisualEyeContactAssistEnabled(event.target.checked);
+                          setVisualEyeContactAssistRuntimeStatus(null);
+                        }}
+                      />
+                      <span>Eye Contact Assist (Preview)</span>
+                    </label>
+                    {visualEyeContactAssistEnabled ? (
+                      <>
+                        <label className="hammer-tool-field">
+                          <span>Strength ({visualEyeContactAssistStrength.toFixed(2)})</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            value={visualEyeContactAssistStrength}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualEyeContactAssistStrength(Number(event.target.value));
+                            }}
+                          />
+                        </label>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={visualEyeContactAssistDebugOverlay}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualEyeContactAssistDebugOverlay(event.target.checked);
+                            }}
+                          />
+                          <span>Show gaze debug (overlay/status)</span>
+                        </label>
+                        <div className="hammer-tool-hint">
+                          {visualEyeContactAssistStatusSummary
+                            ? visualEyeContactAssistStatusSummary.primaryLine
+                            : "Eye contact status unavailable."}
+                        </div>
+                        {visualEyeContactAssistDebugOverlay && visualEyeContactAssistRuntimeStatus?.debug ? (
+                          <div className="hammer-tool-hint">
+                            {visualEyeContactAssistStatusSummary?.debugLine ? (
+                              <div>{visualEyeContactAssistStatusSummary.debugLine}</div>
+                            ) : null}
+                            {visualEyeContactAssistRuntimeStatus.debug.applicabilityReasons.length > 0 ? (
+                              <div>Applicability: {visualEyeContactAssistRuntimeStatus.debug.applicabilityReasons.join(", ")}</div>
+                            ) : null}
+                            {visualEyeContactAssistRuntimeStatus.debug.smoothingResetReasons.length > 0 ? (
+                              <div>Smoothing reset: {visualEyeContactAssistRuntimeStatus.debug.smoothingResetReasons.join(", ")}</div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
                     <label className="hammer-tool-field">
                       <span>Preview White Balance ({visualWhiteBalance})</span>
                       <input

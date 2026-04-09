@@ -85,6 +85,7 @@ export default function BackgroundBlurPreviewLayer(props: {
   providerId: string | null;
   debugMasks?: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  onCanvas?: (canvas: HTMLCanvasElement | null) => void;
   onStatus?: (status: HammerBackgroundBlurRuntimeStatus) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -138,6 +139,13 @@ export default function BackgroundBlurPreviewLayer(props: {
   useEffect(() => {
     props.onStatus?.(runtimeStatus);
   }, [props, runtimeStatus]);
+
+  useEffect(() => {
+    props.onCanvas?.(canvasRef.current);
+    return () => {
+      props.onCanvas?.(null);
+    };
+  }, [props.onCanvas]);
 
   async function encodePlaneToObjectUrl(args: {
     plane: CachedAlphaPlane;

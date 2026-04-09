@@ -23,6 +23,7 @@
     "test:editorial-authority-contract": "tsx tests/hammerEditorialAuthorityContract.test.ts",
     "test:render-assembly": "tsx tests/hammerRenderAssembly.test.ts",
     "test:visual-effects-export-contract": "tsx tests/hammerVisualEffectsExportContract.test.ts",
+    "test:eye-contact": "tsx tests/hammerEyeContactAssist.test.ts",
     "test:output-selection-guard": "tsx tests/hammerOutputSelectionGuard.test.ts",
     "test:workspace-authority": "tsx tests/hammerWorkspaceAuthority.test.ts",
     "test:runtime-data": "tsx tests/hammerRuntimeData.test.ts",
@@ -47,6 +48,7 @@
   },
   "dependencies": {
     "@mediapipe/selfie_segmentation": "^0.1.1675465747",
+    "@mediapipe/tasks-vision": "^0.10.22",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1"

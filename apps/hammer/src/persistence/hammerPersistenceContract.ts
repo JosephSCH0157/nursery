@@ -73,6 +73,8 @@ export interface HammerPersistedVisualPreviewSettings {
   white_balance: number;
   color_amount: number;
   background_blur: boolean;
+  eye_contact_assist_enabled?: boolean;
+  eye_contact_assist_strength?: number; // 0..1
   background_blur_px?: number;
   background_blur_feather_px?: number;
   background_blur_temporal_smoothing?: number;

@@ -77,6 +77,8 @@ function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPreviewSettin
     white_balance: 0,
     color_amount: 0,
     background_blur: false,
+    eye_contact_assist_enabled: false,
+    eye_contact_assist_strength: 0.25,
     background_blur_px: 14,
     background_blur_feather_px: 6,
     background_blur_temporal_smoothing: 0.25,
@@ -101,6 +103,10 @@ function normalizeVisualPreviewSettings(
   const defaults = buildDefaultVisualPreviewSettings();
   const whiteBalance = readNumber(row?.white_balance);
   const colorAmount = readNumber(row?.color_amount);
+  const eyeContactEnabled = typeof row?.eye_contact_assist_enabled === "boolean"
+    ? row.eye_contact_assist_enabled
+    : defaults.eye_contact_assist_enabled!;
+  const eyeContactStrength = readNumber(row?.eye_contact_assist_strength) ?? defaults.eye_contact_assist_strength!;
   const blurEnabled = typeof row?.background_blur === "boolean"
     ? row.background_blur
     : typeof row?.background_blur === "object" && row.background_blur != null
@@ -130,6 +136,8 @@ function normalizeVisualPreviewSettings(
     white_balance: whiteBalance == null ? defaults.white_balance : clamp(Math.round(whiteBalance), -100, 100),
     color_amount: colorAmount == null ? defaults.color_amount : clamp(Math.round(colorAmount), -100, 100),
     background_blur: blurEnabled,
+    eye_contact_assist_enabled: Boolean(eyeContactEnabled),
+    eye_contact_assist_strength: clamp(eyeContactStrength, 0, 1),
     background_blur_px: clamp(blurPx, 0, 64),
     background_blur_feather_px: clamp(featherPx, 0, 64),
     background_blur_temporal_smoothing: clamp(temporal, 0, 1),
