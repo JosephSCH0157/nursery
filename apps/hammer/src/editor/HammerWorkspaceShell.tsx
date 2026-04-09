@@ -48,6 +48,7 @@ import VisualPreviewComposer, {
 import BackgroundBlurPreviewLayer, {
   type HammerBackgroundBlurRuntimeStatus,
 } from "../features/visual-effects/render/backgroundBlurPreviewLayer";
+import { summarizeBackgroundEffectRuntimeStatus } from "../features/visual-effects/render/backgroundEffectStatusSummary";
 import type { BackgroundBlurSettings } from "../features/visual-effects/types";
 import {
   SEGMENTATION_PROVIDER_DESCRIPTORS,
@@ -2813,6 +2814,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => resolveSegmentationProviderDescriptor(visualBackgroundBlurProviderId) ?? resolveSegmentationProviderDescriptor("mediapipe_selfie_segmentation"),
     [visualBackgroundBlurProviderId],
   );
+  const visualBackgroundBlurStatusSummary = useMemo(() => {
+    if (!visualBackgroundBlurRuntimeStatus) return null;
+    return summarizeBackgroundEffectRuntimeStatus({
+      status: visualBackgroundBlurRuntimeStatus,
+      providerLabel: backgroundBlurProviderDescriptor?.displayName ?? null,
+      showDebugDetails: visualBackgroundBlurDebugMask,
+    });
+  }, [backgroundBlurProviderDescriptor, visualBackgroundBlurDebugMask, visualBackgroundBlurRuntimeStatus]);
 
   const activePreviewOverlays = useMemo<VisualPreviewOverlayModel[]>(() => {
     if (!isVisualPreviewAuthority) return [];
@@ -12739,30 +12748,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           <span>Show mask thumbnails (debug)</span>
                         </label>
                         <div className="hammer-tool-hint">
-                          {visualBackgroundBlurRuntimeStatus ? (
-                            <>
-                              Segmentation: {backgroundBlurProviderDescriptor?.displayName ?? visualBackgroundBlurRuntimeStatus.provider.name} · {visualBackgroundBlurRuntimeStatus.provider.readiness.status}
-                              {` · quality ${visualBackgroundBlurRuntimeStatus.quality.mode} (${visualBackgroundBlurRuntimeStatus.quality.policy.maxSegmentationFps}fps)`}
-                              {visualBackgroundBlurRuntimeStatus.initMs != null ? ` · init ${visualBackgroundBlurRuntimeStatus.initMs.toFixed(1)}ms` : ""}
-                              {visualBackgroundBlurRuntimeStatus.lastConfidence != null ? ` · confidence ${visualBackgroundBlurRuntimeStatus.lastConfidence.toFixed(1)}` : ""}
-                              {visualBackgroundBlurRuntimeStatus.lastSegmentationMs != null ? ` · seg ${visualBackgroundBlurRuntimeStatus.lastSegmentationMs.toFixed(1)}ms` : ""}
-                              {visualBackgroundBlurRuntimeStatus.lastCompositeMs != null ? ` · comp ${visualBackgroundBlurRuntimeStatus.lastCompositeMs.toFixed(1)}ms` : ""}
-                              {visualBackgroundBlurRuntimeStatus.avgSegmentationMs != null ? ` · avg seg ${visualBackgroundBlurRuntimeStatus.avgSegmentationMs.toFixed(1)}ms` : ""}
-                              {visualBackgroundBlurRuntimeStatus.avgCompositeMs != null ? ` · avg comp ${visualBackgroundBlurRuntimeStatus.avgCompositeMs.toFixed(1)}ms` : ""}
-                              {visualBackgroundBlurRuntimeStatus.droppedFrames > 0 ? ` · dropped ${visualBackgroundBlurRuntimeStatus.droppedFrames}` : ""}
-                              {visualBackgroundBlurRuntimeStatus.degradedReason ? ` · degraded: ${visualBackgroundBlurRuntimeStatus.degradedReason}` : ""}
-                              {visualBackgroundBlurRuntimeStatus.warnings.length > 0 ? ` · warnings: ${visualBackgroundBlurRuntimeStatus.warnings.join(", ")}` : ""}
-                            </>
+                          {visualBackgroundBlurStatusSummary ? (
+                            visualBackgroundBlurStatusSummary.primaryLine
                           ) : (
                             "Segmentation status unavailable."
                           )}
                         </div>
-                        {visualBackgroundBlurDebugMask && visualBackgroundBlurRuntimeStatus?.debug ? (
-                          <div className="hammer-tool-hint">
+                        {visualBackgroundBlurDebugMask && visualBackgroundBlurRuntimeStatus ? (
+                          <div className="hammer-tool-hint" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                            {visualBackgroundBlurStatusSummary?.debugLine ? (
+                              <div>{visualBackgroundBlurStatusSummary.debugLine}</div>
+                            ) : null}
                             <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
                               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                                 <strong>Raw Mask</strong>
-                                {visualBackgroundBlurRuntimeStatus.debug.rawMaskDataUrl ? (
+                                {visualBackgroundBlurRuntimeStatus.debug?.rawMaskDataUrl ? (
                                   <img
                                     src={visualBackgroundBlurRuntimeStatus.debug.rawMaskDataUrl}
                                     alt="Raw segmentation mask"
@@ -12774,7 +12774,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                               </div>
                               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                                 <strong>Refined Matte</strong>
-                                {visualBackgroundBlurRuntimeStatus.debug.matteDataUrl ? (
+                                {visualBackgroundBlurRuntimeStatus.debug?.matteDataUrl ? (
                                   <img
                                     src={visualBackgroundBlurRuntimeStatus.debug.matteDataUrl}
                                     alt="Refined foreground matte"
