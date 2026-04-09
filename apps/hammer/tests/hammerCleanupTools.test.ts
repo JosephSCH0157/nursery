@@ -101,6 +101,47 @@ async function testRetakeRemovalCatchesAbortThenMarkerThenRedoChain() {
   assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "c"), true);
 }
 
+async function testRetakeRemovalSurfacesExplicitCueTrimInNormal() {
+  const segments = [
+    s("a", 0, 3.0, "Host", "Let me start that again. Not little shelters with a cash box."),
+    s("b", 3.1, 4.6, "Host", "Florida oranges didn't start small."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 0, "Cue trim should not remove whole segments by itself");
+  assert.equal(preview.suggestions.some((sugg) => sugg.type === "restart_trim" && sugg.segmentId === "a"), true);
+  const updated = preview.resultSegments.find((segment) => segment.segment_id === "a")?.text ?? "";
+  assert.equal(updated.startsWith("Not little shelters"), true);
+}
+
+async function testRetakeRemovalRiskySimilarityDoesNotLeakIntoNormal() {
+  const segments = [
+    s("a", 0, 1.5, "Host", "Florida oranges didn't start small."),
+    s("b", 1.55, 3.0, "Host", "Florida oranges didn't start large."),
+  ];
+
+  const normal = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(normal.summary.removedSegments, 0);
+  assert.equal(normal.suggestions.some((sugg) => sugg.type === "retake_remove"), false);
+
+  const aggressive = previewRemoveRetakes(segments, {
+    detection: "aggressive",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(aggressive.suggestions.some((sugg) => sugg.type === "retake_remove"), true);
+}
+
 async function testRetakeRemovalAllowsMarkerOnlyAcrossSpeakerMismatch() {
   const segments = [
     s("a", 0, 0.6, "S1", "let me start that again"),
@@ -115,6 +156,21 @@ async function testRetakeRemovalAllowsMarkerOnlyAcrossSpeakerMismatch() {
   assert.equal(preview.summary.removedSegments, 1);
   assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
   assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "b"), true);
+}
+
+async function testRetakeRemovalDoesNotDropSubstantiveSegmentJustBecauseItContainsRetakeCue() {
+  const segments = [
+    s("a", 0, 1.4, "Host", "Let me start that again. Not little shelters with a cash box."),
+    s("b", 1.45, 3.0, "Host", "Florida's citrus didn't start small. Commercial production took off."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 0);
+  assert.equal(preview.resultSegments.length, 2);
 }
 
 async function testRetakeRemovalCatchesShortAbortedLeadInReread() {
@@ -391,6 +447,8 @@ async function run() {
   await testRetakeRemovalCatchesStartThatAgainMarkerOnly();
   await testRetakeRemovalCatchesNearImmediateReread();
   await testRetakeRemovalCatchesAbortThenMarkerThenRedoChain();
+  await testRetakeRemovalSurfacesExplicitCueTrimInNormal();
+  await testRetakeRemovalRiskySimilarityDoesNotLeakIntoNormal();
   await testRetakeRemovalAllowsMarkerOnlyAcrossSpeakerMismatch();
   await testRetakeRemovalCatchesShortAbortedLeadInReread();
   await testQuickCleanOrderDeterministic();

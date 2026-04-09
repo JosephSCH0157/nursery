@@ -60,7 +60,7 @@ export function buildCandidateQueue(args: {
 
     const matchesKind = args.kind === "fillers"
       ? suggestion.type === "filler_remove"
-      : suggestion.type === "retake_remove";
+      : (suggestion.type === "retake_remove" || suggestion.type === "restart_trim");
     if (!matchesKind) continue;
 
     const before = beforeById.get(suggestion.segmentId);
@@ -68,18 +68,51 @@ export function buildCandidateQueue(args: {
     const after = afterById.get(suggestion.segmentId) ?? null;
 
     if (args.kind === "retakes") {
+      if (suggestion.type === "restart_trim") {
+        const afterText = after ? after.text : null;
+        const apply = afterText == null
+          ? {
+            removeSegmentIds: [before.segment_id],
+            updateSegments: [],
+          }
+          : {
+            removeSegmentIds: [],
+            updateSegments: [{ segmentId: before.segment_id, text: afterText }],
+          };
+
+        cards.push({
+          id: suggestion.id,
+          kind: args.kind,
+          primarySegmentId: suggestion.segmentId,
+          segmentIds: [suggestion.segmentId],
+          description: suggestion.description,
+          beforeText: before.text,
+          afterText,
+          confidence: suggestion.confidence,
+          timeSavedSec: suggestion.timeSavedSec,
+          apply,
+        });
+        continue;
+      }
+
       // Suggestion id encodes the kept segment id and any remove segment ids.
       const parsed = parseRetakeSuggestionId(suggestion.id);
       const keepId = parsed.keepId;
-      const kept = keepId ? beforeById.get(keepId) ?? null : null;
-      if (!kept) continue;
+      const keptBefore = keepId ? beforeById.get(keepId) ?? null : null;
+      const keptAfter = keepId ? afterById.get(keepId) ?? null : null;
+      if (!keptBefore) continue;
       const removeSegments = parsed.removeIds
         .map((segmentId) => beforeById.get(segmentId) ?? null)
         .filter((segment): segment is HammerTranscriptSegment => Boolean(segment));
       if (removeSegments.length === 0) continue;
 
-      const orderedSegmentIds = Array.from(new Set([...removeSegments.map((seg) => seg.segment_id), kept.segment_id]));
-      const beforeText = [...removeSegments.map((seg) => seg.text), kept.text].join("\n");
+      const keptFinal = keptAfter ?? keptBefore;
+      const orderedSegmentIds = Array.from(new Set([...removeSegments.map((seg) => seg.segment_id), keptFinal.segment_id]));
+      const beforeText = [...removeSegments.map((seg) => seg.text), keptBefore.text].join("\n");
+      const updateSegments: Array<{ segmentId: string; text: string }> = [];
+      if (keptAfter && keptBefore && keptAfter.text !== keptBefore.text) {
+        updateSegments.push({ segmentId: keptBefore.segment_id, text: keptAfter.text });
+      }
       cards.push({
         id: suggestion.id,
         kind: args.kind,
@@ -87,12 +120,12 @@ export function buildCandidateQueue(args: {
         segmentIds: orderedSegmentIds,
         description: suggestion.description,
         beforeText,
-        afterText: kept.text,
+        afterText: keptFinal.text,
         confidence: suggestion.confidence,
         timeSavedSec: suggestion.timeSavedSec,
         apply: {
           removeSegmentIds: removeSegments.map((seg) => seg.segment_id),
-          updateSegments: [],
+          updateSegments,
         },
       });
       continue;

@@ -10802,9 +10802,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                               {retakeActiveCandidateIndex + 1} / {retakeCandidateCards.length}
                             </strong>
                             <span>
-                              {activeRetakeCandidateCard.segmentIds.length <= 2
-                                ? `${activeRetakeCandidateCard.segmentIds[0] ?? "?"} → ${activeRetakeCandidateCard.segmentIds[1] ?? "?"}`
-                                : `${activeRetakeCandidateCard.segmentIds.slice(0, -1).join(", ")} → ${activeRetakeCandidateCard.segmentIds[activeRetakeCandidateCard.segmentIds.length - 1] ?? "?"}`}
+                              {(() => {
+                                const ids = activeRetakeCandidateCard.segmentIds;
+                                if (ids.length <= 1) return ids[0] ?? "?";
+                                if (ids.length === 2) return `${ids[0] ?? "?"} → ${ids[1] ?? "?"}`;
+                                return `${ids.slice(0, -1).join(", ")} → ${ids[ids.length - 1] ?? "?"}`;
+                              })()}
                             </span>
                           </header>
                           <p className="hammer-candidate-card__description">{activeRetakeCandidateCard.description}</p>
@@ -11010,7 +11013,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                                 }
                               }}
                             >
-                              {candidateEditModeById[activeRetakeCandidateCard.id] ? "Approve Edited" : "Approve"}
+                              {(() => {
+                                const willCutAudio = Boolean(resolveCandidateCutOverride(activeRetakeCandidateCard))
+                                  || activeRetakeCandidateCard.apply.removeSegmentIds.length > 0;
+                                if (candidateEditModeById[activeRetakeCandidateCard.id]) {
+                                  return willCutAudio ? "Approve Edited + Cut" : "Approve Edited (Transcript Only)";
+                                }
+                                return willCutAudio ? "Approve + Cut" : "Approve (Transcript Only)";
+                              })()}
                             </button>
                             {candidateEditModeById[activeRetakeCandidateCard.id] ? (
                               <button
