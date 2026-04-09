@@ -10,6 +10,7 @@ import {
   saveIntroOutroSelection,
   uploadWorkpieceMediaFile,
 } from "../src/lib/hammerSourceDeskMediaApi";
+import { deriveStableHammerAssetIdFromPath } from "../src/lib/hammerAssetIdentity";
 import { detectMediaType, intake } from "../src/lib/hammerIntakeRecordingApi";
 import { normalizeWorkpieceRelativePath } from "../../../packages/contracts/workpiece-paths";
 
@@ -123,8 +124,9 @@ async function testIntroOutroSelectionSerializationRoundTrip() {
   await saveIntroOutroSelection({
     workpieceId: "workpiece-abc",
     selection: {
-      intro_path: "assets/uploads/introoutro/1-intro.mp4",
-      outro_path: "assets/uploads/introoutro/2-outro.mp4",
+      schema_version: 1,
+      intro_asset_id: "asset_intro",
+      outro_asset_id: "asset_outro",
       updated_at: "2026-03-21T12:00:00.000Z",
     },
     fetcher: saveFetch as never,
@@ -134,23 +136,46 @@ async function testIntroOutroSelectionSerializationRoundTrip() {
   assert.equal(saveCalls[0]?.url, "/tongs/workpieces/workpiece-abc/commit-file");
   assert.equal(savePayload.path, "hammer/session/intro-outro.v1.json");
   assert.deepEqual(savePayload.json, {
-    intro_path: "assets/uploads/introoutro/1-intro.mp4",
-    outro_path: "assets/uploads/introoutro/2-outro.mp4",
+    schema_version: 1,
+    intro_asset_id: "asset_intro",
+    outro_asset_id: "asset_outro",
     updated_at: "2026-03-21T12:00:00.000Z",
   });
 
   const readFetch = async () => createOkJsonResponse({
     exists: true,
     data: {
-      intro_path: "assets/uploads/introoutro/1-intro.mp4",
-      outro_path: "assets/uploads/introoutro/2-outro.mp4",
+      schema_version: 1,
+      intro_asset_id: "asset_intro",
+      outro_asset_id: "asset_outro",
       updated_at: "2026-03-21T12:00:00.000Z",
     },
   });
   const loaded = await loadIntroOutroSelection("workpiece-abc", readFetch as never);
   assert.deepEqual(loaded, {
-    intro_path: "assets/uploads/introoutro/1-intro.mp4",
-    outro_path: "assets/uploads/introoutro/2-outro.mp4",
+    schema_version: 1,
+    intro_asset_id: "asset_intro",
+    outro_asset_id: "asset_outro",
+    updated_at: "2026-03-21T12:00:00.000Z",
+  });
+}
+
+async function testIntroOutroSelectionLegacyPathMigration() {
+  const legacyIntroPath = "assets/uploads/introoutro/1-intro.mp4";
+  const legacyOutroPath = "assets/uploads/introoutro/2-outro.mp4";
+  const readFetch = async () => createOkJsonResponse({
+    exists: true,
+    data: {
+      intro_path: legacyIntroPath,
+      outro_path: legacyOutroPath,
+      updated_at: "2026-03-21T12:00:00.000Z",
+    },
+  });
+  const loaded = await loadIntroOutroSelection("workpiece-abc", readFetch as never);
+  assert.deepEqual(loaded, {
+    schema_version: 1,
+    intro_asset_id: deriveStableHammerAssetIdFromPath(legacyIntroPath),
+    outro_asset_id: deriveStableHammerAssetIdFromPath(legacyOutroPath),
     updated_at: "2026-03-21T12:00:00.000Z",
   });
 }
@@ -382,12 +407,13 @@ async function run() {
   await testMediaTypeAcceptance();
   await testUploadDestinationAndPayloadShape();
   await testInvalidUploadRejectedBeforeFetch();
-  await testIntroOutroSelectionSerializationRoundTrip();
-  await testNormalizeWorkpieceRelativePath();
-  await testPreviewRequestUsesNormalizedRelativePath();
-  await testPreviewRequestCachesNetworkFetchPerAssetIdentity();
-  await testDeterministicAssetIdentityKey();
-  await testPreviewErrorIncludesNormalizationDiagnostics();
+await testIntroOutroSelectionSerializationRoundTrip();
+await testIntroOutroSelectionLegacyPathMigration();
+await testNormalizeWorkpieceRelativePath();
+await testPreviewRequestUsesNormalizedRelativePath();
+await testPreviewRequestCachesNetworkFetchPerAssetIdentity();
+await testDeterministicAssetIdentityKey();
+await testPreviewErrorIncludesNormalizationDiagnostics();
   await testNoLocalStorageDependencyInApiModule();
   await testHammerIntakeDetectMediaType();
   await testHammerIntakeEpisodeAttachedSkipsCradleCreation();

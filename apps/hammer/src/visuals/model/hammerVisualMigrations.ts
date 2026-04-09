@@ -20,6 +20,7 @@ import type {
   HammerPersistedVisualPlacements,
   HammerVisualPlacementRecord,
 } from "../../persistence/hammerPersistenceContract";
+import { deriveStableHammerAssetIdFromPath, normalizeHammerAssetIdentitySource } from "../../lib/hammerAssetIdentity";
 
 function inferMimeType(path: string | null): string | null {
   const normalized = path?.toLowerCase() ?? "";
@@ -31,41 +32,17 @@ function inferMimeType(path: string | null): string | null {
   return null;
 }
 
-function hashString(value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
-
 function readTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function readNormalizedPath(value: string | null | undefined): string | null {
-  const trimmed = readTrimmedString(value);
-  if (!trimmed) return null;
-
-  // Identity normalization is part of the hash contract:
-  // trim -> slash normalize -> remove leading "./" -> collapse duplicate slashes -> lowercase -> strip query/hash.
-  // Query params are stripped entirely because legacy asset refs use them as transport/cache noise rather than identity.
-  const withoutQuery = trimmed.split(/[?#]/, 1)[0] ?? trimmed;
-  const slashNormalized = withoutQuery.replace(/\\/g, "/");
-  const withoutDotPrefix = slashNormalized.replace(/^\.\/+/, "");
-  const collapsed = withoutDotPrefix.replace(/\/{2,}/g, "/").replace(/^\/+/, "");
-  const normalized = collapsed.toLowerCase();
-  return normalized || null;
-}
-
 function resolveLegacyAssetIdentitySource(record: HammerVisualPlacementRecord): string {
-  return readNormalizedPath(record.asset_path)
-    ?? readNormalizedPath(record.storage_key)
+  return normalizeHammerAssetIdentitySource(record.asset_path)
+    ?? normalizeHammerAssetIdentitySource(record.storage_key)
     ?? readTrimmedString(record.asset_id)
-    ?? readNormalizedPath(record.asset_ref)
+    ?? normalizeHammerAssetIdentitySource(record.asset_ref)
     ?? `placement:${record.placement_id}`;
 }
 
@@ -90,7 +67,8 @@ function resolveLegacyAssetKind(record: HammerVisualPlacementRecord): HammerVisu
 }
 
 export function deriveStableHammerVisualAssetId(record: HammerVisualPlacementRecord): string {
-  return `asset_${hashString(resolveLegacyAssetIdentitySource(record))}`;
+  // Stable id contract: derived from a normalized identity source (primarily path-like fields).
+  return deriveStableHammerAssetIdFromPath(resolveLegacyAssetIdentitySource(record));
 }
 
 export function migrateLegacyPlacementRecordToClip(args: {
@@ -102,7 +80,7 @@ export function migrateLegacyPlacementRecordToClip(args: {
   const updatedAt = args.updated_at ?? HAMMER_VISUAL_DEFAULT_UPDATED_AT;
   const timing = normalizeSecRange(args.record.start_sec, args.record.end_sec);
   return {
-    clip_id: readTrimmedString(args.record.placement_id) ?? `clip_${hashString(args.asset_id)}`,
+    clip_id: readTrimmedString(args.record.placement_id) ?? `clip_${args.asset_id}`,
     asset_id: args.asset_id,
     lane_id: args.lane_id ?? "lane:primary",
     entry_id: readTrimmedString(args.record.entry_id),
@@ -168,7 +146,7 @@ function buildMigrationHash(records: HammerVisualPlacementRecord[]): string {
       record.overlay_z_index ?? "",
     ].join("|");
   }).join("::");
-  return records.length > 0 ? hashString(seed) : "empty";
+  return records.length > 0 ? deriveStableHammerAssetIdFromPath(seed) : "empty";
 }
 
 export function migrateLegacyPlacementRecordsToTimelineState(args: {

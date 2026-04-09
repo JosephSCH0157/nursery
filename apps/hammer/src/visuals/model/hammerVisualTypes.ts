@@ -63,6 +63,10 @@ export interface HammerVisualClip {
   asset_id: string | null;
   lane_id: string;
   entry_id: string | null;
+  system_managed?: boolean;
+  system_type?: "intro" | "outro";
+  system_source?: "profile" | "episode" | "manual";
+  system_asset_id?: string | null;
   label: string | null;
   visual_mode: string | null;
   confidence: number | null;

@@ -27,7 +27,7 @@ import type {
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
 import { createEmptyVisualTimelineState } from "../visuals/model/hammerVisualDefaults";
-import type { HammerVisualGeometry, HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
+import type { HammerVisualClip, HammerVisualGeometry, HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import {
   HAMMER_VISUAL_DEFAULT_GEOMETRY,
   HAMMER_VISUAL_DEFAULT_PERCENT_BOX,
@@ -206,6 +206,7 @@ import {
   type HammerIntroOutroSelection,
   type HammerStoredMediaFile,
 } from "../lib/hammerSourceDeskMediaApi";
+import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
 import {
   cloneHammerStudioRackState,
   createDefaultHammerStudioRackState,
@@ -1908,8 +1909,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [sourceDeskError, setSourceDeskError] = useState<string | null>(null);
   const [uploadingCategory, setUploadingCategory] = useState<"images" | "broll" | "introoutro" | null>(null);
   const [introOutroSelection, setIntroOutroSelection] = useState<HammerIntroOutroSelection>({
-    intro_path: null,
-    outro_path: null,
+    schema_version: 1,
+    intro_asset_id: null,
+    outro_asset_id: null,
     updated_at: new Date().toISOString(),
   });
   const [packagingLogoAssetPath, setPackagingLogoAssetPath] = useState<string | null>(null);
@@ -3123,10 +3125,34 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => storedMediaFiles.filter((file) => file.kind === "image"),
     [storedMediaFiles],
   );
-  const introOutroCandidateItems = useMemo(
-    () => storedMediaFiles.filter((file) => file.kind === "broll" || file.kind === "reference_clip" || file.kind === "audio" || file.kind === "other"),
-    [storedMediaFiles],
-  );
+  const introOutroCandidateItems = useMemo(() => (
+    storedMediaFiles
+      .filter((file) => file.kind === "broll" || file.kind === "reference_clip" || file.kind === "audio" || file.kind === "other")
+      .map((file) => ({
+        ...file,
+        assetId: deriveStableHammerAssetIdFromPath(file.path),
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name))
+  ), [storedMediaFiles]);
+  const introOutroCandidateItemsById = useMemo(() => {
+    const byId = new Map<string, (typeof introOutroCandidateItems)[number]>();
+    for (const item of introOutroCandidateItems) {
+      byId.set(item.assetId, item);
+    }
+    return byId;
+  }, [introOutroCandidateItems]);
+  const introOutroSelectedIntroItem = useMemo(() => {
+    const assetId = introOutroSelection.intro_asset_id;
+    if (!assetId) return null;
+    return introOutroCandidateItemsById.get(assetId) ?? null;
+  }, [introOutroCandidateItemsById, introOutroSelection.intro_asset_id]);
+  const introOutroSelectedOutroItem = useMemo(() => {
+    const assetId = introOutroSelection.outro_asset_id;
+    if (!assetId) return null;
+    return introOutroCandidateItemsById.get(assetId) ?? null;
+  }, [introOutroCandidateItemsById, introOutroSelection.outro_asset_id]);
+  const introOutroSelectedIntroPath = introOutroSelectedIntroItem?.path ?? null;
+  const introOutroSelectedOutroPath = introOutroSelectedOutroItem?.path ?? null;
   const packagingIntroPlacement = useMemo(
     () => (editableVisualPlacements?.placements ?? []).find((item) => item.entry_id === PACKAGING_INTRO_ENTRY_ID) ?? null,
     [editableVisualPlacements?.placements],
@@ -4642,8 +4668,9 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       ]);
       setStoredMediaFiles(mediaFiles);
       setIntroOutroSelection(selection ?? {
-        intro_path: null,
-        outro_path: null,
+        schema_version: 1,
+        intro_asset_id: null,
+        outro_asset_id: null,
         updated_at: new Date().toISOString(),
       });
     } catch (error) {
@@ -6748,12 +6775,19 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   function upsertPackagingPlacement(args: {
     entryId: string;
     assetPath: string;
+    assetId?: string;
     label: string;
     startSec: number;
     endSec: number;
     visualMode: string;
     uncertaintyFlags?: string[];
     overlayGeometry?: HammerVisualGeometry;
+    systemMeta?: {
+      system_managed: true;
+      system_type: "intro" | "outro";
+      system_source: "profile" | "episode" | "manual";
+      system_asset_id: string;
+    };
   }): void {
     applyHistoryMutation({
       label: `Apply ${args.label}`,
@@ -6806,12 +6840,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           overlay_opacity: 1,
           overlay_z_index: existingClip?.z_index ?? (visualTimeline.clips.length + 1),
         };
-        const assetId = deriveStableHammerVisualAssetId(nextPlacement);
-        const nextClip = migrateLegacyPlacementRecordToClip({
+        const assetId = args.assetId ?? deriveStableHammerVisualAssetId(nextPlacement);
+        const nextClipBase = migrateLegacyPlacementRecordToClip({
           record: nextPlacement,
           asset_id: assetId,
           updated_at: updatedAt,
         });
+        const nextClip: HammerVisualClip = args.systemMeta
+          ? {
+            ...nextClipBase,
+            system_managed: true,
+            system_type: args.systemMeta.system_type,
+            system_source: args.systemMeta.system_source,
+            system_asset_id: args.systemMeta.system_asset_id,
+          }
+          : nextClipBase;
         if (existingClip) {
           let nextState = applyVisualTimelineAction(before, {
             type: "UPDATE_CLIP_TIMING",
@@ -6852,6 +6895,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                     ...clip,
                     asset_id: assetId,
                     entry_id: nextClip.entry_id,
+                    system_managed: args.systemMeta?.system_managed ?? clip.system_managed,
+                    system_type: args.systemMeta?.system_type ?? clip.system_type,
+                    system_source: args.systemMeta?.system_source ?? clip.system_source,
+                    system_asset_id: args.systemMeta?.system_asset_id ?? clip.system_asset_id,
                     label: nextClip.label,
                     visual_mode: nextClip.visual_mode,
                     confidence: nextClip.confidence,
@@ -6947,39 +6994,79 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
   }
 
-  function applyIntroPlacement(): void {
-    if (!introOutroSelection.intro_path) {
-      setTranscriptTimingHint("Select an intro asset first in Intro/Outro Source Desk.");
+  function applyIntroToTimeline(
+    assetId: string,
+    source: "profile" | "episode" | "manual",
+  ): void {
+    const resolved = introOutroCandidateItemsById.get(assetId) ?? null;
+    if (!resolved?.path) {
+      setTranscriptTimingHint("Intro asset is unavailable. Re-upload or re-select it in Intro/Outro Source Desk.");
       return;
     }
     const introDurationSec = Math.min(6, Math.max(2, roundToTenth(Math.max(2, transcriptDurationSec * 0.1))));
     upsertPackagingPlacement({
       entryId: PACKAGING_INTRO_ENTRY_ID,
-      assetPath: introOutroSelection.intro_path,
+      assetPath: resolved.path,
+      assetId,
       label: "Packaging Intro",
       startSec: 0,
       endSec: introDurationSec,
       visualMode: "packaging_intro",
       uncertaintyFlags: ["packaging:intro"],
+      systemMeta: {
+        system_managed: true,
+        system_type: "intro",
+        system_source: source,
+        system_asset_id: assetId,
+      },
     });
   }
 
-  function applyOutroPlacement(): void {
-    if (!introOutroSelection.outro_path) {
-      setTranscriptTimingHint("Select an outro asset first in Intro/Outro Source Desk.");
+  function applyOutroToTimeline(
+    assetId: string,
+    source: "profile" | "episode" | "manual",
+  ): void {
+    const resolved = introOutroCandidateItemsById.get(assetId) ?? null;
+    if (!resolved?.path) {
+      setTranscriptTimingHint("Outro asset is unavailable. Re-upload or re-select it in Intro/Outro Source Desk.");
       return;
     }
     const outroDurationSec = Math.min(6, Math.max(2, roundToTenth(Math.max(2, transcriptDurationSec * 0.1))));
     const startSec = Math.max(0, roundToTenth(transcriptDurationSec - outroDurationSec));
     upsertPackagingPlacement({
       entryId: PACKAGING_OUTRO_ENTRY_ID,
-      assetPath: introOutroSelection.outro_path,
+      assetPath: resolved.path,
+      assetId,
       label: "Packaging Outro",
       startSec,
       endSec: transcriptDurationSec,
       visualMode: "packaging_outro",
       uncertaintyFlags: ["packaging:outro"],
+      systemMeta: {
+        system_managed: true,
+        system_type: "outro",
+        system_source: source,
+        system_asset_id: assetId,
+      },
     });
+  }
+
+  function applyIntroPlacement(): void {
+    const assetId = introOutroSelection.intro_asset_id;
+    if (!assetId) {
+      setTranscriptTimingHint("Select an intro asset first in Intro/Outro Source Desk.");
+      return;
+    }
+    applyIntroToTimeline(assetId, "manual");
+  }
+
+  function applyOutroPlacement(): void {
+    const assetId = introOutroSelection.outro_asset_id;
+    if (!assetId) {
+      setTranscriptTimingHint("Select an outro asset first in Intro/Outro Source Desk.");
+      return;
+    }
+    applyOutroToTimeline(assetId, "manual");
   }
 
   function toggleLogoOverlay(): void {
@@ -8607,8 +8694,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     structuredTranscript: exportBasis.transcriptForRelease,
     visualPlacements: editableVisualPlacements,
     audioPolish: editableAudioPolish,
-    introPath: introOutroSelection.intro_path,
-    outroPath: introOutroSelection.outro_path,
+    introPath: introOutroSelectedIntroPath,
+    outroPath: introOutroSelectedOutroPath,
     packagingLogoEnabled: Boolean(packagingLogoPlacement),
     readinessVerdict,
     readinessGate,
@@ -8620,8 +8707,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     exportBasis.transcriptForRelease,
     editableAudioPolish,
     editableVisualPlacements,
-    introOutroSelection.intro_path,
-    introOutroSelection.outro_path,
+    introOutroSelectedIntroPath,
+    introOutroSelectedOutroPath,
     packagingLogoPlacement,
     readinessVerdict,
     readinessGate,
@@ -10452,16 +10539,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                   <section className="hammer-source-card">
                     <header className="hammer-source-card__head">
                       <strong>Project Intro</strong>
-                      <span>{introOutroSelection.intro_path ? "selected" : "not set"}</span>
+                      <span>
+                        {introOutroSelection.intro_asset_id
+                          ? (introOutroSelectedIntroPath ? "selected" : "selected (unresolved)")
+                          : "not set"}
+                      </span>
                     </header>
                     <select
                       className="hammer-source-select"
                       aria-label="Project intro media selection"
-                      value={introOutroSelection.intro_path ?? ""}
+                      value={introOutroSelection.intro_asset_id ?? ""}
                       onChange={(event) => {
                         const next: HammerIntroOutroSelection = {
                           ...introOutroSelection,
-                          intro_path: event.target.value || null,
+                          intro_asset_id: event.target.value || null,
                           updated_at: new Date().toISOString(),
                         };
                         void persistIntroOutroSelection(next);
@@ -10469,28 +10560,41 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       disabled={savingIntroOutro}
                     >
                       <option value="">No intro</option>
+                      {introOutroSelection.intro_asset_id && !introOutroSelectedIntroPath ? (
+                        <option value={introOutroSelection.intro_asset_id} disabled>
+                          Missing intro asset ({introOutroSelection.intro_asset_id})
+                        </option>
+                      ) : null}
                       {introOutroCandidateItems.map((item) => (
-                        <option key={`intro-${item.path}`} value={item.path}>
+                        <option key={`intro-${item.assetId}`} value={item.assetId}>
                           {item.name} ({item.kind})
                         </option>
                       ))}
                     </select>
-                    <div className="hammer-source-card__path">{introOutroSelection.intro_path ?? "No intro selected"}</div>
+                    <div className="hammer-source-card__path">
+                      {introOutroSelection.intro_asset_id
+                        ? (introOutroSelectedIntroPath ?? `Unresolved intro selection (${introOutroSelection.intro_asset_id})`)
+                        : "No intro selected"}
+                    </div>
                   </section>
 
                   <section className="hammer-source-card">
                     <header className="hammer-source-card__head">
                       <strong>Project Outro</strong>
-                      <span>{introOutroSelection.outro_path ? "selected" : "not set"}</span>
+                      <span>
+                        {introOutroSelection.outro_asset_id
+                          ? (introOutroSelectedOutroPath ? "selected" : "selected (unresolved)")
+                          : "not set"}
+                      </span>
                     </header>
                     <select
                       className="hammer-source-select"
                       aria-label="Project outro media selection"
-                      value={introOutroSelection.outro_path ?? ""}
+                      value={introOutroSelection.outro_asset_id ?? ""}
                       onChange={(event) => {
                         const next: HammerIntroOutroSelection = {
                           ...introOutroSelection,
-                          outro_path: event.target.value || null,
+                          outro_asset_id: event.target.value || null,
                           updated_at: new Date().toISOString(),
                         };
                         void persistIntroOutroSelection(next);
@@ -10498,13 +10602,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                       disabled={savingIntroOutro}
                     >
                       <option value="">No outro</option>
+                      {introOutroSelection.outro_asset_id && !introOutroSelectedOutroPath ? (
+                        <option value={introOutroSelection.outro_asset_id} disabled>
+                          Missing outro asset ({introOutroSelection.outro_asset_id})
+                        </option>
+                      ) : null}
                       {introOutroCandidateItems.map((item) => (
-                        <option key={`outro-${item.path}`} value={item.path}>
+                        <option key={`outro-${item.assetId}`} value={item.assetId}>
                           {item.name} ({item.kind})
                         </option>
                       ))}
                     </select>
-                    <div className="hammer-source-card__path">{introOutroSelection.outro_path ?? "No outro selected"}</div>
+                    <div className="hammer-source-card__path">
+                      {introOutroSelection.outro_asset_id
+                        ? (introOutroSelectedOutroPath ?? `Unresolved outro selection (${introOutroSelection.outro_asset_id})`)
+                        : "No outro selected"}
+                    </div>
                   </section>
                   <div className="hammer-source-summary">
                     <span>Saved to Tongs workpiece storage</span>
@@ -13670,7 +13783,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                           setFocusOverride("tool-focus");
                           applyIntroPlacement();
                         }}
-                        disabled={!introOutroSelection.intro_path}
+                        disabled={!introOutroSelection.intro_asset_id || !introOutroSelectedIntroPath}
                       >
                         Apply Intro
                       </button>
@@ -13678,16 +13791,40 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
                         type="button"
                         onClick={() => {
                           setFocusOverride("tool-focus");
+                          removePackagingPlacement(PACKAGING_INTRO_ENTRY_ID, "Remove packaging intro");
+                        }}
+                        disabled={!packagingIntroPlacement}
+                      >
+                        Remove Intro
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFocusOverride("tool-focus");
                           applyOutroPlacement();
                         }}
-                        disabled={!introOutroSelection.outro_path}
+                        disabled={!introOutroSelection.outro_asset_id || !introOutroSelectedOutroPath}
                       >
                         Apply Outro
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFocusOverride("tool-focus");
+                          removePackagingPlacement(PACKAGING_OUTRO_ENTRY_ID, "Remove packaging outro");
+                        }}
+                        disabled={!packagingOutroPlacement}
+                      >
+                        Remove Outro
+                      </button>
                     </div>
                     <div className="hammer-tool-hint">
-                      Intro: {introOutroSelection.intro_path ? "ready" : "not selected"} ·
-                      {" "}Outro: {introOutroSelection.outro_path ? "ready" : "not selected"}
+                      Intro: {introOutroSelection.intro_asset_id
+                        ? (introOutroSelectedIntroPath ? "selected" : "selected (unresolved)")
+                        : "not selected"} ·
+                      {" "}Outro: {introOutroSelection.outro_asset_id
+                        ? (introOutroSelectedOutroPath ? "selected" : "selected (unresolved)")
+                        : "not selected"}
                     </div>
                     <div className="hammer-tool-hint">
                       Intro applied: {packagingIntroPlacement ? "yes" : "no"} ·
