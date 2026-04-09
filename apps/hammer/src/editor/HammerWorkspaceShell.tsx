@@ -15,7 +15,6 @@ import {
 } from "../../../../packages/tongs/src/hammer-orchestration-contract";
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
 import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
-import { HAMMER_PASS_ORDER_VERSION } from "../persistence/hammerPersistenceContract";
 import type {
   HammerPassId,
   HammerPassStatusMap,
@@ -42,16 +41,10 @@ import {
 } from "../visuals/state/hammerVisualSelectors";
 import VisualTimelineDock from "../visuals/components/VisualTimelineDock";
 import type { VisualClipBlockModel } from "../visuals/components/VisualClipBlock";
-import VisualPreviewComposer, {
-  type VisualPreviewOverlayModel,
-} from "../visuals/components/VisualPreviewComposer";
-import BackgroundBlurPreviewLayer, {
-  type HammerBackgroundBlurRuntimeStatus,
-} from "../features/visual-effects/render/backgroundBlurPreviewLayer";
+import type { VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
+import type { HammerBackgroundBlurRuntimeStatus } from "../features/visual-effects/render/backgroundBlurPreviewLayer";
 import { summarizeBackgroundEffectRuntimeStatus } from "../features/visual-effects/render/backgroundEffectStatusSummary";
-import EyeContactAssistPreviewLayer, {
-  type HammerEyeContactAssistRuntimeStatus,
-} from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
+import type { HammerEyeContactAssistRuntimeStatus } from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
 import { summarizeEyeContactAssistRuntimeStatus } from "../features/eye-contact-assist/render/eyeContactAssistStatusSummary";
 import type { BackgroundBlurSettings } from "../features/visual-effects/types";
 import {
@@ -138,10 +131,6 @@ import PolishResultSummary, {
 } from "./PolishResultSummary";
 import { HammerWaveformLane } from "./HammerWaveformLane";
 import {
-  createHammerHistoryController,
-  createHammerHistoryDocument,
-  hashEditorState,
-  normalizeHammerHistoryDocument,
   cloneEditorState,
   type HammerEditorStateSerializable,
   type HammerHistoryController,
@@ -159,13 +148,9 @@ import {
   setHammerDerivedTextLayerOutput,
 } from "../macros/hammerDerivedTranscriptLayers";
 import {
-  loadHammerHistoryDocument,
-  loadHammerHistoryPresence,
-  loadHammerRevisionHistoryDocument,
   saveHammerHistoryDocument,
   saveHammerRevisionHistoryDocument,
 } from "../lib/hammerHistoryArtifactApi";
-import { resolveHammerHistoryStatus } from "../lib/hammerHistoryStatus";
 import { diffWords } from "../lib/hammerWordDiff";
 import {
   buildCandidateQueue,
@@ -187,8 +172,6 @@ import {
 } from "../visuals/model/hammerVisualMigrations";
 import { hammerVisualTimelineReducer } from "../visuals/state/hammerVisualReducer";
 import {
-  loadHammerSnapshotManifest,
-  loadHammerSnapshotPayload,
   saveHammerSnapshotManifest,
   saveHammerSnapshotPayload,
   type HammerSnapshotManifestV1,
@@ -305,6 +288,11 @@ import {
   generateReferenceClipPng,
   type ReferenceClipInput,
 } from "./hammerReferenceClipGeneratorV1";
+import HammerWorkspaceShellToolbar from "./HammerWorkspaceShellToolbar";
+import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay";
+import { useHammerWorkspaceShellHistoryController } from "./hammerWorkspaceShellHistoryController";
+import { useHammerWorkspaceShellSourceDeskPreviews } from "./hammerWorkspaceShellSourceDeskPreviews";
+import { useHammerWorkspaceShellSnapshotEmitter } from "./hammerWorkspaceShellSnapshotEmitter";
 import "./HammerWorkspaceShell.css";
 
 const SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY = 4;
@@ -3992,198 +3980,51 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }));
   }, [speakerOptions, speakerPanelOptions.hostSpeaker]);
 
-  useEffect(() => {
-    let active = true;
-    clearPersistTimer();
-    snapshotManifestRef.current = null;
-    lastSnapshottedHeadEntryIdRef.current = null;
-
-    const synced = syncEditableTranscriptSegments(transcriptSegments, selectedSegmentId);
-    const baselineOutputSelection = resolveOutputSelectionFromTranscript(props.structuredTranscript ?? null);
-    const baselineEditPlan = launchContext.edit_plan
-      ? {
-        ...launchContext.edit_plan,
-        instructions: launchContext.edit_plan.instructions.map((instruction) => ({ ...instruction })),
-      }
-      : createFallbackEditPlan(launchContext, transcriptSourceId, previewMode);
-    const baselineAuthorityGraph = projectEditorialAuthorityGraphFromEditPlan({
-      editPlan: baselineEditPlan,
-      workspaceId: launchContext.workspace_id,
-      workpieceId: launchContext.workpiece_id,
-      sessionId: launchContext.session_id ?? baselineEditPlan.session_id ?? `${launchContext.workpiece_id}:session`,
-    });
-    const baselineState = toEditorState({
-      segments: synced.segments,
-      visualPlacements: props.visualPlacements ?? null,
-      visualTimeline: props.visualTimeline ?? null,
-      studioRack: createDefaultHammerStudioRackState(),
-      editorialAuthorityGraph: baselineAuthorityGraph,
-      outputSelection: baselineOutputSelection,
-      selectedSegmentId: synced.selectedSegmentId,
-      playheadSec: Math.max(0, Math.min(playheadSec, resolveTranscriptDurationSec(synced.segments))),
-      transcriptTimingHint: null,
-    });
-    historyBaselineStateRef.current = cloneEditorState(baselineState);
-    baselineDerivedLayersRef.current = cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers);
-    const baseRevisionId = hashEditorState(baselineState);
-
-    historyControllerRef.current = createHammerHistoryController({
-      document: createHammerHistoryDocument({
-        workpieceId: launchContext.workpiece_id,
-        sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
-        baseRevisionId,
-      }),
-      initialState: baselineState,
-      maxUndoSteps: HISTORY_MAX_SIZE,
-    });
-
-    applyWorkspaceState(baselineState);
-    selectionOriginRef.current = "system";
-    setTimelineMarkers([]);
-    setSelectedClipId(null);
-    setImagePlacementDraftWindows({});
-    setTimelineImageDragState(null);
-    setImagePlacementTransforms({});
-    setPreviewCanvasDragState(null);
-    setImageAnimationContextMenu(null);
-    setEditableDerivedTextLayers(cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers));
-    derivedLayerHistoryRef.current.clear();
-    setCaptionBuildState(null);
-    setCaptionEditedState(null);
-    setActiveCaptionArtifactMode("built");
-    setAudioFinalizationCompareMode("after");
-    setPackagingLogoAssetPath(null);
-    setPackagingLogoPosition("top_right");
-    setPackagingLogoSize("medium");
-    setCaptionBuildFeedback(null);
-
-    void (async () => {
-      const revisionId = props.recordingRevisionId ?? null;
-      const historyResult = revisionId
-        ? await loadHammerRevisionHistoryDocument({
-          workpieceId: launchContext.workpiece_id,
-          revisionId,
-        })
-        : await loadHammerHistoryDocument(launchContext.workpiece_id);
-      const snapshotManifestResult = revisionId
-        ? { ok: true as const, status: 200, exists: false, data: null as HammerSnapshotManifestV1 | null }
-        : await loadHammerSnapshotManifest(launchContext.workpiece_id);
-      const historyPresenceResult = revisionId
-        ? { ok: true as const, status: 200, exists: true, data: null as { version: number } | null }
-        : await loadHammerHistoryPresence(launchContext.workpiece_id);
-      if (!active) return;
-
-      let snapshotRecoveryStatus: string | null = null;
-      if (!snapshotManifestResult.ok) {
-        snapshotManifestRef.current = null;
-        lastSnapshottedHeadEntryIdRef.current = null;
-        snapshotRecoveryStatus = "Snapshot fallback: manifest unavailable. Opened with full history replay.";
-      } else {
-        snapshotManifestRef.current = snapshotManifestResult.exists ? (snapshotManifestResult.data ?? null) : null;
-        lastSnapshottedHeadEntryIdRef.current = resolveActiveSnapshotHeadEntryId(snapshotManifestRef.current);
-      }
-
-      if (!historyResult.ok) {
-        setHistoryStatus(historyResult.error);
-        return;
-      }
-      const snapshotManifestExists = snapshotManifestResult.ok && snapshotManifestResult.exists;
-      const historyPresenceSentinelExists = historyPresenceResult.ok
-        ? historyPresenceResult.exists
-        : true; // unknown -> do not suppress warnings
-      const historyExists = historyResult.exists && Boolean(historyResult.data);
-      if (!historyExists) {
-        setHistoryStatus(resolveHammerHistoryStatus({
-          historyExists: false,
-          snapshotManifestExists,
-          historyPresenceSentinelExists,
-          snapshotRecoveryStatus,
-        }));
-        return;
-      }
-
-      const loaded = normalizeHammerHistoryDocument(historyResult.data, {
-        workpieceId: launchContext.workpiece_id,
-        sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
-        baseRevisionId,
-      });
-
-      if (loaded.baseRevisionId !== baseRevisionId) {
-        setHistoryStatus("History base revision mismatch detected. Opened baseline without replay.");
-        return;
-      }
-
-      const controller = createHammerHistoryController({
-        document: loaded,
-        initialState: baselineState,
-        maxUndoSteps: HISTORY_MAX_SIZE,
-      });
-      let replayed = controller.getReplayStateFromBaseline(baselineState);
-
-      const manifest = snapshotManifestRef.current;
-      const activeSnapshotRef = manifest?.activeSnapshotRef ?? null;
-      if (activeSnapshotRef) {
-        const activeSnapshotEntry = manifest?.snapshots.find((entry) => entry.snapshotRef === activeSnapshotRef) ?? null;
-        if (!activeSnapshotEntry) {
-          snapshotRecoveryStatus = "Snapshot fallback: active snapshot missing from manifest. Opened with full history replay.";
-        } else {
-          const snapshotPayloadResult = await loadHammerSnapshotPayload({
-            workpieceId: launchContext.workpiece_id,
-            snapshotRef: activeSnapshotRef,
-          });
-          if (!active) return;
-          if (!snapshotPayloadResult.ok) {
-            snapshotRecoveryStatus = "Snapshot fallback: payload unavailable. Opened with full history replay.";
-          } else if (!snapshotPayloadResult.exists || !snapshotPayloadResult.data) {
-            snapshotRecoveryStatus = "Snapshot fallback: payload missing. Opened with full history replay.";
-          } else {
-            const snapshot = snapshotPayloadResult.data;
-            const workpieceMatches = snapshot.workpieceId === launchContext.workpiece_id;
-            const baseRevisionMatches = snapshot.baseRevisionId === baseRevisionId;
-            const headExistsInLedger = snapshot.headEntryId == null || loaded.undoStack.includes(snapshot.headEntryId);
-            if (!workpieceMatches || !baseRevisionMatches || !headExistsInLedger) {
-              const reason = !workpieceMatches
-                ? "workpiece mismatch"
-                : !baseRevisionMatches
-                ? "base revision mismatch"
-                : "snapshot head not found in ledger";
-              snapshotRecoveryStatus = `Snapshot fallback: ${reason}. Opened with full history replay.`;
-            } else {
-              replayed = controller.getReplayStateFromBaseline(
-                snapshot.editorState,
-                snapshot.headEntryId,
-              );
-              snapshotRecoveryStatus = null;
-            }
-          }
-        }
-      }
-
-      controller.replaceState(replayed);
-      historyControllerRef.current = controller;
-      applyWorkspaceState(replayed);
-      setHistoryStatus(resolveHammerHistoryStatus({
-        historyExists: true,
-        snapshotManifestExists,
-        historyPresenceSentinelExists,
-        snapshotRecoveryStatus,
-      }));
-    })().catch((error) => {
-      if (!active) return;
-      setHistoryStatus(toErrorMessage(error, "Hammer could not recover persistent history."));
-    });
-
-    return () => {
-      active = false;
-      clearPersistTimer();
-    };
-  }, [
-    launchContext.workpiece_id,
-    props.recordingRevisionId,
+  useHammerWorkspaceShellHistoryController({
+    launchContext,
+    recordingRevisionId: props.recordingRevisionId ?? null,
     structuredTranscriptResetKey,
-    transcriptSourceId,
     visualTimelineResetKey,
-  ]);
+    transcriptSourceId,
+    previewMode,
+    maxUndoSteps: HISTORY_MAX_SIZE,
+    playheadSec,
+    selectedSegmentId,
+    transcriptSegments,
+    structuredTranscript: props.structuredTranscript ?? null,
+    visualPlacements: props.visualPlacements ?? null,
+    visualTimeline: props.visualTimeline ?? null,
+    clearPersistTimer,
+    snapshotManifestRef,
+    lastSnapshottedHeadEntryIdRef,
+    historyBaselineStateRef,
+    baselineDerivedLayersRef,
+    historyControllerRef,
+    derivedLayerHistoryRef,
+    applyWorkspaceState,
+    setHistoryStatus,
+    toErrorMessage,
+    setTimelineMarkers: (markers) => setTimelineMarkers(markers),
+    setSelectedClipId,
+    setImagePlacementDraftWindows,
+    setTimelineImageDragState,
+    setImagePlacementTransforms,
+    setPreviewCanvasDragState,
+    setImageAnimationContextMenu,
+    setEditableDerivedTextLayers,
+    setCaptionBuildState,
+    setCaptionEditedState,
+    setActiveCaptionArtifactMode,
+    setAudioFinalizationCompareMode,
+    setPackagingLogoAssetPath,
+    setPackagingLogoPosition,
+    setPackagingLogoSize,
+    setCaptionBuildFeedback,
+    createFallbackEditPlan,
+    resolveOutputSelectionFromTranscript,
+    toEditorState,
+    cloneHammerDerivedTextLayers,
+  });
 
   useEffect(() => {
     const selectedStillExists = selectedSegmentId
@@ -4758,81 +4599,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     };
   }, [launchContext.workpiece_id]);
 
-  useEffect(() => {
-    let active = true;
-    const nextUrls: Record<string, string> = {};
-    const nextFailures: Record<string, true> = {};
-    const previewPaths = sourceDeskPreviewFetchPaths;
-
-    if (sourceDeskPreviewPaths.length > SOURCE_DESK_PREVIEW_MAX_ITEMS) {
-      console.info("Hammer Source Desk preview load capped", {
-        workpieceId: launchContext.workpiece_id,
-        requested: sourceDeskPreviewPaths.length,
-        loaded: previewPaths.length,
-      });
-    }
-
-    async function loadPreviewBatch(paths: string[]): Promise<void> {
-      await Promise.all(paths.map(async (path) => {
-        try {
-          const url = await loadWorkpieceMediaPreviewUrl({
-            workpieceId: launchContext.workpiece_id,
-            path,
-            surface: "source_desk_preview",
-          });
-          nextUrls[path] = url;
-        } catch (error) {
-          nextFailures[path] = true;
-          const diagnostics = readHammerMediaPreviewErrorDiagnostics(error);
-          console.warn("Hammer Source Desk preview unavailable", {
-            workpieceId: launchContext.workpiece_id,
-            originalPath: diagnostics?.originalPath ?? path,
-            normalizedPath: diagnostics?.normalizedPath
-              ?? normalizeWorkpieceRelativePath(launchContext.workpiece_id, path),
-            status: diagnostics?.status ?? null,
-            error,
-          });
-        }
-      }));
-    }
-
-    void (async () => {
-      for (let index = 0; index < previewPaths.length; index += SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY) {
-        if (!active) break;
-        const batch = previewPaths.slice(index, index + SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY);
-        await loadPreviewBatch(batch);
-      }
-
-      if (!active) {
-        for (const url of Object.values(nextUrls)) URL.revokeObjectURL(url);
-        return;
-      }
-      setSourceDeskPreviewUrls((previous) => {
-        const previousKeys = Object.keys(previous);
-        const nextKeys = Object.keys(nextUrls);
-        const unchanged = previousKeys.length === nextKeys.length
-          && nextKeys.every((key) => previous[key] === nextUrls[key]);
-        if (unchanged) return previous;
-        for (const url of Object.values(previous)) URL.revokeObjectURL(url);
-        return nextUrls;
-      });
-      setSourceDeskPreviewFailures((previous) => {
-        const previousKeys = Object.keys(previous);
-        const nextKeys = Object.keys(nextFailures);
-        const unchanged = previousKeys.length === nextKeys.length
-          && nextKeys.every((key) => previous[key] === nextFailures[key]);
-        return unchanged ? previous : nextFailures;
-      });
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [launchContext.workpiece_id, sourceDeskPreviewFetchKey]);
-
-  useEffect(() => () => {
-    for (const url of Object.values(sourceDeskPreviewUrls)) URL.revokeObjectURL(url);
-  }, [sourceDeskPreviewUrls]);
+  useHammerWorkspaceShellSourceDeskPreviews({
+    workpieceId: launchContext.workpiece_id,
+    previewPaths: sourceDeskPreviewFetchPaths,
+    requestedPreviewPathCount: sourceDeskPreviewPaths.length,
+    fetchKey: sourceDeskPreviewFetchKey,
+    maxItems: SOURCE_DESK_PREVIEW_MAX_ITEMS,
+    concurrency: SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY,
+    loadWorkpieceMediaPreviewUrl,
+    readHammerMediaPreviewErrorDiagnostics,
+    normalizeWorkpieceRelativePath,
+    setPreviewUrls: setSourceDeskPreviewUrls,
+    setPreviewFailures: setSourceDeskPreviewFailures,
+    previewUrls: sourceDeskPreviewUrls,
+  });
 
   async function handleSourceDeskUpload(
     category: "images" | "broll" | "introoutro",
@@ -8767,6 +8547,124 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return byPass;
   }, [passSelectorContext]);
+  const previewBayVM = useMemo(() => ({
+    previewModeLabel: previewMode,
+    previewSurfaceRef,
+    previewAudioRef,
+    previewBrollVideoRefs,
+    playbackMediaSrc,
+    isPlaybackActive,
+    playbackWindow,
+    handlePlaybackProgress,
+    setIsPlaybackActive,
+    clearPlaybackWindow: () => setPlaybackWindow(null),
+    togglePlayback,
+    playheadSec,
+    playbackModeLabel,
+    playbackSourceLabel,
+    mediaLabelMismatchWarning,
+    playbackBackendLabel: studioRackPlaybackConfig.backend,
+    currentPassId: currentPass,
+    selectedImageAnimationLabel,
+    audioFinalizationCompareModeLabel: audioFinalizationCompareMode === "before" ? "Before" : "After",
+    packagingSummaryLabel: currentPass === "packaging"
+      ? `Packaging: intro ${packagingIntroPlacement ? "on" : "off"} · outro ${packagingOutroPlacement ? "on" : "off"} · logo ${packagingLogoPlacement ? "on" : "off"}`
+      : null,
+    previewSurfaceLabel,
+    backgroundEffect: {
+      enabled: visualBackgroundBlur || visualBackgroundReplaceEnabled || visualBackgroundWashEnabled,
+      settings: backgroundBlurSettings,
+      providerId: visualBackgroundBlurProviderId,
+      debugMasks: visualBackgroundBlurDebugMask,
+      onStatus: setVisualBackgroundBlurRuntimeStatus,
+      onCanvas: handleBackgroundEffectCanvas,
+    },
+    eyeContactAssist: {
+      enabled: visualEyeContactAssistEnabled,
+      strength: Math.max(0, Math.min(1, Number(visualEyeContactAssistStrength) || 0)),
+      backgroundCanvasRef: visualBackgroundEffectCanvasRef,
+      useBackgroundCanvasAsSource: eyeContactUseBackgroundCanvasAsSource,
+      debugOverlay: visualEyeContactAssistDebugOverlay,
+      onStatus: setVisualEyeContactAssistRuntimeStatus,
+    },
+    visualPreview: {
+      isAuthority: isVisualPreviewAuthority,
+      overlays: activePreviewOverlays,
+      editable: visualPlacementEditingEnabled,
+      onSelectClip: (clipId: string) => {
+        selectVisualClip({ clipId, origin: "preview", revealUI: true, snapPlayhead: false });
+      },
+      onBeginMove: (event: MouseEvent, clipId: string) => {
+        beginPreviewCanvasDrag(event as unknown as MouseEvent<HTMLElement>, {
+          placementId: clipId,
+          mode: "move",
+        });
+      },
+      onBeginResize: (event: MouseEvent, clipId: string) => {
+        beginPreviewCanvasDrag(event as unknown as MouseEvent<HTMLElement>, {
+          placementId: clipId,
+          mode: "resize",
+        });
+      },
+    },
+  }), [
+    activePreviewOverlays,
+    audioFinalizationCompareMode,
+    backgroundBlurSettings,
+    beginPreviewCanvasDrag,
+    currentPass,
+    eyeContactUseBackgroundCanvasAsSource,
+    handleBackgroundEffectCanvas,
+    handlePlaybackProgress,
+    isPlaybackActive,
+    isVisualPreviewAuthority,
+    mediaLabelMismatchWarning,
+    packagingIntroPlacement,
+    packagingLogoPlacement,
+    packagingOutroPlacement,
+    playbackMediaSrc,
+    playbackModeLabel,
+    playbackSourceLabel,
+    playbackWindow,
+    playheadSec,
+    previewAudioRef,
+    previewBrollVideoRefs,
+    previewMode,
+    previewSurfaceLabel,
+    previewSurfaceRef,
+    selectVisualClip,
+    selectedImageAnimationLabel,
+    setIsPlaybackActive,
+    setPlaybackWindow,
+    setVisualBackgroundBlurRuntimeStatus,
+    setVisualEyeContactAssistRuntimeStatus,
+    studioRackPlaybackConfig.backend,
+    togglePlayback,
+    visualBackgroundBlur,
+    visualBackgroundBlurDebugMask,
+    visualBackgroundBlurProviderId,
+    visualBackgroundReplaceEnabled,
+    visualBackgroundWashEnabled,
+    visualEyeContactAssistDebugOverlay,
+    visualEyeContactAssistEnabled,
+    visualEyeContactAssistStrength,
+    visualBackgroundEffectCanvasRef,
+    visualPlacementEditingEnabled,
+  ]);
+  const toolbarVM = useMemo(() => ({
+    passes: PASS_ORDER.map((pass) => {
+      const passResult = passSelectorResults.get(pass.id) ?? getPassStatus(pass.id, passSelectorContext);
+      return {
+        id: pass.id,
+        shortLabel: pass.shortLabel,
+        label: pass.label,
+        toolId: pass.toolId,
+        statusLabel: passResult.humanLabel,
+        isActive: currentPass === pass.id,
+      };
+    }),
+    onSelectPass: selectPass,
+  }), [currentPass, passSelectorContext, passSelectorResults, selectPass]);
   const currentPassSelectorResult = passSelectorResults.get(currentPass) ?? getPassStatus(currentPass, passSelectorContext);
   const readinessStatusLabel = readinessVerdict.status === "ready"
     ? "Ready for export"
@@ -9416,104 +9314,47 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
   }, [props.prepHandoffAction]);
 
-  useEffect(() => {
-    if (!props.onWorkspaceSnapshotChange) return;
-
-    const editPlan = launchContext.edit_plan
-      ? {
-        ...launchContext.edit_plan,
-        instructions: launchContext.edit_plan.instructions.map((instruction) => ({ ...instruction })),
-      }
-      : createFallbackEditPlan(launchContext, transcriptSourceId, previewMode);
-    const canonicalEditPlan = projectEditPlanFromEditorialAuthorityGraph({
-      graph: exportBasis.canonicalGraph,
-      fallback: editPlan,
-    });
-
-    const snapshot: HammerWorkspaceSnapshot = {
-      workspaceId: launchContext.workspace_id,
-      workpieceId: launchContext.workpiece_id,
-      sessionId: launchContext.session_id ?? editPlan.session_id ?? `${launchContext.workpiece_id}:session`,
-      sourceMode: launchContext.source_mode,
-      previewMode,
-      editPlanStatus: "clean",
-      editPlanSignature: createSemanticEditPlanSignature(transcriptSourceId, previewMode, canonicalEditPlan.instructions),
-      transcriptSourceId: transcriptSourceId,
-      currentPass,
-      passOrderVersion: HAMMER_PASS_ORDER_VERSION,
-      passStatus,
-      transcriptSegments: editableTranscriptSegments,
-      selectedSegmentId,
-      selectedOverlayRowId: selectedClipId,
-      visualPreviewSettings: {
-        white_balance: visualWhiteBalance,
-        color_amount: visualColorAmount,
-        background_blur: visualBackgroundBlur,
-        eye_contact_assist_enabled: visualEyeContactAssistEnabled,
-        eye_contact_assist_strength: visualEyeContactAssistStrength,
-        background_blur_px: visualBackgroundBlurPx,
-        background_blur_feather_px: visualBackgroundBlurFeatherPx,
-        background_blur_temporal_smoothing: visualBackgroundBlurTemporalSmoothing,
-        background_blur_subject_expansion_px: visualBackgroundBlurSubjectExpansionPx,
-        background_blur_quality_mode: visualBackgroundBlurQualityMode,
-        background_blur_fallback_mode: visualBackgroundBlurFallbackMode,
-        background_blur_provider: visualBackgroundBlurProviderId ?? "mediapipe_selfie_segmentation",
-        background_replace_enabled: visualBackgroundReplaceEnabled,
-        background_replace_mode: visualBackgroundReplaceMode,
-        background_replace_color: visualBackgroundReplaceColor,
-        background_replace_image_url: visualBackgroundReplaceImageUrl.trim() ? visualBackgroundReplaceImageUrl.trim() : null,
-      },
-      mediaRef,
-      workspaceMapping,
-      mediaSourceLabel,
-      selectedMacroRecipeRef: props.selectedMacroRecipeRef ?? null,
-      lastMacroRunRef: props.lastMacroRunRef ?? null,
-      structuredTranscript: exportBasis.transcriptForRelease,
-      editPlan: canonicalEditPlan,
-      editorialAuthorityGraph: exportBasis.canonicalGraph,
-      visualPlacements: editableVisualTimeline
-        ? deriveLegacyVisualPlacementsFromTimeline(editableVisualTimeline)
-        : editableVisualPlacements,
-      visualTimeline: editableVisualTimeline,
-      audioPolish: editableAudioPolish,
-    };
-
-    props.onWorkspaceSnapshotChange(snapshot);
-  }, [
+  useHammerWorkspaceShellSnapshotEmitter({
+    onWorkspaceSnapshotChange: props.onWorkspaceSnapshotChange,
     launchContext,
-    mediaRef,
-    mediaSourceLabel,
+    transcriptSourceId,
     previewMode,
-    props.lastMacroRunRef,
-    props.onWorkspaceSnapshotChange,
-    props.selectedMacroRecipeRef,
-    exportBasis.transcriptForRelease,
+    mediaRef,
+    workspaceMapping,
+    mediaSourceLabel,
+    selectedMacroRecipeRef: props.selectedMacroRecipeRef ?? null,
+    lastMacroRunRef: props.lastMacroRunRef ?? null,
+    exportTranscriptForRelease: exportBasis.transcriptForRelease,
+    exportCanonicalGraph: exportBasis.canonicalGraph,
+    currentPass,
+    passStatus,
+    editableTranscriptSegments,
+    selectedSegmentId,
+    selectedOverlayRowId: selectedClipId,
     editableVisualPlacements,
     editableVisualTimeline,
     editableAudioPolish,
-    currentPass,
-    passStatus,
-    selectedSegmentId,
-    visualBackgroundBlur,
-    visualBackgroundBlurFeatherPx,
-    visualBackgroundBlurFallbackMode,
-    visualBackgroundBlurPx,
-    visualBackgroundBlurQualityMode,
-    visualBackgroundBlurSubjectExpansionPx,
-    visualBackgroundBlurTemporalSmoothing,
-    visualBackgroundReplaceColor,
-    visualBackgroundReplaceEnabled,
+    visualPreviewSettings: {
+      white_balance: visualWhiteBalance,
+      color_amount: visualColorAmount,
+      background_blur: visualBackgroundBlur,
+      eye_contact_assist_enabled: visualEyeContactAssistEnabled,
+      eye_contact_assist_strength: visualEyeContactAssistStrength,
+      background_blur_px: visualBackgroundBlurPx,
+      background_blur_feather_px: visualBackgroundBlurFeatherPx,
+      background_blur_temporal_smoothing: visualBackgroundBlurTemporalSmoothing,
+      background_blur_subject_expansion_px: visualBackgroundBlurSubjectExpansionPx,
+      background_blur_quality_mode: visualBackgroundBlurQualityMode,
+      background_blur_fallback_mode: visualBackgroundBlurFallbackMode,
+      background_blur_provider: visualBackgroundBlurProviderId ?? "mediapipe_selfie_segmentation",
+      background_replace_enabled: visualBackgroundReplaceEnabled,
+      background_replace_mode: visualBackgroundReplaceMode,
+      background_replace_color: visualBackgroundReplaceColor,
+    },
     visualBackgroundReplaceImageUrl,
-    visualBackgroundReplaceMode,
-    visualColorAmount,
-    visualEyeContactAssistEnabled,
-    visualEyeContactAssistStrength,
-    visualWhiteBalance,
-    editableTranscriptSegments,
-    transcriptSourceId,
-    workspaceMapping,
-    props.visualTimeline,
-  ]);
+    visualTimelineProp: props.visualTimeline ?? null,
+    createFallbackEditPlan,
+  });
 
   return (
     <section
@@ -10680,116 +10521,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           </section>
 
           <section className="hammer-preview-bay">
-            <header className="hammer-bay-head">
-              <strong>Preview Monitors</strong>
-              <span>{previewMode}</span>
-            </header>
-            <div className="hammer-bay-body hammer-preview-bay__body">
-              <div className="hammer-preview-surface" ref={previewSurfaceRef}>
-                <video
-                  ref={previewAudioRef}
-                  src={playbackMediaSrc ?? undefined}
-                  preload="metadata"
-                  playsInline
-                  onTimeUpdate={(event) => {
-                    if (!isPlaybackActive) return;
-                    handlePlaybackProgress(event.currentTarget.currentTime);
-                  }}
-                  onEnded={() => {
-                    setIsPlaybackActive(false);
-                    if (playbackWindow?.mode === "roll") {
-                      setPlaybackWindow(null);
-                    }
-                  }}
-                  className="hammer-preview-media"
-                />
-                <BackgroundBlurPreviewLayer
-                  enabled={visualBackgroundBlur || visualBackgroundReplaceEnabled || visualBackgroundWashEnabled}
-                  settings={backgroundBlurSettings}
-                  providerId={visualBackgroundBlurProviderId}
-                  videoRef={previewAudioRef}
-                  onStatus={setVisualBackgroundBlurRuntimeStatus}
-                  debugMasks={visualBackgroundBlurDebugMask}
-                  onCanvas={handleBackgroundEffectCanvas}
-                />
-                <EyeContactAssistPreviewLayer
-                  enabled={visualEyeContactAssistEnabled}
-                  settings={{
-                    enabled: visualEyeContactAssistEnabled,
-                    strength: Math.max(0, Math.min(1, Number(visualEyeContactAssistStrength) || 0)),
-                  }}
-                  videoRef={previewAudioRef}
-                  backgroundCanvasRef={visualBackgroundEffectCanvasRef}
-                  useBackgroundCanvasAsSource={eyeContactUseBackgroundCanvasAsSource}
-                  debugOverlay={visualEyeContactAssistDebugOverlay}
-                  onStatus={setVisualEyeContactAssistRuntimeStatus}
-                />
-                <div className="hammer-preview-surface__label">{previewSurfaceLabel}</div>
-                <VisualPreviewComposer
-                  overlays={isVisualPreviewAuthority ? activePreviewOverlays : []}
-                  editable={isVisualPreviewAuthority && visualPlacementEditingEnabled}
-                  onSelectClip={(clipId) => {
-                    if (!isVisualPreviewAuthority) return;
-                    selectVisualClip({ clipId, origin: "preview", revealUI: true, snapPlayhead: false });
-                  }}
-                  onBeginMove={(event, clipId) => {
-                    if (!isVisualPreviewAuthority) return;
-                    if (!visualPlacementEditingEnabled) return;
-                    beginPreviewCanvasDrag(event, {
-                      placementId: clipId,
-                      mode: "move",
-                    });
-                  }}
-                  onBeginResize={(event, clipId) => {
-                    if (!isVisualPreviewAuthority) return;
-                    if (!visualPlacementEditingEnabled) return;
-                    beginPreviewCanvasDrag(event, {
-                      placementId: clipId,
-                      mode: "resize",
-                    });
-                  }}
-                  onRegisterBrollVideoRef={(clipId, node) => {
-                    if (node) {
-                      previewBrollVideoRefs.current.set(clipId, node);
-                    } else {
-                      previewBrollVideoRefs.current.delete(clipId);
-                    }
-                  }}
-                />
-              </div>
-              <div className="hammer-preview-meta">
-                <span>Playhead {playheadSec.toFixed(1)}s</span>
-                <span>{playbackModeLabel}</span>
-                <span>{playbackSourceLabel ?? "No media source"}</span>
-                {mediaLabelMismatchWarning ? (
-                  <span className="hammer-preview-meta__warning">{mediaLabelMismatchWarning}</span>
-                ) : null}
-                <span>Playback lane: {studioRackPlaybackConfig.backend}</span>
-                <span>{playbackMediaSrc ? "Mapped media ready" : "Mapped media unavailable"}</span>
-                {currentPass === "visual_finishing" ? (
-                  <span>Visual finishing preview mode active</span>
-                ) : null}
-                {currentPass === "image_animation" ? (
-                  <span>Image animation preset: {selectedImageAnimationLabel}</span>
-                ) : null}
-                {currentPass === "audio_finalization" ? (
-                  <span>Audio compare: {audioFinalizationCompareMode === "before" ? "Before" : "After"}</span>
-                ) : null}
-                {currentPass === "packaging" ? (
-                  <span>
-                    Packaging: intro {packagingIntroPlacement ? "on" : "off"} · outro {packagingOutroPlacement ? "on" : "off"} · logo {packagingLogoPlacement ? "on" : "off"}
-                  </span>
-                ) : null}
-                {playbackWindow ? (
-                  <span>
-                    Window {playbackWindow.startSec.toFixed(1)}s - {playbackWindow.endSec.toFixed(1)}s
-                  </span>
-                ) : null}
-                <button type="button" onClick={togglePlayback}>
-                  {isPlaybackActive ? "Pause (Space)" : "Play (Space)"}
-                </button>
-              </div>
-            </div>
+            <HammerWorkspaceShellPreviewBay vm={previewBayVM} />
           </section>
 
           <section className="hammer-tool-bay">
@@ -14893,22 +14625,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       ) : null}
 
       <nav className="hammer-toolbar" aria-label="Hammer pass toolbar">
-        <div className="hammer-toolbar__title">Passes</div>
-        {PASS_ORDER.map((pass) => {
-          const passResult = passSelectorResults.get(pass.id) ?? getPassStatus(pass.id, passSelectorContext);
-          return (
-          <button
-            key={pass.id}
-            type="button"
-            className={currentPass === pass.id ? "hammer-toolbar__tool is-active" : "hammer-toolbar__tool"}
-            onClick={() => selectPass(pass.id)}
-            title={`${pass.label} (${pass.toolId}) - ${passResult.humanLabel}`}
-          >
-            <strong>{pass.shortLabel}</strong>
-            <span>{pass.label}</span>
-          </button>
-          );
-        })}
+        <HammerWorkspaceShellToolbar vm={toolbarVM} />
       </nav>
     </section>
   );

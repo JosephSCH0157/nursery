@@ -30,10 +30,15 @@ async function testSnapshotAssistedOpenFlowIsPresent() {
     "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx",
     "utf-8",
   );
+  const hookSource = await readFile(
+    "d:/nursery/nursery/apps/hammer/src/editor/hammerWorkspaceShellHistoryController.ts",
+    "utf-8",
+  );
 
   caseAssert(
-    source.includes("loadHammerSnapshotManifest(launchContext.workpiece_id)")
-      && source.includes("loadHammerSnapshotPayload({"),
+    source.includes("useHammerWorkspaceShellHistoryController({")
+      && hookSource.includes("loadHammerSnapshotManifest(args.launchContext.workpiece_id)")
+      && hookSource.includes("loadHammerSnapshotPayload({"),
     {
       title: "snapshot artifacts load during bootstrap",
       setup: "Hammer opens editor workspace for a persisted workpiece.",
@@ -45,9 +50,9 @@ async function testSnapshotAssistedOpenFlowIsPresent() {
   );
 
   caseAssert(
-    source.includes("controller.getReplayStateFromBaseline(")
-      && source.includes("snapshot.editorState,")
-      && source.includes("snapshot.headEntryId,"),
+    hookSource.includes("controller.getReplayStateFromBaseline(")
+      && hookSource.includes("snapshot.editorState,")
+      && hookSource.includes("snapshot.headEntryId,"),
     {
       title: "snapshot tail replay path",
       setup: "Snapshot payload passes validation against baseline and ledger.",
@@ -64,9 +69,14 @@ async function testFallbackStatusMessagingIsExplicit() {
     "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx",
     "utf-8",
   );
+  const hookSource = await readFile(
+    "d:/nursery/nursery/apps/hammer/src/editor/hammerWorkspaceShellHistoryController.ts",
+    "utf-8",
+  );
 
   caseAssert(
-    source.includes("Snapshot fallback:"),
+    source.includes("useHammerWorkspaceShellHistoryController({")
+      && hookSource.includes("Snapshot fallback:"),
     {
       title: "explicit fallback status prefix",
       setup: "Snapshot recovery fails due to missing/corrupt/stale artifacts.",
@@ -78,8 +88,8 @@ async function testFallbackStatusMessagingIsExplicit() {
   );
 
   caseAssert(
-    source.includes("snapshot head not found in ledger")
-      && source.includes("base revision mismatch"),
+    hookSource.includes("snapshot head not found in ledger")
+      && hookSource.includes("base revision mismatch"),
     {
       title: "staleness guard reasons",
       setup: "Snapshot payload may be stale relative to current baseline or ledger.",

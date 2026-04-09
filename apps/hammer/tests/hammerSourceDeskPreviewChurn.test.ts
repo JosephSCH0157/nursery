@@ -78,6 +78,10 @@ async function source_desk_effect_depends_on_stable_key() {
     "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx",
     "utf-8",
   );
+  const hookSource = await readFile(
+    "d:/nursery/nursery/apps/hammer/src/editor/hammerWorkspaceShellSourceDeskPreviews.ts",
+    "utf-8",
+  );
 
   caseAssert(
     source.includes("const sourceDeskPreviewFetchKey = useMemo(")
@@ -93,8 +97,10 @@ async function source_desk_effect_depends_on_stable_key() {
   );
 
   caseAssert(
-    source.includes("}, [launchContext.workpiece_id, sourceDeskPreviewFetchKey]);")
-      && !source.includes("}, [launchContext.workpiece_id, sourceDeskPreviewPaths]);"),
+    source.includes("useHammerWorkspaceShellSourceDeskPreviews({")
+      && source.includes("fetchKey: sourceDeskPreviewFetchKey")
+      && hookSource.includes("}, [args.workpieceId, args.fetchKey]);")
+      && !hookSource.includes("}, [args.workpieceId, args.previewPaths]);"),
     {
       title: "preview effect boundary keyed by stable fingerprint",
       setup: "Equivalent parent rerenders can churn array/object identity.",
