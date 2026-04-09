@@ -19,15 +19,26 @@ function buildCheckerboardPatternCanvas(args: { cellPx: number; light: string; d
   return canvas;
 }
 
-function buildMatteCanvas(matte: ForegroundMatte): HTMLCanvasElement {
+function buildReplacementMatteCanvas(args: { matte: ForegroundMatte; featherPx: number }): HTMLCanvasElement {
+  // Replacement is a harsher inspection mode than blur: reduce haloing by
+  // suppressing very-low alpha and slightly hardening the transition curve.
   const canvas = document.createElement("canvas");
-  canvas.width = matte.width;
-  canvas.height = matte.height;
+  canvas.width = args.matte.width;
+  canvas.height = args.matte.height;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Canvas 2D not available for matte compositing.");
-  const image = ctx.createImageData(matte.width, matte.height);
+  const image = ctx.createImageData(args.matte.width, args.matte.height);
+  const threshold = Math.max(6, Math.min(22, Math.round(8 + (args.featherPx * 0.4))));
+  const gamma = 0.78;
   for (let i = 0, px = 0; i < image.data.length; i += 4, px += 1) {
-    const a = matte.alphaMask[px] ?? 0;
+    const raw = args.matte.alphaMask[px] ?? 0;
+    let a = raw;
+    if (a < threshold) {
+      a = 0;
+    } else {
+      const normalized = a / 255;
+      a = Math.max(0, Math.min(255, Math.round((normalized ** gamma) * 255)));
+    }
     image.data[i] = 255;
     image.data[i + 1] = 255;
     image.data[i + 2] = 255;
@@ -138,7 +149,7 @@ export class BackgroundReplacementRenderer implements BackgroundEffectRenderer {
       this.subjectCanvas.height = args.matte.height;
     }
     // Update matte pixels for the current frame.
-    this.matteCanvas = buildMatteCanvas(args.matte);
+    this.matteCanvas = buildReplacementMatteCanvas({ matte: args.matte, featherPx: args.settings.edgeFeatherPx });
 
     const subjCtx = this.subjectCanvas.getContext("2d", { willReadFrequently: true });
     if (!subjCtx) {
