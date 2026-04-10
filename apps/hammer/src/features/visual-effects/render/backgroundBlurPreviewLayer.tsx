@@ -281,9 +281,15 @@ export default function BackgroundBlurPreviewLayer(props: {
     debug: undefined,
   }));
 
+  // Avoid render loops if the parent passes a non-memoized callback that sets state.
+  // We always invoke the latest `onStatus`, but only when `runtimeStatus` changes.
+  const onStatusRef = useRef(props.onStatus);
   useEffect(() => {
-    props.onStatus?.(runtimeStatus);
-  }, [props, runtimeStatus]);
+    onStatusRef.current = props.onStatus;
+  }, [props.onStatus]);
+  useEffect(() => {
+    onStatusRef.current?.(runtimeStatus);
+  }, [runtimeStatus]);
 
   useEffect(() => {
     props.onCanvas?.(canvasRef.current);
