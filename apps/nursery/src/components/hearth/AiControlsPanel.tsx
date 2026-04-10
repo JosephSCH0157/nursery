@@ -12,6 +12,11 @@ import {
   hasByoKey,
 } from "../../lib/hearth/ai-settings";
 import {
+  clearHammerTranscriptPrepNonAiMissingBehavior,
+  readHammerTranscriptPrepNonAiMissingBehavior,
+  type HammerTranscriptPrepNonAiMissingBehavior,
+} from "../../lib/hammer/hammerTranscriptPrepPromptPreference";
+import {
   listVisualProviderOptions,
   type VisualProviderId,
 } from "../../../../hearth/src/lib/hearth-visual-provider-profiles";
@@ -325,6 +330,10 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
   const [alignmentPaused, setAlignmentPaused] = React.useState(() => isStyleAlignmentPaused(workspaceId));
   const [resetBusy, setResetBusy] = React.useState(false);
   const [resetNotice, setResetNotice] = React.useState<string | null>(null);
+  const [transcriptPrepBehavior, setTranscriptPrepBehavior] = React.useState<HammerTranscriptPrepNonAiMissingBehavior | null>(
+    () => readHammerTranscriptPrepNonAiMissingBehavior(),
+  );
+  const [transcriptPrepNotice, setTranscriptPrepNotice] = React.useState<string | null>(null);
   const [accelerateModalOpen, setAccelerateModalOpen] = React.useState(false);
   const [accelerateTab, setAccelerateTab] = React.useState<AccelerateLearningTab>("upload");
   const [pendingSamples, setPendingSamples] = React.useState<PendingStyleSample[]>([]);
@@ -358,6 +367,12 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
       setInsightsMeta(null);
       setResetNotice(null);
     }
+  }, []);
+
+  const resetTranscriptPrepPromptBehavior = React.useCallback(() => {
+    clearHammerTranscriptPrepNonAiMissingBehavior();
+    setTranscriptPrepBehavior(null);
+    setTranscriptPrepNotice("Transcript prep prompt behavior reset.");
   }, []);
 
   React.useEffect(() => {
@@ -1091,6 +1106,28 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
             <span>No BYO key set.</span>
           )}
         </div>
+      </div>
+
+      <div className="forge-ai-panel__section">
+        <div className="forge-ai-panel__label">Hammer Transcript Prep Prompt</div>
+        <div className="forge-ai-panel__row">
+          {transcriptPrepBehavior ? (
+            <span>
+              Saved preference: {transcriptPrepBehavior === "retry-non-ai" ? "Retry non-AI" : "Use AI fallback"}
+            </span>
+          ) : (
+            <span>Ask every time (no saved preference).</span>
+          )}
+        </div>
+        <div className="forge-ai-panel__row">
+          <button type="button" onClick={resetTranscriptPrepPromptBehavior} disabled={!transcriptPrepBehavior}>
+            Ask every time
+          </button>
+        </div>
+        <div className="forge-ai-panel__hint">
+          Applies only when Hammer transcript prep stops because no reusable transcript is found.
+        </div>
+        {transcriptPrepNotice ? <div className="forge-ai-panel__hint">{transcriptPrepNotice}</div> : null}
       </div>
 
       {devMode ? (

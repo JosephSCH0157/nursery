@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import { normalizeHammerOrchestrationState } from "../../../../packages/tongs/src/hammer-orchestration-contract";
@@ -66,6 +66,12 @@ import {
   type HammerAudioPolishPhase,
 } from "../prep/hammerAudioPolishApi";
 import { requestHammerTranscriptPrep } from "../prep/hammerPrepApi";
+import {
+  clearHammerTranscriptPrepNonAiMissingBehavior,
+  readHammerTranscriptPrepNonAiMissingBehavior,
+  saveHammerTranscriptPrepNonAiMissingBehavior,
+  type HammerTranscriptPrepNonAiMissingBehavior,
+} from "../prep/hammerTranscriptPrepPromptPreference";
 import {
   buildHammerLaunchContextFromRecordingTruth,
   loadHammerWorkpieceRecordingTruth,
@@ -212,6 +218,11 @@ export default function HammerWorkspaceEditor(
   const [prepAttemptNonce, setPrepAttemptNonce] = useState(0);
   const [prepFailureKind, setPrepFailureKind] = useState<"non_ai_missing" | "ai_failed" | null>(null);
   const [prepAiFallbackRequested, setPrepAiFallbackRequested] = useState(false);
+  const [prepFailureDontAskAgain, setPrepFailureDontAskAgain] = useState(false);
+  const [transcriptPrepPreferenceNotice, setTranscriptPrepPreferenceNotice] = useState<{
+    label: string;
+  } | null>(null);
+  const [transcriptPrepPreferenceNonce, setTranscriptPrepPreferenceNonce] = useState(0);
   const [hasPendingSaveChanges, setHasPendingSaveChanges] = useState(false);
   const [saveInFlight, setSaveInFlight] = useState(false);
   const [saveFailureMessage, setSaveFailureMessage] = useState<string | null>(null);
@@ -280,6 +291,12 @@ export default function HammerWorkspaceEditor(
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (prepState.status !== "prep_failed" || prepFailureKind !== "non_ai_missing") {
+      setPrepFailureDontAskAgain(false);
+    }
+  }, [prepFailureKind, prepState.status]);
 
   const ensureVisualPlacements = async (args: {
     launchContext: HammerLaunchContext;
@@ -1427,6 +1444,59 @@ export default function HammerWorkspaceEditor(
     `.${progressFillClassName} { width: ${prepProgressWidth}%; }`,
   );
 
+  const restartTranscriptPrep = useCallback((
+    behavior: HammerTranscriptPrepNonAiMissingBehavior,
+    options?: { remember?: boolean; announce?: boolean },
+  ): void => {
+    if (options?.remember) {
+      saveHammerTranscriptPrepNonAiMissingBehavior(behavior);
+      setTranscriptPrepPreferenceNonce((current) => current + 1);
+    }
+
+    if (options?.announce) {
+      setTranscriptPrepPreferenceNotice({
+        label: `Using saved preference: ${behavior === "retry-non-ai" ? "Retry non-AI" : "Use AI fallback"}.`,
+      });
+    }
+
+    if (behavior === "retry-non-ai") {
+      prepRunKeyRef.current = null;
+      setPrepAiFallbackRequested(false);
+      setShowPreparedHandoff(false);
+      setPrepState(createHammerPrepState("preparing", "loading_context"));
+      setPrepAttemptNonce((current) => current + 1);
+      return;
+    }
+
+    const runKey = lastPrepRunKeyRef.current;
+    prepAiNoticePendingRunKeyRef.current = runKey ?? `manual_ai_fallback:${Date.now()}`;
+    setPrepAiFallbackRequested(true);
+    // Always restart prep; the prep effect is the single authority for showing AI consent and starting AI transcription.
+    prepRunKeyRef.current = null;
+    setShowPrepAiNotice(false);
+    setPrepState(createHammerPrepState("preparing", "loading_context"));
+    setPrepAttemptNonce((current) => current + 1);
+  }, [
+    setPrepAiFallbackRequested,
+    setPrepAttemptNonce,
+    setPrepState,
+    setShowPreparedHandoff,
+    setShowPrepAiNotice,
+    setTranscriptPrepPreferenceNotice,
+    setTranscriptPrepPreferenceNonce,
+  ]);
+
+  useEffect(() => {
+    if (persistenceMode !== "canonical") return;
+    if (prepState.status !== "prep_failed") return;
+    if (prepFailureKind !== "non_ai_missing") return;
+
+    const behavior = readHammerTranscriptPrepNonAiMissingBehavior();
+    if (!behavior) return;
+
+    restartTranscriptPrep(behavior, { announce: true });
+  }, [persistenceMode, prepFailureKind, prepState.status, restartTranscriptPrep, transcriptPrepPreferenceNonce]);
+
   function handlePreparedHandoffAction(actionId: HammerPreparedNextStepActionId): void {
     if (actionId === "export_later") {
       return;
@@ -1608,6 +1678,46 @@ export default function HammerWorkspaceEditor(
 
   if (persistenceMode === "canonical" && prepState.status === "prep_failed") {
     const canOfferAiFallback = prepFailureKind === "non_ai_missing";
+    const savedPreference = canOfferAiFallback
+      ? readHammerTranscriptPrepNonAiMissingBehavior()
+      : null;
+
+    if (savedPreference) {
+      return (
+        <section className="hammer-prep-shell__failure">
+          <div className="hammer-prep-shell__failure-card">
+            <h2>Hammer transcript prep stopped.</h2>
+            <p>{prepState.error ?? "Hammer could not prepare this episode transcript."}</p>
+            <p>
+              Using saved preference: {savedPreference === "retry-non-ai" ? "Retry non-AI" : "Use AI fallback"}.
+            </p>
+            <div className="hammer-prep-shell__handoff-actions">
+              {canRenderPrepAiNoticeSettingsAction ? (
+                <button
+                  type="button"
+                  className="hammer-prep-shell__action-button hammer-prep-shell__action-button--placeholder"
+                  onClick={() => props.onRequestAiSettings?.()}
+                >
+                  Change
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="hammer-prep-shell__action-button hammer-prep-shell__action-button--dismiss"
+                onClick={() => {
+                  clearHammerTranscriptPrepNonAiMissingBehavior();
+                  setTranscriptPrepPreferenceNotice(null);
+                  setTranscriptPrepPreferenceNonce((current) => current + 1);
+                }}
+              >
+                Ask every time
+              </button>
+            </div>
+          </div>
+          {prepAiNoticeModal}
+        </section>
+      );
+    }
     return (
       <section className="hammer-prep-shell__failure">
         <div className="hammer-prep-shell__failure-card">
@@ -1616,16 +1726,22 @@ export default function HammerWorkspaceEditor(
           <p>
             Hammer will always try to reuse an existing transcript first. AI transcription only runs if you explicitly choose the AI fallback.
           </p>
+          {canOfferAiFallback ? (
+            <label>
+              <input
+                type="checkbox"
+                checked={prepFailureDontAskAgain}
+                onChange={(event) => setPrepFailureDontAskAgain(event.target.checked)}
+              />
+              Don&apos;t ask again
+            </label>
+          ) : null}
           <div className="hammer-prep-shell__handoff-actions">
             <button
               type="button"
               className="hammer-prep-shell__button"
               onClick={() => {
-                prepRunKeyRef.current = null;
-                setPrepAiFallbackRequested(false);
-                setShowPreparedHandoff(false);
-                setPrepState(createHammerPrepState("preparing", "loading_context"));
-                setPrepAttemptNonce((current) => current + 1);
+                restartTranscriptPrep("retry-non-ai", { remember: canOfferAiFallback && prepFailureDontAskAgain });
               }}
             >
               Retry non-AI
@@ -1635,14 +1751,7 @@ export default function HammerWorkspaceEditor(
                 type="button"
                 className="hammer-prep-shell__button"
                 onClick={() => {
-                  const runKey = lastPrepRunKeyRef.current;
-                  prepAiNoticePendingRunKeyRef.current = runKey ?? `manual_ai_fallback:${Date.now()}`;
-                  setPrepAiFallbackRequested(true);
-                  // Always restart prep; the prep effect is the single authority for showing AI consent and starting AI transcription.
-                  prepRunKeyRef.current = null;
-                  setShowPrepAiNotice(false);
-                  setPrepState(createHammerPrepState("preparing", "loading_context"));
-                  setPrepAttemptNonce((current) => current + 1);
+                  restartTranscriptPrep("use-ai-fallback", { remember: prepFailureDontAskAgain });
                 }}
               >
                 Use AI fallback
@@ -1683,6 +1792,20 @@ export default function HammerWorkspaceEditor(
           >
             <strong>{sessionState.humanLabel}</strong>
             {sessionState.detail ? <span>{sessionState.detail}</span> : null}
+            {transcriptPrepPreferenceNotice ? (
+              <span>
+                {transcriptPrepPreferenceNotice.label}
+                {props.onRequestAiSettings ? (
+                  <button
+                    type="button"
+                    className="hammer-prep-shell__session-action"
+                    onClick={() => props.onRequestAiSettings?.()}
+                  >
+                    Change
+                  </button>
+                ) : null}
+              </span>
+            ) : null}
             {sessionActions.length > 0 ? (
               <div className="hammer-prep-shell__session-actions">
                 {sessionActions.map((action) => (
