@@ -162,8 +162,10 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const setVisualBackgroundBlur = ctx.setVisualBackgroundBlur as any;
   const setVisualBackgroundBlurDebugMask = ctx.setVisualBackgroundBlurDebugMask as any;
   const setVisualBackgroundMaskPreviewMode = ctx.setVisualBackgroundMaskPreviewMode as any;
+  const setVisualBackgroundMaskPreviewStage = ctx.setVisualBackgroundMaskPreviewStage as any;
   const setVisualBackgroundBlurFallbackMode = ctx.setVisualBackgroundBlurFallbackMode as any;
   const setVisualBackgroundBlurFeatherPx = ctx.setVisualBackgroundBlurFeatherPx as any;
+  const setVisualBackgroundBlurSubjectExpansionPx = ctx.setVisualBackgroundBlurSubjectExpansionPx as any;
   const setVisualBackgroundBlurProviderId = ctx.setVisualBackgroundBlurProviderId as any;
   const setVisualBackgroundBlurPx = ctx.setVisualBackgroundBlurPx as any;
   const setVisualBackgroundBlurQualityMode = ctx.setVisualBackgroundBlurQualityMode as any;
@@ -196,8 +198,10 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const visualBackgroundBlur = ctx.visualBackgroundBlur as any;
   const visualBackgroundBlurDebugMask = ctx.visualBackgroundBlurDebugMask as any;
   const visualBackgroundMaskPreviewMode = ctx.visualBackgroundMaskPreviewMode as any;
+  const visualBackgroundMaskPreviewStage = ctx.visualBackgroundMaskPreviewStage as any;
   const visualBackgroundBlurFallbackMode = ctx.visualBackgroundBlurFallbackMode as any;
   const visualBackgroundBlurFeatherPx = ctx.visualBackgroundBlurFeatherPx as any;
+  const visualBackgroundBlurSubjectExpansionPx = ctx.visualBackgroundBlurSubjectExpansionPx as any;
   const visualBackgroundBlurPx = ctx.visualBackgroundBlurPx as any;
   const visualBackgroundBlurQualityMode = ctx.visualBackgroundBlurQualityMode as any;
   const visualBackgroundBlurRuntimeStatus = ctx.visualBackgroundBlurRuntimeStatus as any;
@@ -2312,8 +2316,42 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                               setVisualBackgroundMaskPreviewMode(event.target.checked);
                             }}
                           />
-                          <span>Mask preview mode (raw mask)</span>
+                          <span>Mask preview mode</span>
                         </label>
+                        {visualBackgroundBlurDebugMask ? (
+                          <>
+                            <label className="hammer-tool-field">
+                              <span>Subject expansion ({visualBackgroundBlurSubjectExpansionPx.toFixed(1)}px)</span>
+                              <input
+                                type="range"
+                                min={-6}
+                                max={6}
+                                step={0.5}
+                                value={visualBackgroundBlurSubjectExpansionPx}
+                                onChange={(event) => {
+                                  setFocusOverride("tool-focus");
+                                  setVisualBackgroundBlurSubjectExpansionPx(Number(event.target.value));
+                                }}
+                              />
+                            </label>
+                            <label className="hammer-tool-field">
+                              <span>Mask preview stage</span>
+                              <select
+                                value={visualBackgroundMaskPreviewStage}
+                                onChange={(event) => {
+                                  setFocusOverride("tool-focus");
+                                  setVisualBackgroundMaskPreviewStage(event.target.value);
+                                }}
+                              >
+                                <option value="raw">Raw</option>
+                                <option value="expanded">Expanded/Contracted</option>
+                                <option value="feathered">Feathered</option>
+                                <option value="refined">Refined</option>
+                                <option value="final_composite">Final Composite</option>
+                              </select>
+                            </label>
+                          </>
+                        ) : null}
                         <div className="hammer-tool-hint">
                           {visualBackgroundBlurStatusSummary ? (
                             visualBackgroundBlurStatusSummary.primaryLine
@@ -2374,11 +2412,47 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                                 )}
                               </div>
                               <div className="hammer-background-blur-debug__card">
-                                <strong>Refined Matte</strong>
-                                {visualBackgroundBlurRuntimeStatus.debug?.matteDataUrl ? (
+                                <strong>Expanded/Contracted</strong>
+                                {visualBackgroundBlurRuntimeStatus.debug?.expandedMaskDataUrl ? (
                                   <img
-                                    src={visualBackgroundBlurRuntimeStatus.debug.matteDataUrl}
+                                    src={visualBackgroundBlurRuntimeStatus.debug.expandedMaskDataUrl}
+                                    alt="Expanded or contracted segmentation mask"
+                                    className="hammer-background-blur-debug__image"
+                                  />
+                                ) : (
+                                  <span>Unavailable</span>
+                                )}
+                              </div>
+                              <div className="hammer-background-blur-debug__card">
+                                <strong>Feathered</strong>
+                                {visualBackgroundBlurRuntimeStatus.debug?.featheredMaskDataUrl ? (
+                                  <img
+                                    src={visualBackgroundBlurRuntimeStatus.debug.featheredMaskDataUrl}
+                                    alt="Feathered segmentation mask"
+                                    className="hammer-background-blur-debug__image"
+                                  />
+                                ) : (
+                                  <span>Unavailable</span>
+                                )}
+                              </div>
+                              <div className="hammer-background-blur-debug__card">
+                                <strong>Refined Matte</strong>
+                                {visualBackgroundBlurRuntimeStatus.debug?.refinedMaskDataUrl ? (
+                                  <img
+                                    src={visualBackgroundBlurRuntimeStatus.debug.refinedMaskDataUrl}
                                     alt="Refined foreground matte"
+                                    className="hammer-background-blur-debug__image"
+                                  />
+                                ) : (
+                                  <span>Unavailable</span>
+                                )}
+                              </div>
+                              <div className="hammer-background-blur-debug__card">
+                                <strong>Final Composite</strong>
+                                {visualBackgroundBlurRuntimeStatus.debug?.finalCompositeDataUrl ? (
+                                  <img
+                                    src={visualBackgroundBlurRuntimeStatus.debug.finalCompositeDataUrl}
+                                    alt="Final background treatment composite"
                                     className="hammer-background-blur-debug__image"
                                   />
                                 ) : (

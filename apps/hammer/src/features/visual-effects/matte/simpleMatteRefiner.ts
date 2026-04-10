@@ -14,91 +14,171 @@ function roundToTenth(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-function buildMaskCanvas(args: { width: number; height: number; alphaMask: Uint8ClampedArray }): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
-  canvas.width = args.width;
-  canvas.height = args.height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) throw new Error("Canvas 2D not available for matte refinement.");
-  const image = ctx.createImageData(args.width, args.height);
-  for (let i = 0, px = 0; i < image.data.length; i += 4, px += 1) {
-    const a = args.alphaMask[px] ?? 0;
-    image.data[i] = 255;
-    image.data[i + 1] = 255;
-    image.data[i + 2] = 255;
-    image.data[i + 3] = a;
-  }
-  ctx.putImageData(image, 0, 0);
-  return canvas;
-}
+function blurAlphaSeparable(args: {
+  alpha: Uint8ClampedArray;
+  width: number;
+  height: number;
+  radius: number;
+}): Uint8ClampedArray {
+  const radius = Math.max(0, Math.floor(args.radius));
+  if (radius <= 0) return new Uint8ClampedArray(args.alpha);
+  const { width, height } = args;
+  const src = args.alpha;
+  const tmp = new Float32Array(width * height);
+  const out = new Uint8ClampedArray(width * height);
 
-function applySubjectExpansion(args: { canvas: HTMLCanvasElement; expansionPx: number }): void {
-  const expansionPx = Math.max(0, Math.round(args.expansionPx));
-  if (expansionPx <= 0) return;
-
-  const w = args.canvas.width;
-  const h = args.canvas.height;
-  const ctx = args.canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return;
-
-  const scratch = document.createElement("canvas");
-  scratch.width = w;
-  scratch.height = h;
-  const scratchCtx = scratch.getContext("2d", { willReadFrequently: true });
-  if (!scratchCtx) return;
-
-  // Approximate dilation: blur then threshold back to a hard mask.
-  scratchCtx.clearRect(0, 0, w, h);
-  scratchCtx.filter = `blur(${expansionPx}px)`;
-  scratchCtx.drawImage(args.canvas, 0, 0, w, h);
-  scratchCtx.filter = "none";
-
-  const image = scratchCtx.getImageData(0, 0, w, h);
-  const data = image.data;
-  // Low threshold keeps shoulders/hairline more filled while avoiding aggressive growth.
-  const threshold = clamp(20, 4, 96);
-  for (let i = 0; i < data.length; i += 4) {
-    const a = data[i + 3] ?? 0;
-    const hard = a >= threshold ? 255 : 0;
-    data[i] = 255;
-    data[i + 1] = 255;
-    data[i + 2] = 255;
-    data[i + 3] = hard;
+  for (let y = 0; y < height; y += 1) {
+    const rowStart = y * width;
+    for (let x = 0; x < width; x += 1) {
+      let sum = 0;
+      let count = 0;
+      const left = Math.max(0, x - radius);
+      const right = Math.min(width - 1, x + radius);
+      for (let k = left; k <= right; k += 1) {
+        sum += src[rowStart + k] ?? 0;
+        count += 1;
+      }
+      tmp[rowStart + x] = count > 0 ? (sum / count) : 0;
+    }
   }
 
-  ctx.putImageData(image, 0, 0);
+  for (let x = 0; x < width; x += 1) {
+    for (let y = 0; y < height; y += 1) {
+      let sum = 0;
+      let count = 0;
+      const top = Math.max(0, y - radius);
+      const bottom = Math.min(height - 1, y + radius);
+      for (let k = top; k <= bottom; k += 1) {
+        sum += tmp[(k * width) + x] ?? 0;
+        count += 1;
+      }
+      out[(y * width) + x] = Math.round(count > 0 ? (sum / count) : 0);
+    }
+  }
+
+  return out;
 }
 
-function applyFeather(args: { canvas: HTMLCanvasElement; featherPx: number }): Uint8ClampedArray {
+function applyMorphology(args: {
+  alpha: Uint8ClampedArray;
+  width: number;
+  height: number;
+  deltaPx: number;
+}): Uint8ClampedArray {
+  const delta = Math.round(args.deltaPx);
+  if (delta === 0) return new Uint8ClampedArray(args.alpha);
+  const steps = Math.max(1, Math.abs(delta));
+  let current = new Uint8ClampedArray(args.alpha);
+  const { width, height } = args;
+  const dilate = delta > 0;
+
+  for (let step = 0; step < steps; step += 1) {
+    const next = new Uint8ClampedArray(current.length);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        let acc = dilate ? 0 : 255;
+        for (let oy = -1; oy <= 1; oy += 1) {
+          const ny = y + oy;
+          if (ny < 0 || ny >= height) continue;
+          for (let ox = -1; ox <= 1; ox += 1) {
+            const nx = x + ox;
+            if (nx < 0 || nx >= width) continue;
+            const value = current[(ny * width) + nx] ?? 0;
+            if (dilate) {
+              if (value > acc) acc = value;
+            } else if (value < acc) {
+              acc = value;
+            }
+          }
+        }
+        next[(y * width) + x] = acc;
+      }
+    }
+    current = next;
+  }
+
+  return current;
+}
+
+function applyHaloClamp(args: {
+  expandedAlpha: Uint8ClampedArray;
+  featheredAlpha: Uint8ClampedArray;
+  featherPx: number;
+}): { refinedAlpha: Uint8ClampedArray; edgeBandAlpha: Uint8ClampedArray } {
+  const refined = new Uint8ClampedArray(args.featheredAlpha.length);
+  const edgeBand = new Uint8ClampedArray(args.featheredAlpha.length);
+  const allowance = Math.round(10 + (Math.max(0, args.featherPx) * 2.4));
+
+  for (let i = 0; i < refined.length; i += 1) {
+    const expanded = args.expandedAlpha[i] ?? 0;
+    const feathered = args.featheredAlpha[i] ?? 0;
+    let next = feathered;
+    if (expanded < 180) {
+      next = Math.min(next, expanded + allowance);
+    }
+    if (expanded < 120 && next > 0) {
+      next = Math.round(next * 0.96);
+    }
+    if (next < 8) next = 0;
+    refined[i] = clamp(next, 0, 255);
+    edgeBand[i] = (refined[i] >= 18 && refined[i] <= 220) ? 255 : 0;
+  }
+
+  return { refinedAlpha: refined, edgeBandAlpha: edgeBand };
+}
+
+function applyFeather(args: {
+  alpha: Uint8ClampedArray;
+  width: number;
+  height: number;
+  featherPx: number;
+}): Uint8ClampedArray {
   const featherPx = Math.max(0, Math.round(args.featherPx));
   if (featherPx <= 0) {
-    const ctx = args.canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return new Uint8ClampedArray(args.canvas.width * args.canvas.height);
-    const imageData = ctx.getImageData(0, 0, args.canvas.width, args.canvas.height).data;
-    const alpha = new Uint8ClampedArray(args.canvas.width * args.canvas.height);
-    for (let i = 0, px = 0; i < imageData.length; i += 4, px += 1) {
-      alpha[px] = imageData[i + 3] ?? 0;
-    }
-    return alpha;
+    return new Uint8ClampedArray(args.alpha);
   }
 
-  const w = args.canvas.width;
-  const h = args.canvas.height;
-  const scratch = document.createElement("canvas");
-  scratch.width = w;
-  scratch.height = h;
-  const ctx = scratch.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return new Uint8ClampedArray(w * h);
-  ctx.clearRect(0, 0, w, h);
-  ctx.filter = `blur(${featherPx}px)`;
-  ctx.drawImage(args.canvas, 0, 0, w, h);
-  ctx.filter = "none";
-  const imageData = ctx.getImageData(0, 0, w, h).data;
-  const alpha = new Uint8ClampedArray(w * h);
-  for (let i = 0, px = 0; i < imageData.length; i += 4, px += 1) {
-    alpha[px] = imageData[i + 3] ?? 0;
+  const small = blurAlphaSeparable({
+    alpha: args.alpha,
+    width: args.width,
+    height: args.height,
+    radius: Math.max(1, Math.round(featherPx * 0.5)),
+  });
+  const wide = blurAlphaSeparable({
+    alpha: small,
+    width: args.width,
+    height: args.height,
+    radius: Math.max(1, Math.round(featherPx * 0.8)),
+  });
+  const out = new Uint8ClampedArray(args.alpha.length);
+  for (let i = 0; i < out.length; i += 1) {
+    const source = args.alpha[i] ?? 0;
+    const smooth = wide[i] ?? 0;
+    const mixed = Math.round((source * 0.3) + (smooth * 0.7));
+    out[i] = clamp(mixed, 0, 255);
   }
-  return alpha;
+  return out;
+}
+
+function buildNeutralizedBaseMask(input: SegmentationResult): Uint8ClampedArray {
+  const radius = input.confidenceSummary.score < 0.4 ? 1 : 0;
+  if (radius <= 0) return new Uint8ClampedArray(input.personMask);
+  return blurAlphaSeparable({
+    alpha: input.personMask,
+    width: input.width,
+    height: input.height,
+    radius,
+  });
+}
+
+function quantizeExpansionPx(value: number): number {
+  const clamped = clamp(value, -12, 12);
+  if (Math.abs(clamped) < 0.2) return 0;
+  return Math.round(clamped * 2) / 2;
+}
+
+function shouldIncludeDebugPlanes(): boolean {
+  return true;
 }
 
 export class SimpleMatteRefiner implements MatteRefiner {
@@ -115,19 +195,30 @@ export class SimpleMatteRefiner implements MatteRefiner {
     const height = input.height;
     const featherPx = clamp(options.featherPx, 0, 64);
     const requestedTemporalWeight = clamp(options.temporalSmoothing, 0, 1);
-
-    const baseMask = new Uint8ClampedArray(input.personMask);
-
-    const subjectExpansionPx = clamp(options.subjectExpansionPx, 0, 48);
+    const subjectExpansionPx = quantizeExpansionPx(options.subjectExpansionPx);
     const warned: string[] = [];
 
-    // Feather hook via blur of the alpha channel.
-    const maskCanvas = buildMaskCanvas({ width, height, alphaMask: baseMask });
-    applySubjectExpansion({ canvas: maskCanvas, expansionPx: subjectExpansionPx });
-    const feathered = applyFeather({ canvas: maskCanvas, featherPx });
+    const baseMask = buildNeutralizedBaseMask(input);
+    const expandedAlpha = applyMorphology({
+      alpha: baseMask,
+      width,
+      height,
+      deltaPx: subjectExpansionPx,
+    });
+    const featheredAlpha = applyFeather({
+      alpha: expandedAlpha,
+      width,
+      height,
+      featherPx,
+    });
+    const haloClamped = applyHaloClamp({
+      expandedAlpha,
+      featheredAlpha,
+      featherPx,
+    });
 
     // Temporal smoothing hook: exponential blend against previous alpha.
-    let alphaMask = feathered;
+    let alphaMask = haloClamped.refinedAlpha;
     const resetDecision = shouldResetTemporalHistory({
       previous: this.history,
       next: {
@@ -177,6 +268,16 @@ export class SimpleMatteRefiner implements MatteRefiner {
       metadata: {
         providerName: input.providerName,
         confidenceScore: input.confidenceSummary.score,
+        expansionPxApplied: subjectExpansionPx,
+        haloClampStrength: roundToTenth(Math.max(0, Math.min(1, featherPx / 24))),
+        edgeBandAlphaMask: haloClamped.edgeBandAlpha,
+        debugPlanes: shouldIncludeDebugPlanes()
+          ? {
+            expandedAlphaMask: expandedAlpha,
+            featheredAlphaMask: featheredAlpha,
+            refinedAlphaMask: haloClamped.refinedAlpha,
+          }
+          : undefined,
         warnings: [...new Set([
           ...input.warnings,
           ...warned,

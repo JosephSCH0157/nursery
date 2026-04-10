@@ -141,7 +141,7 @@ function normalizeVisualPreviewSettings(
     background_blur_px: clamp(blurPx, 0, 64),
     background_blur_feather_px: clamp(featherPx, 0, 64),
     background_blur_temporal_smoothing: clamp(temporal, 0, 1),
-    background_blur_subject_expansion_px: clamp(expansion, 0, 48),
+    background_blur_subject_expansion_px: clamp(expansion, -12, 12),
     background_blur_quality_mode: (quality === "low" || quality === "high") ? quality : "medium",
     background_blur_fallback_mode: fallback === "passthrough" ? "passthrough" : "disable",
     background_blur_provider: provider,

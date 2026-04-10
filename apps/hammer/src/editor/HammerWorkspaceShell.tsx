@@ -515,7 +515,7 @@ function normalizeVisualPreviewSettings(
     background_blur_px: Math.max(0, Math.min(64, Number(value.background_blur_px ?? defaults.background_blur_px))),
     background_blur_feather_px: Math.max(0, Math.min(64, Number(value.background_blur_feather_px ?? defaults.background_blur_feather_px))),
     background_blur_temporal_smoothing: Math.max(0, Math.min(1, Number(value.background_blur_temporal_smoothing ?? defaults.background_blur_temporal_smoothing))),
-    background_blur_subject_expansion_px: Math.max(0, Math.min(48, Number(value.background_blur_subject_expansion_px ?? defaults.background_blur_subject_expansion_px))),
+    background_blur_subject_expansion_px: Math.max(-12, Math.min(12, Number(value.background_blur_subject_expansion_px ?? defaults.background_blur_subject_expansion_px))),
     background_blur_quality_mode: value.background_blur_quality_mode === "low" || value.background_blur_quality_mode === "high"
       ? value.background_blur_quality_mode
       : "medium",
@@ -1286,7 +1286,8 @@ function transformToGeometry(transform: HammerImagePlacementTransform): HammerVi
 function resolvePlacementAnimationPreset(
   placement: HammerVisualPlacementRecord | null | undefined,
 ): HammerImageAnimationPreset {
-  const preset = placement?.animation_preset ?? null;  return (
+  const preset = placement?.animation_preset ?? null;
+  return (
     preset === "fade_in"
     || preset === "fade_out"
     || preset === "fade_in_out"
@@ -1879,6 +1880,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   );
   const [visualBackgroundBlurDebugMask, setVisualBackgroundBlurDebugMask] = useState(false);
   const [visualBackgroundMaskPreviewMode, setVisualBackgroundMaskPreviewMode] = useState(false);
+  const [visualBackgroundMaskPreviewStage, setVisualBackgroundMaskPreviewStage] = useState<"raw" | "expanded" | "feathered" | "refined" | "final_composite">("raw");
   const [visualBackgroundBlurRuntimeStatus, setVisualBackgroundBlurRuntimeStatus] = useState<HammerBackgroundBlurRuntimeStatus | null>(null);
   const [visualEyeContactAssistDebugOverlay, setVisualEyeContactAssistDebugOverlay] = useState(false);
   const [visualEyeContactAssistRuntimeStatus, setVisualEyeContactAssistRuntimeStatus] = useState<HammerEyeContactAssistRuntimeStatus | null>(null);
@@ -2853,7 +2855,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     washDesaturateAmount: Math.max(0, Math.min(1, Number(visualBackgroundWashDesaturateAmount) || 0)),
     edgeFeatherPx: Math.max(0, Math.min(64, Number(visualBackgroundBlurFeatherPx) || 0)),
     temporalSmoothing: Math.max(0, Math.min(1, Number(visualBackgroundBlurTemporalSmoothing) || 0)),
-    subjectExpansionPx: Math.max(0, Math.min(48, Number(visualBackgroundBlurSubjectExpansionPx) || 0)),
+    subjectExpansionPx: Math.max(-12, Math.min(12, Number(visualBackgroundBlurSubjectExpansionPx) || 0)),
     qualityMode: visualBackgroundBlurQualityMode,
     fallbackMode: visualBackgroundBlurFallbackMode,
   }), [
@@ -9037,6 +9039,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       providerId: visualBackgroundBlurProviderId,
       debugMasks: visualBackgroundBlurDebugMask,
       maskPreviewMode: visualBackgroundMaskPreviewMode,
+      maskPreviewStage: visualBackgroundMaskPreviewStage,
       onStatus: setVisualBackgroundBlurRuntimeStatus,
       onCanvas: handleBackgroundEffectCanvas,
     },
@@ -10032,8 +10035,10 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setVisualBackgroundBlur,
     setVisualBackgroundBlurDebugMask,
     setVisualBackgroundMaskPreviewMode,
+    setVisualBackgroundMaskPreviewStage,
     setVisualBackgroundBlurFallbackMode,
     setVisualBackgroundBlurFeatherPx,
+    setVisualBackgroundBlurSubjectExpansionPx,
     setVisualBackgroundBlurProviderId,
     setVisualBackgroundBlurPx,
     setVisualBackgroundBlurQualityMode,
@@ -10086,8 +10091,10 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     visualBackgroundBlur,
     visualBackgroundBlurDebugMask,
     visualBackgroundMaskPreviewMode,
+    visualBackgroundMaskPreviewStage,
     visualBackgroundBlurFallbackMode,
     visualBackgroundBlurFeatherPx,
+    visualBackgroundBlurSubjectExpansionPx,
     visualBackgroundBlurPx,
     visualBackgroundBlurQualityMode,
     visualBackgroundBlurRuntimeStatus,
@@ -10322,8 +10329,10 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setVisualBackgroundBlur,
     setVisualBackgroundBlurDebugMask,
     setVisualBackgroundMaskPreviewMode,
+    setVisualBackgroundMaskPreviewStage,
     setVisualBackgroundBlurFallbackMode,
     setVisualBackgroundBlurFeatherPx,
+    setVisualBackgroundBlurSubjectExpansionPx,
     setVisualBackgroundBlurProviderId,
     setVisualBackgroundBlurPx,
     setVisualBackgroundBlurQualityMode,
@@ -10376,8 +10385,10 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     visualBackgroundBlur,
     visualBackgroundBlurDebugMask,
     visualBackgroundMaskPreviewMode,
+    visualBackgroundMaskPreviewStage,
     visualBackgroundBlurFallbackMode,
     visualBackgroundBlurFeatherPx,
+    visualBackgroundBlurSubjectExpansionPx,
     visualBackgroundBlurPx,
     visualBackgroundBlurQualityMode,
     visualBackgroundBlurRuntimeStatus,

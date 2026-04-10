@@ -50,7 +50,11 @@ export type HammerBackgroundBlurRuntimeStatus = {
   statusMessage: string | null;
   debug?: {
     rawMaskDataUrl: string | null;
+    expandedMaskDataUrl: string | null;
+    featheredMaskDataUrl: string | null;
+    refinedMaskDataUrl: string | null;
     matteDataUrl: string | null;
+    finalCompositeDataUrl: string | null;
   };
 };
 
@@ -144,6 +148,7 @@ export default function BackgroundBlurPreviewLayer(props: {
   providerId: string | null;
   debugMasks?: boolean;
   maskPreviewMode?: boolean;
+  maskPreviewStage?: "raw" | "expanded" | "feathered" | "refined" | "final_composite";
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onCanvas?: (canvas: HTMLCanvasElement | null) => void;
   onStatus?: (status: HammerBackgroundBlurRuntimeStatus) => void;
@@ -168,11 +173,16 @@ export default function BackgroundBlurPreviewLayer(props: {
   const avgSegMsRef = useRef<number | null>(null);
   const avgCompMsRef = useRef<number | null>(null);
   const latestRawPlaneRef = useRef<CachedAlphaPlane | null>(null);
+  const latestExpandedPlaneRef = useRef<CachedAlphaPlane | null>(null);
+  const latestFeatheredPlaneRef = useRef<CachedAlphaPlane | null>(null);
   const latestMattePlaneRef = useRef<CachedAlphaPlane | null>(null);
   const lastDebugEncodedAtMsRef = useRef<number | null>(null);
   const debugEncodingInFlightRef = useRef(false);
   const debugRawUrlRef = useRef<string | null>(null);
+  const debugExpandedUrlRef = useRef<string | null>(null);
+  const debugFeatheredUrlRef = useRef<string | null>(null);
   const debugMatteUrlRef = useRef<string | null>(null);
+  const debugFinalCompositeUrlRef = useRef<string | null>(null);
   const frameTokenRef = useRef(0);
 
   const [runtimeStatus, setRuntimeStatus] = useState<HammerBackgroundBlurRuntimeStatus>(() => ({
@@ -261,16 +271,48 @@ export default function BackgroundBlurPreviewLayer(props: {
     return URL.createObjectURL(blob);
   }
 
+  async function encodeCanvasToObjectUrl(args: {
+    canvas: HTMLCanvasElement;
+    maxWidth: number;
+    maxHeight: number;
+  }): Promise<string | null> {
+    if (typeof document === "undefined") return null;
+    const src = args.canvas;
+    if (!src.width || !src.height) return null;
+    const scale = Math.min(args.maxWidth / src.width, args.maxHeight / src.height, 1);
+    const outW = Math.max(1, Math.round(src.width * scale));
+    const outH = Math.max(1, Math.round(src.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(src, 0, 0, outW, outH);
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob((value) => resolve(value), "image/png");
+    });
+    if (!blob) return null;
+    return URL.createObjectURL(blob);
+  }
+
   useEffect(() => {
     if (!props.debugMasks) {
       latestRawPlaneRef.current = null;
+      latestExpandedPlaneRef.current = null;
+      latestFeatheredPlaneRef.current = null;
       latestMattePlaneRef.current = null;
       lastDebugEncodedAtMsRef.current = null;
       debugEncodingInFlightRef.current = false;
       if (debugRawUrlRef.current) URL.revokeObjectURL(debugRawUrlRef.current);
+      if (debugExpandedUrlRef.current) URL.revokeObjectURL(debugExpandedUrlRef.current);
+      if (debugFeatheredUrlRef.current) URL.revokeObjectURL(debugFeatheredUrlRef.current);
       if (debugMatteUrlRef.current) URL.revokeObjectURL(debugMatteUrlRef.current);
+      if (debugFinalCompositeUrlRef.current) URL.revokeObjectURL(debugFinalCompositeUrlRef.current);
       debugRawUrlRef.current = null;
+      debugExpandedUrlRef.current = null;
+      debugFeatheredUrlRef.current = null;
       debugMatteUrlRef.current = null;
+      debugFinalCompositeUrlRef.current = null;
       setRuntimeStatus((prev) => (prev.debug ? { ...prev, debug: undefined } : prev));
       return;
     }
@@ -281,34 +323,57 @@ export default function BackgroundBlurPreviewLayer(props: {
       if (cancelled) return;
       if (debugEncodingInFlightRef.current) return;
       const raw = latestRawPlaneRef.current;
+      const expanded = latestExpandedPlaneRef.current;
+      const feathered = latestFeatheredPlaneRef.current;
       const matte = latestMattePlaneRef.current;
-      if (!raw || !matte) return;
-      const newestAt = Math.max(raw.updatedAtMs, matte.updatedAtMs);
+      if (!raw || !expanded || !feathered || !matte) return;
+      const newestAt = Math.max(raw.updatedAtMs, expanded.updatedAtMs, feathered.updatedAtMs, matte.updatedAtMs);
       const lastEncodedAt = lastDebugEncodedAtMsRef.current ?? 0;
       if (newestAt <= lastEncodedAt) return;
 
       debugEncodingInFlightRef.current = true;
       void (async () => {
         try {
-          const [rawUrl, matteUrl] = await Promise.all([
+          const [rawUrl, expandedUrl, featheredUrl, matteUrl, finalCompositeUrl] = await Promise.all([
             encodePlaneToObjectUrl({ plane: raw, maxWidth: 120, maxHeight: 90 }),
+            encodePlaneToObjectUrl({ plane: expanded, maxWidth: 120, maxHeight: 90 }),
+            encodePlaneToObjectUrl({ plane: feathered, maxWidth: 120, maxHeight: 90 }),
             encodePlaneToObjectUrl({ plane: matte, maxWidth: 120, maxHeight: 90 }),
+            canvasRef.current
+              ? encodeCanvasToObjectUrl({ canvas: canvasRef.current, maxWidth: 120, maxHeight: 90 })
+              : Promise.resolve(null),
           ]);
           if (cancelled) return;
           if (rawUrl) {
             if (debugRawUrlRef.current) URL.revokeObjectURL(debugRawUrlRef.current);
             debugRawUrlRef.current = rawUrl;
           }
+          if (expandedUrl) {
+            if (debugExpandedUrlRef.current) URL.revokeObjectURL(debugExpandedUrlRef.current);
+            debugExpandedUrlRef.current = expandedUrl;
+          }
+          if (featheredUrl) {
+            if (debugFeatheredUrlRef.current) URL.revokeObjectURL(debugFeatheredUrlRef.current);
+            debugFeatheredUrlRef.current = featheredUrl;
+          }
           if (matteUrl) {
             if (debugMatteUrlRef.current) URL.revokeObjectURL(debugMatteUrlRef.current);
             debugMatteUrlRef.current = matteUrl;
+          }
+          if (finalCompositeUrl) {
+            if (debugFinalCompositeUrlRef.current) URL.revokeObjectURL(debugFinalCompositeUrlRef.current);
+            debugFinalCompositeUrlRef.current = finalCompositeUrl;
           }
           lastDebugEncodedAtMsRef.current = newestAt;
           setRuntimeStatus((prev) => ({
             ...prev,
             debug: {
               rawMaskDataUrl: debugRawUrlRef.current,
+              expandedMaskDataUrl: debugExpandedUrlRef.current,
+              featheredMaskDataUrl: debugFeatheredUrlRef.current,
+              refinedMaskDataUrl: debugMatteUrlRef.current,
               matteDataUrl: debugMatteUrlRef.current,
+              finalCompositeDataUrl: debugFinalCompositeUrlRef.current,
             },
           }));
         } finally {
@@ -566,7 +631,10 @@ export default function BackgroundBlurPreviewLayer(props: {
         }
 
         const effectiveFeatherPx = Math.min(props.settings.edgeFeatherPx, qualityPolicy.edgeFeatherCapPx);
-        const effectiveExpansionPx = Math.min(props.settings.subjectExpansionPx, qualityPolicy.subjectExpansionCapPx);
+        const effectiveExpansionPx = Math.max(
+          -qualityPolicy.subjectExpansionCapPx,
+          Math.min(props.settings.subjectExpansionPx, qualityPolicy.subjectExpansionCapPx),
+        );
         const effectiveTemporal = Math.min(props.settings.temporalSmoothing, qualityPolicy.temporalSmoothingCap);
         const matte = matteRefiner.buildMatte(seg, {
           featherPx: effectiveFeatherPx,
@@ -603,6 +671,24 @@ export default function BackgroundBlurPreviewLayer(props: {
             alpha: seg.personMask,
             updatedAtMs: nowMs(),
           };
+          const expanded = matte.metadata.debugPlanes?.expandedAlphaMask;
+          const feathered = matte.metadata.debugPlanes?.featheredAlphaMask;
+          if (expanded) {
+            latestExpandedPlaneRef.current = {
+              width: matte.width,
+              height: matte.height,
+              alpha: expanded,
+              updatedAtMs: nowMs(),
+            };
+          }
+          if (feathered) {
+            latestFeatheredPlaneRef.current = {
+              width: matte.width,
+              height: matte.height,
+              alpha: feathered,
+              updatedAtMs: nowMs(),
+            };
+          }
           latestMattePlaneRef.current = {
             width: matte.width,
             height: matte.height,
@@ -614,22 +700,32 @@ export default function BackgroundBlurPreviewLayer(props: {
         if (props.maskPreviewMode) {
           const maskCtx = canvas.getContext("2d");
           if (maskCtx) {
-            const maskImage = maskCtx.createImageData(seg.width, seg.height);
-            for (let i = 0, px = 0; i < maskImage.data.length; i += 4, px += 1) {
-              const value = seg.personMask[px] ?? 0;
-              maskImage.data[i] = value;
-              maskImage.data[i + 1] = value;
-              maskImage.data[i + 2] = value;
-              maskImage.data[i + 3] = 255;
-            }
-            const temp = document.createElement("canvas");
-            temp.width = seg.width;
-            temp.height = seg.height;
-            const tempCtx = temp.getContext("2d");
-            if (tempCtx) {
-              tempCtx.putImageData(maskImage, 0, 0);
-              maskCtx.clearRect(0, 0, canvas.width, canvas.height);
-              maskCtx.drawImage(temp, 0, 0, canvas.width, canvas.height);
+            const stage = props.maskPreviewStage ?? "raw";
+            if (stage !== "final_composite") {
+              const stageAlpha = stage === "expanded"
+                ? (matte.metadata.debugPlanes?.expandedAlphaMask ?? seg.personMask)
+                : stage === "feathered"
+                ? (matte.metadata.debugPlanes?.featheredAlphaMask ?? matte.alphaMask)
+                : stage === "refined"
+                ? (matte.metadata.debugPlanes?.refinedAlphaMask ?? matte.alphaMask)
+                : seg.personMask;
+              const maskImage = maskCtx.createImageData(seg.width, seg.height);
+              for (let i = 0, px = 0; i < maskImage.data.length; i += 4, px += 1) {
+                const value = stageAlpha[px] ?? 0;
+                maskImage.data[i] = value;
+                maskImage.data[i + 1] = value;
+                maskImage.data[i + 2] = value;
+                maskImage.data[i + 3] = 255;
+              }
+              const temp = document.createElement("canvas");
+              temp.width = seg.width;
+              temp.height = seg.height;
+              const tempCtx = temp.getContext("2d");
+              if (tempCtx) {
+                tempCtx.putImageData(maskImage, 0, 0);
+                maskCtx.clearRect(0, 0, canvas.width, canvas.height);
+                maskCtx.drawImage(temp, 0, 0, canvas.width, canvas.height);
+              }
             }
           }
         }
@@ -680,7 +776,11 @@ export default function BackgroundBlurPreviewLayer(props: {
           debug: props.debugMasks
             ? {
               rawMaskDataUrl: debugRawUrlRef.current,
+              expandedMaskDataUrl: debugExpandedUrlRef.current,
+              featheredMaskDataUrl: debugFeatheredUrlRef.current,
+              refinedMaskDataUrl: debugMatteUrlRef.current,
               matteDataUrl: debugMatteUrlRef.current,
+              finalCompositeDataUrl: debugFinalCompositeUrlRef.current,
             }
             : undefined,
         });
@@ -760,7 +860,19 @@ export default function BackgroundBlurPreviewLayer(props: {
       cancelled = true;
       window.cancelAnimationFrame(raf);
     };
-  }, [blurRenderer, matteRefiner, props.enabled, props.maskPreviewMode, props.settings, props.videoRef, provider, qualityPolicy, replacementRenderer, washRenderer]);
+  }, [
+    blurRenderer,
+    matteRefiner,
+    props.enabled,
+    props.maskPreviewMode,
+    props.maskPreviewStage,
+    props.settings,
+    props.videoRef,
+    provider,
+    qualityPolicy,
+    replacementRenderer,
+    washRenderer,
+  ]);
 
   if (!props.enabled) return null;
 

@@ -43,6 +43,14 @@ export type ForegroundMatte = {
   metadata: {
     providerName: string;
     confidenceScore: number;
+    expansionPxApplied?: number;
+    haloClampStrength?: number;
+    edgeBandAlphaMask?: Uint8ClampedArray;
+    debugPlanes?: {
+      expandedAlphaMask: Uint8ClampedArray;
+      featheredAlphaMask: Uint8ClampedArray;
+      refinedAlphaMask: Uint8ClampedArray;
+    };
     warnings: string[];
   };
 };
