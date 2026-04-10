@@ -49,8 +49,11 @@ export function summarizeBackgroundEffectRuntimeStatus(args: {
   const primaryParts = [
     `Segmentation: ${providerLabel}`,
     readiness,
+    `mask ${args.status.mask.status}`,
+    args.status.mask.reason ? `reason ${args.status.mask.reason}` : null,
     `quality ${quality.mode} (${quality.policy.maxSegmentationFps}fps)`,
     primaryDegradedReason ? `degraded: ${primaryDegradedReason}` : null,
+    args.status.statusMessage,
     warnings.length > 0 ? `warnings: ${formatWarnings(warnings)}` : null,
   ].filter(Boolean);
 
@@ -59,6 +62,14 @@ export function summarizeBackgroundEffectRuntimeStatus(args: {
     const debugParts: string[] = [];
     if (args.status.initMs != null) debugParts.push(`init ${args.status.initMs.toFixed(1)}ms`);
     if (args.status.lastConfidence != null) debugParts.push(`confidence ${args.status.lastConfidence.toFixed(2)}`);
+    debugParts.push(`provider ${args.status.mask.providerStatus}`);
+    debugParts.push(`source ${args.status.mask.providerSource}`);
+    if (args.status.mask.resolution) {
+      debugParts.push(`mask ${args.status.mask.resolution.width}x${args.status.mask.resolution.height}`);
+    }
+    if (args.status.mask.generationMs != null) {
+      debugParts.push(`mask gen ${args.status.mask.generationMs.toFixed(1)}ms`);
+    }
     if (args.status.lastSegmentationMs != null) debugParts.push(`seg ${args.status.lastSegmentationMs.toFixed(1)}ms`);
     if (args.status.lastCompositeMs != null) debugParts.push(`comp ${args.status.lastCompositeMs.toFixed(1)}ms`);
     if (args.status.avgSegmentationMs != null) debugParts.push(`avg seg ${args.status.avgSegmentationMs.toFixed(1)}ms`);

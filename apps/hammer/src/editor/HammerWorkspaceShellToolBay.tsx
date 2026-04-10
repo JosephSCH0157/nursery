@@ -161,6 +161,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const setVideoSnapMode = ctx.setVideoSnapMode as any;
   const setVisualBackgroundBlur = ctx.setVisualBackgroundBlur as any;
   const setVisualBackgroundBlurDebugMask = ctx.setVisualBackgroundBlurDebugMask as any;
+  const setVisualBackgroundMaskPreviewMode = ctx.setVisualBackgroundMaskPreviewMode as any;
   const setVisualBackgroundBlurFallbackMode = ctx.setVisualBackgroundBlurFallbackMode as any;
   const setVisualBackgroundBlurFeatherPx = ctx.setVisualBackgroundBlurFeatherPx as any;
   const setVisualBackgroundBlurProviderId = ctx.setVisualBackgroundBlurProviderId as any;
@@ -194,6 +195,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const viewingModeSummary = ctx.viewingModeSummary as any;
   const visualBackgroundBlur = ctx.visualBackgroundBlur as any;
   const visualBackgroundBlurDebugMask = ctx.visualBackgroundBlurDebugMask as any;
+  const visualBackgroundMaskPreviewMode = ctx.visualBackgroundMaskPreviewMode as any;
   const visualBackgroundBlurFallbackMode = ctx.visualBackgroundBlurFallbackMode as any;
   const visualBackgroundBlurFeatherPx = ctx.visualBackgroundBlurFeatherPx as any;
   const visualBackgroundBlurPx = ctx.visualBackgroundBlurPx as any;
@@ -2301,6 +2303,17 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           />
                           <span>Show mask thumbnails (debug)</span>
                         </label>
+                        <label className="hammer-tool-check">
+                          <input
+                            type="checkbox"
+                            checked={visualBackgroundMaskPreviewMode}
+                            onChange={(event) => {
+                              setFocusOverride("tool-focus");
+                              setVisualBackgroundMaskPreviewMode(event.target.checked);
+                            }}
+                          />
+                          <span>Mask preview mode (raw mask)</span>
+                        </label>
                         <div className="hammer-tool-hint">
                           {visualBackgroundBlurStatusSummary ? (
                             visualBackgroundBlurStatusSummary.primaryLine
@@ -2308,6 +2321,40 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                             "Segmentation status unavailable."
                           )}
                         </div>
+                        {visualBackgroundBlurRuntimeStatus ? (
+                          <div className="hammer-tool-hint hammer-background-blur-debug">
+                            <div>
+                              <strong>
+                                mask: {visualBackgroundBlurRuntimeStatus.mask.status === "ok"
+                                  ? "OK"
+                                  : visualBackgroundBlurRuntimeStatus.mask.status}
+                              </strong>
+                              {visualBackgroundBlurRuntimeStatus.mask.reason
+                                ? ` (${visualBackgroundBlurRuntimeStatus.mask.reason})`
+                                : ""}
+                            </div>
+                            <div>
+                              provider: {visualBackgroundBlurRuntimeStatus.mask.providerStatus} ({visualBackgroundBlurRuntimeStatus.mask.providerSource})
+                            </div>
+                            <div>
+                              mask resolution: {visualBackgroundBlurRuntimeStatus.mask.resolution
+                                ? `${visualBackgroundBlurRuntimeStatus.mask.resolution.width}x${visualBackgroundBlurRuntimeStatus.mask.resolution.height}`
+                                : "n/a"}
+                            </div>
+                            <div>
+                              confidence: {visualBackgroundBlurRuntimeStatus.mask.confidence == null
+                                ? "n/a"
+                                : visualBackgroundBlurRuntimeStatus.mask.confidence.toFixed(2)}
+                              {" · "}
+                              mask gen: {visualBackgroundBlurRuntimeStatus.mask.generationMs == null
+                                ? "n/a"
+                                : `${visualBackgroundBlurRuntimeStatus.mask.generationMs.toFixed(1)}ms`}
+                            </div>
+                            {visualBackgroundBlurRuntimeStatus.statusMessage ? (
+                              <div>{visualBackgroundBlurRuntimeStatus.statusMessage}</div>
+                            ) : null}
+                          </div>
+                        ) : null}
                         {visualBackgroundBlurDebugMask && visualBackgroundBlurRuntimeStatus ? (
                           <div className="hammer-tool-hint hammer-background-blur-debug">
                             {visualBackgroundBlurStatusSummary?.debugLine ? (

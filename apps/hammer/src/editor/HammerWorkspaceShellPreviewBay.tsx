@@ -36,6 +36,7 @@ export type HammerWorkspaceShellPreviewBayVM = {
     settings: any;
     providerId: string | null;
     debugMasks: boolean;
+    maskPreviewMode: boolean;
     onStatus: (status: any) => void;
     onCanvas: (canvas: HTMLCanvasElement | null) => void;
   };
@@ -93,6 +94,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             videoRef={vm.previewAudioRef}
             onStatus={vm.backgroundEffect.onStatus}
             debugMasks={vm.backgroundEffect.debugMasks}
+            maskPreviewMode={vm.backgroundEffect.maskPreviewMode}
             onCanvas={vm.backgroundEffect.onCanvas}
           />
           <EyeContactAssistPreviewLayer

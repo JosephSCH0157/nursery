@@ -1878,6 +1878,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     Number(initialVisualPreviewSettings.background_wash_desaturate_amount ?? 0.25),
   );
   const [visualBackgroundBlurDebugMask, setVisualBackgroundBlurDebugMask] = useState(false);
+  const [visualBackgroundMaskPreviewMode, setVisualBackgroundMaskPreviewMode] = useState(false);
   const [visualBackgroundBlurRuntimeStatus, setVisualBackgroundBlurRuntimeStatus] = useState<HammerBackgroundBlurRuntimeStatus | null>(null);
   const [visualEyeContactAssistDebugOverlay, setVisualEyeContactAssistDebugOverlay] = useState(false);
   const [visualEyeContactAssistRuntimeStatus, setVisualEyeContactAssistRuntimeStatus] = useState<HammerEyeContactAssistRuntimeStatus | null>(null);
@@ -9035,6 +9036,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       settings: backgroundBlurSettings,
       providerId: visualBackgroundBlurProviderId,
       debugMasks: visualBackgroundBlurDebugMask,
+      maskPreviewMode: visualBackgroundMaskPreviewMode,
       onStatus: setVisualBackgroundBlurRuntimeStatus,
       onCanvas: handleBackgroundEffectCanvas,
     },
@@ -9101,6 +9103,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     togglePlayback,
     visualBackgroundBlur,
     visualBackgroundBlurDebugMask,
+    visualBackgroundMaskPreviewMode,
     visualBackgroundBlurProviderId,
     visualBackgroundReplaceEnabled,
     visualBackgroundWashEnabled,
@@ -10028,6 +10031,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setVideoSnapMode,
     setVisualBackgroundBlur,
     setVisualBackgroundBlurDebugMask,
+    setVisualBackgroundMaskPreviewMode,
     setVisualBackgroundBlurFallbackMode,
     setVisualBackgroundBlurFeatherPx,
     setVisualBackgroundBlurProviderId,
@@ -10081,6 +10085,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     viewingModeSummary,
     visualBackgroundBlur,
     visualBackgroundBlurDebugMask,
+    visualBackgroundMaskPreviewMode,
     visualBackgroundBlurFallbackMode,
     visualBackgroundBlurFeatherPx,
     visualBackgroundBlurPx,
@@ -10316,6 +10321,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setVideoSnapMode,
     setVisualBackgroundBlur,
     setVisualBackgroundBlurDebugMask,
+    setVisualBackgroundMaskPreviewMode,
     setVisualBackgroundBlurFallbackMode,
     setVisualBackgroundBlurFeatherPx,
     setVisualBackgroundBlurProviderId,
@@ -10369,6 +10375,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     viewingModeSummary,
     visualBackgroundBlur,
     visualBackgroundBlurDebugMask,
+    visualBackgroundMaskPreviewMode,
     visualBackgroundBlurFallbackMode,
     visualBackgroundBlurFeatherPx,
     visualBackgroundBlurPx,
