@@ -236,15 +236,8 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const candidateEditModeById = ctx.candidateEditModeById as Record<string, any>;
   const candidateProposedTextById = ctx.candidateProposedTextById as Record<string, any>;
   const setCandidateProposedTextById = ctx.setCandidateProposedTextById as (next: any | ((current: any) => any)) => void;
-  const candidateCutEnabledById = ctx.candidateCutEnabledById as Record<string, any>;
-  const candidateCutDraftById = ctx.candidateCutDraftById as Record<string, any>;
-  const setCandidateCutEnabledById = ctx.setCandidateCutEnabledById as (next: any | ((current: any) => any)) => void;
-  const setCandidateCutDraftById = ctx.setCandidateCutDraftById as (next: any | ((current: any) => any)) => void;
-  const transcriptSegmentsById = ctx.transcriptSegmentsById as Map<string, any>;
   const candidateReceiptByKind = ctx.candidateReceiptByKind as any;
   const setCandidateEditModeById = ctx.setCandidateEditModeById as (next: any | ((current: any) => any)) => void;
-  const resolveCandidateSuggestedCut = ctx.resolveCandidateSuggestedCut as (...args: any[]) => any;
-  const resolveCandidateCutOverride = ctx.resolveCandidateCutOverride as (...args: any[]) => any;
   const fillerDecisionInFlight = ctx.fillerDecisionInFlight as boolean;
   const handleCandidateDecision = ctx.handleCandidateDecision as (...args: any[]) => void;
 
@@ -463,160 +456,8 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           </div>
                           <div className="hammer-candidate-card__meta">
                             <span>Confidence {Math.round(activeFillerCandidateCard.confidence * 100)}%</span>
-                            <span>Est. time saved (if cut) {activeFillerCandidateCard.timeSavedSec.toFixed(1)}s</span>
+                            <span>Est. time saved {activeFillerCandidateCard.timeSavedSec.toFixed(1)}s</span>
                           </div>
-                          {(() => {
-                            const candidateId = activeFillerCandidateCard.id;
-                            const enabled = candidateCutEnabledById[candidateId] === true;
-                            const suggested = resolveCandidateSuggestedCut(activeFillerCandidateCard);
-                            const transcriptOnlyCandidate = activeFillerCandidateCard.apply.removeSegmentIds.length === 0;
-                            const cutOverride = resolveCandidateCutOverride(activeFillerCandidateCard);
-                            const segmentIdsForCut = activeFillerCandidateCard.apply.removeSegmentIds.length > 0
-                              ? activeFillerCandidateCard.apply.removeSegmentIds
-                              : activeFillerCandidateCard.segmentIds;
-                            const draft = candidateCutDraftById[candidateId] ?? null;
-                            return (
-                              <section className="hammer-tool-card">
-                                <header className="hammer-tool-card__head">Cut Span</header>
-                                <label className="hammer-tool-check">
-                                  <input
-                                    type="checkbox"
-                                    checked={enabled}
-                                    onChange={(event) => {
-                                      setFocusOverride("tool-focus");
-                                      setCandidateCutEnabledById((current: any) => ({
-                                        ...current,
-                                        [candidateId]: event.target.checked,
-                                      }));
-                                    }}
-                                  />
-                                  <span>Apply a timeline cut (time coordinates)</span>
-                                </label>
-                                {transcriptOnlyCandidate && !enabled ? (
-                                  <div className="hammer-tool-hint">
-                                    Transcript-only cleanup unless you enable a Cut Span and commit time coordinates.
-                                  </div>
-                                ) : null}
-                                {transcriptOnlyCandidate && enabled && !cutOverride ? (
-                                  <div className="hammer-tool-hint">
-                                    No cut span selected yet. Set Start/End to change playback.
-                                  </div>
-                                ) : null}
-                                {suggested ? (
-                                  <div className="hammer-tool-hint">
-                                    Suggested: {suggested.startSec.toFixed(1)}s - {suggested.endSec.toFixed(1)}s
-                                  </div>
-                                ) : null}
-                                <div className="hammer-source-card__actions">
-                                  <button
-                                    type="button"
-                                    disabled={!suggested}
-                                    onClick={() => {
-                                      if (!suggested) return;
-                                      setFocusOverride("tool-focus");
-                                      setCandidateCutDraftById((current: any) => ({
-                                        ...current,
-                                        [candidateId]: {
-                                          startSec: String(suggested.startSec),
-                                          endSec: String(suggested.endSec),
-                                        },
-                                      }));
-                                    }}
-                                  >
-                                    Use Suggested
-                                  </button>
-                                </div>
-                                <div className="hammer-source-summary">
-                                  <label htmlFor={`hammer-cut-start-${candidateId}`}>Start (sec)</label>
-                                  <input
-                                    id={`hammer-cut-start-${candidateId}`}
-                                    type="number"
-                                    step={0.1}
-                                    value={draft?.startSec ?? ""}
-                                    title="Cut start time in seconds"
-                                    placeholder="0.0"
-                                    onChange={(event) => {
-                                      setFocusOverride("tool-focus");
-                                      const value = event.target.value;
-                                      setCandidateCutDraftById((current: any) => ({
-                                        ...current,
-                                        [candidateId]: { startSec: value, endSec: current[candidateId]?.endSec ?? "" },
-                                      }));
-                                    }}
-                                    disabled={!enabled}
-                                  />
-                                  <label htmlFor={`hammer-cut-end-${candidateId}`}>End (sec)</label>
-                                  <input
-                                    id={`hammer-cut-end-${candidateId}`}
-                                    type="number"
-                                    step={0.1}
-                                    value={draft?.endSec ?? ""}
-                                    title="Cut end time in seconds"
-                                    placeholder="0.0"
-                                    onChange={(event) => {
-                                      setFocusOverride("tool-focus");
-                                      const value = event.target.value;
-                                      setCandidateCutDraftById((current: any) => ({
-                                        ...current,
-                                        [candidateId]: { startSec: current[candidateId]?.startSec ?? "", endSec: value },
-                                      }));
-                                    }}
-                                    disabled={!enabled}
-                                  />
-                                </div>
-                                {segmentIdsForCut.length > 0 ? (
-                                  <div className="hammer-source-list">
-                                    {segmentIdsForCut.map((segmentId: any) => {
-                                      const segment = transcriptSegmentsById.get(segmentId) ?? null;
-                                      if (!segment) return null;
-                                      return (
-                                        <article key={`cut-seg-${candidateId}-${segmentId}`} className="hammer-source-card">
-                                          <header className="hammer-source-card__head">
-                                            <strong>{segmentId}</strong>
-                                            <span>{segment.start_sec.toFixed(1)}s - {segment.end_sec.toFixed(1)}s</span>
-                                          </header>
-                                          <div className="hammer-source-card__actions">
-                                            <button
-                                              type="button"
-                                              disabled={!enabled}
-                                              onClick={() => {
-                                                setFocusOverride("tool-focus");
-                                                setCandidateCutDraftById((current: any) => ({
-                                                  ...current,
-                                                  [candidateId]: {
-                                                    startSec: String(segment.start_sec),
-                                                    endSec: current[candidateId]?.endSec ?? "",
-                                                  },
-                                                }));
-                                              }}
-                                            >
-                                              Set Start
-                                            </button>
-                                            <button
-                                              type="button"
-                                              disabled={!enabled}
-                                              onClick={() => {
-                                                setFocusOverride("tool-focus");
-                                                setCandidateCutDraftById((current: any) => ({
-                                                  ...current,
-                                                  [candidateId]: {
-                                                    startSec: current[candidateId]?.startSec ?? "",
-                                                    endSec: String(segment.end_sec),
-                                                  },
-                                                }));
-                                              }}
-                                            >
-                                              Set End
-                                            </button>
-                                          </div>
-                                        </article>
-                                      );
-                                    })}
-                                  </div>
-                                ) : null}
-                              </section>
-                            );
-                          })()}
                           {candidateReceiptByKind.fillers ? (
                             <div className="hammer-tool-hint">{candidateReceiptByKind.fillers}</div>
                           ) : null}
@@ -643,22 +484,13 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                                     useEditedProposal: true,
                                     editedProposalText: candidateProposedTextById[activeFillerCandidateCard.id]
                                       ?? (activeFillerCandidateCard.afterText ?? ""),
-                                    cutOverride: resolveCandidateCutOverride(activeFillerCandidateCard),
                                   });
                                 } else {
-                                  handleCandidateDecision("fillers", true, {
-                                    cutOverride: resolveCandidateCutOverride(activeFillerCandidateCard),
-                                  });
+                                  handleCandidateDecision("fillers", true);
                                 }
                               }}
                             >
-                              {(() => {
-                                const willCutAudio = Boolean(resolveCandidateCutOverride(activeFillerCandidateCard))
-                                  || activeFillerCandidateCard.apply.removeSegmentIds.length > 0;
-                                return candidateEditModeById[activeFillerCandidateCard.id]
-                                  ? (willCutAudio ? "Approve Edited + Cut" : "Approve Edited (Transcript Only)")
-                                  : (willCutAudio ? "Approve + Cut" : "Approve (Transcript Only)");
-                              })()}
+                              {candidateEditModeById[activeFillerCandidateCard.id] ? "Approve Edited" : "Approve"}
                             </button>
                             {candidateEditModeById[activeFillerCandidateCard.id] ? (
                               <button
@@ -668,7 +500,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                                   setFocusOverride("tool-focus");
                                   handleCandidateDecision("fillers", true, {
                                     useEditedProposal: false,
-                                    cutOverride: resolveCandidateCutOverride(activeFillerCandidateCard),
                                   });
                                 }}
                               >
@@ -774,146 +605,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                             <span>Confidence {Math.round(activeRetakeCandidateCard.confidence * 100)}%</span>
                             <span>Time saved {activeRetakeCandidateCard.timeSavedSec.toFixed(1)}s</span>
                           </div>
-                          {(() => {
-                            const candidateId = activeRetakeCandidateCard.id;
-                            const enabled = candidateCutEnabledById[candidateId] === true;
-                            const suggested = resolveCandidateSuggestedCut(activeRetakeCandidateCard);
-                            const segmentIdsForCut = activeRetakeCandidateCard.apply.removeSegmentIds.length > 0
-                              ? activeRetakeCandidateCard.apply.removeSegmentIds
-                              : activeRetakeCandidateCard.segmentIds;
-                            const draft = candidateCutDraftById[candidateId] ?? null;
-                            return (
-                              <section className="hammer-tool-card">
-                                <header className="hammer-tool-card__head">Cut Span</header>
-                                <label className="hammer-tool-check">
-                                  <input
-                                    type="checkbox"
-                                    checked={enabled}
-                                    onChange={(event) => {
-                                      setFocusOverride("tool-focus");
-                                      setCandidateCutEnabledById((current: any) => ({
-                                        ...current,
-                                        [candidateId]: event.target.checked,
-                                      }));
-                                    }}
-                                  />
-                                  <span>Apply a timeline cut (time coordinates)</span>
-                                </label>
-                                {suggested ? (
-                                  <div className="hammer-tool-hint">
-                                    Suggested: {suggested.startSec.toFixed(1)}s - {suggested.endSec.toFixed(1)}s
-                                  </div>
-                                ) : null}
-                                <div className="hammer-source-card__actions">
-                                  <button
-                                    type="button"
-                                    disabled={!suggested}
-                                    onClick={() => {
-                                      if (!suggested) return;
-                                      setFocusOverride("tool-focus");
-                                      setCandidateCutDraftById((current: any) => ({
-                                        ...current,
-                                        [candidateId]: {
-                                          startSec: String(suggested.startSec),
-                                          endSec: String(suggested.endSec),
-                                        },
-                                      }));
-                                    }}
-                                  >
-                                    Use Suggested
-                                  </button>
-                                </div>
-                                <div className="hammer-source-summary">
-                                  <label htmlFor={`hammer-retake-cut-start-${candidateId}`}>Start (sec)</label>
-                                  <input
-                                    id={`hammer-retake-cut-start-${candidateId}`}
-                                    type="number"
-                                    step={0.1}
-                                    value={draft?.startSec ?? ""}
-                                    title="Retake cut start time in seconds"
-                                    placeholder="0.0"
-                                    onChange={(event) => {
-                                      setFocusOverride("tool-focus");
-                                      const value = event.target.value;
-                                      setCandidateCutDraftById((current: any) => ({
-                                        ...current,
-                                        [candidateId]: { startSec: value, endSec: current[candidateId]?.endSec ?? "" },
-                                      }));
-                                    }}
-                                    disabled={!enabled}
-                                  />
-                                  <label htmlFor={`hammer-retake-cut-end-${candidateId}`}>End (sec)</label>
-                                  <input
-                                    id={`hammer-retake-cut-end-${candidateId}`}
-                                    type="number"
-                                    step={0.1}
-                                    value={draft?.endSec ?? ""}
-                                    title="Retake cut end time in seconds"
-                                    placeholder="0.0"
-                                    onChange={(event) => {
-                                      setFocusOverride("tool-focus");
-                                      const value = event.target.value;
-                                      setCandidateCutDraftById((current: any) => ({
-                                        ...current,
-                                        [candidateId]: { startSec: current[candidateId]?.startSec ?? "", endSec: value },
-                                      }));
-                                    }}
-                                    disabled={!enabled}
-                                  />
-                                </div>
-                                {segmentIdsForCut.length > 0 ? (
-                                  <div className="hammer-source-list">
-                                    {segmentIdsForCut.map((segmentId: any) => {
-                                      const segment = transcriptSegmentsById.get(segmentId) ?? null;
-                                      if (!segment) return null;
-                                      return (
-                                        <article key={`cut-seg-${candidateId}-${segmentId}`} className="hammer-source-card">
-                                          <header className="hammer-source-card__head">
-                                            <strong>{segmentId}</strong>
-                                            <span>{segment.start_sec.toFixed(1)}s - {segment.end_sec.toFixed(1)}s</span>
-                                          </header>
-                                          <div className="hammer-source-card__actions">
-                                            <button
-                                              type="button"
-                                              disabled={!enabled}
-                                              onClick={() => {
-                                                setFocusOverride("tool-focus");
-                                                setCandidateCutDraftById((current: any) => ({
-                                                  ...current,
-                                                  [candidateId]: {
-                                                    startSec: String(segment.start_sec),
-                                                    endSec: current[candidateId]?.endSec ?? "",
-                                                  },
-                                                }));
-                                              }}
-                                            >
-                                              Set Start
-                                            </button>
-                                            <button
-                                              type="button"
-                                              disabled={!enabled}
-                                              onClick={() => {
-                                                setFocusOverride("tool-focus");
-                                                setCandidateCutDraftById((current: any) => ({
-                                                  ...current,
-                                                  [candidateId]: {
-                                                    startSec: current[candidateId]?.startSec ?? "",
-                                                    endSec: String(segment.end_sec),
-                                                  },
-                                                }));
-                                              }}
-                                            >
-                                              Set End
-                                            </button>
-                                          </div>
-                                        </article>
-                                      );
-                                    })}
-                                  </div>
-                                ) : null}
-                              </section>
-                            );
-                          })()}
+                          {candidateReceiptByKind.retakes ? (
+                            <div className="hammer-tool-hint">{candidateReceiptByKind.retakes}</div>
+                          ) : null}
                           <div className="hammer-candidate-review__actions">
                             <button
                               type="button"
@@ -937,23 +631,13 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                                     useEditedProposal: true,
                                     editedProposalText: candidateProposedTextById[activeRetakeCandidateCard.id]
                                       ?? (activeRetakeCandidateCard.afterText ?? ""),
-                                    cutOverride: resolveCandidateCutOverride(activeRetakeCandidateCard),
                                   });
                                 } else {
-                                  handleCandidateDecision("retakes", true, {
-                                    cutOverride: resolveCandidateCutOverride(activeRetakeCandidateCard),
-                                  });
+                                  handleCandidateDecision("retakes", true);
                                 }
                               }}
                             >
-                              {(() => {
-                                const willCutAudio = Boolean(resolveCandidateCutOverride(activeRetakeCandidateCard))
-                                  || activeRetakeCandidateCard.apply.removeSegmentIds.length > 0;
-                                if (candidateEditModeById[activeRetakeCandidateCard.id]) {
-                                  return willCutAudio ? "Approve Edited + Cut" : "Approve Edited (Transcript Only)";
-                                }
-                                return willCutAudio ? "Approve + Cut" : "Approve (Transcript Only)";
-                              })()}
+                              {candidateEditModeById[activeRetakeCandidateCard.id] ? "Approve Edited" : "Approve"}
                             </button>
                             {candidateEditModeById[activeRetakeCandidateCard.id] ? (
                               <button
@@ -963,7 +647,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                                   setFocusOverride("tool-focus");
                                   handleCandidateDecision("retakes", true, {
                                     useEditedProposal: false,
-                                    cutOverride: resolveCandidateCutOverride(activeRetakeCandidateCard),
                                   });
                                 }}
                               >

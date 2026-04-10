@@ -37,6 +37,16 @@ async function testFillerRemovalDeterministic() {
   assert.equal(preview.resultSegments[0]?.text.includes("um"), false);
 }
 
+async function testFillerRemovalCanRemoveFillerOnlySegment() {
+  const segments = [
+    s("a", 0, 0.8, "Host", "Um."),
+  ];
+  const preview = previewRemoveFillers(segments, { aggressiveness: "medium", protectIntentionalPhrasing: true });
+  assert.equal(preview.summary.removedSegments, 1);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
+  assert.equal(preview.suggestions.some((sugg) => sugg.id === "filler:a"), true);
+}
+
 async function testRetakeRemovalDeterministic() {
   const segments = [
     s("a", 0, 1, "Host", "let me do that again"),
@@ -443,6 +453,7 @@ async function testCleanupExecutionDerivesAudioCutsForDeadAirClosure() {
 async function run() {
   await testShortenGapsDeterministic();
   await testFillerRemovalDeterministic();
+  await testFillerRemovalCanRemoveFillerOnlySegment();
   await testRetakeRemovalDeterministic();
   await testRetakeRemovalCatchesStartThatAgainMarkerOnly();
   await testRetakeRemovalCatchesNearImmediateReread();

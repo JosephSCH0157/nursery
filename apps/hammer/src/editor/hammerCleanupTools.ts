@@ -296,6 +296,7 @@ export function previewRemoveFillers(
   const dictionary = buildFillerDictionary(options.aggressiveness);
   const suggestions: HammerCleanupSuggestion[] = [];
   const changed = new Set<string>();
+  const removed = new Set<string>();
 
   for (const segment of next) {
     const before = segment.text;
@@ -304,8 +305,20 @@ export function previewRemoveFillers(
     if (options.protectIntentionalPhrasing && /^like\s/i.test(before) && options.aggressiveness !== "strong") continue;
     const normalizedBefore = normalizeTextSpacing(before);
     const normalizedAfter = normalizeTextSpacing(cleaned.text);
-    // Conservative pass: only emit a candidate when the proposed text is meaningfully different and non-empty.
-    if (!normalizedAfter) continue;
+    // Conservative pass: only emit a candidate when the proposed text is meaningfully different.
+    // If the cleaned segment becomes empty, remove the segment entirely (filler-only).
+    if (!normalizedAfter) {
+      removed.add(segment.segment_id);
+      suggestions.push({
+        id: `filler:${segment.segment_id}`,
+        type: "filler_remove",
+        segmentId: segment.segment_id,
+        description: `Remove filler-only segment (${cleaned.removed} filler phrase${cleaned.removed === 1 ? "" : "s"}).`,
+        confidence: options.aggressiveness === "strong" ? 0.7 : options.aggressiveness === "medium" ? 0.78 : 0.86,
+        timeSavedSec: roundToTenth(Math.max(0.1, segment.end_sec - segment.start_sec)),
+      });
+      continue;
+    }
     if (normalizedAfter === normalizedBefore) continue;
     segment.text = normalizedAfter;
     changed.add(segment.segment_id);
@@ -321,11 +334,11 @@ export function previewRemoveFillers(
 
   return {
     label: "Remove Fillers",
-    resultSegments: next,
+    resultSegments: next.filter((segment) => !removed.has(segment.segment_id)),
     suggestions,
     summary: {
       changedSegments: changed.size,
-      removedSegments: 0,
+      removedSegments: removed.size,
       timeSavedSec: roundToTenth(suggestions.reduce((sum, item) => sum + item.timeSavedSec, 0)),
     },
   };
