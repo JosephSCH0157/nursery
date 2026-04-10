@@ -74,7 +74,11 @@ export function summarizeBackgroundEffectRuntimeStatus(args: {
     if (args.status.lastCompositeMs != null) debugParts.push(`comp ${args.status.lastCompositeMs.toFixed(1)}ms`);
     if (args.status.avgSegmentationMs != null) debugParts.push(`avg seg ${args.status.avgSegmentationMs.toFixed(1)}ms`);
     if (args.status.avgCompositeMs != null) debugParts.push(`avg comp ${args.status.avgCompositeMs.toFixed(1)}ms`);
+    if (args.status.effectiveSegmentationFps != null) debugParts.push(`seg fps ${args.status.effectiveSegmentationFps.toFixed(1)}`);
+    if (args.status.effectiveCompositeFps != null) debugParts.push(`comp fps ${args.status.effectiveCompositeFps.toFixed(1)}`);
     if (args.status.droppedFrames > 0) debugParts.push(`dropped ${args.status.droppedFrames}`);
+    if (args.status.skippedSegmentationFrames > 0) debugParts.push(`skipped seg ${args.status.skippedSegmentationFrames}`);
+    if (args.status.reusedMaskFrames > 0) debugParts.push(`reused mask ${args.status.reusedMaskFrames}`);
     debugLine = debugParts.length > 0 ? debugParts.join(" · ") : null;
   }
 
