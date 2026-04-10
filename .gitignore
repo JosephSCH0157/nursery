@@ -33,3 +33,6 @@ supabase/.temp/
 
 # Local Netlify folder
 .netlify
+
+# codex scratch
+apps/hammer/src/editor/_tmp_*.txt

@@ -39,7 +39,6 @@ import {
   selectPrimaryActiveClipAtTime,
   selectPreviewClips,
 } from "../visuals/state/hammerVisualSelectors";
-import VisualTimelineDock from "../visuals/components/VisualTimelineDock";
 import type { VisualClipBlockModel } from "../visuals/components/VisualClipBlock";
 import type { VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
 import type { HammerBackgroundBlurRuntimeStatus } from "../features/visual-effects/render/backgroundBlurPreviewLayer";
@@ -125,11 +124,10 @@ import {
 } from "./hammerCleanupTools";
 import { analyzeDeadAirGaps, applyDeadAirClosure, type HammerDeadAirAnalysis } from "./hammerDeadAirClosure";
 import { requestHammerTranscriptCleanupAssist } from "./hammerTranscriptCleanupAssistApi";
-import PolishResultSummary, {
+import {
   buildPolishResultSummaryFromCleanupPreview,
   type HammerPolishResultSummary,
 } from "./PolishResultSummary";
-import { HammerWaveformLane } from "./HammerWaveformLane";
 import {
   cloneEditorState,
   type HammerEditorStateSerializable,
@@ -290,6 +288,9 @@ import {
 } from "./hammerReferenceClipGeneratorV1";
 import HammerWorkspaceShellToolbar from "./HammerWorkspaceShellToolbar";
 import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay";
+import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock";
+import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
+import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
 import { useHammerWorkspaceShellHistoryController } from "./hammerWorkspaceShellHistoryController";
 import { useHammerWorkspaceShellSourceDeskPreviews } from "./hammerWorkspaceShellSourceDeskPreviews";
 import { useHammerWorkspaceShellSnapshotEmitter } from "./hammerWorkspaceShellSnapshotEmitter";
@@ -1282,8 +1283,7 @@ function transformToGeometry(transform: HammerImagePlacementTransform): HammerVi
 function resolvePlacementAnimationPreset(
   placement: HammerVisualPlacementRecord | null | undefined,
 ): HammerImageAnimationPreset {
-  const preset = placement?.animation_preset ?? null;
-  return (
+  const preset = placement?.animation_preset ?? null;  return (
     preset === "fade_in"
     || preset === "fade_out"
     || preset === "fade_in_out"
@@ -8547,6 +8547,463 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return byPass;
   }, [passSelectorContext]);
+  const timelineDockVM = useMemo(() => ({
+    isScrubbing,
+    setFocusOverride,
+    waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
+    playbackTransportDurationSec,
+    effectivePlaybackCutRegions,
+    playheadSec,
+    seekPlayheadToTime,
+    togglePlayback,
+    isPlaybackActive,
+    toggleSelectionLoopPlayback,
+    isLoopPlaybackActive,
+    playSelectionWithRoll,
+    selectedSegment,
+    selectAdjacentSegment,
+    jumpToSelectionBoundary,
+    jumpToEditPoint,
+    sortedTimelineMarkers,
+    jumpToMarker,
+    addMarkerAtPlayhead,
+    scrubRate,
+    scrubRateOptions: SCRUB_RATE_OPTIONS,
+    setScrubRate: (rate: number) => {
+      if (!SCRUB_RATE_OPTIONS.includes(rate as HammerScrubRate)) return;
+      setScrubRate(rate as HammerScrubRate);
+    },
+    zoomTimelineOut,
+    zoomTimelineIn,
+    resetTimelineZoom,
+    timelineZoomPercent,
+    nudgePlayhead,
+    smallPlayheadNudgeSec: SMALL_PLAYHEAD_NUDGE_SEC,
+    splitSelectedSegmentAtPlayhead,
+    deleteSelectedSegmentAndRipple,
+    toggleSelectedSegmentDisabled,
+    transcriptDurationSec,
+    audioCutSelectionStatus,
+    persistedAudioCutCount,
+    canMarkAudioCutSelection,
+    canApplyAudioCutSelection,
+    hasPendingAudioCutSelection,
+    markAudioCutBoundary,
+    applyAudioCutSelection,
+    clearAudioCutSelection,
+    hasSilenceSuggestionAnalysis,
+    silenceSuggestionCount,
+    silenceCutSuggestions,
+    visibleSilenceCutSuggestions,
+    acceptSilenceCutSuggestion,
+    dismissSilenceCutSuggestion,
+    jumpToMarkerById,
+    removeMarker,
+    moveSegment,
+    trimSegmentStart,
+    trimSegmentEnd,
+    adjustSelectedSegmentGain,
+    visualTimelineDock: {
+      clips: visualTimelineLaneClips,
+      playheadSec,
+      durationSec: timelineDurationSec,
+      selectedClipId: effectiveSelectedClipId,
+      editable: visualPlacementEditingEnabled,
+      focusToken: visualTimelineFocusNonce,
+      onSelectClip: (clipId: string) => {
+        selectVisualClip({ clipId, origin: "timeline", revealUI: true });
+      },
+      onMoveClip: (event: MouseEvent, clip: { clipId: string; startSec: number; endSec: number }) => {
+        if (!visualPlacementEditingEnabled) return;
+        beginTimelineImagePlacementDrag(event as unknown as MouseEvent<HTMLElement | SVGElement>, {
+          placementId: clip.clipId,
+          mode: "move",
+          startSec: clip.startSec,
+          endSec: clip.endSec,
+        });
+      },
+      onTrimClipStart: (event: MouseEvent, clip: { clipId: string; startSec: number; endSec: number }) => {
+        if (!visualPlacementEditingEnabled) return;
+        beginTimelineImagePlacementDrag(event as unknown as MouseEvent<HTMLElement | SVGElement>, {
+          placementId: clip.clipId,
+          mode: "resize_start",
+          startSec: clip.startSec,
+          endSec: clip.endSec,
+        });
+      },
+      onTrimClipEnd: (event: MouseEvent, clip: { clipId: string; startSec: number; endSec: number }) => {
+        if (!visualPlacementEditingEnabled) return;
+        beginTimelineImagePlacementDrag(event as unknown as MouseEvent<HTMLElement | SVGElement>, {
+          placementId: clip.clipId,
+          mode: "resize_end",
+          startSec: clip.startSec,
+          endSec: clip.endSec,
+        });
+      },
+    },
+    timelineTrackScrollRef,
+    handleTimelineTrackWheelZoom,
+    editableTranscriptSegmentsLength: editableTranscriptSegments.length,
+    timelineBoardZoomClassName,
+    beginTimelineScrub,
+    timelineMinorTicks,
+    timelineTicks,
+    timelineDurationSec,
+    playheadRatioPercent,
+    timelineLanes,
+    laneGapsById,
+    visualPlacementEditingEnabled,
+    currentPass,
+    resolvePlacementAnimationPreset,
+    visualPlacementsById,
+    beginTimelineImagePlacementDrag,
+    openImageAnimationContextMenu,
+  }), [
+    acceptSilenceCutSuggestion,
+    addMarkerAtPlayhead,
+    adjustSelectedSegmentGain,
+    applyAudioCutSelection,
+    audioCutSelectionStatus,
+    beginTimelineImagePlacementDrag,
+    beginTimelineScrub,
+    canApplyAudioCutSelection,
+    canMarkAudioCutSelection,
+    clearAudioCutSelection,
+    currentPass,
+    deleteSelectedSegmentAndRipple,
+    dismissSilenceCutSuggestion,
+    editableAudioPolish?.analysis?.waveform_proxy,
+    editableTranscriptSegments.length,
+    effectivePlaybackCutRegions,
+    effectiveSelectedClipId,
+    handleTimelineTrackWheelZoom,
+    hasPendingAudioCutSelection,
+    hasSilenceSuggestionAnalysis,
+    isLoopPlaybackActive,
+    isPlaybackActive,
+    isScrubbing,
+    jumpToEditPoint,
+    jumpToMarker,
+    jumpToMarkerById,
+    jumpToSelectionBoundary,
+    laneGapsById,
+    markAudioCutBoundary,
+    moveSegment,
+    nudgePlayhead,
+    openImageAnimationContextMenu,
+    persistedAudioCutCount,
+    playSelectionWithRoll,
+    playbackTransportDurationSec,
+    playheadRatioPercent,
+    playheadSec,
+    removeMarker,
+    resetTimelineZoom,
+    resolvePlacementAnimationPreset,
+    scrubRate,
+    seekPlayheadToTime,
+    selectAdjacentSegment,
+    selectVisualClip,
+    selectedSegment,
+    setFocusOverride,
+    setScrubRate,
+    silenceCutSuggestions,
+    silenceSuggestionCount,
+    sortedTimelineMarkers,
+    splitSelectedSegmentAtPlayhead,
+    timelineBoardZoomClassName,
+    timelineDurationSec,
+    timelineLanes,
+    timelineMinorTicks,
+    timelineTicks,
+    timelineTrackScrollRef,
+    timelineZoomPercent,
+    togglePlayback,
+    toggleSelectedSegmentDisabled,
+    toggleSelectionLoopPlayback,
+    transcriptDurationSec,
+    trimSegmentEnd,
+    trimSegmentStart,
+    visibleSilenceCutSuggestions,
+    visualPlacementEditingEnabled,
+    visualPlacementsById,
+    visualTimelineFocusNonce,
+    visualTimelineLaneClips,
+    zoomTimelineIn,
+    zoomTimelineOut,
+  ]);
+  const sourceBayVM = useMemo(() => {
+    const layerOptions = outputLayerCandidates.map((layer) => ({
+      id: layer.layer_id,
+      label: formatOutputLayerLabel(layer),
+    }));
+    const historyEntries = recentHistoryEntries.map((entry) => {
+      const isCurrent = entry.id === historyHeadEntryId;
+      const derivedTransition = derivedLayerHistoryRef.current.get(entry.id) ?? null;
+      const derivedLayerCreated = Boolean(derivedTransition);
+      return {
+        id: entry.id,
+        label: entry.label,
+        timestampLabel: formatHistoryTimestamp(entry.timestamp),
+        scopeLabel: formatHistoryEntryScope(entry),
+        layerActionLabel: derivedLayerCreated ? "yes" : "no",
+        derivedLayerLabel: derivedLayerCreated ? "yes" : "no",
+        layerLabel: derivedTransition?.layerLabel ?? null,
+        isCurrent,
+        isLayerTransition: derivedLayerCreated,
+        isActiveLayerTransition: Boolean(isCurrent && derivedTransition),
+        onSelect: () => {
+          setFocusOverride("source-focus");
+          jumpToHistoryEntry(entry.id);
+        },
+      };
+    });
+
+    return {
+      aiInUse: Boolean(props.aiInUse),
+      undo: {
+        canUndo,
+        label: undoLabel,
+        compactLabel: undoLabelCompact,
+        depth: undoDepth,
+        onUndo: undoHistory,
+      },
+      redo: {
+        canRedo,
+        label: redoLabel,
+        compactLabel: redoLabelCompact,
+        depth: redoDepth,
+        onRedo: redoHistory,
+      },
+      tabs: SOURCE_TABS.map((tab) => ({
+        id: tab.id,
+        label: tab.label,
+        isActive: selectedSourceTab === tab.id,
+        onSelect: () => setSelectedSourceTab(tab.id),
+      })),
+      sourceDeskLoading,
+      sourceDeskError: sourceDeskError
+        ? {
+          message: sourceDeskError,
+          className: isSourceDeskAuthMessage(sourceDeskError)
+            ? "hammer-source-status hammer-source-status--info"
+            : "hammer-source-status hammer-source-status--error",
+        }
+        : null,
+      viewingLayer: {
+        value: activeOutputLayerId ?? "__raw__",
+        disabled: !workspaceStructuredTranscript,
+        options: layerOptions,
+        onChange: (nextLayerId: string | null) => {
+          setFocusOverride("source-focus");
+          selectViewingLayer(nextLayerId);
+        },
+      },
+      exportBasis: {
+        value: editableOutputSelection.layerId ?? "__raw__",
+        options: layerOptions,
+        onChange: (nextLayerId: string | null) => {
+          setFocusOverride("source-focus");
+          selectOutputLayerForExport(nextLayerId);
+        },
+      },
+      historyPanel: {
+        canRestoreState: canRedo,
+        onRestoreState: restoreCurrentHistoryState,
+        shownCountLabel: `${recentHistoryEntries.length} shown`,
+        resetToRaw: props.onRequestResetToRaw ? {
+          inFlight: Boolean(props.resetToRawInFlight),
+          error: props.resetToRawError ?? null,
+          onRequest: () => props.onRequestResetToRaw?.(),
+        } : null,
+        entries: historyEntries,
+      },
+
+      selectedSourceTab,
+      editableTranscriptSegments,
+      selectedSegment,
+      selectedSegmentId,
+      setFocusOverride,
+      roundToTenth,
+      applyHistoryMutation,
+      updateSegmentInTimeline,
+      transcriptTimingHint,
+      activeTool,
+      updateTranscriptSegmentSpeaker,
+      applyTranscriptSelection,
+      disableTranscriptSelection,
+      cutTranscriptSelection,
+      tightenTranscriptSelection,
+      clearTranscriptSelection,
+      hasTranscriptSelection,
+      transcriptSelectionAllDisabled,
+      transcriptSelectionRange,
+      transcriptSelectionSegmentIdSet,
+      modifiedTranscriptSegmentIds,
+      modifiedSegmentCount,
+      candidateSegmentIdSet,
+      activeCandidateSegmentIdSet,
+      transcriptLineRefs,
+      isSubtractiveTranscriptEdit,
+      setTranscriptTimingHint,
+
+      buildTimelineImagePrompt,
+      formatBytes,
+      selectedVisualFlowStep,
+      uploadingCategory,
+      savingIntroOutro,
+      sourceDeskPreviewUrls,
+      sourceDeskPreviewFailures,
+      imageUploadInputRef,
+      brollUploadInputRef,
+      introOutroUploadInputRef,
+      sourceImageItems,
+      sourceImageLibraryItems,
+      imageUsageByPath,
+      handleSourceDeskUpload,
+      persistIntroOutroSelection,
+      addImagePlacementFromLibrary,
+      updatePlacementKindFromMediaMap,
+      generateReferenceClipFromBeat,
+      queueMediaMapBeatSuggestion,
+      redoMediaMapFromScript,
+      sourceReferenceClipItems,
+      sourceBrollOnlyItems,
+      referenceClipPlannedBeats,
+      seekPlayheadToTime,
+      introOutroSelection,
+      introOutroSelectedIntroPath,
+      introOutroSelectedOutroPath,
+      introOutroCandidateItems,
+
+      transcriptSegmentsById,
+      visualPlacementCardRefs,
+      effectiveSelectedClipId,
+      selectVisualClip,
+      copyPromptToClipboard,
+      copiedPromptKey,
+      sendPromptToProvider,
+      selectionOriginRef,
+      setSelectedClipId,
+      setSelectedSegmentId,
+      setTranscriptSelectionAnchorSegmentId,
+      setTranscriptSelectionFocusSegmentId,
+      setVisualTimelineFocusNonce,
+      updateVisualPlacementTiming,
+      removeVisualPlacement,
+      sourceAssetItems,
+      workspaceMapping,
+      mediaMapBeats,
+      setSelectedVisualFlowStep,
+      buildMediaMapPrompt,
+      setMediaMapBeats,
+      setRemovedMediaMapSegmentIds,
+      unresolvedBrollSuggestionItems,
+      analyzeReferenceClipInput,
+      visualPlacementsById,
+      generatingReferenceBeatId,
+    };
+  }, [
+    activeOutputLayerId,
+    canRedo,
+    canUndo,
+    candidateSegmentIdSet,
+    clearTranscriptSelection,
+    cutTranscriptSelection,
+    disableTranscriptSelection,
+    editableTranscriptSegments,
+    formatHistoryEntryScope,
+    formatHistoryTimestamp,
+    formatBytes,
+    hasTranscriptSelection,
+    handleSourceDeskUpload,
+    imageUploadInputRef,
+    imageUsageByPath,
+    introOutroCandidateItems,
+    introOutroSelection,
+    introOutroSelectedIntroPath,
+    introOutroSelectedOutroPath,
+    introOutroUploadInputRef,
+    isSubtractiveTranscriptEdit,
+    jumpToHistoryEntry,
+    buildTimelineImagePrompt,
+    modifiedSegmentCount,
+    modifiedTranscriptSegmentIds,
+    outputLayerCandidates,
+    props.aiInUse,
+    props.onRequestResetToRaw,
+    props.resetToRawError,
+    props.resetToRawInFlight,
+    redoMediaMapFromScript,
+    redoDepth,
+    redoHistory,
+    redoLabel,
+    redoLabelCompact,
+    recentHistoryEntries,
+    restoreCurrentHistoryState,
+    roundToTenth,
+    savingIntroOutro,
+    selectedSegment,
+    selectedSegmentId,
+    selectedSourceTab,
+    selectedVisualFlowStep,
+    setFocusOverride,
+    setTranscriptTimingHint,
+    selectOutputLayerForExport,
+    selectViewingLayer,
+    sourceDeskError,
+    sourceDeskLoading,
+    sourceDeskPreviewFailures,
+    sourceDeskPreviewUrls,
+    sourceImageItems,
+    sourceImageLibraryItems,
+    sourceReferenceClipItems,
+    sourceBrollOnlyItems,
+    tightenTranscriptSelection,
+    transcriptSelectionAllDisabled,
+    transcriptSelectionRange,
+    transcriptSelectionSegmentIdSet,
+    transcriptTimingHint,
+    updatePlacementKindFromMediaMap,
+    undoDepth,
+    undoHistory,
+    undoLabel,
+    undoLabelCompact,
+    uploadingCategory,
+    updateTranscriptSegmentSpeaker,
+    updateSegmentInTimeline,
+    workspaceStructuredTranscript,
+    historyHeadEntryId,
+    editableOutputSelection.layerId,
+    activeCandidateSegmentIdSet,
+    addImagePlacementFromLibrary,
+    applyHistoryMutation,
+    applyTranscriptSelection,
+    activeTool,
+    transcriptLineRefs,
+    brollUploadInputRef,
+    generateReferenceClipFromBeat,
+    persistIntroOutroSelection,
+    queueMediaMapBeatSuggestion,
+    referenceClipPlannedBeats,
+    seekPlayheadToTime,
+    sourceDeskPreviewUrls,
+    updateTranscriptSegmentSpeaker,
+    sourceDeskPreviewFailures,
+    brollUploadInputRef,
+    imageUploadInputRef,
+    queueMediaMapBeatSuggestion,
+    redoMediaMapFromScript,
+    updatePlacementKindFromMediaMap,
+    generateReferenceClipFromBeat,
+    persistIntroOutroSelection,
+    addImagePlacementFromLibrary,
+    referenceClipPlannedBeats,
+    seekPlayheadToTime,
+    introOutroSelection,
+    introOutroSelectedIntroPath,
+    introOutroSelectedOutroPath,
+    introOutroCandidateItems,
+  ]);
   const previewBayVM = useMemo(() => ({
     previewModeLabel: previewMode,
     previewSurfaceRef,
@@ -8595,13 +9052,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         selectVisualClip({ clipId, origin: "preview", revealUI: true, snapPlayhead: false });
       },
       onBeginMove: (event: MouseEvent, clipId: string) => {
-        beginPreviewCanvasDrag(event as unknown as MouseEvent<HTMLElement>, {
+        beginPreviewCanvasDrag(event as any, {
           placementId: clipId,
           mode: "move",
         });
       },
       onBeginResize: (event: MouseEvent, clipId: string) => {
-        beginPreviewCanvasDrag(event as unknown as MouseEvent<HTMLElement>, {
+        beginPreviewCanvasDrag(event as any, {
           placementId: clipId,
           mode: "resize",
         });
@@ -8666,7 +9123,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     onSelectPass: selectPass,
   }), [currentPass, passSelectorContext, passSelectorResults, selectPass]);
   const currentPassSelectorResult = passSelectorResults.get(currentPass) ?? getPassStatus(currentPass, passSelectorContext);
-  const readinessStatusLabel = readinessVerdict.status === "ready"
+const readinessStatusLabel = readinessVerdict.status === "ready"
     ? "Ready for export"
     : readinessVerdict.status === "blocked"
     ? "Blocked"
@@ -9356,6 +9813,596 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     createFallbackEditPlan,
   });
 
+  const toolBayVM = useMemo(() => ({
+    passLabel: currentPassMeta.label,
+    passStatus: currentPassSelectorResult.status,
+    onMarkComplete: markCurrentPassComplete,
+    shellProps: props,
+    activeCaptionArtifactText,
+    activeCaptionMode,
+    activeCaptionState,
+    activeExposureAdjustment,
+    activeFillerCandidateCard,
+    activeFillerCandidateDiffOps,
+    activeLookPreset,
+    activeRetakeCandidateCard,
+    activeReviewKind,
+    activeTool,
+    addMinimalTransition,
+    analyzeDeadAirClosure,
+    anchorLabelDraft,
+    anchorTextDraft,
+    applyCleanup,
+    applyDeadAirClosureBatch,
+    applyExposureAdjustment,
+    applyIntroPlacement,
+    applyLogoOverlayStyle,
+    applyLookPresetSelection,
+    applyOutroPlacement,
+    applyPodcastMasterPass,
+    applyStudioRackMutation,
+    applyStudioSoundProfile,
+    audioFinalizationCompareMode,
+    audioFinalizationHarshness,
+    audioFinalizationOutputLevel,
+    audioFinalizationPresence,
+    audioFinalizationWarmth,
+    audioLevelingEnabled,
+    audioNoiseReductionEnabled,
+    audioStudioSoundApplied,
+    backgroundBlurProviderDescriptor,
+    boundAttentionQueue,
+    boundAttentionSummary,
+    candidateCutDraftById,
+    candidateCutEnabledById,
+    candidateEditModeById,
+    candidateProposedTextById,
+    candidateReceiptByKind,
+    captionActiveModeLabel,
+    captionActiveModeSourceLabel,
+    captionArtifactStatusLabel,
+    captionBuildFeedback,
+    captionBuildFreshness,
+    captionBuildState,
+    captionBuiltSummary,
+    captionBuiltTone,
+    captionDiscardConsequenceLabel,
+    captionEditedBasisDetail,
+    captionEditedChangeSummary,
+    captionEditedState,
+    captionEditedSummary,
+    captionEditedTone,
+    captionEditorRefs,
+    captionFormatting,
+    captionRebuildConsequenceLabel,
+    captionReleasePrepSafetyDetail,
+    captionReleasePrepSafetyLabel,
+    captionReleasePrepSafetyState,
+    captionReleasePrepSummaryLine,
+    captionReleaseSourceLabel,
+    captionSourceLabel,
+    clampImagePlacementTransform,
+    cleanupPreview,
+    cleanupPreviewSummary,
+    cleanupReceipt,
+    commitImagePlacementTransform,
+    commitVisualAnchorRefinement,
+    commitVisualPlacementWindow,
+    copiedPromptKey,
+    copyPromptToClipboard,
+    currentPass,
+    deadAirAnalysis,
+    deadAirApplyInFlight,
+    deadAirThresholdSec,
+    DEFAULT_IMAGE_PLACEMENT_TRANSFORM,
+    detailTag,
+    discardHearthBrollSuggestion,
+    editableAudioPolish,
+    editableStudioRack,
+    editableTranscriptSegments,
+    editableVisualPlacements,
+    effectivePlaybackCutRegions,
+    exportStatusLabel,
+    exportTruthPosture,
+    exportTruthState,
+    fillerActiveCandidateIndex,
+    fillerCandidateCards,
+    fillerCleanupOptions,
+    fillerDecisionInFlight,
+    finishingChecklist,
+    focusBoundAttentionOperation,
+    focusReadinessIssue,
+    gapCleanupOptions,
+    handleCandidateDecision,
+    handleDiscardEditedCaptions,
+    handleEditCaptionChunkText,
+    handleEnableCaptionEdits,
+    handleMergeEditedCaptionChunk,
+    handleNormalizeEditedCaptionChunkPunctuation,
+    handleRebuildCaptionArtifacts,
+    handleSendToQuench,
+    handleSplitEditedCaptionChunk,
+    handleToggleEditedCaptionChunkSpeakerLabel,
+    handoffTruthPosture,
+    hasTranscriptSelection,
+    introOutroSelectedIntroPath,
+    introOutroSelectedOutroPath,
+    introOutroSelection,
+    loadedPreparedPackage,
+    LOGO_POSITION_OPTIONS,
+    LOGO_SIZE_OPTIONS,
+    MIN_IMAGE_PLACEMENT_DURATION_SEC,
+    moveResolvedBrollBinding,
+    navigateBoundAttention,
+    outputSelectionSummary,
+    PACKAGING_INTRO_ENTRY_ID,
+    PACKAGING_OUTRO_ENTRY_ID,
+    packagingIntroPlacement,
+    packagingLogoAssetPath,
+    packagingLogoPlacement,
+    packagingLogoPosition,
+    packagingLogoSize,
+    packagingOutroPlacement,
+    persistedAudioCutCount,
+    podcastMasterLayer,
+    podcastMasterUiStatus,
+    polishStrength,
+    previewQuickClean,
+    previewRemoveFillers,
+    previewRemoveRetakes,
+    previewShortenGaps,
+    previewSpeakerInterview,
+    previewSpeakerMonologue,
+    previewSpeakerPanel,
+    previewSpeakerSolo,
+    previewTruthPosture,
+    props,
+    quenchHandoffStatus,
+    readinessStatusLabel,
+    readinessVerdict,
+    readySummaryAreas,
+    refreshCandidateQueue,
+    releasePrepError,
+    releasePrepLoading,
+    releasePrepOpenHref,
+    releasePrepSaved,
+    releasePrepSaving,
+    releasePrepStaleReasons,
+    removePackagingPlacement,
+    removeVisualPlacement,
+    replaceResolvedBrollBinding,
+    resolveCandidateCutOverride,
+    resolveCandidateSuggestedCut,
+    resolvedBrollBindingItems,
+    resolveHearthBrollSuggestion,
+    retakeActiveCandidateIndex,
+    retakeCandidateCards,
+    retakeCleanupOptions,
+    retakeDecisionInFlight,
+    revertResolvedBrollBinding,
+    roundToTenth,
+    SEGMENTATION_PROVIDER_DESCRIPTORS,
+    selectedBoundBrollInspectorState,
+    selectedBoundBrollOperationId,
+    selectedCaptionArtifactFormat,
+    selectedImageAnimationLabel,
+    selectedImagePlacement,
+    selectedImagePlacementTransform,
+    selectedTransitionBoundObject,
+    selectedVisualAnchorSegment,
+    selectedVisualAnchorSegmentId,
+    selectedVisualClip,
+    sendPromptToProvider,
+    sendToQuenchButtonLabel,
+    setActiveCaptionArtifactMode,
+    setActiveReviewKind,
+    setActiveTranscriptToolSection,
+    setAnchorLabelDraft,
+    setAnchorTextDraft,
+    setAudioFinalizationCompare,
+    setAudioLevelingEnabled,
+    setAudioNoiseReductionEnabled,
+    setCandidateCutDraftById,
+    setCandidateCutEnabledById,
+    setCandidateEditModeById,
+    setCandidateProposedTextById,
+    setCaptionFormatting,
+    setCleanupPreview,
+    setDeadAirThresholdSec,
+    setDetailTag,
+    setFillerCleanupOptions,
+    setFinishingChecklist,
+    setFocusOverride,
+    setGapCleanupOptions,
+    setPolishStrength,
+    setRetakeCleanupOptions,
+    setSelectedCaptionArtifactFormat,
+    setSpeakerInterviewOptions,
+    setSpeakerMonologueOptions,
+    setSpeakerPanelOptions,
+    setSpeakerSoloOptions,
+    setStudioRackBackend,
+    setStudioRackBypassed,
+    setStudioRackEnabled,
+    setStudioRackModuleBypassed,
+    setStudioRackModuleEnabled,
+    setStudioRackOpen,
+    setThumbnailPromptDraft,
+    setTranscriptTimingHint,
+    setVideoSnapMode,
+    setVisualBackgroundBlur,
+    setVisualBackgroundBlurDebugMask,
+    setVisualBackgroundBlurFallbackMode,
+    setVisualBackgroundBlurFeatherPx,
+    setVisualBackgroundBlurProviderId,
+    setVisualBackgroundBlurPx,
+    setVisualBackgroundBlurQualityMode,
+    setVisualBackgroundBlurRuntimeStatus,
+    setVisualBackgroundBlurTemporalSmoothing,
+    setVisualBackgroundReplaceColor,
+    setVisualBackgroundReplaceEnabled,
+    setVisualBackgroundReplaceImageUrl,
+    setVisualBackgroundReplaceMode,
+    setVisualBackgroundWashDesaturateAmount,
+    setVisualBackgroundWashDimAmount,
+    setVisualBackgroundWashEnabled,
+    setVisualColorAmount,
+    setVisualEyeContactAssistDebugOverlay,
+    setVisualEyeContactAssistEnabled,
+    setVisualEyeContactAssistRuntimeStatus,
+    setVisualEyeContactAssistStrength,
+    setVisualWhiteBalance,
+    silenceSuggestionCount,
+    sourceBrollItems,
+    sourceImageLibraryItems,
+    speakerInterviewOptions,
+    speakerMonologueOptions,
+    speakerOptions,
+    speakerPanelOptions,
+    speakerSoloOptions,
+    studioRackEnabledModuleCount,
+    studioRackOpen,
+    studioRackPlaybackBackendResolution,
+    studioRackPlaybackConfig,
+    studioRackRenderAppliedModules,
+    studioRackRenderBackendResolution,
+    studioRackRenderConfig,
+    studioRackRenderDeferredModules,
+    studioRackRenderStatus,
+    thumbnailPromptDraft,
+    toggleLogoOverlay,
+    transcriptSegmentsById,
+    transcriptSelectionRange,
+    trimResolvedBrollBinding,
+    unresolvedBrollSuggestionItems,
+    updateAudioFinalizationHarshness,
+    updateAudioFinalizationOutputLevel,
+    updateAudioFinalizationPresence,
+    updateAudioFinalizationWarmth,
+    updateImagePlacementTransform,
+    updateVisualPlacementTiming,
+    videoSnapMode,
+    viewingModeSummary,
+    visualBackgroundBlur,
+    visualBackgroundBlurDebugMask,
+    visualBackgroundBlurFallbackMode,
+    visualBackgroundBlurFeatherPx,
+    visualBackgroundBlurPx,
+    visualBackgroundBlurQualityMode,
+    visualBackgroundBlurRuntimeStatus,
+    visualBackgroundBlurStatusSummary,
+    visualBackgroundBlurTemporalSmoothing,
+    visualBackgroundReplaceColor,
+    visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceImageUrl,
+    visualBackgroundReplaceMode,
+    visualBackgroundWashDesaturateAmount,
+    visualBackgroundWashDimAmount,
+    visualBackgroundWashEnabled,
+    visualColorAmount,
+    visualEyeContactAssistDebugOverlay,
+    visualEyeContactAssistEnabled,
+    visualEyeContactAssistRuntimeStatus,
+    visualEyeContactAssistStatusSummary,
+    visualEyeContactAssistStrength,
+    visualWhiteBalance,
+    workspaceFocusMode,
+  }), [
+    currentPassMeta.label,
+    currentPassSelectorResult.status,
+    markCurrentPassComplete,
+    props,
+    activeCaptionArtifactText,
+    activeCaptionMode,
+    activeCaptionState,
+    activeExposureAdjustment,
+    activeFillerCandidateCard,
+    activeFillerCandidateDiffOps,
+    activeLookPreset,
+    activeRetakeCandidateCard,
+    activeReviewKind,
+    activeTool,
+    addMinimalTransition,
+    analyzeDeadAirClosure,
+    anchorLabelDraft,
+    anchorTextDraft,
+    applyCleanup,
+    applyDeadAirClosureBatch,
+    applyExposureAdjustment,
+    applyIntroPlacement,
+    applyLogoOverlayStyle,
+    applyLookPresetSelection,
+    applyOutroPlacement,
+    applyPodcastMasterPass,
+    applyStudioRackMutation,
+    applyStudioSoundProfile,
+    audioFinalizationCompareMode,
+    audioFinalizationHarshness,
+    audioFinalizationOutputLevel,
+    audioFinalizationPresence,
+    audioFinalizationWarmth,
+    audioLevelingEnabled,
+    audioNoiseReductionEnabled,
+    audioStudioSoundApplied,
+    backgroundBlurProviderDescriptor,
+    boundAttentionQueue,
+    boundAttentionSummary,
+    candidateCutDraftById,
+    candidateCutEnabledById,
+    candidateEditModeById,
+    candidateProposedTextById,
+    candidateReceiptByKind,
+    captionActiveModeLabel,
+    captionActiveModeSourceLabel,
+    captionArtifactStatusLabel,
+    captionBuildFeedback,
+    captionBuildFreshness,
+    captionBuildState,
+    captionBuiltSummary,
+    captionBuiltTone,
+    captionDiscardConsequenceLabel,
+    captionEditedBasisDetail,
+    captionEditedChangeSummary,
+    captionEditedState,
+    captionEditedSummary,
+    captionEditedTone,
+    captionEditorRefs,
+    captionFormatting,
+    captionRebuildConsequenceLabel,
+    captionReleasePrepSafetyDetail,
+    captionReleasePrepSafetyLabel,
+    captionReleasePrepSafetyState,
+    captionReleasePrepSummaryLine,
+    captionReleaseSourceLabel,
+    captionSourceLabel,
+    clampImagePlacementTransform,
+    cleanupPreview,
+    cleanupPreviewSummary,
+    cleanupReceipt,
+    commitImagePlacementTransform,
+    commitVisualAnchorRefinement,
+    commitVisualPlacementWindow,
+    copiedPromptKey,
+    copyPromptToClipboard,
+    currentPass,
+    deadAirAnalysis,
+    deadAirApplyInFlight,
+    deadAirThresholdSec,
+    DEFAULT_IMAGE_PLACEMENT_TRANSFORM,
+    detailTag,
+    discardHearthBrollSuggestion,
+    editableAudioPolish,
+    editableStudioRack,
+    editableTranscriptSegments,
+    editableVisualPlacements,
+    effectivePlaybackCutRegions,
+    exportStatusLabel,
+    exportTruthPosture,
+    exportTruthState,
+    fillerActiveCandidateIndex,
+    fillerCandidateCards,
+    fillerCleanupOptions,
+    fillerDecisionInFlight,
+    finishingChecklist,
+    focusBoundAttentionOperation,
+    focusReadinessIssue,
+    gapCleanupOptions,
+    handleCandidateDecision,
+    handleDiscardEditedCaptions,
+    handleEditCaptionChunkText,
+    handleEnableCaptionEdits,
+    handleMergeEditedCaptionChunk,
+    handleNormalizeEditedCaptionChunkPunctuation,
+    handleRebuildCaptionArtifacts,
+    handleSendToQuench,
+    handleSplitEditedCaptionChunk,
+    handleToggleEditedCaptionChunkSpeakerLabel,
+    handoffTruthPosture,
+    hasTranscriptSelection,
+    introOutroSelectedIntroPath,
+    introOutroSelectedOutroPath,
+    introOutroSelection,
+    loadedPreparedPackage,
+    LOGO_POSITION_OPTIONS,
+    LOGO_SIZE_OPTIONS,
+    MIN_IMAGE_PLACEMENT_DURATION_SEC,
+    moveResolvedBrollBinding,
+    navigateBoundAttention,
+    outputSelectionSummary,
+    PACKAGING_INTRO_ENTRY_ID,
+    PACKAGING_OUTRO_ENTRY_ID,
+    packagingIntroPlacement,
+    packagingLogoAssetPath,
+    packagingLogoPlacement,
+    packagingLogoPosition,
+    packagingLogoSize,
+    packagingOutroPlacement,
+    persistedAudioCutCount,
+    podcastMasterLayer,
+    podcastMasterUiStatus,
+    polishStrength,
+    previewQuickClean,
+    previewRemoveFillers,
+    previewRemoveRetakes,
+    previewShortenGaps,
+    previewSpeakerInterview,
+    previewSpeakerMonologue,
+    previewSpeakerPanel,
+    previewSpeakerSolo,
+    previewTruthPosture,
+    props,
+    quenchHandoffStatus,
+    readinessStatusLabel,
+    readinessVerdict,
+    readySummaryAreas,
+    refreshCandidateQueue,
+    releasePrepError,
+    releasePrepLoading,
+    releasePrepOpenHref,
+    releasePrepSaved,
+    releasePrepSaving,
+    releasePrepStaleReasons,
+    removePackagingPlacement,
+    removeVisualPlacement,
+    replaceResolvedBrollBinding,
+    resolveCandidateCutOverride,
+    resolveCandidateSuggestedCut,
+    resolvedBrollBindingItems,
+    resolveHearthBrollSuggestion,
+    retakeActiveCandidateIndex,
+    retakeCandidateCards,
+    retakeCleanupOptions,
+    retakeDecisionInFlight,
+    revertResolvedBrollBinding,
+    roundToTenth,
+    SEGMENTATION_PROVIDER_DESCRIPTORS,
+    selectedBoundBrollInspectorState,
+    selectedBoundBrollOperationId,
+    selectedCaptionArtifactFormat,
+    selectedImageAnimationLabel,
+    selectedImagePlacement,
+    selectedImagePlacementTransform,
+    selectedTransitionBoundObject,
+    selectedVisualAnchorSegment,
+    selectedVisualAnchorSegmentId,
+    selectedVisualClip,
+    sendPromptToProvider,
+    sendToQuenchButtonLabel,
+    setActiveCaptionArtifactMode,
+    setActiveReviewKind,
+    setActiveTranscriptToolSection,
+    setAnchorLabelDraft,
+    setAnchorTextDraft,
+    setAudioFinalizationCompare,
+    setAudioLevelingEnabled,
+    setAudioNoiseReductionEnabled,
+    setCandidateCutDraftById,
+    setCandidateCutEnabledById,
+    setCandidateEditModeById,
+    setCandidateProposedTextById,
+    setCaptionFormatting,
+    setCleanupPreview,
+    setDeadAirThresholdSec,
+    setDetailTag,
+    setFillerCleanupOptions,
+    setFinishingChecklist,
+    setFocusOverride,
+    setGapCleanupOptions,
+    setPolishStrength,
+    setRetakeCleanupOptions,
+    setSelectedCaptionArtifactFormat,
+    setSpeakerInterviewOptions,
+    setSpeakerMonologueOptions,
+    setSpeakerPanelOptions,
+    setSpeakerSoloOptions,
+    setStudioRackBackend,
+    setStudioRackBypassed,
+    setStudioRackEnabled,
+    setStudioRackModuleBypassed,
+    setStudioRackModuleEnabled,
+    setStudioRackOpen,
+    setThumbnailPromptDraft,
+    setTranscriptTimingHint,
+    setVideoSnapMode,
+    setVisualBackgroundBlur,
+    setVisualBackgroundBlurDebugMask,
+    setVisualBackgroundBlurFallbackMode,
+    setVisualBackgroundBlurFeatherPx,
+    setVisualBackgroundBlurProviderId,
+    setVisualBackgroundBlurPx,
+    setVisualBackgroundBlurQualityMode,
+    setVisualBackgroundBlurRuntimeStatus,
+    setVisualBackgroundBlurTemporalSmoothing,
+    setVisualBackgroundReplaceColor,
+    setVisualBackgroundReplaceEnabled,
+    setVisualBackgroundReplaceImageUrl,
+    setVisualBackgroundReplaceMode,
+    setVisualBackgroundWashDesaturateAmount,
+    setVisualBackgroundWashDimAmount,
+    setVisualBackgroundWashEnabled,
+    setVisualColorAmount,
+    setVisualEyeContactAssistDebugOverlay,
+    setVisualEyeContactAssistEnabled,
+    setVisualEyeContactAssistRuntimeStatus,
+    setVisualEyeContactAssistStrength,
+    setVisualWhiteBalance,
+    silenceSuggestionCount,
+    sourceBrollItems,
+    sourceImageLibraryItems,
+    speakerInterviewOptions,
+    speakerMonologueOptions,
+    speakerOptions,
+    speakerPanelOptions,
+    speakerSoloOptions,
+    studioRackEnabledModuleCount,
+    studioRackOpen,
+    studioRackPlaybackBackendResolution,
+    studioRackPlaybackConfig,
+    studioRackRenderAppliedModules,
+    studioRackRenderBackendResolution,
+    studioRackRenderConfig,
+    studioRackRenderDeferredModules,
+    studioRackRenderStatus,
+    thumbnailPromptDraft,
+    toggleLogoOverlay,
+    transcriptSegmentsById,
+    transcriptSelectionRange,
+    trimResolvedBrollBinding,
+    unresolvedBrollSuggestionItems,
+    updateAudioFinalizationHarshness,
+    updateAudioFinalizationOutputLevel,
+    updateAudioFinalizationPresence,
+    updateAudioFinalizationWarmth,
+    updateImagePlacementTransform,
+    updateVisualPlacementTiming,
+    videoSnapMode,
+    viewingModeSummary,
+    visualBackgroundBlur,
+    visualBackgroundBlurDebugMask,
+    visualBackgroundBlurFallbackMode,
+    visualBackgroundBlurFeatherPx,
+    visualBackgroundBlurPx,
+    visualBackgroundBlurQualityMode,
+    visualBackgroundBlurRuntimeStatus,
+    visualBackgroundBlurStatusSummary,
+    visualBackgroundBlurTemporalSmoothing,
+    visualBackgroundReplaceColor,
+    visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceImageUrl,
+    visualBackgroundReplaceMode,
+    visualBackgroundWashDesaturateAmount,
+    visualBackgroundWashDimAmount,
+    visualBackgroundWashEnabled,
+    visualColorAmount,
+    visualEyeContactAssistDebugOverlay,
+    visualEyeContactAssistEnabled,
+    visualEyeContactAssistRuntimeStatus,
+    visualEyeContactAssistStatusSummary,
+    visualEyeContactAssistStrength,
+    visualWhiteBalance,
+    workspaceFocusMode,
+  ]);
+
   return (
     <section
       ref={workspaceShellRef}
@@ -9371,1153 +10418,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       <div className="hammer-workspace-shell__main">
         <div className="hammer-workspace-shell__top">
           <section className="hammer-source-bay">
-            <header className="hammer-bay-head">
-              <strong>Source Desk</strong>
-              {props.aiInUse ? (
-                <div className="hammer-tool-hint" role="status" aria-live="polite">
-                  AI in use now. Live processing is active.
-                </div>
-              ) : null}
-              <div className="hammer-bay-tabs">
-                <button
-                  type="button"
-                  onClick={undoHistory}
-                  disabled={!canUndo}
-                  title={undoLabel ? `Undo ${undoLabel}` : "Undo"}
-                >
-                  {canUndo && undoLabelCompact ? `Undo ${undoLabelCompact}` : "Undo"}
-                </button>
-                <button
-                  type="button"
-                  onClick={redoHistory}
-                  disabled={!canRedo}
-                  title={redoLabel ? `Redo ${redoLabel}` : "Redo"}
-                >
-                  {canRedo && redoLabelCompact ? `Redo ${redoLabelCompact}` : "Redo"}
-                </button>
-              </div>
-              <div className="hammer-bay-tabs">
-                {SOURCE_TABS.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    className={selectedSourceTab === tab.id ? "is-active" : ""}
-                    onClick={() => setSelectedSourceTab(tab.id)}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            </header>
-            <div className="hammer-bay-body">
-              {sourceDeskLoading ? (
-                <div className="hammer-source-status">Loading stored Source Desk media...</div>
-              ) : null}
-              {sourceDeskError ? (
-                <div
-                  className={isSourceDeskAuthMessage(sourceDeskError)
-                    ? "hammer-source-status hammer-source-status--info"
-                    : "hammer-source-status hammer-source-status--error"}
-                  role="status"
-                >
-                  {sourceDeskError}
-                </div>
-              ) : null}
-              <div className="hammer-source-status hammer-source-status--info" role="status">
-                History: {undoDepth} undo / {redoDepth} redo
-              </div>
-              <section className="hammer-layer-selector" aria-label="Layer state">
-                <header className="hammer-layer-selector__head">
-                  <strong>Layer State</strong>
-                </header>
-                <label className="hammer-layer-selector__field">
-                  <span>Viewing layer</span>
-                  <select
-                    value={activeOutputLayerId ?? "__raw__"}
-                    onChange={(event) => {
-                      setFocusOverride("source-focus");
-                      const nextLayerId = event.target.value === "__raw__" ? null : event.target.value;
-                      selectViewingLayer(nextLayerId);
-                    }}
-                    disabled={!workspaceStructuredTranscript}
-                  >
-                    <option value="__raw__">Raw transcript</option>
-                    {outputLayerCandidates.map((layer) => (
-                      <option key={layer.layer_id} value={layer.layer_id}>
-                        {formatOutputLayerLabel(layer)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="hammer-layer-selector__field">
-                  <span>Export basis</span>
-                  <select
-                    value={editableOutputSelection.layerId ?? "__raw__"}
-                    onChange={(event) => {
-                      setFocusOverride("source-focus");
-                      const nextLayerId = event.target.value === "__raw__" ? null : event.target.value;
-                      selectOutputLayerForExport(nextLayerId);
-                    }}
-                  >
-                    <option value="__raw__">Raw transcript</option>
-                    {outputLayerCandidates.map((layer) => (
-                      <option key={layer.layer_id} value={layer.layer_id}>
-                        {formatOutputLayerLabel(layer)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </section>
-              <section className="hammer-history-panel" aria-label="Edit history">
-                <header className="hammer-history-panel__head">
-                  <strong>History</strong>
-                  <div className="hammer-history-panel__head-actions">
-                    {props.onRequestResetToRaw ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const ok = window.confirm(
-                            "Reset to Original discards the current revision edits (cleanup cuts, timing shifts, visuals, audio edits) and restores the immutable canonical baseline. Continue?",
-                          );
-                          if (!ok) return;
-                          props.onRequestResetToRaw?.();
-                        }}
-                        className="hammer-history-panel__action"
-                        disabled={props.resetToRawInFlight}
-                        title="Restore this episode to its original imported state (clears all Hammer edits)"
-                      >
-                        {props.resetToRawInFlight ? "Resetting..." : "Reset to Original"}
-                      </button>
-                    ) : null}
-                    {canRedo ? (
-                      <button
-                        type="button"
-                        onClick={restoreCurrentHistoryState}
-                        className="hammer-history-panel__action"
-                      >
-                        Restore this state
-                      </button>
-                    ) : null}
-                    <span>{recentHistoryEntries.length} shown</span>
-                  </div>
-                </header>
-                {props.resetToRawError ? (
-                  <div className="hammer-history-panel__empty" role="status">
-                    {props.resetToRawError}
-                  </div>
-                ) : null}
-                {recentHistoryEntries.length === 0 ? (
-                  <div className="hammer-history-panel__empty">No edits recorded yet.</div>
-                ) : (
-                  <div className="hammer-history-panel__list">
-                    {recentHistoryEntries.map((entry) => {
-                      const isCurrent = entry.id === historyHeadEntryId;
-                      const derivedTransition = derivedLayerHistoryRef.current.get(entry.id) ?? null;
-                      const derivedLayerCreated = Boolean(derivedTransition);
-                      return (
-                        <button
-                          key={entry.id}
-                          type="button"
-                          className={[
-                            "hammer-history-panel__item",
-                            isCurrent ? "is-current" : "",
-                            derivedLayerCreated ? "is-layer-transition" : "",
-                          ].filter(Boolean).join(" ")}
-                          onClick={() => {
-                            setFocusOverride("source-focus");
-                            jumpToHistoryEntry(entry.id);
-                          }}
-                        >
-                          <div className="hammer-history-panel__row">
-                            <strong>{entry.label}</strong>
-                            <span>{formatHistoryTimestamp(entry.timestamp)}</span>
-                          </div>
-                          <div className="hammer-history-panel__meta">
-                            <span>Scope: {formatHistoryEntryScope(entry)}</span>
-                            <span>Layer action: {derivedLayerCreated ? "yes" : "no"}</span>
-                            <span>Derived layer: {derivedLayerCreated ? "yes" : "no"}</span>
-                            {derivedTransition ? <span>Layer: {derivedTransition.layerLabel}</span> : null}
-                            {isCurrent ? <span>Current head</span> : null}
-                            {isCurrent && derivedTransition ? <span>Active layer transition</span> : null}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
-
-              {selectedSourceTab === "transcript" ? (
-                editableTranscriptSegments.length > 0 ? (
-                  <>
-                    {selectedSegment ? (
-                      <section className="hammer-transcript-editor" aria-label="Selected transcript segment editor">
-                        <div className="hammer-transcript-editor__meta">
-                          <span>{selectedSegment.start_sec.toFixed(1)}s - {selectedSegment.end_sec.toFixed(1)}s</span>
-                          <span>{selectedSegment.segment_id}</span>
-                        </div>
-                        <div className="hammer-transcript-editor__meta">
-                          <label className="hammer-transcript-editor__field">
-                            <span>Start (s)</span>
-                            <input
-                              type="number"
-                              min={0}
-                              step={0.1}
-                              value={selectedSegment.start_sec}
-                              onFocus={() => setFocusOverride("source-focus")}
-                              onChange={(event) => {
-                                const parsed = Number(event.target.value);
-                                if (!Number.isFinite(parsed)) return;
-                                const nextStart = Math.max(0, roundToTenth(parsed));
-                                setFocusOverride("source-focus");
-                                applyHistoryMutation({
-                                  label: "Adjust segment start",
-                                  kind: "timing_adjustment",
-                                  affectedSegments: [selectedSegment.segment_id],
-                                  computeAfter: (before) => ({
-                                    ...before,
-                                    transcriptSegments: updateSegmentInTimeline(
-                                      before.transcriptSegments,
-                                      selectedSegment.segment_id,
-                                      (segment) => {
-                                        const endFloor = roundToTenth(nextStart + 0.1);
-                                        return {
-                                          ...segment,
-                                          start_sec: nextStart,
-                                          end_sec: Math.max(roundToTenth(segment.end_sec), endFloor),
-                                        };
-                                      },
-                                    ),
-                                    selectedSegmentId: selectedSegment.segment_id,
-                                    playheadSec: nextStart,
-                                    transcriptTimingHint: nextStart !== parsed
-                                      ? `Start adjusted to ${nextStart.toFixed(1)}s to stay on the timeline grid.`
-                                      : null,
-                                  }),
-                                });
-                              }}
-                            />
-                          </label>
-                          <label className="hammer-transcript-editor__field">
-                            <span>End (s)</span>
-                            <input
-                              type="number"
-                              min={0}
-                              step={0.1}
-                              value={selectedSegment.end_sec}
-                              onFocus={() => setFocusOverride("source-focus")}
-                              onChange={(event) => {
-                                const parsed = Number(event.target.value);
-                                if (!Number.isFinite(parsed)) return;
-                                const nextEnd = Math.max(0, roundToTenth(parsed));
-                                const minimumEnd = roundToTenth(selectedSegment.start_sec + 0.1);
-                                const adjustedEnd = Math.max(nextEnd, minimumEnd);
-                                setFocusOverride("source-focus");
-                                applyHistoryMutation({
-                                  label: "Adjust segment end",
-                                  kind: "timing_adjustment",
-                                  affectedSegments: [selectedSegment.segment_id],
-                                  computeAfter: (before) => ({
-                                    ...before,
-                                    transcriptSegments: updateSegmentInTimeline(
-                                      before.transcriptSegments,
-                                      selectedSegment.segment_id,
-                                      (segment) => ({
-                                        ...segment,
-                                        end_sec: Math.max(adjustedEnd, roundToTenth(segment.start_sec + 0.1)),
-                                      }),
-                                    ),
-                                    selectedSegmentId: selectedSegment.segment_id,
-                                    transcriptTimingHint: adjustedEnd !== parsed
-                                      ? `End adjusted to ${adjustedEnd.toFixed(1)}s to remain after start time.`
-                                      : null,
-                                  }),
-                                });
-                              }}
-                            />
-                          </label>
-                        </div>
-                        {transcriptTimingHint ? (
-                          <div className="hammer-transcript-editor__hint" role="status">
-                            {transcriptTimingHint}
-                          </div>
-                        ) : null}
-                        <label className="hammer-transcript-editor__field">
-                          <span>Speaker</span>
-                          <input
-                            type="text"
-                            value={selectedSegment.speaker}
-                            onFocus={() => setFocusOverride("source-focus")}
-                            onChange={(event) => {
-                              setFocusOverride("source-focus");
-                              applyHistoryMutation({
-                                label: "Edit speaker label",
-                                kind: "speaker_edit",
-                                affectedSegments: [selectedSegment.segment_id],
-                                transactionId: `speaker:${selectedSegment.segment_id}:${activeTool}:${selectedSourceTab}`,
-                                allowCoalesce: true,
-                                computeAfter: (before) => ({
-                                  ...before,
-                                  transcriptSegments: updateTranscriptSegmentSpeaker(
-                                    before.transcriptSegments,
-                                    selectedSegment.segment_id,
-                                    event.target.value,
-                                  ),
-                                  transcriptTimingHint: null,
-                                }),
-                              });
-                            }}
-                          />
-                        </label>
-                        <label className="hammer-transcript-editor__field">
-                          <span>Text</span>
-                          <textarea
-                            value={selectedSegment.text}
-                            onFocus={() => setFocusOverride("source-focus")}
-                            onChange={(event) => {
-                              const nextValue = event.target.value;
-                              if (!isSubtractiveTranscriptEdit(selectedSegment.text, nextValue)) {
-                                setTranscriptTimingHint("Hammer v2 allows subtractive transcript edits only (deletions, no additions).");
-                                return;
-                              }
-                              setFocusOverride("source-focus");
-                              applyHistoryMutation({
-                                label: "Delete transcript text",
-                                kind: "transcript_text_edit",
-                                affectedSegments: [selectedSegment.segment_id],
-                                transactionId: `text:${selectedSegment.segment_id}:${activeTool}:${selectedSourceTab}`,
-                                allowCoalesce: true,
-                                computeAfter: (before) => ({
-                                  ...before,
-                                  transcriptSegments: updateSegmentInTimeline(
-                                    before.transcriptSegments,
-                                    selectedSegment.segment_id,
-                                    (segment) => ({
-                                      ...segment,
-                                      text: nextValue,
-                                    }),
-                                  ),
-                                  transcriptTimingHint: null,
-                                }),
-                              });
-                            }}
-                          />
-                          <small className="hammer-transcript-editor__hint">
-                            Subtractive-only editing: delete words/phrases, but you cannot add new words.
-                          </small>
-                        </label>
-                      </section>
-                    ) : null}
-                    <section className="hammer-transcript-selection-actions" aria-label="Transcript structural actions">
-                      {hasTranscriptSelection ? (
-                        <div className="hammer-transcript-selection-actions__meta">
-                          <span>
-                            Selected {transcriptSelectionRange.segmentIds.length} segment
-                            {transcriptSelectionRange.segmentIds.length === 1 ? "" : "s"}
-                            {transcriptSelectionRange.startSec != null && transcriptSelectionRange.endSec != null
-                              ? ` · ${transcriptSelectionRange.startSec.toFixed(1)}s-${transcriptSelectionRange.endSec.toFixed(1)}s`
-                              : ""}
-                          </span>
-                          <span>Affects timeline span and transcript-linked structural edits.</span>
-                        </div>
-                      ) : (
-                        <div className="hammer-transcript-selection-actions__meta">
-                          <span>Select transcript segments to drive timeline edits.</span>
-                          <span>Shift-click extends the range. Escape clears selection.</span>
-                        </div>
-                      )}
-                      <div className="hammer-transcript-selection-actions__buttons">
-                        <button type="button" onClick={cutTranscriptSelection} disabled={!hasTranscriptSelection}>
-                          Cut Selection
-                        </button>
-                        <button type="button" onClick={disableTranscriptSelection} disabled={!hasTranscriptSelection}>
-                          {transcriptSelectionAllDisabled ? "Enable Selection" : "Disable Selection"}
-                        </button>
-                        <button type="button" onClick={tightenTranscriptSelection} disabled={!hasTranscriptSelection}>
-                          Tighten Selection
-                        </button>
-                        <button type="button" onClick={clearTranscriptSelection} disabled={!hasTranscriptSelection}>
-                          Clear Selection
-                        </button>
-                      </div>
-                    </section>
-                    <div className="hammer-transcript-status-rail" role="status">
-                      <span>{editableTranscriptSegments.length} segments</span>
-                      <span>{modifiedSegmentCount} modified</span>
-                      <span>{modifiedSegmentCount > 0 ? "recompute needed" : "in sync"}</span>
-                    </div>
-                    <article className="hammer-transcript-document" aria-label="Transcript document">
-                      {editableTranscriptSegments.map((segment) => (
-                        <button
-                          key={segment.segment_id}
-                          type="button"
-                          className={[
-                            "hammer-transcript-line",
-                            segment.segment_id === selectedSegmentId ? "is-active" : "",
-                            transcriptSelectionSegmentIdSet.has(segment.segment_id) ? "is-range" : "",
-                            modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
-                            candidateSegmentIdSet.has(segment.segment_id) ? "is-candidate" : "",
-                            activeCandidateSegmentIdSet.has(segment.segment_id) ? "is-candidate-active" : "",
-                            segment.is_disabled ? "is-disabled" : "",
-                          ].filter(Boolean).join(" ")}
-                          onClick={(event) => {
-                            applyTranscriptSelection(segment.segment_id, event.shiftKey);
-                          }}
-                          ref={(element) => {
-                            if (element) {
-                              transcriptLineRefs.current.set(segment.segment_id, element);
-                            } else {
-                              transcriptLineRefs.current.delete(segment.segment_id);
-                            }
-                          }}
-                        >
-                          <span className="hammer-transcript-line__meta">
-                            {segment.start_sec.toFixed(1)}s - {segment.end_sec.toFixed(1)}s
-                            {" · "}
-                            {(segment.end_sec - segment.start_sec).toFixed(1)}s
-                            {modifiedTranscriptSegmentIds.has(segment.segment_id) ? " · modified" : ""}
-                            {segment.is_disabled ? " · disabled" : ""}
-                            {segment.gain_db != null && segment.gain_db !== 0 ? ` · gain ${segment.gain_db.toFixed(1)}dB` : ""}
-                          </span>
-                          <span className="hammer-transcript-line__speaker">{segment.speaker}:</span>
-                          <span className="hammer-transcript-line__text">{segment.text}</span>
-                        </button>
-                      ))}
-                    </article>
-                  </>
-                ) : <div className="hammer-empty-state">Transcript is not loaded yet.</div>
-              ) : null}
-
-              {selectedSourceTab === "images" ? (
-                sourceImageItems.length > 0 || sourceImageLibraryItems.length > 0 ? (
-                  <>
-                    <div className="hammer-source-summary">
-                      <span>{sourceImageItems.length} placements</span>
-                      <span>{sourceImageItems.filter((item) => item.status === "uncertain").length} uncertain</span>
-                    </div>
-                    <div className="hammer-source-summary">
-                      <span>{sourceImageLibraryItems.length} stored images</span>
-                      <button
-                        type="button"
-                        className="hammer-source-upload-button is-secondary"
-                        onClick={() => imageUploadInputRef.current?.click()}
-                        disabled={uploadingCategory != null}
-                      >
-                        {uploadingCategory === "images" ? "Uploading..." : "Upload Image"}
-                      </button>
-                    </div>
-                    <input
-                      ref={imageUploadInputRef}
-                      type="file"
-                      aria-label="Upload source desk image file"
-                      accept="image/*"
-                      className="hammer-source-upload-input"
-                      onChange={(event) => {
-                        void handleSourceDeskUpload("images", event.currentTarget.files);
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                    {sourceImageItems.map((item) => (
-                      (() => {
-                        const anchorSegment = transcriptSegmentsById.get(item.anchorSegmentId) ?? null;
-                        const timelinePrompt = buildTimelineImagePrompt({
-                          text: item.anchorText ?? anchorSegment?.text ?? item.label,
-                          tweak: "",
-                        });
-                        const imageCopyKey = `timeline-image:${item.id}`;
-                        return (
-                          <article
-                            key={item.id}
-                            ref={(node) => {
-                              if (node) {
-                                visualPlacementCardRefs.current.set(item.id, node);
-                              } else {
-                                visualPlacementCardRefs.current.delete(item.id);
-                              }
-                            }}
-                            className={effectiveSelectedClipId === item.id ? "hammer-source-card is-selected" : "hammer-source-card"}
-                          >
-                            {item.assetPath && sourceDeskPreviewUrls[item.assetPath] ? (
-                              <img
-                                className="hammer-source-card__thumb"
-                                src={sourceDeskPreviewUrls[item.assetPath]}
-                                alt={item.label}
-                              />
-                            ) : (
-                              <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">
-                                {item.assetPath && sourceDeskPreviewFailures[item.assetPath] ? "Preview unavailable" : "No thumbnail"}
-                              </div>
-                            )}
-                            <header className="hammer-source-card__head">
-                              <strong>{item.label}</strong>
-                              <span className={item.status === "uncertain" ? "is-warning" : "is-ready"}>{item.status}</span>
-                            </header>
-                            <div className="hammer-source-card__meta">
-                              <span>Type: image</span>
-                              <span>{item.startSec.toFixed(1)}s - {item.endSec.toFixed(1)}s</span>
-                              <span>Uses: 1</span>
-                              <span>{item.visualMode ?? "visual"}</span>
-                              <span>{item.confidence != null ? `${Math.round(item.confidence * 100)}% match` : "match n/a"}</span>
-                            </div>
-                            <div className="hammer-source-card__path">Prompt: {timelinePrompt}</div>
-                            <div className="hammer-source-card__actions">
-                              <button
-                                type="button"
-                                onClick={() => selectVisualClip({ clipId: item.id, origin: "tool_window", revealUI: true })}
-                              >
-                                Select
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void copyPromptToClipboard({
-                                    key: imageCopyKey,
-                                    prompt: timelinePrompt,
-                                  });
-                                }}
-                              >
-                                {copiedPromptKey === imageCopyKey ? "Copied" : "Copy Prompt"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void sendPromptToProvider({
-                                    key: imageCopyKey,
-                                    prompt: timelinePrompt,
-                                    label: "timeline image",
-                                  });
-                                }}
-                              >
-                                Send to Provider
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  selectionOriginRef.current = "timeline";
-                                  setFocusOverride("time-focus");
-                                  setSelectedClipId(item.id);
-                                  setSelectedSegmentId(item.anchorSegmentId);
-                                  setTranscriptSelectionAnchorSegmentId(item.anchorSegmentId);
-                                  setTranscriptSelectionFocusSegmentId(item.anchorSegmentId);
-                                  setVisualTimelineFocusNonce((current) => current + 1);
-                                  seekPlayheadToTime(item.startSec, "playhead");
-                                }}
-                              >
-                                Send to timeline
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setFocusOverride("time-focus");
-                                  updateVisualPlacementTiming(item.id, -0.5);
-                                }}
-                              >
-                                -0.5s
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setFocusOverride("time-focus");
-                                  updateVisualPlacementTiming(item.id, 0.5);
-                                }}
-                              >
-                                +0.5s
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setFocusOverride("tool-focus");
-                                  removeVisualPlacement(item.id);
-                                }}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          </article>
-                        );
-                      })()
-                    ))}
-                    {sourceImageLibraryItems.map((file) => (
-                      <article key={file.path} className="hammer-source-card">
-                        {sourceDeskPreviewUrls[file.path] ? (
-                          <img
-                            className="hammer-source-card__thumb"
-                            src={sourceDeskPreviewUrls[file.path]}
-                            alt={file.name}
-                          />
-                        ) : (
-                          <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">
-                            {sourceDeskPreviewFailures[file.path] ? "Preview unavailable" : "No thumbnail"}
-                          </div>
-                        )}
-                        <header className="hammer-source-card__head">
-                          <strong>{file.name}</strong>
-                          <span>stored</span>
-                        </header>
-                        <div className="hammer-source-card__meta">
-                          <span>Type: image</span>
-                          <span>Uses: {imageUsageByPath.get(file.path) ?? 0}</span>
-                          <span>{formatBytes(file.bytes)}</span>
-                          <span>{file.updatedAt ?? "updated time unavailable"}</span>
-                        </div>
-                        <div className="hammer-source-card__path">{file.path}</div>
-                        <div className="hammer-source-card__actions">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFocusOverride("tool-focus");
-                              addImagePlacementFromLibrary({
-                                assetPath: file.path,
-                                label: file.name,
-                              });
-                            }}
-                          >
-                            Add placement
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                  </>
-                ) : (
-                  <>
-                    <div className="hammer-source-summary">
-                      <span>No image placements are available yet.</span>
-                      <button
-                        type="button"
-                        className="hammer-source-upload-button is-secondary"
-                        onClick={() => imageUploadInputRef.current?.click()}
-                        disabled={uploadingCategory != null}
-                      >
-                        {uploadingCategory === "images" ? "Uploading..." : "Upload Image"}
-                      </button>
-                    </div>
-                    <input
-                      ref={imageUploadInputRef}
-                      type="file"
-                      aria-label="Upload source desk image file"
-                      accept="image/*"
-                      className="hammer-source-upload-input"
-                      onChange={(event) => {
-                        void handleSourceDeskUpload("images", event.currentTarget.files);
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                  </>
-                )
-              ) : null}
-
-              {selectedSourceTab === "assets" ? (
-                sourceAssetItems.length > 0 ? (
-                  <>
-                    <div className="hammer-source-summary">
-                      <span>{sourceAssetItems.length} assets linked</span>
-                      <span>{workspaceMapping ? "workspace mapped" : "mapping unavailable"}</span>
-                    </div>
-                    {sourceAssetItems.map((item) => (
-                      <article key={item.id} className="hammer-source-card">
-                        <header className="hammer-source-card__head">
-                          <strong>{item.label}</strong>
-                          <span>{item.kind}</span>
-                        </header>
-                        <div className="hammer-source-card__meta">
-                          <span>Uses: {item.usageCount}</span>
-                          <span>{item.firstStartSec.toFixed(1)}s - {item.lastEndSec.toFixed(1)}s</span>
-                          <span>{item.visualMode ?? "mode n/a"}</span>
-                        </div>
-                        <div className="hammer-source-card__path">{item.assetPath ?? "asset path unavailable"}</div>
-                        <div className="hammer-source-card__actions">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFocusOverride("time-focus");
-                              seekPlayheadToTime(item.firstStartSec, "playhead");
-                            }}
-                          >
-                            Reveal in timeline
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                  </>
-                ) : <div className="hammer-empty-state">No linked assets found for this workpiece.</div>
-              ) : null}
-
-              {selectedSourceTab === "broll" ? (
-                <section className="hammer-visual-flow">
-                  <div className="hammer-visual-flow__steps">
-                    {([
-                      { id: "media_map", label: "Media Map", done: mediaMapBeats.length > 0 },
-                      { id: "images", label: "Images", done: sourceImageLibraryItems.length > 0 },
-                      { id: "broll", label: "B-roll", done: sourceBrollOnlyItems.length > 0 },
-                      { id: "reference_clips", label: "Reference Clips", done: sourceReferenceClipItems.length > 0 },
-                    ] as Array<{ id: HammerVisualFlowStepId; label: string; done: boolean }>).map((step) => (
-                      <button
-                        key={step.id}
-                        type="button"
-                        className={selectedVisualFlowStep === step.id ? "hammer-visual-flow__step is-active" : "hammer-visual-flow__step"}
-                        onClick={() => setSelectedVisualFlowStep(step.id)}
-                      >
-                        <span>{step.label}</span>
-                        <small>{step.done ? "complete" : "pending"}</small>
-                      </button>
-                    ))}
-                  </div>
-
-                  {selectedVisualFlowStep === "media_map" ? (
-                    <>
-                      <div className="hammer-source-summary">
-                        <span>{mediaMapBeats.length} beats</span>
-                        <button type="button" className="hammer-source-upload-button is-secondary" onClick={redoMediaMapFromScript}>
-                          Redo Media Map
-                        </button>
-                      </div>
-                      {mediaMapBeats.map((beat) => {
-                        const brollPrompt = buildMediaMapPrompt({ type: "broll", text: beat.sourceText, tweak: beat.tweak });
-                        const referencePrompt = buildMediaMapPrompt({ type: "reference_clip", text: beat.sourceText, tweak: beat.tweak });
-                        const timelineImagePrompt = buildTimelineImagePrompt({ text: beat.sourceText, tweak: beat.tweak });
-                        const timelineCopyKey = `timeline:${beat.id}`;
-                        return (
-                          <article key={beat.id} className="hammer-source-card">
-                            <header className="hammer-source-card__head">
-                              <strong>{beat.sourceText.slice(0, 92)}</strong>
-                              <span>{beat.reason}</span>
-                            </header>
-                            <div className="hammer-source-card__meta">
-                              <span>Suggested: {beat.suggestedType === "reference_clip" ? "Reference Clip" : "B-roll"}</span>
-                              <span>Selected: {beat.selectedType === "reference_clip" ? "Reference Clip" : "B-roll"}</span>
-                              <span>{beat.linkedPlacementId ? "linked placement" : "not linked"}</span>
-                            </div>
-                            <label className="hammer-tool-field">
-                              <span>Type</span>
-                              <select
-                                value={beat.selectedType}
-                                onChange={(event) => {
-                                  const nextType = event.target.value === "reference_clip" ? "reference_clip" : "broll";
-                                  setMediaMapBeats((current) => current.map((item) => (
-                                    item.id === beat.id ? { ...item, selectedType: nextType } : item
-                                  )));
-                                  if (beat.linkedPlacementId) {
-                                    updatePlacementKindFromMediaMap(beat.linkedPlacementId, nextType);
-                                  }
-                                }}
-                              >
-                                <option value="broll">B-roll</option>
-                                <option value="reference_clip">Reference Clip</option>
-                              </select>
-                            </label>
-                            <label className="hammer-tool-field">
-                              <span>Tweak</span>
-                              <input
-                                type="text"
-                                value={beat.tweak}
-                                onChange={(event) => {
-                                  const next = event.target.value;
-                                  setMediaMapBeats((current) => current.map((item) => (
-                                    item.id === beat.id ? { ...item, tweak: next } : item
-                                  )));
-                                }}
-                                placeholder="Add a light prompt tweak"
-                              />
-                            </label>
-                            <div className="hammer-source-card__path">B-roll prompt: {brollPrompt}</div>
-                            <div className="hammer-source-card__path">Reference prompt: {referencePrompt}</div>
-                            <div className="hammer-source-card__path">Timeline image prompt: {timelineImagePrompt}</div>
-                            <div className="hammer-source-card__actions">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setMediaMapBeats((current) => current.filter((item) => item.id !== beat.id));
-                                  setRemovedMediaMapSegmentIds((current) => (
-                                    current.includes(beat.segmentId) ? current : [...current, beat.segmentId]
-                                  ));
-                                  if (beat.linkedPlacementId) {
-                                    removeVisualPlacement(beat.linkedPlacementId);
-                                  }
-                                }}
-                              >
-                                Remove visual
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void copyPromptToClipboard({
-                                    key: timelineCopyKey,
-                                    prompt: timelineImagePrompt,
-                                  });
-                                }}
-                              >
-                                {copiedPromptKey === timelineCopyKey ? "Copied" : "Copy Prompt"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void sendPromptToProvider({
-                                    key: timelineCopyKey,
-                                    prompt: timelineImagePrompt,
-                                    label: "timeline image beat",
-                                  });
-                                }}
-                              >
-                                Send to Provider
-                              </button>
-                              <button type="button" onClick={() => queueMediaMapBeatSuggestion(beat)}>
-                                Queue Suggestion
-                              </button>
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </>
-                  ) : null}
-
-                  {selectedVisualFlowStep === "images" ? (
-                    <>
-                      <div className="hammer-source-summary">
-                        <span>{sourceImageLibraryItems.length} stored images</span>
-                        <button
-                          type="button"
-                          className="hammer-source-upload-button is-secondary"
-                          onClick={() => imageUploadInputRef.current?.click()}
-                          disabled={uploadingCategory != null}
-                        >
-                          {uploadingCategory === "images" ? "Uploading..." : "Upload Image"}
-                        </button>
-                      </div>
-                      <input
-                        ref={imageUploadInputRef}
-                        type="file"
-                        aria-label="Upload source desk image file"
-                        accept="image/*"
-                        className="hammer-source-upload-input"
-                        onChange={(event) => {
-                          void handleSourceDeskUpload("images", event.currentTarget.files);
-                          event.currentTarget.value = "";
-                        }}
-                      />
-                      {sourceImageLibraryItems.map((file) => (
-                        <article key={`img-step-${file.path}`} className="hammer-source-card">
-                          <header className="hammer-source-card__head">
-                            <strong>{file.name}</strong>
-                            <span>image</span>
-                          </header>
-                          <div className="hammer-source-card__path">{file.path}</div>
-                        </article>
-                      ))}
-                    </>
-                  ) : null}
-
-                  {selectedVisualFlowStep === "broll" ? (
-                    <>
-                      <div className="hammer-source-summary">
-                        <span>{sourceBrollOnlyItems.length} B-roll assets</span>
-                        <span>{unresolvedBrollSuggestionItems.length} unresolved suggestions</span>
-                        <button
-                          type="button"
-                          className="hammer-source-upload-button is-secondary"
-                          onClick={() => brollUploadInputRef.current?.click()}
-                          disabled={uploadingCategory != null}
-                        >
-                          {uploadingCategory === "broll" ? "Uploading..." : "Upload B-roll"}
-                        </button>
-                      </div>
-                      <input
-                        ref={brollUploadInputRef}
-                        type="file"
-                        aria-label="Upload source desk b-roll file"
-                        accept="video/*"
-                        className="hammer-source-upload-input"
-                        onChange={(event) => {
-                          void handleSourceDeskUpload("broll", event.currentTarget.files);
-                          event.currentTarget.value = "";
-                        }}
-                      />
-                      {sourceBrollOnlyItems.map((item) => (
-                        <article key={`broll-step-${item.id}`} className="hammer-source-card">
-                          <header className="hammer-source-card__head">
-                            <strong>{item.label}</strong>
-                            <span>B-roll</span>
-                          </header>
-                          <div className="hammer-source-card__meta">
-                            <span>{item.firstStartSec.toFixed(1)}s - {item.lastEndSec.toFixed(1)}s</span>
-                            <span>Uses: {item.usageCount}</span>
-                          </div>
-                          <div className="hammer-source-card__actions">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void copyPromptToClipboard({
-                                  key: `broll:${item.id}`,
-                                  prompt: `B-roll: ${item.label}.`,
-                                });
-                              }}
-                            >
-                              {copiedPromptKey === `broll:${item.id}` ? "Copied" : "Copy Prompt"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void sendPromptToProvider({
-                                  key: `broll:${item.id}`,
-                                  prompt: `B-roll: ${item.label}.`,
-                                  label: "B-roll",
-                                });
-                              }}
-                            >
-                              Send to Provider
-                            </button>
-                            <button type="button" onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}>Cue</button>
-                          </div>
-                        </article>
-                      ))}
-                    </>
-                  ) : null}
-
-                  {selectedVisualFlowStep === "reference_clips" ? (
-                    <>
-                      <div className="hammer-source-summary">
-                        <span>{referenceClipPlannedBeats.length} planned reference beats</span>
-                        <span>{sourceReferenceClipItems.length} generated assets</span>
-                      </div>
-                      {referenceClipPlannedBeats.length === 0 ? (
-                        <div className="hammer-empty-state">No reference clip beats selected in Media Map yet.</div>
-                      ) : null}
-                      {referenceClipPlannedBeats.map((beat) => {
-                        const referenceInput: ReferenceClipInput = {
-                          beatId: beat.id,
-                          anchorText: beat.sourceText,
-                          promptBasis: buildMediaMapPrompt({
-                            type: "reference_clip",
-                            text: beat.sourceText,
-                            tweak: beat.tweak,
-                          }),
-                          chartType: "auto",
-                        };
-                        const analysis = analyzeReferenceClipInput(referenceInput);
-                        const linkedPlacement = beat.linkedPlacementId
-                          ? (visualPlacementsById.get(beat.linkedPlacementId) ?? null)
-                          : null;
-                        const previewPath = linkedPlacement?.asset_path ?? null;
-                        const previewUrl = previewPath ? (sourceDeskPreviewUrls[previewPath] ?? null) : null;
-                        const referencePrompt = buildMediaMapPrompt({
-                          type: "reference_clip",
-                          text: beat.sourceText,
-                          tweak: beat.tweak,
-                        });
-                        return (
-                          <article key={`ref-plan-${beat.id}`} className="hammer-source-card">
-                            <header className="hammer-source-card__head">
-                              <strong>{beat.sourceText.slice(0, 92)}</strong>
-                              <span>{beat.reason}</span>
-                            </header>
-                            {previewUrl ? (
-                              <img
-                                className="hammer-source-card__thumb"
-                                src={previewUrl}
-                                alt={analysis.title}
-                              />
-                            ) : null}
-                            <div className="hammer-source-card__meta">
-                              <span>Type: {analysis.outputType}</span>
-                              <span>Selected: {beat.selectedType === "reference_clip" ? "Reference Clip" : "B-roll"}</span>
-                              <span>{beat.linkedPlacementId ? "generated" : "not generated"}</span>
-                            </div>
-                            <div className="hammer-source-card__path">Title: {analysis.title}</div>
-                            <div className="hammer-source-card__path">Summary: {analysis.summary}</div>
-                            <div className="hammer-source-card__path">Prompt: {referencePrompt}</div>
-                            <div className="hammer-source-card__actions">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void generateReferenceClipFromBeat(beat);
-                                }}
-                                disabled={generatingReferenceBeatId != null}
-                              >
-                                {generatingReferenceBeatId === beat.id
-                                  ? "Generating..."
-                                  : beat.linkedPlacementId
-                                  ? "Regenerate"
-                                  : "Generate"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void copyPromptToClipboard({
-                                    key: `ref-clip:${beat.id}`,
-                                    prompt: referencePrompt,
-                                  });
-                                }}
-                              >
-                                {copiedPromptKey === `ref-clip:${beat.id}` ? "Copied" : "Copy Prompt"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (!beat.linkedPlacementId) return;
-                                  setTranscriptTimingHint("Reference clip already saved to Source Desk.");
-                                }}
-                                disabled={!beat.linkedPlacementId}
-                              >
-                                Save Reference Clip
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (!beat.linkedPlacementId) return;
-                                  removeVisualPlacement(beat.linkedPlacementId);
-                                  setMediaMapBeats((current) => current.map((item) => (
-                                    item.id === beat.id ? { ...item, linkedPlacementId: null } : item
-                                  )));
-                                }}
-                                disabled={!beat.linkedPlacementId}
-                              >
-                                Delete Reference Clip
-                              </button>
-                            </div>
-                          </article>
-                        );
-                      })}
-                      {sourceReferenceClipItems.map((item) => (
-                        <article key={`ref-step-${item.id}`} className="hammer-source-card">
-                          <header className="hammer-source-card__head">
-                            <strong>{item.label}</strong>
-                            <span>Reference Clip</span>
-                          </header>
-                          <div className="hammer-source-card__meta">
-                            <span>{item.firstStartSec.toFixed(1)}s - {item.lastEndSec.toFixed(1)}s</span>
-                            <span>Uses: {item.usageCount}</span>
-                          </div>
-                          <div className="hammer-source-card__path">{item.assetPath ?? "asset path unavailable"}</div>
-                          <div className="hammer-source-card__actions">
-                            <button
-                              type="button"
-                              onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}
-                            >
-                              {item.assetPath ? "Regenerate" : "Generate"}
-                            </button>
-                            <button type="button" onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}>Cue</button>
-                          </div>
-                        </article>
-                      ))}
-                    </>
-                  ) : null}
-                </section>
-              ) : null}
-
-              {selectedSourceTab === "introoutro" ? (
-                <>
-                  <div className="hammer-source-summary">
-                    <span>Choose project intro and outro media</span>
-                    <button
-                      type="button"
-                      className="hammer-source-upload-button"
-                      onClick={() => introOutroUploadInputRef.current?.click()}
-                      disabled={uploadingCategory != null}
-                    >
-                      {uploadingCategory === "introoutro" ? "Uploading..." : "Upload Intro/Outro"}
-                    </button>
-                  </div>
-                  <input
-                    ref={introOutroUploadInputRef}
-                    type="file"
-                    aria-label="Upload source desk intro or outro file"
-                    accept="video/*,audio/*"
-                    className="hammer-source-upload-input"
-                    onChange={(event) => {
-                      void handleSourceDeskUpload("introoutro", event.currentTarget.files);
-                      event.currentTarget.value = "";
-                    }}
-                  />
-
-                  <section className="hammer-source-card">
-                    <header className="hammer-source-card__head">
-                      <strong>Project Intro</strong>
-                      <span>
-                        {introOutroSelection.intro_asset_id
-                          ? (introOutroSelectedIntroPath ? "selected" : "selected (unresolved)")
-                          : "not set"}
-                      </span>
-                    </header>
-                    <select
-                      className="hammer-source-select"
-                      aria-label="Project intro media selection"
-                      value={introOutroSelection.intro_asset_id ?? ""}
-                      onChange={(event) => {
-                        const next: HammerIntroOutroSelection = {
-                          ...introOutroSelection,
-                          intro_asset_id: event.target.value || null,
-                          updated_at: new Date().toISOString(),
-                        };
-                        void persistIntroOutroSelection(next);
-                      }}
-                      disabled={savingIntroOutro}
-                    >
-                      <option value="">No intro</option>
-                      {introOutroSelection.intro_asset_id && !introOutroSelectedIntroPath ? (
-                        <option value={introOutroSelection.intro_asset_id} disabled>
-                          Missing intro asset ({introOutroSelection.intro_asset_id})
-                        </option>
-                      ) : null}
-                      {introOutroCandidateItems.map((item) => (
-                        <option key={`intro-${item.assetId}`} value={item.assetId}>
-                          {item.name} ({item.kind})
-                        </option>
-                      ))}
-                    </select>
-                    <div className="hammer-source-card__path">
-                      {introOutroSelection.intro_asset_id
-                        ? (introOutroSelectedIntroPath ?? `Unresolved intro selection (${introOutroSelection.intro_asset_id})`)
-                        : "No intro selected"}
-                    </div>
-                  </section>
-
-                  <section className="hammer-source-card">
-                    <header className="hammer-source-card__head">
-                      <strong>Project Outro</strong>
-                      <span>
-                        {introOutroSelection.outro_asset_id
-                          ? (introOutroSelectedOutroPath ? "selected" : "selected (unresolved)")
-                          : "not set"}
-                      </span>
-                    </header>
-                    <select
-                      className="hammer-source-select"
-                      aria-label="Project outro media selection"
-                      value={introOutroSelection.outro_asset_id ?? ""}
-                      onChange={(event) => {
-                        const next: HammerIntroOutroSelection = {
-                          ...introOutroSelection,
-                          outro_asset_id: event.target.value || null,
-                          updated_at: new Date().toISOString(),
-                        };
-                        void persistIntroOutroSelection(next);
-                      }}
-                      disabled={savingIntroOutro}
-                    >
-                      <option value="">No outro</option>
-                      {introOutroSelection.outro_asset_id && !introOutroSelectedOutroPath ? (
-                        <option value={introOutroSelection.outro_asset_id} disabled>
-                          Missing outro asset ({introOutroSelection.outro_asset_id})
-                        </option>
-                      ) : null}
-                      {introOutroCandidateItems.map((item) => (
-                        <option key={`outro-${item.assetId}`} value={item.assetId}>
-                          {item.name} ({item.kind})
-                        </option>
-                      ))}
-                    </select>
-                    <div className="hammer-source-card__path">
-                      {introOutroSelection.outro_asset_id
-                        ? (introOutroSelectedOutroPath ?? `Unresolved outro selection (${introOutroSelection.outro_asset_id})`)
-                        : "No outro selected"}
-                    </div>
-                  </section>
-                  <div className="hammer-source-summary">
-                    <span>Saved to Tongs workpiece storage</span>
-                    <span>{savingIntroOutro ? "Saving..." : `Updated ${introOutroSelection.updated_at}`}</span>
-                  </div>
-                </>
-              ) : null}
-            </div>
+            <HammerWorkspaceShellSourceBay vm={sourceBayVM} />
           </section>
 
           <section className="hammer-preview-bay">
@@ -10525,4075 +10426,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           </section>
 
           <section className="hammer-tool-bay">
-            <header className="hammer-bay-head">
-              <strong>Tool Rack</strong>
-              <div className="hammer-pass-head">
-                <span>{currentPassMeta.label}</span>
-                <span className={`hammer-pass-badge hammer-pass-badge--${currentPassSelectorResult.status}`}>
-                  {currentPassSelectorResult.status}
-                </span>
-                <button type="button" onClick={markCurrentPassComplete}>
-                  Mark Complete
-                </button>
-              </div>
-            </header>
-            <div className="hammer-bay-body">
-                  {activeTool === "polish" ? (
-                    currentPass === "transcript_cleanup" || currentPass === "retakes" || currentPass === "gap_pacing" ? (
-                      <section className="hammer-tool-card">
-                        <header className="hammer-tool-card__head">
-                          Transcript Cleanup
-                        </header>
-                        <div className="hammer-tool-hint">
-                          Review filler candidates first, then retake candidates below. Shortcuts: Fillers (1), Retakes (2), Approve (A), Reject (R), Prev/Next (K/J).
-                        </div>
-
-                    <div onMouseDown={() => {
-                      setActiveReviewKind("fillers");
-                      setActiveTranscriptToolSection("fillers");
-                    }}>
-                      <header className="hammer-cleanup-tool__head">
-                        <strong>Filler Cleanup</strong>
-                        <span>Intent: Remove filler phrases without rewriting surrounding content.</span>
-                      </header>
-                      <label className="hammer-tool-field">
-                        <span>Aggressiveness</span>
-                        <select
-                          value={fillerCleanupOptions.aggressiveness}
-                          onChange={(event) => setFillerCleanupOptions((current) => ({
-                            ...current,
-                            aggressiveness: event.target.value as FillerCleanupOptions["aggressiveness"],
-                          }))}
-                        >
-                          <option value="light">Light</option>
-                          <option value="medium">Medium</option>
-                          <option value="strong">Strong</option>
-                        </select>
-                      </label>
-                      <div className="hammer-candidate-review__actions">
-                        <button
-                          type="button"
-                          aria-label="Refresh filler candidates"
-                          onClick={() => {
-                            setFocusOverride("tool-focus");
-                            refreshCandidateQueue("fillers");
-                          }}
-                        >
-                          Refresh Fillers
-                        </button>
-                      </div>
-                      {activeFillerCandidateCard ? (
-                        <article className={`hammer-candidate-card ${activeReviewKind === "fillers" ? "hammer-candidate-card--active" : ""}`}>
-                          <header className="hammer-candidate-card__head">
-                            <strong>
-                              {fillerActiveCandidateIndex + 1} / {fillerCandidateCards.length}
-                            </strong>
-                            <span>{activeFillerCandidateCard.primarySegmentId}</span>
-                          </header>
-                          <p className="hammer-candidate-card__description">{activeFillerCandidateCard.description}</p>
-                          <div className="hammer-candidate-card__context">
-                            <header>Current</header>
-                            <p className="hammer-candidate-diff">
-                              {activeFillerCandidateDiffOps ? (() => {
-                                const parts: JSX.Element[] = [];
-                                let first = true;
-                                for (let idx = 0; idx < activeFillerCandidateDiffOps.length; idx += 1) {
-                                  const op = activeFillerCandidateDiffOps[idx];
-                                  if (op.type === "insert") continue;
-                                  const text = op.words.join(" ");
-                                  const prefix = first ? "" : " ";
-                                  first = false;
-                                  const className = op.type === "delete" ? "hammer-candidate-diff__del" : undefined;
-                                  parts.push(
-                                    <span key={`cur-${idx}`} className={className}>
-                                      {prefix}{text}
-                                    </span>,
-                                  );
-                                }
-                                return parts;
-                              })() : activeFillerCandidateCard.beforeText}
-                            </p>
-                          </div>
-                          <div className="hammer-candidate-card__context">
-                            <header>Proposed</header>
-                            {candidateEditModeById[activeFillerCandidateCard.id] ? (
-                              <textarea
-                                className="hammer-candidate-edit"
-                                aria-label="Edit filler candidate proposed text"
-                                title="Edit filler candidate proposed text"
-                                value={candidateProposedTextById[activeFillerCandidateCard.id] ?? (activeFillerCandidateCard.afterText ?? "")}
-                                placeholder={activeFillerCandidateCard.afterText == null ? "" : undefined}
-                                onChange={(event) => {
-                                  const value = event.target.value;
-                                  setCandidateProposedTextById((current) => ({
-                                    ...current,
-                                    [activeFillerCandidateCard.id]: value,
-                                  }));
-                                }}
-                              />
-                            ) : (
-                              <p className="hammer-candidate-diff">
-                                {activeFillerCandidateCard.afterText == null
-                                  ? "[segment removed]"
-                                  : activeFillerCandidateDiffOps ? (() => {
-                                    const parts: JSX.Element[] = [];
-                                    let first = true;
-                                    for (let idx = 0; idx < activeFillerCandidateDiffOps.length; idx += 1) {
-                                      const op = activeFillerCandidateDiffOps[idx];
-                                      if (op.type === "delete") continue;
-                                      const text = op.words.join(" ");
-                                      const prefix = first ? "" : " ";
-                                      first = false;
-                                      const className = op.type === "insert" ? "hammer-candidate-diff__ins" : undefined;
-                                      parts.push(
-                                        <span key={`prop-${idx}`} className={className}>
-                                          {prefix}{text}
-                                        </span>,
-                                      );
-                                    }
-                                    return parts;
-                                  })() : activeFillerCandidateCard.afterText}
-                              </p>
-                            )}
-                          </div>
-                          <div className="hammer-candidate-card__meta">
-                            <span>Confidence {Math.round(activeFillerCandidateCard.confidence * 100)}%</span>
-                            <span>Est. time saved (if cut) {activeFillerCandidateCard.timeSavedSec.toFixed(1)}s</span>
-                          </div>
-                          {(() => {
-                            const candidateId = activeFillerCandidateCard.id;
-                            const enabled = candidateCutEnabledById[candidateId] === true;
-                            const suggested = resolveCandidateSuggestedCut(activeFillerCandidateCard);
-                            const transcriptOnlyCandidate = activeFillerCandidateCard.apply.removeSegmentIds.length === 0;
-                            const cutOverride = resolveCandidateCutOverride(activeFillerCandidateCard);
-                            const segmentIdsForCut = activeFillerCandidateCard.apply.removeSegmentIds.length > 0
-                              ? activeFillerCandidateCard.apply.removeSegmentIds
-                              : activeFillerCandidateCard.segmentIds;
-                            const draft = candidateCutDraftById[candidateId] ?? null;
-                            return (
-                              <section className="hammer-tool-card">
-                                <header className="hammer-tool-card__head">Cut Span</header>
-                                <label className="hammer-tool-check">
-                                  <input
-                                    type="checkbox"
-                                    checked={enabled}
-                                    onChange={(event) => {
-                                      setFocusOverride("tool-focus");
-                                      setCandidateCutEnabledById((current) => ({
-                                        ...current,
-                                        [candidateId]: event.target.checked,
-                                      }));
-                                    }}
-                                  />
-                                  <span>Apply a timeline cut (time coordinates)</span>
-                                </label>
-                                {transcriptOnlyCandidate && !enabled ? (
-                                  <div className="hammer-tool-hint">
-                                    Transcript-only cleanup unless you enable a Cut Span and commit time coordinates.
-                                  </div>
-                                ) : null}
-                                {transcriptOnlyCandidate && enabled && !cutOverride ? (
-                                  <div className="hammer-tool-hint">
-                                    No cut span selected yet. Set Start/End to change playback.
-                                  </div>
-                                ) : null}
-                                {suggested ? (
-                                  <div className="hammer-tool-hint">
-                                    Suggested: {suggested.startSec.toFixed(1)}s - {suggested.endSec.toFixed(1)}s
-                                  </div>
-                                ) : null}
-                                <div className="hammer-source-card__actions">
-                                  <button
-                                    type="button"
-                                    disabled={!suggested}
-                                    onClick={() => {
-                                      if (!suggested) return;
-                                      setFocusOverride("tool-focus");
-                                      setCandidateCutDraftById((current) => ({
-                                        ...current,
-                                        [candidateId]: {
-                                          startSec: String(suggested.startSec),
-                                          endSec: String(suggested.endSec),
-                                        },
-                                      }));
-                                    }}
-                                  >
-                                    Use Suggested
-                                  </button>
-                                </div>
-                                <div className="hammer-source-summary">
-                                  <label htmlFor={`hammer-cut-start-${candidateId}`}>Start (sec)</label>
-                                  <input
-                                    id={`hammer-cut-start-${candidateId}`}
-                                    type="number"
-                                    step={0.1}
-                                    value={draft?.startSec ?? ""}
-                                    title="Cut start time in seconds"
-                                    placeholder="0.0"
-                                    onChange={(event) => {
-                                      setFocusOverride("tool-focus");
-                                      const value = event.target.value;
-                                      setCandidateCutDraftById((current) => ({
-                                        ...current,
-                                        [candidateId]: { startSec: value, endSec: current[candidateId]?.endSec ?? "" },
-                                      }));
-                                    }}
-                                    disabled={!enabled}
-                                  />
-                                  <label htmlFor={`hammer-cut-end-${candidateId}`}>End (sec)</label>
-                                  <input
-                                    id={`hammer-cut-end-${candidateId}`}
-                                    type="number"
-                                    step={0.1}
-                                    value={draft?.endSec ?? ""}
-                                    title="Cut end time in seconds"
-                                    placeholder="0.0"
-                                    onChange={(event) => {
-                                      setFocusOverride("tool-focus");
-                                      const value = event.target.value;
-                                      setCandidateCutDraftById((current) => ({
-                                        ...current,
-                                        [candidateId]: { startSec: current[candidateId]?.startSec ?? "", endSec: value },
-                                      }));
-                                    }}
-                                    disabled={!enabled}
-                                  />
-                                </div>
-                                {segmentIdsForCut.length > 0 ? (
-                                  <div className="hammer-source-list">
-                                    {segmentIdsForCut.map((segmentId) => {
-                                      const segment = transcriptSegmentsById.get(segmentId) ?? null;
-                                      if (!segment) return null;
-                                      return (
-                                        <article key={`cut-seg-${candidateId}-${segmentId}`} className="hammer-source-card">
-                                          <header className="hammer-source-card__head">
-                                            <strong>{segmentId}</strong>
-                                            <span>{segment.start_sec.toFixed(1)}s - {segment.end_sec.toFixed(1)}s</span>
-                                          </header>
-                                          <div className="hammer-source-card__actions">
-                                            <button
-                                              type="button"
-                                              disabled={!enabled}
-                                              onClick={() => {
-                                                setFocusOverride("tool-focus");
-                                                setCandidateCutDraftById((current) => ({
-                                                  ...current,
-                                                  [candidateId]: {
-                                                    startSec: String(segment.start_sec),
-                                                    endSec: current[candidateId]?.endSec ?? "",
-                                                  },
-                                                }));
-                                              }}
-                                            >
-                                              Set Start
-                                            </button>
-                                            <button
-                                              type="button"
-                                              disabled={!enabled}
-                                              onClick={() => {
-                                                setFocusOverride("tool-focus");
-                                                setCandidateCutDraftById((current) => ({
-                                                  ...current,
-                                                  [candidateId]: {
-                                                    startSec: current[candidateId]?.startSec ?? "",
-                                                    endSec: String(segment.end_sec),
-                                                  },
-                                                }));
-                                              }}
-                                            >
-                                              Set End
-                                            </button>
-                                          </div>
-                                        </article>
-                                      );
-                                    })}
-                                  </div>
-                                ) : null}
-                              </section>
-                            );
-                          })()}
-                          {candidateReceiptByKind.fillers ? (
-                            <div className="hammer-tool-hint">{candidateReceiptByKind.fillers}</div>
-                          ) : null}
-                          <div className="hammer-candidate-review__actions">
-                            <button
-                              type="button"
-                              disabled={fillerDecisionInFlight}
-                              onClick={() => {
-                                setCandidateEditModeById((current) => ({
-                                  ...current,
-                                  [activeFillerCandidateCard.id]: !current[activeFillerCandidateCard.id],
-                                }));
-                              }}
-                            >
-                              {candidateEditModeById[activeFillerCandidateCard.id] ? "Cancel Edit" : "Edit Proposed"}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={fillerDecisionInFlight}
-                              onClick={() => {
-                                setFocusOverride("tool-focus");
-                                if (candidateEditModeById[activeFillerCandidateCard.id]) {
-                                  handleCandidateDecision("fillers", true, {
-                                    useEditedProposal: true,
-                                    editedProposalText: candidateProposedTextById[activeFillerCandidateCard.id]
-                                      ?? (activeFillerCandidateCard.afterText ?? ""),
-                                    cutOverride: resolveCandidateCutOverride(activeFillerCandidateCard),
-                                  });
-                                } else {
-                                  handleCandidateDecision("fillers", true, {
-                                    cutOverride: resolveCandidateCutOverride(activeFillerCandidateCard),
-                                  });
-                                }
-                              }}
-                            >
-                              {(() => {
-                                const willCutAudio = Boolean(resolveCandidateCutOverride(activeFillerCandidateCard))
-                                  || activeFillerCandidateCard.apply.removeSegmentIds.length > 0;
-                                return candidateEditModeById[activeFillerCandidateCard.id]
-                                  ? (willCutAudio ? "Approve Edited + Cut" : "Approve Edited (Transcript Only)")
-                                  : (willCutAudio ? "Approve + Cut" : "Approve (Transcript Only)");
-                              })()}
-                            </button>
-                            {candidateEditModeById[activeFillerCandidateCard.id] ? (
-                              <button
-                                type="button"
-                                disabled={fillerDecisionInFlight}
-                                onClick={() => {
-                                  setFocusOverride("tool-focus");
-                                  handleCandidateDecision("fillers", true, {
-                                    useEditedProposal: false,
-                                    cutOverride: resolveCandidateCutOverride(activeFillerCandidateCard),
-                                  });
-                                }}
-                              >
-                                Approve As-Is
-                              </button>
-                            ) : null}
-                            <button
-                              type="button"
-                              disabled={fillerDecisionInFlight}
-                              onClick={() => {
-                                setFocusOverride("tool-focus");
-                                handleCandidateDecision("fillers", false);
-                              }}
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        </article>
-                      ) : (
-                        <div className="hammer-tool-hint">No filler candidates detected in this pass.</div>
-                      )}
-                    </div>
-
-                    <hr className="hammer-divider" />
-
-                    <div onMouseDown={() => {
-                      setActiveReviewKind("retakes");
-                      setActiveTranscriptToolSection("retakes");
-                    }}>
-                      <header className="hammer-cleanup-tool__head">
-                        <strong>Retake Review</strong>
-                        <span>Intent: Detect adjacent restarts and false starts for optional removal.</span>
-                      </header>
-                      <label className="hammer-tool-field">
-                        <span>Detection mode</span>
-                        <select
-                          value={retakeCleanupOptions.detection}
-                          onChange={(event) => setRetakeCleanupOptions((current) => ({
-                            ...current,
-                            detection: event.target.value as RetakeCleanupOptions["detection"],
-                          }))}
-                        >
-                          <option value="conservative">Conservative</option>
-                          <option value="normal">Normal</option>
-                          <option value="aggressive">Aggressive</option>
-                        </select>
-                      </label>
-                      <div className="hammer-candidate-review__actions">
-                        <button
-                          type="button"
-                          aria-label="Refresh retake candidates"
-                          onClick={() => {
-                            setFocusOverride("tool-focus");
-                            refreshCandidateQueue("retakes");
-                          }}
-                        >
-                          Refresh Retakes
-                        </button>
-                      </div>
-                      {activeRetakeCandidateCard ? (
-                        <article className={`hammer-candidate-card ${activeReviewKind === "retakes" ? "hammer-candidate-card--active" : ""}`}>
-                          <header className="hammer-candidate-card__head">
-                            <strong>
-                              {retakeActiveCandidateIndex + 1} / {retakeCandidateCards.length}
-                            </strong>
-                            <span>
-                              {(() => {
-                                const ids = activeRetakeCandidateCard.segmentIds;
-                                if (ids.length <= 1) return ids[0] ?? "?";
-                                if (ids.length === 2) return `${ids[0] ?? "?"} → ${ids[1] ?? "?"}`;
-                                return `${ids.slice(0, -1).join(", ")} → ${ids[ids.length - 1] ?? "?"}`;
-                              })()}
-                            </span>
-                          </header>
-                          <p className="hammer-candidate-card__description">{activeRetakeCandidateCard.description}</p>
-                          <div className="hammer-candidate-card__context">
-                            <header>Current</header>
-                            {activeRetakeCandidateCard.beforeText.split("\n").map((line, idx) => (
-                              <p key={`retake-cur-${idx}`} className="hammer-candidate-diff">{line}</p>
-                            ))}
-                          </div>
-                          <div className="hammer-candidate-card__context">
-                            <header>Proposed</header>
-                            {candidateEditModeById[activeRetakeCandidateCard.id] ? (
-                              <textarea
-                                className="hammer-candidate-edit"
-                                aria-label="Edit retake candidate proposed text"
-                                title="Edit retake candidate proposed text"
-                                value={candidateProposedTextById[activeRetakeCandidateCard.id] ?? (activeRetakeCandidateCard.afterText ?? "")}
-                                onChange={(event) => {
-                                  const value = event.target.value;
-                                  setCandidateProposedTextById((current) => ({
-                                    ...current,
-                                    [activeRetakeCandidateCard.id]: value,
-                                  }));
-                                }}
-                              />
-                            ) : (
-                              <p className="hammer-candidate-diff">{activeRetakeCandidateCard.afterText ?? "[segment removed]"}</p>
-                            )}
-                          </div>
-                          <div className="hammer-candidate-card__meta">
-                            <span>Confidence {Math.round(activeRetakeCandidateCard.confidence * 100)}%</span>
-                            <span>Time saved {activeRetakeCandidateCard.timeSavedSec.toFixed(1)}s</span>
-                          </div>
-                          {(() => {
-                            const candidateId = activeRetakeCandidateCard.id;
-                            const enabled = candidateCutEnabledById[candidateId] === true;
-                            const suggested = resolveCandidateSuggestedCut(activeRetakeCandidateCard);
-                            const segmentIdsForCut = activeRetakeCandidateCard.apply.removeSegmentIds.length > 0
-                              ? activeRetakeCandidateCard.apply.removeSegmentIds
-                              : activeRetakeCandidateCard.segmentIds;
-                            const draft = candidateCutDraftById[candidateId] ?? null;
-                            return (
-                              <section className="hammer-tool-card">
-                                <header className="hammer-tool-card__head">Cut Span</header>
-                                <label className="hammer-tool-check">
-                                  <input
-                                    type="checkbox"
-                                    checked={enabled}
-                                    onChange={(event) => {
-                                      setFocusOverride("tool-focus");
-                                      setCandidateCutEnabledById((current) => ({
-                                        ...current,
-                                        [candidateId]: event.target.checked,
-                                      }));
-                                    }}
-                                  />
-                                  <span>Apply a timeline cut (time coordinates)</span>
-                                </label>
-                                {suggested ? (
-                                  <div className="hammer-tool-hint">
-                                    Suggested: {suggested.startSec.toFixed(1)}s - {suggested.endSec.toFixed(1)}s
-                                  </div>
-                                ) : null}
-                                <div className="hammer-source-card__actions">
-                                  <button
-                                    type="button"
-                                    disabled={!suggested}
-                                    onClick={() => {
-                                      if (!suggested) return;
-                                      setFocusOverride("tool-focus");
-                                      setCandidateCutDraftById((current) => ({
-                                        ...current,
-                                        [candidateId]: {
-                                          startSec: String(suggested.startSec),
-                                          endSec: String(suggested.endSec),
-                                        },
-                                      }));
-                                    }}
-                                  >
-                                    Use Suggested
-                                  </button>
-                                </div>
-                                <div className="hammer-source-summary">
-                                  <label htmlFor={`hammer-retake-cut-start-${candidateId}`}>Start (sec)</label>
-                                  <input
-                                    id={`hammer-retake-cut-start-${candidateId}`}
-                                    type="number"
-                                    step={0.1}
-                                    value={draft?.startSec ?? ""}
-                                    title="Retake cut start time in seconds"
-                                    placeholder="0.0"
-                                    onChange={(event) => {
-                                      setFocusOverride("tool-focus");
-                                      const value = event.target.value;
-                                      setCandidateCutDraftById((current) => ({
-                                        ...current,
-                                        [candidateId]: { startSec: value, endSec: current[candidateId]?.endSec ?? "" },
-                                      }));
-                                    }}
-                                    disabled={!enabled}
-                                  />
-                                  <label htmlFor={`hammer-retake-cut-end-${candidateId}`}>End (sec)</label>
-                                  <input
-                                    id={`hammer-retake-cut-end-${candidateId}`}
-                                    type="number"
-                                    step={0.1}
-                                    value={draft?.endSec ?? ""}
-                                    title="Retake cut end time in seconds"
-                                    placeholder="0.0"
-                                    onChange={(event) => {
-                                      setFocusOverride("tool-focus");
-                                      const value = event.target.value;
-                                      setCandidateCutDraftById((current) => ({
-                                        ...current,
-                                        [candidateId]: { startSec: current[candidateId]?.startSec ?? "", endSec: value },
-                                      }));
-                                    }}
-                                    disabled={!enabled}
-                                  />
-                                </div>
-                                {segmentIdsForCut.length > 0 ? (
-                                  <div className="hammer-source-list">
-                                    {segmentIdsForCut.map((segmentId) => {
-                                      const segment = transcriptSegmentsById.get(segmentId) ?? null;
-                                      if (!segment) return null;
-                                      return (
-                                        <article key={`cut-seg-${candidateId}-${segmentId}`} className="hammer-source-card">
-                                          <header className="hammer-source-card__head">
-                                            <strong>{segmentId}</strong>
-                                            <span>{segment.start_sec.toFixed(1)}s - {segment.end_sec.toFixed(1)}s</span>
-                                          </header>
-                                          <div className="hammer-source-card__actions">
-                                            <button
-                                              type="button"
-                                              disabled={!enabled}
-                                              onClick={() => {
-                                                setFocusOverride("tool-focus");
-                                                setCandidateCutDraftById((current) => ({
-                                                  ...current,
-                                                  [candidateId]: {
-                                                    startSec: String(segment.start_sec),
-                                                    endSec: current[candidateId]?.endSec ?? "",
-                                                  },
-                                                }));
-                                              }}
-                                            >
-                                              Set Start
-                                            </button>
-                                            <button
-                                              type="button"
-                                              disabled={!enabled}
-                                              onClick={() => {
-                                                setFocusOverride("tool-focus");
-                                                setCandidateCutDraftById((current) => ({
-                                                  ...current,
-                                                  [candidateId]: {
-                                                    startSec: current[candidateId]?.startSec ?? "",
-                                                    endSec: String(segment.end_sec),
-                                                  },
-                                                }));
-                                              }}
-                                            >
-                                              Set End
-                                            </button>
-                                          </div>
-                                        </article>
-                                      );
-                                    })}
-                                  </div>
-                                ) : null}
-                              </section>
-                            );
-                          })()}
-                          <div className="hammer-candidate-review__actions">
-                            <button
-                              type="button"
-                              disabled={retakeDecisionInFlight}
-                              onClick={() => {
-                                setCandidateEditModeById((current) => ({
-                                  ...current,
-                                  [activeRetakeCandidateCard.id]: !current[activeRetakeCandidateCard.id],
-                                }));
-                              }}
-                            >
-                              {candidateEditModeById[activeRetakeCandidateCard.id] ? "Cancel Edit" : "Edit Proposed"}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={retakeDecisionInFlight}
-                              onClick={() => {
-                                setFocusOverride("tool-focus");
-                                if (candidateEditModeById[activeRetakeCandidateCard.id]) {
-                                  handleCandidateDecision("retakes", true, {
-                                    useEditedProposal: true,
-                                    editedProposalText: candidateProposedTextById[activeRetakeCandidateCard.id]
-                                      ?? (activeRetakeCandidateCard.afterText ?? ""),
-                                    cutOverride: resolveCandidateCutOverride(activeRetakeCandidateCard),
-                                  });
-                                } else {
-                                  handleCandidateDecision("retakes", true, {
-                                    cutOverride: resolveCandidateCutOverride(activeRetakeCandidateCard),
-                                  });
-                                }
-                              }}
-                            >
-                              {(() => {
-                                const willCutAudio = Boolean(resolveCandidateCutOverride(activeRetakeCandidateCard))
-                                  || activeRetakeCandidateCard.apply.removeSegmentIds.length > 0;
-                                if (candidateEditModeById[activeRetakeCandidateCard.id]) {
-                                  return willCutAudio ? "Approve Edited + Cut" : "Approve Edited (Transcript Only)";
-                                }
-                                return willCutAudio ? "Approve + Cut" : "Approve (Transcript Only)";
-                              })()}
-                            </button>
-                            {candidateEditModeById[activeRetakeCandidateCard.id] ? (
-                              <button
-                                type="button"
-                                disabled={retakeDecisionInFlight}
-                                onClick={() => {
-                                  setFocusOverride("tool-focus");
-                                  handleCandidateDecision("retakes", true, {
-                                    useEditedProposal: false,
-                                    cutOverride: resolveCandidateCutOverride(activeRetakeCandidateCard),
-                                  });
-                                }}
-                              >
-                                Approve As-Is
-                              </button>
-                            ) : null}
-                            <button
-                              type="button"
-                              disabled={retakeDecisionInFlight}
-                              onClick={() => {
-                                setFocusOverride("tool-focus");
-                                handleCandidateDecision("retakes", false);
-                              }}
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        </article>
-                      ) : (
-                        <div className="hammer-tool-hint">No retake candidates detected in this pass.</div>
-                      )}
-                    </div>
-
-                    <hr className="hammer-divider" />
-
-                    <div onMouseDown={() => setActiveTranscriptToolSection("silence_gaps")}>
-                      <header className="hammer-cleanup-tool__head">
-                        <strong>Silence Gaps</strong>
-                        <span>Intent: Trim long silent pauses between spoken segments without changing transcript wording.</span>
-                      </header>
-                      <div className="hammer-tool-hint">
-                        Shortcuts: Focus (Shift+D), Analyze (Shift+A), Apply (Enter).
-                      </div>
-                      <label className="hammer-tool-field">
-                        <span>Max allowed gap</span>
-                        <select
-                          value={deadAirThresholdSec}
-                          onChange={(event) => {
-                            setFocusOverride("tool-focus");
-                            setDeadAirThresholdSec(Number(event.target.value) || 1.5);
-                          }}
-                        >
-                          <option value={1.0}>1.0s</option>
-                          <option value={1.5}>1.5s</option>
-                          <option value={2.0}>2.0s</option>
-                        </select>
-                      </label>
-                      <div className="hammer-candidate-review__actions">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFocusOverride("tool-focus");
-                            analyzeDeadAirClosure();
-                          }}
-                        >
-                          Analyze
-                        </button>
-                        <button
-                          type="button"
-                          disabled={
-                            deadAirApplyInFlight
-                            || !deadAirAnalysis
-                            || deadAirAnalysis.eligibleGapCount === 0
-                          }
-                          onClick={() => {
-                            setFocusOverride("tool-focus");
-                            applyDeadAirClosureBatch();
-                          }}
-                        >
-                          Apply
-                        </button>
-                      </div>
-                      <div className="hammer-tool-hint">
-                        {!deadAirAnalysis
-                          ? "Analyze to preview how many gaps exceed the selected threshold."
-                          : deadAirAnalysis.eligibleGapCount === 0
-                            ? "No silence gaps exceed the selected threshold."
-                            : `${deadAirAnalysis.eligibleGapCount} gap${deadAirAnalysis.eligibleGapCount === 1 ? "" : "s"} exceed ${deadAirAnalysis.thresholdSec.toFixed(1)}s; applying would remove ${deadAirAnalysis.totalRemovableSec.toFixed(1)}s of silence.`}
-                      </div>
-                    </div>
-                  </section>
-                ) : (
-                <section className="hammer-tool-card">
-                  <header className="hammer-tool-card__head">Transcript Polish</header>
-                  <label className="hammer-tool-field">
-                    <span>Cleanup Strength: {polishStrength}%</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      step={1}
-                      value={polishStrength}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setPolishStrength(Number(event.target.value));
-                      }}
-                    />
-                  </label>
-                  <section className="hammer-cleanup-tool">
-                    <div className="hammer-cleanup-tool__head">
-                      <strong>Shorten Gaps</strong>
-                      <span>
-                        Intent: Tighten dead air between adjacent lines without changing spoken words.
-                      </span>
-                    </div>
-                    <label className="hammer-tool-field">
-                      <span>Max allowed gap (sec)</span>
-                      <input
-                        type="number"
-                        min={0.1}
-                        step={0.05}
-                        value={gapCleanupOptions.maxGapSec}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setGapCleanupOptions((current) => ({
-                            ...current,
-                            maxGapSec: Math.max(0.1, Number(event.target.value) || 0.4),
-                          }));
-                        }}
-                      />
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={gapCleanupOptions.preserveDramaticPauses}
-                        onChange={(event) => setGapCleanupOptions((current) => ({
-                          ...current,
-                          preserveDramaticPauses: event.target.checked,
-                        }))}
-                      />
-                      <span>Preserve dramatic pauses</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("tool-focus");
-                        setCleanupPreview(previewShortenGaps(editableTranscriptSegments, gapCleanupOptions));
-                      }}
-                    >
-                      Preview Changes
-                    </button>
-                  </section>
-
-                  <section className="hammer-cleanup-tool">
-                    <div className="hammer-cleanup-tool__head">
-                      <strong>Remove Fillers</strong>
-                      <span>
-                        Intent: Remove filler phrases such as uh, um, you know, and like without rewriting surrounding content.
-                      </span>
-                    </div>
-                    <label className="hammer-tool-field">
-                      <span>Aggressiveness</span>
-                      <select
-                        value={fillerCleanupOptions.aggressiveness}
-                        onChange={(event) => setFillerCleanupOptions((current) => ({
-                          ...current,
-                          aggressiveness: event.target.value as FillerCleanupOptions["aggressiveness"],
-                        }))}
-                      >
-                        <option value="light">Light</option>
-                        <option value="medium">Medium</option>
-                        <option value="strong">Strong</option>
-                      </select>
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={fillerCleanupOptions.protectIntentionalPhrasing}
-                        onChange={(event) => setFillerCleanupOptions((current) => ({
-                          ...current,
-                          protectIntentionalPhrasing: event.target.checked,
-                        }))}
-                      />
-                      <span>Protect intentional phrasing</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("tool-focus");
-                        setCleanupPreview(previewRemoveFillers(editableTranscriptSegments, fillerCleanupOptions));
-                      }}
-                    >
-                      Preview Changes
-                    </button>
-                  </section>
-
-                  <section className="hammer-cleanup-tool">
-                    <div className="hammer-cleanup-tool__head">
-                      <strong>Remove Retakes</strong>
-                      <span>
-                        Intent: Remove explicit retake lines or adjacent repeated takes using deterministic overlap rules.
-                      </span>
-                    </div>
-                    <label className="hammer-tool-field">
-                      <span>Detection mode</span>
-                      <select
-                        value={retakeCleanupOptions.detection}
-                        onChange={(event) => setRetakeCleanupOptions((current) => ({
-                          ...current,
-                          detection: event.target.value as RetakeCleanupOptions["detection"],
-                        }))}
-                      >
-                        <option value="conservative">Conservative</option>
-                        <option value="normal">Normal</option>
-                        <option value="aggressive">Aggressive</option>
-                      </select>
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={retakeCleanupOptions.preferLaterCleanerTake}
-                        onChange={(event) => setRetakeCleanupOptions((current) => ({
-                          ...current,
-                          preferLaterCleanerTake: event.target.checked,
-                        }))}
-                      />
-                      <span>Prefer later cleaner take</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("tool-focus");
-                        setCleanupPreview(previewRemoveRetakes(editableTranscriptSegments, retakeCleanupOptions));
-                      }}
-                    >
-                      Preview Changes
-                    </button>
-                  </section>
-
-                  <section className="hammer-cleanup-tool">
-                    <div className="hammer-cleanup-tool__head">
-                      <strong>Solo Mode</strong>
-                      <span>
-                        Intent: Keep one speaker in focus while suppressing non-target voices for rapid monologue-style review.
-                      </span>
-                    </div>
-                    <label className="hammer-tool-field">
-                      <span>Target speaker</span>
-                      <select
-                        value={speakerSoloOptions.targetSpeaker}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerSoloOptions((current) => ({
-                            ...current,
-                            targetSpeaker: event.target.value,
-                          }));
-                        }}
-                        disabled={speakerOptions.length === 0}
-                      >
-                        {speakerOptions.length > 0 ? speakerOptions.map((speaker) => (
-                          <option key={`solo-speaker-${speaker}`} value={speaker}>{speaker}</option>
-                        )) : (
-                          <option value="">No speakers</option>
-                        )}
-                      </select>
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={speakerSoloOptions.collapseInterruptions}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerSoloOptions((current) => ({
-                            ...current,
-                            collapseInterruptions: event.target.checked,
-                          }));
-                        }}
-                      />
-                      <span>Collapse short interruptions</span>
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Interruption max (sec)</span>
-                      <input
-                        type="number"
-                        min={0.2}
-                        max={5}
-                        step={0.1}
-                        value={speakerSoloOptions.maxInterruptionSec}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerSoloOptions((current) => ({
-                            ...current,
-                            maxInterruptionSec: Math.max(0.2, Number(event.target.value) || 0.8),
-                          }));
-                        }}
-                        disabled={!speakerSoloOptions.collapseInterruptions}
-                      />
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={speakerSoloOptions.compressGaps}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerSoloOptions((current) => ({
-                            ...current,
-                            compressGaps: event.target.checked,
-                          }));
-                        }}
-                      />
-                      <span>Compress gaps around suppressed segments</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("tool-focus");
-                        setCleanupPreview(previewSpeakerSolo({
-                          segments: editableTranscriptSegments,
-                          options: speakerSoloOptions,
-                          segmentIds: hasTranscriptSelection ? transcriptSelectionRange.segmentIds : undefined,
-                        }));
-                      }}
-                      disabled={!speakerSoloOptions.targetSpeaker}
-                    >
-                      Preview Solo Mode
-                    </button>
-                  </section>
-
-                  <section className="hammer-cleanup-tool">
-                    <div className="hammer-cleanup-tool__head">
-                      <strong>Interview Mode</strong>
-                      <span>
-                        Intent: Keep interviewer prompts intact while tightening respondent answers into a cleaner conversational cut.
-                      </span>
-                    </div>
-                    <label className="hammer-tool-field">
-                      <span>Interviewer speaker</span>
-                      <select
-                        value={speakerInterviewOptions.hostSpeaker}
-                        onChange={(event) => {
-                          const hostSpeaker = event.target.value;
-                          setFocusOverride("tool-focus");
-                          setSpeakerInterviewOptions((current) => ({
-                            ...current,
-                            hostSpeaker,
-                            respondentSpeaker: current.respondentSpeaker === hostSpeaker
-                              ? (speakerOptions.find((speaker) => speaker !== hostSpeaker) ?? hostSpeaker)
-                              : current.respondentSpeaker,
-                          }));
-                        }}
-                        disabled={speakerOptions.length === 0}
-                      >
-                        {speakerOptions.length > 0 ? speakerOptions.map((speaker) => (
-                          <option key={`interview-host-${speaker}`} value={speaker}>{speaker}</option>
-                        )) : (
-                          <option value="">No speakers</option>
-                        )}
-                      </select>
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Respondent speaker</span>
-                      <select
-                        value={speakerInterviewOptions.respondentSpeaker}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerInterviewOptions((current) => ({
-                            ...current,
-                            respondentSpeaker: event.target.value,
-                          }));
-                        }}
-                        disabled={speakerOptions.length === 0}
-                      >
-                        {speakerOptions.length > 0 ? speakerOptions.map((speaker) => (
-                          <option key={`interview-respondent-${speaker}`} value={speaker}>{speaker}</option>
-                        )) : (
-                          <option value="">No speakers</option>
-                        )}
-                      </select>
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Tightness</span>
-                      <select
-                        value={speakerInterviewOptions.tightness}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerInterviewOptions((current) => ({
-                            ...current,
-                            tightness: event.target.value as SpeakerInterviewOptions["tightness"],
-                          }));
-                        }}
-                      >
-                        <option value="light">Light</option>
-                        <option value="medium">Medium</option>
-                        <option value="tight">Tight</option>
-                      </select>
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={speakerInterviewOptions.removeBackchannels}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerInterviewOptions((current) => ({
-                            ...current,
-                            removeBackchannels: event.target.checked,
-                          }));
-                        }}
-                      />
-                      <span>Remove short backchannels</span>
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={speakerInterviewOptions.collapseInterruptions}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerInterviewOptions((current) => ({
-                            ...current,
-                            collapseInterruptions: event.target.checked,
-                          }));
-                        }}
-                      />
-                      <span>Suppress non-flow interruptions</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("tool-focus");
-                        setCleanupPreview(previewSpeakerInterview({
-                          segments: editableTranscriptSegments,
-                          options: speakerInterviewOptions,
-                          segmentIds: hasTranscriptSelection ? transcriptSelectionRange.segmentIds : undefined,
-                        }));
-                      }}
-                      disabled={!speakerInterviewOptions.hostSpeaker || !speakerInterviewOptions.respondentSpeaker}
-                    >
-                      Preview Interview Mode
-                    </button>
-                  </section>
-
-                  <section className="hammer-cleanup-tool">
-                    <div className="hammer-cleanup-tool__head">
-                      <strong>Monologue Cleanup</strong>
-                      <span>
-                        Intent: Keep one speaker's through-line readable by suppressing brief outside interruptions and tightening filler-heavy target runs.
-                      </span>
-                    </div>
-                    <label className="hammer-tool-field">
-                      <span>Target speaker</span>
-                      <select
-                        value={speakerMonologueOptions.targetSpeaker}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerMonologueOptions((current) => ({
-                            ...current,
-                            targetSpeaker: event.target.value,
-                          }));
-                        }}
-                        disabled={speakerOptions.length === 0}
-                      >
-                        {speakerOptions.length > 0 ? speakerOptions.map((speaker) => (
-                          <option key={`monologue-speaker-${speaker}`} value={speaker}>{speaker}</option>
-                        )) : (
-                          <option value="">No speakers</option>
-                        )}
-                      </select>
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={speakerMonologueOptions.removeBackchannels}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerMonologueOptions((current) => ({
-                            ...current,
-                            removeBackchannels: event.target.checked,
-                          }));
-                        }}
-                      />
-                      <span>Remove short backchannels from others</span>
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={speakerMonologueOptions.suppressInterruptions}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerMonologueOptions((current) => ({
-                            ...current,
-                            suppressInterruptions: event.target.checked,
-                          }));
-                        }}
-                      />
-                      <span>Suppress short interruptions</span>
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Interruption max (sec)</span>
-                      <input
-                        type="number"
-                        min={0.2}
-                        max={5}
-                        step={0.1}
-                        value={speakerMonologueOptions.maxInterruptionSec}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerMonologueOptions((current) => ({
-                            ...current,
-                            maxInterruptionSec: Math.max(0.2, Number(event.target.value) || 0.8),
-                          }));
-                        }}
-                        disabled={!speakerMonologueOptions.suppressInterruptions}
-                      />
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={speakerMonologueOptions.tightenTargetRuns}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerMonologueOptions((current) => ({
-                            ...current,
-                            tightenTargetRuns: event.target.checked,
-                          }));
-                        }}
-                      />
-                      <span>Tighten filler-heavy target runs</span>
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={speakerMonologueOptions.compressGaps}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerMonologueOptions((current) => ({
-                            ...current,
-                            compressGaps: event.target.checked,
-                          }));
-                        }}
-                      />
-                      <span>Compress gaps after suppressed interruptions</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("tool-focus");
-                        setCleanupPreview(previewSpeakerMonologue({
-                          segments: editableTranscriptSegments,
-                          options: speakerMonologueOptions,
-                          segmentIds: hasTranscriptSelection ? transcriptSelectionRange.segmentIds : undefined,
-                        }));
-                      }}
-                      disabled={!speakerMonologueOptions.targetSpeaker}
-                    >
-                      Preview Monologue Cleanup
-                    </button>
-                  </section>
-
-                  <section className="hammer-cleanup-tool">
-                    <div className="hammer-cleanup-tool__head">
-                      <strong>Panel Mode</strong>
-                      <span>
-                        Intent: Keep multi-speaker panel flow readable by suppressing low-signal backchannels and short cross-talk without rewriting speaker structure.
-                      </span>
-                    </div>
-                    <label className="hammer-tool-field">
-                      <span>Host / moderator speaker</span>
-                      <select
-                        value={speakerPanelOptions.hostSpeaker}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerPanelOptions((current) => ({
-                            ...current,
-                            hostSpeaker: event.target.value,
-                          }));
-                        }}
-                        disabled={speakerOptions.length === 0}
-                      >
-                        {speakerOptions.length > 0 ? speakerOptions.map((speaker) => (
-                          <option key={`panel-host-${speaker}`} value={speaker}>{speaker}</option>
-                        )) : (
-                          <option value="">No speakers</option>
-                        )}
-                      </select>
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Primary speaker bias</span>
-                      <select
-                        value={speakerPanelOptions.primarySpeakerBias}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerPanelOptions((current) => ({
-                            ...current,
-                            primarySpeakerBias: event.target.value as SpeakerPanelOptions["primarySpeakerBias"],
-                          }));
-                        }}
-                      >
-                        <option value="none">None</option>
-                        <option value="balanced">Balanced</option>
-                        <option value="host_favoring">Host favoring</option>
-                      </select>
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={speakerPanelOptions.removeShortBackchannels}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerPanelOptions((current) => ({
-                            ...current,
-                            removeShortBackchannels: event.target.checked,
-                          }));
-                        }}
-                      />
-                      <span>Remove short backchannels</span>
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={speakerPanelOptions.suppressShortCrossTalk}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerPanelOptions((current) => ({
-                            ...current,
-                            suppressShortCrossTalk: event.target.checked,
-                          }));
-                        }}
-                      />
-                      <span>Suppress short cross-talk interruptions</span>
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Max interruption (sec)</span>
-                      <input
-                        type="number"
-                        min={0.2}
-                        max={5}
-                        step={0.1}
-                        value={speakerPanelOptions.maxInterruptionSec}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSpeakerPanelOptions((current) => ({
-                            ...current,
-                            maxInterruptionSec: Math.max(0.2, Number(event.target.value) || 0.8),
-                          }));
-                        }}
-                        disabled={!speakerPanelOptions.suppressShortCrossTalk}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("tool-focus");
-                        setCleanupPreview(previewSpeakerPanel({
-                          segments: editableTranscriptSegments,
-                          options: speakerPanelOptions,
-                          segmentIds: hasTranscriptSelection ? transcriptSelectionRange.segmentIds : undefined,
-                        }));
-                      }}
-                      disabled={!speakerPanelOptions.hostSpeaker}
-                    >
-                      Preview Panel Mode
-                    </button>
-                  </section>
-
-                  <section className="hammer-cleanup-tool hammer-cleanup-tool--quick">
-                    <div className="hammer-cleanup-tool__head">
-                      <strong>Quick Clean</strong>
-                      <span>
-                        Intent: Run deterministic polish in order: Remove Retakes {"->"} Remove Fillers {"->"} Shorten Gaps.
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("tool-focus");
-                        setCleanupPreview(previewQuickClean({
-                          segments: editableTranscriptSegments,
-                          retakes: retakeCleanupOptions,
-                          fillers: fillerCleanupOptions,
-                          gaps: gapCleanupOptions,
-                        }));
-                      }}
-                    >
-                      Preview Quick Clean
-                    </button>
-                  </section>
-
-                  {cleanupPreview && cleanupPreviewSummary ? (
-                    <PolishResultSummary phase="preview" summary={cleanupPreviewSummary}>
-                      {cleanupPreview.metadata?.tightenSelection ? (
-                        <section className="hammer-tighten-preview" aria-label="Meaning-preserving tighten preview">
-                          <div className="hammer-tighten-preview__intent">
-                            <strong>Intent</strong>
-                            <span>{cleanupPreview.metadata.tightenSelection.intent}</span>
-                          </div>
-                          <div className="hammer-tighten-preview__meta">
-                            <span>Removed fillers: {cleanupPreview.metadata.tightenSelection.removedFillers}</span>
-                            <span>Collapsed repetitions: {cleanupPreview.metadata.tightenSelection.collapsedRepetitions}</span>
-                            <span>Merged fragments: {cleanupPreview.metadata.tightenSelection.mergedFragments}</span>
-                            <span>Estimated time saved: {cleanupPreview.summary.timeSavedSec.toFixed(1)} s</span>
-                            <span>
-                              Confidence: {cleanupPreview.metadata.tightenSelection.confidenceLabel}
-                              {" "}
-                              ({Math.round(cleanupPreview.metadata.tightenSelection.confidenceScore * 100)}%)
-                            </span>
-                          </div>
-                          <div className="hammer-tighten-preview__text-grid">
-                            <article className="hammer-tighten-preview__pane">
-                              <header>Before</header>
-                              <p>{cleanupPreview.metadata.tightenSelection.beforeText || "No source text in selection."}</p>
-                            </article>
-                            <article className="hammer-tighten-preview__pane">
-                              <header>After</header>
-                              <p>{cleanupPreview.metadata.tightenSelection.afterText || "No tightened text proposed."}</p>
-                            </article>
-                          </div>
-                          <div className="hammer-tighten-preview__safety">
-                            {cleanupPreview.metadata.tightenSelection.safetyNote}
-                          </div>
-                        </section>
-                      ) : null}
-                      {cleanupPreview.metadata?.speakerSolo ? (
-                        <section className="hammer-tighten-preview" aria-label="Solo mode preview">
-                          <div className="hammer-tighten-preview__intent">
-                            <strong>Intent</strong>
-                            <span>{cleanupPreview.metadata.speakerSolo.intent}</span>
-                          </div>
-                          <div className="hammer-tighten-preview__meta">
-                            <span>Target speaker: {cleanupPreview.metadata.speakerSolo.targetSpeaker}</span>
-                            <span>Scope: {cleanupPreview.metadata.speakerSolo.scopeLabel}</span>
-                            <span>Suppressed segments: {cleanupPreview.metadata.speakerSolo.suppressedSegments}</span>
-                            <span>Collapsed interruptions: {cleanupPreview.metadata.speakerSolo.collapsedInterruptions}</span>
-                            <span>Estimated time saved: {cleanupPreview.metadata.speakerSolo.estimatedDurationSavedSec.toFixed(1)} s</span>
-                            <span>
-                              Confidence: {cleanupPreview.metadata.speakerSolo.confidenceLabel}
-                              {" "}
-                              ({Math.round(cleanupPreview.metadata.speakerSolo.confidenceScore * 100)}%)
-                            </span>
-                          </div>
-                          <div className="hammer-tighten-preview__safety">
-                            {cleanupPreview.metadata.speakerSolo.safetyNote}
-                          </div>
-                        </section>
-                      ) : null}
-                      {cleanupPreview.metadata?.speakerInterview ? (
-                        <section className="hammer-tighten-preview" aria-label="Interview mode preview">
-                          <div className="hammer-tighten-preview__intent">
-                            <strong>Intent</strong>
-                            <span>{cleanupPreview.metadata.speakerInterview.intent}</span>
-                          </div>
-                          <div className="hammer-tighten-preview__meta">
-                            <span>Interviewer: {cleanupPreview.metadata.speakerInterview.hostSpeaker}</span>
-                            <span>Respondent: {cleanupPreview.metadata.speakerInterview.respondentSpeaker}</span>
-                            <span>Prompts kept: {cleanupPreview.metadata.speakerInterview.promptsKept}</span>
-                            <span>Answer segments tightened: {cleanupPreview.metadata.speakerInterview.answerSegmentsTightened}</span>
-                            <span>Fillers removed: {cleanupPreview.metadata.speakerInterview.fillersRemoved}</span>
-                            <span>Retakes removed: {cleanupPreview.metadata.speakerInterview.retakesRemoved}</span>
-                            <span>Interruptions suppressed: {cleanupPreview.metadata.speakerInterview.interruptionsSuppressed}</span>
-                            <span>Estimated time saved: {cleanupPreview.metadata.speakerInterview.estimatedDurationSavedSec.toFixed(1)} s</span>
-                            <span>
-                              Confidence: {cleanupPreview.metadata.speakerInterview.confidenceLabel}
-                              {" "}
-                              ({Math.round(cleanupPreview.metadata.speakerInterview.confidenceScore * 100)}%)
-                            </span>
-                          </div>
-                          <div className="hammer-tighten-preview__safety">
-                            {cleanupPreview.metadata.speakerInterview.safetyNote}
-                          </div>
-                        </section>
-                      ) : null}
-                      {cleanupPreview.metadata?.speakerMonologue ? (
-                        <section className="hammer-tighten-preview" aria-label="Monologue cleanup preview">
-                          <div className="hammer-tighten-preview__intent">
-                            <strong>Intent</strong>
-                            <span>{cleanupPreview.metadata.speakerMonologue.intent}</span>
-                          </div>
-                          <div className="hammer-tighten-preview__meta">
-                            <span>Target speaker: {cleanupPreview.metadata.speakerMonologue.targetSpeaker}</span>
-                            <span>Backchannels removed: {cleanupPreview.metadata.speakerMonologue.backchannelsRemoved}</span>
-                            <span>Interruptions suppressed: {cleanupPreview.metadata.speakerMonologue.interruptionsSuppressed}</span>
-                            <span>Same-speaker runs tightened: {cleanupPreview.metadata.speakerMonologue.sameSpeakerRunsTightened}</span>
-                            <span>Estimated time saved: {cleanupPreview.metadata.speakerMonologue.estimatedDurationSavedSec.toFixed(1)} s</span>
-                            <span>
-                              Confidence: {cleanupPreview.metadata.speakerMonologue.confidenceLabel}
-                              {" "}
-                              ({Math.round(cleanupPreview.metadata.speakerMonologue.confidenceScore * 100)}%)
-                            </span>
-                          </div>
-                          <div className="hammer-tighten-preview__safety">
-                            {cleanupPreview.metadata.speakerMonologue.safetyNote}
-                          </div>
-                        </section>
-                      ) : null}
-                      {cleanupPreview.metadata?.speakerPanel ? (
-                        <section className="hammer-tighten-preview" aria-label="Panel mode preview">
-                          <div className="hammer-tighten-preview__intent">
-                            <strong>Intent</strong>
-                            <span>{cleanupPreview.metadata.speakerPanel.intent}</span>
-                          </div>
-                          <div className="hammer-tighten-preview__meta">
-                            <span>Participant scope: {cleanupPreview.metadata.speakerPanel.participantScope}</span>
-                            <span>Host/moderator: {cleanupPreview.metadata.speakerPanel.hostSpeaker}</span>
-                            <span>Bias: {cleanupPreview.metadata.speakerPanel.primarySpeakerBias.replace(/_/g, " ")}</span>
-                            <span>Backchannels removed: {cleanupPreview.metadata.speakerPanel.backchannelsRemoved}</span>
-                            <span>Cross-talk suppressed: {cleanupPreview.metadata.speakerPanel.crossTalkSegmentsSuppressed}</span>
-                            <span>Turns preserved: {cleanupPreview.metadata.speakerPanel.turnsPreserved}</span>
-                            <span>Estimated time saved: {cleanupPreview.metadata.speakerPanel.estimatedDurationSavedSec.toFixed(1)} s</span>
-                            <span>
-                              Confidence: {cleanupPreview.metadata.speakerPanel.confidenceLabel}
-                              {" "}
-                              ({Math.round(cleanupPreview.metadata.speakerPanel.confidenceScore * 100)}%)
-                            </span>
-                          </div>
-                          <div className="hammer-tighten-preview__safety">
-                            {cleanupPreview.metadata.speakerPanel.safetyNote}
-                          </div>
-                        </section>
-                      ) : null}
-                      <button type="button" onClick={() => applyCleanup(cleanupPreview)}>Apply</button>
-                      <button type="button" onClick={() => setCleanupPreview(null)}>Discard</button>
-                    </PolishResultSummary>
-                  ) : null}
-                  {cleanupReceipt ? (
-                    <PolishResultSummary phase="applied" summary={cleanupReceipt} />
-                  ) : null}
-                  <div className="hammer-tool-hint">Deterministic cleanup only. No AI inference path.</div>
-                </section>
-                )
-              ) : null}
-
-              {activeTool === "audio" ? (
-                currentPass === "audio_finalization" ? (
-                  <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Audio Finalization</header>
-                    <div className="hammer-tool-hint">
-                      Podcast-first finish. Apply Studio Sound once, then make lightweight tweaks only if needed.
-                    </div>
-                    <div className="hammer-source-card__actions">
-                      <button type="button" onClick={applyStudioSoundProfile}>
-                        Apply Studio Sound
-                      </button>
-                    </div>
-                    <div className="hammer-tool-hint">
-                      Status: {audioStudioSoundApplied ? "Studio Sound applied" : "Studio Sound not applied yet"}
-                    </div>
-                    <div className="hammer-source-card__actions">
-                      <button
-                        type="button"
-                        className={audioFinalizationCompareMode === "before" ? "is-selected" : ""}
-                        onClick={() => setAudioFinalizationCompare("before")}
-                      >
-                        Before
-                      </button>
-                      <button
-                        type="button"
-                        className={audioFinalizationCompareMode === "after" ? "is-selected" : ""}
-                        onClick={() => setAudioFinalizationCompare("after")}
-                      >
-                        After
-                      </button>
-                    </div>
-                    <div className="hammer-tool-hint">
-                      Compare mode: {audioFinalizationCompareMode === "before" ? "Before (rack bypassed)" : "After (rack active)"}
-                    </div>
-
-                    <label className="hammer-tool-field">
-                      <span>Warmth ({audioFinalizationWarmth})</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={audioFinalizationWarmth}
-                        onChange={(event) => updateAudioFinalizationWarmth(Number(event.target.value))}
-                      />
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Presence ({audioFinalizationPresence})</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={audioFinalizationPresence}
-                        onChange={(event) => updateAudioFinalizationPresence(Number(event.target.value))}
-                      />
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Harshness ({audioFinalizationHarshness})</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={audioFinalizationHarshness}
-                        onChange={(event) => updateAudioFinalizationHarshness(Number(event.target.value))}
-                      />
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Output Level ({audioFinalizationOutputLevel})</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={audioFinalizationOutputLevel}
-                        onChange={(event) => updateAudioFinalizationOutputLevel(Number(event.target.value))}
-                      />
-                    </label>
-                  </section>
-                ) : (
-                <section className="hammer-tool-card">
-                  <header className="hammer-tool-card__head">Audio Adjustments</header>
-                  <div className="hammer-tool-hint">Current prep status: {editableAudioPolish?.status ?? "not_started"}</div>
-                  <div className="hammer-tool-hint">
-                    Persisted cut ops: {persistedAudioCutCount} raw · {effectivePlaybackCutRegions.length} effective playback region{effectivePlaybackCutRegions.length === 1 ? "" : "s"}
-                  </div>
-                  <div className="hammer-tool-hint">
-                    Silence suggestions: {silenceSuggestionCount} visible · derived from segmentation only
-                  </div>
-                  <div className="hammer-tool-hint">
-                    Preferred backend: {editableStudioRack.backend_preference}
-                  </div>
-                  <div className="hammer-tool-hint">
-                    Playback lane: {studioRackPlaybackConfig.backend} ({studioRackPlaybackBackendResolution.status})
-                  </div>
-                  <div className="hammer-tool-hint">
-                    Render lane: {studioRackRenderConfig.backend} ({studioRackRenderBackendResolution.status})
-                  </div>
-                  {studioRackRenderStatus ? (
-                    <div className="hammer-tool-hint">
-                      Last render lane result: {studioRackRenderStatus.message}
-                    </div>
-                  ) : null}
-                  {studioRackRenderStatus ? (
-                    <div className="hammer-tool-hint">
-                      Render receipt: requested lane {studioRackRenderStatus.requestedBackend}, resolved lane {studioRackRenderStatus.resolvedBackend}, status {studioRackRenderStatus.status}
-                    </div>
-                  ) : null}
-                  {studioRackRenderStatus?.outputWorkpiecePath ? (
-                    <div className="hammer-tool-hint">
-                      Derived artifact: {studioRackRenderStatus.outputWorkpiecePath}
-                    </div>
-                  ) : null}
-                  {studioRackRenderAppliedModules.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      Render applied modules: {studioRackRenderAppliedModules.join(", ")}
-                    </div>
-                  ) : null}
-                  {studioRackRenderDeferredModules.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      Requested but not yet rendered in v1: {studioRackRenderDeferredModules.join(", ")}
-                    </div>
-                  ) : null}
-                  <div className="hammer-tool-hint">Active rack modules: {studioRackEnabledModuleCount}</div>
-                  <div className="hammer-tool-hint">
-                    Podcast Master: {podcastMasterLayer ? "declared" : "not declared"}
-                    {podcastMasterLayer
-                      ? ` · export posture ${podcastMasterLayer.posture} (${podcastMasterLayer.capability})`
-                      : ""}
-                  </div>
-                  <div className="hammer-tool-hint">
-                    {podcastMasterUiStatus.headline}
-                  </div>
-                  <div className="hammer-tool-hint">
-                    {podcastMasterUiStatus.detail}
-                  </div>
-                  {podcastMasterLayer?.meta ? (
-                    <div className="hammer-tool-hint">
-                      Preset {podcastMasterLayer.meta.preset}
-                      {` · loudness ${podcastMasterLayer.meta.normalization_lufs} LUFS`}
-                      {` · compression ${podcastMasterLayer.meta.compression_amount}`}
-                      {` · limiter ${podcastMasterLayer.meta.limiter_ceiling_dbtp} dBTP`}
-                      {` · preview ${podcastMasterLayer.meta.preview_mode === "previewable" ? "supported" : "export-only"}`}
-                      {podcastMasterLayer.meta.applied_stages?.length
-                        ? ` · applied ${podcastMasterLayer.meta.applied_stages.join(", ")}`
-                        : ""}
-                      {podcastMasterLayer.meta.skipped_stages?.length
-                        ? ` · skipped ${podcastMasterLayer.meta.skipped_stages.join(", ")}`
-                        : ""}
-                    </div>
-                  ) : null}
-                  <button type="button" onClick={applyPodcastMasterPass} disabled={Boolean(podcastMasterLayer)}>
-                    {podcastMasterUiStatus.action_label}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFocusOverride("tool-focus");
-                      setStudioRackOpen((current) => !current);
-                    }}
-                  >
-                    {studioRackOpen ? "Hide Studio Rack" : "Studio Rack ->"}
-                  </button>
-                  {studioRackOpen ? (
-                    <>
-                      <label className="hammer-tool-check">
-                        <input
-                          type="checkbox"
-                          checked={editableStudioRack.is_enabled}
-                          onChange={(event) => setStudioRackEnabled(event.target.checked)}
-                        />
-                        <span>Enable rack</span>
-                      </label>
-                      <label className="hammer-tool-check">
-                        <input
-                          type="checkbox"
-                          checked={editableStudioRack.is_bypassed}
-                          onChange={(event) => setStudioRackBypassed(event.target.checked)}
-                          disabled={!editableStudioRack.is_enabled}
-                        />
-                        <span>Global bypass (A/B)</span>
-                      </label>
-                      <label className="hammer-tool-field">
-                        <span>Preferred render backend</span>
-                        <select
-                          value={editableStudioRack.backend_preference}
-                          onChange={(event) => setStudioRackBackend(event.target.value === "ffmpeg" ? "ffmpeg" : "native")}
-                        >
-                          <option value="native">Native/editor lane</option>
-                          <option value="ffmpeg">FFmpeg power lane</option>
-                        </select>
-                      </label>
-                      <section className="hammer-cleanup-tool">
-                        <div className="hammer-cleanup-tool__head">
-                          <strong>Gate</strong>
-                          <span>Smooth spoken-word gate.</span>
-                        </div>
-                        <label className="hammer-tool-check">
-                          <input
-                            type="checkbox"
-                            checked={editableStudioRack.modules.gate.is_enabled}
-                            onChange={(event) => setStudioRackModuleEnabled("gate", event.target.checked)}
-                          />
-                          <span>Enable gate</span>
-                        </label>
-                        <label className="hammer-tool-check">
-                          <input
-                            type="checkbox"
-                            checked={editableStudioRack.modules.gate.is_bypassed}
-                            onChange={(event) => setStudioRackModuleBypassed("gate", event.target.checked)}
-                            disabled={!editableStudioRack.modules.gate.is_enabled}
-                          />
-                          <span>Bypass gate</span>
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>Threshold (dB)</span>
-                          <input
-                            type="number"
-                            min={-80}
-                            max={0}
-                            step={1}
-                            value={editableStudioRack.modules.gate.threshold_db}
-                            onChange={(event) => applyStudioRackMutation("Adjust gate threshold", (current) => ({
-                              ...current,
-                              modules: {
-                                ...current.modules,
-                                gate: { ...current.modules.gate, threshold_db: Number(event.target.value) },
-                              },
-                            }))}
-                          />
-                        </label>
-                      </section>
-                      <section className="hammer-cleanup-tool">
-                        <div className="hammer-cleanup-tool__head">
-                          <strong>Compressor</strong>
-                          <span>Dialogue dynamics control.</span>
-                        </div>
-                        <label className="hammer-tool-check">
-                          <input
-                            type="checkbox"
-                            checked={editableStudioRack.modules.compressor.is_enabled}
-                            onChange={(event) => setStudioRackModuleEnabled("compressor", event.target.checked)}
-                          />
-                          <span>Enable compressor</span>
-                        </label>
-                        <label className="hammer-tool-check">
-                          <input
-                            type="checkbox"
-                            checked={editableStudioRack.modules.compressor.is_bypassed}
-                            onChange={(event) => setStudioRackModuleBypassed("compressor", event.target.checked)}
-                            disabled={!editableStudioRack.modules.compressor.is_enabled}
-                          />
-                          <span>Bypass compressor</span>
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>Ratio</span>
-                          <input
-                            type="number"
-                            min={1}
-                            max={20}
-                            step={0.1}
-                            value={editableStudioRack.modules.compressor.ratio}
-                            onChange={(event) => applyStudioRackMutation("Adjust compressor ratio", (current) => ({
-                              ...current,
-                              modules: {
-                                ...current.modules,
-                                compressor: { ...current.modules.compressor, ratio: Number(event.target.value) },
-                              },
-                            }))}
-                          />
-                        </label>
-                      </section>
-                      <section className="hammer-cleanup-tool">
-                        <div className="hammer-cleanup-tool__head">
-                          <strong>Parametric EQ</strong>
-                          <span>Low shelf, mid, and high shelf shaping.</span>
-                        </div>
-                        <div className="hammer-tool-hint">
-                          Render lane note: EQ controls are visible now, but FFmpeg render v1 does not apply EQ yet.
-                        </div>
-                        <label className="hammer-tool-check">
-                          <input
-                            type="checkbox"
-                            checked={editableStudioRack.modules.eq.is_enabled}
-                            onChange={(event) => setStudioRackModuleEnabled("eq", event.target.checked)}
-                          />
-                          <span>Enable EQ</span>
-                        </label>
-                        <label className="hammer-tool-check">
-                          <input
-                            type="checkbox"
-                            checked={editableStudioRack.modules.eq.is_bypassed}
-                            onChange={(event) => setStudioRackModuleBypassed("eq", event.target.checked)}
-                            disabled={!editableStudioRack.modules.eq.is_enabled}
-                          />
-                          <span>Bypass EQ</span>
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>Mid gain (dB)</span>
-                          <input
-                            type="number"
-                            min={-12}
-                            max={12}
-                            step={0.1}
-                            value={editableStudioRack.modules.eq.mid_gain_db}
-                            onChange={(event) => applyStudioRackMutation("Adjust EQ mid gain", (current) => ({
-                              ...current,
-                              modules: {
-                                ...current.modules,
-                                eq: { ...current.modules.eq, mid_gain_db: Number(event.target.value) },
-                              },
-                            }))}
-                          />
-                        </label>
-                      </section>
-                      <section className="hammer-cleanup-tool">
-                        <div className="hammer-cleanup-tool__head">
-                          <strong>Reverb</strong>
-                          <span>Subtle space for voice polish.</span>
-                        </div>
-                        <div className="hammer-tool-hint">
-                          Render lane note: Reverb controls are visible now, but FFmpeg render v1 does not apply reverb yet.
-                        </div>
-                        <label className="hammer-tool-check">
-                          <input
-                            type="checkbox"
-                            checked={editableStudioRack.modules.reverb.is_enabled}
-                            onChange={(event) => setStudioRackModuleEnabled("reverb", event.target.checked)}
-                          />
-                          <span>Enable reverb</span>
-                        </label>
-                        <label className="hammer-tool-check">
-                          <input
-                            type="checkbox"
-                            checked={editableStudioRack.modules.reverb.is_bypassed}
-                            onChange={(event) => setStudioRackModuleBypassed("reverb", event.target.checked)}
-                            disabled={!editableStudioRack.modules.reverb.is_enabled}
-                          />
-                          <span>Bypass reverb</span>
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>Mix</span>
-                          <input
-                            type="number"
-                            min={0}
-                            max={0.35}
-                            step={0.01}
-                            value={editableStudioRack.modules.reverb.mix}
-                            onChange={(event) => applyStudioRackMutation("Adjust reverb mix", (current) => ({
-                              ...current,
-                              modules: {
-                                ...current.modules,
-                                reverb: { ...current.modules.reverb, mix: Number(event.target.value) },
-                              },
-                            }))}
-                          />
-                        </label>
-                      </section>
-                      <section className="hammer-cleanup-tool">
-                        <div className="hammer-cleanup-tool__head">
-                          <strong>Tube Mic Character</strong>
-                          <span>Premium condenser-style character layer.</span>
-                        </div>
-                        <div className="hammer-tool-hint">
-                          Render lane note: Tube Mic Character controls are visible now, but FFmpeg render v1 does not apply tube shaping yet.
-                        </div>
-                        <label className="hammer-tool-check">
-                          <input
-                            type="checkbox"
-                            checked={editableStudioRack.modules.tubeMicCharacter.is_enabled}
-                            onChange={(event) => setStudioRackModuleEnabled("tubeMicCharacter", event.target.checked)}
-                          />
-                          <span>Enable Tube Mic Character</span>
-                        </label>
-                        <label className="hammer-tool-check">
-                          <input
-                            type="checkbox"
-                            checked={editableStudioRack.modules.tubeMicCharacter.is_bypassed}
-                            onChange={(event) => setStudioRackModuleBypassed("tubeMicCharacter", event.target.checked)}
-                            disabled={!editableStudioRack.modules.tubeMicCharacter.is_enabled}
-                          />
-                          <span>Bypass Tube Mic Character</span>
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>Amount</span>
-                          <input
-                            type="number"
-                            min={0}
-                            max={1}
-                            step={0.01}
-                            value={editableStudioRack.modules.tubeMicCharacter.amount}
-                            onChange={(event) => applyStudioRackMutation("Adjust Tube Mic Character amount", (current) => ({
-                              ...current,
-                              modules: {
-                                ...current.modules,
-                                tubeMicCharacter: { ...current.modules.tubeMicCharacter, amount: Number(event.target.value) },
-                              },
-                            }))}
-                          />
-                        </label>
-                      </section>
-                    </>
-                  ) : null}
-                  <label className="hammer-tool-check">
-                    <input
-                      type="checkbox"
-                      checked={audioLevelingEnabled}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setAudioLevelingEnabled(event.target.checked);
-                      }}
-                    />
-                    <span>Level dialogue track (legacy prep)</span>
-                  </label>
-                  <label className="hammer-tool-check">
-                    <input
-                      type="checkbox"
-                      checked={audioNoiseReductionEnabled}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setAudioNoiseReductionEnabled(event.target.checked);
-                      }}
-                    />
-                    <span>Reduce background noise (legacy prep)</span>
-                  </label>
-                </section>
-                )
-              ) : null}
-
-              {activeTool === "video" ? (
-                currentPass === "visual_finishing" ? (
-                  <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Visual Finishing</header>
-                    <div className="hammer-tool-hint">
-                      Look Preset and Exposure affect preview and export. White balance, color, and blur stay preview-only in this phase.
-                    </div>
-                    <label className="hammer-tool-field">
-                      <span>Look Preset</span>
-                      <select
-                        value={activeLookPreset ?? "neutral"}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          applyLookPresetSelection(event.target.value as HammerVisualLutPreset | "neutral");
-                        }}
-                      >
-                        <option value="neutral">Neutral</option>
-                        <option value="clean_daylight">Clean Daylight</option>
-                        <option value="warm_studio">Warm Studio</option>
-                        <option value="cool_evening">Cool Evening</option>
-                        <option value="high_contrast">High Contrast</option>
-                        <option value="soft_documentary">Soft Documentary</option>
-                      </select>
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Exposure ({activeExposureAdjustment ?? 0})</span>
-                      <input
-                        type="range"
-                        min={-100}
-                        max={100}
-                        step={1}
-                        value={activeExposureAdjustment ?? 0}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          applyExposureAdjustment(Number(event.target.value));
-                        }}
-                      />
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={visualEyeContactAssistEnabled}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setVisualEyeContactAssistEnabled(event.target.checked);
-                          setVisualEyeContactAssistRuntimeStatus(null);
-                        }}
-                      />
-                      <span>Eye Contact Assist (Preview)</span>
-                    </label>
-                    {visualEyeContactAssistEnabled ? (
-                      <>
-                        <label className="hammer-tool-field">
-                          <span>Strength ({visualEyeContactAssistStrength.toFixed(2)})</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={1}
-                            step={0.05}
-                            value={visualEyeContactAssistStrength}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setVisualEyeContactAssistStrength(Number(event.target.value));
-                            }}
-                          />
-                        </label>
-                        <label className="hammer-tool-check">
-                          <input
-                            type="checkbox"
-                            checked={visualEyeContactAssistDebugOverlay}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setVisualEyeContactAssistDebugOverlay(event.target.checked);
-                            }}
-                          />
-                          <span>Show gaze debug (overlay/status)</span>
-                        </label>
-                        <div className="hammer-tool-hint">
-                          {visualEyeContactAssistStatusSummary
-                            ? visualEyeContactAssistStatusSummary.primaryLine
-                            : "Eye contact status unavailable."}
-                        </div>
-                        {visualEyeContactAssistDebugOverlay && visualEyeContactAssistRuntimeStatus?.debug ? (
-                          <div className="hammer-tool-hint">
-                            {visualEyeContactAssistStatusSummary?.debugLine ? (
-                              <div>{visualEyeContactAssistStatusSummary.debugLine}</div>
-                            ) : null}
-                            {visualEyeContactAssistRuntimeStatus.debug.applicabilityReasons.length > 0 ? (
-                              <div>Applicability: {visualEyeContactAssistRuntimeStatus.debug.applicabilityReasons.join(", ")}</div>
-                            ) : null}
-                            {visualEyeContactAssistRuntimeStatus.debug.smoothingResetReasons.length > 0 ? (
-                              <div>Smoothing reset: {visualEyeContactAssistRuntimeStatus.debug.smoothingResetReasons.join(", ")}</div>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </>
-                    ) : null}
-                    <label className="hammer-tool-field">
-                      <span>Preview White Balance ({visualWhiteBalance})</span>
-                      <input
-                        type="range"
-                        min={-100}
-                        max={100}
-                        step={1}
-                        value={visualWhiteBalance}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setVisualWhiteBalance(Number(event.target.value));
-                        }}
-                      />
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Preview Color ({visualColorAmount})</span>
-                      <input
-                        type="range"
-                        min={-100}
-                        max={100}
-                        step={1}
-                        value={visualColorAmount}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setVisualColorAmount(Number(event.target.value));
-                        }}
-                      />
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={visualBackgroundBlur}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          const enabled = event.target.checked;
-                          setVisualBackgroundBlur(enabled);
-                          if (enabled) {
-                            setVisualBackgroundReplaceEnabled(false);
-                            setVisualBackgroundWashEnabled(false);
-                          }
-                        }}
-                      />
-                      <span>Background Blur (Segmentation Preview)</span>
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={visualBackgroundReplaceEnabled}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          const enabled = event.target.checked;
-                          setVisualBackgroundReplaceEnabled(enabled);
-                          if (enabled) {
-                            setVisualBackgroundBlur(false);
-                            setVisualBackgroundWashEnabled(false);
-                          }
-                        }}
-                      />
-                      <span>Background Replace (Segmentation Preview)</span>
-                    </label>
-                    <label className="hammer-tool-check">
-                      <input
-                        type="checkbox"
-                        checked={visualBackgroundWashEnabled}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          const enabled = event.target.checked;
-                          setVisualBackgroundWashEnabled(enabled);
-                          if (enabled) {
-                            setVisualBackgroundBlur(false);
-                            setVisualBackgroundReplaceEnabled(false);
-                          }
-                        }}
-                      />
-                      <span>Background Wash (Segmentation Preview)</span>
-                    </label>
-                    {visualBackgroundBlur ? (
-                      <>
-                        <label className="hammer-tool-field">
-                          <span>Segmentation Provider</span>
-                          <select
-                            value={backgroundBlurProviderDescriptor?.id ?? "mediapipe_selfie_segmentation"}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setVisualBackgroundBlurProviderId(event.target.value);
-                              setVisualBackgroundBlurRuntimeStatus(null);
-                            }}
-                          >
-                            {SEGMENTATION_PROVIDER_DESCRIPTORS.map((descriptor) => (
-                              <option key={descriptor.id} value={descriptor.id}>
-                                {descriptor.displayName}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>Blur strength ({Math.round(visualBackgroundBlurPx)}px)</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={40}
-                            step={1}
-                            value={visualBackgroundBlurPx}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setVisualBackgroundBlurPx(Number(event.target.value));
-                            }}
-                          />
-                        </label>
-                      </>
-                    ) : null}
-                    {visualBackgroundReplaceEnabled ? (
-                      <>
-                        <label className="hammer-tool-field">
-                          <span>Segmentation Provider</span>
-                          <select
-                            value={backgroundBlurProviderDescriptor?.id ?? "mediapipe_selfie_segmentation"}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setVisualBackgroundBlurProviderId(event.target.value);
-                              setVisualBackgroundBlurRuntimeStatus(null);
-                            }}
-                          >
-                            {SEGMENTATION_PROVIDER_DESCRIPTORS.map((descriptor) => (
-                              <option key={descriptor.id} value={descriptor.id}>
-                                {descriptor.displayName}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>Replacement Mode</span>
-                          <select
-                            value={visualBackgroundReplaceMode}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setVisualBackgroundReplaceMode(event.target.value as "solid" | "image" | "checkerboard");
-                            }}
-                          >
-                            <option value="solid">Solid Color</option>
-                            <option value="checkerboard">Checkerboard (Debug)</option>
-                            <option value="image">Image (Preview)</option>
-                          </select>
-                        </label>
-                        {visualBackgroundReplaceMode === "solid" ? (
-                          <label className="hammer-tool-field">
-                            <span>Replacement Color</span>
-                            <input
-                              type="color"
-                              value={visualBackgroundReplaceColor}
-                              onChange={(event) => {
-                                setFocusOverride("tool-focus");
-                                setVisualBackgroundReplaceColor(event.target.value);
-                              }}
-                            />
-                          </label>
-                        ) : visualBackgroundReplaceMode === "image" ? (
-                          <label className="hammer-tool-field">
-                            <span>Replacement Image URL</span>
-                            <input
-                              type="text"
-                              value={visualBackgroundReplaceImageUrl}
-                              placeholder="https://..."
-                              onChange={(event) => {
-                                setFocusOverride("tool-focus");
-                                setVisualBackgroundReplaceImageUrl(event.target.value);
-                              }}
-                            />
-                            {visualBackgroundBlurRuntimeStatus?.degradedReason === "replacement_image_load_failed" ? (
-                              <div className="hammer-tool-hint">
-                                Image load failed. If this is a remote URL, it may be blocked by CORS. Try an image host that sends permissive CORS headers, or use a local/static asset URL.
-                              </div>
-                            ) : null}
-                          </label>
-                        ) : null}
-                        <label className="hammer-tool-field">
-                          <span>Edge feather ({Math.round(visualBackgroundBlurFeatherPx)}px)</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={24}
-                            step={1}
-                            value={visualBackgroundBlurFeatherPx}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setVisualBackgroundBlurFeatherPx(Number(event.target.value));
-                            }}
-                          />
-                        </label>
-                      </>
-                    ) : null}
-                    {visualBackgroundWashEnabled ? (
-                      <>
-                        <label className="hammer-tool-field">
-                          <span>Segmentation Provider</span>
-                          <select
-                            value={backgroundBlurProviderDescriptor?.id ?? "mediapipe_selfie_segmentation"}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setVisualBackgroundBlurProviderId(event.target.value);
-                              setVisualBackgroundBlurRuntimeStatus(null);
-                            }}
-                          >
-                            {SEGMENTATION_PROVIDER_DESCRIPTORS.map((descriptor) => (
-                              <option key={descriptor.id} value={descriptor.id}>
-                                {descriptor.displayName}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>Background dim ({Math.round(visualBackgroundWashDimAmount * 100)}%)</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={1}
-                            step={0.05}
-                            value={visualBackgroundWashDimAmount}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setVisualBackgroundWashDimAmount(Number(event.target.value));
-                            }}
-                          />
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>Desaturate ({Math.round(visualBackgroundWashDesaturateAmount * 100)}%)</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={1}
-                            step={0.05}
-                            value={visualBackgroundWashDesaturateAmount}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setVisualBackgroundWashDesaturateAmount(Number(event.target.value));
-                            }}
-                          />
-                        </label>
-                      </>
-                    ) : null}
-                    {visualBackgroundBlur || visualBackgroundReplaceEnabled || visualBackgroundWashEnabled ? (
-                      <>
-                        <label className="hammer-tool-field">
-                          <span>Edge feather ({Math.round(visualBackgroundBlurFeatherPx)}px)</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={24}
-                            step={1}
-                            value={visualBackgroundBlurFeatherPx}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setVisualBackgroundBlurFeatherPx(Number(event.target.value));
-                            }}
-                          />
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>Temporal smoothing ({visualBackgroundBlurTemporalSmoothing.toFixed(2)})</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={1}
-                            step={0.05}
-                            value={visualBackgroundBlurTemporalSmoothing}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                                setVisualBackgroundBlurTemporalSmoothing(Number(event.target.value));
-                              }}
-                            />
-                          </label>
-                        <label className="hammer-tool-field">
-                          <span>Quality</span>
-                          <select
-                            value={visualBackgroundBlurQualityMode}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setVisualBackgroundBlurQualityMode(event.target.value as BackgroundBlurSettings["qualityMode"]);
-                            }}
-                          >
-                            <option value="low">Low</option>
-                            <option value="medium">Medium</option>
-                            <option value="high">High</option>
-                          </select>
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>Fallback</span>
-                          <select
-                            value={visualBackgroundBlurFallbackMode}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setVisualBackgroundBlurFallbackMode(event.target.value as BackgroundBlurSettings["fallbackMode"]);
-                            }}
-                          >
-                            <option value="disable">Disable on degraded</option>
-                            <option value="passthrough">Show passthrough</option>
-                          </select>
-                        </label>
-                        <label className="hammer-tool-check">
-                          <input
-                            type="checkbox"
-                            checked={visualBackgroundBlurDebugMask}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setVisualBackgroundBlurDebugMask(event.target.checked);
-                            }}
-                          />
-                          <span>Show mask thumbnails (debug)</span>
-                        </label>
-                        <div className="hammer-tool-hint">
-                          {visualBackgroundBlurStatusSummary ? (
-                            visualBackgroundBlurStatusSummary.primaryLine
-                          ) : (
-                            "Segmentation status unavailable."
-                          )}
-                        </div>
-                        {visualBackgroundBlurDebugMask && visualBackgroundBlurRuntimeStatus ? (
-                          <div className="hammer-tool-hint hammer-background-blur-debug">
-                            {visualBackgroundBlurStatusSummary?.debugLine ? (
-                              <div>{visualBackgroundBlurStatusSummary.debugLine}</div>
-                            ) : null}
-                            <div className="hammer-background-blur-debug__row">
-                              <div className="hammer-background-blur-debug__card">
-                                <strong>Raw Mask</strong>
-                                {visualBackgroundBlurRuntimeStatus.debug?.rawMaskDataUrl ? (
-                                  <img
-                                    src={visualBackgroundBlurRuntimeStatus.debug.rawMaskDataUrl}
-                                    alt="Raw segmentation mask"
-                                    className="hammer-background-blur-debug__image"
-                                  />
-                                ) : (
-                                  <span>Unavailable</span>
-                                )}
-                              </div>
-                              <div className="hammer-background-blur-debug__card">
-                                <strong>Refined Matte</strong>
-                                {visualBackgroundBlurRuntimeStatus.debug?.matteDataUrl ? (
-                                  <img
-                                    src={visualBackgroundBlurRuntimeStatus.debug.matteDataUrl}
-                                    alt="Refined foreground matte"
-                                    className="hammer-background-blur-debug__image"
-                                  />
-                                ) : (
-                                  <span>Unavailable</span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ) : null}
-                      </>
-                    ) : null}
-                    <div className="hammer-tool-hint">
-                      White balance, color, background blur, and background replacement remain preview-only in Phase 1. Look Preset and Exposure carry into the export packet.
-                    </div>
-                  </section>
-                ) : currentPass === "image_placement" ? (
-                  <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Image Placement</header>
-                    <div className="hammer-tool-hint">
-                      Direct manipulation mode. Drag and resize image clips in timeline or preview. Hold Shift while dragging to snap to 0.1s steps.
-                    </div>
-                    {selectedImagePlacement ? (
-                      <>
-                        <div className="hammer-tool-hint">
-                          Selected: {selectedImagePlacement.label}
-                          {` (${selectedImagePlacement.startSec.toFixed(1)}s - ${selectedImagePlacement.endSec.toFixed(1)}s)`}
-                        </div>
-                        <label className="hammer-tool-field">
-                          <span>Start (sec)</span>
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.1}
-                            value={selectedImagePlacement.startSec}
-                            onChange={(event) => {
-                              const nextStart = Math.max(0, Number(event.target.value) || 0);
-                              const minEnd = roundToTenth(nextStart + MIN_IMAGE_PLACEMENT_DURATION_SEC);
-                              commitVisualPlacementWindow(selectedImagePlacement.id, {
-                                startSec: nextStart,
-                                endSec: Math.max(minEnd, selectedImagePlacement.endSec),
-                                label: "Adjust image clip start",
-                              });
-                            }}
-                          />
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>End (sec)</span>
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.1}
-                            value={selectedImagePlacement.endSec}
-                            onChange={(event) => {
-                              const nextEnd = Math.max(0, Number(event.target.value) || 0);
-                              commitVisualPlacementWindow(selectedImagePlacement.id, {
-                                startSec: selectedImagePlacement.startSec,
-                                endSec: Math.max(
-                                  roundToTenth(selectedImagePlacement.startSec + MIN_IMAGE_PLACEMENT_DURATION_SEC),
-                                  nextEnd,
-                                ),
-                                label: "Adjust image clip end",
-                              });
-                            }}
-                          />
-                        </label>
-                        <div className="hammer-source-card__actions">
-                          <button type="button" onClick={() => updateVisualPlacementTiming(selectedImagePlacement.id, -0.5)}>
-                            Move -0.5s
-                          </button>
-                          <button type="button" onClick={() => updateVisualPlacementTiming(selectedImagePlacement.id, 0.5)}>
-                            Move +0.5s
-                          </button>
-                          <button type="button" onClick={() => removeVisualPlacement(selectedImagePlacement.id)}>
-                            Remove Clip
-                          </button>
-                        </div>
-                        <div className="hammer-tool-hint">
-                          Anchor segment: {selectedVisualAnchorSegmentId ?? "n/a"}
-                          {` · matches ${selectedVisualClip?.anchor_hint.matched_segment_ids.length ?? 0}`}
-                          {selectedVisualClip?.anchor_hint.detached ? " · detached" : " · attached"}
-                        </div>
-                        <label className="hammer-tool-field">
-                          <span>Anchor Text</span>
-                          <textarea
-                            value={anchorTextDraft}
-                            rows={3}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setAnchorTextDraft(event.target.value);
-                            }}
-                          />
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>Anchor Label</span>
-                          <input
-                            value={anchorLabelDraft}
-                            onChange={(event) => {
-                              setFocusOverride("tool-focus");
-                              setAnchorLabelDraft(event.target.value);
-                            }}
-                          />
-                        </label>
-                        <div className="hammer-source-card__actions">
-                          <button
-                            type="button"
-                            onClick={() => commitVisualAnchorRefinement({
-                              clipId: selectedImagePlacement.id,
-                              anchorText: anchorTextDraft,
-                              anchorLabel: anchorLabelDraft,
-                              detached: true,
-                              label: "Refine visual anchor",
-                            })}
-                          >
-                            Save Anchor
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => commitVisualAnchorRefinement({
-                              clipId: selectedImagePlacement.id,
-                              anchorText: selectedVisualAnchorSegment?.text ?? "",
-                              anchorLabel: anchorLabelDraft,
-                              detached: false,
-                              label: "Reset visual anchor",
-                            })}
-                            disabled={!selectedVisualAnchorSegment}
-                          >
-                            Reset to Segment
-                          </button>
-                        </div>
-                        <label className="hammer-tool-field">
-                          <span>Position X ({Math.round(selectedImagePlacementTransform.leftPct)}%)</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={92}
-                            step={1}
-                            value={selectedImagePlacementTransform.leftPct}
-                            onChange={(event) => {
-                              const next = Number(event.target.value);
-                              const updated = clampImagePlacementTransform({
-                                ...selectedImagePlacementTransform,
-                                leftPct: next,
-                              });
-                              updateImagePlacementTransform(selectedImagePlacement.id, () => updated);
-                              commitImagePlacementTransform(selectedImagePlacement.id, updated, "Adjust visual overlay X");
-                            }}
-                          />
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>Position Y ({Math.round(selectedImagePlacementTransform.topPct)}%)</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={92}
-                            step={1}
-                            value={selectedImagePlacementTransform.topPct}
-                            onChange={(event) => {
-                              const next = Number(event.target.value);
-                              const updated = clampImagePlacementTransform({
-                                ...selectedImagePlacementTransform,
-                                topPct: next,
-                              });
-                              updateImagePlacementTransform(selectedImagePlacement.id, () => updated);
-                              commitImagePlacementTransform(selectedImagePlacement.id, updated, "Adjust visual overlay Y");
-                            }}
-                          />
-                        </label>
-                        <label className="hammer-tool-field">
-                          <span>
-                            Scale ({Math.round((selectedImagePlacementTransform.widthPct / DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct) * 100)}%)
-                          </span>
-                          <input
-                            type="range"
-                            min={50}
-                            max={200}
-                            step={1}
-                            value={Math.round((selectedImagePlacementTransform.widthPct / DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct) * 100)}
-                            onChange={(event) => {
-                              const scale = Number(event.target.value) / 100;
-                              const updated = clampImagePlacementTransform({
-                                ...selectedImagePlacementTransform,
-                                widthPct: DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct * scale,
-                                heightPct: DEFAULT_IMAGE_PLACEMENT_TRANSFORM.heightPct * scale,
-                              });
-                              updateImagePlacementTransform(selectedImagePlacement.id, () => updated);
-                              commitImagePlacementTransform(selectedImagePlacement.id, updated, "Adjust visual overlay scale");
-                            }}
-                          />
-                        </label>
-                        <div className="hammer-source-card__actions">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              updateImagePlacementTransform(selectedImagePlacement.id, () => DEFAULT_IMAGE_PLACEMENT_TRANSFORM);
-                              commitImagePlacementTransform(
-                                selectedImagePlacement.id,
-                                DEFAULT_IMAGE_PLACEMENT_TRANSFORM,
-                                "Center visual overlay",
-                              );
-                            }}
-                          >
-                            Center
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="hammer-tool-hint">
-                        Select an image clip in the timeline to open inspector controls.
-                      </div>
-                    )}
-                  </section>
-                ) : currentPass === "image_animation" ? (
-                  <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Image Animation</header>
-                    <div className="hammer-tool-hint">
-                      Right-click an image clip in the timeline to assign an animation preset.
-                    </div>
-                    <div className="hammer-tool-hint">
-                      One preset per clip. Current selection: {selectedImageAnimationLabel}
-                    </div>
-                    {selectedImagePlacement ? (
-                      <div className="hammer-tool-hint">
-                        Selected clip: {selectedImagePlacement.label}
-                      </div>
-                    ) : (
-                      <div className="hammer-tool-hint">Select an image clip to preview its animation preset.</div>
-                    )}
-                  </section>
-                ) : (
-                <section className="hammer-tool-card">
-                  <header className="hammer-tool-card__head">Visual Placement</header>
-                  <label className="hammer-tool-field">
-                    <span>Snap Mode</span>
-                    <select
-                      value={videoSnapMode}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setVideoSnapMode(event.target.value as "timeline" | "segment");
-                      }}
-                    >
-                      <option value="timeline">Timeline grid</option>
-                      <option value="segment">Segment boundaries</option>
-                    </select>
-                  </label>
-                  <div className="hammer-tool-hint">Placed visuals: {editableVisualPlacements?.placements.length ?? 0}</div>
-                  <div className="hammer-tool-hint">
-                    Resolved bindings: {resolvedBrollBindingItems.length} · unresolved suggestions: {unresolvedBrollSuggestionItems.length}
-                  </div>
-                  <div className="hammer-tool-hint">
-                    Needs review: {boundAttentionSummary.total}
-                    {` (unresolved ${boundAttentionSummary.unresolvedCount}, degraded ${boundAttentionSummary.degradedCount}, superseded ${boundAttentionSummary.supersededCount}, transitions ${boundAttentionSummary.transitionCount})`}
-                  </div>
-                  <div className="hammer-source-card__actions">
-                    <button type="button" onClick={() => addMinimalTransition("hard_cut")}>Add Hard Cut</button>
-                    <button type="button" onClick={() => addMinimalTransition("crossfade")}>Add Crossfade</button>
-                    <button type="button" onClick={() => addMinimalTransition("dip_to_black")}>Add Dip To Black</button>
-                    <button type="button" onClick={() => addMinimalTransition("fade_audio")}>Add Fade Audio</button>
-                  </div>
-                  <div className="hammer-source-card__actions">
-                    <button
-                      type="button"
-                      onClick={() => navigateBoundAttention("previous")}
-                      disabled={boundAttentionQueue.length === 0}
-                    >
-                      Previous Attention
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigateBoundAttention("next")}
-                      disabled={boundAttentionQueue.length === 0}
-                    >
-                      Next Attention
-                    </button>
-                  </div>
-                  {boundAttentionQueue.length > 0 ? (
-                    <div className="hammer-source-list">
-                      {boundAttentionQueue.slice(0, 5).map((item) => (
-                        <article key={`attention:${item.operationId}`} className={selectedBoundBrollOperationId === item.operationId ? "hammer-source-card is-selected" : "hammer-source-card"}>
-                          <header className="hammer-source-card__head">
-                            <strong>{item.label}</strong>
-                            <span>{item.kind.replace(/_/g, " ")}</span>
-                          </header>
-                          <div className="hammer-source-card__meta">
-                            <span>{item.reasons.join(" ")}</span>
-                          </div>
-                          <div className="hammer-source-card__actions">
-                            <button
-                              type="button"
-                              onClick={() => focusBoundAttentionOperation(item.operationId)}
-                            >
-                              Open In Inspector
-                            </button>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  ) : null}
-                  {selectedBoundBrollInspectorState ? (
-                    <section className="hammer-cleanup-tool">
-                      <div className="hammer-cleanup-tool__head">
-                        <strong>Bound Object Inspector</strong>
-                        <span>{selectedBoundBrollInspectorState.operationId}</span>
-                      </div>
-                      <div className="hammer-tool-hint">
-                        Intent: {selectedBoundBrollInspectorState.intentSource}
-                        {selectedBoundBrollInspectorState.intentDescription
-                          ? ` · ${selectedBoundBrollInspectorState.intentDescription}`
-                          : ""}
-                      </div>
-                      <div className="hammer-tool-hint">
-                        Binding: {selectedBoundBrollInspectorState.bindingState} · lifecycle: {selectedBoundBrollInspectorState.lifecycle}
-                      </div>
-                      <div className="hammer-tool-hint">
-                        Window: {selectedBoundBrollInspectorState.startSec.toFixed(1)}s - {selectedBoundBrollInspectorState.endSec.toFixed(1)}s
-                      </div>
-                      <div className="hammer-tool-hint">Asset: {selectedBoundBrollInspectorState.assetRef}</div>
-                      <div className="hammer-tool-hint">
-                        Posture: preview {selectedBoundBrollInspectorState.previewPosture}
-                        {` · export ${selectedBoundBrollInspectorState.exportPosture} · handoff ${selectedBoundBrollInspectorState.handoffPosture}`}
-                      </div>
-                      {selectedBoundBrollInspectorState.linkedDuck ? (
-                        <div className="hammer-tool-hint">
-                          Linked duck {selectedBoundBrollInspectorState.linkedDuck.operationId}
-                          {`: ${selectedBoundBrollInspectorState.linkedDuck.startSec.toFixed(1)}s - ${selectedBoundBrollInspectorState.linkedDuck.endSec.toFixed(1)}s`}
-                          {` · aligned ${selectedBoundBrollInspectorState.linkedDuck.aligned ? "yes" : "no"}`}
-                          {` · ${selectedBoundBrollInspectorState.linkedDuck.capability}`}
-                        </div>
-                      ) : (
-                        <div className="hammer-tool-hint">Linked duck: none</div>
-                      )}
-                      {selectedBoundBrollInspectorState.needsAttention ? (
-                        <div className="hammer-tool-hint">
-                          Attention: {selectedBoundBrollInspectorState.attentionFlags.join(" ")}
-                        </div>
-                      ) : (
-                        <div className="hammer-tool-hint">Attention: none</div>
-                      )}
-                      {selectedBoundBrollInspectorState.bindingState === "resolved"
-                        && selectedBoundBrollInspectorState.lifecycle === "active" ? (
-                        <div className="hammer-source-card__actions">
-                          <button
-                            type="button"
-                            onClick={() => moveResolvedBrollBinding(selectedBoundBrollInspectorState.operationId, -0.5)}
-                          >
-                            Move -0.5s
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moveResolvedBrollBinding(selectedBoundBrollInspectorState.operationId, 0.5)}
-                          >
-                            Move +0.5s
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => trimResolvedBrollBinding(selectedBoundBrollInspectorState.operationId, "start", 0.25)}
-                          >
-                            Trim In +0.25s
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => trimResolvedBrollBinding(selectedBoundBrollInspectorState.operationId, "end", -0.25)}
-                          >
-                            Trim Out -0.25s
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const replacement = sourceBrollItems.find(
-                                (item) => item.assetPath && item.assetPath !== selectedBoundBrollInspectorState.assetRef,
-                              )?.assetPath ?? null;
-                              if (!replacement) {
-                                setTranscriptTimingHint("Upload another b-roll asset before replacing this binding.");
-                                return;
-                              }
-                              replaceResolvedBrollBinding(selectedBoundBrollInspectorState.operationId, replacement);
-                            }}
-                          >
-                            Replace Asset
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => revertResolvedBrollBinding(selectedBoundBrollInspectorState.operationId)}
-                          >
-                            Revert Binding
-                          </button>
-                        </div>
-                      ) : null}
-                      {selectedBoundBrollInspectorState.bindingState === "unresolved"
-                        && selectedBoundBrollInspectorState.lifecycle === "active" ? (
-                        <div className="hammer-source-card__actions">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const candidate = sourceBrollItems.find((item) => item.assetPath)?.assetPath ?? null;
-                              if (!candidate) {
-                                setTranscriptTimingHint("Upload B-roll before resolving this suggestion.");
-                                return;
-                              }
-                              resolveHearthBrollSuggestion({
-                                operationId: selectedBoundBrollInspectorState.operationId,
-                                assetPath: candidate,
-                                label: "Resolved from inspector",
-                              });
-                            }}
-                          >
-                            Resolve With First Asset
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => discardHearthBrollSuggestion(selectedBoundBrollInspectorState.operationId)}
-                          >
-                            Discard Suggestion
-                          </button>
-                        </div>
-                      ) : null}
-                    </section>
-                  ) : selectedTransitionBoundObject ? (
-                    <section className="hammer-cleanup-tool">
-                      <div className="hammer-cleanup-tool__head">
-                        <strong>Transition Inspector</strong>
-                        <span>{selectedTransitionBoundObject.object_id}</span>
-                      </div>
-                      <div className="hammer-tool-hint">
-                        Type: {selectedTransitionBoundObject.payload.transition_kind}
-                      </div>
-                      <div className="hammer-tool-hint">
-                        Window: {selectedTransitionBoundObject.placement_window.start_sec.toFixed(1)}s - {selectedTransitionBoundObject.placement_window.end_sec.toFixed(1)}s
-                      </div>
-                      <div className="hammer-tool-hint">
-                        Posture: preview {selectedTransitionBoundObject.posture.preview}
-                        {` · export ${selectedTransitionBoundObject.posture.export} · handoff ${selectedTransitionBoundObject.posture.handoff}`}
-                      </div>
-                      <div className="hammer-tool-hint">
-                        Attention: {selectedTransitionBoundObject.attention_flags.length > 0
-                          ? selectedTransitionBoundObject.attention_flags.join(", ")
-                          : "none"}
-                      </div>
-                    </section>
-                  ) : (
-                    <div className="hammer-tool-hint">
-                      Select a bound object from the queue or Source Desk to inspect canonical linkage and attention state.
-                    </div>
-                  )}
-                </section>
-                )
-              ) : null}
-
-              {activeTool === "captions" ? (
-                <section className="hammer-tool-card">
-                  <header className="hammer-tool-card__head">Caption Output</header>
-                  <section className="hammer-caption-source-card">
-                    <div className="hammer-caption-source-card__head">
-                      <strong>Caption Source</strong>
-                      <span>{captionArtifactStatusLabel}</span>
-                    </div>
-                    <div className="hammer-caption-source-card__status-line">
-                      <article className={`hammer-caption-status-pill hammer-caption-status-pill--${captionBuiltTone}`}>
-                        <span className="hammer-caption-status-pill__label">Built</span>
-                        <strong>{captionBuiltSummary}</strong>
-                      </article>
-                      <article className={`hammer-caption-status-pill hammer-caption-status-pill--${captionEditedTone}`}>
-                        <span className="hammer-caption-status-pill__label">Edited</span>
-                        <strong>{captionEditedSummary}</strong>
-                        <span className="hammer-caption-status-pill__detail">{captionEditedBasisDetail}</span>
-                      </article>
-                      <article className="hammer-caption-status-pill hammer-caption-status-pill--basis">
-                        <span className="hammer-caption-status-pill__label">Basis</span>
-                        <strong>{captionSourceLabel}</strong>
-                      </article>
-                    </div>
-                    <div className={`hammer-caption-mode-banner hammer-caption-mode-banner--${activeCaptionMode === "edited" ? "editing" : "viewing"}`}>
-                      <strong>{captionActiveModeLabel}</strong>
-                      <span>{captionActiveModeSourceLabel}</span>
-                    </div>
-                    <div className={`hammer-caption-release-signal hammer-caption-release-signal--${captionReleasePrepSafetyState}`}>
-                      <strong>{captionReleasePrepSafetyLabel}</strong>
-                      <span>{captionReleasePrepSafetyDetail}</span>
-                    </div>
-                    {captionEditedState ? (
-                      <div className="hammer-caption-manual-summary">{captionEditedChangeSummary}</div>
-                    ) : null}
-                    <div className="hammer-tool-hint">
-                      Export basis authority: captions follow Export Basis, not current Viewing layer.
-                    </div>
-                    <div className="hammer-tool-hint">Release prep caption source: {captionReleaseSourceLabel}</div>
-                    {captionBuildState ? (
-                      <div className="hammer-tool-hint">
-                        Last build {new Date(captionBuildState.builtAt).toLocaleTimeString()} ·
-                        {` ${captionBuildState.chunkCount} rows`}
-                        {captionBuildState.approximateTiming ? " · approximate timing" : ""}
-                      </div>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("tool-focus");
-                        handleRebuildCaptionArtifacts();
-                      }}
-                    >
-                      {captionBuildFreshness === "current" ? "Refresh Captions" : "Generate Captions"}
-                    </button>
-                    <div className="hammer-caption-source-card__action-note">{captionRebuildConsequenceLabel}</div>
-                    {captionBuildState && !captionEditedState ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          handleEnableCaptionEdits();
-                        }}
-                      >
-                        Create Edited Captions
-                      </button>
-                    ) : null}
-                    {captionEditedState ? (
-                      <div className="hammer-caption-source-card__mode-row">
-                        <button
-                          type="button"
-                          className={activeCaptionMode === "built" ? "is-active" : ""}
-                          onClick={() => {
-                            setFocusOverride("tool-focus");
-                            setActiveCaptionArtifactMode("built");
-                          }}
-                        >
-                          Built captions
-                        </button>
-                        <button
-                          type="button"
-                          className={activeCaptionMode === "edited" ? "is-active" : ""}
-                          onClick={() => {
-                            setFocusOverride("tool-focus");
-                            setActiveCaptionArtifactMode("edited");
-                          }}
-                        >
-                          Edited captions
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFocusOverride("tool-focus");
-                            handleDiscardEditedCaptions();
-                          }}
-                        >
-                          Discard edits
-                        </button>
-                      </div>
-                    ) : null}
-                    {captionDiscardConsequenceLabel ? (
-                      <div className="hammer-caption-source-card__action-note">{captionDiscardConsequenceLabel}</div>
-                    ) : null}
-                  </section>
-                  <label className="hammer-tool-field">
-                    <span>Caption Style</span>
-                    <select
-                      value={captionFormatting.style}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setCaptionFormatting((current) => ({
-                          ...current,
-                          style: event.target.value as "sentence" | "title" | "upper",
-                        }));
-                      }}
-                    >
-                      <option value="sentence">Sentence case</option>
-                      <option value="title">Title case</option>
-                      <option value="upper">UPPERCASE</option>
-                    </select>
-                  </label>
-                  <label className="hammer-tool-field">
-                    <span>Max chars per line</span>
-                    <input
-                      type="number"
-                      min={24}
-                      max={80}
-                      step={1}
-                      value={captionFormatting.maxCharsPerLine}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        const nextValue = Math.max(24, Math.min(80, Number(event.target.value) || 42));
-                        setCaptionFormatting((current) => ({ ...current, maxCharsPerLine: nextValue }));
-                      }}
-                    />
-                  </label>
-                  <label className="hammer-tool-field">
-                    <span>Max lines per caption</span>
-                    <select
-                      value={captionFormatting.maxLinesPerCaption}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setCaptionFormatting((current) => ({
-                          ...current,
-                          maxLinesPerCaption: Number(event.target.value) || 2,
-                        }));
-                      }}
-                    >
-                      <option value={1}>1 line</option>
-                      <option value={2}>2 lines</option>
-                      <option value={3}>3 lines</option>
-                    </select>
-                  </label>
-                  <label className="hammer-tool-field">
-                    <span>Reading speed</span>
-                    <select
-                      value={captionFormatting.readingSpeed}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setCaptionFormatting((current) => ({
-                          ...current,
-                          readingSpeed: event.target.value as HammerCaptionReadingSpeed,
-                        }));
-                      }}
-                    >
-                      <option value="slow">Slow</option>
-                      <option value="standard">Standard</option>
-                      <option value="fast">Fast</option>
-                    </select>
-                  </label>
-                  <label className="hammer-tool-field">
-                    <span>Punctuation</span>
-                    <select
-                      value={captionFormatting.punctuationMode}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setCaptionFormatting((current) => ({
-                          ...current,
-                          punctuationMode: event.target.value as HammerCaptionPunctuationMode,
-                        }));
-                      }}
-                    >
-                      <option value="preserve">Preserve</option>
-                      <option value="normalize">Normalize</option>
-                    </select>
-                  </label>
-                  <label className="hammer-tool-check">
-                    <input
-                      type="checkbox"
-                      checked={captionFormatting.includeSpeakerLabels}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setCaptionFormatting((current) => ({
-                          ...current,
-                          includeSpeakerLabels: event.target.checked,
-                        }));
-                      }}
-                    />
-                    <span>Include speaker labels</span>
-                  </label>
-                  <div className="hammer-caption-preview-card">
-                    <div className="hammer-caption-preview-card__head">
-                      <div className="hammer-caption-preview-card__head-copy">
-                        <strong>Caption Preview</strong>
-                        <span>{captionActiveModeLabel}</span>
-                      </div>
-                      <select
-                        aria-label="Caption artifact format"
-                        title="Caption artifact format"
-                        value={selectedCaptionArtifactFormat}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setSelectedCaptionArtifactFormat(event.target.value as "srt" | "vtt");
-                        }}
-                      >
-                        <option value="srt">SRT</option>
-                        <option value="vtt">VTT</option>
-                      </select>
-                    </div>
-                    {captionBuildFeedback ? (
-                      <div className="hammer-tool-hint">{captionBuildFeedback}</div>
-                    ) : null}
-                    {activeCaptionState ? (
-                      <>
-                        <div className="hammer-caption-preview-list">
-                          {activeCaptionState.chunks.slice(0, 12).map((chunk) => (
-                            <article key={chunk.id} className="hammer-caption-preview-list__row">
-                              <div className="hammer-caption-preview-list__time">
-                                {chunk.startSec.toFixed(1)}s - {chunk.endSec.toFixed(1)}s
-                              </div>
-                              {activeCaptionMode === "edited" ? (
-                                <>
-                                  <textarea
-                                    className="hammer-caption-preview-list__editor"
-                                    aria-label={`Edit caption block ${chunk.startSec.toFixed(1)} to ${chunk.endSec.toFixed(1)} seconds`}
-                                    title="Edit caption block"
-                                    value={chunk.text}
-                                    ref={(node) => {
-                                      if (node) {
-                                        captionEditorRefs.current.set(chunk.id, node);
-                                      } else {
-                                        captionEditorRefs.current.delete(chunk.id);
-                                      }
-                                    }}
-                                    onChange={(event) => {
-                                      setFocusOverride("tool-focus");
-                                      handleEditCaptionChunkText(chunk.id, event.target.value);
-                                    }}
-                                  />
-                                  <div className="hammer-caption-preview-list__actions">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setFocusOverride("tool-focus");
-                                        handleSplitEditedCaptionChunk(chunk.id);
-                                      }}
-                                    >
-                                      Split
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setFocusOverride("tool-focus");
-                                        handleMergeEditedCaptionChunk({ chunkId: chunk.id, direction: "up" });
-                                      }}
-                                    >
-                                      Merge Up
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setFocusOverride("tool-focus");
-                                        handleMergeEditedCaptionChunk({ chunkId: chunk.id, direction: "down" });
-                                      }}
-                                    >
-                                      Merge Down
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setFocusOverride("tool-focus");
-                                        handleNormalizeEditedCaptionChunkPunctuation(chunk.id);
-                                      }}
-                                    >
-                                      Normalize
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setFocusOverride("tool-focus");
-                                        handleToggleEditedCaptionChunkSpeakerLabel(chunk.id);
-                                      }}
-                                    >
-                                      Toggle Label
-                                    </button>
-                                  </div>
-                                </>
-                              ) : (
-                                <pre className="hammer-caption-preview-list__text">{chunk.text}</pre>
-                              )}
-                            </article>
-                          ))}
-                        </div>
-                        <details>
-                          <summary>{selectedCaptionArtifactFormat.toUpperCase()} output</summary>
-                          <pre className="hammer-caption-preview-card__artifact">{activeCaptionArtifactText}</pre>
-                        </details>
-                      </>
-                    ) : (
-                      <div className="hammer-tool-hint">
-                        No caption artifact yet. Generate captions to preview deterministic output from Export Basis.
-                      </div>
-                    )}
-                  </div>
-                </section>
-              ) : null}
-
-              {activeTool === "details" ? (
-                <section className="hammer-tool-card">
-                  <header className="hammer-tool-card__head">Edit Metadata</header>
-                  <label className="hammer-tool-field">
-                    <span>Tag</span>
-                    <input
-                      type="text"
-                      value={detailTag}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setDetailTag(event.target.value);
-                      }}
-                    />
-                  </label>
-                </section>
-              ) : null}
-
-              {activeTool === "finishing" ? (
-                currentPass === "packaging" ? (
-                  <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Packaging</header>
-                    <div className="hammer-tool-hint">
-                      One-click branding pass. Reuses your existing intro/outro assets and timeline placements.
-                    </div>
-                    <div className="hammer-source-card__actions">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          applyIntroPlacement();
-                        }}
-                        disabled={!introOutroSelection.intro_asset_id || !introOutroSelectedIntroPath}
-                      >
-                        Apply Intro
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          removePackagingPlacement(PACKAGING_INTRO_ENTRY_ID, "Remove packaging intro");
-                        }}
-                        disabled={!packagingIntroPlacement}
-                      >
-                        Remove Intro
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          applyOutroPlacement();
-                        }}
-                        disabled={!introOutroSelection.outro_asset_id || !introOutroSelectedOutroPath}
-                      >
-                        Apply Outro
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          removePackagingPlacement(PACKAGING_OUTRO_ENTRY_ID, "Remove packaging outro");
-                        }}
-                        disabled={!packagingOutroPlacement}
-                      >
-                        Remove Outro
-                      </button>
-                    </div>
-                    <div className="hammer-tool-hint">
-                      Intro: {introOutroSelection.intro_asset_id
-                        ? (introOutroSelectedIntroPath ? "selected" : "selected (unresolved)")
-                        : "not selected"} ·
-                      {" "}Outro: {introOutroSelection.outro_asset_id
-                        ? (introOutroSelectedOutroPath ? "selected" : "selected (unresolved)")
-                        : "not selected"}
-                    </div>
-                    <div className="hammer-tool-hint">
-                      Intro applied: {packagingIntroPlacement ? "yes" : "no"} ·
-                      {" "}Outro applied: {packagingOutroPlacement ? "yes" : "no"}
-                    </div>
-
-                    <label className="hammer-tool-field">
-                      <span>Logo Asset</span>
-                      <select
-                        value={packagingLogoAssetPath ?? ""}
-                        onChange={(event) => {
-                          const nextPath = event.target.value || null;
-                          setFocusOverride("tool-focus");
-                          applyLogoOverlayStyle({ assetPath: nextPath });
-                        }}
-                      >
-                        <option value="">No logo selected</option>
-                        {sourceImageLibraryItems.map((item) => (
-                          <option key={`logo-${item.path}`} value={item.path}>
-                            {item.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="hammer-source-card__actions">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          toggleLogoOverlay();
-                        }}
-                        disabled={!packagingLogoPlacement && !packagingLogoAssetPath}
-                      >
-                        {packagingLogoPlacement ? "Disable Logo Overlay" : "Toggle Logo Overlay"}
-                      </button>
-                    </div>
-                    <label className="hammer-tool-field">
-                      <span>Logo Position</span>
-                      <select
-                        value={packagingLogoPosition}
-                        onChange={(event) => {
-                          const next = event.target.value as HammerLogoOverlayPosition;
-                          setFocusOverride("tool-focus");
-                          applyLogoOverlayStyle({ position: next });
-                        }}
-                      >
-                        {LOGO_POSITION_OPTIONS.map((option) => (
-                          <option key={`logo-position-${option.id}`} value={option.id}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Logo Size</span>
-                      <select
-                        value={packagingLogoSize}
-                        onChange={(event) => {
-                          const next = event.target.value as HammerLogoOverlaySize;
-                          setFocusOverride("tool-focus");
-                          applyLogoOverlayStyle({ size: next });
-                        }}
-                      >
-                        {LOGO_SIZE_OPTIONS.map((option) => (
-                          <option key={`logo-size-${option.id}`} value={option.id}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="hammer-tool-hint">
-                      Logo overlay: {packagingLogoPlacement ? "enabled (episode-wide)" : "disabled"}
-                    </div>
-                    <label className="hammer-tool-field">
-                      <span>Thumbnail Prompt</span>
-                      <textarea
-                        value={thumbnailPromptDraft}
-                        onChange={(event) => {
-                          setFocusOverride("tool-focus");
-                          setThumbnailPromptDraft(event.target.value);
-                        }}
-                        rows={3}
-                        placeholder="Describe a strong thumbnail concept."
-                      />
-                    </label>
-                    <div className="hammer-source-card__actions">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void copyPromptToClipboard({
-                            key: "thumbnail:packaging",
-                            prompt: thumbnailPromptDraft,
-                          });
-                        }}
-                      >
-                        {copiedPromptKey === "thumbnail:packaging" ? "Copied" : "Copy Prompt"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void sendPromptToProvider({
-                            key: "thumbnail:packaging",
-                            prompt: thumbnailPromptDraft,
-                            label: "thumbnail",
-                          });
-                        }}
-                      >
-                        Send to Provider
-                      </button>
-                    </div>
-                  </section>
-                ) : (
-                <section className="hammer-tool-card">
-                  <header className="hammer-tool-card__head">Finishing Checklist</header>
-                  <label className="hammer-tool-check">
-                    <input
-                      type="checkbox"
-                      checked={finishingChecklist.transcriptReviewed}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setFinishingChecklist((current) => ({
-                          ...current,
-                          transcriptReviewed: event.target.checked,
-                        }));
-                      }}
-                    />
-                    <span>Transcript reviewed</span>
-                  </label>
-                  <label className="hammer-tool-check">
-                    <input
-                      type="checkbox"
-                      checked={finishingChecklist.visualsReviewed}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setFinishingChecklist((current) => ({
-                          ...current,
-                          visualsReviewed: event.target.checked,
-                        }));
-                      }}
-                    />
-                    <span>Visuals reviewed</span>
-                  </label>
-                  <label className="hammer-tool-check">
-                    <input
-                      type="checkbox"
-                      checked={finishingChecklist.audioReviewed}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setFinishingChecklist((current) => ({
-                          ...current,
-                          audioReviewed: event.target.checked,
-                        }));
-                      }}
-                    />
-                    <span>Audio reviewed</span>
-                  </label>
-                </section>
-                )
-              ) : null}
-
-              {activeTool === "export" ? (
-                currentPass === "ready" ? (
-                  <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Ready State</header>
-                    <div className="hammer-tool-hint">
-                      Hammer prepares and hands off. Quench publishes and distributes.
-                    </div>
-                    <div className="hammer-source-list">
-                      {readySummaryAreas.map((item) => (
-                        <article key={`ready-${item.id}`} className="hammer-source-card">
-                          <header className="hammer-source-card__head">
-                            <strong>{item.label}</strong>
-                            <span>{item.status.replace("_", " ")}</span>
-                          </header>
-                        </article>
-                      ))}
-                    </div>
-                    <div className="hammer-tool-hint">
-                      Readiness: {readinessStatusLabel}
-                      {` · blockers ${readinessVerdict.counts.blocking} · review ${readinessVerdict.counts.review}`}
-                    </div>
-                    <div className="hammer-tool-hint">Export packet: {exportStatusLabel}</div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handleSendToQuench();
-                      }}
-                      disabled={releasePrepSaving || releasePrepLoading || readinessVerdict.status === "blocked"}
-                    >
-                      {releasePrepSaving ? "Sending..." : sendToQuenchButtonLabel}
-                    </button>
-                    {quenchHandoffStatus ? (
-                      <div className="hammer-tool-hint">
-                        Handoff status: {quenchHandoffStatus.status} · {quenchHandoffStatus.message}
-                      </div>
-                    ) : null}
-                  </section>
-                ) : (
-                <section className="hammer-tool-card">
-                  <header className="hammer-tool-card__head">Quench Handoff</header>
-                  <div className="hammer-tool-hint">
-                    {releasePrepOpenHref ? "Handoff path available." : "Handoff path unavailable."}
-                  </div>
-                  <div className="hammer-tool-hint">Export status: {exportStatusLabel}</div>
-                  <div className="hammer-tool-hint">
-                    Readiness gate: {readinessStatusLabel}
-                    {` · blockers ${readinessVerdict.counts.blocking} · review ${readinessVerdict.counts.review}`}
-                  </div>
-                  <div className="hammer-tool-hint">Output source: {outputSelectionSummary}</div>
-                  <div className="hammer-tool-hint">Preview truth: {previewTruthPosture}</div>
-                  <div className="hammer-tool-hint">Export truth: {exportTruthPosture}</div>
-                  <div className="hammer-tool-hint">Handoff truth: {handoffTruthPosture}</div>
-                  {previewTruthPosture !== "authoritative" ? (
-                    <div className="hammer-tool-hint">
-                      Preview is {previewTruthPosture}; at least one active operation is not fully previewable in this runtime.
-                    </div>
-                  ) : null}
-                  {unresolvedBrollSuggestionItems.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      {unresolvedBrollSuggestionItems.length} unresolved B-roll intent(s) need binding before authoritative visual handoff.
-                    </div>
-                  ) : null}
-                  {readinessVerdict.blockingReasons.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      Blocking reasons: {readinessVerdict.blockingReasons.slice(0, 3).map((reason) => reason.label).join(" ")}
-                    </div>
-                  ) : null}
-                  {readinessVerdict.reviewReasons.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      Review reasons: {readinessVerdict.reviewReasons.slice(0, 3).map((reason) => reason.label).join(" ")}
-                    </div>
-                  ) : null}
-                  {(readinessVerdict.blockingReasons.length > 0 || readinessVerdict.reviewReasons.length > 0) ? (
-                    <button type="button" onClick={focusReadinessIssue}>
-                      Review Next Issue
-                    </button>
-                  ) : null}
-                  <div className={`hammer-caption-release-summary hammer-caption-release-summary--${captionReleasePrepSafetyState}`}>
-                    <div className="hammer-caption-release-summary__head">
-                      <strong>Caption release truth</strong>
-                      <span>{captionReleasePrepSafetyLabel}</span>
-                    </div>
-                    <div className="hammer-caption-release-summary__meta">{captionReleasePrepSummaryLine}</div>
-                    <div className="hammer-caption-release-summary__basis">Basis: {captionSourceLabel}</div>
-                    <div className="hammer-caption-release-summary__detail">{captionReleasePrepSafetyDetail}</div>
-                  </div>
-                  {studioRackRenderStatus ? (
-                    <div className="hammer-tool-hint">
-                      Studio Rack render: {studioRackRenderStatus.message}
-                    </div>
-                  ) : null}
-                  {studioRackRenderStatus ? (
-                    <div className="hammer-tool-hint">
-                      Render receipt: requested lane {studioRackRenderStatus.requestedBackend}, resolved lane {studioRackRenderStatus.resolvedBackend}, status {studioRackRenderStatus.status}
-                    </div>
-                  ) : null}
-                  {studioRackRenderStatus?.outputWorkpiecePath ? (
-                    <div className="hammer-tool-hint">
-                      Render artifact path: {studioRackRenderStatus.outputWorkpiecePath}
-                    </div>
-                  ) : null}
-                  {studioRackRenderAppliedModules.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      Render applied modules: {studioRackRenderAppliedModules.join(", ")}
-                    </div>
-                  ) : null}
-                  {studioRackRenderDeferredModules.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      Requested but not yet rendered in v1: {studioRackRenderDeferredModules.join(", ")}
-                    </div>
-                  ) : null}
-                  <div className="hammer-tool-hint">Layer selection lives in the Layer State block.</div>
-                  {releasePrepLoading ? (
-                    <div className="hammer-tool-hint">Checking Quench packet state...</div>
-                  ) : null}
-                  {loadedPreparedPackage?.preparedAt ? (
-                    <div className="hammer-tool-hint">
-                      Last exported {new Date(loadedPreparedPackage.preparedAt).toLocaleString()}.
-                    </div>
-                  ) : null}
-                  {loadedPreparedPackage?.transcript.fingerprint ? (
-                    <div className="hammer-tool-hint">
-                      Basis {loadedPreparedPackage.transcript.fingerprint.slice(0, 18)}...
-                    </div>
-                  ) : null}
-                  {exportTruthState === "stale" && releasePrepStaleReasons.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      Changes since last prepare: {releasePrepStaleReasons.join("; ")}.
-                    </div>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void handleSendToQuench();
-                    }}
-                    disabled={releasePrepSaving || releasePrepLoading || readinessVerdict.status === "blocked"}
-                  >
-                    {releasePrepSaving ? "Sending..." : sendToQuenchButtonLabel}
-                  </button>
-                  {quenchHandoffStatus ? (
-                    <div className="hammer-tool-hint">
-                      Handoff status: {quenchHandoffStatus.status} · {quenchHandoffStatus.message}
-                    </div>
-                  ) : null}
-                  {releasePrepSaved ? (
-                    <div className="hammer-tool-hint">
-                      {readinessVerdict.status === "ready" ? "Ready for Quench." : readinessVerdict.status === "blocked" ? "Prepared packet is blocked for handoff." : "Prepared packet needs review before handoff."}
-                      {" "}Exported {new Date(releasePrepSaved.preparedAt).toLocaleString()}.
-                      Status {releasePrepSaved.overallStatus}.
-                      Subtitle artifacts {releasePrepSaved.subtitleArtifactCount}.
-                    </div>
-                  ) : null}
-                  {releasePrepError ? (
-                    <div className="hammer-tool-hint">
-                      {releasePrepError}
-                    </div>
-                  ) : null}
-                  {releasePrepOpenHref && exportTruthState !== "never_prepared" ? (
-                    <a href={releasePrepOpenHref}>
-                      {readinessVerdict.status === "blocked"
-                        ? "Open in Quench (blocked)"
-                        : exportTruthState === "current"
-                        ? "Open in Quench"
-                        : "Open in Quench (stale)"}
-                    </a>
-                  ) : null}
-                </section>
-                )
-              ) : null}
-
-              <div className="hammer-tool-state-grid">
-                <div>Workspace mode: {workspaceFocusMode}</div>
-                <div>Macro: {props.selectedMacroRecipeRef ?? "none"}</div>
-                <div>Last run: {props.lastMacroRunRef ?? "none"}</div>
-                <div>Viewing: {viewingModeSummary}</div>
-                <div>Output source: {outputSelectionSummary}</div>
-                <div>Release prep: {releasePrepOpenHref ? "available" : "unavailable"}</div>
-                <div>Preview truth: {previewTruthPosture}</div>
-              </div>
-            </div>
+            <HammerWorkspaceShellToolBay vm={toolBayVM} />
           </section>
         </div>
 
         <section className="hammer-timeline-dock">
-            <header className="hammer-bay-head">
-              <strong>Timeline Dock</strong>
-              <div className="hammer-timeline-tools">
-                <button type="button" onClick={() => setFocusOverride("auto")}>Auto</button>
-                <button type="button" onClick={() => setFocusOverride("source-focus")}>Source</button>
-                <button type="button" onClick={() => setFocusOverride("tool-focus")}>Tool</button>
-                <button type="button" onClick={() => setFocusOverride("time-focus")}>Time</button>
-              </div>
-            </header>
-          <div className={`hammer-bay-body hammer-timeline-dock__body${isScrubbing ? " is-scrubbing" : ""}`}>
-            <HammerWaveformLane
-              waveformProxy={editableAudioPolish?.analysis?.waveform_proxy ?? null}
-              durationSec={playbackTransportDurationSec}
-              cutRegions={effectivePlaybackCutRegions}
-              playheadSec={playheadSec}
-              onSeekRequest={(targetSec) => {
-                seekPlayheadToTime(targetSec, "timeline", { snapToBoundary: false });
-              }}
-            />
-            <div className="hammer-timeline-tools">
-              <button type="button" onClick={togglePlayback}>
-                {isPlaybackActive ? "Pause" : "Play"}
-              </button>
-              <button type="button" onClick={toggleSelectionLoopPlayback}>
-                {isLoopPlaybackActive ? "Stop Loop (L)" : "Loop Selection (L)"}
-              </button>
-              <button type="button" onClick={playSelectionWithRoll}>
-                Audition Roll (P)
-              </button>
-              <button type="button" onClick={() => selectAdjacentSegment("previous")} disabled={!selectedSegment}>
-                Prev (↑)
-              </button>
-              <button type="button" onClick={() => selectAdjacentSegment("next")} disabled={!selectedSegment}>
-                Next (↓)
-              </button>
-              <button type="button" onClick={() => jumpToSelectionBoundary("start")}>
-                Sel In (Home)
-              </button>
-              <button type="button" onClick={() => jumpToSelectionBoundary("end")}>
-                Sel Out (End)
-              </button>
-              <button type="button" onClick={() => jumpToEditPoint("previous")}>
-                Prev Edit (,)
-              </button>
-              <button type="button" onClick={() => jumpToEditPoint("next")}>
-                Next Edit (.)
-              </button>
-              <button type="button" onClick={() => jumpToMarker("previous")} disabled={sortedTimelineMarkers.length === 0}>
-                Prev Marker (PgUp)
-              </button>
-              <button type="button" onClick={() => jumpToMarker("next")} disabled={sortedTimelineMarkers.length === 0}>
-                Next Marker (PgDn)
-              </button>
-              <button type="button" onClick={addMarkerAtPlayhead}>
-                Add Marker (K)
-              </button>
-              <label className="hammer-timeline-tools__field" aria-label="Scrub rate control">
-                <span>Scrub</span>
-                <select
-                  value={String(scrubRate)}
-                  onChange={(event) => {
-                    const parsed = Number(event.target.value);
-                    if (!SCRUB_RATE_OPTIONS.includes(parsed as HammerScrubRate)) return;
-                    setScrubRate(parsed as HammerScrubRate);
-                  }}
-                >
-                  {SCRUB_RATE_OPTIONS.map((rate) => (
-                    <option key={`scrub-rate-${rate}`} value={String(rate)}>
-                      {rate}x
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button type="button" onClick={zoomTimelineOut} title="Zoom out (-)">
-                Zoom -
-              </button>
-              <button type="button" onClick={zoomTimelineIn} title="Zoom in (+)">
-                Zoom +
-              </button>
-              <button type="button" onClick={resetTimelineZoom} title="Reset timeline zoom">
-                Fit ({timelineZoomPercent}%)
-              </button>
-              <button type="button" onClick={() => nudgePlayhead(-SMALL_PLAYHEAD_NUDGE_SEC)}>
-                -0.1s (←)
-              </button>
-              <button type="button" onClick={() => nudgePlayhead(SMALL_PLAYHEAD_NUDGE_SEC)}>
-                +0.1s (→)
-              </button>
-              <button type="button" onClick={splitSelectedSegmentAtPlayhead} disabled={!selectedSegment}>
-                Split (S)
-              </button>
-              <button type="button" onClick={deleteSelectedSegmentAndRipple} disabled={!selectedSegment}>
-                Delete (Del)
-              </button>
-              <button type="button" onClick={toggleSelectedSegmentDisabled} disabled={!selectedSegment}>
-                {selectedSegment?.is_disabled ? "Enable (M)" : "Disable (M)"}
-              </button>
-            </div>
-            <section className="hammer-timeline-cut-actions" aria-label="Audio cut selection">
-              <div className="hammer-timeline-cut-actions__meta">
-                <span>{audioCutSelectionStatus}</span>
-                <span>
-                  Persisted cuts: {persistedAudioCutCount} raw
-                  {` · ${effectivePlaybackCutRegions.length} effective playback region${effectivePlaybackCutRegions.length === 1 ? "" : "s"}`}
-                </span>
-              </div>
-              <div className="hammer-timeline-cut-actions__buttons">
-                <button type="button" onClick={() => markAudioCutBoundary("start")} disabled={!canMarkAudioCutSelection}>
-                  Mark In
-                </button>
-                <button type="button" onClick={() => markAudioCutBoundary("end")} disabled={!canMarkAudioCutSelection}>
-                  Mark Out
-                </button>
-                <button type="button" onClick={applyAudioCutSelection} disabled={!canApplyAudioCutSelection}>
-                  Cut Selection
-                </button>
-                <button type="button" onClick={clearAudioCutSelection} disabled={!hasPendingAudioCutSelection}>
-                  Clear Selection
-                </button>
-              </div>
-            </section>
-            {hasSilenceSuggestionAnalysis ? (
-              <section className="hammer-timeline-suggestion-list" aria-label="Silence cut suggestions">
-                <div className="hammer-timeline-suggestion-list__meta">
-                  <span>
-                    Silence suggestions: {silenceSuggestionCount} visible
-                    {` · ${silenceCutSuggestions.length} total from segmentation`}
-                  </span>
-                  <span>Conservative only. Accept creates a real cut. Dismiss hides it for this session.</span>
-                </div>
-                {visibleSilenceCutSuggestions.length > 0 ? (
-                  <div className="hammer-timeline-suggestion-list__items">
-                    {visibleSilenceCutSuggestions.map((suggestion) => (
-                      <article key={suggestion.id} className="hammer-timeline-suggestion-card">
-                        <div className="hammer-timeline-suggestion-card__copy">
-                          <strong>
-                            Cut silence {suggestion.startSec.toFixed(1)}s-{suggestion.endSec.toFixed(1)}s
-                          </strong>
-                          <span>
-                            {suggestion.durationSec.toFixed(1)}s pause · {suggestion.reason === "long_silence" ? "long silence" : suggestion.reason}
-                          </span>
-                        </div>
-                        <div className="hammer-timeline-suggestion-card__actions">
-                          <button type="button" onClick={() => acceptSilenceCutSuggestion(suggestion.id)}>
-                            Accept
-                          </button>
-                          <button type="button" onClick={() => dismissSilenceCutSuggestion(suggestion.id)}>
-                            Dismiss
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="hammer-timeline-suggestion-list__empty">
-                    No long silence suggestions remain above the threshold.
-                  </div>
-                )}
-              </section>
-            ) : null}
-            <input
-              type="range"
-              min={0}
-              max={transcriptDurationSec}
-              step={0.1}
-              value={playheadSec}
-              onChange={(event) => {
-                seekPlayheadToTime(Number(event.target.value), "playhead");
-              }}
-              aria-label="Timeline playhead"
-            />
-            {sortedTimelineMarkers.length > 0 ? (
-              <div className="hammer-timeline-markers" role="group" aria-label="Timeline markers">
-                {sortedTimelineMarkers.map((marker) => (
-                  <div key={marker.id} className="hammer-timeline-marker-pill">
-                    <button
-                      type="button"
-                      onClick={() => jumpToMarkerById(marker.id)}
-                    >
-                      {marker.label} {marker.timeSec.toFixed(1)}s
-                    </button>
-                    <button
-                      type="button"
-                      className="hammer-timeline-marker-pill__remove"
-                      onClick={() => removeMarker(marker.id)}
-                      aria-label={`Remove ${marker.label}`}
-                    >
-                      x
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            {selectedSegment ? (
-              <section className="hammer-timeline-editor" aria-label="Selected segment timing inspector">
-                <div className="hammer-timeline-editor__meta">
-                  <span>{selectedSegment.speaker}</span>
-                  <span>{selectedSegment.start_sec.toFixed(1)}s - {selectedSegment.end_sec.toFixed(1)}s</span>
-                  <span>{selectedSegment.is_disabled ? "Disabled" : "Enabled"}</span>
-                  <span>Gain {(selectedSegment.gain_db ?? 0).toFixed(1)} dB</span>
-                </div>
-                <div className="hammer-timeline-editor__meta">
-                  <span>Split/Delete target: {selectedSegment.segment_id}</span>
-                </div>
-                <div className="hammer-timeline-editor__controls">
-                  <div className="hammer-timeline-editor__control-group">
-                    <span>Move</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("time-focus");
-                        moveSegment(selectedSegment.segment_id, -0.5);
-                      }}
-                    >
-                      -0.5s
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("time-focus");
-                        moveSegment(selectedSegment.segment_id, 0.5);
-                      }}
-                    >
-                      +0.5s
-                    </button>
-                  </div>
-                  <div className="hammer-timeline-editor__control-group">
-                    <span>Trim In</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("time-focus");
-                        trimSegmentStart(selectedSegment.segment_id, -0.1);
-                      }}
-                    >
-                      -0.1s
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("time-focus");
-                        trimSegmentStart(selectedSegment.segment_id, 0.1);
-                      }}
-                    >
-                      +0.1s
-                    </button>
-                  </div>
-                  <div className="hammer-timeline-editor__control-group">
-                    <span>Trim Out</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("time-focus");
-                        trimSegmentEnd(selectedSegment.segment_id, -0.1);
-                      }}
-                    >
-                      -0.1s
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("time-focus");
-                        trimSegmentEnd(selectedSegment.segment_id, 0.1);
-                      }}
-                    >
-                      +0.1s
-                    </button>
-                  </div>
-                  <div className="hammer-timeline-editor__control-group">
-                    <span>Segment</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("time-focus");
-                        toggleSelectedSegmentDisabled();
-                      }}
-                    >
-                      {selectedSegment.is_disabled ? "Enable" : "Disable"}
-                    </button>
-                  </div>
-                  <div className="hammer-timeline-editor__control-group">
-                    <span>Gain</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("time-focus");
-                        adjustSelectedSegmentGain(-1);
-                      }}
-                    >
-                      -1dB
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusOverride("time-focus");
-                        adjustSelectedSegmentGain(1);
-                      }}
-                    >
-                      +1dB
-                    </button>
-                  </div>
-                </div>
-              </section>
-            ) : null}
-            <VisualTimelineDock
-              clips={visualTimelineLaneClips}
-              playheadSec={playheadSec}
-              durationSec={timelineDurationSec}
-              selectedClipId={effectiveSelectedClipId}
-              editable={visualPlacementEditingEnabled}
-              focusToken={visualTimelineFocusNonce}
-              onSelectClip={(clipId) => {
-                selectVisualClip({ clipId, origin: "timeline", revealUI: true });
-              }}
-              onMoveClip={(event, clip) => {
-                if (!visualPlacementEditingEnabled) return;
-                beginTimelineImagePlacementDrag(event, {
-                  placementId: clip.clipId,
-                  mode: "move",
-                  startSec: clip.startSec,
-                  endSec: clip.endSec,
-                });
-              }}
-              onTrimClipStart={(event, clip) => {
-                if (!visualPlacementEditingEnabled) return;
-                beginTimelineImagePlacementDrag(event, {
-                  placementId: clip.clipId,
-                  mode: "resize_start",
-                  startSec: clip.startSec,
-                  endSec: clip.endSec,
-                });
-              }}
-              onTrimClipEnd={(event, clip) => {
-                if (!visualPlacementEditingEnabled) return;
-                beginTimelineImagePlacementDrag(event, {
-                  placementId: clip.clipId,
-                  mode: "resize_end",
-                  startSec: clip.startSec,
-                  endSec: clip.endSec,
-                });
-              }}
-            />
-            <div
-              className="hammer-timeline-track-scroll"
-              ref={timelineTrackScrollRef}
-              onWheel={handleTimelineTrackWheelZoom}
-            >
-              {editableTranscriptSegments.length > 0 ? (
-                <section
-                  className={`hammer-timeline-board ${timelineBoardZoomClassName}`}
-                  aria-label="Track-based timeline"
-                >
-                  <div
-                    className="hammer-timeline-ruler"
-                    onMouseDown={(event) => {
-                      beginTimelineScrub(event);
-                    }}
-                  >
-                    <svg className="hammer-timeline-ruler__canvas" viewBox="0 0 1000 28" preserveAspectRatio="none" aria-hidden="true">
-                      {timelineMinorTicks.map((tick) => {
-                        const x = tick.ratio * 1000;
-                        return (
-                          <line
-                            key={`minor-tick-${tick.ratio}`}
-                            className="hammer-timeline-ruler__tick hammer-timeline-ruler__tick--minor"
-                            x1={x}
-                            y1={13}
-                            x2={x}
-                            y2={28}
-                          />
-                        );
-                      })}
-                      {timelineTicks.map((tick) => {
-                        const x = tick.ratio * 1000;
-                        return (
-                          <g key={`tick-${tick.ratio}`}>
-                            <line
-                              className="hammer-timeline-ruler__tick"
-                              x1={x}
-                              y1={7}
-                              x2={x}
-                              y2={28}
-                            />
-                            <text className="hammer-timeline-ruler__tick-label" x={Math.min(995, x + 3)} y={7}>
-                              {tick.timeSec.toFixed(0)}s
-                            </text>
-                          </g>
-                        );
-                      })}
-                      {sortedTimelineMarkers.map((marker) => {
-                        const x = (marker.timeSec / timelineDurationSec) * 1000;
-                        return (
-                          <line
-                            key={marker.id}
-                            className="hammer-timeline-ruler__marker"
-                            x1={x}
-                            y1={0}
-                            x2={x}
-                            y2={28}
-                          >
-                            <title>{`${marker.label} ${marker.timeSec.toFixed(1)}s`}</title>
-                          </line>
-                        );
-                      })}
-                      <g transform={`translate(${playheadRatioPercent * 10} 0)`}>
-                        <line className="hammer-timeline-playhead" x1={0} y1={0} x2={0} y2={28} />
-                        <rect className="hammer-timeline-playhead-cap" x={-3.5} y={0} width={7} height={3} rx={1} ry={1} />
-                        <g transform="translate(0 2)">
-                          <rect className="hammer-timeline-ruler__time-readout" x={-20} y={0} width={40} height={13} rx={6} ry={6} />
-                          <text className="hammer-timeline-ruler__time-readout-text" x={0} y={9} textAnchor="middle">
-                            {playheadSec.toFixed(1)}s
-                          </text>
-                        </g>
-                      </g>
-                    </svg>
-                  </div>
-
-                  {timelineLanes.map((lane) => (
-                    <div key={lane.id} className={`hammer-timeline-lane hammer-timeline-lane--${lane.tone}`}>
-                      <div className="hammer-timeline-lane__label">
-                        <strong>{lane.label}</strong>
-                        <span>{lane.blocks.length} clips</span>
-                      </div>
-                      <div
-                        className={`hammer-timeline-lane__track hammer-timeline-lane__track--${lane.tone}`}
-                        onMouseDown={(event) => {
-                          const target = event.target as Element | null;
-                          if (target?.closest?.(".hammer-timeline-block.is-image-placement-editable")) {
-                            return;
-                          }
-                          beginTimelineScrub(event);
-                        }}
-                      >
-                        <svg className="hammer-timeline-lane__canvas" viewBox="0 0 1000 34" preserveAspectRatio="none" aria-label={`${lane.label} lane`}>
-                          {(laneGapsById.get(lane.id) ?? []).map((gap) => {
-                            const x = (gap.startSec / timelineDurationSec) * 1000;
-                            const width = Math.max(8, ((gap.endSec - gap.startSec) / timelineDurationSec) * 1000);
-                            return (
-                              <rect
-                                key={gap.id}
-                                className="hammer-timeline-gap"
-                                x={x}
-                                y={4}
-                                width={width}
-                                height={26}
-                                rx={6}
-                                ry={6}
-                              />
-                            );
-                          })}
-                          <line
-                            className="hammer-timeline-lane__playhead"
-                            x1={playheadRatioPercent * 10}
-                            y1={0}
-                            x2={playheadRatioPercent * 10}
-                            y2={34}
-                          />
-                          {lane.blocks.map((block) => {
-                            const x = (block.startSec / timelineDurationSec) * 1000;
-                            const width = Math.max(14, ((block.endSec - block.startSec) / timelineDurationSec) * 1000);
-                            const hideBlockLabel = lane.id === "stills" || lane.id === "broll";
-                            const imagePlacementEditable = visualPlacementEditingEnabled
-                              && (lane.id === "stills" || lane.id === "broll")
-                              && (block.tone === "image" || block.tone === "broll")
-                              && Boolean(block.placementId);
-                            const imageAnimationMenuEnabled = currentPass === "image_animation"
-                              && lane.id === "stills"
-                              && block.tone === "image"
-                              && Boolean(block.placementId);
-                            const hasImageAnimationPreset = block.placementId
-                              ? resolvePlacementAnimationPreset(visualPlacementsById.get(block.placementId)) !== "none"
-                              : false;
-                            return (
-                              <g
-                                key={block.id}
-                                role="button"
-                                tabIndex={0}
-                                className={`hammer-timeline-block hammer-timeline-block--${block.tone}${block.selected ? " is-active" : ""}${block.inRange ? " is-range" : ""}${block.disabled ? " is-disabled" : ""}${imagePlacementEditable ? " is-image-placement-editable" : ""}${hasImageAnimationPreset ? " has-animation-preset" : ""}`}
-                                transform={`translate(${x} 5)`}
-                                onMouseDown={(event) => {
-                                  event.stopPropagation();
-                                  if (imagePlacementEditable && block.placementId) {
-                                    beginTimelineImagePlacementDrag(event, {
-                                      placementId: block.placementId,
-                                      mode: "move",
-                                      startSec: block.startSec,
-                                      endSec: block.endSec,
-                                    });
-                                  }
-                                }}
-                                onContextMenu={(event) => {
-                                  if (!imageAnimationMenuEnabled || !block.placementId) return;
-                                  openImageAnimationContextMenu(event, block.placementId);
-                                }}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  block.onSelect();
-                                }}
-                                onKeyDown={(event) => {
-                                  if (event.key !== "Enter" && event.key !== " ") return;
-                                  event.preventDefault();
-                                  event.stopPropagation();
-                                  block.onSelect();
-                                }}
-                                aria-label={hideBlockLabel
-                                  ? `Visual clip ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`
-                                  : `${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}
-                              >
-                                {hideBlockLabel ? null : (
-                                  <title>{`${block.label} ${block.startSec.toFixed(1)}-${block.endSec.toFixed(1)}s`}</title>
-                                )}
-                                <rect className="hammer-timeline-block__rect" width={width} height={22} rx={3} ry={3} />
-                                {imagePlacementEditable ? (
-                                  <>
-                                    <rect
-                                      className="hammer-timeline-block__resize hammer-timeline-block__resize--start"
-                                      x={0}
-                                      y={2}
-                                      width={6}
-                                      height={18}
-                                      rx={2}
-                                      ry={2}
-                                      onMouseDown={(event) => {
-                                        if (!block.placementId) return;
-                                        beginTimelineImagePlacementDrag(event, {
-                                          placementId: block.placementId,
-                                          mode: "resize_start",
-                                          startSec: block.startSec,
-                                          endSec: block.endSec,
-                                        });
-                                      }}
-                                    />
-                                    <rect
-                                      className="hammer-timeline-block__resize hammer-timeline-block__resize--end"
-                                      x={Math.max(0, width - 6)}
-                                      y={2}
-                                      width={6}
-                                      height={18}
-                                      rx={2}
-                                      ry={2}
-                                      onMouseDown={(event) => {
-                                        if (!block.placementId) return;
-                                        beginTimelineImagePlacementDrag(event, {
-                                          placementId: block.placementId,
-                                          mode: "resize_end",
-                                          startSec: block.startSec,
-                                          endSec: block.endSec,
-                                        });
-                                      }}
-                                    />
-                                  </>
-                                ) : null}
-                                {hideBlockLabel ? null : (
-                                  <text className="hammer-timeline-block__text" x={5} y={14}>
-                                    {block.label}
-                                  </text>
-                                )}
-                              </g>
-                            );
-                          })}
-                        </svg>
-                      </div>
-                    </div>
-                  ))}
-                </section>
-              ) : (
-                <div className="hammer-empty-state">Timeline content transplant pending.</div>
-              )}
-            </div>
-          </div>
+          <HammerWorkspaceShellTimelineDock vm={timelineDockVM} />
         </section>
       </div>
       {imageAnimationContextMenu ? (
