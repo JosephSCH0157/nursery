@@ -1240,6 +1240,7 @@ function buildSystemPrompt(
       "- Prefer fast producer momentum: first pass now, deeper sourcing next.",
       "Evidence hygiene (hard rule):",
       "- Do not imply you 'watched' a video; you may only cite metadata, description, and transcript/captions if present.",
+      "- If a YouTube source has transcriptAvailable=true, say 'Based on video metadata and captions'. If transcriptAvailable=false, say 'Based on video metadata only'.",
       "- Numeric impact claims require corroboration (prefer primary sources) before graduating into script fact.",
       "- Keep claims vs quotes separate; quotes must preserve speaker/org when possible.",
       "When a pasted URL was ingested, use this briefing format:",

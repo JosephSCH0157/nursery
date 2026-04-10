@@ -1,11 +1,14 @@
 import {
   buildEmptyHearthResearchResult,
   type HearthAttributedQuote,
+  type HearthResearchIngestMode,
   type HearthResearchExtractionStatus,
   type HearthResearchRequest,
   type HearthResearchResult,
   type HearthResearchSource,
   type HearthResearchSourceType,
+  type HearthTranscriptMeta,
+  type HearthTranscriptSegment,
 } from "../../../hearth/src/lib/hearth-research-contract";
 
 export type HearthResearchRuntimeRunArgs = {
@@ -39,6 +42,7 @@ type BraveSearchResult = {
 
 type FetchOutcome = {
   sourceType: HearthResearchSourceType;
+  ingestMode: HearthResearchIngestMode | null;
   title: string | null;
   publisher: string | null;
   author: string | null;
@@ -46,8 +50,12 @@ type FetchOutcome = {
   canonicalUrl: string | null;
   publishedAt: string | null;
   updatedAt: string | null;
+  warnings: string[];
+  transcriptAvailable: boolean;
   extractedText: string | null;
   transcript: string | null;
+  transcriptSegments: HearthTranscriptSegment[] | null;
+  transcriptMeta: HearthTranscriptMeta | null;
   attributedQuotes: HearthAttributedQuote[] | null;
   extractionStatus: HearthResearchExtractionStatus;
   extractionError: string | null;
@@ -99,9 +107,9 @@ function normalizePublishedAt(value: string | null, nowMs = Date.now()): string 
   const strictDateMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (strictDateMatch) {
     const iso = toIsoFromMs(Date.UTC(
-      Number.parseInt(strictDateMatch[1] ?? "0", 10),
-      Number.parseInt(strictDateMatch[2] ?? "1", 10) - 1,
-      Number.parseInt(strictDateMatch[3] ?? "1", 10),
+      Number.parseInt(strictDateMatch[1] || "0", 10),
+      Number.parseInt(strictDateMatch[2] || "1", 10) - 1,
+      Number.parseInt(strictDateMatch[3] || "1", 10),
       12,
     ));
     if (iso) return iso;
@@ -110,8 +118,8 @@ function normalizePublishedAt(value: string | null, nowMs = Date.now()): string 
   const yearMonthMatch = normalized.match(/^(\d{4})-(\d{2})$/);
   if (yearMonthMatch) {
     const iso = toIsoFromMs(Date.UTC(
-      Number.parseInt(yearMonthMatch[1] ?? "0", 10),
-      Number.parseInt(yearMonthMatch[2] ?? "1", 10) - 1,
+      Number.parseInt(yearMonthMatch[1] || "0", 10),
+      Number.parseInt(yearMonthMatch[2] || "1", 10) - 1,
       1,
       12,
     ));
@@ -127,8 +135,8 @@ function normalizePublishedAt(value: string | null, nowMs = Date.now()): string 
 
   const agoMatch = normalized.match(/^(\d+)\s+(minute|hour|day|week|month|year)s?\s+ago$/);
   if (agoMatch) {
-    const amount = Number.parseInt(agoMatch[1] ?? "0", 10);
-    const unit = agoMatch[2] ?? "";
+    const amount = Number.parseInt(agoMatch[1] || "0", 10);
+    const unit = agoMatch[2] || "";
     if (amount > 0) {
       let deltaMs = 0;
       if (unit === "minute") deltaMs = amount * 60 * 1000;
@@ -177,9 +185,11 @@ function inferSourceType(urlString: string): HearthResearchSourceType {
 }
 
 function extractCanonicalUrl(html: string, baseUrl: string): string | null {
-  const relCanonical = html.match(/<link[^>]+rel=(?:"|')canonical(?:"|')[^>]*>/i)?.[0] ?? null;
+  const relCanonicalMatch = html.match(/<link[^>]+rel=(?:"|')canonical(?:"|')[^>]*>/i);
+  const relCanonical = relCanonicalMatch && relCanonicalMatch[0] ? relCanonicalMatch[0] : null;
   if (!relCanonical) return null;
-  const href = relCanonical.match(/href=(?:"|')([^"']+)(?:"|')/i)?.[1] ?? null;
+  const hrefMatch = relCanonical.match(/href=(?:"|')([^"']+)(?:"|')/i);
+  const href = hrefMatch && hrefMatch[1] ? hrefMatch[1] : null;
   if (!href) return null;
   try {
     return new URL(href, baseUrl).toString();
@@ -191,9 +201,11 @@ function extractCanonicalUrl(html: string, baseUrl: string): string | null {
 function extractMetaContent(html: string, keys: string[]): string | null {
   for (const key of keys) {
     const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const meta = html.match(new RegExp(`<meta\\b[^>]*(?:property|name)=(?:"|')${escaped}(?:"|')[^>]*>`, "i"))?.[0] ?? null;
+    const metaMatch = html.match(new RegExp(`<meta\\b[^>]*(?:property|name)=(?:"|')${escaped}(?:"|')[^>]*>`, "i"));
+    const meta = metaMatch && metaMatch[0] ? metaMatch[0] : null;
     if (!meta) continue;
-    const content = meta.match(/content=(?:"|')([^"']+)(?:"|')/i)?.[1] ?? null;
+    const contentMatch = meta.match(/content=(?:"|')([^"']+)(?:"|')/i);
+    const content = contentMatch && contentMatch[1] ? contentMatch[1] : null;
     const value = content ? readText(decodeHtmlEntities(content)) : null;
     if (value) return value;
   }
@@ -245,10 +257,10 @@ function extractJsonLdMeta(html: string): {
     for (const entry of candidates) {
       if (!entry || typeof entry !== "object") continue;
       const record = entry as Record<string, unknown>;
-      publisher = publisher ?? readJsonLdText(record.publisher);
-      author = author ?? readJsonLdText(record.author);
-      publishedAt = publishedAt ?? toIsoDate(readJsonLdText(record.datePublished));
-      updatedAt = updatedAt ?? toIsoDate(readJsonLdText(record.dateModified));
+      if (publisher == null) publisher = readJsonLdText(record.publisher);
+      if (author == null) author = readJsonLdText(record.author);
+      if (publishedAt == null) publishedAt = toIsoDate(readJsonLdText(record.datePublished));
+      if (updatedAt == null) updatedAt = toIsoDate(readJsonLdText(record.dateModified));
     }
   }
 
@@ -256,9 +268,11 @@ function extractJsonLdMeta(html: string): {
 }
 
 function extractArticleHtml(html: string): string | null {
-  const article = html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1] ?? null;
+  const articleMatch = html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i);
+  const article = articleMatch && articleMatch[1] ? articleMatch[1] : null;
   if (article) return article;
-  const main = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] ?? null;
+  const mainMatch = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
+  const main = mainMatch && mainMatch[1] ? mainMatch[1] : null;
   if (main) return main;
   return null;
 }
@@ -266,11 +280,16 @@ function extractArticleHtml(html: string): string | null {
 function coerceIsoFromMeta(value: string | null): string | null {
   const raw = readText(value);
   if (!raw) return null;
-  return toIsoDate(raw) ?? normalizePublishedAt(raw);
+  const iso = toIsoDate(raw);
+  return iso || normalizePublishedAt(raw);
 }
 
-function extractAttributedQuotes(text: string): HearthAttributedQuote[] | null {
+function extractAttributedQuotes(
+  text: string,
+  options?: { defaultConfidence?: HearthAttributedQuote["confidence"] },
+): HearthAttributedQuote[] | null {
   const quotes: HearthAttributedQuote[] = [];
+  const defaultConfidence = options && options.defaultConfidence ? options.defaultConfidence : "direct";
   const patterns = [
     /“([^”]{20,320})”/g,
     /"([^"\n]{20,320})"/g,
@@ -297,15 +316,18 @@ function extractAttributedQuotes(text: string): HearthAttributedQuote[] | null {
         /\b([A-Z][A-Za-z'.-]+(?:\s+[A-Z][A-Za-z'.-]+){0,3})(?:,\s*([^.,]{2,80}))?\s+(?:said|told|stated|added|wrote)\b/i,
       );
       if (attributionMatch) {
-        speaker = readText(attributionMatch[1]) ?? null;
-        organization = readText(attributionMatch[2]) ?? null;
+        speaker = readText(attributionMatch[1]);
+        organization = readText(attributionMatch[2]);
       }
+
+      const hasAttribution = Boolean(speaker || organization);
 
       quotes.push({
         text: quoteText,
         speaker,
         organization,
-        context: readText(contextWindow) ?? null,
+        context: readText(contextWindow),
+        confidence: hasAttribution ? defaultConfidence : "uncertain",
       });
 
       if (quotes.length >= 6) break;
@@ -321,11 +343,11 @@ function extractYouTubeVideoId(urlString: string): string | null {
     const parsed = new URL(urlString);
     const host = parsed.hostname.toLowerCase();
     if (host === "youtu.be") {
-      const id = parsed.pathname.replace(/^\/+/, "").split("/")[0] ?? "";
+      const id = parsed.pathname.replace(/^\/+/, "").split("/")[0] || "";
       return id ? id : null;
     }
     if (host.endsWith("youtube.com")) {
-      const id = parsed.searchParams.get("v") ?? "";
+      const id = parsed.searchParams.get("v") || "";
       return id ? id : null;
     }
   } catch {
@@ -334,39 +356,161 @@ function extractYouTubeVideoId(urlString: string): string | null {
   return null;
 }
 
-function stripVttToText(vtt: string): string {
-  const lines = vtt.split(/\r?\n/);
-  const textLines: string[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (/^WEBVTT\b/i.test(trimmed)) continue;
-    if (/^\d{2}:\d{2}:\d{2}\.\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}\.\d{3}/.test(trimmed)) continue;
-    if (/^\d+$/.test(trimmed)) continue;
-    textLines.push(trimmed);
-  }
-  return compactWhitespace(textLines.join(" "));
+function parseVttTimestampToMs(value: string): number | null {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(?:(\d+):)?(\d{2}):(\d{2})\.(\d{3})$/);
+  if (!match) return null;
+  const hours = Number.parseInt(match[1] || "0", 10);
+  const minutes = Number.parseInt(match[2] || "0", 10);
+  const seconds = Number.parseInt(match[3] || "0", 10);
+  const millis = Number.parseInt(match[4] || "0", 10);
+  if (![hours, minutes, seconds, millis].every((n) => Number.isFinite(n) && n >= 0)) return null;
+  return (((hours * 60 + minutes) * 60) + seconds) * 1000 + millis;
 }
 
-async function fetchYouTubeTranscript(args: {
+function parseVttSegments(vtt: string): HearthTranscriptSegment[] {
+  const lines = vtt.split(/\r?\n/);
+  const segments: HearthTranscriptSegment[] = [];
+
+  let cueIndex = 0;
+  let i = 0;
+  while (i < lines.length) {
+    const line = String(lines[i] || "").trim();
+    i += 1;
+    if (!line) continue;
+    if (/^WEBVTT\b/i.test(line)) continue;
+    if (/^\d+$/.test(line)) continue;
+
+    const timingMatch = line.match(/^(.+?)\s+-->\s+(.+?)(?:\s+.*)?$/);
+    if (!timingMatch) continue;
+
+    const startMs = parseVttTimestampToMs(timingMatch[1] || "");
+    const endMs = parseVttTimestampToMs(timingMatch[2] || "");
+    if (startMs == null) continue;
+
+    const textLines: string[] = [];
+    while (i < lines.length) {
+      const next = String(lines[i] || "").trim();
+      i += 1;
+      if (!next) break;
+      textLines.push(next.replace(/<[^>]+>/g, "").trim());
+    }
+
+    const text = compactWhitespace(textLines.join(" "));
+    if (!text) continue;
+    segments.push({
+      cueIndex,
+      startMs,
+      endMs: endMs == null ? null : endMs,
+      text,
+    });
+    cueIndex += 1;
+    if (segments.length >= 2_000) break;
+  }
+
+  return segments;
+}
+
+function buildTranscriptPreview(segments: HearthTranscriptSegment[], maxChars: number): string {
+  const parts: string[] = [];
+  let used = 0;
+  for (const segment of segments) {
+    const text = segment.text.trim();
+    if (!text) continue;
+    const nextLen = text.length + (parts.length ? 1 : 0);
+    if (used + nextLen > maxChars) break;
+    parts.push(text);
+    used += nextLen;
+  }
+  return compactWhitespace(parts.join(" "));
+}
+
+type YouTubeCaptionTrack = {
+  lang: string;
+  name: string | null;
+  kind: string | null;
+  isAutoGenerated: boolean;
+};
+
+function parseYouTubeCaptionTracks(xml: string): YouTubeCaptionTrack[] {
+  const tracks: YouTubeCaptionTrack[] = [];
+  const re = /<track\b([^>]+?)\/?>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(xml)) !== null) {
+    const attrs = match[1] || "";
+    const langMatch = attrs.match(/\blang_code="([^"]+)"/i);
+    const lang = langMatch && langMatch[1] ? langMatch[1] : "";
+    if (!lang) continue;
+    const nameMatch = attrs.match(/\bname="([^"]*)"/i);
+    const name = nameMatch && typeof nameMatch[1] === "string" ? nameMatch[1] : null;
+    const kindMatch = attrs.match(/\bkind="([^"]+)"/i);
+    const kind = kindMatch && typeof kindMatch[1] === "string" ? kindMatch[1] : null;
+    const isAutoGenerated = (kind || "").toLowerCase() === "asr";
+    tracks.push({
+      lang,
+      name: name && name.trim() ? name.trim() : null,
+      kind: kind && kind.trim() ? kind.trim() : null,
+      isAutoGenerated,
+    });
+    if (tracks.length >= 40) break;
+  }
+  return tracks;
+}
+
+function pickYouTubeCaptionTrack(tracks: YouTubeCaptionTrack[]): YouTubeCaptionTrack | null {
+  const enNonAsr = tracks.find((t) => t.lang === "en" && !t.isAutoGenerated);
+  if (enNonAsr) return enNonAsr;
+  const enAsr = tracks.find((t) => t.lang === "en" && t.isAutoGenerated);
+  if (enAsr) return enAsr;
+  const firstNonAsr = tracks.find((t) => !t.isAutoGenerated);
+  if (firstNonAsr) return firstNonAsr;
+  return tracks.length ? tracks[0] : null;
+}
+
+async function fetchYouTubeCaptionTrackList(args: {
   url: string;
   signal?: AbortSignal;
-}): Promise<string | null> {
+}): Promise<{ tracks: YouTubeCaptionTrack[] | null; error: string | null }> {
   const videoId = extractYouTubeVideoId(args.url);
-  if (!videoId) return null;
+  if (!videoId) return { tracks: [], error: null };
+  const listUrl = new URL(YOUTUBE_TIMEDTEXT_URL);
+  listUrl.searchParams.set("v", videoId);
+  listUrl.searchParams.set("type", "list");
+
+  try {
+    const response = await fetch(listUrl.toString(), { redirect: "follow", signal: args.signal });
+    if (!response.ok) return { tracks: null, error: `Track list returned ${response.status}` };
+    const raw = await response.text();
+    const parsed = parseYouTubeCaptionTracks(raw);
+    return { tracks: parsed, error: null };
+  } catch (error) {
+    return { tracks: null, error: error instanceof Error ? error.message : "Unknown track list error" };
+  }
+}
+
+async function fetchYouTubeTranscriptVtt(args: {
+  url: string;
+  track: YouTubeCaptionTrack;
+  signal?: AbortSignal;
+}): Promise<{ vtt: string | null; error: string | null }> {
+  const videoId = extractYouTubeVideoId(args.url);
+  if (!videoId) return { vtt: null, error: "Missing video id" };
   const timedText = new URL(YOUTUBE_TIMEDTEXT_URL);
   timedText.searchParams.set("v", videoId);
-  timedText.searchParams.set("lang", "en");
+  timedText.searchParams.set("lang", args.track.lang);
   timedText.searchParams.set("fmt", "vtt");
+  if (args.track.isAutoGenerated) timedText.searchParams.set("kind", "asr");
+  if (args.track.name) timedText.searchParams.set("name", args.track.name);
 
   try {
     const response = await fetch(timedText.toString(), { redirect: "follow", signal: args.signal });
-    if (!response.ok) return null;
+    if (!response.ok) return { vtt: null, error: `Transcript returned ${response.status}` };
     const raw = await response.text();
-    const stripped = stripVttToText(raw);
-    return stripped ? truncate(stripped, MAX_FETCH_CHARS) : null;
-  } catch {
-    return null;
+    const trimmed = raw.trim();
+    if (!trimmed) return { vtt: null, error: "Transcript body was empty" };
+    return { vtt: trimmed, error: null };
+  } catch (error) {
+    return { vtt: null, error: error instanceof Error ? error.message : "Unknown transcript error" };
   }
 }
 
@@ -445,7 +589,7 @@ function stripHtmlToText(html: string): string {
 function extractHtmlTitle(html: string): string | null {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   if (!titleMatch) return null;
-  return compactWhitespace(decodeHtmlEntities(titleMatch[1] ?? ""));
+  return compactWhitespace(decodeHtmlEntities(titleMatch[1] || ""));
 }
 
 function isAbortError(error: unknown): boolean {
@@ -486,7 +630,7 @@ async function searchWithBrave(args: {
       url: urlValue,
       domain,
       snippet: readText(item.description),
-      publishedAt: normalizePublishedAt(readText(item.page_age) ?? readText(item.age)),
+      publishedAt: normalizePublishedAt(readText(item.page_age) || readText(item.age)),
     });
   }
   const deduped: BraveSearchResult[] = [];
@@ -510,28 +654,49 @@ async function fetchReadableSource(args: {
   const relayAbort = () => timeoutController.abort();
   args.signal?.addEventListener("abort", relayAbort, { once: true });
 
-  try {
-    const sourceType = inferSourceType(args.candidate.url);
+  const sourceType = inferSourceType(args.candidate.url);
+  const warnings: string[] = [];
+  const addWarning = (warning: string) => {
+    const trimmed = warning.trim();
+    if (!trimmed) return;
+    if (!warnings.includes(trimmed)) warnings.push(trimmed);
+  };
 
+  const base: Omit<FetchOutcome, "extractionStatus" | "extractionError"> = {
+    sourceType,
+    ingestMode: null,
+    title: args.candidate.title,
+    publisher: null,
+    author: null,
+    resolvedUrl: args.candidate.url,
+    canonicalUrl: null,
+    publishedAt: normalizePublishedAt(args.candidate.publishedAt),
+    updatedAt: null,
+    warnings,
+    transcriptAvailable: false,
+    extractedText: null,
+    transcript: null,
+    transcriptSegments: null,
+    transcriptMeta: null,
+    attributedQuotes: null,
+  };
+
+  try {
     if (sourceType === "tweet") {
       const oembed = await fetchTweetOEmbed({ url: args.candidate.url, signal: timeoutController.signal });
       if (oembed?.extractedText) {
         return {
-          sourceType,
-          title: oembed.author ? `Post by ${oembed.author}` : args.candidate.title,
+          ...base,
+          title: oembed.author ? `Post by ${oembed.author}` : base.title,
           publisher: oembed.publisher,
           author: oembed.author,
-          resolvedUrl: args.candidate.url,
-          canonicalUrl: null,
-          publishedAt: normalizePublishedAt(args.candidate.publishedAt),
-          updatedAt: null,
           extractedText: oembed.extractedText,
-          transcript: null,
-          attributedQuotes: extractAttributedQuotes(oembed.extractedText),
+          attributedQuotes: extractAttributedQuotes(oembed.extractedText, { defaultConfidence: "direct" }),
           extractionStatus: "extracted",
           extractionError: null,
         };
       }
+      addWarning("X extraction was partial or blocked.");
     }
 
     const response = await fetch(args.candidate.url, {
@@ -542,100 +707,148 @@ async function fetchReadableSource(args: {
       redirect: "follow",
       signal: timeoutController.signal,
     });
-    const resolvedUrl = readText(response.url) ?? null;
+
+    const resolvedUrl = readText(response.url) || args.candidate.url;
+    const contentType = compactWhitespace(response.headers.get("content-type") || "").toLowerCase();
+
     if (!response.ok) {
       return {
-        sourceType,
-        title: args.candidate.title,
-        publisher: null,
-        author: null,
+        ...base,
         resolvedUrl,
-        canonicalUrl: null,
-        publishedAt: normalizePublishedAt(args.candidate.publishedAt),
-        updatedAt: null,
-        extractedText: null,
-        transcript: null,
-        attributedQuotes: null,
         extractionStatus: "failed",
         extractionError: `Fetch returned ${response.status}`,
       };
     }
-    const contentType = compactWhitespace(response.headers.get("content-type") ?? "").toLowerCase();
+
     const rawText = await response.text();
     if (!rawText.trim()) {
       return {
-        sourceType,
-        title: args.candidate.title,
-        publisher: null,
-        author: null,
+        ...base,
         resolvedUrl,
-        canonicalUrl: null,
-        publishedAt: normalizePublishedAt(args.candidate.publishedAt),
-        updatedAt: null,
-        extractedText: null,
-        transcript: null,
-        attributedQuotes: null,
         extractionStatus: "failed",
         extractionError: "Response body was empty",
       };
     }
 
     if (contentType.includes("text/html") || /<!doctype html|<html/i.test(rawText)) {
-      const canonicalUrl = (resolvedUrl ? extractCanonicalUrl(rawText, resolvedUrl) : null)
-        ?? extractCanonicalUrl(rawText, args.candidate.url);
+      const canonicalUrl = extractCanonicalUrl(rawText, resolvedUrl) || extractCanonicalUrl(rawText, args.candidate.url);
       const jsonLd = extractJsonLdMeta(rawText);
       const metaPublisher = extractMetaContent(rawText, ["og:site_name", "publisher", "application-name"]);
       const metaAuthor = extractMetaContent(rawText, ["author", "article:author"]);
       const metaPublished = extractMetaContent(rawText, ["article:published_time", "published_time", "date", "dc.date", "datePublished", "pubdate"]);
       const metaUpdated = extractMetaContent(rawText, ["article:modified_time", "modified_time", "dateModified", "dc.modified"]);
 
-      const publisher = jsonLd.publisher ?? metaPublisher ?? null;
-      const author = jsonLd.author ?? metaAuthor ?? null;
-      const publishedAt = jsonLd.publishedAt
-        ?? coerceIsoFromMeta(metaPublished)
-        ?? normalizePublishedAt(args.candidate.publishedAt);
-      const updatedAt = jsonLd.updatedAt ?? coerceIsoFromMeta(metaUpdated);
+      const publishedAt = jsonLd.publishedAt || coerceIsoFromMeta(metaPublished) || base.publishedAt;
+      const updatedAt = jsonLd.updatedAt || coerceIsoFromMeta(metaUpdated);
 
-      const articleHtml = extractArticleHtml(rawText);
-      const extracted = stripHtmlToText(articleHtml ?? rawText);
-      if (!extracted) {
+      if (sourceType === "youtube_video") {
+        addWarning("Description extraction unavailable.");
+
+        const oembed = await fetchYouTubeOEmbed({ url: resolvedUrl, signal: timeoutController.signal });
+        const channelName = (oembed && oembed.author) || jsonLd.author || metaAuthor || null;
+        const title = (oembed && oembed.title) || extractHtmlTitle(rawText) || base.title;
+
+        // Transcript best-effort (optional)
+        let transcriptSegments: HearthTranscriptSegment[] | null = null;
+        let transcriptMeta: HearthTranscriptMeta | null = null;
+        let transcriptAvailable = false;
+        let ingestMode: FetchOutcome["ingestMode"] = "metadata_only";
+
+        const listResult = await fetchYouTubeCaptionTrackList({ url: resolvedUrl, signal: timeoutController.signal });
+        if (listResult.error) {
+          addWarning("Transcript retrieval failed.");
+          transcriptMeta = { language: null, isAutoGenerated: null, source: "unknown" };
+          ingestMode = "partial_failure";
+        } else if ((listResult.tracks || []).length === 0) {
+          addWarning("Transcript not available (no caption tracks found).");
+          transcriptMeta = { language: null, isAutoGenerated: null, source: "none" };
+          ingestMode = "metadata_only";
+        } else {
+          const track = pickYouTubeCaptionTrack(listResult.tracks || []);
+          if (!track) {
+            addWarning("Transcript not available (no caption tracks found).");
+            transcriptMeta = { language: null, isAutoGenerated: null, source: "none" };
+            ingestMode = "metadata_only";
+          } else {
+            if (track.isAutoGenerated) addWarning("Captions appear auto-generated.");
+            const vttResult = await fetchYouTubeTranscriptVtt({ url: resolvedUrl, track, signal: timeoutController.signal });
+            if (vttResult.error || !vttResult.vtt) {
+              addWarning("Transcript retrieval failed.");
+              transcriptMeta = { language: track.lang, isAutoGenerated: track.isAutoGenerated, source: "unknown" };
+              ingestMode = "partial_failure";
+            } else {
+              const parsed = parseVttSegments(vttResult.vtt);
+              if (parsed.length === 0) {
+                addWarning("Transcript retrieval failed.");
+                transcriptMeta = { language: track.lang, isAutoGenerated: track.isAutoGenerated, source: "unknown" };
+                ingestMode = "partial_failure";
+              } else {
+                transcriptSegments = parsed;
+                transcriptMeta = { language: track.lang, isAutoGenerated: track.isAutoGenerated, source: "youtube_timedtext" };
+                transcriptAvailable = true;
+                ingestMode = "metadata_plus_transcript";
+              }
+            }
+          }
+        }
+
+        const transcriptPreview = transcriptSegments ? buildTranscriptPreview(transcriptSegments, 2_000) : null;
+        const quoteConfidence = transcriptMeta?.isAutoGenerated ? "likely_direct" : "direct";
+
         return {
-          sourceType,
-          title: extractHtmlTitle(rawText) ?? args.candidate.title,
+          ...base,
+          ingestMode,
+          title,
+          publisher: "YouTube",
+          author: channelName,
+          resolvedUrl,
+          canonicalUrl,
+          publishedAt,
+          updatedAt,
+          transcriptAvailable,
+          transcript: transcriptPreview,
+          transcriptSegments,
+          transcriptMeta,
+          attributedQuotes: transcriptPreview
+            ? extractAttributedQuotes(transcriptPreview, { defaultConfidence: quoteConfidence })
+            : null,
+          extractionStatus: "extracted",
+          extractionError: null,
+        };
+      }
+
+      const publisher = jsonLd.publisher || metaPublisher || null;
+      const author = jsonLd.author || metaAuthor || null;
+      const articleHtml = extractArticleHtml(rawText);
+      const extracted = stripHtmlToText(articleHtml || rawText);
+      const extractedText = extracted ? truncate(extracted, MAX_FETCH_CHARS) : null;
+
+      if (!extractedText) {
+        return {
+          ...base,
+          title: extractHtmlTitle(rawText) || base.title,
           publisher,
           author,
           resolvedUrl,
           canonicalUrl,
           publishedAt,
           updatedAt,
-          extractedText: null,
-          transcript: null,
-          attributedQuotes: null,
           extractionStatus: "partial",
           extractionError: "HTML fetched but readable text extraction was empty",
         };
       }
 
-      const oembed = sourceType === "youtube_video"
-        ? await fetchYouTubeOEmbed({ url: args.candidate.url, signal: timeoutController.signal })
-        : null;
-      const transcript = sourceType === "youtube_video"
-        ? await fetchYouTubeTranscript({ url: args.candidate.url, signal: timeoutController.signal })
-        : null;
-      const extractedText = truncate(extracted, MAX_FETCH_CHARS);
-      const attributedQuotes = extractAttributedQuotes(extractedText);
       return {
-        sourceType,
-        title: oembed?.title ?? extractHtmlTitle(rawText) ?? args.candidate.title,
-        publisher: publisher ?? oembed?.publisher ?? null,
-        author: author ?? oembed?.author ?? null,
+        ...base,
+        title: extractHtmlTitle(rawText) || base.title,
+        publisher,
+        author,
         resolvedUrl,
         canonicalUrl,
         publishedAt,
         updatedAt,
         extractedText,
-        transcript,
-        attributedQuotes,
+        attributedQuotes: extractAttributedQuotes(extractedText, { defaultConfidence: "direct" }),
         extractionStatus: "extracted",
         extractionError: null,
       };
@@ -645,83 +858,40 @@ async function fetchReadableSource(args: {
       const compact = compactWhitespace(rawText);
       if (!compact) {
         return {
-          sourceType,
-          title: args.candidate.title,
-          publisher: null,
-          author: null,
+          ...base,
           resolvedUrl,
-          canonicalUrl: null,
-          publishedAt: normalizePublishedAt(args.candidate.publishedAt),
-          updatedAt: null,
-          extractedText: null,
-          transcript: null,
-          attributedQuotes: null,
           extractionStatus: "partial",
           extractionError: "Plain text body was empty after normalization",
         };
       }
       return {
-        sourceType,
-        title: args.candidate.title,
-        publisher: null,
-        author: null,
+        ...base,
         resolvedUrl,
-        canonicalUrl: null,
-        publishedAt: normalizePublishedAt(args.candidate.publishedAt),
-        updatedAt: null,
         extractedText: truncate(compact, MAX_FETCH_CHARS),
-        transcript: null,
-        attributedQuotes: extractAttributedQuotes(compact),
+        attributedQuotes: extractAttributedQuotes(compact, { defaultConfidence: "direct" }),
         extractionStatus: "extracted",
         extractionError: null,
       };
     }
 
     return {
-      sourceType,
-      title: args.candidate.title,
-      publisher: null,
-      author: null,
+      ...base,
       resolvedUrl,
-      canonicalUrl: null,
-      publishedAt: normalizePublishedAt(args.candidate.publishedAt),
-      updatedAt: null,
-      extractedText: null,
-      transcript: null,
-      attributedQuotes: null,
       extractionStatus: "skipped",
       extractionError: `Unsupported content type: ${contentType || "unknown"}`,
     };
   } catch (error) {
     if (isAbortError(error)) {
       return {
-        sourceType: inferSourceType(args.candidate.url),
-        title: args.candidate.title,
-        publisher: null,
-        author: null,
+        ...base,
         resolvedUrl: null,
-        canonicalUrl: null,
-        publishedAt: normalizePublishedAt(args.candidate.publishedAt),
-        updatedAt: null,
-        extractedText: null,
-        transcript: null,
-        attributedQuotes: null,
         extractionStatus: "failed",
         extractionError: "Fetch timed out or was aborted",
       };
     }
     return {
-      sourceType: inferSourceType(args.candidate.url),
-      title: args.candidate.title,
-      publisher: null,
-      author: null,
+      ...base,
       resolvedUrl: null,
-      canonicalUrl: null,
-      publishedAt: normalizePublishedAt(args.candidate.publishedAt),
-      updatedAt: null,
-      extractedText: null,
-      transcript: null,
-      attributedQuotes: null,
       extractionStatus: "failed",
       extractionError: error instanceof Error ? error.message : "Unknown fetch error",
     };
@@ -744,12 +914,13 @@ export async function extractUrlToResearchSource(
   };
 
   const outcome = await fetchReadableSource({ candidate, signal: args.signal });
-  const bestUrl = outcome.canonicalUrl ?? outcome.resolvedUrl ?? candidate.url;
-  const domain = parseDomain(bestUrl) ?? candidate.domain;
+  const bestUrl = outcome.canonicalUrl || outcome.resolvedUrl || candidate.url;
+  const domain = parseDomain(bestUrl) || candidate.domain;
 
   return {
     sourceId: args.sourceId,
     sourceType: outcome.sourceType,
+    ...(outcome.ingestMode ? { ingestMode: outcome.ingestMode } : {}),
     title: outcome.title,
     publisher: outcome.publisher,
     author: outcome.author,
@@ -761,9 +932,13 @@ export async function extractUrlToResearchSource(
     publishedAt: outcome.publishedAt,
     updatedAt: outcome.updatedAt,
     retrievedAt,
+    warnings: outcome.warnings.length ? outcome.warnings : null,
+    transcriptAvailable: outcome.transcriptAvailable,
     snippet: candidate.snippet,
     extractedText: outcome.extractedText,
     transcript: outcome.transcript,
+    transcriptSegments: outcome.transcriptSegments,
+    transcriptMeta: outcome.transcriptMeta,
     attributedQuotes: outcome.attributedQuotes,
     extractionStatus: outcome.extractionStatus,
     extractionError: outcome.extractionError,
@@ -780,7 +955,7 @@ function buildSynthesis(args: {
     args.sources.map((source) => source.domain).filter((value): value is string => Boolean(value)),
   );
   const sourceHighlights = args.sources.slice(0, 4).map((source) => {
-    const label = source.title ?? source.domain ?? source.url;
+    const label = source.title || source.domain || source.url;
     const snippet = source.snippet ? ` ${truncate(source.snippet, 140)}` : "";
     return `${label}.${snippet}`.trim();
   });
@@ -920,12 +1095,13 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
         if (outcome.extractionStatus === "extracted") {
           extractionSuccessCount += 1;
         }
-        const bestUrl = outcome.canonicalUrl ?? outcome.resolvedUrl ?? candidate.url;
-        const domain = parseDomain(bestUrl) ?? candidate.domain;
+        const bestUrl = outcome.canonicalUrl || outcome.resolvedUrl || candidate.url;
+        const domain = parseDomain(bestUrl) || candidate.domain;
         sources.push({
           sourceId: `retrieval-${index + 1}`,
-          title: outcome.title ?? candidate.title,
+          title: outcome.title || candidate.title,
           sourceType: outcome.sourceType,
+          ...(outcome.ingestMode ? { ingestMode: outcome.ingestMode } : {}),
           publisher: outcome.publisher,
           author: outcome.author,
           url: bestUrl,
@@ -933,12 +1109,16 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
           resolvedUrl: outcome.resolvedUrl,
           canonicalUrl: outcome.canonicalUrl,
           domain,
-          publishedAt: outcome.publishedAt ?? normalizePublishedAt(candidate.publishedAt),
+          publishedAt: outcome.publishedAt || normalizePublishedAt(candidate.publishedAt),
           updatedAt: outcome.updatedAt,
           retrievedAt,
+          warnings: outcome.warnings.length ? outcome.warnings : null,
+          transcriptAvailable: outcome.transcriptAvailable,
           snippet: candidate.snippet ? truncate(candidate.snippet, MAX_SNIPPET_CHARS) : null,
           extractedText: outcome.extractedText,
           transcript: outcome.transcript,
+          transcriptSegments: outcome.transcriptSegments,
+          transcriptMeta: outcome.transcriptMeta,
           attributedQuotes: outcome.attributedQuotes,
           extractionStatus: outcome.extractionStatus,
           extractionError: outcome.extractionError,
