@@ -36,8 +36,9 @@ import {
   buildHearthResearchRequest,
   type HearthResearchResult,
   type HearthResearchRequest,
+  type HearthResearchSource,
 } from "../../../hearth/src/lib/hearth-research-contract";
-import { createHearthResearchRuntime } from "./hearth-research-runtime";
+import { createHearthResearchRuntime, extractUrlToResearchSource } from "./hearth-research-runtime";
 import {
   FORGE_ALLOWED_CHAT_MODELS,
 } from "./ai-pricing";
@@ -170,6 +171,7 @@ const RISK_NUDGE_RE = /\b(risk|risky|legal|defamation|liability|compliance|sensi
 const RECORD_ANYWAY_RE = /\b(record anyway|record now anyway|ok to record anyway|okay to record anyway|go ahead and record)\b/i;
 const CDC_REQUEST_RE = /\b(cdc|contextual data composite|chart|graph|plot|dataset|bar chart|line chart|pie chart)\b/i;
 const RESEARCH_INTENT_RE = /\b(browse|look up|lookup|find(?: me)?|search|news|reports?|reporting|examples?|case studies?|incidents?|breach(?:es)?|source|sources|citations?|evidence)\b/i;
+const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
 const CROSS_PROJECT_REFERENCE_RE = /\b(use|pull in|bring in|remember|recall|like|from)\b[\s\S]{0,120}\b(script|episode|project|conversation|workspace|last week|other chat|that)\b/i;
 const ALLOWED_CHAT_MODELS = new Set<string>(FORGE_ALLOWED_CHAT_MODELS);
 const DEFAULT_CREATOR_PROFILE: CreatorProfile = {
@@ -479,6 +481,72 @@ function buildStyleCorpusSnippet(args: {
 
 function compactSpaces(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function extractUrls(input: string): string[] {
+  const raw = String(input ?? "");
+  const matches = raw.match(URL_RE) ?? [];
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const match of matches) {
+    const trimmed = match.replace(/[),.;:!?]+$/g, "");
+    try {
+      const url = new URL(trimmed);
+      if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+      const normalized = url.toString();
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      urls.push(normalized);
+      if (urls.length >= 4) break;
+    } catch {
+      // ignore invalid URLs
+    }
+  }
+  return urls;
+}
+
+function removeUrls(input: string): string {
+  return condenseWhitespace(String(input ?? "").replace(URL_RE, " "));
+}
+
+function buildLinkOnlyResearchResult(args: {
+  sources: HearthResearchSource[];
+}): HearthResearchResult {
+  const extracted = args.sources.filter((source) => source.extractionStatus === "extracted").length;
+  const failed = args.sources.length - extracted;
+  const uncertainties: string[] = [];
+  if (!args.sources.length) {
+    uncertainties.push("No URLs were provided for link extraction.");
+  }
+  if (failed > 0) {
+    uncertainties.push(`${failed} link(s) could not be fully extracted (blocked, timed out, or unsupported content type).`);
+  }
+  return {
+    mode: "retrieval_first",
+    runtimeStatus: args.sources.length === 0
+      ? "no_results"
+      : extracted > 0
+        ? (failed > 0 ? "partial" : "ok")
+        : "partial",
+    sources: args.sources,
+    synthesis: {
+      summary: args.sources.length
+        ? `Extracted ${extracted}/${args.sources.length} link(s).`
+        : "No link sources were provided.",
+      keyPoints: args.sources.slice(0, 6).map((source) => {
+        const label = source.title?.trim() || source.domain || source.url;
+        const note = source.extractionStatus === "extracted"
+          ? "extracted"
+          : source.extractionError
+            ? `not extracted (${source.extractionError})`
+            : `not extracted (${source.extractionStatus})`;
+        return `${label} — ${note}`;
+      }),
+      uncertainties,
+      coverageNote: `Extraction coverage: ${extracted}/${args.sources.length} links extracted.`,
+    },
+  };
 }
 
 function hasExplicitDraftNow(text: string): boolean {
@@ -3018,7 +3086,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const priorMessages = typeof latestUserMessageIndex === "number"
         ? messages.filter((_, index) => index !== latestUserMessageIndex)
         : messages;
-      const researchModeRequested = isResearchIntentRequest(requestText);
+      const urlsInRequest = extractUrls(requestText);
+      const textWithoutUrls = removeUrls(requestText);
+      const linkModeRequested = urlsInRequest.length > 0;
+      const researchModeRequested = linkModeRequested || isResearchIntentRequest(textWithoutUrls || requestText);
       const estimatedInputTokens = Math.max(
         1,
         Math.ceil(
@@ -3060,11 +3131,21 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      const researchRequest = researchModeRequested
-        ? buildHearthResearchRequest({ query: requestText })
+      const researchQuery = textWithoutUrls.trim() || urlsInRequest.join(" ");
+      const researchRequest = researchModeRequested && researchQuery
+        ? buildHearthResearchRequest({ query: researchQuery })
         : null;
       let researchResult: HearthResearchResult | null = null;
-      if (researchRequest) {
+      if (linkModeRequested) {
+        const linkSources = await Promise.all(
+          urlsInRequest.slice(0, 3).map((url, index) => extractUrlToResearchSource({
+            url,
+            sourceId: `link-${index + 1}`,
+            signal: request.signal,
+          })),
+        );
+        researchResult = buildLinkOnlyResearchResult({ sources: linkSources });
+      } else if (researchRequest) {
         try {
           researchResult = await researchRuntime.run({
             request: researchRequest,
@@ -3079,6 +3160,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             summary: "Research runtime failed before synthesis.",
           });
         }
+      }
+      if (researchRequest && researchResult) {
         await recordHearthEventForToken({
           accessToken: bearerToken,
           episodeId: episodeContext.episodeId,

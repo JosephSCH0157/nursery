@@ -17,6 +17,12 @@ export type HearthResearchRuntime = {
   run: (args: HearthResearchRuntimeRunArgs) => Promise<HearthResearchResult>;
 };
 
+export type HearthExtractedUrlSourceArgs = {
+  url: string;
+  sourceId: string;
+  signal?: AbortSignal;
+};
+
 type HearthResearchRuntimeConfig = {
   braveApiKey?: string | null;
 };
@@ -315,6 +321,32 @@ async function fetchReadableSource(args: {
     clearTimeout(timeout);
     args.signal?.removeEventListener("abort", relayAbort);
   }
+}
+
+export async function extractUrlToResearchSource(
+  args: HearthExtractedUrlSourceArgs,
+): Promise<HearthResearchSource> {
+  const candidate: BraveSearchResult = {
+    title: null,
+    url: args.url,
+    domain: parseDomain(args.url),
+    snippet: null,
+    publishedAt: null,
+  };
+
+  const outcome = await fetchReadableSource({ candidate, signal: args.signal });
+
+  return {
+    sourceId: args.sourceId,
+    title: outcome.title,
+    url: candidate.url,
+    domain: candidate.domain,
+    publishedAt: candidate.publishedAt,
+    snippet: candidate.snippet,
+    extractedText: outcome.extractedText,
+    extractionStatus: outcome.extractionStatus,
+    extractionError: outcome.extractionError,
+  };
 }
 
 function buildSynthesis(args: {
