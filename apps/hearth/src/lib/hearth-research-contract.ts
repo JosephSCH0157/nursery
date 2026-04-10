@@ -6,6 +6,15 @@ export type HearthResearchRuntimeStatus = "ok" | "partial" | "no_results" | "err
 
 export type HearthResearchExtractionStatus = "pending" | "extracted" | "partial" | "failed" | "skipped";
 
+export type HearthResearchSourceType = "web_page" | "web_article" | "youtube_video" | "tweet" | "unknown";
+
+export type HearthAttributedQuote = {
+  text: string;
+  speaker: string | null;
+  organization: string | null;
+  context: string | null;
+};
+
 export type HearthResearchRequest = {
   query: string;
   intent: HearthResearchIntent;
@@ -17,12 +26,22 @@ export type HearthResearchRequest = {
 
 export type HearthResearchSource = {
   sourceId: string;
+  sourceType?: HearthResearchSourceType | null;
   title: string | null;
+  publisher?: string | null;
+  author?: string | null;
   url: string;
+  originalUrl?: string | null;
+  resolvedUrl?: string | null;
+  canonicalUrl?: string | null;
   domain: string | null;
   publishedAt: string | null;
+  updatedAt?: string | null;
+  retrievedAt?: string | null;
   snippet: string | null;
   extractedText: string | null;
+  transcript?: string | null;
+  attributedQuotes?: HearthAttributedQuote[] | null;
   extractionStatus: HearthResearchExtractionStatus;
   extractionError: string | null;
 };
@@ -139,14 +158,50 @@ export function normalizeHearthResearchResult(value: unknown): HearthResearchRes
     const sourceId = typeof item.sourceId === "string" ? item.sourceId.trim() : "";
     const url = typeof item.url === "string" ? item.url.trim() : "";
     if (!sourceId || !url) continue;
+
+    const sourceTypeRaw = typeof item.sourceType === "string" ? item.sourceType.trim() : "";
+    const sourceType: HearthResearchSourceType | null = (
+      sourceTypeRaw === "web_page"
+      || sourceTypeRaw === "web_article"
+      || sourceTypeRaw === "youtube_video"
+      || sourceTypeRaw === "tweet"
+      || sourceTypeRaw === "unknown"
+    ) ? sourceTypeRaw : null;
+
+    const quotesRaw = Array.isArray(item.attributedQuotes) ? item.attributedQuotes : null;
+    const quotes: HearthAttributedQuote[] | null = quotesRaw
+      ? quotesRaw
+        .map((quote) => {
+          if (!isRecord(quote)) return null;
+          const text = typeof quote.text === "string" ? quote.text.trim() : "";
+          if (!text) return null;
+          return {
+            text,
+            speaker: typeof quote.speaker === "string" ? quote.speaker : null,
+            organization: typeof quote.organization === "string" ? quote.organization : null,
+            context: typeof quote.context === "string" ? quote.context : null,
+          };
+        })
+        .filter((quote): quote is HearthAttributedQuote => Boolean(quote))
+      : null;
     normalizedSources.push({
       sourceId,
+      ...(sourceType ? { sourceType } : {}),
       title: typeof item.title === "string" ? item.title : null,
+      publisher: typeof item.publisher === "string" ? item.publisher : null,
+      author: typeof item.author === "string" ? item.author : null,
       url,
+      originalUrl: typeof item.originalUrl === "string" ? item.originalUrl : null,
+      resolvedUrl: typeof item.resolvedUrl === "string" ? item.resolvedUrl : null,
+      canonicalUrl: typeof item.canonicalUrl === "string" ? item.canonicalUrl : null,
       domain: typeof item.domain === "string" ? item.domain : null,
       publishedAt: typeof item.publishedAt === "string" ? item.publishedAt : null,
+      updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : null,
+      retrievedAt: typeof item.retrievedAt === "string" ? item.retrievedAt : null,
       snippet: typeof item.snippet === "string" ? item.snippet : null,
       extractedText: typeof item.extractedText === "string" ? item.extractedText : null,
+      transcript: typeof item.transcript === "string" ? item.transcript : null,
+      attributedQuotes: quotes,
       extractionStatus,
       extractionError: typeof item.extractionError === "string" ? item.extractionError : null,
     });
