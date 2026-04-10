@@ -231,6 +231,43 @@ Guardrails:
   font-size: 12px;
 }
 
+.hammer-candidate-edit {
+  width: 100%;
+  min-height: 86px;
+  resize: vertical;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.45);
+  color: #e2e8f0;
+  font-size: 12px;
+  padding: 8px;
+  outline: none;
+}
+
+.hammer-candidate-edit:focus-visible {
+  border-color: rgba(96, 165, 250, 0.7);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.35);
+}
+
+.hammer-candidate-diff {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hammer-candidate-diff__del {
+  text-decoration-line: line-through;
+  text-decoration-color: rgba(248, 113, 113, 0.7);
+  background: rgba(248, 113, 113, 0.14);
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+.hammer-candidate-diff__ins {
+  background: rgba(34, 197, 94, 0.14);
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
 .hammer-candidate-card__meta {
   display: flex;
   gap: 10px;
@@ -977,6 +1014,32 @@ Guardrails:
   font-size: 11px;
 }
 
+.hammer-background-blur-debug {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hammer-background-blur-debug__row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.hammer-background-blur-debug__card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hammer-background-blur-debug__image {
+  width: 120px;
+  height: 90px;
+  object-fit: contain;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
 .hammer-caption-source-card {
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 10px;
@@ -1630,6 +1693,26 @@ Guardrails:
   min-width: 780px;
 }
 
+.hammer-timeline-board.is-zoom-100 {
+  width: 100%;
+}
+
+.hammer-timeline-board.is-zoom-125 {
+  width: 125%;
+}
+
+.hammer-timeline-board.is-zoom-150 {
+  width: 150%;
+}
+
+.hammer-timeline-board.is-zoom-200 {
+  width: 200%;
+}
+
+.hammer-timeline-board.is-zoom-300 {
+  width: 300%;
+}
+
 .hammer-timeline-ruler {
   position: relative;
   height: 28px;
@@ -1841,6 +1924,14 @@ Guardrails:
   padding: 0 0.65rem;
   font-size: 0.69rem;
   cursor: pointer;
+}
+
+.hammer-visual-clip-block.is-editable {
+  cursor: grab;
+}
+
+.hammer-visual-clip-block.is-editable:active {
+  cursor: grabbing;
 }
 
 .hammer-visual-clip-block.is-selected {
@@ -2354,4 +2445,60 @@ Guardrails:
   fill: rgba(15, 23, 42, 0.46);
   stroke: rgba(125, 211, 252, 0.18);
   stroke-width: 1;
+}
+
+/* Visual Effects Preview Helpers (Phase 1, preview-only) */
+
+.hammer-preview-matte-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.hammer-preview-matte-canvas.is-visible {
+  opacity: 1;
+}
+
+.hammer-preview-eye-contact-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.hammer-preview-eye-contact-canvas.is-debug {
+  outline: 1px dashed rgba(244, 114, 182, 0.35);
+  outline-offset: -2px;
+}
+
+.hammer-background-blur-debug {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hammer-background-blur-debug__row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.hammer-background-blur-debug__card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hammer-background-blur-debug__image {
+  width: 120px;
+  height: 90px;
+  object-fit: contain;
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { supabase } from "../lib/supabase";
+import "./AnvilLoginPanel.css";
 
 type Props = {
   onSuccess?: () => void;
@@ -57,94 +58,54 @@ export default function AnvilLoginPanel({ onSuccess }: Props) {
   }
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "1.15fr 0.85fr",
-        gap: 18,
-        alignItems: "stretch",
-        maxWidth: 1050,
-      }}
-    >
-      <div
-        style={{
-          borderRadius: 18,
-          overflow: "hidden",
-          border: "1px solid rgba(255,255,255,0.12)",
-          background: "rgba(255,255,255,0.04)",
-          minHeight: 380,
-          position: "relative",
-        }}
-      >
+    <div className="anvil-login-panel">
+      <div className="anvil-login-panel__hero">
         <img
           src="/anvil-login/assets/login.png"
           alt="Podcaster's Forge"
-          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          className="anvil-login-panel__hero-image"
         />
         <img
           src="/anvil-login/assets/anvil_teleprompter_logo.png"
           alt="Anvil"
-          style={{
-            position: "absolute",
-            left: 18,
-            bottom: 18,
-            width: 180,
-            height: "auto",
-            filter: "drop-shadow(0 6px 18px rgba(0,0,0,0.6))",
-          }}
+          className="anvil-login-panel__hero-logo"
         />
       </div>
 
-      <div style={{ padding: 6 }}>
-        <h1 style={{ margin: 0 }}>Podcaster&apos;s Forge</h1>
-        <p style={{ marginTop: 8, opacity: 0.8 }}>
+      <div className="anvil-login-panel__content">
+        <h1 className="anvil-login-panel__title">Podcaster&apos;s Forge</h1>
+        <p className="anvil-login-panel__subtitle">
           Browse the Forge anytime. Sign in when you're ready to do real work.
         </p>
 
-        <form onSubmit={onSubmit} style={{ marginTop: 14 }}>
-          <label style={{ display: "block", marginBottom: 6 }}>Email</label>
+        <form onSubmit={onSubmit} className="anvil-login-panel__form">
+          <label htmlFor="anvil-login-email" className="anvil-login-panel__label">Email</label>
           <input
+            id="anvil-login-email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             autoComplete="email"
-            style={{
-              width: "100%",
-              padding: 10,
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.18)",
-              background: "rgba(0,0,0,0.25)",
-              color: "inherit",
-            }}
+            title="Email"
+            placeholder="Enter your email"
+            className="anvil-login-panel__input"
           />
 
-          <label style={{ display: "block", marginTop: 12, marginBottom: 6 }}>Password</label>
+          <label htmlFor="anvil-login-password" className="anvil-login-panel__label anvil-login-panel__label--spaced">Password</label>
           <input
+            id="anvil-login-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             type="password"
             autoComplete="current-password"
-            style={{
-              width: "100%",
-              padding: 10,
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.18)",
-              background: "rgba(0,0,0,0.25)",
-              color: "inherit",
-            }}
+            title="Password"
+            placeholder="Enter your password"
+            className="anvil-login-panel__input"
           />
 
           <button
             type="submit"
             disabled={!canSubmit}
-            style={{
-              marginTop: 14,
-              width: "100%",
-              padding: 10,
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.22)",
-              background: "rgba(255,255,255,0.06)",
-              cursor: canSubmit ? "pointer" : "default",
-            }}
+            className="anvil-login-panel__button"
           >
             {busy ? "Signing in..." : "Sign in"}
           </button>
@@ -153,21 +114,15 @@ export default function AnvilLoginPanel({ onSuccess }: Props) {
             type="button"
             onClick={onForgot}
             disabled={busy}
-            style={{
-              marginTop: 10,
-              width: "100%",
-              padding: 10,
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.22)",
-              background: "transparent",
-              cursor: busy ? "default" : "pointer",
-            }}
+            className="anvil-login-panel__button anvil-login-panel__button--ghost"
           >
             Forgot password
           </button>
 
           {msg && (
-            <div style={{ marginTop: 12, color: msg.includes("sent") ? "inherit" : "#ff6b6b" }}>{msg}</div>
+            <div className={`anvil-login-panel__message${msg.includes("sent") ? "" : " anvil-login-panel__message--error"}`}>
+              {msg}
+            </div>
           )}
         </form>
       </div>

@@ -37,6 +37,14 @@ function mockService() {
     deleteReadyScript: [],
     readHammerWorkpieceState: [],
     saveHammerWorkpieceState: [],
+    ensureHammerCanonicalRecording: [],
+    sealHammerCanonicalBaseline: [],
+    createHammerRecordingRevision: [],
+    readHammerRecordingRevision: [],
+    saveHammerRecordingRevision: [],
+    resetHammerRecordingRevision: [],
+    openHammerRecordingSession: [],
+    resetHammerWorkpieceToRaw: [],
     listHammerWorkpiecePresence: [],
     upsertHammerWorkpiecePresence: [],
     getWorkpieceRecordingTruth: [],
@@ -829,6 +837,116 @@ function mockService() {
       calls.saveHammerWorkpieceState.push({ workspaceId, workpieceId, input, options: options ?? null });
       return service.readHammerWorkpieceState(workspaceId, workpieceId, options);
     },
+    async ensureHammerCanonicalRecording(workspaceId, workpieceId, input, options) {
+      calls.ensureHammerCanonicalRecording.push({ workspaceId, workpieceId, input, options: options ?? null });
+      return {
+        id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        status: "draft",
+        kept_take_event_id: 101,
+        media_path: "recordings/episode-kept.webm",
+        media_content_type: "video/webm",
+        media_bytes: 2048,
+        media_duration_ms: 42000,
+        recording_session_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        anvil_capture_session_id: "capture-session-1",
+        media_id: `kept-take:${workpieceId}:101`,
+        media_signature: null,
+        baseline_transcript_path: null,
+        baseline_timing_path: null,
+        baseline_speaker_map_path: null,
+        created_at: "2026-03-13T12:00:00.000Z",
+        created_by: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        sealed_at: null,
+        updated_at: "2026-03-13T12:00:00.000Z",
+        updated_by: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      };
+    },
+    async sealHammerCanonicalBaseline(workspaceId, workpieceId, canonicalRecordingId, input, options) {
+      calls.sealHammerCanonicalBaseline.push({ workspaceId, workpieceId, canonicalRecordingId, input, options: options ?? null });
+      return {
+        sealed_at: "2026-03-13T12:01:00.000Z",
+        canonical_recording: await service.ensureHammerCanonicalRecording(workspaceId, workpieceId, { written_by: input.written_by }, options),
+      };
+    },
+    async createHammerRecordingRevision(workspaceId, workpieceId, input, options) {
+      calls.createHammerRecordingRevision.push({ workspaceId, workpieceId, input, options: options ?? null });
+      return {
+        id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        canonical_recording_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        status: "active",
+        label: input.label ?? null,
+        editor_session_path: null,
+        revision_transcript_path: null,
+        audio_polish_path: null,
+        visual_timeline_path: null,
+        visual_placements_path: null,
+        history_path: null,
+        snapshots_manifest_path: null,
+        created_at: "2026-03-13T12:05:00.000Z",
+        created_by: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        updated_at: "2026-03-13T12:05:00.000Z",
+        updated_by: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      };
+    },
+    async readHammerRecordingRevision(workspaceId, workpieceId, revisionId, options) {
+      calls.readHammerRecordingRevision.push({ workspaceId, workpieceId, revisionId, options: options ?? null });
+      return {
+        canonical_recording: await service.ensureHammerCanonicalRecording(workspaceId, workpieceId, { written_by: { tool: "tongs", tool_version: "0.1.0", lane: "forge-managed" } }, options),
+        revision: {
+          id: revisionId,
+          workspace_id: workspaceId,
+          workpiece_id: workpieceId,
+          canonical_recording_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          status: "active",
+          label: null,
+          editor_session_path: null,
+          revision_transcript_path: null,
+          audio_polish_path: null,
+          visual_timeline_path: null,
+          visual_placements_path: null,
+          history_path: null,
+          snapshots_manifest_path: null,
+          created_at: "2026-03-13T12:05:00.000Z",
+          created_by: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          updated_at: "2026-03-13T12:05:00.000Z",
+          updated_by: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        },
+      };
+    },
+    async saveHammerRecordingRevision(workspaceId, workpieceId, revisionId, input, options) {
+      calls.saveHammerRecordingRevision.push({ workspaceId, workpieceId, revisionId, input, options: options ?? null });
+      return (await service.readHammerRecordingRevision(workspaceId, workpieceId, revisionId, options)).revision;
+    },
+    async resetHammerRecordingRevision(workspaceId, workpieceId, revisionId, input, options) {
+      calls.resetHammerRecordingRevision.push({ workspaceId, workpieceId, revisionId, input, options: options ?? null });
+      return {
+        reset_at: "2026-03-13T12:10:00.000Z",
+        discarded_revision_id: revisionId,
+        new_revision_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      };
+    },
+    async openHammerRecordingSession(workspaceId, workpieceId, input, options) {
+      calls.openHammerRecordingSession.push({ workspaceId, workpieceId, input, options: options ?? null });
+      return {
+        canonical_recording: await service.ensureHammerCanonicalRecording(workspaceId, workpieceId, { written_by: input.written_by }, options),
+        revision: await service.createHammerRecordingRevision(workspaceId, workpieceId, { written_by: input.written_by, label: input.revision_label ?? null }, options),
+      };
+    },
+    async resetHammerWorkpieceToRaw(workspaceId, workpieceId, input, options) {
+      calls.resetHammerWorkpieceToRaw.push({ workspaceId, workpieceId, input, options: options ?? null });
+      return {
+        reset_at: "2026-03-13T12:00:00.000Z",
+        deleted_file_count: 0,
+        deleted_paths: [],
+        deleted_hammer_state: true,
+        cleared_presence: true,
+        warnings: [],
+      };
+    },
     async listHammerWorkpiecePresence(workspaceId, workpieceId, options) {
       calls.listHammerWorkpiecePresence.push({ workspaceId, workpieceId, options: options ?? null });
       return [
@@ -1059,6 +1177,217 @@ test("PUT /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/state no
   assert.equal(body.ok, true);
   assert.equal(calls.saveHammerWorkpieceState.length, 1);
   assert.equal(calls.saveHammerWorkpieceState[0]?.input?.audio_polish?.data?.audio_edit, null);
+});
+
+test("POST /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/reset-to-raw forwards reset request and token", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/reset-to-raw",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer hammer_user_token",
+      },
+      body: JSON.stringify({
+        written_by: {
+          tool: "hammer",
+          tool_version: "forge-v1.2.0",
+          lane: "forge-managed",
+        },
+        reason: "user_requested_reset",
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(calls.resetHammerWorkpieceToRaw.length, 1);
+  assert.equal(calls.resetHammerWorkpieceToRaw[0]?.options?.userAccessToken, "hammer_user_token");
+  assert.equal(calls.resetHammerWorkpieceToRaw[0]?.input?.reason, "user_requested_reset");
+  assert.equal(calls.resetHammerWorkpieceToRaw[0]?.input?.written_by?.tool, "hammer");
+});
+
+test("POST /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/canonical-recording/ensure forwards request and token", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/canonical-recording/ensure",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer hammer_user_token",
+      },
+      body: JSON.stringify({
+        written_by: {
+          tool: "hammer",
+          tool_version: "forge-v1.2.0",
+          lane: "forge-managed",
+        },
+      }),
+    },
+  );
+  const response = await handler(request);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(calls.ensureHammerCanonicalRecording.length, 1);
+  assert.equal(calls.ensureHammerCanonicalRecording[0]?.options?.userAccessToken, "hammer_user_token");
+});
+
+test("POST /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/revisions forwards create and token", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/revisions",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer hammer_user_token",
+      },
+      body: JSON.stringify({
+        written_by: {
+          tool: "hammer",
+          tool_version: "forge-v1.2.0",
+          lane: "forge-managed",
+        },
+        label: "First revision",
+      }),
+    },
+  );
+  const response = await handler(request);
+  const body = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(body.ok, true);
+  assert.equal(calls.createHammerRecordingRevision.length, 1);
+  assert.equal(calls.createHammerRecordingRevision[0]?.options?.userAccessToken, "hammer_user_token");
+  assert.equal(calls.createHammerRecordingRevision[0]?.input?.label, "First revision");
+});
+
+test("POST /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/session opens canonical+revision and forwards token", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/session",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer hammer_user_token",
+      },
+      body: JSON.stringify({
+        written_by: {
+          tool: "hammer",
+          tool_version: "forge-v1.2.0",
+          lane: "forge-managed",
+        },
+        revision_label: "Auto session revision",
+      }),
+    },
+  );
+  const response = await handler(request);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(calls.openHammerRecordingSession.length, 1);
+  assert.equal(calls.openHammerRecordingSession[0]?.options?.userAccessToken, "hammer_user_token");
+  assert.equal(calls.openHammerRecordingSession[0]?.input?.revision_label, "Auto session revision");
+});
+
+test("PUT /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/revisions/:revisionId forwards save and token", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/revisions/dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer hammer_user_token",
+      },
+      body: JSON.stringify({
+        written_by: {
+          tool: "hammer",
+          tool_version: "forge-v1.2.0",
+          lane: "forge-managed",
+        },
+        editor_session: { data: { session_id: "session_01" } },
+      }),
+    },
+  );
+  const response = await handler(request);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(calls.saveHammerRecordingRevision.length, 1);
+  assert.equal(calls.saveHammerRecordingRevision[0]?.options?.userAccessToken, "hammer_user_token");
+});
+
+test("POST /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/revisions/:revisionId/reset forwards reset and token", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/revisions/dddddddd-dddd-4ddd-8ddd-dddddddddddd/reset",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer hammer_user_token",
+      },
+      body: JSON.stringify({
+        written_by: {
+          tool: "hammer",
+          tool_version: "forge-v1.2.0",
+          lane: "forge-managed",
+        },
+        reason: "user_requested_reset",
+      }),
+    },
+  );
+  const response = await handler(request);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(calls.resetHammerRecordingRevision.length, 1);
+  assert.equal(calls.resetHammerRecordingRevision[0]?.options?.userAccessToken, "hammer_user_token");
+  assert.equal(calls.resetHammerRecordingRevision[0]?.input?.reason, "user_requested_reset");
+});
+
+test("POST /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/canonical-recording/:id/seal-baseline forwards seal and token", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/canonical-recording/cccccccc-cccc-4ccc-8ccc-cccccccccccc/seal-baseline",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer hammer_user_token",
+      },
+      body: JSON.stringify({
+        written_by: {
+          tool: "hammer",
+          tool_version: "forge-v1.2.0",
+          lane: "forge-managed",
+        },
+        structured_transcript: { data: { schema_version: 1, transcript_id: "t1", segments: [] } },
+        speaker_map: { data: { schema_version: 1, default_labels: [], mappings: [] } },
+      }),
+    },
+  );
+  const response = await handler(request);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(calls.sealHammerCanonicalBaseline.length, 1);
+  assert.equal(calls.sealHammerCanonicalBaseline[0]?.options?.userAccessToken, "hammer_user_token");
+  assert.equal(calls.sealHammerCanonicalBaseline[0]?.canonicalRecordingId, "cccccccc-cccc-4ccc-8ccc-cccccccccccc");
 });
 
 test("TongsCommitService.readHammerWorkpieceState normalizes malformed structured_transcript on read", async () => {

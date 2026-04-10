@@ -10,6 +10,8 @@ import {
   previewSpeakerSolo,
   previewTightenSelection,
 } from "../src/editor/hammerCleanupTools";
+import type { HammerDeadAirAnalysis } from "../src/editor/hammerDeadAirClosure";
+import { deriveAudioCutsForDeadAirClosure, deriveAudioCutsForRemovedSegments } from "../src/editor/hammerCleanupExecution";
 
 function s(id: string, start: number, end: number, speaker: string, text: string): HammerTranscriptSegment {
   return { segment_id: id, start_sec: start, end_sec: end, speaker, text };
@@ -48,6 +50,143 @@ async function testRetakeRemovalDeterministic() {
   });
   assert.equal(preview.summary.removedSegments, 1);
   assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
+}
+
+async function testRetakeRemovalCatchesStartThatAgainMarkerOnly() {
+  const segments = [
+    s("a", 0, 0.9, "Host", "let me start that again"),
+    s("b", 1.0, 2.4, "Host", "Florida oranges didn't start small."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 1);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
+}
+
+async function testRetakeRemovalCatchesNearImmediateReread() {
+  const segments = [
+    s("a", 0, 1.3, "Host", "Florida oranges didn't start small."),
+    s("b", 1.35, 2.8, "Host", "Florida oranges didn't start small."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 1);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "b"), true);
+}
+
+async function testRetakeRemovalCatchesAbortThenMarkerThenRedoChain() {
+  const segments = [
+    s("a", 0, 1.0, "Host", "Florida oranges really sta—"),
+    s("b", 1.05, 1.5, "Host", "let me start that again"),
+    s("c", 1.55, 3.0, "Host", "Florida oranges didn't start small."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 2);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "b"), false);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "c"), true);
+}
+
+async function testRetakeRemovalSurfacesExplicitCueTrimInNormal() {
+  const segments = [
+    s("a", 0, 3.0, "Host", "Let me start that again. Not little shelters with a cash box."),
+    s("b", 3.1, 4.6, "Host", "Florida oranges didn't start small."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 0, "Cue trim should not remove whole segments by itself");
+  assert.equal(preview.suggestions.some((sugg) => sugg.type === "restart_trim" && sugg.segmentId === "a"), true);
+  const updated = preview.resultSegments.find((segment) => segment.segment_id === "a")?.text ?? "";
+  assert.equal(updated.startsWith("Not little shelters"), true);
+}
+
+async function testRetakeRemovalRiskySimilarityDoesNotLeakIntoNormal() {
+  const segments = [
+    s("a", 0, 1.5, "Host", "Florida oranges didn't start small."),
+    s("b", 1.55, 3.0, "Host", "Florida oranges didn't start large."),
+  ];
+
+  const normal = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(normal.summary.removedSegments, 0);
+  assert.equal(normal.suggestions.some((sugg) => sugg.type === "retake_remove"), false);
+
+  const aggressive = previewRemoveRetakes(segments, {
+    detection: "aggressive",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(aggressive.suggestions.some((sugg) => sugg.type === "retake_remove"), true);
+}
+
+async function testRetakeRemovalAllowsMarkerOnlyAcrossSpeakerMismatch() {
+  const segments = [
+    s("a", 0, 0.6, "S1", "let me start that again"),
+    s("b", 0.65, 2.1, "S2", "The market moved sharply in the first quarter."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 1);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "b"), true);
+}
+
+async function testRetakeRemovalDoesNotDropSubstantiveSegmentJustBecauseItContainsRetakeCue() {
+  const segments = [
+    s("a", 0, 1.4, "Host", "Let me start that again. Not little shelters with a cash box."),
+    s("b", 1.45, 3.0, "Host", "Florida's citrus didn't start small. Commercial production took off."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 0);
+  assert.equal(preview.resultSegments.length, 2);
+}
+
+async function testRetakeRemovalCatchesShortAbortedLeadInReread() {
+  const segments = [
+    s("a", 0, 0.7, "Host", "I was..."),
+    s("b", 0.75, 2.8, "Host", "I was going to walk through the launch timeline in detail."),
+  ];
+  const preview = previewRemoveRetakes(segments, {
+    detection: "normal",
+    preferLaterCleanerTake: true,
+    honorExplicitRetakePhrases: true,
+    sameSpeakerOnly: true,
+  });
+  assert.equal(preview.summary.removedSegments, 1);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "a"), false);
+  assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "b"), true);
 }
 
 async function testQuickCleanOrderDeterministic() {
@@ -262,10 +401,56 @@ async function testSpeakerPanelHostFavoringKeepsHostPresence() {
   );
 }
 
+async function testCleanupExecutionDerivesAudioCutsForRemovedSegments() {
+  const segments: HammerTranscriptSegment[] = [
+    { segment_id: "a", speaker: "S1", start_sec: 1, end_sec: 2, text: "a" },
+    { segment_id: "b", speaker: "S1", start_sec: 2.0002, end_sec: 3, text: "b" },
+    { segment_id: "c", speaker: "S1", start_sec: 5, end_sec: 6, text: "c" },
+  ];
+
+  const cuts = deriveAudioCutsForRemovedSegments({
+    segments,
+    removeSegmentIds: ["a", "b", "missing"],
+    durationSec: 10,
+  });
+
+  assert.deepEqual(cuts, [{ startSec: 1, endSec: 3 }]);
+}
+
+async function testCleanupExecutionDerivesAudioCutsForDeadAirClosure() {
+  const analysis: HammerDeadAirAnalysis = {
+    thresholdSec: 1.5,
+    eligibleGapCount: 1,
+    totalRemovableSec: 2.0,
+    gaps: [{
+      currentSegmentId: "s1",
+      nextSegmentId: "s2",
+      currentEndSec: 10,
+      nextStartSec: 13.5,
+      gapSec: 3.5,
+      removableSec: 2.0,
+    }],
+  };
+
+  const cuts = deriveAudioCutsForDeadAirClosure({
+    analysis,
+    durationSec: 60,
+  });
+
+  assert.deepEqual(cuts, [{ startSec: 11.5, endSec: 13.5 }]);
+}
+
 async function run() {
   await testShortenGapsDeterministic();
   await testFillerRemovalDeterministic();
   await testRetakeRemovalDeterministic();
+  await testRetakeRemovalCatchesStartThatAgainMarkerOnly();
+  await testRetakeRemovalCatchesNearImmediateReread();
+  await testRetakeRemovalCatchesAbortThenMarkerThenRedoChain();
+  await testRetakeRemovalSurfacesExplicitCueTrimInNormal();
+  await testRetakeRemovalRiskySimilarityDoesNotLeakIntoNormal();
+  await testRetakeRemovalAllowsMarkerOnlyAcrossSpeakerMismatch();
+  await testRetakeRemovalCatchesShortAbortedLeadInReread();
   await testQuickCleanOrderDeterministic();
   await testTightenSelectionPreservesUnselectedSegments();
   await testTightenSelectionRejectsInlineSpeakerTagAsTextMutationRisk();
@@ -274,6 +459,8 @@ async function run() {
   await testSpeakerPanelSuppressesLowSignalCrossTalkDeterministically();
   await testSpeakerPanelPreservesLegitBackAndForth();
   await testSpeakerPanelHostFavoringKeepsHostPresence();
+  await testCleanupExecutionDerivesAudioCutsForRemovedSegments();
+  await testCleanupExecutionDerivesAudioCutsForDeadAirClosure();
   // eslint-disable-next-line no-console
   console.log("Hammer cleanup tools tests passed.");
 }

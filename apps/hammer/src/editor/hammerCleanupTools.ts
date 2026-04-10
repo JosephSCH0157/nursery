@@ -302,7 +302,12 @@ export function previewRemoveFillers(
     const cleaned = cleanFillerText(before, dictionary);
     if (cleaned.removed <= 0) continue;
     if (options.protectIntentionalPhrasing && /^like\s/i.test(before) && options.aggressiveness !== "strong") continue;
-    segment.text = cleaned.text.length ? cleaned.text : before;
+    const normalizedBefore = normalizeTextSpacing(before);
+    const normalizedAfter = normalizeTextSpacing(cleaned.text);
+    // Conservative pass: only emit a candidate when the proposed text is meaningfully different and non-empty.
+    if (!normalizedAfter) continue;
+    if (normalizedAfter === normalizedBefore) continue;
+    segment.text = normalizedAfter;
     changed.add(segment.segment_id);
     suggestions.push({
       id: `filler:${segment.segment_id}`,
@@ -326,17 +331,139 @@ export function previewRemoveFillers(
   };
 }
 
-const RETAKE_PHRASES = /\b(redo|retake|take that again|scratch that|let me do that again|let me redo that)\b/i;
+// Explicit retake cues should be treated as "speaker intent", not "ASR intent".
+// Keep this list relatively specific; broad cues like plain "sorry" are handled as weaker signals.
+const RETAKE_PHRASES_STRONG =
+  /\b(?:redo|retake|take that again|take again|take two|take 2|one more time|scratch that|start over|from the top|let me start that again|let me start again|let me start over|let me do that again|let me try that again|let me redo that|let me rephrase that)\b/i;
+const RETAKE_PHRASES_WEAK = /\b(?:sorry|nope|no|wait|hold on|hang on)\b/i;
 
-function overlapScore(a: string[], b: string[]): number {
-  if (!a.length || !b.length) return 0;
-  const left = a.slice(0, 5);
-  const right = b.slice(0, 5);
-  let overlap = 0;
-  for (const token of left) {
-    if (right.includes(token)) overlap += 1;
+function stripRetakeCuePrefix(text: string): string {
+  const normalized = normalizeTextSpacing(String(text || ""));
+  if (!normalized) return "";
+  const stripped = normalized
+    // Strip common "take again" lead-ins.
+    .replace(
+      /^(?:(?:um+|uh+|er+|ah+)\s*)?(?:(?:okay|ok|well)\s*)?(?:(?:sorry|nope|no|wait|hold on|hang on)\s*[,.-]*)*(?:let me\s+(?:start(?:\s+that)?\s+again|start\s+over|try\s+that\s+again|do\s+that\s+again|redo\s+that|rephrase\s+that)|scratch\s+that|take\s+(?:that\s+)?again|take\s+(?:two|2)|one\s+more\s+time|from\s+the\s+top|start\s+over)\s*[,.-]*\s*/i,
+      "",
+    )
+    .trim();
+  return stripped || normalized;
+}
+
+function isRetakeMarkerOnly(text: string): boolean {
+  const trimmed = normalizeTextSpacing(String(text || ""));
+  if (!trimmed) return false;
+  // Segments that are *only* a restart marker (no substantive content) should be removable even without overlap evidence.
+  return /^(?:(?:um+|uh+|er+|ah+)\s*)?(?:(?:okay|ok|well)\s*)?(?:(?:sorry|nope|no|wait|hold on|hang on)\s*[,.-]*)*(?:let me\s+(?:start(?:\s+that)?\s+again|start\s+over|try\s+that\s+again|do\s+that\s+again|redo\s+that|rephrase\s+that)|scratch\s+that|take\s+(?:that\s+)?again|take\s+(?:two|2)|one\s+more\s+time|from\s+the\s+top|start\s+over)\s*[,.-]*$/i
+    .test(trimmed);
+}
+
+function contentTokens(text: string): string[] {
+  const stop = new Set([
+    "um",
+    "uh",
+    "er",
+    "ah",
+    "like",
+    "basically",
+    "literally",
+    "you",
+    "know",
+    "i",
+    "mean",
+    "okay",
+    "ok",
+    "well",
+    "so",
+  ]);
+  return tokens(text).filter((token) => !stop.has(token));
+}
+
+function tokenOverlapScore(a: string[], b: string[]): { overlap: number; jaccard: number } {
+  if (a.length === 0 || b.length === 0) return { overlap: 0, jaccard: 0 };
+  const setA = new Set(a);
+  const setB = new Set(b);
+  let intersection = 0;
+  for (const t of setA) {
+    if (setB.has(t)) intersection += 1;
   }
-  return overlap / Math.max(left.length, right.length);
+  const union = setA.size + setB.size - intersection;
+  return {
+    overlap: intersection / Math.max(1, Math.min(setA.size, setB.size)),
+    jaccard: intersection / Math.max(1, union),
+  };
+}
+
+function hasLocalRepairMarker(text: string): boolean {
+  const normalized = normalizeTextSpacing(String(text || ""));
+  if (!normalized) return false;
+  // "the the", "it was it was", etc.
+  if (/\b([a-z']+)\s+\1\b/i.test(normalized)) return true;
+  // Mid-utterance overwrite markers often show up as em-dash or ellipsis.
+  if (/[—…]/.test(normalized)) return true;
+  // Simple stutter forms: "re- really"
+  if (/\b[a-z']+-\s+[a-z']/i.test(normalized)) return true;
+  return false;
+}
+
+function scoreTakeQuality(text: string): number {
+  // Retake cue phrases inside a segment are usually "meta" speech. Score the substantive portion.
+  const normalized = stripRetakeCuePrefix(String(text || ""));
+  if (!normalized) return -10;
+  let score = 0;
+  if (/[.!?]$/.test(normalized)) score += 1;
+  if (isLikelyAborted(normalized)) score -= 1;
+  if (isRetakeMarkerOnly(normalized)) score -= 1.5;
+  if (hasLocalRepairMarker(normalized)) score -= 0.5;
+  const words = tokenCount(normalized);
+  score += Math.min(1.2, words / 18);
+  return score;
+}
+
+function endsWithAbortMark(text: string): boolean {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return false;
+  return /[—-…]$/.test(trimmed) || /\.\.\.$/.test(trimmed);
+}
+
+function endsWithWeakContinuation(text: string): boolean {
+  const trimmed = normalizeTextSpacing(String(text || ""));
+  if (!trimmed) return false;
+  if (/[.!?]$/.test(trimmed)) return false;
+  return /\b(?:and|but|or|so|because|which|that|to|with|for|of|in|on|at|as)\s*$/i.test(trimmed);
+}
+
+function isLikelyAborted(text: string): boolean {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return true;
+  if (endsWithAbortMark(trimmed)) return true;
+  if (endsWithWeakContinuation(trimmed)) return true;
+  // Short non-terminal fragments are likely false starts.
+  const normalized = normalizeTextSpacing(trimmed);
+  const words = tokenCount(normalized);
+  if (!/[.!?]$/.test(normalized) && words > 0 && words <= 6) return true;
+  return false;
+}
+
+function commonPrefixLength(a: string[], b: string[], limit = 12): number {
+  const max = Math.min(a.length, b.length, Math.max(0, Math.trunc(limit)));
+  let count = 0;
+  for (let idx = 0; idx < max; idx += 1) {
+    if (a[idx] !== b[idx]) break;
+    count += 1;
+  }
+  return count;
+}
+
+function isShortAbortedLeadInReread(currentText: string, nextText: string): boolean {
+  if (!isLikelyAborted(currentText)) return false;
+  const currentRawTokens = tokens(currentText);
+  const nextRawTokens = tokens(nextText);
+  if (currentRawTokens.length === 0) return false;
+  if (currentRawTokens.length > 6) return false;
+  if (nextRawTokens.length < currentRawTokens.length + 3) return false;
+  const rawPrefix = commonPrefixLength(currentRawTokens, nextRawTokens, 8);
+  return rawPrefix >= Math.min(2, currentRawTokens.length);
 }
 
 export function previewRemoveRetakes(
@@ -347,29 +474,256 @@ export function previewRemoveRetakes(
   const suggestions: HammerCleanupSuggestion[] = [];
   const removeIds = new Set<string>();
 
+  const maxGapSec = options.detection === "aggressive" ? 1.8 : options.detection === "normal" ? 1.2 : 0.8;
+  const includeProbable = options.detection !== "conservative";
+  const includeRisky = options.detection === "aggressive";
+
+  function speakersCompatible(...segmentsToCompare: HammerTranscriptSegment[]): boolean {
+    if (!options.sameSpeakerOnly) return true;
+    const speaker = segmentsToCompare[0]?.speaker;
+    return segmentsToCompare.every((seg) => seg.speaker === speaker);
+  }
+
+  function shouldRemoveEarlierKeepLater(args: { earlier: HammerTranscriptSegment; later: HammerTranscriptSegment }): boolean {
+    if (options.preferLaterCleanerTake) {
+      const earlierScore = scoreTakeQuality(args.earlier.text);
+      const laterScore = scoreTakeQuality(args.later.text);
+      // Prefer later unless it is clearly worse.
+      return !(earlierScore >= laterScore + 1.0);
+    }
+    return scoreTakeQuality(args.earlier.text) <= scoreTakeQuality(args.later.text);
+  }
+
+  function pushRetakeSuggestion(args: {
+    removeSegmentIds: string[];
+    keepSegmentId: string;
+    description: string;
+    confidence: number;
+    index: number;
+  }): void {
+    const uniqueRemove = Array.from(new Set(args.removeSegmentIds)).filter(Boolean);
+    if (uniqueRemove.length === 0) return;
+    if (uniqueRemove.some((id) => removeIds.has(id))) return;
+    if (removeIds.has(args.keepSegmentId)) return;
+
+    for (const id of uniqueRemove) removeIds.add(id);
+    const timeSavedSec = roundToTenth(
+      uniqueRemove
+        .map((id) => sorted.find((segment) => segment.segment_id === id))
+        .filter((segment): segment is HammerTranscriptSegment => Boolean(segment))
+        .reduce((sum, segment) => sum + Math.max(0.1, segment.end_sec - segment.start_sec), 0),
+    );
+    suggestions.push({
+      id: uniqueRemove.length === 1
+        ? `retake_pair:${uniqueRemove[0]}:${args.keepSegmentId}:${args.index}`
+        : `retake_chain:${uniqueRemove.join(",")}:${args.keepSegmentId}:${args.index}`,
+      type: "retake_remove",
+      segmentId: uniqueRemove[0]!,
+      description: args.description,
+      confidence: args.confidence,
+      timeSavedSec,
+    });
+  }
+
+  function pushRestartTrimSuggestion(args: {
+    segment: HammerTranscriptSegment;
+    trimmedText: string;
+    description: string;
+    confidence: number;
+    index: number;
+  }): void {
+    const before = normalizeTextSpacing(args.segment.text);
+    const after = normalizeTextSpacing(args.trimmedText);
+    if (!before || !after) return;
+    if (before === after) return;
+    if (removeIds.has(args.segment.segment_id)) return;
+    args.segment.text = after;
+    suggestions.push({
+      id: `retake:restart_trim:${args.segment.segment_id}:${args.index}`,
+      type: "restart_trim",
+      segmentId: args.segment.segment_id,
+      description: args.description,
+      confidence: args.confidence,
+      timeSavedSec: 0,
+    });
+  }
+
+  // Certain bucket: explicit restart cues embedded in a substantive segment.
+  // These should always be surfaced (Normal+Aggressive) even if we can't deterministically pair a reread.
+  if (options.honorExplicitRetakePhrases && (options.detection === "normal" || options.detection === "aggressive")) {
+    for (let index = 0; index < sorted.length; index += 1) {
+      const segment = sorted[index]!;
+      if (removeIds.has(segment.segment_id)) continue;
+      const raw = normalizeTextSpacing(segment.text);
+      if (!raw) continue;
+      if (isRetakeMarkerOnly(raw)) continue;
+      if (!RETAKE_PHRASES_STRONG.test(raw)) continue;
+      const stripped = stripRetakeCuePrefix(raw);
+      if (!stripped || normalizeTextSpacing(stripped) === raw) continue;
+      pushRestartTrimSuggestion({
+        segment,
+        trimmedText: stripped,
+        description: "Possible retake detected (explicit restart cue). Remove the restart cue phrase?",
+        confidence: 0.93,
+        index,
+      });
+    }
+  }
+
   for (let index = 0; index < sorted.length - 1; index += 1) {
     const current = sorted[index];
     const next = sorted[index + 1];
-    if (options.sameSpeakerOnly && current.speaker !== next.speaker) continue;
+    if (removeIds.has(current.segment_id) || removeIds.has(next.segment_id)) continue;
+    const pairSpeakersCompatible = speakersCompatible(current, next);
 
-    const explicit = options.honorExplicitRetakePhrases && RETAKE_PHRASES.test(current.text);
-    const score = overlapScore(tokens(current.text), tokens(next.text));
-    const threshold = options.detection === "aggressive" ? 0.4 : options.detection === "normal" ? 0.55 : 0.7;
-    const nearDuplicate = score >= threshold;
-    if (!explicit && !nearDuplicate) continue;
+    const gapSec = Math.max(0, next.start_sec - current.end_sec);
+    if (gapSec > maxGapSec) continue;
 
-    const removeTarget = options.preferLaterCleanerTake ? current : next;
-    if (removeIds.has(removeTarget.segment_id)) continue;
-    removeIds.add(removeTarget.segment_id);
-    suggestions.push({
-      id: `retake:${removeTarget.segment_id}:${index}`,
-      type: "retake_remove",
-      segmentId: removeTarget.segment_id,
-      description: explicit
-        ? "Remove explicit retake phrase segment."
-        : "Remove likely repeated take in adjacent same-speaker pair.",
-      confidence: explicit ? 0.95 : Math.max(0.55, Math.min(0.93, score)),
-      timeSavedSec: roundToTenth(Math.max(0.1, removeTarget.end_sec - removeTarget.start_sec)),
+    // --- 3-segment chain: aborted take -> explicit marker -> clean take ---
+    const third = sorted[index + 2] ?? null;
+    if (third && !removeIds.has(third.segment_id)) {
+      const gapToMarker = Math.max(0, next.start_sec - current.end_sec);
+      const gapToRedo = Math.max(0, third.start_sec - next.end_sec);
+      const chainSpeakersCompatible = speakersCompatible(current, next, third);
+      const nextIsMarkerOnly = isRetakeMarkerOnly(next.text);
+      if (gapToMarker <= maxGapSec && gapToRedo <= maxGapSec && nextIsMarkerOnly && (chainSpeakersCompatible || nextIsMarkerOnly)) {
+        const aTokens = contentTokens(current.text);
+        const cTokens = contentTokens(third.text);
+        const prefix = commonPrefixLength(aTokens, cTokens, 14);
+        const similarity = tokenOverlapScore(aTokens, cTokens);
+        const resemblesRedo = (
+          (prefix >= 3 && prefix >= Math.ceil(Math.min(10, aTokens.length) * 0.55))
+          // Very short aborted false-starts often only share 2 tokens before diverging.
+          || (isLikelyAborted(current.text) && aTokens.length <= 4 && prefix >= 2)
+          || (similarity.overlap >= 0.86 && similarity.jaccard >= 0.65 && Math.min(aTokens.length, cTokens.length) >= 5)
+        );
+        if (resemblesRedo && (isLikelyAborted(current.text) || hasLocalRepairMarker(current.text) || includeProbable)) {
+          pushRetakeSuggestion({
+            removeSegmentIds: [current.segment_id, next.segment_id],
+            keepSegmentId: third.segment_id,
+            description: "Possible retake detected (restart marker + reread). Keep the cleaner delivery?",
+            confidence: 0.93,
+            index,
+          });
+          continue;
+        }
+      }
+    }
+
+    const currentTextRaw = String(current.text || "");
+    const nextTextRaw = String(next.text || "");
+    const markerOnly = options.honorExplicitRetakePhrases && isRetakeMarkerOnly(currentTextRaw);
+    const explicitStrong = options.honorExplicitRetakePhrases && RETAKE_PHRASES_STRONG.test(currentTextRaw);
+    const explicitWeak = options.honorExplicitRetakePhrases && RETAKE_PHRASES_WEAK.test(currentTextRaw);
+    const currentText = stripRetakeCuePrefix(currentTextRaw);
+    const nextText = String(nextTextRaw || "");
+    const aborted = isLikelyAborted(currentText);
+    const repaired = hasLocalRepairMarker(currentText);
+    const shortLeadInReread = isShortAbortedLeadInReread(currentText, nextText);
+
+    // Strong retake cues usually refer to a previous take, not the immediately following unrelated segment.
+    // If the cue is embedded in a substantive segment, try to pair backwards first.
+    if (explicitStrong && !markerOnly && index > 0) {
+      const previous = sorted[index - 1]!;
+      if (!removeIds.has(previous.segment_id)) {
+        const gapToCurrent = Math.max(0, current.start_sec - previous.end_sec);
+        if (gapToCurrent <= maxGapSec && speakersCompatible(previous, current)) {
+          const prevTokens = contentTokens(previous.text);
+          const currTokens = contentTokens(currentText);
+          const prefix = commonPrefixLength(prevTokens, currTokens, 14);
+          const similarity = tokenOverlapScore(prevTokens, currTokens);
+          const resemblesRedo = (
+            (prefix >= 3 && prefix >= Math.ceil(Math.min(10, prevTokens.length) * 0.55))
+            || (isLikelyAborted(previous.text) && prevTokens.length <= 4 && prefix >= 2)
+            || (similarity.overlap >= 0.86 && similarity.jaccard >= 0.65 && Math.min(prevTokens.length, currTokens.length) >= 5)
+          );
+          if (resemblesRedo && (isLikelyAborted(previous.text) || hasLocalRepairMarker(previous.text) || includeProbable)) {
+            pushRetakeSuggestion({
+              removeSegmentIds: [previous.segment_id],
+              keepSegmentId: current.segment_id,
+              description: "Possible retake detected (explicit restart cue). Keep the restarted delivery?",
+              confidence: 0.92,
+              index,
+            });
+            continue;
+          }
+        }
+      }
+    }
+
+    // If speakers differ, only marker-only segments are safe to drop.
+    if (!pairSpeakersCompatible && !markerOnly) continue;
+
+    // Marker-only segments should be removable without requiring overlap evidence.
+    if (markerOnly) {
+      pushRetakeSuggestion({
+        removeSegmentIds: [current.segment_id],
+        keepSegmentId: next.segment_id,
+        description: "Remove restart marker (explicit retake cue).",
+        confidence: explicitStrong ? 0.96 : 0.86,
+        index,
+      });
+      continue;
+    }
+
+    const aTokens = contentTokens(currentText);
+    const bTokens = contentTokens(nextText);
+    const prefix = commonPrefixLength(aTokens, bTokens, 14);
+    const similarity = tokenOverlapScore(aTokens, bTokens);
+    const prefixStrong = (
+      (prefix >= 3 && prefix >= Math.ceil(Math.min(8, aTokens.length) * 0.6))
+      // Very short aborted false-starts often only share 2 tokens before diverging (e.g. "Florida's citrus—" restart).
+      || (aborted && aTokens.length <= 4 && prefix >= 2)
+    );
+    const probableDuplicate = (
+      similarity.overlap >= 0.86
+      && similarity.jaccard >= 0.65
+      && Math.min(aTokens.length, bTokens.length) >= 5
+    );
+    const riskyDuplicate = (
+      similarity.overlap >= 0.75
+      && similarity.jaccard >= 0.5
+      && Math.min(aTokens.length, bTokens.length) >= 5
+    );
+    const rereadStrong = prefixStrong || probableDuplicate || shortLeadInReread;
+    const rereadRisky = includeRisky && (rereadStrong || riskyDuplicate);
+    const explicitWithEvidence = explicitStrong && (rereadStrong || aborted || repaired);
+
+    // Conservative pass: only treat as retake when explicit or aborted.
+    if (options.detection === "conservative") {
+      if (!explicitWithEvidence && !aborted) continue;
+      if (!prefixStrong && !shortLeadInReread) continue;
+    } else {
+      // Normal mode: certain + probable only. Aggressive mode: allow risky similarity tier as well.
+      const passesCertain = explicitWithEvidence || markerOnly;
+      const passesProbable = includeProbable && (rereadStrong && (aborted || repaired || probableDuplicate));
+      const passesRisky = includeRisky && !passesCertain && !passesProbable && rereadRisky;
+
+      if (!passesCertain && !passesProbable && !passesRisky) continue;
+
+      // Even in aggressive mode, prevent accidental "emphasis repeats" across longer gaps.
+      if (!passesCertain && gapSec > 0.9) continue;
+    }
+
+    const removeEarlier = shouldRemoveEarlierKeepLater({ earlier: current, later: next });
+    const removeTarget = removeEarlier ? current : next;
+    const keepTarget = removeEarlier ? next : current;
+    if (removeTarget.segment_id === keepTarget.segment_id) continue;
+
+    pushRetakeSuggestion({
+      removeSegmentIds: [removeTarget.segment_id],
+      keepSegmentId: keepTarget.segment_id,
+      description: explicitStrong
+        ? "Possible retake detected (explicit retake cue). Keep the cleaner delivery?"
+        : aborted
+        ? "Possible retake detected. Earlier delivery appears aborted or restarted."
+        : repaired
+        ? "Possible retake detected. Earlier delivery contains spoken repair markers."
+        : includeRisky && explicitWeak
+        ? "Possible retake detected (weak restart cue). Keep the cleaner delivery?"
+        : "Possible retake detected. Near-immediate reread detected; keep the cleaner delivery?",
+      confidence: explicitStrong ? 0.95 : aborted ? 0.86 : repaired ? 0.82 : includeRisky ? 0.76 : 0.8,
+      index,
     });
   }
 
@@ -380,7 +734,7 @@ export function previewRemoveRetakes(
     suggestions,
     summary: {
       changedSegments: suggestions.length,
-      removedSegments: suggestions.length,
+      removedSegments: removeIds.size,
       timeSavedSec: roundToTenth(suggestions.reduce((sum, item) => sum + item.timeSavedSec, 0)),
     },
   };

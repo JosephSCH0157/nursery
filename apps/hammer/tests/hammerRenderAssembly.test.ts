@@ -422,6 +422,60 @@ async function testApplyExposureInstructionFlowsIntoVisualTimeline() {
   assert.equal(exposureLayer?.meta?.preview_mode, "previewable");
 }
 
+async function testApplyBackgroundEffectInstructionFlowsIntoVisualTimeline() {
+  const graph = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: {
+      edit_plan_id: "plan_render_08",
+      version: "1",
+      created_at: "2026-03-24T13:00:00.000Z",
+      updated_at: "2026-03-24T13:00:00.000Z",
+      source_transcript_id: "transcript_render_08",
+      preview_mode: "edit-aware",
+      instructions: [
+        {
+          instruction_id: "ins_bg_fx_01",
+          segment_id: "seg_01",
+          type: "apply_background_effect",
+          effect_kind: "blur",
+          provider_id: "mediapipe_selfie_segmentation",
+          applies_to: "primary_video",
+          settings_v1: {
+            blur_px: 14,
+            edge_feather_px: 4,
+            subject_expansion_px: 2,
+            temporal_smoothing: 0.55,
+            quality_mode: "medium",
+            fallback_mode: "disable",
+          },
+          created_at: "2026-03-24T13:00:00.000Z",
+        },
+      ],
+    },
+    workspaceId: "ws_render",
+    workpieceId: "wp_render",
+    sessionId: "session_render",
+  });
+
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph: graph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: ["apply_background_effect"],
+      export_supported_operation_types: ["apply_background_effect"],
+      handoff_supported_operation_types: ["apply_background_effect"],
+    },
+    transcriptSegments: [{ segment_id: "seg_01", start_sec: 0, end_sec: 12 }],
+    captionChunks: [{ chunk_id: "cap_bg_fx_01", start_sec: 0, end_sec: 1, segment_ids: ["seg_01"] }],
+  });
+
+  const fxLayer = assembly.export_timeline.visual_layers.find((layer) => layer.kind === "background_effect");
+  assert.equal(Boolean(fxLayer), true);
+  assert.equal(fxLayer?.meta?.effect_kind, "blur");
+  assert.equal(fxLayer?.meta?.provider_id, "mediapipe_selfie_segmentation");
+  assert.equal(fxLayer?.meta?.settings_v1?.quality_mode, "medium");
+  assert.equal(assembly.operations[0]?.export_posture, "degraded");
+  assert.equal(assembly.operations[0]?.reason_codes.includes("export_not_supported"), true);
+}
+
 async function run() {
   await testAssemblyDeterminismAndPosture();
   await testUnresolvedBrollIsNeverTreatedAsBoundMediaTruth();
@@ -430,6 +484,7 @@ async function run() {
   await testPodcastMasterPassPostureTracksRuntimeCapability();
   await testApplyLookInstructionFlowsIntoVisualTimeline();
   await testApplyExposureInstructionFlowsIntoVisualTimeline();
+  await testApplyBackgroundEffectInstructionFlowsIntoVisualTimeline();
   // eslint-disable-next-line no-console
   console.log("Hammer render assembly tests passed.");
 }

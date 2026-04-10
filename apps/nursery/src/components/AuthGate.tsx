@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import "./AuthGate.css";
 
 type Props = { children: ReactNode };
 
@@ -75,7 +76,7 @@ export default function AuthGate({ children }: Props) {
 
   if (checking) {
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui" }}>
+      <div className="auth-gate-checking">
         Checking session...
       </div>
     );

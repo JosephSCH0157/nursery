@@ -77,6 +77,22 @@ function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPreviewSettin
     white_balance: 0,
     color_amount: 0,
     background_blur: false,
+    eye_contact_assist_enabled: false,
+    eye_contact_assist_strength: 0.25,
+    background_blur_px: 14,
+    background_blur_feather_px: 6,
+    background_blur_temporal_smoothing: 0.25,
+    background_blur_subject_expansion_px: 0,
+    background_blur_quality_mode: "medium",
+    background_blur_fallback_mode: "disable",
+    background_blur_provider: "mediapipe_selfie_segmentation",
+    background_replace_enabled: false,
+    background_replace_mode: "solid",
+    background_replace_color: "#2b2b2b",
+    background_replace_image_url: null,
+    background_wash_enabled: false,
+    background_wash_dim_amount: 0.35,
+    background_wash_desaturate_amount: 0.25,
   };
 }
 
@@ -87,10 +103,55 @@ function normalizeVisualPreviewSettings(
   const defaults = buildDefaultVisualPreviewSettings();
   const whiteBalance = readNumber(row?.white_balance);
   const colorAmount = readNumber(row?.color_amount);
+  const eyeContactEnabled = typeof row?.eye_contact_assist_enabled === "boolean"
+    ? row.eye_contact_assist_enabled
+    : defaults.eye_contact_assist_enabled!;
+  const eyeContactStrength = readNumber(row?.eye_contact_assist_strength) ?? defaults.eye_contact_assist_strength!;
+  const blurEnabled = typeof row?.background_blur === "boolean"
+    ? row.background_blur
+    : typeof row?.background_blur === "object" && row.background_blur != null
+    ? true
+    : defaults.background_blur;
+  const blurPx = readNumber(row?.background_blur_px) ?? readNumber(readJsonObject(row?.background_blur)?.blur_px) ?? defaults.background_blur_px!;
+  const featherPx = readNumber(row?.background_blur_feather_px) ?? readNumber(readJsonObject(row?.background_blur)?.edge_feather_px) ?? defaults.background_blur_feather_px!;
+  const temporal = readNumber(row?.background_blur_temporal_smoothing) ?? readNumber(readJsonObject(row?.background_blur)?.temporal_smoothing) ?? defaults.background_blur_temporal_smoothing!;
+  const expansion = readNumber(row?.background_blur_subject_expansion_px) ?? readNumber(readJsonObject(row?.background_blur)?.subject_expansion_px) ?? defaults.background_blur_subject_expansion_px!;
+  const quality = readString(row?.background_blur_quality_mode)
+    ?? readString(readJsonObject(row?.background_blur)?.quality_mode)
+    ?? defaults.background_blur_quality_mode!;
+  const fallback = readString(row?.background_blur_fallback_mode)
+    ?? readString(readJsonObject(row?.background_blur)?.fallback_mode)
+    ?? defaults.background_blur_fallback_mode!;
+  const provider = readString(row?.background_blur_provider)
+    ?? readString(readJsonObject(row?.background_blur)?.provider)
+    ?? defaults.background_blur_provider!;
+  const replaceEnabled = typeof row?.background_replace_enabled === "boolean" ? row.background_replace_enabled : defaults.background_replace_enabled!;
+  const replaceMode = readString(row?.background_replace_mode) ?? defaults.background_replace_mode!;
+  const replaceColor = readString(row?.background_replace_color) ?? defaults.background_replace_color!;
+  const replaceImageUrl = readString(row?.background_replace_image_url) ?? defaults.background_replace_image_url!;
+  const washEnabled = typeof row?.background_wash_enabled === "boolean" ? row.background_wash_enabled : defaults.background_wash_enabled!;
+  const washDim = readNumber(row?.background_wash_dim_amount) ?? defaults.background_wash_dim_amount!;
+  const washDesat = readNumber(row?.background_wash_desaturate_amount) ?? defaults.background_wash_desaturate_amount!;
   return {
     white_balance: whiteBalance == null ? defaults.white_balance : clamp(Math.round(whiteBalance), -100, 100),
     color_amount: colorAmount == null ? defaults.color_amount : clamp(Math.round(colorAmount), -100, 100),
-    background_blur: typeof row?.background_blur === "boolean" ? row.background_blur : defaults.background_blur,
+    background_blur: blurEnabled,
+    eye_contact_assist_enabled: Boolean(eyeContactEnabled),
+    eye_contact_assist_strength: clamp(eyeContactStrength, 0, 1),
+    background_blur_px: clamp(blurPx, 0, 64),
+    background_blur_feather_px: clamp(featherPx, 0, 64),
+    background_blur_temporal_smoothing: clamp(temporal, 0, 1),
+    background_blur_subject_expansion_px: clamp(expansion, 0, 48),
+    background_blur_quality_mode: (quality === "low" || quality === "high") ? quality : "medium",
+    background_blur_fallback_mode: fallback === "passthrough" ? "passthrough" : "disable",
+    background_blur_provider: provider,
+    background_replace_enabled: replaceEnabled,
+    background_replace_mode: replaceMode === "image" ? "image" : replaceMode === "checkerboard" ? "checkerboard" : "solid",
+    background_replace_color: replaceColor,
+    background_replace_image_url: replaceImageUrl,
+    background_wash_enabled: washEnabled,
+    background_wash_dim_amount: clamp(washDim, 0, 1),
+    background_wash_desaturate_amount: clamp(washDesat, 0, 1),
   };
 }
 
@@ -731,6 +792,10 @@ function buildPresenceUrl(target: HammerPersistenceTarget): string {
   return `/tongs/workspaces/${encodeURIComponent(target.workspaceId)}/workpieces/${encodeURIComponent(target.workpieceId)}/hammer/presence`;
 }
 
+function buildResetToRawUrl(target: HammerPersistenceTarget): string {
+  return `/tongs/workspaces/${encodeURIComponent(target.workspaceId)}/workpieces/${encodeURIComponent(target.workpieceId)}/hammer/reset-to-raw`;
+}
+
 export async function loadHammerPersistenceSnapshot(
   target: HammerPersistenceTarget,
 ): Promise<PersistenceResult<HammerPersistenceSnapshot>> {
@@ -812,6 +877,56 @@ export async function saveHammerPersistenceSnapshot(
     ok: true,
     status: response.status,
     data: snapshot,
+  };
+}
+
+export async function resetHammerWorkpieceToRaw(
+  target: HammerPersistenceTarget,
+  args?: { reason?: string | null },
+): Promise<PersistenceResult<{ reset_at: string }>> {
+  let response: Response;
+  try {
+    response = await tongsFetch(buildResetToRawUrl(target), {
+      method: "POST",
+      json: {
+        written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
+        reason: typeof args?.reason === "undefined" ? undefined : args?.reason,
+      },
+      timeoutMs: HAMMER_PERSISTENCE_SAVE_TIMEOUT_MS,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      status: 504,
+      error: toRequestErrorMessage(error, "Hammer reset to raw timed out."),
+    };
+  }
+
+  const payload = await readJsonBody(response);
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: readErrorMessage(payload, "Failed to reset Hammer episode to raw."),
+    };
+  }
+
+  const root = readJsonObject(payload);
+  const data = readJsonObject(root?.data);
+  const result = readJsonObject(data?.result);
+  const resetAt = readString(result?.reset_at);
+  if (!resetAt) {
+    return {
+      ok: false,
+      status: response.status,
+      error: "Hammer reset-to-raw response was invalid.",
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    data: { reset_at: resetAt },
   };
 }
 

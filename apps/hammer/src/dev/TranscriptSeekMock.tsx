@@ -2887,6 +2887,7 @@ export default function TranscriptSeekMock(
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       if (isEditableTarget(event.target)) return;
+
       if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
 
       if (event.key === "ArrowUp") {
@@ -6472,97 +6473,97 @@ export default function TranscriptSeekMock(
         </div>
       </div>
       <div className="hammer-timeline-track-list">
-        {timelineTracks.map((track) => (
-          <div key={track.id} className="hammer-timeline-track">
-            {(() => {
-              const trackHasSelectedClip = track.clips.some((clip) => doesClipMatchSelectedState(clip));
-              const trackHasActiveClip = track.clips.some((clip) => doesClipMatchActiveState(clip));
-              const clipCount = track.clips.length;
-              const editableClipCount = track.clips.filter((clip) => clip.editable).length;
-              const uncertainClipCount = track.clips.filter((clip) => clip.status === "uncertain").length;
-              const trackProposedChanges = proposedChanges.filter((change) => change.linkedTrackId === track.id);
-              const trackStateLabel = trackHasSelectedClip
-                ? "selected row"
-                : trackHasActiveClip
-                ? "active playback"
-                : clipCount === 0
-                ? "empty"
-                : uncertainClipCount > 0
-                ? `${clipCount} clips · ${uncertainClipCount} needs review`
-                : `${clipCount} linked clips`;
+          {timelineTracks.map((track) => (
+            <div key={track.id} className="hammer-timeline-track">
+              {(() => {
+                const trackHasSelectedClip = track.clips.some((clip) => doesClipMatchSelectedState(clip));
+                const trackHasActiveClip = track.clips.some((clip) => doesClipMatchActiveState(clip));
+                const clipCount = track.clips.length;
+                const editableClipCount = track.clips.filter((clip) => clip.editable).length;
+                const uncertainClipCount = track.clips.filter((clip) => clip.status === "uncertain").length;
+                const trackProposedChanges = proposedChanges.filter((change) => change.linkedTrackId === track.id);
+                const trackStateLabel = trackHasSelectedClip
+                  ? "selected row"
+                  : trackHasActiveClip
+                  ? "active playback"
+                  : clipCount === 0
+                  ? "empty"
+                  : uncertainClipCount > 0
+                  ? `${clipCount} clips · ${uncertainClipCount} needs review`
+                  : `${clipCount} linked clips`;
 
-              return (
-                <>
-                  <div className="hammer-timeline-track__label">
-                    <div className="hammer-inline-list-wide">
-                      <strong className="hammer-timeline-track__title">{track.label}</strong>
-                      <span className="hammer-pill">{clipCount} clips</span>
-                    </div>
-                    <span className="hammer-timeline-track__meta">
-                      {getTimelineTrackRoleLabel(track.id)}
-                      {" · "}
-                      {trackStateLabel}
-                      {editableClipCount > 0 ? ` · ${editableClipCount} editable` : ""}
-                    </span>
-                  </div>
-                  <div className={cx(
-                    "hammer-track-viewport",
-                    dynamicStyles.timelineCanvasClassName,
-                    trackHasSelectedClip && "is-selected",
-                    trackHasActiveClip && "is-active",
-                  )}>
-                    <div className="hammer-track-viewport__backdrop" />
-                    {trackProposedChanges.map((change) => (
-                      <button
-                        key={change.id}
-                        type="button"
-                        onClick={() => selectProposedChange(change)}
-                        title={`${change.label} · ${formatClock(change.startSec)}-${formatClock(change.endSec)} · ${change.reason}`}
-                        className={cx(
-                          "hammer-timeline-change",
-                          dynamicStyles.proposedChangeLayoutClassNames.get(change.id),
-                          change.status === "suggested" && "is-suggested",
-                          change.status === "approved" && "is-approved",
-                          change.status === "rejected" && "is-rejected",
-                          change.status === "modified" && "is-modified",
-                          selectedProposedChange?.id === change.id && "is-selected",
-                        )}
-                      >
-                        <span className="hammer-timeline-change__label">{change.label}</span>
-                      </button>
-                    ))}
-                    {track.clips.length === 0 ? (
-                      <div className="hammer-track-viewport__empty">
-                        {getTimelineTrackEmptyMessage(track.id, Boolean(selectedOverlayRow))}
+                return (
+                  <>
+                    <div className="hammer-timeline-track__label">
+                      <div className="hammer-inline-list-wide">
+                        <strong className="hammer-timeline-track__title">{track.label}</strong>
+                        <span className="hammer-pill">{clipCount} clips</span>
                       </div>
-                    ) : track.clips.map((clip) => {
-                      const isSelected = doesClipMatchSelectedState(clip);
-                      const isActive = doesClipMatchActiveState(clip)
-                        || (currentTimeSec >= clip.start_sec && currentTimeSec <= clip.end_sec && !clip.linked_row_id);
-                      const showTrimHandles = activeTimelineTool === "cut" && clip.editable && (isSelected || isActive);
-                      const showRippleCue = (activeTimelineTool === "cut" || activeTimelineTool === "select")
-                        && clip.ripple_hint
-                        && (isSelected || isActive);
-                      const linkedVisualChange = track.id === "visual-suggestions" && clip.placement_id
-                        ? proposedChanges.find((change) => change.linkedAssetId === clip.placement_id) ?? null
-                        : null;
-                      return (
+                      <span className="hammer-timeline-track__meta">
+                        {getTimelineTrackRoleLabel(track.id)}
+                        {" · "}
+                        {trackStateLabel}
+                        {editableClipCount > 0 ? ` · ${editableClipCount} editable` : ""}
+                      </span>
+                    </div>
+                    <div className={cx(
+                      "hammer-track-viewport",
+                      dynamicStyles.timelineCanvasClassName,
+                      trackHasSelectedClip && "is-selected",
+                      trackHasActiveClip && "is-active",
+                    )}>
+                      <div className="hammer-track-viewport__backdrop" />
+                      {trackProposedChanges.map((change) => (
                         <button
-                          key={clip.id}
+                          key={change.id}
                           type="button"
-                          title={[
-                            clip.label,
-                            `${formatClock(clip.start_sec)}-${formatClock(clip.end_sec)}`,
-                            clip.title_detail,
-                          ].filter(Boolean).join(" · ")}
-                          onClick={() => selectTimelineClip(clip)}
+                          onClick={() => selectProposedChange(change)}
+                          title={`${change.label} · ${formatClock(change.startSec)}-${formatClock(change.endSec)} · ${change.reason}`}
                           className={cx(
-                            "hammer-timeline-clip",
-                            dynamicStyles.clipLayoutClassNames.get(getTimelineClipLayoutKey(track.id, clip.id)),
-                            clip.editable && "is-editable",
-                            isSelected && "is-selected",
-                            isActive && "is-active",
-                            showTrimHandles && "has-trim-handles",
+                            "hammer-timeline-change",
+                            dynamicStyles.proposedChangeLayoutClassNames.get(change.id),
+                            change.status === "suggested" && "is-suggested",
+                            change.status === "approved" && "is-approved",
+                            change.status === "rejected" && "is-rejected",
+                            change.status === "modified" && "is-modified",
+                            selectedProposedChange?.id === change.id && "is-selected",
+                          )}
+                        >
+                          <span className="hammer-timeline-change__label">{change.label}</span>
+                        </button>
+                      ))}
+                      {track.clips.length === 0 ? (
+                        <div className="hammer-track-viewport__empty">
+                          {getTimelineTrackEmptyMessage(track.id, Boolean(selectedOverlayRow))}
+                        </div>
+                      ) : track.clips.map((clip) => {
+                        const isSelected = doesClipMatchSelectedState(clip);
+                        const isActive = doesClipMatchActiveState(clip)
+                          || (currentTimeSec >= clip.start_sec && currentTimeSec <= clip.end_sec && !clip.linked_row_id);
+                        const showTrimHandles = activeTimelineTool === "cut" && clip.editable && (isSelected || isActive);
+                        const showRippleCue = (activeTimelineTool === "cut" || activeTimelineTool === "select")
+                          && clip.ripple_hint
+                          && (isSelected || isActive);
+                        const linkedVisualChange = track.id === "visual-suggestions" && clip.placement_id
+                          ? proposedChanges.find((change) => change.linkedAssetId === clip.placement_id) ?? null
+                          : null;
+                        return (
+                          <button
+                            key={clip.id}
+                            type="button"
+                            title={[
+                              clip.label,
+                              `${formatClock(clip.start_sec)}-${formatClock(clip.end_sec)}`,
+                              clip.title_detail,
+                            ].filter(Boolean).join(" · ")}
+                            onClick={() => selectTimelineClip(clip)}
+                            className={cx(
+                              "hammer-timeline-clip",
+                              dynamicStyles.clipLayoutClassNames.get(getTimelineClipLayoutKey(track.id, clip.id)),
+                              clip.editable && "is-editable",
+                              isSelected && "is-selected",
+                              isActive && "is-active",
+                              showTrimHandles && "has-trim-handles",
                             clip.status === "uncertain" && "is-uncertain",
                             clip.tone === "#dc2626" && "hammer-timeline-clip--red",
                             clip.tone === "#0ea5e9" && "hammer-timeline-clip--cyan",

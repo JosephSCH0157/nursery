@@ -73,6 +73,22 @@ export interface HammerPersistedVisualPreviewSettings {
   white_balance: number;
   color_amount: number;
   background_blur: boolean;
+  eye_contact_assist_enabled?: boolean;
+  eye_contact_assist_strength?: number; // 0..1
+  background_blur_px?: number;
+  background_blur_feather_px?: number;
+  background_blur_temporal_smoothing?: number;
+  background_blur_subject_expansion_px?: number;
+  background_blur_quality_mode?: "low" | "medium" | "high";
+  background_blur_fallback_mode?: "disable" | "passthrough";
+  background_blur_provider?: string | null;
+  background_replace_enabled?: boolean;
+  background_replace_mode?: "solid" | "image" | "checkerboard";
+  background_replace_color?: string;
+  background_replace_image_url?: string | null;
+  background_wash_enabled?: boolean;
+  background_wash_dim_amount?: number;
+  background_wash_desaturate_amount?: number;
 }
 
 export type HammerDerivedTextMacroKind =

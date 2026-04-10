@@ -1,0 +1,35 @@
+.iron-mine {
+  display: grid;
+  gap: 12px;
+  height: calc(100vh - 140px);
+}
+
+.iron-mine__header {
+  display: grid;
+  gap: 6px;
+}
+
+.iron-mine__title {
+  margin: 0;
+}
+
+.iron-mine__subtitle {
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.iron-mine__frame {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--forge-border);
+  border-radius: 10px;
+  background: var(--forge-bg-elevated);
+}
+
+.iron-mine__fallback {
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+}

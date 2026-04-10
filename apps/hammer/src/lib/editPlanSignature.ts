@@ -67,6 +67,14 @@ type SemanticEditInstruction =
     exposure: number;
   }
   | {
+    type: "apply_background_effect";
+    segment_id: string;
+    effect_kind: string;
+    provider_id: string;
+    applies_to: "primary_video";
+    settings_v1: unknown;
+  }
+  | {
     type: "podcast_master_pass";
     segment_id: string;
     preset: "podcast_master_v1";
@@ -165,6 +173,15 @@ function toSemanticEditInstruction(
         type: instruction.type,
         segment_id: instruction.segment_id,
         exposure: instruction.exposure,
+      };
+    case "apply_background_effect":
+      return {
+        type: instruction.type,
+        segment_id: instruction.segment_id,
+        effect_kind: instruction.effect_kind,
+        provider_id: instruction.provider_id,
+        applies_to: instruction.applies_to,
+        settings_v1: instruction.settings_v1,
       };
     case "podcast_master_pass":
       return {

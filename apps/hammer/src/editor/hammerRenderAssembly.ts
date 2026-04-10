@@ -2,6 +2,10 @@ import type {
   HammerEditInstruction,
   HammerLookPreset,
 } from "../../../../packages/contracts/hammer/edit-instruction.contract";
+import type {
+  HammerBackgroundEffectKind,
+  HammerBackgroundEffectSettingsV1,
+} from "../../../../packages/contracts/hammer/visual-effects-export.contract";
 import type { HammerEditPlan } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type {
   HammerEditorialAuthorityGraph,
@@ -11,6 +15,7 @@ import type {
   HammerEditorialPreviewTruthPosture,
 } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import { remapPlacementForRippleDelete } from "./hammerWorkspaceTimeline";
+import { resolveSegmentationProviderDescriptor } from "../features/visual-effects/providers/segmentationProviderRegistry";
 
 export type HammerRenderAssemblyTruthPosture = HammerEditorialPreviewTruthPosture;
 export type HammerRenderAssemblyPlanTarget = "preview" | "export" | "handoff";
@@ -100,7 +105,7 @@ export interface HammerExportTimelineAudioLayer {
 }
 
 export interface HammerExportTimelineVisualLayer {
-  kind: "primary_video" | "broll" | "dip_to_black" | "look_treatment" | "exposure_adjustment";
+  kind: "primary_video" | "broll" | "dip_to_black" | "look_treatment" | "exposure_adjustment" | "background_effect";
   operation_id: string | null;
   start_sec: number;
   end_sec: number;
@@ -113,6 +118,10 @@ export interface HammerExportTimelineVisualLayer {
     intent_description?: string | null;
     preset?: HammerLookPreset;
     exposure?: number;
+    effect_kind?: HammerBackgroundEffectKind;
+    provider_id?: string;
+    settings_v1?: HammerBackgroundEffectSettingsV1;
+    export_policy_ref?: string;
     preview_mode?: "previewable" | "export_only";
   };
 }
@@ -291,33 +300,80 @@ export function projectEditorialAuthorityGraphFromEditPlan(args: {
   const nowIso = args.nowIso ?? new Date().toISOString();
   const operations: HammerEditorialAuthorityOperation[] = args.editPlan.instructions.map((instruction, index) => {
     const operationId = `op:${instruction.instruction_id}`;
+    const baseCapability = mapLegacyInstructionCapability(instruction);
+    const baseReasons = mapLegacyInstructionReasons(instruction);
+
+    let capability_state: HammerEditorialCapability = baseCapability;
+    let capability_state_reasons: HammerEditorialDegradationReasonCode[] = [...baseReasons];
+
+    let preview_posture: HammerEditorialPreviewTruthPosture = "authoritative";
+    let preview_capability: HammerEditorialCapability = baseCapability;
+    let preview_reasons: HammerEditorialDegradationReasonCode[] = [...baseReasons];
+
+    let export_posture: HammerEditorialPreviewTruthPosture = "authoritative";
+    let export_capability: HammerEditorialCapability = baseCapability;
+    let export_reasons: HammerEditorialDegradationReasonCode[] = [...baseReasons];
+
+    let handoff_posture: HammerEditorialPreviewTruthPosture = "authoritative";
+    let handoff_capability: HammerEditorialCapability = baseCapability;
+    let handoff_reasons: HammerEditorialDegradationReasonCode[] = [...baseReasons];
+
+    if (instruction.type === "apply_background_effect") {
+      const descriptor = resolveSegmentationProviderDescriptor(instruction.provider_id);
+      if (!descriptor) {
+        capability_state = "degraded";
+        capability_state_reasons = Array.from(new Set([...capability_state_reasons, "operation_input_invalid"]));
+        preview_posture = "degraded";
+        export_posture = "degraded";
+        handoff_posture = "degraded";
+        preview_capability = "degraded";
+        export_capability = "degraded";
+        handoff_capability = "degraded";
+        preview_reasons = Array.from(new Set([...preview_reasons, "operation_input_invalid"]));
+        export_reasons = Array.from(new Set([...export_reasons, "operation_input_invalid"]));
+        handoff_reasons = Array.from(new Set([...handoff_reasons, "operation_input_invalid"]));
+      } else if (!descriptor.capabilities.export_safe) {
+        capability_state = "degraded";
+        capability_state_reasons = Array.from(new Set([...capability_state_reasons, "export_not_supported", "handoff_deferred"]));
+        export_posture = "degraded";
+        export_capability = "degraded";
+        export_reasons = Array.from(new Set([...export_reasons, "export_not_supported"]));
+        handoff_posture = "degraded";
+        handoff_capability = "degraded";
+        handoff_reasons = Array.from(new Set([...handoff_reasons, "handoff_deferred"]));
+        // Preview remains authoritative in browser for Phase 1.
+        preview_posture = "authoritative";
+        preview_capability = baseCapability;
+        preview_reasons = [...baseReasons];
+      }
+    }
     return {
       operation_id: operationId,
       sequence: index,
       lifecycle: "active",
       instruction: { ...instruction },
       capability_state: {
-        capability: mapLegacyInstructionCapability(instruction),
-        reason_codes: mapLegacyInstructionReasons(instruction),
+        capability: capability_state,
+        reason_codes: capability_state_reasons,
       },
       truth_posture: {
         preview: {
           target: "preview",
-          posture: "authoritative",
-          capability: mapLegacyInstructionCapability(instruction),
-          reason_codes: mapLegacyInstructionReasons(instruction),
+          posture: preview_posture,
+          capability: preview_capability,
+          reason_codes: preview_reasons,
         },
         export: {
           target: "export",
-          posture: "authoritative",
-          capability: mapLegacyInstructionCapability(instruction),
-          reason_codes: mapLegacyInstructionReasons(instruction),
+          posture: export_posture,
+          capability: export_capability,
+          reason_codes: export_reasons,
         },
         handoff: {
           target: "handoff",
-          posture: "authoritative",
-          capability: mapLegacyInstructionCapability(instruction),
-          reason_codes: mapLegacyInstructionReasons(instruction),
+          posture: handoff_posture,
+          capability: handoff_capability,
+          reason_codes: handoff_reasons,
         },
       },
       provenance: {
@@ -749,6 +805,24 @@ function buildHammerExportTimelineAssembly(args: {
           reason_codes: resolution.reason_codes,
           meta: {
             exposure: operation.instruction.exposure,
+            preview_mode: resolution.preview_posture === "authoritative" ? "previewable" : "export_only",
+          },
+        });
+        break;
+      }
+      case "apply_background_effect": {
+        visualLayers.push({
+          kind: "background_effect",
+          operation_id: operation.operation_id,
+          start_sec: 0,
+          end_sec: structuralDurationSec,
+          posture: resolution.export_posture,
+          capability: resolution.capability,
+          reason_codes: resolution.reason_codes,
+          meta: {
+            effect_kind: operation.instruction.effect_kind,
+            provider_id: operation.instruction.provider_id,
+            settings_v1: operation.instruction.settings_v1,
             preview_mode: resolution.preview_posture === "authoritative" ? "previewable" : "export_only",
           },
         });

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import type { CSSProperties, JSX } from "react";
+import type { JSX } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ResolveMediaResult } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type {
@@ -12,6 +12,7 @@ import {
   dispatchMediaCtaAction,
   type MediaCtaDispatchResult,
 } from "../media/mediaCtaActionMap";
+import "./ProjectCardMock.css";
 
 interface ProjectCardMockProps {
   devMode?: boolean;
@@ -101,47 +102,11 @@ const MOCK_PROJECTS: MockProject[] = [
   },
 ];
 
-const CARD_STYLE: CSSProperties = {
-  border: "1px solid rgba(148, 163, 184, 0.28)",
-  borderRadius: 12,
-  padding: 12,
-  background: "rgba(15, 23, 38, 0.72)",
-  display: "grid",
-  gap: 10,
-};
-
-const CTA_STYLE: CSSProperties = {
-  border: "1px solid rgba(148, 163, 184, 0.35)",
-  borderRadius: 999,
-  padding: "5px 10px",
-  background: "rgba(15, 23, 38, 0.95)",
-  color: "#e6edf7",
-  fontSize: 12,
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-const BADGE_VARIANT_STYLE: Record<BadgeVariant, CSSProperties> = {
-  success: {
-    background: "rgba(34, 197, 94, 0.16)",
-    border: "1px solid rgba(34, 197, 94, 0.5)",
-    color: "#bbf7d0",
-  },
-  warning: {
-    background: "rgba(245, 158, 11, 0.18)",
-    border: "1px solid rgba(245, 158, 11, 0.55)",
-    color: "#fde68a",
-  },
-  danger: {
-    background: "rgba(239, 68, 68, 0.16)",
-    border: "1px solid rgba(239, 68, 68, 0.5)",
-    color: "#fecaca",
-  },
-  neutral: {
-    background: "rgba(148, 163, 184, 0.18)",
-    border: "1px solid rgba(148, 163, 184, 0.45)",
-    color: "#e2e8f0",
-  },
+const BADGE_VARIANT_CLASS: Record<BadgeVariant, string> = {
+  success: "hammer-project-card-mock__badge--success",
+  warning: "hammer-project-card-mock__badge--warning",
+  danger: "hammer-project-card-mock__badge--danger",
+  neutral: "hammer-project-card-mock__badge--neutral",
 };
 
 function isDevModeFromRuntime(): boolean {
@@ -167,24 +132,15 @@ function renderBadgeChip(
 ): JSX.Element {
   const ctaPayload = chip.ctaPayload;
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+    <div className="hammer-project-card-mock__badge-row">
       <span
         title={chip.tooltip}
-        style={{
-          ...BADGE_VARIANT_STYLE[chip.variant],
-          borderRadius: 999,
-          padding: "4px 10px",
-          fontSize: 12,
-          fontWeight: 700,
-          letterSpacing: 0.2,
-          display: "inline-flex",
-          alignItems: "center",
-        }}
+        className={`hammer-project-card-mock__badge ${BADGE_VARIANT_CLASS[chip.variant]}`}
       >
         {chip.text}
       </span>
       {chip.ctaText && ctaPayload ? (
-        <button type="button" style={CTA_STYLE} onClick={() => onCtaClick(ctaPayload)}>
+        <button type="button" className="hammer-project-card-mock__cta" onClick={() => onCtaClick(ctaPayload)}>
           {chip.ctaText}
         </button>
       ) : null}
@@ -219,36 +175,15 @@ export default function ProjectCardMock(props: ProjectCardMockProps): JSX.Elemen
   }, [navigate]);
 
   return (
-    <section
-      style={{
-        display: "grid",
-        gap: 12,
-        padding: 12,
-        border: "1px solid rgba(148, 163, 184, 0.25)",
-        borderRadius: 12,
-        background: "#0b1220",
-        color: "#e6edf7",
-      }}
-    >
-      <header style={{ display: "grid", gap: 4 }}>
-        <h2 style={{ margin: 0 }}>Hammer Project Cards (Mock)</h2>
-        <div style={{ opacity: 0.78, fontSize: 13 }}>
+    <section className="hammer-project-card-mock">
+      <header className="hammer-project-card-mock__header">
+        <h2 className="hammer-project-card-mock__title">Hammer Project Cards (Mock)</h2>
+        <div className="hammer-project-card-mock__subtitle">
           Adapter proof-of-life for media resolver to badge chip props. Dev mode:{" "}
           <strong>{String(devMode)}</strong>
         </div>
         {lastDispatch ? (
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 12,
-              border: "1px dashed rgba(148, 163, 184, 0.35)",
-              borderRadius: 8,
-              padding: "6px 8px",
-              color: "#b8c7db",
-              background: "rgba(2, 6, 23, 0.45)",
-              whiteSpace: "pre-wrap",
-            }}
-          >
+          <div className="hammer-project-card-mock__dispatch">
             last dispatch: {lastDispatch.action}
             {"\n"}route: {lastDispatch.route || "(none)"}
             {"\n"}event: {lastDispatch.eventName || "(none)"}
@@ -256,12 +191,12 @@ export default function ProjectCardMock(props: ProjectCardMockProps): JSX.Elemen
         ) : null}
       </header>
 
-      <div style={{ display: "grid", gap: 10 }}>
+      <div className="hammer-project-card-mock__cards">
         {cards.map((card) => (
-          <article key={card.projectId} style={CARD_STYLE}>
-            <div style={{ display: "grid", gap: 4 }}>
-              <div style={{ fontWeight: 700 }}>{card.title}</div>
-              <div style={{ fontSize: 12, opacity: 0.72 }}>
+          <article key={card.projectId} className="hammer-project-card-mock__card">
+            <div className="hammer-project-card-mock__card-head">
+              <div className="hammer-project-card-mock__card-title">{card.title}</div>
+              <div className="hammer-project-card-mock__card-meta">
                 workspace: {card.workspaceId} | media: {card.result.media_id}
               </div>
             </div>
@@ -269,18 +204,7 @@ export default function ProjectCardMock(props: ProjectCardMockProps): JSX.Elemen
             {renderBadgeChip(card.chip, onCtaClick)}
 
             {devMode && card.chip.debugTooltip ? (
-              <pre
-                style={{
-                  margin: 0,
-                  border: "1px dashed rgba(148, 163, 184, 0.35)",
-                  borderRadius: 8,
-                  padding: 8,
-                  whiteSpace: "pre-wrap",
-                  fontSize: 12,
-                  color: "#b8c7db",
-                  background: "rgba(2, 6, 23, 0.45)",
-                }}
-              >
+              <pre className="hammer-project-card-mock__debug">
                 {card.chip.debugTooltip}
               </pre>
             ) : null}
