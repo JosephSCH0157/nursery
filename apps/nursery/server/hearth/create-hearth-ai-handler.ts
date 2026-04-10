@@ -1542,8 +1542,31 @@ function summarizeResearchResult(result: HearthResearchResult): Record<string, n
   };
 }
 
-function formatResearchSourceArtifact(source: { title: string | null; domain: string | null; url: string }): string {
+function formatResearchSourceArtifact(source: {
+  title: string | null;
+  domain: string | null;
+  url: string;
+  sourceType?: unknown;
+  ingestMode?: unknown;
+  transcriptAvailable?: unknown;
+  warnings?: unknown;
+}): string {
   const label = readOptionalString(source.title) ?? readOptionalString(source.domain) ?? source.url;
+  const sourceType = typeof source.sourceType === "string" ? source.sourceType : null;
+  const ingestMode = typeof source.ingestMode === "string" ? source.ingestMode : null;
+  const transcriptAvailable = typeof source.transcriptAvailable === "boolean" ? source.transcriptAvailable : null;
+  const warnings = Array.isArray(source.warnings)
+    ? source.warnings.filter((entry): entry is string => typeof entry === "string").slice(0, 2)
+    : [];
+
+  if (sourceType === "youtube_video") {
+    const mode = ingestMode ? ingestMode.replace(/_/g, " ") : null;
+    const captions = transcriptAvailable === true ? "captions: yes" : transcriptAvailable === false ? "captions: no" : null;
+    const extras = [mode, captions].filter(Boolean).join(", ");
+    const warningSuffix = warnings.length ? ` (${warnings.join("; ")})` : "";
+    return extras ? `${label} — youtube (${extras})${warningSuffix}` : `${label} — youtube${warningSuffix}`;
+  }
+
   return label;
 }
 
@@ -1597,6 +1620,27 @@ function buildResearchOutcomeLead(args: {
 }): string {
   const query = args.request.query.trim() || "this query";
   const sourceCount = args.result.sources.length;
+  const youtubeSource = args.result.sources.find((source) => source && typeof source === "object" && (source as { sourceType?: unknown }).sourceType === "youtube_video") as (
+    | null
+    | {
+      transcriptAvailable?: unknown;
+      warnings?: unknown;
+    }
+  );
+  const youtubeTranscriptAvailable = youtubeSource && typeof youtubeSource.transcriptAvailable === "boolean"
+    ? youtubeSource.transcriptAvailable
+    : null;
+  const youtubeWarnings = youtubeSource && Array.isArray(youtubeSource.warnings)
+    ? youtubeSource.warnings.filter((entry): entry is string => typeof entry === "string").slice(0, 2)
+    : [];
+  const youtubeEvidenceLine = youtubeTranscriptAvailable === true
+    ? "Video ingest: Based on video metadata and captions."
+    : youtubeTranscriptAvailable === false
+      ? "Video ingest: Based on video metadata only."
+      : null;
+  const youtubeWarningLine = youtubeWarnings.length
+    ? `Video warnings: ${youtubeWarnings.join(" ")}`
+    : null;
   const topArtifacts = args.result.sources
     .slice(0, 3)
     .map((source) => formatResearchSourceArtifact(source))
@@ -1632,7 +1676,10 @@ function buildResearchOutcomeLead(args: {
     : readOptionalString(args.result.synthesis.summary)
       ? `Retrieved findings: ${args.result.synthesis.summary}`
       : "Retrieved findings are available from the runtime source set.";
-  return `Research outcome: Retrieval found sources for "${query}". ${artifactLine} ${findingsLine}`;
+  const addendum = [youtubeEvidenceLine, youtubeWarningLine].filter(Boolean).join(" ");
+  return addendum
+    ? `Research outcome: Retrieval found sources for "${query}". ${artifactLine} ${findingsLine} ${addendum}`
+    : `Research outcome: Retrieval found sources for "${query}". ${artifactLine} ${findingsLine}`;
 }
 
 function enforceResearchOutcomeReply(args: {

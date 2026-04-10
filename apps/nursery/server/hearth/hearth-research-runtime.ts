@@ -356,6 +356,31 @@ function extractYouTubeVideoId(urlString: string): string | null {
   return null;
 }
 
+function buildBrowserLikeHeaders(): Headers {
+  const headers = new Headers();
+  headers.set("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+  headers.set("accept-language", "en-US,en;q=0.9");
+  headers.set(
+    "user-agent",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+  );
+  return headers;
+}
+
+function extractYouTubeDescriptionFromHtml(html: string): string | null {
+  const og = extractMetaContent(html, ["og:description", "description"]);
+  if (og) return og;
+
+  const match = html.match(/\"shortDescription\":\"((?:\\\\.|[^\"\\\\])*)\"/);
+  if (!match || !match[1]) return null;
+  try {
+    const decoded = JSON.parse(`"${match[1]}"`) as unknown;
+    return typeof decoded === "string" ? readText(decoded) : null;
+  } catch {
+    return null;
+  }
+}
+
 function parseVttTimestampToMs(value: string): number | null {
   const trimmed = value.trim();
   const match = trimmed.match(/^(?:(\d+):)?(\d{2}):(\d{2})\.(\d{3})$/);
@@ -478,7 +503,11 @@ async function fetchYouTubeCaptionTrackList(args: {
   listUrl.searchParams.set("type", "list");
 
   try {
-    const response = await fetch(listUrl.toString(), { redirect: "follow", signal: args.signal });
+    const response = await fetch(listUrl.toString(), {
+      redirect: "follow",
+      signal: args.signal,
+      headers: buildBrowserLikeHeaders(),
+    });
     if (!response.ok) return { tracks: null, error: `Track list returned ${response.status}` };
     const raw = await response.text();
     const parsed = parseYouTubeCaptionTracks(raw);
@@ -503,7 +532,11 @@ async function fetchYouTubeTranscriptVtt(args: {
   if (args.track.name) timedText.searchParams.set("name", args.track.name);
 
   try {
-    const response = await fetch(timedText.toString(), { redirect: "follow", signal: args.signal });
+    const response = await fetch(timedText.toString(), {
+      redirect: "follow",
+      signal: args.signal,
+      headers: buildBrowserLikeHeaders(),
+    });
     if (!response.ok) return { vtt: null, error: `Transcript returned ${response.status}` };
     const raw = await response.text();
     const trimmed = raw.trim();
@@ -522,7 +555,11 @@ async function fetchYouTubeOEmbed(args: {
     const oembed = new URL(YOUTUBE_OEMBED_URL);
     oembed.searchParams.set("url", args.url);
     oembed.searchParams.set("format", "json");
-    const response = await fetch(oembed.toString(), { redirect: "follow", signal: args.signal });
+    const response = await fetch(oembed.toString(), {
+      redirect: "follow",
+      signal: args.signal,
+      headers: buildBrowserLikeHeaders(),
+    });
     if (!response.ok) return null;
     const payload = (await response.json()) as unknown;
     if (!payload || typeof payload !== "object") return null;
@@ -742,7 +779,8 @@ async function fetchReadableSource(args: {
       const updatedAt = jsonLd.updatedAt || coerceIsoFromMeta(metaUpdated);
 
       if (sourceType === "youtube_video") {
-        addWarning("Description extraction unavailable.");
+        const description = extractYouTubeDescriptionFromHtml(rawText);
+        if (!description) addWarning("Description extraction unavailable.");
 
         const oembed = await fetchYouTubeOEmbed({ url: resolvedUrl, signal: timeoutController.signal });
         const channelName = (oembed && oembed.author) || jsonLd.author || metaAuthor || null;
@@ -805,6 +843,7 @@ async function fetchReadableSource(args: {
           canonicalUrl,
           publishedAt,
           updatedAt,
+          extractedText: description ? truncate(description, 2_000) : null,
           transcriptAvailable,
           transcript: transcriptPreview,
           transcriptSegments,
