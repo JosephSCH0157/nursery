@@ -549,6 +549,66 @@ function buildLinkOnlyResearchResult(args: {
   };
 }
 
+function shouldShortCircuitLinkIngest(requestTextWithoutUrls: string): boolean {
+  const trimmed = requestTextWithoutUrls.trim();
+  if (!trimmed) return true;
+  if (trimmed.length <= 24 && /^(try|again|check|test|one last time|ok|please|retry)$/i.test(trimmed)) return true;
+  if (/^(try|retry|check|test)\b/i.test(trimmed) && trimmed.length <= 48) return true;
+  return false;
+}
+
+function buildLinkIngestOnlyReply(args: { sources: HearthResearchSource[] }): string {
+  if (!args.sources.length) {
+    return "I didn’t receive any URLs to ingest.";
+  }
+
+  const source = args.sources[0];
+  const lines: string[] = [];
+  const isYoutube = source.sourceType === "youtube_video";
+
+  if (isYoutube) {
+    const basedOn = source.transcriptAvailable
+      ? "Based on video metadata and captions."
+      : "Based on video metadata only.";
+    lines.push(basedOn);
+  } else {
+    lines.push("Based on retrieved source metadata and extracted text (when available).");
+  }
+
+  const title = source.title?.trim() || null;
+  const publisher = source.publisher?.trim() || null;
+  const author = source.author?.trim() || null;
+  const publishedAt = source.publishedAt?.trim() || null;
+  const url = source.url;
+
+  lines.push(
+    "",
+    `Source: ${title ?? url}`,
+    ...(publisher ? [`Publisher: ${publisher}`] : []),
+    ...(author ? [`Author: ${author}`] : []),
+    ...(publishedAt ? [`Published: ${publishedAt}`] : []),
+    ...(source.ingestMode ? [`Ingest mode: ${source.ingestMode}`] : []),
+    ...(typeof source.transcriptAvailable === "boolean" ? [`Transcript available: ${source.transcriptAvailable}`] : []),
+  );
+
+  if (Array.isArray(source.warnings) && source.warnings.length) {
+    lines.push("", "Warnings:");
+    for (const warning of source.warnings.slice(0, 6)) {
+      lines.push(`- ${warning}`);
+    }
+  }
+
+  if (isYoutube) {
+    if (source.transcriptAvailable && Array.isArray(source.transcriptSegments) && source.transcriptSegments.length) {
+      lines.push("", `Captions: ${source.transcriptSegments.length} cue(s) extracted. Ask for timestamped quote pulls.`);
+    } else {
+      lines.push("", "Next step: paste YouTube “Show transcript” text (or any captions export) if you want timestamped quote pulls.");
+    }
+  }
+
+  return lines.join("\n").trim();
+}
+
 function hasExplicitDraftNow(text: string): boolean {
   const normalized = compactSpaces(text);
   return /\bdraft now\b/i.test(normalized)
@@ -3232,6 +3292,24 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             require_full_extraction: researchRequest.requireFullExtraction,
             ...summarizeResearchResult(researchResult),
           },
+        });
+      }
+
+      if (linkModeRequested && researchResult && shouldShortCircuitLinkIngest(textWithoutUrls)) {
+        const assistantText = buildLinkIngestOnlyReply({ sources: researchResult.sources });
+        return jsonResponse(200, {
+          ok: true,
+          assistant_text: assistantText,
+          reply: assistantText,
+          ops: [],
+          script_text: null,
+          tag_audit: null,
+          research_result: researchResult,
+          total_tokens: null,
+          actual_cost_usd: 0,
+          billable_tokens: 0,
+          credits_warning: null,
+          ...buildBillingSnapshot(lane),
         });
       }
       const readinessCheckRequested = isReadinessCheckRequest(requestText);
