@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { BackgroundBlurSettings, ForegroundMatte, SegmentationProviderReadiness, SegmentationResult } from "../types";
+import type { BackgroundBlurSettings, ForegroundMatte, SegmentationProviderReadiness } from "../types";
 import type { SegmentationProvider } from "../types";
 import type { SegmentationProviderId } from "../providers/segmentationProviderRegistry";
 import { createSegmentationProvider, isSegmentationProviderId } from "../providers/segmentationProviderRegistry";
@@ -560,9 +560,6 @@ export default function BackgroundBlurPreviewLayer(props: {
         if (readinessBefore.status !== "ready") {
           await provider.initialize();
         }
-
-        const primaryReadiness = provider.getReadiness();
-        const primaryStatus = resolveProviderStatus(primaryReadiness);
 
         let segProvider: SegmentationProvider | null = provider;
         let segProviderSource: "primary" | "secondary" = "primary";
