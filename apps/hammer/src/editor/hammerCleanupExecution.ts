@@ -6,6 +6,10 @@ export type HammerAudioCutSelection = {
   endSec: number;
 };
 
+export const HAMMER_FILLER_CUT_PAD_BEFORE_SEC = 0.02;
+export const HAMMER_FILLER_CUT_PAD_AFTER_SEC = 0.02;
+export const HAMMER_FILLER_CUT_SEAM_FADE_SEC = 0.01;
+
 const MIN_CUT_SEC = 0.0001;
 const MERGE_EPSILON_SEC = 0.001;
 
@@ -13,6 +17,11 @@ function clampToDuration(timeSec: number, durationSec: number): number {
   if (!Number.isFinite(durationSec) || durationSec <= 0) return 0;
   if (!Number.isFinite(timeSec)) return 0;
   return Math.max(0, Math.min(durationSec, timeSec));
+}
+
+function clampNonNegative(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, value);
 }
 
 function normalizeAndMerge(selections: HammerAudioCutSelection[]): HammerAudioCutSelection[] {
@@ -46,16 +55,21 @@ export function deriveAudioCutsForRemovedSegments(args: {
   segments: HammerTranscriptSegment[];
   removeSegmentIds: string[];
   durationSec: number;
+  padBeforeSec?: number;
+  padAfterSec?: number;
 }): HammerAudioCutSelection[] {
   if (!Array.isArray(args.removeSegmentIds) || args.removeSegmentIds.length === 0) return [];
   const removeSet = new Set(args.removeSegmentIds.filter(Boolean));
   if (removeSet.size === 0) return [];
 
+  const padBeforeSec = clampNonNegative(Number(args.padBeforeSec ?? 0));
+  const padAfterSec = clampNonNegative(Number(args.padAfterSec ?? 0));
+
   const selections: HammerAudioCutSelection[] = [];
   for (const segment of args.segments) {
     if (!removeSet.has(segment.segment_id)) continue;
-    const startSec = clampToDuration(Number(segment.start_sec), args.durationSec);
-    const endSec = clampToDuration(Number(segment.end_sec), args.durationSec);
+    const startSec = clampToDuration(Number(segment.start_sec) - padBeforeSec, args.durationSec);
+    const endSec = clampToDuration(Number(segment.end_sec) + padAfterSec, args.durationSec);
     if (endSec - startSec <= MIN_CUT_SEC) continue;
     selections.push({ startSec, endSec });
   }

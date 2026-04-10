@@ -603,6 +603,7 @@ export async function handleHammerStudioRackRenderRequest(
     const timelinePlan = buildHammerTimelineAudioRenderPlan({
       segments: request.timeline_segments,
       postFilterChain: shouldApplyRack ? chain.filterChain : null,
+      seamFadeSec: 0.01,
     });
     if (!timelinePlan) {
       return {

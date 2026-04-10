@@ -97,6 +97,9 @@ import {
 import {
   deriveAudioCutsForDeadAirClosure,
   deriveAudioCutsForRemovedSegments,
+  HAMMER_FILLER_CUT_PAD_AFTER_SEC,
+  HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
+  HAMMER_FILLER_CUT_SEAM_FADE_SEC,
 } from "./hammerCleanupExecution";
 import {
   resolveSelectedSegmentId,
@@ -1961,6 +1964,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const previewSurfaceRef = useRef<HTMLDivElement | null>(null);
   const imageAnimationContextMenuRef = useRef<HTMLDivElement | null>(null);
   const previewBrollVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const cutSeekFadeRef = useRef<{
+    token: number;
+    timerId: number | null;
+  }>({
+    token: 0,
+    timerId: null,
+  });
   const handleBackgroundEffectCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
     visualBackgroundEffectCanvasRef.current = canvas;
   }, []);
@@ -2017,6 +2027,47 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setAudioCutSelectionEndSec(null);
     setDismissedSilenceSuggestionIds(new Set());
   }, [launchContext.workpiece_id]);
+
+  const seekPreviewAudioWithOptionalSeamFade = useCallback((args: {
+    audio: HTMLVideoElement;
+    targetTime: number;
+    applySeamFade: boolean;
+  }): void => {
+    const targetTime = args.targetTime;
+    if (!Number.isFinite(targetTime) || targetTime < 0) {
+      args.audio.currentTime = 0;
+      return;
+    }
+
+    if (!args.applySeamFade || args.audio.muted || args.audio.volume <= 0) {
+      args.audio.currentTime = targetTime;
+      return;
+    }
+
+    const restoreVolume = args.audio.volume;
+    const ref = cutSeekFadeRef.current;
+    ref.token += 1;
+    const token = ref.token;
+    if (ref.timerId != null) {
+      window.clearTimeout(ref.timerId);
+      ref.timerId = null;
+    }
+
+    // Use a near-silent volume rather than exactly 0, so downstream "restore volume if 0" guards don't break the seam fade.
+    const nearSilent = 0.0001;
+    args.audio.volume = nearSilent;
+    args.audio.currentTime = targetTime;
+
+    ref.timerId = window.setTimeout(() => {
+      if (cutSeekFadeRef.current.token !== token) return;
+      const audio = args.audio;
+      if (!audio) return;
+      if (!audio.muted) {
+        audio.volume = restoreVolume;
+      }
+      cutSeekFadeRef.current.timerId = null;
+    }, Math.max(0, Math.round(HAMMER_FILLER_CUT_SEAM_FADE_SEC * 1000)));
+  }, [HAMMER_FILLER_CUT_SEAM_FADE_SEC]);
 
   useEffect(() => {
     setEditableAudioPolish((current) => {
@@ -4228,7 +4279,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     const shouldSynchronizeCurrentTime = srcChanged || !isPlaybackActive || isScrubbing || transportProgress.shouldSyncMediaTime;
     if (shouldSynchronizeCurrentTime && Math.abs(previewAudio.currentTime - targetTime) > SCRUB_SEEK_THRESHOLD_SEC) {
-      previewAudio.currentTime = targetTime;
+      seekPreviewAudioWithOptionalSeamFade({
+        audio: previewAudio,
+        targetTime,
+        applySeamFade: transportProgress.shouldSyncMediaTime,
+      });
     }
 
     if (transportProgress.shouldStop) {
@@ -4274,6 +4329,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     releaseGlobalPlaybackAuthority(previewAudio);
     pauseAuxiliaryMediaPlayback();
   }, [pauseAuxiliaryMediaPlayback, releaseGlobalPlaybackAuthority]);
+
+  useEffect(() => () => {
+    const timerId = cutSeekFadeRef.current.timerId;
+    if (timerId != null) {
+      window.clearTimeout(timerId);
+      cutSeekFadeRef.current.timerId = null;
+    }
+    cutSeekFadeRef.current.token += 1;
+  }, []);
 
   useEffect(() => {
     if (isPlaybackActive) return;
@@ -5775,6 +5839,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             segments: beforeState.transcriptSegments,
             removeSegmentIds: approvePlan.removeSegmentIds,
             durationSec: playbackTransportDurationSec,
+            ...(kind === "fillers"
+              ? {
+                padBeforeSec: HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
+                padAfterSec: HAMMER_FILLER_CUT_PAD_AFTER_SEC,
+              }
+              : {}),
           });
           committedCutCount = cutSelections.length;
           commitAudioCuts(cutSelections, { operationIdPrefix: `cleanup:${card.kind}:${card.id}` });

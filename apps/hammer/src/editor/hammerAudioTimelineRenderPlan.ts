@@ -59,16 +59,25 @@ export function resolveHammerActiveTimelineAudioSegments(
 export function buildHammerTimelineAudioRenderPlan(args: {
   segments: HammerAudioTimelineSegmentInput[];
   postFilterChain?: string | null;
+  seamFadeSec?: number | null;
 }): HammerAudioTimelineRenderPlan | null {
   const activeSegments = resolveHammerActiveTimelineAudioSegments(args.segments);
   if (activeSegments.length === 0) return null;
 
+  const seamFadeSecRaw = Number(args.seamFadeSec ?? 0);
+  const seamFadeSec = Number.isFinite(seamFadeSecRaw) ? Math.max(0, seamFadeSecRaw) : 0;
+
   const filterParts: string[] = [];
   for (let index = 0; index < activeSegments.length; index += 1) {
     const segment = activeSegments[index];
+    const durationSec = segment.end_sec - segment.start_sec;
+    const fadeOutStart = seamFadeSec > 0 ? Math.max(0, durationSec - seamFadeSec) : 0;
+    const seamFilters = seamFadeSec > 0
+      ? `afade=t=in:d=${fmt(seamFadeSec)},afade=t=out:st=${fmt(fadeOutStart)}:d=${fmt(seamFadeSec)},`
+      : "";
     filterParts.push(
       `[0:a]atrim=start=${fmt(segment.start_sec)}:end=${fmt(segment.end_sec)},`
-      + `asetpts=PTS-STARTPTS,volume=${segment.gain_linear.toFixed(6)}[seg${index}]`,
+      + `asetpts=PTS-STARTPTS,${seamFilters}volume=${segment.gain_linear.toFixed(6)}[seg${index}]`,
     );
   }
 
@@ -91,6 +100,7 @@ export function buildHammerTimelineAudioRenderPlan(args: {
       active_segments: activeSegments.length,
       disabled_segments_excluded: args.segments.filter((segment) => segment.is_disabled === true).length,
       post_filter_chain_applied: postChain.length > 0,
+      seam_fade_sec: seamFadeSec > 0 ? seamFadeSec : null,
     },
   };
 }
