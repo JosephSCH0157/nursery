@@ -20,7 +20,6 @@ import {
 import { deriveHammerSessionState, deriveHammerSessionStateActions } from "./hammerSessionState";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import {
-  buildHammerLaunchContextFromPersistence,
   buildHammerPersistenceSaveRequest,
   loadHammerPresence,
   readHammerPersistenceTarget,
@@ -85,6 +84,7 @@ import {
 import { loadHammerVisualTimelineStateFromSnapshot } from "../visuals/persistence/hammerVisualTimelinePersistence";
 import { hasTongsUserAccessToken } from "../lib/tongsFetch";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
+import { hydrateHammerOpenLaunchContext } from "./hammerOpenHydration";
 
 export interface HammerWorkspaceEditorProps {
   launchContext?: HammerLaunchContext;
@@ -240,6 +240,18 @@ export default function HammerWorkspaceEditor(
   const saveTimerRef = useRef<number | null>(null);
   const readyTransitionTimerRef = useRef<number | null>(null);
   const lastSavedPayloadRef = useRef<string | null>(null);
+  const pendingSaveRef = useRef<{
+    target: HammerPersistenceTarget;
+    revisionId: string;
+    request: {
+      editor_session: unknown;
+      revision_transcript: unknown;
+      audio_polish?: unknown;
+      visual_timeline?: unknown;
+      visual_placements?: unknown;
+    };
+    payloadKey: string;
+  } | null>(null);
   const prepRunKeyRef = useRef<string | null>(null);
   const prepAiNoticeApprovedRunKeyRef = useRef<string | null>(null);
   const prepAiNoticeCancelledRunKeyRef = useRef<string | null>(null);
@@ -654,6 +666,7 @@ export default function HammerWorkspaceEditor(
 
         let nextLaunchContext = withSessionId(props.launchContext);
         let nextHasCanonicalBasis = Boolean(nextLaunchContext);
+        let hydratedSnapshot: HammerPersistenceSnapshot | null = null;
 
         if (sessionResult.ok) {
           setActiveCanonicalRecording(sessionResult.data.canonical_recording);
@@ -672,7 +685,7 @@ export default function HammerWorkspaceEditor(
           const revisionVisualTimeline = revisionArtifactsResult.ok ? revisionArtifactsResult.data.visual_timeline : null;
           const revisionVisualPlacements = revisionArtifactsResult.ok ? revisionArtifactsResult.data.visual_placements : null;
 
-          const hydratedSnapshot = buildHydratedSnapshot({
+          const nextHydratedSnapshot = buildHydratedSnapshot({
             target: persistenceTarget,
             canonicalRecording: sessionResult.data.canonical_recording,
             revision: sessionResult.data.revision,
@@ -684,28 +697,35 @@ export default function HammerWorkspaceEditor(
             revisionVisualTimeline,
             revisionVisualPlacements,
           });
-          setLoadedPersistenceSnapshot(hydratedSnapshot);
+          hydratedSnapshot = nextHydratedSnapshot;
+          setLoadedPersistenceSnapshot(nextHydratedSnapshot);
 
-          const hydrated = buildHammerLaunchContextFromPersistence(
-            persistenceTarget,
-            hydratedSnapshot,
-            nextLaunchContext,
-          );
-          if (hydrated) {
-            nextLaunchContext = withSessionId(hydrated.launchContext);
-            nextHasCanonicalBasis = true;
-          }
+          const openHydration = hydrateHammerOpenLaunchContext({
+            target: persistenceTarget,
+            hydratedSnapshot: nextHydratedSnapshot,
+            initialLaunchContext: nextLaunchContext,
+            bootstrapLaunchContext: undefined,
+          });
+          nextLaunchContext = withSessionId(openHydration.launchContext);
+          nextHasCanonicalBasis = openHydration.hasCanonicalBasis;
         }
 
         if (!nextLaunchContext) {
           try {
-            nextLaunchContext = withSessionId(
+            const bootstrapLaunchContext = withSessionId(
               (await loadCanonicalBootstrapLaunchContext(
                 persistenceTarget.workspaceId,
                 persistenceTarget.workpieceId,
               )) ?? undefined,
             );
-            nextHasCanonicalBasis = Boolean(nextLaunchContext);
+            const mergedHydration = hydrateHammerOpenLaunchContext({
+              target: persistenceTarget,
+              hydratedSnapshot,
+              initialLaunchContext: undefined,
+              bootstrapLaunchContext,
+            });
+            nextLaunchContext = withSessionId(mergedHydration.launchContext);
+            nextHasCanonicalBasis = mergedHydration.hasCanonicalBasis;
           } catch {
             nextLaunchContext = undefined;
             nextHasCanonicalBasis = false;
@@ -1249,9 +1269,16 @@ export default function HammerWorkspaceEditor(
     });
     if (payloadKey === lastSavedPayloadRef.current) {
       setHasPendingSaveChanges(false);
+      pendingSaveRef.current = null;
       return;
     }
 
+    pendingSaveRef.current = {
+      target: persistenceTarget,
+      revisionId: activeRevision.id,
+      request,
+      payloadKey,
+    };
     setHasPendingSaveChanges(true);
     setSaveFailureMessage(null);
 
@@ -1273,6 +1300,7 @@ export default function HammerWorkspaceEditor(
             return;
           }
           lastSavedPayloadRef.current = payloadKey;
+          pendingSaveRef.current = null;
           setLastSavedAt(new Date().toISOString());
           setActiveRevision(result.data.revision);
           applyHostLoopState(resolveHammerSaveSuccess({
@@ -1303,6 +1331,48 @@ export default function HammerWorkspaceEditor(
     targetKey,
     workspaceSnapshot,
   ]);
+
+  useEffect(() => {
+    if (!canPersistCanonicalState) return;
+    if (typeof window === "undefined") return;
+
+    const flushPendingSave = () => {
+      const pending = pendingSaveRef.current;
+      if (!pending) return;
+      if (pending.payloadKey === lastSavedPayloadRef.current) {
+        pendingSaveRef.current = null;
+        return;
+      }
+
+      if (saveTimerRef.current != null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+
+      void saveHammerRecordingRevision(pending.target, pending.revisionId, pending.request as any)
+        .then((result) => {
+          if (!result.ok) return;
+          lastSavedPayloadRef.current = pending.payloadKey;
+          pendingSaveRef.current = null;
+        })
+        .catch(() => {
+          // keep flush best-effort; normal save loop will retry on next interaction
+        });
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushPendingSave();
+      }
+    };
+
+    window.addEventListener("pagehide", flushPendingSave);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flushPendingSave);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [canPersistCanonicalState]);
 
   useEffect(() => {
     if (!canPersistCanonicalState || !persistenceTarget) return;
