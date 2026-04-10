@@ -334,6 +334,17 @@ function clamp01(value: number): number {
   return value;
 }
 
+type AllowedForgeChatModel = (typeof FORGE_ALLOWED_CHAT_MODELS)[number];
+
+function isOpenAiModelAccessError(detail: string): boolean {
+  const normalized = (detail || "").toLowerCase();
+  if (!normalized) return false;
+  if (normalized.includes("model") && normalized.includes("does not exist")) return true;
+  if (normalized.includes("model") && normalized.includes("do not have access")) return true;
+  if (normalized.includes("model_not_found")) return true;
+  return false;
+}
+
 function isUuid(value: string | null): value is string {
   return !!value && UUID_RE.test(value);
 }
@@ -3039,7 +3050,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      const model = aiRoute.model;
+      let model = aiRoute.model;
       const reasoningEffort = aiRoute.reasoning;
       if (!ALLOWED_CHAT_MODELS.has(model)) {
         return jsonResponse(503, {
@@ -3179,15 +3190,18 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const modelAllowsTemperatureOverride = !isGpt5FamilyModel(model);
         const requestedTemperature = readBehaviorTemperature(bodyRaw.behavior);
         const completionMessages = [system, ...messages];
-        const callOpenAi = async (allowTemperatureOverride: boolean): Promise<Response> => {
+        const callOpenAi = async (
+          currentModel: string,
+          allowTemperatureOverride: boolean,
+        ): Promise<Response> => {
           const payload = allowTemperatureOverride
             ? {
-                model,
+                model: currentModel,
                 temperature: requestedTemperature,
                 messages: completionMessages,
               }
             : {
-                model,
+                model: currentModel,
                 messages: completionMessages,
               };
           return runAIRequest({
@@ -3198,7 +3212,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             sessionId: null,
             feature: chatFeature.feature,
             subfeature: chatFeature.subfeature,
-            model,
+            model: currentModel,
             reasoningEffort,
             trigger: AI_USAGE_TRIGGER.USER,
             ...usageAttribution,
@@ -3226,7 +3240,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         let upstream: Response;
         let usedTemperatureOverride = modelAllowsTemperatureOverride;
         try {
-          upstream = await callOpenAi(usedTemperatureOverride);
+          upstream = await callOpenAi(model, usedTemperatureOverride);
         } catch (error) {
           if (clientAborted || upstreamAbort.signal.aborted) {
             return new Response(null, { status: 499 });
@@ -3246,7 +3260,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             && isTemperatureUnsupportedError(detail)
           ) {
             try {
-              upstream = await callOpenAi(false);
+              upstream = await callOpenAi(model, false);
               usedTemperatureOverride = false;
             } catch (error) {
               if (clientAborted || upstreamAbort.signal.aborted) {
@@ -3257,6 +3271,37 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
             if (!clientAborted && !upstream.ok) {
               detail = await upstream.text();
+            }
+          }
+
+          if (
+            !upstream.ok
+            && upstream.status >= 400
+            && upstream.status <= 499
+            && isOpenAiModelAccessError(detail)
+          ) {
+            const fallbackModels: AllowedForgeChatModel[] = model === "gpt-5.3"
+              ? ["gpt-5.2", "gpt-5.1"]
+              : model === "gpt-5.2"
+                ? ["gpt-5.1"]
+                : [];
+            for (const candidateModel of fallbackModels) {
+              if (!ALLOWED_CHAT_MODELS.has(candidateModel)) continue;
+              try {
+                upstream = await callOpenAi(candidateModel, usedTemperatureOverride);
+              } catch (error) {
+                if (clientAborted || upstreamAbort.signal.aborted) {
+                  return new Response(null, { status: 499 });
+                }
+                throw error;
+              }
+              if (clientAborted) return new Response(null, { status: 499 });
+              if (upstream.ok) {
+                model = candidateModel;
+                break;
+              }
+              detail = await upstream.text();
+              if (!isOpenAiModelAccessError(detail)) break;
             }
           }
 
