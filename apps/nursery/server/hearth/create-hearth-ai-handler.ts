@@ -305,7 +305,11 @@ async function resolveRuntimeAiPolicy(args: {
     userId: args.userId,
     provider: args.provider,
   });
-  return resolveAiPolicy(args.supabaseService, {
+  const tongsSupabaseService = (
+    args.supabaseService as unknown as { schema?: (name: string) => unknown }
+  ).schema?.("tongs") as unknown as SupabaseClient | undefined;
+  const supabaseForPolicy = tongsSupabaseService ?? (args.supabaseService as unknown as SupabaseClient);
+  return resolveAiPolicy(supabaseForPolicy, {
     orgId: null,
     workspaceId: args.workspaceId,
     userId: args.userId,
