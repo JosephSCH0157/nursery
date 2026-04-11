@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type { MediaRef, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
@@ -54,6 +54,27 @@ export type UseHammerWorkspaceShellSnapshotEmitterArgs = {
 };
 
 export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceShellSnapshotEmitterArgs): void {
+  const lastEmittedKeyRef = useRef<string | null>(null);
+
+  const objectIdsRef = useRef<{ map: WeakMap<object, number>; nextId: number } | null>(null);
+  if (!objectIdsRef.current) {
+    objectIdsRef.current = { map: new WeakMap(), nextId: 1 };
+  }
+
+  const refId = (value: unknown): number => {
+    if (!value) return 0;
+    const t = typeof value;
+    if (t !== "object" && t !== "function") return 0;
+    const state = objectIdsRef.current;
+    if (!state) return 0;
+    const obj = value as object;
+    const existing = state.map.get(obj);
+    if (existing) return existing;
+    const next = state.nextId++;
+    state.map.set(obj, next);
+    return next;
+  };
+
   useEffect(() => {
     if (!args.onWorkspaceSnapshotChange) return;
 
@@ -68,14 +89,60 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
       fallback: editPlan,
     });
 
+    const normalizedBackgroundReplaceUrl = args.visualBackgroundReplaceImageUrl.trim()
+      ? args.visualBackgroundReplaceImageUrl.trim()
+      : null;
+
+    const editPlanSignature = createSemanticEditPlanSignature(
+      args.transcriptSourceId,
+      args.previewMode,
+      canonicalEditPlan.instructions,
+    );
+
+    const sessionId = args.launchContext.session_id ?? editPlan.session_id ?? `${args.launchContext.workpiece_id}:session`;
+
+    // Snapshot emission must be idempotent to avoid referential churn loops where parents store
+    // snapshots in state and immediately re-render, causing the emitter to run again.
+    const emissionKey = [
+      args.launchContext.workspace_id,
+      args.launchContext.workpiece_id,
+      sessionId,
+      args.launchContext.source_mode,
+      args.previewMode,
+      editPlanSignature,
+      args.currentPass,
+      args.selectedSegmentId ?? "",
+      args.selectedOverlayRowId ?? "",
+      args.mediaSourceLabel ?? "",
+      args.selectedMacroRecipeRef ?? "",
+      args.lastMacroRunRef ?? "",
+      normalizedBackgroundReplaceUrl ?? "",
+      // Stable-by-identity payloads
+      String(refId(args.passStatus)),
+      String(refId(args.editableTranscriptSegments)),
+      String(refId(args.canonicalStructuredTranscript)),
+      String(refId(args.exportCanonicalGraph)),
+      String(refId(args.editableVisualTimeline)),
+      String(refId(args.editableVisualPlacements)),
+      String(refId(args.editableAudioPolish)),
+      String(refId(args.mediaRef)),
+      String(refId(args.workspaceMapping)),
+      String(refId(args.visualTimelineProp)),
+    ].join("|");
+
+    if (emissionKey === lastEmittedKeyRef.current) {
+      return;
+    }
+    lastEmittedKeyRef.current = emissionKey;
+
     const snapshot: HammerWorkspaceSnapshot = {
       workspaceId: args.launchContext.workspace_id,
       workpieceId: args.launchContext.workpiece_id,
-      sessionId: args.launchContext.session_id ?? editPlan.session_id ?? `${args.launchContext.workpiece_id}:session`,
+      sessionId,
       sourceMode: args.launchContext.source_mode,
       previewMode: args.previewMode,
       editPlanStatus: "clean",
-      editPlanSignature: createSemanticEditPlanSignature(args.transcriptSourceId, args.previewMode, canonicalEditPlan.instructions),
+      editPlanSignature,
       transcriptSourceId: args.transcriptSourceId,
       currentPass: args.currentPass,
       passOrderVersion: HAMMER_PASS_ORDER_VERSION,
@@ -85,9 +152,7 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
       selectedOverlayRowId: args.selectedOverlayRowId,
       visualPreviewSettings: {
         ...args.visualPreviewSettings,
-        background_replace_image_url: args.visualBackgroundReplaceImageUrl.trim()
-          ? args.visualBackgroundReplaceImageUrl.trim()
-          : null,
+        background_replace_image_url: normalizedBackgroundReplaceUrl,
       },
       mediaRef: args.mediaRef,
       workspaceMapping: args.workspaceMapping,
@@ -114,12 +179,14 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
     args.onWorkspaceSnapshotChange,
     args.selectedMacroRecipeRef,
     args.canonicalStructuredTranscript,
+    args.exportCanonicalGraph,
     args.editableVisualPlacements,
     args.editableVisualTimeline,
     args.editableAudioPolish,
     args.currentPass,
     args.passStatus,
     args.selectedSegmentId,
+    args.selectedOverlayRowId,
     args.visualPreviewSettings,
     args.visualBackgroundReplaceImageUrl,
     args.editableTranscriptSegments,
