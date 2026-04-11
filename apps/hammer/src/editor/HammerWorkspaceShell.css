@@ -440,30 +440,6 @@ Guardrails:
   flex-wrap: wrap;
 }
 
-.hammer-transcript-view-toggle {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: 999px;
-  overflow: hidden;
-  background: rgba(2, 6, 23, 0.5);
-}
-
-.hammer-transcript-view-toggle button {
-  border: none;
-  background: transparent;
-  color: #bfdbfe;
-  font: inherit;
-  font-size: 11px;
-  padding: 5px 10px;
-  cursor: pointer;
-}
-
-.hammer-transcript-view-toggle button.is-active {
-  background: rgba(37, 99, 235, 0.18);
-  color: #e0f2fe;
-}
-
 .hammer-transcript-doc {
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 12px;

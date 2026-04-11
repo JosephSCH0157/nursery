@@ -412,22 +412,6 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                         <span>Subtractive-only: delete words/phrases, no additions.</span>
                       </div>
                       <div className="hammer-transcript-page-actions__buttons">
-                        <div className="hammer-transcript-view-toggle" role="group" aria-label="Transcript view mode">
-                          <button
-                            type="button"
-                            className={transcriptViewMode === "document" ? "is-active" : ""}
-                            onClick={() => setTranscriptViewMode("document")}
-                          >
-                            Document
-                          </button>
-                          <button
-                            type="button"
-                            className={transcriptViewMode === "segments" ? "is-active" : ""}
-                            onClick={() => setTranscriptViewMode("segments")}
-                          >
-                            Segments
-                          </button>
-                        </div>
                         <button
                           type="button"
                           disabled={!hasDirtyTranscriptEdits}
@@ -529,60 +513,59 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                       <span>{modifiedSegmentCount} modified</span>
                       <span>{modifiedSegmentCount > 0 ? "recompute needed" : "in sync"}</span>
                     </div>
-                    {transcriptViewMode === "document" ? (
-                      <article className="hammer-transcript-doc" aria-label="Transcript document view">
-                        {transcriptTurns.map((turn, turnIndex) => (
-                          <section
-                            key={`doc-turn-${turnIndex}-${turn.speaker}`}
-                            className="hammer-transcript-doc-turn"
-                            style={{ ["--speaker-hue" as any]: hashToHue(turn.speaker) }}
-                          >
-                            <header className="hammer-transcript-doc-turn__head">
-                              <span className="hammer-transcript-doc-turn__label">{turn.speaker || "Speaker"}</span>
-                            </header>
-                            <p className="hammer-transcript-doc-turn__para">
-                              {turn.segments.map((segment, segmentIndex) => {
-                                const draftText = draftTextBySegmentId[segment.segment_id];
-                                const value = draftText ?? segment.text;
-                                const prevText = segmentIndex > 0 ? String(turn.segments[segmentIndex - 1]?.text ?? "") : "";
-                                const joiner = segmentIndex > 0 ? getSegmentJoiner(prevText, String(value ?? "")) : "";
-                                return (
-                                  <span
-                                    key={segment.segment_id}
-                                    className={[
-                                      "hammer-transcript-doc-seg",
-                                      segment.segment_id === selectedSegmentId ? "is-active" : "",
-                                      transcriptSelectionSegmentIdSet.has(segment.segment_id) ? "is-range" : "",
-                                      modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
-                                      candidateSegmentIdSet.has(segment.segment_id) ? "is-candidate" : "",
-                                      activeCandidateSegmentIdSet.has(segment.segment_id) ? "is-candidate-active" : "",
-                                      segment.is_disabled ? "is-disabled" : "",
-                                    ].filter(Boolean).join(" ")}
-                                    title={`${segment.start_sec.toFixed(1)}s - ${segment.end_sec.toFixed(1)}s`}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      setFocusOverride("source-focus");
-                                      applyTranscriptSelection(segment.segment_id, event.shiftKey);
-                                    }}
-                                    ref={(element) => {
-                                      if (element) {
-                                        transcriptLineRefs.current.set(segment.segment_id, element);
-                                      } else {
-                                        transcriptLineRefs.current.delete(segment.segment_id);
-                                      }
-                                    }}
-                                  >
-                                    {joiner}
-                                    {value}
-                                  </span>
-                                );
-                              })}
-                            </p>
-                          </section>
-                        ))}
-                      </article>
-                    ) : (
-                      <article className="hammer-transcript-page" aria-label="Transcript segment view">
+                    <article className="hammer-transcript-doc" aria-label="Transcript document view">
+                      {transcriptTurns.map((turn, turnIndex) => (
+                        <section
+                          key={`doc-turn-${turnIndex}-${turn.speaker}`}
+                          className="hammer-transcript-doc-turn"
+                          style={{ ["--speaker-hue" as any]: hashToHue(turn.speaker) }}
+                        >
+                          <header className="hammer-transcript-doc-turn__head">
+                            <span className="hammer-transcript-doc-turn__label">{turn.speaker || "Speaker"}</span>
+                          </header>
+                          <p className="hammer-transcript-doc-turn__para">
+                            {turn.segments.map((segment, segmentIndex) => {
+                              const draftText = draftTextBySegmentId[segment.segment_id];
+                              const value = draftText ?? segment.text;
+                              const prevText = segmentIndex > 0 ? String(turn.segments[segmentIndex - 1]?.text ?? "") : "";
+                              const joiner = segmentIndex > 0 ? getSegmentJoiner(prevText, String(value ?? "")) : "";
+                              return (
+                                <span
+                                  key={segment.segment_id}
+                                  className={[
+                                    "hammer-transcript-doc-seg",
+                                    segment.segment_id === selectedSegmentId ? "is-active" : "",
+                                    transcriptSelectionSegmentIdSet.has(segment.segment_id) ? "is-range" : "",
+                                    modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
+                                    candidateSegmentIdSet.has(segment.segment_id) ? "is-candidate" : "",
+                                    activeCandidateSegmentIdSet.has(segment.segment_id) ? "is-candidate-active" : "",
+                                    segment.is_disabled ? "is-disabled" : "",
+                                  ].filter(Boolean).join(" ")}
+                                  title={`${segment.start_sec.toFixed(1)}s - ${segment.end_sec.toFixed(1)}s`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setFocusOverride("source-focus");
+                                    applyTranscriptSelection(segment.segment_id, event.shiftKey);
+                                  }}
+                                  ref={(element) => {
+                                    if (element) {
+                                      transcriptLineRefs.current.set(segment.segment_id, element);
+                                    } else {
+                                      transcriptLineRefs.current.delete(segment.segment_id);
+                                    }
+                                  }}
+                                >
+                                  {joiner}
+                                  {value}
+                                </span>
+                              );
+                            })}
+                          </p>
+                        </section>
+                      ))}
+                    </article>
+                    {showTranscriptSegmentDiagnostics ? (
+                      <article className="hammer-transcript-page" aria-label="Transcript segment diagnostics">
                         {transcriptTurns.map((turn, turnIndex) => (
                           <section
                             key={`turn-${turnIndex}-${turn.speaker}`}
@@ -598,7 +581,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                 const value = draftText ?? segment.text;
                                 return (
                                   <div
-                                    key={segment.segment_id}
+                                    key={`diag-${segment.segment_id}`}
                                     className={[
                                       "hammer-transcript-page-seg",
                                       segment.segment_id === selectedSegmentId ? "is-active" : "",
@@ -615,9 +598,9 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                     }}
                                     ref={(element) => {
                                       if (element) {
-                                        transcriptLineRefs.current.set(segment.segment_id, element);
+                                        transcriptLineRefs.current.set(`diag:${segment.segment_id}`, element);
                                       } else {
-                                        transcriptLineRefs.current.delete(segment.segment_id);
+                                        transcriptLineRefs.current.delete(`diag:${segment.segment_id}`);
                                       }
                                     }}
                                   >
@@ -633,7 +616,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                     </div>
                                     <textarea
                                       className="hammer-transcript-page-seg__text"
-                                      aria-label={`Transcript segment ${segment.segment_id}`}
+                                      aria-label={`Transcript segment ${segment.segment_id} (diagnostics)`}
                                       value={value}
                                       disabled={segment.is_disabled}
                                       rows={1}
@@ -669,7 +652,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                           </section>
                         ))}
                       </article>
-                    )}
+                    ) : null}
                   </>
                 ) : <div className="hammer-empty-state">Transcript is not loaded yet.</div>
               ) : null}
