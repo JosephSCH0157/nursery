@@ -19,6 +19,7 @@ import type {
   HammerPassId,
   HammerPassStatusMap,
   HammerDerivedTextLayer,
+  HammerPersistedAudioEdit,
   HammerPersistedAudioPolish,
   HammerPersistedVisualPreviewSettings,
   HammerPersistedStructuredTranscript,
@@ -978,6 +979,7 @@ function toEditorState(args: {
   segments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
   visualTimeline: HammerVisualTimelineState | null;
+  audioEdit: HammerPersistedAudioEdit | null;
   studioRack: HammerStudioRackState;
   editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   outputSelection: HammerOutputSelectionState;
@@ -1019,6 +1021,7 @@ function toEditorState(args: {
         })),
       }
       : null,
+    audioEdit: cloneHammerAudioEdit(args.audioEdit),
     studioRack: cloneHammerStudioRackState(args.studioRack),
     editorialAuthorityGraph: args.editorialAuthorityGraph
       ? {
@@ -1063,6 +1066,7 @@ function toShellState(state: HammerEditorStateSerializable): {
   segments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
   visualTimeline: HammerVisualTimelineState | null;
+  audioEdit: HammerPersistedAudioEdit | null;
   studioRack: HammerStudioRackState;
   editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   outputSelection: HammerOutputSelectionState;
@@ -1106,6 +1110,7 @@ function toShellState(state: HammerEditorStateSerializable): {
         })),
       }
       : null,
+    audioEdit: cloneHammerAudioEdit(state.audioEdit),
     studioRack: cloneHammerStudioRackState(state.studioRack),
     editorialAuthorityGraph: state.editorialAuthorityGraph
       ? {
@@ -3578,6 +3583,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       segments: editableTranscriptSegments,
       visualPlacements: editableVisualPlacements,
       visualTimeline: editableVisualTimeline,
+      audioEdit: editableAudioPolish?.audio_edit ?? null,
       studioRack: editableStudioRack,
       editorialAuthorityGraph: editableEditorialAuthorityGraph,
       outputSelection: editableOutputSelection,
@@ -3651,6 +3657,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setSelectedSegmentId(normalized.selectedSegmentId);
     setPlayheadSec(normalized.playheadSec);
     setTranscriptTimingHint(normalized.transcriptTimingHint);
+    setEditableAudioPolish((current) => {
+      const base = cloneHammerAudioPolish(current)
+        ?? cloneHammerAudioPolish(props.audioPolish)
+        ?? buildNotStartedHammerAudioPolish();
+      base.audio_edit = cloneHammerAudioEdit(normalized.audioEdit);
+      editableAudioPolishRef.current = base;
+      audioPolishHasLocalEditsRef.current = true;
+      return base;
+    });
     setCleanupPreview(null);
   }
 
@@ -4017,6 +4032,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     visualTimelineResetKey,
     transcriptSourceId,
     previewMode,
+    audioEdit: props.audioPolish?.audio_edit ?? null,
     maxUndoSteps: HISTORY_MAX_SIZE,
     playheadSec,
     selectedSegmentId,
@@ -4775,14 +4791,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     endSec: number | null;
     operationId?: string;
   }): boolean {
+    const controller = historyControllerRef.current;
+    if (!controller) return false;
+
+    const beforeState = controller.getState();
     if (args.operationId) {
-      const existing = editableAudioPolishRef.current?.audio_edit?.operations ?? [];
+      const existing = beforeState.audioEdit?.operations ?? [];
       if (existing.some((op) => op.id === args.operationId)) {
         return false;
       }
     }
+
     const committed = commitAudioCutSelection({
-      audioPolish: editableAudioPolishRef.current,
+      audioPolish: {
+        ...buildNotStartedHammerAudioPolish(),
+        audio_edit: cloneHammerAudioEdit(beforeState.audioEdit),
+      },
       selection: {
         startSec: args.startSec,
         endSec: args.endSec,
@@ -4790,13 +4814,21 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       durationSec: playbackTransportDurationSec,
       operationId: args.operationId,
     });
-    if (!committed) {
-      return false;
-    }
+    if (!committed) return false;
 
-    audioPolishHasLocalEditsRef.current = true;
-    editableAudioPolishRef.current = committed.audioPolish;
-    setEditableAudioPolish(committed.audioPolish);
+    const applied = applyHistoryMutation({
+      label: "Add audio cut",
+      kind: "timing_adjustment",
+      toolId: "polish",
+      immediatePersist: true,
+      computeAfter: (before) => ({
+        ...before,
+        audioEdit: cloneHammerAudioEdit(committed.audioPolish.audio_edit),
+        transcriptTimingHint: null,
+      }),
+    });
+    if (!applied) return false;
+
     setFocusOverride("time-focus");
     return true;
   }
@@ -5761,16 +5793,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           };
         };
 
-        const applied = applyHistoryMutation({
-          label: card.kind === "fillers" ? "Approve filler removal" : "Approve retake removal",
-          kind: "cleanup_tool",
-          toolId: "polish",
-          affectedSegments: card.segmentIds,
-          immediatePersist: true,
-          computeAfter,
-        });
-        if (!applied) return;
-
         const cutSelections = deriveAudioCutsForRemovedSegments({
           segments: beforeState.transcriptSegments,
           removeSegmentIds: approvePlan.removeSegmentIds,
@@ -5782,15 +5804,52 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             }
             : {}),
         });
+
+        const applied = applyHistoryMutation({
+          label: card.kind === "fillers" ? "Approve filler removal" : "Approve retake removal",
+          kind: "cleanup_tool",
+          toolId: "polish",
+          affectedSegments: card.segmentIds,
+          immediatePersist: true,
+          computeAfter: (before) => {
+            const after = computeAfter(before);
+            let nextAudioEdit = cloneHammerAudioEdit(before.audioEdit);
+            if (cutSelections.length > 0) {
+              let audioPolish = {
+                ...buildNotStartedHammerAudioPolish(),
+                audio_edit: cloneHammerAudioEdit(before.audioEdit),
+              };
+              for (let index = 0; index < cutSelections.length; index += 1) {
+                const selection = cutSelections[index];
+                const operationId = `cleanup:${card.kind}:${card.id}:${index}`;
+                const committed = commitAudioCutSelection({
+                  audioPolish,
+                  selection: { startSec: selection.startSec, endSec: selection.endSec },
+                  durationSec: playbackTransportDurationSec,
+                  operationId,
+                });
+                if (committed) {
+                  audioPolish = committed.audioPolish;
+                }
+              }
+              nextAudioEdit = cloneHammerAudioEdit(audioPolish.audio_edit);
+            }
+            return {
+              ...after,
+              audioEdit: nextAudioEdit,
+            };
+          },
+        });
+        if (!applied) return;
+
         const committedCutCount = cutSelections.length;
-        commitAudioCuts(cutSelections, { operationIdPrefix: `cleanup:${card.kind}:${card.id}` });
         setCandidateReceiptByKind((current) => ({
           ...current,
           [card.kind]: committedCutCount === 0
             ? "Applied cleanup."
             : `Applied cleanup + ${committedCutCount} timeline cut${committedCutCount === 1 ? "" : "s"}.`,
         }));
-        nextSegments = computeAfter(cloneEditorState(beforeState)).transcriptSegments;
+        nextSegments = historyControllerRef.current?.getState().transcriptSegments ?? nextSegments;
       } else {
         setCandidateReceiptByKind((current) => ({
           ...current,
@@ -5838,7 +5897,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         analysis,
         durationSec: playbackTransportDurationSec,
       });
-      commitAudioCuts(cutSelections, { operationIdPrefix: `dead_air:${analysis.thresholdSec.toFixed(1)}` });
 
       const affected = new Set<string>();
       for (const gap of analysis.gaps) {
@@ -5854,10 +5912,32 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         immediatePersist: true,
         computeAfter: (before) => {
           const synced = syncEditableTranscriptSegments(updated, before.selectedSegmentId);
+          let nextAudioEdit = cloneHammerAudioEdit(before.audioEdit);
+          if (cutSelections.length > 0) {
+            let audioPolish = {
+              ...buildNotStartedHammerAudioPolish(),
+              audio_edit: cloneHammerAudioEdit(before.audioEdit),
+            };
+            for (let index = 0; index < cutSelections.length; index += 1) {
+              const selection = cutSelections[index];
+              const operationId = `dead_air:${analysis.thresholdSec.toFixed(1)}:${index}`;
+              const committed = commitAudioCutSelection({
+                audioPolish,
+                selection: { startSec: selection.startSec, endSec: selection.endSec },
+                durationSec: playbackTransportDurationSec,
+                operationId,
+              });
+              if (committed) {
+                audioPolish = committed.audioPolish;
+              }
+            }
+            nextAudioEdit = cloneHammerAudioEdit(audioPolish.audio_edit);
+          }
           return {
             ...before,
             transcriptSegments: synced.segments,
             selectedSegmentId: synced.selectedSegmentId,
+            audioEdit: nextAudioEdit,
             transcriptTimingHint: null,
           };
         },

@@ -102,6 +102,7 @@ function baseState(): HammerEditorStateSerializable {
     transcriptSegments: [segment("a", "hello"), segment("b", "world", 1, 2)],
     visualPlacements,
     visualTimeline,
+    audioEdit: null,
     studioRack: createDefaultHammerStudioRackState(),
     editorialAuthorityGraph: null,
     outputSelection: {
@@ -425,6 +426,7 @@ async function testTranscriptSpanCutMutationUndoRedo() {
     ],
     visualPlacements: deriveLegacyVisualPlacementsFromTimeline(baseVisualTimeline()),
     visualTimeline: baseVisualTimeline(),
+    audioEdit: null,
     studioRack: createDefaultHammerStudioRackState(),
     editorialAuthorityGraph: null,
     outputSelection: {

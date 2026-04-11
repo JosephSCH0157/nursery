@@ -2,7 +2,11 @@ import { useEffect } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
-import type { HammerPersistedStructuredTranscript, HammerPersistedVisualPlacements } from "../persistence/hammerPersistenceContract";
+import type {
+  HammerPersistedAudioEdit,
+  HammerPersistedStructuredTranscript,
+  HammerPersistedVisualPlacements,
+} from "../persistence/hammerPersistenceContract";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import {
   createHammerHistoryController,
@@ -38,6 +42,7 @@ export type UseHammerWorkspaceShellHistoryControllerArgs = {
   visualTimelineResetKey: string;
   transcriptSourceId: string;
   previewMode: HammerPreviewMode;
+  audioEdit: HammerPersistedAudioEdit | null;
   maxUndoSteps: number;
   playheadSec: number;
   selectedSegmentId: string | null;
@@ -86,6 +91,7 @@ export type UseHammerWorkspaceShellHistoryControllerArgs = {
     segments: HammerTranscriptSegment[];
     visualPlacements: HammerPersistedVisualPlacements | null;
     visualTimeline: HammerVisualTimelineState | null;
+    audioEdit: HammerPersistedAudioEdit | null;
     studioRack: ReturnType<typeof createDefaultHammerStudioRackState>;
     editorialAuthorityGraph: ReturnType<typeof projectEditorialAuthorityGraphFromEditPlan>;
     outputSelection: any;
@@ -121,6 +127,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       segments: synced.segments,
       visualPlacements: args.visualPlacements ?? null,
       visualTimeline: args.visualTimeline ?? null,
+      audioEdit: args.audioEdit ?? null,
       studioRack: createDefaultHammerStudioRackState(),
       editorialAuthorityGraph: baselineAuthorityGraph,
       outputSelection: baselineOutputSelection,
@@ -212,17 +219,51 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
         baseRevisionId,
       });
 
+      let replayBaselineState = baselineState;
       if (loaded.baseRevisionId !== baseRevisionId) {
-        args.setHistoryStatus("History base revision mismatch detected. Opened baseline without replay.");
-        return;
+        const legacyNowIso = loaded.createdAt || loaded.updatedAt;
+        const legacyAuthorityGraph = legacyNowIso
+          ? projectEditorialAuthorityGraphFromEditPlan({
+            editPlan: baselineEditPlan,
+            workspaceId: args.launchContext.workspace_id,
+            workpieceId: args.launchContext.workpiece_id,
+            sessionId: args.launchContext.session_id ?? baselineEditPlan.session_id ?? `${args.launchContext.workpiece_id}:session`,
+            nowIso: legacyNowIso,
+          })
+          : null;
+        if (legacyAuthorityGraph && legacyNowIso) {
+          const legacyBaselineState = args.toEditorState({
+            segments: synced.segments,
+            visualPlacements: args.visualPlacements ?? null,
+            visualTimeline: args.visualTimeline ?? null,
+            audioEdit: args.audioEdit ?? null,
+            studioRack: createDefaultHammerStudioRackState(),
+            editorialAuthorityGraph: legacyAuthorityGraph,
+            outputSelection: baselineOutputSelection,
+            selectedSegmentId: synced.selectedSegmentId,
+            playheadSec: Math.max(0, Math.min(args.playheadSec, resolveTranscriptDurationSec(synced.segments))),
+            transcriptTimingHint: null,
+          });
+          const legacyBaseRevisionId = hashEditorState(legacyBaselineState);
+          if (loaded.baseRevisionId === legacyBaseRevisionId) {
+            replayBaselineState = legacyBaselineState;
+            args.historyBaselineStateRef.current = cloneEditorState(legacyBaselineState);
+          } else {
+            args.setHistoryStatus("History base revision mismatch detected. Opened baseline without replay.");
+            return;
+          }
+        } else {
+          args.setHistoryStatus("History base revision mismatch detected. Opened baseline without replay.");
+          return;
+        }
       }
 
       const controller = createHammerHistoryController({
         document: loaded,
-        initialState: baselineState,
+        initialState: replayBaselineState,
         maxUndoSteps: args.maxUndoSteps,
       });
-      let replayed = controller.getReplayStateFromBaseline(baselineState);
+      let replayed = controller.getReplayStateFromBaseline(replayBaselineState);
 
       const manifest = args.snapshotManifestRef.current;
       const activeSnapshotRef = manifest?.activeSnapshotRef ?? null;

@@ -33,6 +33,25 @@ function buildPlan(): HammerEditPlan {
   };
 }
 
+async function testAuthorityGraphProjectionDefaultNowIsoIsDeterministic() {
+  const plan = buildPlan();
+  const graphA = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: plan,
+    workspaceId: "ws_render",
+    workpieceId: "wp_render",
+    sessionId: "session_render",
+  });
+  const graphB = projectEditorialAuthorityGraphFromEditPlan({
+    editPlan: plan,
+    workspaceId: "ws_render",
+    workpieceId: "wp_render",
+    sessionId: "session_render",
+  });
+  assert.deepEqual(graphA, graphB);
+  assert.equal(graphA.updated_at, plan.updated_at);
+  assert.equal(graphA.operations.every((op) => op.updated_at === plan.updated_at), true);
+}
+
 async function testAssemblyDeterminismAndPosture() {
   const graph = projectEditorialAuthorityGraphFromEditPlan({
     editPlan: buildPlan(),
@@ -477,6 +496,7 @@ async function testApplyBackgroundEffectInstructionFlowsIntoVisualTimeline() {
 }
 
 async function run() {
+  await testAuthorityGraphProjectionDefaultNowIsoIsDeterministic();
   await testAssemblyDeterminismAndPosture();
   await testUnresolvedBrollIsNeverTreatedAsBoundMediaTruth();
   await testOrphanedLinkedDuckIsExplicitlyDegraded();

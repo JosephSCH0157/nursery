@@ -1,6 +1,7 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import type {
+  HammerPersistedAudioEdit,
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
@@ -10,6 +11,7 @@ import {
 } from "../lib/hammerVisualPlacements";
 import { createEmptyVisualTimelineState } from "../visuals/model/hammerVisualDefaults";
 import { assertValidTimelineState } from "../visuals/model/hammerVisualGuards";
+import { cloneHammerAudioEdit, normalizeHammerAudioEdit } from "../prep/hammerAudioPolish";
 import {
   cloneHammerStudioRackState,
   createDefaultHammerStudioRackState,
@@ -49,6 +51,7 @@ export interface HammerEditorStateSerializable {
   transcriptSegments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
   visualTimeline: HammerVisualTimelineState | null;
+  audioEdit: HammerPersistedAudioEdit | null;
   studioRack: HammerStudioRackState;
   editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   outputSelection: HammerOutputSelectionState;
@@ -209,6 +212,7 @@ export function cloneEditorState(state: HammerEditorStateSerializable): HammerEd
     transcriptSegments: cloneSegments(state.transcriptSegments),
     visualPlacements: cloneVisualPlacements(state.visualPlacements),
     visualTimeline: cloneVisualTimeline(state.visualTimeline),
+    audioEdit: cloneHammerAudioEdit(state.audioEdit),
     studioRack: cloneHammerStudioRackState(state.studioRack),
     editorialAuthorityGraph: cloneEditorialAuthorityGraph(state.editorialAuthorityGraph),
     outputSelection: {
@@ -517,6 +521,24 @@ function areOutputSelectionsEqual(
     && left.sourceRecipeRef === right.sourceRecipeRef;
 }
 
+function areAudioEditsEqual(left: HammerPersistedAudioEdit | null, right: HammerPersistedAudioEdit | null): boolean {
+  if (!left && !right) return true;
+  if (!left || !right) return false;
+  if (left.version !== right.version) return false;
+  const leftOps = left.operations ?? [];
+  const rightOps = right.operations ?? [];
+  if (leftOps.length !== rightOps.length) return false;
+  for (let index = 0; index < leftOps.length; index += 1) {
+    const lhs = leftOps[index];
+    const rhs = rightOps[index];
+    if (lhs.id !== rhs.id) return false;
+    if (lhs.type !== rhs.type) return false;
+    if (lhs.start_sec !== rhs.start_sec) return false;
+    if (lhs.end_sec !== rhs.end_sec) return false;
+  }
+  return true;
+}
+
 function areVisualTimelinesEqual(
   left: HammerVisualTimelineState | null,
   right: HammerVisualTimelineState | null,
@@ -763,6 +785,15 @@ function applyPatchToState(state: HammerEditorStateSerializable, patch: JsonPatc
     return next;
   }
 
+  if (root === "audioEdit") {
+    if (patch.op === "remove") {
+      next.audioEdit = null;
+      return next;
+    }
+    next.audioEdit = normalizeHammerAudioEdit(patch.value);
+    return next;
+  }
+
   if (root === "studioRack") {
     if (patch.op === "remove") {
       next.studioRack = createDefaultHammerStudioRackState();
@@ -912,6 +943,19 @@ export function buildStatePatches(
       op: "replace",
       path: "/visualTimeline",
       value: clonePatchValue(before.visualTimeline),
+    });
+  }
+
+  if (!areAudioEditsEqual(before.audioEdit, after.audioEdit)) {
+    forward.push({
+      op: "replace",
+      path: "/audioEdit",
+      value: clonePatchValue(after.audioEdit),
+    });
+    inverse.unshift({
+      op: "replace",
+      path: "/audioEdit",
+      value: clonePatchValue(before.audioEdit),
     });
   }
 

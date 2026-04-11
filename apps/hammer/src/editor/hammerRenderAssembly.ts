@@ -297,7 +297,10 @@ export function projectEditorialAuthorityGraphFromEditPlan(args: {
   sessionId?: string | null;
   nowIso?: string;
 }): HammerEditorialAuthorityGraph {
-  const nowIso = args.nowIso ?? new Date().toISOString();
+  const nowIso = args.nowIso
+    ?? args.editPlan.updated_at
+    ?? args.editPlan.created_at
+    ?? new Date().toISOString();
   const operations: HammerEditorialAuthorityOperation[] = args.editPlan.instructions.map((instruction, index) => {
     const operationId = `op:${instruction.instruction_id}`;
     const baseCapability = mapLegacyInstructionCapability(instruction);
@@ -406,7 +409,10 @@ export function projectEditPlanFromEditorialAuthorityGraph(args: {
   fallback: HammerEditPlan;
   nowIso?: string;
 }): HammerEditPlan {
-  const nowIso = args.nowIso ?? new Date().toISOString();
+  const nowIso = args.nowIso
+    ?? args.fallback.updated_at
+    ?? args.fallback.created_at
+    ?? new Date().toISOString();
   const activeOperations = args.graph.operations
     .filter((operation) => operation.lifecycle === "active")
     .sort((left, right) => left.sequence - right.sequence);
