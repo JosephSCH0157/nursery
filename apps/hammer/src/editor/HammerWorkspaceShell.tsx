@@ -2020,11 +2020,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const editableAudioPolishRef = useRef<HammerPersistedAudioPolish | null>(
     cloneHammerAudioPolish(props.audioPolish),
   );
+  const onHistoryRecoveryStatusChangeRef = useRef(props.onHistoryRecoveryStatusChange);
   const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
 
   useEffect(() => {
-    props.onHistoryRecoveryStatusChange?.(historyStatus);
-  }, [historyStatus, props.onHistoryRecoveryStatusChange]);
+    onHistoryRecoveryStatusChangeRef.current = props.onHistoryRecoveryStatusChange;
+  }, [props.onHistoryRecoveryStatusChange]);
+
+  useEffect(() => {
+    // Avoid render loops when parents pass unstable callback identities.
+    onHistoryRecoveryStatusChangeRef.current?.(historyStatus);
+  }, [historyStatus]);
 
   useEffect(() => {
     audioPolishHasLocalEditsRef.current = false;
