@@ -440,6 +440,109 @@ Guardrails:
   flex-wrap: wrap;
 }
 
+.hammer-transcript-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(2, 6, 23, 0.5);
+}
+
+.hammer-transcript-view-toggle button {
+  border: none;
+  background: transparent;
+  color: #bfdbfe;
+  font: inherit;
+  font-size: 11px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.hammer-transcript-view-toggle button.is-active {
+  background: rgba(37, 99, 235, 0.18);
+  color: #e0f2fe;
+}
+
+.hammer-transcript-doc {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.5);
+  padding: 14px 14px 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.hammer-transcript-doc-turn {
+  display: grid;
+  gap: 8px;
+}
+
+.hammer-transcript-doc-turn__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hammer-transcript-doc-turn__label {
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  color: hsl(var(--speaker-hue) 80% 86%);
+  background: hsla(var(--speaker-hue) 65% 55% / 0.18);
+  border: 1px solid hsla(var(--speaker-hue) 75% 70% / 0.35);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.hammer-transcript-doc-turn__para {
+  margin: 0;
+  color: #dbeafe;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hammer-transcript-doc-seg {
+  border-radius: 6px;
+  padding: 1px 2px;
+  cursor: pointer;
+}
+
+.hammer-transcript-doc-seg:hover {
+  background: rgba(30, 41, 59, 0.35);
+}
+
+.hammer-transcript-doc-seg.is-active {
+  background: rgba(37, 99, 235, 0.14);
+  box-shadow: inset 0 -2px 0 rgba(96, 165, 250, 0.75);
+}
+
+.hammer-transcript-doc-seg.is-range {
+  background: rgba(30, 58, 138, 0.22);
+}
+
+.hammer-transcript-doc-seg.is-disabled {
+  opacity: 0.7;
+  text-decoration: line-through;
+}
+
+.hammer-transcript-doc-seg.is-candidate {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: rgba(148, 163, 184, 0.8);
+}
+
+.hammer-transcript-doc-seg.is-candidate-active {
+  background: rgba(30, 64, 175, 0.18);
+  box-shadow: inset 0 -2px 0 rgba(125, 211, 252, 0.92);
+}
+
+.hammer-transcript-doc-seg.is-modified {
+  box-shadow: inset 0 -2px 0 rgba(251, 191, 36, 0.8);
+}
+
 .hammer-transcript-page {
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 12px;
