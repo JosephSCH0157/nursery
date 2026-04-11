@@ -28,7 +28,7 @@ export type UseHammerWorkspaceShellSnapshotEmitterArgs = {
   mediaSourceLabel: string | null;
   selectedMacroRecipeRef: string | null;
   lastMacroRunRef: string | null;
-  exportTranscriptForRelease: HammerPersistedStructuredTranscript | null;
+  canonicalStructuredTranscript: HammerPersistedStructuredTranscript | null;
   exportCanonicalGraph: any;
 
   currentPass: HammerPassId;
@@ -94,7 +94,7 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
       mediaSourceLabel: args.mediaSourceLabel,
       selectedMacroRecipeRef: args.selectedMacroRecipeRef ?? null,
       lastMacroRunRef: args.lastMacroRunRef ?? null,
-      structuredTranscript: args.exportTranscriptForRelease,
+      structuredTranscript: args.canonicalStructuredTranscript,
       editPlan: canonicalEditPlan,
       editorialAuthorityGraph: args.exportCanonicalGraph,
       visualPlacements: args.editableVisualTimeline
@@ -113,7 +113,7 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
     args.lastMacroRunRef,
     args.onWorkspaceSnapshotChange,
     args.selectedMacroRecipeRef,
-    args.exportTranscriptForRelease,
+    args.canonicalStructuredTranscript,
     args.editableVisualPlacements,
     args.editableVisualTimeline,
     args.editableAudioPolish,

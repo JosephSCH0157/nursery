@@ -158,6 +158,18 @@ export function resolveNextAudiblePlaybackTime(args: {
   audioEdit?: HammerPersistedAudioEdit | null;
   transcriptSegments?: HammerTranscriptSegment[] | null;
 }): number | null {
+  /**
+   * Playback authority contract (Hammer preview transport):
+   *
+   * Preview seeking is derived from the canonical editor truth only:
+   * - `audioEdit` → `effectiveCutRegions` (cut operations)
+   * - `transcriptSegments` (including `is_disabled` spans)
+   *
+   * Any edit approval that claims to affect playback must commit changes into the
+   * history-backed editor state (`audioEdit` and/or `transcriptSegments`) and
+   * force the preview transport to recompute from that committed snapshot in the
+   * same UI cycle (no optimistic "applied" without authority change).
+   */
   const durationSec = Number.isFinite(args.durationSec) ? Math.max(0, args.durationSec) : 0;
   if (durationSec <= 0) return null;
 

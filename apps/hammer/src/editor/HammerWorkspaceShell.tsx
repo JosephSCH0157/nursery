@@ -212,6 +212,7 @@ import { buildHammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBack
 import { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
 import { preserveTranscriptMetadata } from "../prep/hammerPrep";
 import {
+  buildNotStartedHammerAudioPolish,
   cloneHammerAudioEdit,
   cloneHammerAudioPolish,
 } from "../prep/hammerAudioPolish";
@@ -2023,7 +2024,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   useEffect(() => {
     props.onHistoryRecoveryStatusChange?.(historyStatus);
-  }, [historyStatus, props]);
+  }, [historyStatus, props.onHistoryRecoveryStatusChange]);
 
   useEffect(() => {
     audioPolishHasLocalEditsRef.current = false;
@@ -3440,6 +3441,26 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       derived_text_layers: cloneHammerDerivedTextLayers(editableDerivedTextLayers),
     };
   }, [editableDerivedTextLayers, props.structuredTranscript]);
+
+  const canonicalStructuredTranscriptForPersistence = useMemo(() => {
+    const base = preserveTranscriptMetadata(
+      editableTranscriptSegments,
+      workspaceStructuredTranscript ?? props.structuredTranscript ?? null,
+      mediaRef,
+      transcriptSourceId,
+    );
+    return {
+      ...base,
+      derived_text_layers: cloneHammerDerivedTextLayers(editableDerivedTextLayers),
+    };
+  }, [
+    editableDerivedTextLayers,
+    editableTranscriptSegments,
+    mediaRef,
+    props.structuredTranscript,
+    transcriptSourceId,
+    workspaceStructuredTranscript,
+  ]);
   const mediaPrepOutputs = useMemo(
     () => buildHammerMediaPrepOutputsPackage({
       structuredTranscript: workspaceStructuredTranscript ?? null,
@@ -4833,29 +4854,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return true;
   }
 
-  function commitAudioCuts(
-    selections: Array<{ startSec: number; endSec: number }>,
-    options?: { operationIdPrefix?: string },
-  ): number {
-    if (!Array.isArray(selections) || selections.length === 0) return 0;
-    let appliedCount = 0;
-    for (let index = 0; index < selections.length; index += 1) {
-      const selection = selections[index];
-      const operationId = options?.operationIdPrefix
-        ? `${options.operationIdPrefix}:${index}`
-        : undefined;
-      const applied = commitEditableAudioCut({
-        startSec: selection.startSec,
-        endSec: selection.endSec,
-        operationId,
-      });
-      if (applied) {
-        appliedCount += 1;
-      }
-    }
-    return appliedCount;
-  }
-
   function applyAudioCutSelection(): void {
     const applied = commitEditableAudioCut({
       startSec: audioCutSelectionStartSec,
@@ -5716,12 +5714,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (lastHandledCandidateIdRef.current[card.kind] === card.id) return;
 
     candidateDecisionInFlightRef.current[kind] = true;
-    lastHandledCandidateIdRef.current[card.kind] = card.id;
     if (kind === "fillers") setFillerDecisionInFlight(true);
     else setRetakeDecisionInFlight(true);
 
     try {
-      handledCandidateIdsRef.current[card.kind].add(card.id);
       const preserveIndex = kind === "retakes" ? retakeActiveCandidateIndex : fillerActiveCandidateIndex;
 
       const beforeState = captureWorkspaceState();
@@ -5768,13 +5764,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         })();
 
         if (!approvePlan) {
-          candidateDecisionInFlightRef.current[kind] = false;
-          if (kind === "fillers") setFillerDecisionInFlight(false);
-          else setRetakeDecisionInFlight(false);
+          lastHandledCandidateIdRef.current[card.kind] = null;
           return;
         }
 
-        const computeAfter = (before: HammerEditorStateSerializable): HammerEditorStateSerializable => {
+        const baselineTextById = new Map(beforeState.transcriptSegments.map((segment) => [segment.segment_id, segment.text] as const));
+        const transcriptWouldChange = approvePlan.removeSegmentIds.length > 0
+          || approvePlan.updateSegments.some((update) => {
+            const baseline = baselineTextById.get(update.segmentId);
+            return baseline != null && update.text != null && update.text !== baseline;
+          });
+
+        const computeTranscriptAfter = (before: HammerEditorStateSerializable): HammerEditorStateSerializable => {
           let updatedSegments = before.transcriptSegments.filter((segment) => (
             !approvePlan.removeSegmentIds.includes(segment.segment_id)
           ));
@@ -5789,7 +5790,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             ...before,
             transcriptSegments: synced.segments,
             selectedSegmentId: synced.selectedSegmentId,
-            transcriptTimingHint: null,
           };
         };
 
@@ -5805,6 +5805,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             : {}),
         });
 
+        if (!transcriptWouldChange && cutSelections.length === 0) {
+          setCandidateReceiptByKind((current) => ({
+            ...current,
+            [card.kind]: "No-op: candidate approval produced no transcript or playback changes.",
+          }));
+          lastHandledCandidateIdRef.current[card.kind] = null;
+          return;
+        }
+
+        const beforeAudioOpCount = beforeState.audioEdit?.operations?.length ?? 0;
+
         const applied = applyHistoryMutation({
           label: card.kind === "fillers" ? "Approve filler removal" : "Approve retake removal",
           kind: "cleanup_tool",
@@ -5812,7 +5823,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           affectedSegments: card.segmentIds,
           immediatePersist: true,
           computeAfter: (before) => {
-            const after = computeAfter(before);
+            const transcriptAfter = computeTranscriptAfter(before);
             let nextAudioEdit = cloneHammerAudioEdit(before.audioEdit);
             if (cutSelections.length > 0) {
               let audioPolish = {
@@ -5834,23 +5845,71 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               }
               nextAudioEdit = cloneHammerAudioEdit(audioPolish.audio_edit);
             }
+            const afterAudioOpCount = nextAudioEdit?.operations?.length ?? 0;
+            const changesCommitted = transcriptWouldChange || afterAudioOpCount !== (before.audioEdit?.operations?.length ?? 0);
             return {
-              ...after,
+              ...transcriptAfter,
               audioEdit: nextAudioEdit,
+              transcriptTimingHint: changesCommitted ? null : before.transcriptTimingHint,
             };
           },
         });
-        if (!applied) return;
+        if (!applied) {
+          setCandidateReceiptByKind((current) => ({
+            ...current,
+            [card.kind]: "No-op: candidate approval did not commit any canonical changes.",
+          }));
+          lastHandledCandidateIdRef.current[card.kind] = null;
+          return;
+        }
 
-        const committedCutCount = cutSelections.length;
+        const afterState = historyControllerRef.current?.getState() ?? null;
+        const afterAudioOpCount = afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount;
+        const committedCutCount = Math.max(0, afterAudioOpCount - beforeAudioOpCount);
+
+        handledCandidateIdsRef.current[card.kind].add(card.id);
+        lastHandledCandidateIdRef.current[card.kind] = card.id;
+
+        if (import.meta.env.DEV && typeof window !== "undefined") {
+          const enabled = Boolean((window as any).__forgeHammerDebugCandidateApproval__);
+          if (enabled) {
+            const effectiveRegions = getEffectiveCutRegions(afterState?.audioEdit ?? null, playbackTransportDurationSec);
+            const seekTarget = afterState
+              ? resolveNextAudiblePlaybackTime({
+                requestedTimeSec: afterState.playheadSec,
+                durationSec: playbackTransportDurationSec,
+                effectiveCutRegions: effectiveRegions,
+                transcriptSegments: afterState.transcriptSegments,
+              })
+              : null;
+            // eslint-disable-next-line no-console
+            console.debug("[HammerCandidateApproval]", {
+              kind: card.kind,
+              cardId: card.id,
+              primarySegmentId: card.primarySegmentId,
+              transcriptWouldChange,
+              removeSegmentIds: approvePlan.removeSegmentIds,
+              updateSegments: approvePlan.updateSegments,
+              plannedCutCount: cutSelections.length,
+              beforeAudioOpCount,
+              afterAudioOpCount,
+              committedCutCount,
+              effectiveCutRegions: effectiveRegions.length,
+              seekTarget,
+            });
+          }
+        }
+
         setCandidateReceiptByKind((current) => ({
           ...current,
-          [card.kind]: committedCutCount === 0
-            ? "Applied cleanup."
-            : `Applied cleanup + ${committedCutCount} timeline cut${committedCutCount === 1 ? "" : "s"}.`,
+          [card.kind]: committedCutCount > 0
+            ? `Applied cleanup + ${committedCutCount} timeline cut${committedCutCount === 1 ? "" : "s"}.`
+            : "Applied transcript cleanup (no new timeline cuts committed).",
         }));
-        nextSegments = historyControllerRef.current?.getState().transcriptSegments ?? nextSegments;
+        nextSegments = afterState?.transcriptSegments ?? nextSegments;
       } else {
+        handledCandidateIdsRef.current[card.kind].add(card.id);
+        lastHandledCandidateIdRef.current[card.kind] = card.id;
         setCandidateReceiptByKind((current) => ({
           ...current,
           [card.kind]: "Candidate discarded (no transcript or audio change).",
@@ -9869,7 +9928,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     mediaSourceLabel,
     selectedMacroRecipeRef: props.selectedMacroRecipeRef ?? null,
     lastMacroRunRef: props.lastMacroRunRef ?? null,
-    exportTranscriptForRelease: exportBasis.transcriptForRelease,
+    canonicalStructuredTranscript: canonicalStructuredTranscriptForPersistence,
     exportCanonicalGraph: exportBasis.canonicalGraph,
     currentPass,
     passStatus,

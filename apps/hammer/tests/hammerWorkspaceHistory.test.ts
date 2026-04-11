@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { HammerPersistedAudioEdit } from "../../../packages/contracts/hammer/audio-edit.contract";
 import type { HammerTranscriptSegment } from "../../../packages/contracts/hammer/transcript.contract";
 import {
   applyPatches,
@@ -417,6 +418,55 @@ async function testDisabledAndGainPersistThroughHistory() {
   assert.equal(controller.getState().transcriptSegments[0]?.gain_db, -3);
 }
 
+function audioEdit(operations: HammerPersistedAudioEdit["operations"]): HammerPersistedAudioEdit {
+  return {
+    version: "v1",
+    operations,
+  };
+}
+
+async function testAudioEditOperationsPersistThroughHistory() {
+  const initial = baseState();
+  initial.audioEdit = audioEdit([
+    { id: "cut:one", type: "cut", start_sec: 0.4, end_sec: 0.8 },
+  ]);
+
+  const controller = createHammerHistoryController({
+    document: createHammerHistoryDocument({
+      workpieceId: "wp-audio-edit",
+      sessionId: "session-audio-edit",
+      baseRevisionId: hashEditorState(initial),
+    }),
+    initialState: initial,
+  });
+
+  const next = cloneEditorState(initial);
+  next.audioEdit = audioEdit([
+    ...(initial.audioEdit?.operations ?? []),
+    { id: "cut:two", type: "cut", start_sec: 1.1, end_sec: 1.3 },
+  ]);
+
+  const entry = controller.applyMutation({
+    label: "Add audio cut operation",
+    kind: "cleanup_tool",
+    nextState: next,
+  });
+  assert.ok(entry);
+
+  assert.equal(controller.getState().audioEdit?.operations.length, 2);
+  controller.undo();
+  assert.equal(controller.getState().audioEdit?.operations.length, 1);
+  controller.redo();
+  assert.equal(controller.getState().audioEdit?.operations.length, 2);
+
+  const patches = buildStatePatches(initial, next);
+  assert.equal(patches.forward.some((patch) => patch.path.startsWith("/audioEdit")), true);
+  assert.deepEqual(applyPatches(initial, patches.forward).audioEdit, next.audioEdit);
+
+  const replayed = controller.getReplayStateFromBaseline(initial);
+  assert.deepEqual(replayed.audioEdit, next.audioEdit);
+}
+
 async function testTranscriptSpanCutMutationUndoRedo() {
   const initial: HammerEditorStateSerializable = {
     transcriptSegments: [
@@ -565,6 +615,7 @@ async function run() {
   await testOutputSelectionMultipleDerivedAppliesRestoreInOrder();
   await testReplayFromSnapshotTail();
   await testDisabledAndGainPersistThroughHistory();
+  await testAudioEditOperationsPersistThroughHistory();
   await testTranscriptSpanCutMutationUndoRedo();
   await testVisualCompositionFieldsPersistAcrossUndoRedo();
   await testCompatibilityPlacementsDoNotDriveHistoryDiffs();

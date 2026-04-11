@@ -215,14 +215,13 @@ function toStructuredTranscript(
   snapshot: HammerWorkspaceSnapshot,
   existingStructuredTranscript?: HammerPersistedStructuredTranscript | null,
 ): HammerPersistedStructuredTranscript {
-  const persistedStructuredTranscript = cloneHammerStructuredTranscript(snapshot.structuredTranscript);
-  if (persistedStructuredTranscript) {
-    return persistedStructuredTranscript;
-  }
+  const basis = cloneHammerStructuredTranscript(snapshot.structuredTranscript)
+    ?? existingStructuredTranscript
+    ?? null;
 
   return preserveTranscriptMetadata(
     snapshot.transcriptSegments,
-    existingStructuredTranscript,
+    basis,
     snapshot.mediaRef,
     snapshot.transcriptSourceId,
   );
