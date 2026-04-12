@@ -66,6 +66,7 @@ import {
   requestHammerAudioPolishProgress,
   type HammerAudioPolishPhase,
 } from "../prep/hammerAudioPolishApi";
+import { resolveAudioPolishInputSource } from "../prep/resolveAudioPolishInputSource";
 import { requestHammerTranscriptPrep } from "../prep/hammerPrepApi";
 import {
   clearHammerTranscriptPrepNonAiMissingBehavior,
@@ -431,6 +432,67 @@ export default function HammerWorkspaceEditor(
       return args.currentSnapshot;
     }
 
+    const resolvedInput = resolveAudioPolishInputSource({
+      workpiece_id: args.launchContext.workpiece_id,
+      prepSource,
+    });
+    const resolved_input_type = resolvedInput.supported ? resolvedInput.resolved_input_type : resolvedInput.resolved_input_type;
+
+    if (import.meta.env.DEV && typeof console !== "undefined") {
+      console.log("[AudioPolish:input]", {
+        source_kind: prepSource.source_kind,
+        canonical_workpiece_path: prepSource.canonical_workpiece_path,
+        local_relpath: prepSource.local_relpath,
+        resolved_input_type,
+      });
+    }
+
+    if (!resolvedInput.supported) {
+      args.logRun?.error("audio_polish:input_unresolvable", {
+        source_kind: prepSource.source_kind,
+        canonical_workpiece_path: prepSource.canonical_workpiece_path,
+        local_relpath: prepSource.local_relpath,
+        reason: resolvedInput.reason,
+      });
+      const failureArtifact = buildFailedHammerAudioPolish({
+        prepSource,
+        failureCode: "unsupported_source",
+        failureReason: resolvedInput.reason,
+        settingsSummary: {
+          source_kind: prepSource.source_kind,
+          resolved_input_type: resolvedInput.resolved_input_type,
+          attempted_sources_json: JSON.stringify(resolvedInput.attempted_sources),
+        },
+      });
+      const failedSave = await saveHammerRecordingRevision(
+        persistenceTarget,
+        activeRevision.id,
+        { audio_polish: { data: failureArtifact } },
+      );
+      if (!failedSave.ok) throw new Error(failedSave.error);
+      setActiveRevision(failedSave.data.revision);
+      return {
+        ...(args.currentSnapshot ?? {
+          schema_version: 1,
+          state: null,
+          editor_session: { path: null, updated_at: null, data: null },
+          structured_transcript: { path: null, updated_at: null, data: null },
+          speaker_map: { path: null, updated_at: null, data: null },
+          visual_placements: { path: null, updated_at: null, data: null },
+          visual_timeline: { path: null, updated_at: null, data: null },
+          audio_polish: { path: null, updated_at: null, data: null },
+          edit_plan: { path: null, updated_at: null, data: null },
+          editorial_authority: { path: null, updated_at: null, data: null },
+          macro_hooks: { recipe_ref: null, last_run_ref: null },
+        }),
+        audio_polish: {
+          path: failedSave.data.revision.audio_polish_path,
+          updated_at: new Date().toISOString(),
+          data: failureArtifact,
+        },
+      } as HammerPersistenceSnapshot;
+    }
+
     args.logRun?.log("audio_polish:starting", {
       media_kind: prepSource.mediaRef.kind,
       canonical_workpiece_path: prepSource.canonical_workpiece_path,
@@ -494,6 +556,8 @@ export default function HammerWorkspaceEditor(
         workspace_id: args.launchContext.workspace_id,
         workpiece_id: args.launchContext.workpiece_id,
         media_kind: prepSource.mediaRef.kind,
+        input: resolvedInput.source,
+        tongs_origin: typeof window !== "undefined" ? window.location.origin : null,
         local_root_abs: prepSource.local_root_abs,
         local_relpath: prepSource.local_relpath,
         canonical_workpiece_path: prepSource.canonical_workpiece_path,
@@ -504,6 +568,7 @@ export default function HammerWorkspaceEditor(
         phase: response.phase ?? null,
         failure_code: response.failure_code ?? null,
         failed_phase: response.failed_phase ?? null,
+        processor_version: response.processor_version,
       });
       if (response.phase) {
         args.onPhaseChange?.(response.phase);
@@ -534,8 +599,23 @@ export default function HammerWorkspaceEditor(
       args.logRun?.log("audio_polish:response_normalized", {
         status: response.status,
         failure_code: response.status === "failed" ? (response.failure_code ?? "processing_failed") : null,
+        failure_reason: response.status === "failed" ? (response.failure_reason ?? null) : null,
         output_workpiece_path: response.output_workpiece_path ?? null,
         output_local_relpath: response.output_local_relpath ?? null,
+        output_duration_ms: response.output_duration_ms ?? null,
+        ...(response.status === "failed"
+          ? (() => {
+            const settings = response.settings_summary ?? {};
+            const entries = Object.entries(settings);
+            const focusEntries = entries
+              .filter(([key]) => /ffmpeg|ffprobe|source|working|mime|duration|sample|channel|bit/i.test(key))
+              .slice(0, 24);
+            return {
+              settings_keys: entries.length,
+              settings_focus: Object.fromEntries(focusEntries),
+            };
+          })()
+          : { processor_version: response.processor_version }),
       });
 
       const finalSave = await saveHammerRecordingRevision(
@@ -895,6 +975,8 @@ export default function HammerWorkspaceEditor(
         setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
 
         let outcome: "prepared" | "failed" = "failed";
+        let audioPolishStatus: string | null = null;
+        let audioPolishFailureCode: string | null = null;
         try {
           const visualsSpan = run.span("visual_placements:ensure");
           let nextSnapshot = await ensureVisualPlacements({
@@ -922,6 +1004,10 @@ export default function HammerWorkspaceEditor(
               logRun: run,
             }) ?? nextSnapshot;
             audioSpan.end({ ok: true });
+            audioPolishStatus = nextSnapshot.audio_polish.data?.status ?? null;
+            audioPolishFailureCode = nextSnapshot.audio_polish.data?.status === "failed"
+              ? (nextSnapshot.audio_polish.data.failure_code ?? null)
+              : null;
           } catch (error) {
             // Audio polish falls back to raw playback without blocking workspace open.
             run.warn("audio_polish:skipped_after_error", {
@@ -946,7 +1032,11 @@ export default function HammerWorkspaceEditor(
           setShowPreparedHandoff(false);
           run.error("reuse_stub_transcript:failed", { message });
         } finally {
-          run.end({ outcome });
+          run.end({
+            outcome,
+            audio_polish_status: audioPolishStatus,
+            audio_polish_failure_code: audioPolishFailureCode,
+          });
         }
       };
 
@@ -1027,6 +1117,8 @@ export default function HammerWorkspaceEditor(
       setPrepFailureKind(null);
 
       let outcome: "prepared" | "failed" | "non_ai_missing" | "error" = "error";
+      let audioPolishStatus: string | null = null;
+      let audioPolishFailureCode: string | null = null;
       try {
         // Non-AI attempt first: reuse any existing transcript artifacts before starting AI transcription.
         if (!prepAiFallbackRequested && persistenceTarget && activeCanonicalRecording && !activeCanonicalRecording.sealed_at) {
@@ -1137,6 +1229,10 @@ export default function HammerWorkspaceEditor(
                 logRun: run,
               });
               audioSpan.end({ ok: Boolean(audioSnapshot) });
+              audioPolishStatus = audioSnapshot?.audio_polish.data?.status ?? null;
+              audioPolishFailureCode = audioSnapshot?.audio_polish.data?.status === "failed"
+                ? (audioSnapshot.audio_polish.data.failure_code ?? null)
+                : null;
               if (!isPrepExecutionActive(executionId)) return;
               if (audioSnapshot) setLoadedPersistenceSnapshot(audioSnapshot);
 
@@ -1328,6 +1424,10 @@ export default function HammerWorkspaceEditor(
             logRun: run,
           });
           audioSpan.end({ ok: Boolean(audioSnapshot) });
+          audioPolishStatus = audioSnapshot?.audio_polish.data?.status ?? null;
+          audioPolishFailureCode = audioSnapshot?.audio_polish.data?.status === "failed"
+            ? (audioSnapshot.audio_polish.data.failure_code ?? null)
+            : null;
           if (audioSnapshot) {
             setLoadedPersistenceSnapshot(audioSnapshot);
           }
@@ -1377,7 +1477,11 @@ export default function HammerWorkspaceEditor(
           // Keep the user-facing failure stable even if persistence also failed.
         }
       } finally {
-        run.end({ outcome });
+        run.end({
+          outcome,
+          audio_polish_status: audioPolishStatus,
+          audio_polish_failure_code: audioPolishFailureCode,
+        });
       }
     };
 
