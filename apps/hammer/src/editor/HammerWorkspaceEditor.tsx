@@ -87,6 +87,10 @@ import { loadHammerVisualTimelineStateFromSnapshot } from "../visuals/persistenc
 import { hasTongsUserAccessToken } from "../lib/tongsFetch";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
 import { hydrateHammerOpenLaunchContext } from "./hammerOpenHydration";
+import {
+  createHammerDevConsoleLogger,
+  type HammerDevConsoleRun,
+} from "../lib/hammerDevConsole";
 
 export interface HammerWorkspaceEditorProps {
   launchContext?: HammerLaunchContext;
@@ -191,6 +195,11 @@ function useDynamicCssText(scopeId: string, cssText: string): void {
 export default function HammerWorkspaceEditor(
   props: HammerWorkspaceEditorProps,
 ): JSX.Element {
+  const ingestLog = useMemo(
+    () => createHammerDevConsoleLogger({ scope: "HammerIngest", routeSearch: props.routeSearch }),
+    [props.routeSearch],
+  );
+
   const persistenceMode = props.persistenceMode ?? "disabled";
   const persistenceTarget = useMemo(
     () => (persistenceMode === "canonical"
@@ -317,6 +326,7 @@ export default function HammerWorkspaceEditor(
     transcriptSourceId: string;
     transcriptSegments: HammerWorkspaceSnapshot["transcriptSegments"];
     currentSnapshot: HammerPersistenceSnapshot | null;
+    logRun?: HammerDevConsoleRun;
   }): Promise<HammerPersistenceSnapshot> => {
     if (!persistenceTarget || !activeRevision) {
       throw new Error("Hammer visual placement persistence requires a canonical target.");
@@ -326,6 +336,10 @@ export default function HammerWorkspaceEditor(
       args.launchContext.workpiece_id,
       args.launchContext.workspace_id,
     );
+    args.logRun?.log("visual_placements:package_loaded", {
+      ok: visualPackageResult.ok,
+      status: visualPackageResult.status,
+    });
     const visualPlacements = visualPackageResult.ok
       ? deriveHammerVisualPlacements({
         transcriptSourceId: args.transcriptSourceId,
@@ -346,12 +360,16 @@ export default function HammerWorkspaceEditor(
       )
       && args.currentSnapshot
     ) {
+      args.logRun?.log("visual_placements:reused", {
+        placements: args.currentSnapshot.visual_placements.data?.placements?.length ?? null,
+      });
       return args.currentSnapshot;
     }
 
     const nextPlacementKey = JSON.stringify(visualPlacements);
     const currentPlacementKey = JSON.stringify(args.currentSnapshot?.visual_placements.data ?? null);
     if (nextPlacementKey === currentPlacementKey && args.currentSnapshot) {
+      args.logRun?.log("visual_placements:unchanged");
       return args.currentSnapshot;
     }
 
@@ -362,6 +380,10 @@ export default function HammerWorkspaceEditor(
     );
     if (!saveResult.ok) throw new Error(saveResult.error);
     setActiveRevision(saveResult.data.revision);
+    args.logRun?.log("visual_placements:saved", {
+      placements: visualPlacements.placements.length,
+      path: saveResult.data.revision.visual_placements_path,
+    });
     return {
       ...(args.currentSnapshot ?? {
         schema_version: 1,
@@ -388,6 +410,7 @@ export default function HammerWorkspaceEditor(
     launchContext: HammerLaunchContext;
     currentSnapshot: HammerPersistenceSnapshot | null;
     onPhaseChange?: (phase: HammerAudioPolishPhase) => void;
+    logRun?: HammerDevConsoleRun;
   }): Promise<HammerPersistenceSnapshot | null> => {
     if (!persistenceTarget || !activeRevision) {
       throw new Error("Hammer audio polish persistence requires a canonical target.");
@@ -395,14 +418,24 @@ export default function HammerWorkspaceEditor(
 
     const prepSource = resolveHammerPrepSource(args.launchContext);
     if (!prepSource) {
+      args.logRun?.warn("audio_polish:prep_source_missing");
       return args.currentSnapshot;
     }
 
     const existingAudioPolish = args.currentSnapshot?.audio_polish.data ?? null;
     if (isReusableHammerAudioPolish(existingAudioPolish, prepSource)) {
+      args.logRun?.log("audio_polish:reused", {
+        prepared_at: existingAudioPolish?.prepared_at ?? null,
+        output_workpiece_path: existingAudioPolish?.output_workpiece_path ?? null,
+      });
       return args.currentSnapshot;
     }
 
+    args.logRun?.log("audio_polish:starting", {
+      media_kind: prepSource.mediaRef.kind,
+      canonical_workpiece_path: prepSource.canonical_workpiece_path,
+      local_relpath: prepSource.local_relpath,
+    });
     const preparingSave = await saveHammerRecordingRevision(
       persistenceTarget,
       activeRevision.id,
@@ -428,6 +461,7 @@ export default function HammerWorkspaceEditor(
     let pollingCancelled = false;
     try {
       const pollForProgress = async () => {
+        let progressErrorCount = 0;
         while (!pollingCancelled) {
           try {
             const progress = await requestHammerAudioPolishProgress({
@@ -440,8 +474,14 @@ export default function HammerWorkspaceEditor(
             if (progress.status === "prepared" || progress.status === "failed") {
               break;
             }
-          } catch {
-            // keep polling best-effort until request resolves
+          } catch (error) {
+            progressErrorCount += 1;
+            if (progressErrorCount === 1 || progressErrorCount % 20 === 0) {
+              args.logRun?.warn("audio_polish:progress_poll_failed", {
+                failures: progressErrorCount,
+                ...(error instanceof Error ? { message: error.message } : { error: String(error) }),
+              });
+            }
           }
           await new Promise((resolve) => window.setTimeout(resolve, 250));
         }
@@ -449,6 +489,7 @@ export default function HammerWorkspaceEditor(
       args.onPhaseChange?.("extracting_working_audio");
       void pollForProgress();
 
+      const requestSpan = args.logRun?.span("audio_polish:request");
       const response = await requestHammerAudioPolish({
         workspace_id: args.launchContext.workspace_id,
         workpiece_id: args.launchContext.workpiece_id,
@@ -457,6 +498,12 @@ export default function HammerWorkspaceEditor(
         local_relpath: prepSource.local_relpath,
         canonical_workpiece_path: prepSource.canonical_workpiece_path,
         mime_type: prepSource.mediaRef.kind === "recording_audio" ? "audio/wav" : null,
+      });
+      requestSpan?.end({
+        status: response.status,
+        phase: response.phase ?? null,
+        failure_code: response.failure_code ?? null,
+        failed_phase: response.failed_phase ?? null,
       });
       if (response.phase) {
         args.onPhaseChange?.(response.phase);
@@ -484,6 +531,13 @@ export default function HammerWorkspaceEditor(
           settingsSummary: response.settings_summary,
         });
 
+      args.logRun?.log("audio_polish:response_normalized", {
+        status: response.status,
+        failure_code: response.status === "failed" ? (response.failure_code ?? "processing_failed") : null,
+        output_workpiece_path: response.output_workpiece_path ?? null,
+        output_local_relpath: response.output_local_relpath ?? null,
+      });
+
       const finalSave = await saveHammerRecordingRevision(
         persistenceTarget,
         activeRevision.id,
@@ -491,6 +545,11 @@ export default function HammerWorkspaceEditor(
       );
       if (!finalSave.ok) throw new Error(finalSave.error);
       setActiveRevision(finalSave.data.revision);
+      args.logRun?.log("audio_polish:saved", {
+        path: finalSave.data.revision.audio_polish_path,
+        status: audioPolish.status,
+        failure_code: audioPolish.status === "failed" ? audioPolish.failure_code : null,
+      });
       return {
         ...baseSnapshot,
         audio_polish: {
@@ -500,6 +559,9 @@ export default function HammerWorkspaceEditor(
         },
       } as HammerPersistenceSnapshot;
     } catch (error) {
+      args.logRun?.error("audio_polish:failed", {
+        message: toErrorMessage(error, "Hammer could not produce a baseline audio polish artifact."),
+      });
       const failureArtifact = buildFailedHammerAudioPolish({
         prepSource,
         failureCode: "processing_failed",
@@ -819,25 +881,37 @@ export default function HammerWorkspaceEditor(
 
       prepRunKeyRef.current = reuseRunKey;
       const executionId = beginPrepExecution();
+      const run = ingestLog.run("reuse_stub_transcript", {
+        run_key: reuseRunKey,
+        execution_id: executionId,
+        workspace_id: effectiveLaunchContext.workspace_id,
+        workpiece_id: effectiveLaunchContext.workpiece_id,
+        transcript_id: reusableTranscript.transcript_id,
+      });
 
       const runReuse = async () => {
         clearReadyTransitionTimer();
         setShowPreparedHandoff(false);
         setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
 
+        let outcome: "prepared" | "failed" = "failed";
         try {
+          const visualsSpan = run.span("visual_placements:ensure");
           let nextSnapshot = await ensureVisualPlacements({
             launchContext: effectiveLaunchContext,
             transcriptSourceId: reusableTranscript.transcript_id,
             transcriptSegments: loadedPersistenceSnapshot?.structured_transcript.data?.segments
               ?? reusableTranscript.segments,
             currentSnapshot: loadedPersistenceSnapshot,
+            logRun: run,
           });
+          visualsSpan.end({ ok: Boolean(nextSnapshot) });
           if (!isPrepExecutionActive(executionId)) return;
 
           setLoadedPersistenceSnapshot(nextSnapshot);
           setPrepState(createHammerPrepState("preparing", "extracting_working_audio"));
           try {
+            const audioSpan = run.span("audio_polish:ensure");
             nextSnapshot = await ensureAudioPolish({
               launchContext: effectiveLaunchContext,
               currentSnapshot: nextSnapshot,
@@ -845,9 +919,14 @@ export default function HammerWorkspaceEditor(
                 if (!isPrepExecutionActive(executionId)) return;
                 setPrepState(createHammerPrepState("preparing", mapAudioPolishPhaseToPrepStep(phase)));
               },
+              logRun: run,
             }) ?? nextSnapshot;
-          } catch {
+            audioSpan.end({ ok: true });
+          } catch (error) {
             // Audio polish falls back to raw playback without blocking workspace open.
+            run.warn("audio_polish:skipped_after_error", {
+              message: toErrorMessage(error, "Hammer could not produce a baseline audio polish artifact."),
+            });
           }
           if (!isPrepExecutionActive(executionId)) return;
 
@@ -859,11 +938,15 @@ export default function HammerWorkspaceEditor(
             setShowPreparedHandoff(true);
             readyTransitionTimerRef.current = null;
           }, READY_HANDOFF_DELAY_MS);
+          outcome = "prepared";
         } catch (error) {
           if (!isPrepExecutionActive(executionId)) return;
           const message = toErrorMessage(error, "Hammer could not prepare initial visual placements.");
           setPrepState(createHammerPrepState("prep_failed", null, message));
           setShowPreparedHandoff(false);
+          run.error("reuse_stub_transcript:failed", { message });
+        } finally {
+          run.end({ outcome });
         }
       };
 
@@ -878,6 +961,10 @@ export default function HammerWorkspaceEditor(
     const prepSource = resolveHammerPrepSource(effectiveLaunchContext);
     if (!prepSource) {
       setPrepState(createHammerPrepState("prep_failed", null, "Hammer could not resolve prep media."));
+      ingestLog.error("prep_source_missing", {
+        workspace_id: effectiveLaunchContext.workspace_id,
+        workpiece_id: effectiveLaunchContext.workpiece_id,
+      });
       return;
     }
 
@@ -921,6 +1008,17 @@ export default function HammerWorkspaceEditor(
 
     prepRunKeyRef.current = prepRunKey;
     const executionId = beginPrepExecution();
+    const run = ingestLog.run("prep", {
+      run_key: prepRunKey,
+      execution_id: executionId,
+      workspace_id: effectiveLaunchContext.workspace_id,
+      workpiece_id: effectiveLaunchContext.workpiece_id,
+      persistence_mode: persistenceMode,
+      ai_fallback_requested: prepAiFallbackRequested,
+      media_kind: prepSource.mediaRef.kind,
+      local_relpath: prepSource.local_relpath,
+      canonical_workpiece_path: prepSource.canonical_workpiece_path,
+    });
 
     const runPrep = async () => {
       clearReadyTransitionTimer();
@@ -928,11 +1026,20 @@ export default function HammerWorkspaceEditor(
       setPrepState(createHammerPrepState("preparing", "loading_context"));
       setPrepFailureKind(null);
 
+      let outcome: "prepared" | "failed" | "non_ai_missing" | "error" = "error";
       try {
         // Non-AI attempt first: reuse any existing transcript artifacts before starting AI transcription.
         if (!prepAiFallbackRequested && persistenceTarget && activeCanonicalRecording && !activeCanonicalRecording.sealed_at) {
+          const legacySpan = run.span("legacy_transcript:load");
           const legacyResult = await loadLegacyHammerTranscriptArtifacts(activeCanonicalRecording.workpiece_id);
+          legacySpan.end({
+            ok: legacyResult.ok,
+            status: legacyResult.status,
+            has_structured_transcript: Boolean(legacyResult.ok && legacyResult.data.structured_transcript),
+            has_speaker_map: Boolean(legacyResult.ok && legacyResult.data.speaker_map),
+          });
           if (legacyResult.ok && legacyResult.data.structured_transcript && legacyResult.data.speaker_map) {
+            const sealSpan = run.span("legacy_transcript:seal");
             const sealResult = await sealHammerCanonicalBaseline(
               persistenceTarget,
               activeCanonicalRecording.id,
@@ -944,12 +1051,20 @@ export default function HammerWorkspaceEditor(
             if (!sealResult.ok) {
               throw new Error(sealResult.error);
             }
+            sealSpan.end({ ok: true, sealed_at: sealResult.data.canonical_recording.sealed_at ?? null });
             setActiveCanonicalRecording(sealResult.data.canonical_recording);
 
+            const hydrateSpan = run.span("legacy_transcript:hydrate");
             const [baselineResult, revisionArtifactsResult] = await Promise.all([
               loadHammerCanonicalBaselineArtifacts(sealResult.data.canonical_recording),
               activeRevision ? loadHammerRecordingRevisionArtifacts(activeRevision) : Promise.resolve({ ok: true as const, status: 200, data: null as any }),
             ]);
+            hydrateSpan.end({
+              baseline_ok: baselineResult.ok,
+              baseline_status: baselineResult.status,
+              revision_ok: revisionArtifactsResult.ok,
+              revision_status: revisionArtifactsResult.status,
+            });
             const canonicalTranscript = baselineResult.ok ? baselineResult.data.structured_transcript : null;
             const canonicalSpeakerMap = baselineResult.ok ? baselineResult.data.speaker_map : null;
             if (canonicalTranscript && canonicalSpeakerMap) {
@@ -998,16 +1113,20 @@ export default function HammerWorkspaceEditor(
               const nextLaunchContext = applyPreparedTranscriptToLaunchContext(effectiveLaunchContext, preparedTranscript);
               setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
 
+              const visualsSpan = run.span("visual_placements:ensure");
               const nextSnapshot = await ensureVisualPlacements({
                 launchContext: nextLaunchContext,
                 transcriptSourceId,
                 transcriptSegments: canonicalTranscript.segments,
                 currentSnapshot: hydratedSnapshot,
+                logRun: run,
               });
+              visualsSpan.end({ ok: Boolean(nextSnapshot) });
               if (!isPrepExecutionActive(executionId)) return;
               setLoadedPersistenceSnapshot(nextSnapshot);
 
               setPrepState(createHammerPrepState("preparing", "extracting_working_audio"));
+              const audioSpan = run.span("audio_polish:ensure");
               const audioSnapshot = await ensureAudioPolish({
                 launchContext: nextLaunchContext,
                 currentSnapshot: nextSnapshot,
@@ -1015,12 +1134,15 @@ export default function HammerWorkspaceEditor(
                   if (!isPrepExecutionActive(executionId)) return;
                   setPrepState(createHammerPrepState("preparing", mapAudioPolishPhaseToPrepStep(phase)));
                 },
+                logRun: run,
               });
+              audioSpan.end({ ok: Boolean(audioSnapshot) });
               if (!isPrepExecutionActive(executionId)) return;
               if (audioSnapshot) setLoadedPersistenceSnapshot(audioSnapshot);
 
               setPrepState(createHammerPrepState("prepared", "ready_for_next_step"));
               setShowPreparedHandoff(true);
+              outcome = "prepared";
               return;
             }
           }
@@ -1032,6 +1154,7 @@ export default function HammerWorkspaceEditor(
             "No reusable transcript was found yet. Retry without AI, or choose AI fallback to generate one.",
           ));
           setPrepFailureKind("non_ai_missing");
+          outcome = "non_ai_missing";
           return;
         }
 
@@ -1059,10 +1182,16 @@ export default function HammerWorkspaceEditor(
             "No reusable transcript was found yet. Retry without AI, or choose AI fallback to generate one.",
           ));
           setPrepFailureKind("non_ai_missing");
+          outcome = "non_ai_missing";
           return;
         }
 
         setPrepState(createHammerPrepState("preparing", "transcribing_audio"));
+        const transcriptSpan = run.span("transcript_prep:request", {
+          media_kind: prepSource.mediaRef.kind,
+          local_relpath: prepSource.local_relpath,
+          canonical_workpiece_path: prepSource.canonical_workpiece_path,
+        });
         const preparedResponse = await requestHammerTranscriptPrep({
           workspace_id: effectiveLaunchContext.workspace_id,
           workpiece_id: effectiveLaunchContext.workpiece_id,
@@ -1077,6 +1206,13 @@ export default function HammerWorkspaceEditor(
             }),
           mime_type: prepSource.mediaRef.kind === "recording_audio" ? "audio/wav" : null,
         });
+        transcriptSpan.end({
+          provider: preparedResponse.provider,
+          model: preparedResponse.model,
+          provider_request_id: preparedResponse.provider_request_id,
+          segments: preparedResponse.segments.length,
+          has_text: Boolean(preparedResponse.text),
+        });
         if (!isPrepExecutionActive(executionId)) return;
 
         setPrepState(createHammerPrepState("preparing", "identifying_speaker_turns"));
@@ -1089,6 +1225,7 @@ export default function HammerWorkspaceEditor(
 
         let canonicalAfterSeal: HammerCanonicalRecordingRecord | null = activeCanonicalRecording;
         if (persistenceTarget && activeCanonicalRecording && !activeCanonicalRecording.sealed_at) {
+          const sealSpan = run.span("canonical:seal_transcript");
           const sealResult = await sealHammerCanonicalBaseline(
             persistenceTarget,
             activeCanonicalRecording.id,
@@ -1100,15 +1237,18 @@ export default function HammerWorkspaceEditor(
           if (!sealResult.ok) {
             throw new Error(sealResult.error);
           }
+          sealSpan.end({ ok: true, sealed_at: sealResult.data.canonical_recording.sealed_at ?? null });
           canonicalAfterSeal = sealResult.data.canonical_recording;
           setActiveCanonicalRecording(canonicalAfterSeal);
         }
 
         setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
+        const visualPackageSpan = run.span("visual_package:load");
         const visualPackageResult = await loadHammerWorkpieceVisualPackage(
           nextLaunchContext.workpiece_id,
           nextLaunchContext.workspace_id,
         );
+        visualPackageSpan.end({ ok: visualPackageResult.ok, status: visualPackageResult.status });
         if (!isPrepExecutionActive(executionId)) return;
 
         const visualPlacements = visualPackageResult.ok
@@ -1132,6 +1272,7 @@ export default function HammerWorkspaceEditor(
           throw new Error("Hammer prep requires an active revision.");
         }
 
+        const saveSpan = run.span("revision:save_prepared");
         let preparedSaveRevision = await saveHammerRecordingRevision(
           persistenceTarget,
           activeRevision.id,
@@ -1141,6 +1282,11 @@ export default function HammerWorkspaceEditor(
           },
         );
         if (!preparedSaveRevision.ok) throw new Error(preparedSaveRevision.error);
+        saveSpan.end({
+          ok: true,
+          visual_placements_path: preparedSaveRevision.data.revision.visual_placements_path,
+          editor_session_path: preparedSaveRevision.data.revision.editor_session_path,
+        });
         setActiveRevision(preparedSaveRevision.data.revision);
         const effectiveCanonical = canonicalAfterSeal ?? activeCanonicalRecording ?? {
           id: "canonical_missing",
@@ -1171,6 +1317,7 @@ export default function HammerWorkspaceEditor(
 
         setPrepState(createHammerPrepState("preparing", "extracting_working_audio"));
         try {
+          const audioSpan = run.span("audio_polish:ensure");
           const audioSnapshot = await ensureAudioPolish({
             launchContext: nextLaunchContext,
             currentSnapshot: hydratedAfterPrep,
@@ -1178,12 +1325,17 @@ export default function HammerWorkspaceEditor(
               if (!isPrepExecutionActive(executionId)) return;
               setPrepState(createHammerPrepState("preparing", mapAudioPolishPhaseToPrepStep(phase)));
             },
+            logRun: run,
           });
+          audioSpan.end({ ok: Boolean(audioSnapshot) });
           if (audioSnapshot) {
             setLoadedPersistenceSnapshot(audioSnapshot);
           }
-        } catch {
+        } catch (error) {
           // Audio polish falls back to raw playback without blocking workspace open.
+          run.warn("audio_polish:skipped_after_error", {
+            message: toErrorMessage(error, "Hammer could not produce a baseline audio polish artifact."),
+          });
         }
         if (!isPrepExecutionActive(executionId)) return;
 
@@ -1199,12 +1351,15 @@ export default function HammerWorkspaceEditor(
           setShowPreparedHandoff(true);
           readyTransitionTimerRef.current = null;
         }, READY_HANDOFF_DELAY_MS);
+        outcome = "prepared";
       } catch (error) {
         if (!isPrepExecutionActive(executionId)) return;
         const message = toErrorMessage(error, "Hammer could not prepare the transcript.");
         setPrepState(createHammerPrepState("prep_failed", null, message));
         setShowPreparedHandoff(false);
         setPrepFailureKind("ai_failed");
+        outcome = "failed";
+        run.error("prep:failed", { message });
 
         try {
           const failedRequest = buildHammerPrepPersistenceSaveRequest({
@@ -1221,6 +1376,8 @@ export default function HammerWorkspaceEditor(
         } catch {
           // Keep the user-facing failure stable even if persistence also failed.
         }
+      } finally {
+        run.end({ outcome });
       }
     };
 
