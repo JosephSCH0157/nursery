@@ -645,20 +645,49 @@ async function renderWorkingAudioWaveBuffer(args: {
 }> {
   const forgeClient = readHammerForgeFfmpegClientConfig();
   if (forgeClient) {
-    const transcodeResult = await transcodeToWorkingWavWithForgeFfmpeg({
-      client: forgeClient,
-      sourceBytes: args.sourceBytes,
-      sourceFilename: path.basename(args.sourceLabel || `source${args.sourceExtension || ""}`),
-      contentType: args.sourceContentType,
-    });
-    return {
-      workingWaveBytes: transcodeResult.audioBytes,
-      backend: "forge_ffmpeg_service",
-      serviceRequestId: transcodeResult.requestId,
-      serviceOutputFormat: transcodeResult.outputFormat,
-      serviceOutputSampleRate: transcodeResult.outputSampleRate,
-      serviceOutputChannels: transcodeResult.outputChannels,
-    };
+    try {
+      const transcodeResult = await transcodeToWorkingWavWithForgeFfmpeg({
+        client: forgeClient,
+        sourceBytes: args.sourceBytes,
+        sourceFilename: path.basename(args.sourceLabel || `source${args.sourceExtension || ""}`),
+        contentType: args.sourceContentType,
+      });
+      return {
+        workingWaveBytes: transcodeResult.audioBytes,
+        backend: "forge_ffmpeg_service",
+        serviceRequestId: transcodeResult.requestId,
+        serviceOutputFormat: transcodeResult.outputFormat,
+        serviceOutputSampleRate: transcodeResult.outputSampleRate,
+        serviceOutputChannels: transcodeResult.outputChannels,
+      };
+    } catch (error) {
+      // DEV resilience: if the remote Forge FFmpeg service is unreachable, fall back to local ffmpeg.
+      // This preserves the "must be executable input" contract while preventing opaque "fetch failed" dead-ends.
+      const fallbackMessage = error instanceof Error && error.message.trim()
+        ? error.message.trim()
+        : "Forge FFmpeg working-audio transcode failed.";
+
+      try {
+        return {
+          workingWaveBytes: await renderWorkingAudioWaveBufferWithFfmpeg({
+            sourceBytes: args.sourceBytes,
+            sourceExtension: args.sourceExtension,
+            sourceLabel: args.sourceLabel,
+            ffmpegBin: args.ffmpegBin,
+          }),
+          backend: "local_ffmpeg",
+          serviceRequestId: null,
+          serviceOutputFormat: null,
+          serviceOutputSampleRate: null,
+          serviceOutputChannels: null,
+        };
+      } catch (fallbackError) {
+        const fallbackDetail = fallbackError instanceof Error && fallbackError.message.trim()
+          ? fallbackError.message.trim()
+          : "Local ffmpeg fallback failed.";
+        throw new Error(`[forge_ffmpeg_service:${forgeClient.baseUrl}] ${fallbackMessage} | [local_ffmpeg_fallback] ${fallbackDetail}`);
+      }
+    }
   }
 
   return {
