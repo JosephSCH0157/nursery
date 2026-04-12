@@ -64,11 +64,17 @@ function buildMediaReasonCodes(
 ): HammerSessionReasonCode[] {
   if (!mediaPrepOutputs) return [];
 
+  const hasExplicitlyRequiredMissingVisualAsset = mediaPrepOutputs.visuals.placements.some((placement) => {
+    if (placement.asset_path || placement.storage_key) return false;
+    // Optional omissions are neutral; only escalate when an approved/bound placement lost its asset.
+    return placement.ingest_state === "approved";
+  });
+
   const reasons: HammerSessionReasonCode[] = [];
   if (mediaPrepOutputs.audio.preferred_playback.kind === "none") {
     reasons.push("media_source_missing");
   }
-  if (mediaPrepOutputs.visuals.placements.some((placement) => !placement.asset_path && !placement.storage_key)) {
+  if (hasExplicitlyRequiredMissingVisualAsset) {
     reasons.push("visual_asset_unresolved");
   }
   if (mediaPrepOutputs.visuals.freshness === "stale") {

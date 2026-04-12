@@ -714,7 +714,9 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                               />
                             ) : (
                               <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">
-                                {item.assetPath && sourceDeskPreviewFailures[item.assetPath] ? "Preview unavailable" : "No thumbnail"}
+                                {item.assetPath
+                                  ? (sourceDeskPreviewFailures[item.assetPath] ? "Preview unavailable" : "No thumbnail")
+                                  : "Not provided"}
                               </div>
                             )}
                             <header className="hammer-source-card__head">
@@ -725,6 +727,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                               <span>Type: image</span>
                               <span>{item.startSec.toFixed(1)}s - {item.endSec.toFixed(1)}s</span>
                               <span>Uses: 1</span>
+                              <span>{item.assetPath ? "Asset linked" : "Asset: not provided"}</span>
                               <span>{item.visualMode ?? "visual"}</span>
                               <span>{item.confidence != null ? `${Math.round(item.confidence * 100)}% match` : "match n/a"}</span>
                             </div>
