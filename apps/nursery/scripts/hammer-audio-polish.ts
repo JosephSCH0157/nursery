@@ -1145,7 +1145,7 @@ async function analyzeLoudnessWithFfmpeg(args: {
   ffmpegBin: string;
   wavBytes: Buffer;
   sourceLabel: string;
-}): Promise<HammerLoudnessAnalysis> {
+}): Promise<{ analysis: HammerLoudnessAnalysis; parseOk: boolean; parseError: string | null; stderrExcerpt: string | null }> {
   const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-ebur128-"));
   const inputPath = path.join(tempRoot, "working-audio.wav");
   try {
@@ -1201,7 +1201,24 @@ async function analyzeLoudnessWithFfmpeg(args: {
       });
     });
 
-    return parseLoudnessSummary(stderr, args.sourceLabel);
+    try {
+      return {
+        analysis: parseLoudnessSummary(stderr, args.sourceLabel),
+        parseOk: true,
+        parseError: null,
+        stderrExcerpt: null,
+      };
+    } catch (error) {
+      const excerpt = stderr.trim().slice(0, 2400) || null;
+      return {
+        analysis: buildEmptyLoudnessAnalysis(),
+        parseOk: false,
+        parseError: error instanceof Error && error.message.trim()
+          ? error.message.trim()
+          : "Hammer loudness analysis parse failed.",
+        stderrExcerpt: excerpt,
+      };
+    }
   } finally {
     await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -1932,12 +1949,27 @@ export async function handleHammerAudioPolishRequest(
     }
     const durationSec = parsedWave.sampleCount / parsedWave.sampleRate;
     setPhase("analyzing_loudness");
+    let loudnessParseOk: boolean | null = null;
+    let loudnessParseError: string | null = null;
+    let loudnessStderrExcerpt: string | null = null;
     const loudnessAnalysis = ffmpegBin
-      ? await analyzeLoudnessWithFfmpeg({
+      ? (() => analyzeLoudnessWithFfmpeg({
         ffmpegBin,
         wavBytes: workingWaveBytes,
         sourceLabel: workingAudioWorkpiecePath ?? sourceMedia.sourceLabel,
-      })
+      }).then((result) => {
+        loudnessParseOk = result.parseOk;
+        loudnessParseError = result.parseError;
+        loudnessStderrExcerpt = result.stderrExcerpt;
+        return result.analysis;
+      }).catch((error) => {
+        loudnessParseOk = false;
+        loudnessParseError = error instanceof Error && error.message.trim()
+          ? error.message.trim()
+          : "Hammer loudness analysis failed.";
+        loudnessStderrExcerpt = null;
+        return buildEmptyLoudnessAnalysis();
+      }))()
       : buildEmptyLoudnessAnalysis();
     loudnessAnalysis.rms_dbfs = computeWaveRmsDbfs(parsedWave);
     setPhase("detecting_silence");
@@ -2054,6 +2086,9 @@ export async function handleHammerAudioPolishRequest(
             analysis_integrated_lufs: loudnessAnalysis.integrated_lufs,
             analysis_loudness_range_lu: loudnessAnalysis.loudness_range_lu,
             analysis_true_peak_dbtp: loudnessAnalysis.true_peak_dbtp,
+            loudness_parse_ok: loudnessParseOk,
+            loudness_parse_error: loudnessParseError,
+            loudness_stderr_excerpt: loudnessStderrExcerpt,
             analysis_speech_region_count: segmentationAnalysis.speech_region_count,
             analysis_silence_region_count: segmentationAnalysis.silence_region_count,
             analysis_chunk_count: transcriptPrepAnalysis.chunk_count,
