@@ -17,7 +17,9 @@ import {
   resolveHammerSaveFailure,
   resolveHammerSaveSuccess,
 } from "./hammerSessionHostLoop";
-import { deriveHammerSessionState, deriveHammerSessionStateActions } from "./hammerSessionState";
+import { deriveHammerSessionState } from "./hammerSessionState";
+import { deriveHammerIssueDiagnostics, type HammerIssueFixActionId } from "./hammerIssueDiagnostics";
+import { HammerWorkspaceDiagnosticsBanner } from "./HammerWorkspaceDiagnosticsBanner";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import {
   buildHammerPersistenceSaveRequest,
@@ -1500,10 +1502,17 @@ export default function HammerWorkspaceEditor(
       shouldRenderEditor,
     ],
   );
-  const sessionActions = useMemo(
-    () => deriveHammerSessionStateActions(sessionState),
-    [sessionState],
-  );
+  const [diagnosticsFixInFlight, setDiagnosticsFixInFlight] = useState<HammerIssueFixActionId | null>(null);
+  const [diagnosticsFixErrorMessage, setDiagnosticsFixErrorMessage] = useState<string | null>(null);
+  const diagnosticsIssues = useMemo(() => deriveHammerIssueDiagnostics({
+    sessionState,
+    mediaPrepOutputs: handoffMediaPrepOutputs,
+    mediaLabelMismatchWarning: workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning ?? null,
+  }), [
+    handoffMediaPrepOutputs,
+    sessionState,
+    workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning,
+  ]);
   const progressFillClassName = useMemo(
     () => `${dynamicStyleScopeIdRef.current}__progress-fill`,
     [],
@@ -1602,6 +1611,99 @@ export default function HammerWorkspaceEditor(
     setReloadRequestNonce(next.reloadRequestNonce);
     setSaveRetryNonce(next.saveRetryNonce);
   }
+
+  const runDiagnosticsFixAction = useCallback(async (actionId: HammerIssueFixActionId): Promise<void> => {
+    if (diagnosticsFixInFlight) return;
+    setDiagnosticsFixErrorMessage(null);
+
+    if (actionId === "reload_latest" || actionId === "retry_save") {
+      handleSessionAction(actionId);
+      return;
+    }
+
+    if (persistenceMode !== "canonical" || !persistenceTarget || !hydrationReady) {
+      setDiagnosticsFixErrorMessage("Fix actions require canonical persistence to be available.");
+      return;
+    }
+
+    if (!effectiveLaunchContext) {
+      setDiagnosticsFixErrorMessage("Launch context is not available yet. Try again in a moment.");
+      return;
+    }
+
+    if (!loadedPersistenceSnapshot) {
+      setDiagnosticsFixErrorMessage("Canonical snapshot is not loaded yet. Try again in a moment.");
+      return;
+    }
+
+    setDiagnosticsFixInFlight(actionId);
+    try {
+      if (actionId === "refresh_audio_prep") {
+        const next = await ensureAudioPolish({
+          launchContext: effectiveLaunchContext,
+          currentSnapshot: loadedPersistenceSnapshot,
+          onPhaseChange: undefined,
+        });
+        if (next) {
+          setLoadedPersistenceSnapshot(next);
+        }
+        return;
+      }
+
+      if (actionId === "refresh_visual_placements") {
+        const transcriptSourceId = workspaceSnapshot?.transcriptSourceId
+          ?? loadedPersistenceSnapshot.structured_transcript.data?.transcript_id
+          ?? null;
+        const transcriptSegments = workspaceSnapshot?.transcriptSegments
+          ?? loadedPersistenceSnapshot.structured_transcript.data?.segments
+          ?? null;
+        if (!transcriptSourceId || !transcriptSegments) {
+          setDiagnosticsFixErrorMessage("Transcript data is not available yet. Try again in a moment.");
+          return;
+        }
+
+        const next = await ensureVisualPlacements({
+          launchContext: effectiveLaunchContext,
+          transcriptSourceId,
+          transcriptSegments,
+          currentSnapshot: loadedPersistenceSnapshot,
+        });
+        setLoadedPersistenceSnapshot(next);
+        return;
+      }
+
+      setDiagnosticsFixErrorMessage("That fix action is not implemented yet.");
+    } catch (error) {
+      setDiagnosticsFixErrorMessage(toErrorMessage(error, "Hammer could not apply that fix."));
+    } finally {
+      setDiagnosticsFixInFlight(null);
+    }
+  }, [
+    diagnosticsFixInFlight,
+    effectiveLaunchContext,
+    ensureAudioPolish,
+    ensureVisualPlacements,
+    handleSessionAction,
+    hydrationReady,
+    loadedPersistenceSnapshot,
+    persistenceMode,
+    persistenceTarget,
+    setLoadedPersistenceSnapshot,
+    workspaceSnapshot?.transcriptSegments,
+    workspaceSnapshot?.transcriptSourceId,
+  ]);
+
+  const runDiagnosticsFixAll = useCallback(async (actionIds: HammerIssueFixActionId[]): Promise<void> => {
+    if (actionIds.length === 0) return;
+    const unique = [...new Set(actionIds)];
+    for (const actionId of unique) {
+      if (actionId === "reload_latest") {
+        await runDiagnosticsFixAction(actionId);
+        return;
+      }
+      await runDiagnosticsFixAction(actionId);
+    }
+  }, [runDiagnosticsFixAction]);
 
   async function handleResetToRaw(): Promise<void> {
     if (resetToRawInFlight) return;
@@ -1857,40 +1959,31 @@ export default function HammerWorkspaceEditor(
               sessionState.isBlocking ? "is-blocking" : "",
               sessionState.isDegraded ? "is-degraded" : "",
             ].filter(Boolean).join(" ")}
-            role="status"
-            aria-live="polite"
           >
-            <strong>{sessionState.humanLabel}</strong>
-            {sessionState.detail ? <span>{sessionState.detail}</span> : null}
-            {transcriptPrepPreferenceNotice ? (
-              <span>
-                {transcriptPrepPreferenceNotice.label}
-                {props.onRequestAiSettings ? (
-                  <button
-                    type="button"
-                    className="hammer-prep-shell__session-action"
-                    onClick={() => props.onRequestAiSettings?.()}
-                  >
-                    Change
-                  </button>
-                ) : null}
-              </span>
-            ) : null}
-            {sessionActions.length > 0 ? (
-              <div className="hammer-prep-shell__session-actions">
-                {sessionActions.map((action) => (
-                  <button
-                    key={action.id}
-                    type="button"
-                    className="hammer-prep-shell__session-action"
-                    onClick={() => handleSessionAction(action.id)}
-                  >
-                    {action.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            <HammerWorkspaceDiagnosticsBanner
+              issues={diagnosticsIssues}
+              fallbackTitle={sessionState.humanLabel}
+              fallbackSummary={sessionState.detail}
+              inFlightFixActionId={diagnosticsFixInFlight}
+              fixErrorMessage={diagnosticsFixErrorMessage}
+              onRunFixAction={runDiagnosticsFixAction}
+              onRunFixAll={runDiagnosticsFixAll}
+            />
           </div>
+          {transcriptPrepPreferenceNotice ? (
+            <div className="hammer-prep-shell__preference-notice">
+              <span>{transcriptPrepPreferenceNotice.label}</span>
+              {props.onRequestAiSettings ? (
+                <button
+                  type="button"
+                  onClick={() => props.onRequestAiSettings?.()}
+                  aria-label="Change AI prep preference"
+                >
+                  Change
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <HammerWorkspaceShell
             launchContext={effectiveLaunchContext}
             recordingRevisionId={activeRevision?.id ?? null}

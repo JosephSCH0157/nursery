@@ -26,6 +26,9 @@ export type UseHammerWorkspaceShellSnapshotEmitterArgs = {
   mediaRef: MediaRef | null;
   workspaceMapping: WorkspaceMediaMapping | null;
   mediaSourceLabel: string | null;
+  canonicalWorkpieceLabel: string | null;
+  legacyCaptureLabel: string | null;
+  mediaLabelMismatchWarning: string | null;
   selectedMacroRecipeRef: string | null;
   lastMacroRunRef: string | null;
   canonicalStructuredTranscript: HammerPersistedStructuredTranscript | null;
@@ -114,6 +117,9 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
       args.selectedSegmentId ?? "",
       args.selectedOverlayRowId ?? "",
       args.mediaSourceLabel ?? "",
+      args.canonicalWorkpieceLabel ?? "",
+      args.legacyCaptureLabel ?? "",
+      args.mediaLabelMismatchWarning ?? "",
       args.selectedMacroRecipeRef ?? "",
       args.lastMacroRunRef ?? "",
       normalizedBackgroundReplaceUrl ?? "",
@@ -157,6 +163,11 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
       mediaRef: args.mediaRef,
       workspaceMapping: args.workspaceMapping,
       mediaSourceLabel: args.mediaSourceLabel,
+      diagnostics: {
+        canonicalWorkpieceLabel: args.canonicalWorkpieceLabel,
+        legacyCaptureLabel: args.legacyCaptureLabel,
+        mediaLabelMismatchWarning: args.mediaLabelMismatchWarning,
+      },
       selectedMacroRecipeRef: args.selectedMacroRecipeRef ?? null,
       lastMacroRunRef: args.lastMacroRunRef ?? null,
       structuredTranscript: args.canonicalStructuredTranscript,
@@ -174,6 +185,9 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
     args.launchContext,
     args.mediaRef,
     args.mediaSourceLabel,
+    args.canonicalWorkpieceLabel,
+    args.legacyCaptureLabel,
+    args.mediaLabelMismatchWarning,
     args.previewMode,
     args.lastMacroRunRef,
     args.onWorkspaceSnapshotChange,

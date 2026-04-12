@@ -40,6 +40,11 @@ export interface HammerWorkspaceSnapshot {
   mediaRef: MediaRef | null;
   workspaceMapping: WorkspaceMediaMapping | null;
   mediaSourceLabel: string | null;
+  diagnostics?: {
+    canonicalWorkpieceLabel: string | null;
+    legacyCaptureLabel: string | null;
+    mediaLabelMismatchWarning: string | null;
+  };
   selectedMacroRecipeRef: string | null;
   lastMacroRunRef: string | null;
   structuredTranscript: HammerPersistedStructuredTranscript | null;
