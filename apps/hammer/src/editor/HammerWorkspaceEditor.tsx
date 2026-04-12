@@ -92,6 +92,11 @@ import {
   createHammerDevConsoleLogger,
   type HammerDevConsoleRun,
 } from "../lib/hammerDevConsole";
+import {
+  createHammerVoicePicker,
+  resolveHammerVoicePhase,
+  type HammerVoicePhase,
+} from "../prep/hammerVoiceSystem";
 
 export interface HammerWorkspaceEditorProps {
   launchContext?: HammerLaunchContext;
@@ -220,6 +225,13 @@ export default function HammerWorkspaceEditor(
   const [hydrationReady, setHydrationReady] = useState(persistenceMode !== "canonical");
   const [hasCanonicalBasis, setHasCanonicalBasis] = useState(Boolean(props.launchContext));
   const [workspaceSnapshot, setWorkspaceSnapshot] = useState<HammerWorkspaceSnapshot | null>(null);
+  const [prepVoiceLine, setPrepVoiceLine] = useState<string | null>(null);
+  const [prepVoiceOpacity, setPrepVoiceOpacity] = useState(1);
+  const prepVoiceRunKeyRef = useRef<string | null>(null);
+  const prepVoiceMythicShownRef = useRef(false);
+  const prepVoiceLastLineRef = useRef<string | null>(null);
+  const prepVoicePhaseRef = useRef<HammerVoicePhase | null>(null);
+  const prepVoicePickerRef = useRef<ReturnType<typeof createHammerVoicePicker> | null>(null);
   const [prepState, setPrepState] = useState<HammerPrepState>(() => (
     persistenceMode === "canonical" && persistenceTarget
       ? createHammerPrepState("preparing", "loading_context")
@@ -238,6 +250,7 @@ export default function HammerWorkspaceEditor(
   const [hasPendingSaveChanges, setHasPendingSaveChanges] = useState(false);
   const [saveInFlight, setSaveInFlight] = useState(false);
   const [saveFailureMessage, setSaveFailureMessage] = useState<string | null>(null);
+  const prepTriggerEffectTickRef = useRef(0);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [historyRecoveryStatus, setHistoryRecoveryStatus] = useState<string | null>(null);
   const [presenceConflictDetail, setPresenceConflictDetail] = useState<string | null>(null);
@@ -942,6 +955,8 @@ export default function HammerWorkspaceEditor(
       return;
     }
 
+    prepTriggerEffectTickRef.current += 1;
+    const triggerTick = prepTriggerEffectTickRef.current;
     const openDecision = resolveHammerPrepOpenDecision(
       effectiveLaunchContext,
       loadedPersistenceSnapshot,
@@ -957,6 +972,31 @@ export default function HammerWorkspaceEditor(
       const reuseRunKey = `${targetKey ?? "hammer"}:reuse:${reusableTranscript.transcript_id}:${prepAttemptNonce}`;
       if (prepRunKeyRef.current === reuseRunKey) {
         return;
+      }
+
+      if (ingestLog.enabled) {
+        // eslint-disable-next-line no-console
+        console.log("[HammerPrep] trigger_reason", {
+          tick: triggerTick,
+          action: openDecision.action,
+          reason: openDecision.reason,
+          run_key: reuseRunKey,
+        });
+        // eslint-disable-next-line no-console
+        console.log("[HammerPrep] dependency_snapshot", {
+          tick: triggerTick,
+          persistence_mode: persistenceMode,
+          hydration_ready: hydrationReady,
+          prep_status: prepState.status,
+          prep_step: prepState.step,
+          prep_attempt_nonce: prepAttemptNonce,
+          ai_fallback_requested: prepAiFallbackRequested,
+          workspace_id: effectiveLaunchContext.workspace_id,
+          workpiece_id: effectiveLaunchContext.workpiece_id,
+          target_key: targetKey,
+          snapshot_has_transcript: Boolean(loadedPersistenceSnapshot?.structured_transcript.data?.segments.length),
+          snapshot_audio_polish_status: loadedPersistenceSnapshot?.audio_polish.data?.status ?? null,
+        });
       }
 
       prepRunKeyRef.current = reuseRunKey;
@@ -1094,6 +1134,35 @@ export default function HammerWorkspaceEditor(
       prepAiNoticePendingRunKeyRef.current = prepRunKey;
       setShowPrepAiNotice(true);
       return;
+    }
+
+    if (ingestLog.enabled) {
+      // eslint-disable-next-line no-console
+      console.log("[HammerPrep] trigger_reason", {
+        tick: triggerTick,
+        action: openDecision.action,
+        reason: openDecision.reason,
+        run_key: prepRunKey,
+      });
+      // eslint-disable-next-line no-console
+      console.log("[HammerPrep] dependency_snapshot", {
+        tick: triggerTick,
+        persistence_mode: persistenceMode,
+        hydration_ready: hydrationReady,
+        prep_status: prepState.status,
+        prep_step: prepState.step,
+        prep_attempt_nonce: prepAttemptNonce,
+        ai_fallback_requested: prepAiFallbackRequested,
+        prep_source_kind: prepSource.source_kind,
+        media_kind: prepSource.mediaRef.kind,
+        local_relpath: prepSource.local_relpath,
+        canonical_workpiece_path: prepSource.canonical_workpiece_path,
+        workspace_id: effectiveLaunchContext.workspace_id,
+        workpiece_id: effectiveLaunchContext.workpiece_id,
+        target_key: targetKey,
+        snapshot_has_transcript: Boolean(loadedPersistenceSnapshot?.structured_transcript.data?.segments.length),
+        snapshot_audio_polish_status: loadedPersistenceSnapshot?.audio_polish.data?.status ?? null,
+      });
     }
 
     prepRunKeyRef.current = prepRunKey;
@@ -1691,6 +1760,101 @@ export default function HammerWorkspaceEditor(
   ]);
 
   const overlayViewModel = buildHammerPrepOverlayViewModel(prepState);
+  const voiceRunKey = lastPrepRunKeyRef.current ?? targetKey ?? "hammer";
+  const voicePhase: HammerVoicePhase = resolveHammerVoicePhase(prepState.step);
+
+  useEffect(() => {
+    if (prepState.status !== "preparing") {
+      setPrepVoiceLine(null);
+      setPrepVoiceOpacity(1);
+      prepVoiceRunKeyRef.current = null;
+      prepVoiceMythicShownRef.current = false;
+      prepVoiceLastLineRef.current = null;
+      prepVoicePickerRef.current = null;
+      return;
+    }
+
+    const shouldResetRun = prepVoiceRunKeyRef.current !== voiceRunKey;
+    if (shouldResetRun) {
+      prepVoiceRunKeyRef.current = voiceRunKey;
+      prepVoiceMythicShownRef.current = false;
+      prepVoiceLastLineRef.current = null;
+      prepVoicePickerRef.current = createHammerVoicePicker(voiceRunKey);
+    } else if (!prepVoicePickerRef.current) {
+      prepVoicePickerRef.current = createHammerVoicePicker(voiceRunKey);
+    }
+
+    let cancelled = false;
+    let timer: number | null = null;
+    const picker = prepVoicePickerRef.current;
+    const voiceDebugEnabled = ingestLog.enabled;
+
+    if (voiceDebugEnabled) {
+      const previousPhase = (prepVoicePhaseRef.current as HammerVoicePhase | null) ?? null;
+      if (shouldResetRun || previousPhase !== voicePhase) {
+        // eslint-disable-next-line no-console
+        console.log("[HammerVoice] phase_change", {
+          run_key: voiceRunKey,
+          phase: voicePhase,
+          previous_phase: previousPhase,
+          reset_run: shouldResetRun,
+        });
+      }
+      prepVoicePhaseRef.current = voicePhase;
+    }
+
+    const fadeTo = (nextLine: string) => {
+      if (cancelled) return;
+      setPrepVoiceOpacity(0);
+      window.setTimeout(() => {
+        if (cancelled) return;
+        setPrepVoiceLine(nextLine);
+        setPrepVoiceOpacity(1);
+      }, 140);
+    };
+
+    const pickNextLine = () => {
+      if (!picker) return "Preparing…";
+      const picked = picker({
+        phase: voicePhase,
+        lastLine: prepVoiceLastLineRef.current,
+        mythicShown: prepVoiceMythicShownRef.current,
+      });
+      prepVoiceLastLineRef.current = picked.line;
+      prepVoiceMythicShownRef.current = picked.mythicShown;
+      return picked.line;
+    };
+
+    const scheduleRotation = () => {
+      if (timer != null) window.clearTimeout(timer);
+      const jitterMs = 2500 + Math.floor(Math.random() * 500);
+      timer = window.setTimeout(() => {
+        if (cancelled) return;
+        if (voiceDebugEnabled) {
+          // eslint-disable-next-line no-console
+          console.log("[HammerVoice] timer_tick", { run_key: voiceRunKey, phase: voicePhase, ms: jitterMs });
+        }
+        fadeTo(pickNextLine());
+        scheduleRotation();
+      }, jitterMs);
+    };
+
+    // Immediately update on phase change / new run.
+    fadeTo(pickNextLine());
+    scheduleRotation();
+
+    return () => {
+      cancelled = true;
+      if (timer != null) window.clearTimeout(timer);
+    };
+  }, [ingestLog.enabled, prepState.status, voicePhase, voiceRunKey]);
+
+  const effectiveOverlayViewModel = useMemo(
+    () => (overlayViewModel.visible && prepVoiceLine
+      ? { ...overlayViewModel, message: prepVoiceLine }
+      : overlayViewModel),
+    [overlayViewModel, prepVoiceLine],
+  );
   const prepAiNoticeModel = useMemo(
     () => buildHammerPrepAiNoticeModel(props.prepAiNoticeEffectiveLane ?? "forge-managed"),
     [props.prepAiNoticeEffectiveLane],
@@ -1778,7 +1942,7 @@ export default function HammerWorkspaceEditor(
     () => `${dynamicStyleScopeIdRef.current}__progress-fill`,
     [],
   );
-  const prepProgressWidth = Math.max(8, overlayViewModel.progress_ratio * 100);
+  const prepProgressWidth = Math.max(8, effectiveOverlayViewModel.progress_ratio * 100);
   useDynamicCssText(
     dynamicStyleScopeIdRef.current,
     `.${progressFillClassName} { width: ${prepProgressWidth}%; }`,
@@ -2270,7 +2434,7 @@ export default function HammerWorkspaceEditor(
         </div>
       ) : null}
 
-      {overlayViewModel.visible ? (
+      {effectiveOverlayViewModel.visible ? (
         <div className="hammer-prep-shell__overlay" role="presentation">
           <section
             className="hammer-prep-shell__modal"
@@ -2303,9 +2467,9 @@ export default function HammerWorkspaceEditor(
                   </div>
                 </div>
               </div>
-              <div id="hammer-prep-shell-title" className="hammer-prep-shell__title">{overlayViewModel.title}</div>
-              <div className="hammer-prep-shell__message">{overlayViewModel.message}</div>
-              <div id="hammer-prep-shell-note" className="hammer-prep-shell__note">{overlayViewModel.note}</div>
+              <div id="hammer-prep-shell-title" className="hammer-prep-shell__title">{effectiveOverlayViewModel.title}</div>
+              <div className="hammer-prep-shell__message" style={{ opacity: prepVoiceOpacity }}>{effectiveOverlayViewModel.message}</div>
+              <div id="hammer-prep-shell-note" className="hammer-prep-shell__note">{effectiveOverlayViewModel.note}</div>
             </div>
 
             <div className="hammer-prep-shell__progress">
@@ -2313,10 +2477,10 @@ export default function HammerWorkspaceEditor(
                 <span className={progressFillClassName} />
               </div>
               <div className="hammer-prep-shell__step-list" aria-hidden="true">
-                {Array.from({ length: overlayViewModel.step_count }).map((_, index) => (
+                {Array.from({ length: effectiveOverlayViewModel.step_count }).map((_, index) => (
                   <span
                     key={`prep-step-${index + 1}`}
-                    className={`hammer-prep-shell__step${overlayViewModel.progress_ratio * overlayViewModel.step_count >= index + 1 ? " is-active" : ""}`}
+                    className={`hammer-prep-shell__step${effectiveOverlayViewModel.progress_ratio * effectiveOverlayViewModel.step_count >= index + 1 ? " is-active" : ""}`}
                   />
                 ))}
               </div>
