@@ -298,6 +298,7 @@ export default function HammerWorkspaceEditor(
   const prepAiNoticePendingRunKeyRef = useRef<string | null>(null);
   const prepAiNoticeShownRunKeyRef = useRef<string | null>(null);
   const lastPrepRunKeyRef = useRef<string | null>(null);
+  const prepInFlightRunKeyRef = useRef<string | null>(null);
   const prepExecutionIdRef = useRef(0);
   const isMountedRef = useRef(true);
   const dynamicStyleScopeIdRef = useRef(`hammer-workspace-editor-${Math.random().toString(36).slice(2, 10)}`);
@@ -322,10 +323,40 @@ export default function HammerWorkspaceEditor(
     }
   };
 
-  const beginPrepExecution = (): number => {
+  const beginPrepExecution = useCallback((): number => {
     prepExecutionIdRef.current += 1;
     return prepExecutionIdRef.current;
-  };
+  }, []);
+
+  const logPrepDebug = useCallback((label: string, payload: Record<string, unknown>) => {
+    if (!ingestLog.enabled) return;
+    // eslint-disable-next-line no-console
+    console.log(label, {
+      instance_id: hammerRuntimeInstanceIdRef.current,
+      ...payload,
+    });
+  }, [ingestLog.enabled]);
+
+  const resetPrepRunKey = useCallback((reason: string, detail?: Record<string, unknown>) => {
+    prepRunKeyRef.current = null;
+    prepInFlightRunKeyRef.current = null;
+    logPrepDebug("[HammerPrep] run_key_reset", {
+      reason,
+      ...(detail ?? {}),
+    });
+  }, [logPrepDebug]);
+
+  const bumpPrepAttemptNonce = useCallback((reason: string, detail?: Record<string, unknown>) => {
+    setPrepAttemptNonce((current) => {
+      logPrepDebug("[HammerPrep] attempt_nonce_bump", {
+        reason,
+        current,
+        next: current + 1,
+        ...(detail ?? {}),
+      });
+      return current + 1;
+    });
+  }, [logPrepDebug]);
 
   const isPrepExecutionActive = (executionId: number): boolean => (
     isMountedRef.current && prepExecutionIdRef.current === executionId
@@ -336,6 +367,7 @@ export default function HammerWorkspaceEditor(
     return () => {
       isMountedRef.current = false;
       prepExecutionIdRef.current += 1;
+      prepInFlightRunKeyRef.current = null;
       clearReadyTransitionTimer();
       if (saveTimerRef.current != null) {
         window.clearTimeout(saveTimerRef.current);
@@ -800,6 +832,7 @@ export default function HammerWorkspaceEditor(
     setSaveInFlight(false);
     setLastSavedAt(null);
     prepRunKeyRef.current = null;
+    prepInFlightRunKeyRef.current = null;
     setPrepFailureKind(null);
     setPrepAiFallbackRequested(false);
     setWorkspaceSnapshot(null);
@@ -1016,7 +1049,19 @@ export default function HammerWorkspaceEditor(
         });
       }
 
+      if (prepInFlightRunKeyRef.current) {
+        logPrepDebug("[HammerPrep] skip_trigger_in_flight", {
+          tick: triggerTick,
+          action: openDecision.action,
+          reason: openDecision.reason,
+          run_key: reuseRunKey,
+          in_flight_run_key: prepInFlightRunKeyRef.current,
+        });
+        return;
+      }
+
       prepRunKeyRef.current = reuseRunKey;
+      prepInFlightRunKeyRef.current = reuseRunKey;
       const executionId = beginPrepExecution();
       const run = ingestLog.run("reuse_stub_transcript", {
         run_key: reuseRunKey,
@@ -1094,6 +1139,9 @@ export default function HammerWorkspaceEditor(
             audio_polish_status: audioPolishStatus,
             audio_polish_failure_code: audioPolishFailureCode,
           });
+          if (isPrepExecutionActive(executionId) && prepInFlightRunKeyRef.current === reuseRunKey) {
+            prepInFlightRunKeyRef.current = null;
+          }
         }
       };
 
@@ -1184,7 +1232,19 @@ export default function HammerWorkspaceEditor(
       });
     }
 
+    if (prepInFlightRunKeyRef.current) {
+      logPrepDebug("[HammerPrep] skip_trigger_in_flight", {
+        tick: triggerTick,
+        action: openDecision.action,
+        reason: openDecision.reason,
+        run_key: prepRunKey,
+        in_flight_run_key: prepInFlightRunKeyRef.current,
+      });
+      return;
+    }
+
     prepRunKeyRef.current = prepRunKey;
+    prepInFlightRunKeyRef.current = prepRunKey;
     const executionId = beginPrepExecution();
     const run = ingestLog.run("prep", {
       run_key: prepRunKey,
@@ -1570,6 +1630,9 @@ export default function HammerWorkspaceEditor(
           audio_polish_status: audioPolishStatus,
           audio_polish_failure_code: audioPolishFailureCode,
         });
+        if (isPrepExecutionActive(executionId) && prepInFlightRunKeyRef.current === prepRunKey) {
+          prepInFlightRunKeyRef.current = null;
+        }
       }
     };
 
@@ -1989,11 +2052,12 @@ export default function HammerWorkspaceEditor(
     }
 
     if (behavior === "retry-non-ai") {
-      prepRunKeyRef.current = null;
+      beginPrepExecution();
+      resetPrepRunKey("restart_transcript_prep:retry_non_ai", { behavior });
       setPrepAiFallbackRequested(false);
       setShowPreparedHandoff(false);
       setPrepState(createHammerPrepState("preparing", "loading_context"));
-      setPrepAttemptNonce((current) => current + 1);
+      bumpPrepAttemptNonce("restart_transcript_prep:retry_non_ai", { behavior });
       return;
     }
 
@@ -2001,18 +2065,21 @@ export default function HammerWorkspaceEditor(
     prepAiNoticePendingRunKeyRef.current = runKey ?? `manual_ai_fallback:${Date.now()}`;
     setPrepAiFallbackRequested(true);
     // Always restart prep; the prep effect is the single authority for showing AI consent and starting AI transcription.
-    prepRunKeyRef.current = null;
+    beginPrepExecution();
+    resetPrepRunKey("restart_transcript_prep:use_ai_fallback", { behavior });
     setShowPrepAiNotice(false);
     setPrepState(createHammerPrepState("preparing", "loading_context"));
-    setPrepAttemptNonce((current) => current + 1);
+    bumpPrepAttemptNonce("restart_transcript_prep:use_ai_fallback", { behavior });
   }, [
+    beginPrepExecution,
     setPrepAiFallbackRequested,
-    setPrepAttemptNonce,
     setPrepState,
     setShowPreparedHandoff,
     setShowPrepAiNotice,
     setTranscriptPrepPreferenceNotice,
     setTranscriptPrepPreferenceNonce,
+    bumpPrepAttemptNonce,
+    resetPrepRunKey,
   ]);
 
   useEffect(() => {
@@ -2256,9 +2323,10 @@ export default function HammerWorkspaceEditor(
                 void props.onPrepAiNoticeAcknowledgeLane?.(prepAiNoticeModel.laneSignature);
               }
               setShowPrepAiNotice(false);
-              prepRunKeyRef.current = null;
+              beginPrepExecution();
+              resetPrepRunKey("prep_ai_notice:continue", { run_key: runKey });
               setPrepState(createHammerPrepState("preparing", "loading_context"));
-              setPrepAttemptNonce((current) => current + 1);
+              bumpPrepAttemptNonce("prep_ai_notice:continue", { run_key: runKey });
               setPrepAiNoticeDecisionNonce((current) => current + 1);
             }}
           >
