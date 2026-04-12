@@ -205,6 +205,11 @@ export default function HammerWorkspaceEditor(
     () => createHammerDevConsoleLogger({ scope: "HammerIngest", routeSearch: props.routeSearch }),
     [props.routeSearch],
   );
+  const hammerRuntimeInstanceIdRef = useRef(
+    (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+      ? crypto.randomUUID()
+      : `inst_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`,
+  );
 
   const persistenceMode = props.persistenceMode ?? "disabled";
   const persistenceTarget = useMemo(
@@ -251,6 +256,16 @@ export default function HammerWorkspaceEditor(
   const [saveInFlight, setSaveInFlight] = useState(false);
   const [saveFailureMessage, setSaveFailureMessage] = useState<string | null>(null);
   const prepTriggerEffectTickRef = useRef(0);
+
+  useEffect(() => {
+    if (!ingestLog.enabled) return;
+    // eslint-disable-next-line no-console
+    console.log("[HammerPrep] mount", { instance_id: hammerRuntimeInstanceIdRef.current });
+    return () => {
+      // eslint-disable-next-line no-console
+      console.log("[HammerPrep] unmount", { instance_id: hammerRuntimeInstanceIdRef.current });
+    };
+  }, [ingestLog.enabled]);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [historyRecoveryStatus, setHistoryRecoveryStatus] = useState<string | null>(null);
   const [presenceConflictDetail, setPresenceConflictDetail] = useState<string | null>(null);
@@ -977,6 +992,7 @@ export default function HammerWorkspaceEditor(
       if (ingestLog.enabled) {
         // eslint-disable-next-line no-console
         console.log("[HammerPrep] trigger_reason", {
+          instance_id: hammerRuntimeInstanceIdRef.current,
           tick: triggerTick,
           action: openDecision.action,
           reason: openDecision.reason,
@@ -984,6 +1000,7 @@ export default function HammerWorkspaceEditor(
         });
         // eslint-disable-next-line no-console
         console.log("[HammerPrep] dependency_snapshot", {
+          instance_id: hammerRuntimeInstanceIdRef.current,
           tick: triggerTick,
           persistence_mode: persistenceMode,
           hydration_ready: hydrationReady,
@@ -1139,6 +1156,7 @@ export default function HammerWorkspaceEditor(
     if (ingestLog.enabled) {
       // eslint-disable-next-line no-console
       console.log("[HammerPrep] trigger_reason", {
+        instance_id: hammerRuntimeInstanceIdRef.current,
         tick: triggerTick,
         action: openDecision.action,
         reason: openDecision.reason,
@@ -1146,6 +1164,7 @@ export default function HammerWorkspaceEditor(
       });
       // eslint-disable-next-line no-console
       console.log("[HammerPrep] dependency_snapshot", {
+        instance_id: hammerRuntimeInstanceIdRef.current,
         tick: triggerTick,
         persistence_mode: persistenceMode,
         hydration_ready: hydrationReady,
@@ -1794,6 +1813,7 @@ export default function HammerWorkspaceEditor(
       if (shouldResetRun || previousPhase !== voicePhase) {
         // eslint-disable-next-line no-console
         console.log("[HammerVoice] phase_change", {
+          instance_id: hammerRuntimeInstanceIdRef.current,
           run_key: voiceRunKey,
           phase: voicePhase,
           previous_phase: previousPhase,
@@ -1832,7 +1852,12 @@ export default function HammerWorkspaceEditor(
         if (cancelled) return;
         if (voiceDebugEnabled) {
           // eslint-disable-next-line no-console
-          console.log("[HammerVoice] timer_tick", { run_key: voiceRunKey, phase: voicePhase, ms: jitterMs });
+          console.log("[HammerVoice] timer_tick", {
+            instance_id: hammerRuntimeInstanceIdRef.current,
+            run_key: voiceRunKey,
+            phase: voicePhase,
+            ms: jitterMs,
+          });
         }
         fadeTo(pickNextLine());
         scheduleRotation();
