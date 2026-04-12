@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { buildStockCandidatesForBrollBeat } from "../../lib/hearth-broll-plan";
-import { uploadBrollBeatAsset } from "../../lib/hearth-broll-plan-repo";
+import { ingestBrollBeatAssetCandidate, uploadBrollBeatAsset } from "../../lib/hearth-broll-plan-repo";
 import {
   advanceExternalRequestTracker,
   buildBrollBeatBrief,
@@ -55,6 +55,21 @@ type UseBrollBridgeActionsArgs = {
 };
 
 export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
+  const resolveReadyCandidate = useCallback((beat: EpisodeBrollPlanBeat, candidateId: string | null): EpisodeBrollAssetCandidate | null => {
+    if (!candidateId) return null;
+    const candidate = (beat.candidate_assets ?? []).find((entry) => entry.asset_id === candidateId) ?? null;
+    if (!candidate) return null;
+    if (candidate.ingest_status === "failed" || candidate.ingest_status === "processing") return null;
+    return candidate;
+  }, []);
+
+  const resolveFulfillmentState = useCallback((beat: EpisodeBrollPlanBeat, selectedAssetId: string | null): EpisodeBrollPlanBeat["fulfillment_state"] => {
+    const selectedReady = resolveReadyCandidate(beat, selectedAssetId);
+    if (selectedReady) return "resolved";
+    if ((beat.candidate_assets ?? []).length > 0) return "candidate_assets_available";
+    return "unresolved";
+  }, [resolveReadyCandidate]);
+
   const onMarkBrollRequestState = useCallback(async (nextState: EpisodeExternalRequestState) => {
     if (!args.episodePackage || !args.selectedBrollBeat) return;
     const nextBeat: EpisodeBrollPlanBeat = {
@@ -390,6 +405,10 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       const uploadedCategory: EpisodeBrollMotionAssetCategory = file.type.startsWith("video/")
         ? "uploaded_video"
         : "animated_graphic";
+      const uploadReady = uploaded.candidateAsset.ingest_status !== "processing" && uploaded.candidateAsset.ingest_status !== "failed";
+      const nextSelectedAssetId = uploadReady
+        ? uploaded.candidateAsset.asset_id
+        : (resolveReadyCandidate(args.selectedBrollBeat, args.selectedBrollBeat.selected_asset_id ?? null)?.asset_id ?? null);
       const nextBeat: EpisodeBrollPlanBeat = {
         ...args.selectedBrollBeat,
         source_type: "upload",
@@ -407,8 +426,14 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
           resultMetadata: args.brollResultMetadataDraft,
           attachedAssetId: uploaded.candidateAsset.asset_id,
         }),
-        selected_asset_id: uploaded.candidateAsset.asset_id,
-        fulfillment_state: "resolved",
+        selected_asset_id: nextSelectedAssetId,
+        fulfillment_state: resolveFulfillmentState({
+          ...args.selectedBrollBeat,
+          candidate_assets: [
+            ...(args.selectedBrollBeat.candidate_assets ?? []).filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id),
+            uploaded.candidateAsset,
+          ],
+        }, nextSelectedAssetId),
         updated_at: new Date().toISOString(),
       };
       const nextPlan: EpisodeBrollPlan = {
@@ -428,7 +453,13 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
         return;
       }
       args.setBrollSaveState("saved");
-      args.setBrollMessage("Uploaded asset selected for this B-roll beat.");
+      if (uploaded.candidateAsset.ingest_status === "processing") {
+        args.setBrollMessage("Upload received. Processing media preview...");
+      } else if (uploaded.candidateAsset.ingest_status === "failed") {
+        args.setBrollMessage("Upload received, but media preview ingestion failed. Retry processing from the candidate card.");
+      } else {
+        args.setBrollMessage("Uploaded asset selected for this B-roll beat.");
+      }
     } catch {
       args.setBrollSaveError("Unable to upload this B-roll asset.");
       args.setBrollSaveState("error");
@@ -444,6 +475,16 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
     const candidate = (args.selectedBrollBeat.candidate_assets ?? []).find((asset) => asset.asset_id === candidateId) ?? null;
     if (!candidate) {
       args.setBrollSaveError("Selected candidate is no longer attached to this beat.");
+      args.setBrollSaveState("error");
+      return;
+    }
+    if (candidate.ingest_status === "processing") {
+      args.setBrollSaveError("This upload is still processing. Wait until preview ingestion is ready.");
+      args.setBrollSaveState("error");
+      return;
+    }
+    if (candidate.ingest_status === "failed") {
+      args.setBrollSaveError("This candidate failed preview ingestion. Retry processing before selecting it.");
       args.setBrollSaveState("error");
       return;
     }
@@ -494,6 +535,87 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
     }
   }, [args]);
 
+  const onRetryBrollCandidateIngestion = useCallback(async (candidateId: string) => {
+    if (!args.episodePackage || !args.selectedBrollBeat) return;
+    if (args.isBrollBusy) return;
+    const episodeId = args.workpieceId?.trim() ?? "";
+    if (!episodeId) {
+      args.setBrollSaveError("Select an Episode before retrying ingestion.");
+      args.setBrollSaveState("error");
+      return;
+    }
+    const existingCandidate = (args.selectedBrollBeat.candidate_assets ?? []).find((candidate) => candidate.asset_id === candidateId) ?? null;
+    if (!existingCandidate) {
+      args.setBrollSaveError("Candidate asset no longer exists for this beat.");
+      args.setBrollSaveState("error");
+      return;
+    }
+
+    args.setIsBrollBusy(true);
+    args.setBrollSaveState("saving");
+    args.setBrollSaveError(null);
+    try {
+      const pendingCandidate: EpisodeBrollAssetCandidate = {
+        ...existingCandidate,
+        ingest_status: "processing",
+        ingest_error: null,
+      };
+      const ingestedCandidate = await ingestBrollBeatAssetCandidate({
+        workpieceId: episodeId,
+        beatId: args.selectedBrollBeat.id,
+        candidateAsset: pendingCandidate,
+      });
+
+      const nextCandidates = (args.selectedBrollBeat.candidate_assets ?? []).map((candidate) => (
+        candidate.asset_id === ingestedCandidate.asset_id ? ingestedCandidate : candidate
+      ));
+      const nextSelectedAssetId = ingestedCandidate.ingest_status === "ready"
+        ? (args.selectedBrollBeat.selected_asset_id === ingestedCandidate.asset_id
+          ? ingestedCandidate.asset_id
+          : args.selectedBrollBeat.selected_asset_id)
+        : (args.selectedBrollBeat.selected_asset_id === ingestedCandidate.asset_id
+          ? null
+          : args.selectedBrollBeat.selected_asset_id);
+      const nextBeat: EpisodeBrollPlanBeat = {
+        ...args.selectedBrollBeat,
+        candidate_assets: nextCandidates,
+        selected_asset_id: nextSelectedAssetId,
+        fulfillment_state: resolveFulfillmentState({
+          ...args.selectedBrollBeat,
+          candidate_assets: nextCandidates,
+        }, nextSelectedAssetId),
+        updated_at: new Date().toISOString(),
+      };
+      const nextPlan: EpisodeBrollPlan = {
+        ...args.episodePackage.broll_plan,
+        version: Math.max(1, args.episodePackage.broll_plan.version + 1),
+        beats: args.episodePackage.broll_plan.beats.map((beat) => (beat.id === args.selectedBrollBeat?.id ? nextBeat : beat)),
+        generated_at: new Date().toISOString(),
+      };
+      const saved = await args.persistBrollPlan({
+        plan: nextPlan,
+        eventName: "hearth.broll_plan.asset_ingest_retried.v1",
+        eventPayload: { beat_id: args.selectedBrollBeat.id, candidate_id: ingestedCandidate.asset_id },
+      });
+      if (!saved.ok) {
+        args.setBrollSaveError(saved.error);
+        args.setBrollSaveState("error");
+        return;
+      }
+      args.setBrollSaveState("saved");
+      if (ingestedCandidate.ingest_status === "failed") {
+        args.setBrollMessage("Ingestion retry failed. Candidate remains unavailable for selection.");
+      } else {
+        args.setBrollMessage("Candidate ingestion completed and preview is ready.");
+      }
+    } catch {
+      args.setBrollSaveError("Unable to retry candidate ingestion.");
+      args.setBrollSaveState("error");
+    } finally {
+      args.setIsBrollBusy(false);
+    }
+  }, [args, resolveFulfillmentState, resolveReadyCandidate]);
+
   return {
     onCopyBrollPrompt,
     onDownloadBrollBrief,
@@ -504,5 +626,6 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
     onFindStockForBrollBeat,
     onUploadBrollBeatAsset,
     onSelectBrollCandidate,
+    onRetryBrollCandidateIngestion,
   };
 }

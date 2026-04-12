@@ -357,7 +357,10 @@ export type EpisodeBrollAssetCandidate = {
   source_url?: string | null;
   provider_note?: string | null;
   usage_note?: string | null;
+  ingest_status?: "processing" | "ready" | "failed" | null;
+  ingest_error?: string | null;
   thumbnail_path?: string | null;
+  preview_path?: string | null;
   attached_at?: string | null;
   asset_category?: EpisodeBrollMotionAssetCategory | null;
   label?: string | null;
@@ -1668,6 +1671,10 @@ function normalizeBrollCandidateAssets(value: unknown): EpisodeBrollAssetCandida
     const assetId = readString(entry.asset_id) ?? readString(entry.id) ?? `broll-asset-${String(index + 1).padStart(2, "0")}`;
     const source = normalizeBrollSourceType(entry.source);
     const mimeType = readString(entry.mime_type);
+    const ingestStatusRaw = readString(entry.ingest_status)?.toLowerCase();
+    const ingestStatus = ingestStatusRaw === "processing" || ingestStatusRaw === "ready" || ingestStatusRaw === "failed"
+      ? ingestStatusRaw
+      : null;
     candidates.push({
       asset_id: assetId,
       source,
@@ -1677,7 +1684,10 @@ function normalizeBrollCandidateAssets(value: unknown): EpisodeBrollAssetCandida
       source_url: readString(entry.source_url),
       provider_note: readString(entry.provider_note),
       usage_note: readString(entry.usage_note),
+      ingest_status: ingestStatus,
+      ingest_error: readString(entry.ingest_error),
       thumbnail_path: readString(entry.thumbnail_path),
+      preview_path: readString(entry.preview_path),
       attached_at: normalizeOptionalIso(entry.attached_at),
       asset_category: normalizeBrollMotionAssetCategory(entry.asset_category)
         ?? deriveBrollAssetCategoryFromSource({

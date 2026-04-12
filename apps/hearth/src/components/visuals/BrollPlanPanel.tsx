@@ -1,4 +1,5 @@
-import { useId, useMemo, useRef } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { loadImageMapCandidatePreviewDataUrl } from "../../lib/hearth-image-map-repo";
 import type { EpisodeBrollAssetCandidate, EpisodeBrollPlanBeat } from "../../lib/episode-package-v2";
 import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actionability";
 
@@ -10,6 +11,7 @@ type BrollPlanPanelProps = {
   saveError: string | null;
   message: string | null;
   disabled?: boolean;
+  workpieceId: string | null;
   draft: {
     anchorText: string;
     description: string;
@@ -48,6 +50,7 @@ type BrollPlanPanelProps = {
   onFindStock: () => void;
   onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
+  onRetryCandidateIngestion: (candidateId: string) => void;
   onCopyPrompt: () => void;
   onDownloadBrief: () => void;
   onDownloadBriefJson: () => void;
@@ -86,6 +89,38 @@ const SHOT_TYPES = ["mixed", "wide", "medium", "close", "macro", "aerial"];
 const PLACEMENT_HINTS = ["first_occurrence", "exact_timestamp", "manual"];
 const DATA_CHART_TYPES = ["bar", "line", "area", "pie", "timeline", "stat"];
 
+type CandidatePreviewState = "loading" | "ready" | "error";
+
+function resolveDirectCandidatePreviewSource(candidate: EpisodeBrollAssetCandidate): string | null {
+  const uri = (candidate.uri ?? "").trim();
+  if (uri && (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("blob:") || uri.startsWith("data:"))) {
+    return uri;
+  }
+  const previewPath = (candidate.preview_path ?? "").trim();
+  if (previewPath && (previewPath.startsWith("http://") || previewPath.startsWith("https://") || previewPath.startsWith("blob:") || previewPath.startsWith("data:"))) {
+    return previewPath;
+  }
+  const path = (candidate.path ?? "").trim();
+  if (path && (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("blob:") || path.startsWith("data:"))) {
+    return path;
+  }
+  return null;
+}
+
+function resolveCandidatePreviewSource(
+  candidate: EpisodeBrollAssetCandidate,
+  previewUrlById: Record<string, string>,
+): string | null {
+  return resolveDirectCandidatePreviewSource(candidate) ?? previewUrlById[candidate.asset_id] ?? null;
+}
+
+function resolveCandidateStatus(candidate: EpisodeBrollAssetCandidate): "processing" | "ready" | "failed" {
+  const status = candidate.ingest_status ?? null;
+  if (status === "processing") return "processing";
+  if (status === "failed") return "failed";
+  return "ready";
+}
+
 function resolveBeatState(beat: EpisodeBrollPlanBeat): string {
   if (beat.fulfillment_state) return beat.fulfillment_state;
   if (beat.selected_asset_id) return "resolved";
@@ -97,56 +132,198 @@ function CandidateList(args: {
   candidates: EpisodeBrollAssetCandidate[];
   selectedCandidateId: string | null;
   disabled: boolean;
+  previewStateById: Record<string, CandidatePreviewState>;
+  previewUrlById: Record<string, string>;
+  previewErrorById: Record<string, string>;
   onSelectCandidate: (candidateId: string) => void;
+  onRetryCandidateIngestion: (candidateId: string) => void;
 }) {
   if (args.candidates.length === 0) {
     return <div className="hs-imap-empty">No candidate assets attached yet.</div>;
   }
   return (
     <div className="hs-imap-candidates">
-      {args.candidates.map((candidate) => (
-        <article key={candidate.asset_id} className={`hs-imap-candidate-card${candidate.asset_id === args.selectedCandidateId ? " is-selected" : ""}`}>
-          <div className="hs-imap-candidate-meta">
-            <div className="hs-imap-candidate-title">
-              {candidate.label ?? candidate.source}
-              {candidate.asset_id === args.selectedCandidateId ? <span className="hs-imap-candidate-badge">Selected</span> : null}
+      {args.candidates.map((candidate) => {
+        const status = resolveCandidateStatus(candidate);
+        const previewSource = resolveCandidatePreviewSource(candidate, args.previewUrlById);
+        const previewState = args.previewStateById[candidate.asset_id] ?? (previewSource ? "ready" : "error");
+        const previewError = args.previewErrorById[candidate.asset_id] ?? null;
+        const canSelect = status === "ready";
+        const selectDisabled = args.disabled || !canSelect;
+        const statusLabel = status === "processing"
+          ? "Processing"
+          : status === "failed"
+            ? "Failed"
+            : "Ready";
+        return (
+          <article key={candidate.asset_id} className={`hs-imap-candidate-card${candidate.asset_id === args.selectedCandidateId ? " is-selected" : ""}`}>
+            <div className="hs-imap-candidate-media">
+              {previewSource ? (
+                <img
+                  src={previewSource}
+                  alt={candidate.label ?? "B-roll candidate"}
+                  className="hs-imap-candidate-image"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="hs-imap-candidate-placeholder">
+                  {status === "processing"
+                    ? "Processing upload..."
+                    : previewState === "loading"
+                      ? "Loading preview..."
+                      : "Preview unavailable"}
+                </div>
+              )}
             </div>
-            <div className="hs-imap-candidate-subtitle">
-              {candidate.source}
-              {candidate.asset_category ? ` • ${candidate.asset_category}` : ""}
-              {candidate.mime_type ? ` • ${candidate.mime_type}` : ""}
+            <div className="hs-imap-candidate-meta">
+              <div className="hs-imap-candidate-title">
+                {candidate.label ?? candidate.source}
+                {candidate.asset_id === args.selectedCandidateId ? <span className="hs-imap-candidate-badge">Selected</span> : null}
+              </div>
+              <div className="hs-imap-candidate-subtitle">
+                {candidate.source}
+                {candidate.asset_category ? ` • ${candidate.asset_category}` : ""}
+                {candidate.mime_type ? ` • ${candidate.mime_type}` : ""}
+                {` • ${statusLabel}`}
+              </div>
+              {candidate.ingest_error ? <div className="hs-error-text-small">{candidate.ingest_error}</div> : null}
+              {previewError ? <div className="hs-error-text-small">{previewError}</div> : null}
+              {candidate.uri ? (
+                <a href={candidate.uri} target="_blank" rel="noreferrer" className="hs-imap-link-inline">
+                  Open source
+                </a>
+              ) : null}
+              {(candidate.preview_path ?? candidate.path) ? (
+                <div className="hs-imap-candidate-subtitle">{candidate.preview_path ?? candidate.path}</div>
+              ) : null}
             </div>
-            {candidate.uri ? (
-              <a href={candidate.uri} target="_blank" rel="noreferrer" className="hs-imap-link-inline">
-                Open source
-              </a>
-            ) : null}
-            {candidate.path ? <div className="hs-imap-candidate-subtitle">{candidate.path}</div> : null}
-          </div>
-          <div className="hs-imap-candidate-actions">
-            <button
-              type="button"
-              className="hs-imap-candidate-apply"
-              disabled={args.disabled}
-              onClick={() => args.onSelectCandidate(candidate.asset_id)}
-            >
-              {candidate.asset_id === args.selectedCandidateId ? "Selected for Beat" : "Use Selected Asset"}
-            </button>
-          </div>
-        </article>
-      ))}
+            <div className="hs-imap-candidate-actions">
+              <button
+                type="button"
+                className="hs-imap-candidate-apply"
+                disabled={selectDisabled}
+                onClick={() => args.onSelectCandidate(candidate.asset_id)}
+              >
+                {candidate.asset_id === args.selectedCandidateId
+                  ? "Selected for Beat"
+                  : canSelect
+                    ? "Use Selected Asset"
+                    : status === "processing"
+                      ? "Not Selectable (Processing)"
+                      : "Not Selectable (Failed)"}
+              </button>
+              {status === "failed" ? (
+                <button
+                  type="button"
+                  className="hs-imap-candidate-apply"
+                  disabled={args.disabled}
+                  onClick={() => args.onRetryCandidateIngestion(candidate.asset_id)}
+                >
+                  Retry Ingestion
+                </button>
+              ) : null}
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }
 
 export default function BrollPlanPanel(props: BrollPlanPanelProps) {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const lastPreviewLoadSignatureRef = useRef<string>("");
   const formFieldIdPrefix = useId();
   const selectedBeat = useMemo(
     () => props.beats.find((beat) => beat.id === props.selectedBeatId) ?? null,
     [props.beats, props.selectedBeatId],
   );
   const beatCandidates = selectedBeat?.candidate_assets ?? [];
+  const [previewStateById, setPreviewStateById] = useState<Record<string, CandidatePreviewState>>({});
+  const [previewUrlById, setPreviewUrlById] = useState<Record<string, string>>({});
+  const [previewErrorById, setPreviewErrorById] = useState<Record<string, string>>({});
+  const previewLoadSignature = useMemo(() => {
+    const episodeId = props.workpieceId?.trim() ?? "";
+    const beatId = selectedBeat?.id ?? "";
+    const candidateSignature = beatCandidates
+      .map((candidate) => [
+        candidate.asset_id ?? "",
+        candidate.path ?? "",
+        candidate.preview_path ?? "",
+        candidate.mime_type ?? "",
+        candidate.uri ?? "",
+        candidate.ingest_status ?? "",
+      ].join("|"))
+      .join("||");
+    return `${episodeId}::${beatId}::${candidateSignature}`;
+  }, [beatCandidates, props.workpieceId, selectedBeat?.id]);
+
+  useEffect(() => {
+    if (lastPreviewLoadSignatureRef.current === previewLoadSignature) {
+      return;
+    }
+    lastPreviewLoadSignatureRef.current = previewLoadSignature;
+
+    const episodeId = props.workpieceId?.trim() ?? "";
+    if (!episodeId || !selectedBeat || beatCandidates.length === 0) {
+      setPreviewStateById({});
+      setPreviewUrlById({});
+      setPreviewErrorById({});
+      return;
+    }
+
+    const candidatesNeedingLoad = beatCandidates.filter((candidate) => {
+      if (!candidate.asset_id) return false;
+      if (candidate.ingest_status === "processing") return false;
+      const previewPath = (candidate.preview_path ?? candidate.path ?? "").trim();
+      if (!previewPath) return false;
+      if (resolveDirectCandidatePreviewSource(candidate)) return false;
+      return true;
+    });
+
+    if (!candidatesNeedingLoad.length) {
+      setPreviewStateById({});
+      setPreviewUrlById({});
+      setPreviewErrorById({});
+      return;
+    }
+
+    let cancelled = false;
+    setPreviewStateById(Object.fromEntries(candidatesNeedingLoad.map((candidate) => [candidate.asset_id, "loading"] as const)));
+    setPreviewUrlById({});
+    setPreviewErrorById({});
+
+    void Promise.all(candidatesNeedingLoad.map(async (candidate) => {
+      const result = await loadImageMapCandidatePreviewDataUrl({
+        workpieceId: episodeId,
+        path: candidate.preview_path ?? candidate.path ?? null,
+        mimeType: "image/jpeg",
+      });
+      return { assetId: candidate.asset_id, result };
+    })).then((results) => {
+      if (cancelled) return;
+      const nextState: Record<string, CandidatePreviewState> = {};
+      const nextUrls: Record<string, string> = {};
+      const nextErrors: Record<string, string> = {};
+      for (const { assetId, result } of results) {
+        if (result.ok) {
+          nextState[assetId] = "ready";
+          nextUrls[assetId] = result.dataUrl;
+        } else {
+          nextState[assetId] = "error";
+          nextErrors[assetId] = result.error;
+        }
+      }
+      setPreviewStateById(nextState);
+      setPreviewUrlById(nextUrls);
+      setPreviewErrorById(nextErrors);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [beatCandidates, previewLoadSignature, props.workpieceId, selectedBeat]);
+
   return (
     <div className="hs-imap-panel">
       <div className="hs-imap-header">
@@ -409,7 +586,11 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
                 candidates={beatCandidates}
                 selectedCandidateId={props.selectedCandidateId}
                 disabled={Boolean(props.disabled)}
+                previewStateById={previewStateById}
+                previewUrlById={previewUrlById}
+                previewErrorById={previewErrorById}
                 onSelectCandidate={props.onSelectCandidate}
+                onRetryCandidateIngestion={props.onRetryCandidateIngestion}
               />
             </>
           )}
