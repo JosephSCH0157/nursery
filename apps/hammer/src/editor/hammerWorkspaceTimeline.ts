@@ -27,11 +27,12 @@ export function resolveWorkspaceFocusMode(activeTool: HammerWorkspaceToolId): Ha
     case "polish":
       return "source-focus";
     case "audio":
-    case "video":
     case "captions":
     case "finishing":
     case "export":
       return "tool-focus";
+    case "video":
+      return "balanced";
     case "details":
     default:
       return "balanced";

@@ -840,6 +840,29 @@ function deriveAssetKind(args: {
   return "other";
 }
 
+function inferPlaybackMimeTypeFromPath(args: {
+  path: string;
+  kind: MediaRef["kind"];
+}): string {
+  const normalized = args.path.toLowerCase();
+  if (normalized.endsWith(".mp4")) return "video/mp4";
+  if (normalized.endsWith(".m4v")) return "video/x-m4v";
+  if (normalized.endsWith(".mov")) return "video/quicktime";
+  if (normalized.endsWith(".webm")) return "video/webm";
+  if (normalized.endsWith(".mp3")) return "audio/mpeg";
+  if (normalized.endsWith(".wav")) return "audio/wav";
+  if (normalized.endsWith(".aac")) return "audio/aac";
+  if (normalized.endsWith(".m4a")) return "audio/mp4";
+
+  if (args.kind === "recording_audio" || args.kind === "export_audio" || args.kind === "asset_audio") {
+    return "audio/mpeg";
+  }
+  if (args.kind === "recording_video" || args.kind === "export_video" || args.kind === "asset_broll") {
+    return "video/mp4";
+  }
+  return "application/octet-stream";
+}
+
 const NUMERIC_SIGNAL_RE = /\b(\d+([.,]\d+)?%?|\d{4}|increase|decrease|up|down|trend|timeline|year|month|week|compared|versus|vs\.?)\b/i;
 const MOTION_SIGNAL_RE = /\b(move|moving|walk|walking|run|running|drive|driving|enter|entering|exit|transition|story|journey|reveal|show|follow)\b/i;
 const PACING_TOKEN_RE = /\[(pause|beat|reflective pause)\]/gi;
@@ -4192,7 +4215,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         const previewUrl = await loadWorkpieceMediaPreviewUrl({
           workpieceId: launchContext.workpiece_id,
           path: localRelpath,
-          mimeType: mediaRef?.kind === "recording_audio" ? "audio/mpeg" : "video/webm",
+          mimeType: inferPlaybackMimeTypeFromPath({ path: localRelpath, kind: mediaRef?.kind ?? "other" }),
           surface: "unknown",
         });
         if (!active) {

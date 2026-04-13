@@ -30,6 +30,7 @@ const MIN_VISUAL_SLIVER_SEC = 0.25;
 const EPISODE_MEDIA_MAP_PATH = "hearth/media_map.v1.json";
 const ANCHOR_PLACED_CONFIDENCE = 0.85;
 const ANCHOR_UNCERTAIN_CONFIDENCE = 0.5;
+const PLACEMENT_DEBUG_TOP_CANDIDATES = 6;
 
 type VisualPackageResult =
   | { ok: true; status: number; data: WorkpieceVisualPackageResponseData }
@@ -40,6 +41,24 @@ type PlacementCandidate = {
   endIndex: number;
   score: number;
   rawScore: number;
+};
+
+type PlacementCandidateDebug = {
+  start_index: number;
+  end_index: number;
+  score: number;
+  raw_score: number;
+  start_sec: number | null;
+  end_sec: number | null;
+  start_segment_id: string | null;
+  end_segment_id: string | null;
+  window_text_sample: string | null;
+};
+
+type CandidateSearchDebug = {
+  evaluated: number;
+  matched: number;
+  top_candidates: PlacementCandidateDebug[];
 };
 
 type EpisodeMediaMapArtifactEntry = {
@@ -168,6 +187,181 @@ function resolveFinalMediaKind(args: {
 function readJsonObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+function resolvePlacementDebugEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (Boolean((import.meta as any)?.env?.DEV)) return true;
+  } catch {
+    // ignore
+  }
+  try {
+    const runtime = window as unknown as Record<string, unknown>;
+    return runtime.__forgeHammerDebugPlacements__ === true;
+  } catch {
+    return false;
+  }
+}
+
+function toPlacementCandidateDebug(args: {
+  transcriptSegments: HammerTranscriptSegment[];
+  startIndex: number;
+  endIndex: number;
+  score: number;
+  rawScore: number;
+  windowTextSample: string | null;
+}): PlacementCandidateDebug {
+  const start = args.transcriptSegments[args.startIndex] ?? null;
+  const end = args.transcriptSegments[args.endIndex] ?? null;
+  return {
+    start_index: args.startIndex,
+    end_index: args.endIndex,
+    score: Number(args.score.toFixed(3)),
+    raw_score: Number(args.rawScore.toFixed(3)),
+    start_sec: start?.start_sec ?? null,
+    end_sec: end?.end_sec ?? null,
+    start_segment_id: start?.segment_id ?? null,
+    end_segment_id: end?.segment_id ?? null,
+    window_text_sample: args.windowTextSample,
+  };
+}
+
+function maybeTrackCandidateDebug(args: {
+  debug: CandidateSearchDebug | null;
+  transcriptSegments: HammerTranscriptSegment[];
+  candidate: PlacementCandidate;
+  windowText: string;
+}): void {
+  const debug = args.debug;
+  if (!debug) return;
+
+  const trimmed = args.windowText.trim();
+  const sample = trimmed
+    ? `${trimmed.slice(0, 120)}${trimmed.length > 120 ? "…" : ""}`
+    : null;
+  const record = toPlacementCandidateDebug({
+    transcriptSegments: args.transcriptSegments,
+    startIndex: args.candidate.startIndex,
+    endIndex: args.candidate.endIndex,
+    score: args.candidate.score,
+    rawScore: args.candidate.rawScore,
+    windowTextSample: sample,
+  });
+
+  const current = debug.top_candidates;
+  if (current.length < PLACEMENT_DEBUG_TOP_CANDIDATES) {
+    current.push(record);
+  } else {
+    let weakestIndex = 0;
+    for (let index = 1; index < current.length; index += 1) {
+      const row = current[index];
+      const weak = current[weakestIndex];
+      if (row.score < weak.score || (row.score === weak.score && row.raw_score < weak.raw_score)) {
+        weakestIndex = index;
+      }
+    }
+    const weakest = current[weakestIndex];
+    if (record.score > weakest.score || (record.score === weakest.score && record.raw_score > weakest.raw_score)) {
+      current[weakestIndex] = record;
+    }
+  }
+
+  current.sort((left, right) => (right.score - left.score) || (right.raw_score - left.raw_score));
+}
+
+function logVisualPlacementDecisionDebug(args: {
+  transcriptSegments: HammerTranscriptSegment[];
+  entryId: string;
+  assetId: string;
+  assetPath: string | null;
+  anchorText: string;
+  matchedText: string;
+  searchFloor: number;
+  maxWindowSegments: number;
+  deterministic: { chosen: PlacementCandidate | null; debug: CandidateSearchDebug | null };
+  fuzzy: { chosen: PlacementCandidate | null; debug: CandidateSearchDebug | null };
+  chosenCandidate: PlacementCandidate | null;
+  confidence: number;
+  thresholds: {
+    match_min_score: number;
+    match_strong_score: number;
+    anchor_placed_confidence: number;
+    anchor_uncertain_confidence: number;
+  };
+  downgradeReasons: string[];
+  placementFlags: string[];
+  timingSource: HammerVisualPlacementRecord["timing_source"];
+  classification: "placed" | "uncertain" | "unresolved";
+  disposition: "placed" | "placed_with_warning" | "uncertain" | "rejected";
+  persistedStatus: "placed" | "uncertain";
+}): void {
+  if (!resolvePlacementDebugEnabled()) return;
+  // eslint-disable-next-line no-console
+  console.groupCollapsed?.(
+    `[Hammer][VisualPlacementDecision] ${args.entryId} → ${args.disposition} (conf=${Number(args.confidence.toFixed(3))})`,
+  );
+  // eslint-disable-next-line no-console
+  console.log({
+    entry_id: args.entryId,
+    asset_id: args.assetId,
+    asset_path: args.assetPath,
+    chosen_anchor: args.anchorText,
+    chosen_matched_text: args.matchedText,
+    search_floor_index: args.searchFloor,
+    max_window_segments: args.maxWindowSegments,
+    confidence: Number(args.confidence.toFixed(3)),
+    threshold_required: args.thresholds,
+    candidate_anchors_considered: {
+      deterministic: {
+        evaluated: args.deterministic.debug?.evaluated ?? null,
+        matched: args.deterministic.debug?.matched ?? null,
+        top_candidates: args.deterministic.debug?.top_candidates ?? null,
+        chosen: args.deterministic.chosen
+          ? toPlacementCandidateDebug({
+            transcriptSegments: args.transcriptSegments,
+            startIndex: args.deterministic.chosen.startIndex,
+            endIndex: args.deterministic.chosen.endIndex,
+            score: args.deterministic.chosen.score,
+            rawScore: args.deterministic.chosen.rawScore,
+            windowTextSample: null,
+          })
+          : null,
+      },
+      fuzzy: {
+        evaluated: args.fuzzy.debug?.evaluated ?? null,
+        matched: args.fuzzy.debug?.matched ?? null,
+        top_candidates: args.fuzzy.debug?.top_candidates ?? null,
+        chosen: args.fuzzy.chosen
+          ? toPlacementCandidateDebug({
+            transcriptSegments: args.transcriptSegments,
+            startIndex: args.fuzzy.chosen.startIndex,
+            endIndex: args.fuzzy.chosen.endIndex,
+            score: args.fuzzy.chosen.score,
+            rawScore: args.fuzzy.chosen.rawScore,
+            windowTextSample: null,
+          })
+          : null,
+      },
+    },
+    chosen_candidate: args.chosenCandidate
+      ? {
+        start_index: args.chosenCandidate.startIndex,
+        end_index: args.chosenCandidate.endIndex,
+        score: Number(args.chosenCandidate.score.toFixed(3)),
+        raw_score: Number(args.chosenCandidate.rawScore.toFixed(3)),
+      }
+      : null,
+    timing_source: args.timingSource,
+    classification: args.classification,
+    downgrade_reasons: args.downgradeReasons,
+    flags: args.placementFlags,
+    final_disposition: args.disposition,
+    persisted_status: args.persistedStatus,
+  });
+  // eslint-disable-next-line no-console
+  console.groupEnd?.();
 }
 
 function normalizeScriptAnchor(value: unknown): EpisodeImageMapScriptAnchorRecord | null {
@@ -645,31 +839,6 @@ function classifyAnchorMatch(args: {
   };
 }
 
-function logAnchorMatchDebug(args: {
-  anchorText: string;
-  matchedText: string;
-  matchType: AnchorMatchType;
-  confidence: number;
-  classification: AnchorMatchClassification;
-}): void {
-  if (typeof window === "undefined") return;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const isDev = Boolean((import.meta as any)?.env?.DEV);
-    if (!isDev) return;
-  } catch {
-    return;
-  }
-  // eslint-disable-next-line no-console
-  console.log("[AnchorMatch]", {
-    anchor_text: args.anchorText,
-    matched_text: args.matchedText,
-    match_type: args.matchType,
-    confidence: Number(args.confidence.toFixed(3)),
-    classification: args.classification,
-  });
-}
-
 function buildVisualPlacementSourceRefs(
   transcriptSourceId: string,
   visualPackage: WorkpieceVisualPackageResponseData,
@@ -700,6 +869,7 @@ function findBestPlacementCandidate(
   transcriptSegments: HammerTranscriptSegment[],
   floorIndex: number,
   maxWindowSegments: number,
+  debug: CandidateSearchDebug | null,
 ): PlacementCandidate | null {
   let best: PlacementCandidate | null = null;
 
@@ -713,8 +883,10 @@ function findBestPlacementCandidate(
         .slice(startIndex, endIndex + 1)
         .map((segment) => segment.text)
         .join(" ");
+      if (debug) debug.evaluated += 1;
       const rawScore = computeTextMatchScore(anchorText, windowText);
       if (rawScore <= 0) continue;
+      if (debug) debug.matched += 1;
 
       const orderPenalty = startIndex < floorIndex
         ? Math.min(0.28, (floorIndex - startIndex) * ORDER_PENALTY_PER_SEGMENT)
@@ -726,6 +898,12 @@ function findBestPlacementCandidate(
         score,
         rawScore,
       };
+      maybeTrackCandidateDebug({
+        debug,
+        transcriptSegments,
+        candidate,
+        windowText,
+      });
 
       if (
         !best
@@ -755,6 +933,7 @@ function findDeterministicPlacementCandidate(
   transcriptSegments: HammerTranscriptSegment[],
   floorIndex: number,
   maxWindowSegments: number,
+  debug: CandidateSearchDebug | null,
 ): PlacementCandidate | null {
   const normalizedAnchor = normalizeForMatch(anchorText);
   if (!normalizedAnchor) return null;
@@ -770,8 +949,10 @@ function findDeterministicPlacementCandidate(
         .slice(startIndex, endIndex + 1)
         .map((segment) => segment.text)
         .join(" ");
+      if (debug) debug.evaluated += 1;
       const normalizedWindow = normalizeForMatch(windowText);
       if (!normalizedWindow || !normalizedWindow.includes(normalizedAnchor)) continue;
+      if (debug) debug.matched += 1;
 
       const exact = normalizedWindow === normalizedAnchor;
       const rawScore = exact ? 1 : 0.98;
@@ -781,6 +962,12 @@ function findDeterministicPlacementCandidate(
         score: rawScore,
         rawScore,
       };
+      maybeTrackCandidateDebug({
+        debug,
+        transcriptSegments,
+        candidate,
+        windowText,
+      });
 
       if (!best) {
         best = candidate;
@@ -1023,18 +1210,34 @@ export function deriveHammerVisualPlacements(args: {
     }
 
     const maxWindowSegments = resolveMaxWindowSegments(anchorText);
+    const debugEnabled = resolvePlacementDebugEnabled();
+    const deterministicDebug: CandidateSearchDebug | null = debugEnabled ? {
+      evaluated: 0,
+      matched: 0,
+      top_candidates: [],
+    } : null;
+    const fuzzyDebug: CandidateSearchDebug | null = debugEnabled ? {
+      evaluated: 0,
+      matched: 0,
+      top_candidates: [],
+    } : null;
     const deterministicCandidate = findDeterministicPlacementCandidate(
       anchorText,
       transcriptSegments,
       searchFloor,
       maxWindowSegments,
+      deterministicDebug,
     );
-    const candidate = deterministicCandidate ?? findBestPlacementCandidate(
-      anchorText,
-      transcriptSegments,
-      searchFloor,
-      maxWindowSegments,
-    );
+    const fuzzyCandidate = deterministicCandidate
+      ? null
+      : findBestPlacementCandidate(
+        anchorText,
+        transcriptSegments,
+        searchFloor,
+        maxWindowSegments,
+        fuzzyDebug,
+      );
+    const candidate = deterministicCandidate ?? fuzzyCandidate;
     const placementFlags: string[] = [];
     let startIndex = searchFloor;
     let endIndex = Math.min(transcriptSegments.length - 1, searchFloor);
@@ -1065,13 +1268,6 @@ export function deriveHammerVisualPlacements(args: {
       deterministicCandidate,
       candidate,
     });
-    logAnchorMatchDebug({
-      anchorText,
-      matchedText,
-      matchType: anchorMatch.matchType,
-      confidence: anchorMatch.confidence,
-      classification: anchorMatch.classification,
-    });
     const startSec = matchedSegments[0]?.start_sec ?? 0;
     const endSec = matchedSegments.at(-1)?.end_sec ?? startSec;
     searchFloor = Math.min(transcriptSegments.length - 1, endIndex + 1);
@@ -1082,6 +1278,74 @@ export function deriveHammerVisualPlacements(args: {
     } else if (anchorMatch.classification === "uncertain") {
       placementFlags.push("anchor_match_uncertain");
     }
+
+    const downgradeReasons: string[] = [];
+    if (candidate && candidate.rawScore < MATCH_MIN_SCORE) {
+      downgradeReasons.push(`candidate_below_min_score:${candidate.rawScore.toFixed(3)}<${MATCH_MIN_SCORE}`);
+    }
+    if (anchorMatch.classification !== "placed") {
+      downgradeReasons.push(`confidence_below_placed_threshold:${anchorMatch.confidence.toFixed(3)}<${ANCHOR_PLACED_CONFIDENCE}`);
+    }
+    if (placementFlags.includes("low_confidence_match")) {
+      downgradeReasons.push(`below_strong_score:${(candidate?.rawScore ?? 0).toFixed(3)}<${MATCH_STRONG_SCORE}`);
+    }
+    if (placementFlags.includes("order_regression_penalty")) {
+      downgradeReasons.push("order_regression_penalty");
+    }
+    if (placementFlags.includes("ordered_fallback")) {
+      downgradeReasons.push("ordered_fallback_used");
+    }
+    if (promotedCandidate) {
+      downgradeReasons.push("image_map_candidate_promoted");
+    }
+    if (placementFlags.includes("anchor_match_unresolved")) {
+      downgradeReasons.push(`anchor_match_unresolved:<${ANCHOR_UNCERTAIN_CONFIDENCE}`);
+    }
+    if (placementFlags.includes("anchor_match_uncertain")) {
+      downgradeReasons.push(`anchor_match_uncertain:>=${ANCHOR_UNCERTAIN_CONFIDENCE} and <${ANCHOR_PLACED_CONFIDENCE}`);
+    }
+
+    const hasWarnings = (
+      placementFlags.includes("low_confidence_match")
+      || placementFlags.includes("order_regression_penalty")
+      || promotedCandidate
+    );
+    const disposition: "placed" | "placed_with_warning" | "uncertain" | "rejected" = (
+      anchorMatch.classification === "placed"
+        ? (hasWarnings ? "placed_with_warning" : "placed")
+        : anchorMatch.classification === "uncertain"
+          ? "uncertain"
+          : "rejected"
+    );
+    const persistedStatus: "placed" | "uncertain" = anchorMatch.classification === "placed" ? "placed" : "uncertain";
+
+    logVisualPlacementDecisionDebug({
+      transcriptSegments,
+      entryId: visual.entry_id,
+      assetId: selectedAsset.asset_id,
+      assetPath: selectedAsset.path ?? null,
+      anchorText,
+      matchedText,
+      searchFloor,
+      maxWindowSegments,
+      deterministic: { chosen: deterministicCandidate, debug: deterministicDebug },
+      fuzzy: { chosen: fuzzyCandidate, debug: fuzzyDebug },
+      chosenCandidate: candidate,
+      confidence: anchorMatch.confidence,
+      thresholds: {
+        match_min_score: MATCH_MIN_SCORE,
+        match_strong_score: MATCH_STRONG_SCORE,
+        anchor_placed_confidence: ANCHOR_PLACED_CONFIDENCE,
+        anchor_uncertain_confidence: ANCHOR_UNCERTAIN_CONFIDENCE,
+      },
+      downgradeReasons: uniqueFlags(downgradeReasons),
+      placementFlags: uniqueFlags(placementFlags),
+      timingSource,
+      classification: anchorMatch.classification,
+      disposition,
+      persistedStatus,
+    });
+
     placements.push({
       placement_id: `placement_${visual.entry_id}`,
       entry_id: visual.entry_id,
@@ -1104,7 +1368,7 @@ export function deriveHammerVisualPlacements(args: {
       end_sec: endSec,
       confidence: Number(anchorMatch.confidence.toFixed(3)),
       timing_source: timingSource,
-      status: anchorMatch.classification === "placed" ? "placed" : "uncertain",
+      status: persistedStatus,
       ingest_state: visual.status === "selected" ? "approved" : "suggested",
       uncertainty_flags: promotedCandidate
         ? [...placementFlags, "image_map_candidate_promoted"]

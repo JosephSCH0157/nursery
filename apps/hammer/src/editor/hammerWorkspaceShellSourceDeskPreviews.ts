@@ -22,12 +22,30 @@ export type UseHammerWorkspaceShellSourceDeskPreviewsArgs = {
   previewUrls: Record<string, string>;
 };
 
+function resolveSourceDeskPreviewDebugEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (Boolean((import.meta as any)?.env?.DEV)) return true;
+  } catch {
+    // ignore
+  }
+  try {
+    const runtime = window as unknown as Record<string, unknown>;
+    return runtime.__forgeHammerDebugImagePreviews__ === true;
+  } catch {
+    return false;
+  }
+}
+
 export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspaceShellSourceDeskPreviewsArgs): void {
   useEffect(() => {
     let active = true;
     const nextUrls: Record<string, string> = {};
     const nextFailures: Record<string, true> = {};
     const previewPaths = args.previewPaths;
+    const debugEnabled = resolveSourceDeskPreviewDebugEnabled();
+    const startedAt = typeof performance !== "undefined" ? performance.now() : null;
 
     if (args.requestedPreviewPathCount > args.maxItems) {
       console.info("Hammer Source Desk preview load capped", {
@@ -36,16 +54,32 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
         loaded: previewPaths.length,
       });
     }
+    // eslint-disable-next-line no-console
+    console.info("[Hammer][SourceDeskPreview] start", {
+      workpieceId: args.workpieceId,
+      requested: args.requestedPreviewPathCount,
+      loaded: previewPaths.length,
+      concurrency: args.concurrency,
+      maxItems: args.maxItems,
+    });
 
     async function loadPreviewBatch(paths: string[]): Promise<void> {
       await Promise.all(paths.map(async (path) => {
         try {
+          if (debugEnabled) {
+            // eslint-disable-next-line no-console
+            console.debug("[Hammer][SourceDeskPreview] fetching", { workpieceId: args.workpieceId, path });
+          }
           const url = await args.loadWorkpieceMediaPreviewUrl({
             workpieceId: args.workpieceId,
             path,
             surface: "source_desk_preview",
           });
           nextUrls[path] = url;
+          if (debugEnabled) {
+            // eslint-disable-next-line no-console
+            console.debug("[Hammer][SourceDeskPreview] ok", { workpieceId: args.workpieceId, path });
+          }
         } catch (error) {
           nextFailures[path] = true;
           const diagnostics = args.readHammerMediaPreviewErrorDiagnostics(error);
@@ -65,6 +99,15 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
       for (let index = 0; index < previewPaths.length; index += args.concurrency) {
         if (!active) break;
         const batch = previewPaths.slice(index, index + args.concurrency);
+        if (debugEnabled) {
+          // eslint-disable-next-line no-console
+          console.info("[Hammer][SourceDeskPreview] batch", {
+            workpieceId: args.workpieceId,
+            from: index,
+            to: Math.min(previewPaths.length, index + args.concurrency),
+            total: previewPaths.length,
+          });
+        }
         await loadPreviewBatch(batch);
       }
 
@@ -72,6 +115,15 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
         for (const url of Object.values(nextUrls)) URL.revokeObjectURL(url);
         return;
       }
+      const finishedAt = typeof performance !== "undefined" ? performance.now() : null;
+      const elapsedMs = (startedAt != null && finishedAt != null) ? Math.round(finishedAt - startedAt) : null;
+      // eslint-disable-next-line no-console
+      console.info("[Hammer][SourceDeskPreview] done", {
+        workpieceId: args.workpieceId,
+        ok: Object.keys(nextUrls).length,
+        failed: Object.keys(nextFailures).length,
+        elapsed_ms: elapsedMs,
+      });
       args.setPreviewUrls((previous) => {
         const previousKeys = Object.keys(previous);
         const nextKeys = Object.keys(nextUrls);
