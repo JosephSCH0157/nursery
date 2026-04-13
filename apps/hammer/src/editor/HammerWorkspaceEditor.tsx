@@ -267,7 +267,7 @@ export default function HammerWorkspaceEditor(
   const [transcriptPrepPreferenceNotice, setTranscriptPrepPreferenceNotice] = useState<{
     label: string;
   } | null>(null);
-  const [transcriptPrepPreferenceNonce, setTranscriptPrepPreferenceNonce] = useState(0);
+  const [, setTranscriptPrepPreferenceNonce] = useState(0);
   const [hasPendingSaveChanges, setHasPendingSaveChanges] = useState(false);
   const [saveInFlight, setSaveInFlight] = useState(false);
   const [saveFailureMessage, setSaveFailureMessage] = useState<string | null>(null);
@@ -2200,16 +2200,8 @@ export default function HammerWorkspaceEditor(
     resetPrepRunKey,
   ]);
 
-  useEffect(() => {
-    if (persistenceMode !== "canonical") return;
-    if (prepState.status !== "prep_failed") return;
-    if (prepFailureKind !== "non_ai_missing") return;
-
-    const behavior = readHammerTranscriptPrepNonAiMissingBehavior();
-    if (!behavior) return;
-
-    restartTranscriptPrep(behavior, { announce: true });
-  }, [persistenceMode, prepFailureKind, prepState.status, restartTranscriptPrep, transcriptPrepPreferenceNonce]);
+  // Note: We intentionally do not auto-apply saved transcript-prep preferences (non-AI missing) via an effect.
+  // Auto-retrying can create tight restart loops (and React "maximum update depth exceeded") when no transcript exists yet.
 
   function handlePreparedHandoffAction(actionId: HammerPreparedNextStepActionId): void {
     if (actionId === "export_later") {
@@ -2500,6 +2492,13 @@ export default function HammerWorkspaceEditor(
               Using saved preference: {savedPreference === "retry-non-ai" ? "Retry non-AI" : "Use AI fallback"}.
             </p>
             <div className="hammer-prep-shell__handoff-actions">
+              <button
+                type="button"
+                className="hammer-prep-shell__action-button"
+                onClick={() => restartTranscriptPrep(savedPreference, { announce: true })}
+              >
+                {savedPreference === "retry-non-ai" ? "Retry non-AI" : "Use AI fallback"}
+              </button>
               {canRenderPrepAiNoticeSettingsAction ? (
                 <button
                   type="button"

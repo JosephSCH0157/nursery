@@ -407,7 +407,7 @@ export async function requestHammerTranscriptPrep(
       elapsed_ms: elapsedMs(),
       client_request_id: clientRequestId,
       status: response.status,
-      message: readErrorMessage(payload, "Hammer transcript prep failed."),
+      message: readErrorMessage(payload),
     });
     throw new Error(readErrorMessage(payload));
   }
