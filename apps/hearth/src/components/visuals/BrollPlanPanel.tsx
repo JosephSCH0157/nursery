@@ -91,6 +91,10 @@ const DATA_CHART_TYPES = ["bar", "line", "area", "pie", "timeline", "stat"];
 
 type CandidatePreviewState = "loading" | "ready" | "error";
 
+function isVideoCandidate(candidate: EpisodeBrollAssetCandidate): boolean {
+  return (candidate.mime_type ?? "").trim().toLowerCase().startsWith("video/");
+}
+
 function resolveDirectCandidatePreviewSource(candidate: EpisodeBrollAssetCandidate): string | null {
   const uri = (candidate.uri ?? "").trim();
   if (uri && (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("blob:") || uri.startsWith("data:"))) {
@@ -118,6 +122,7 @@ function resolveCandidateStatus(candidate: EpisodeBrollAssetCandidate): "process
   const status = candidate.ingest_status ?? null;
   if (status === "processing") return "processing";
   if (status === "failed") return "failed";
+  if (isVideoCandidate(candidate) && !(candidate.preview_path ?? "").trim()) return "processing";
   return "ready";
 }
 
@@ -148,6 +153,7 @@ function CandidateList(args: {
         const previewSource = resolveCandidatePreviewSource(candidate, args.previewUrlById);
         const previewState = args.previewStateById[candidate.asset_id] ?? (previewSource ? "ready" : "error");
         const previewError = args.previewErrorById[candidate.asset_id] ?? null;
+        const needsPreviewIngestion = isVideoCandidate(candidate) && !(candidate.preview_path ?? "").trim();
         const canSelect = status === "ready";
         const selectDisabled = args.disabled || !canSelect;
         const statusLabel = status === "processing"
@@ -166,12 +172,14 @@ function CandidateList(args: {
                   loading="lazy"
                 />
               ) : (
-                <div className="hs-imap-candidate-placeholder">
+                <div className={`hs-imap-candidate-placeholder${previewError ? " is-error" : ""}`}>
                   {status === "processing"
                     ? "Processing upload..."
                     : previewState === "loading"
                       ? "Loading preview..."
-                      : "Preview unavailable"}
+                      : needsPreviewIngestion
+                        ? "Video thumbnail pending. Generate a thumbnail to preview."
+                        : "Preview unavailable"}
                 </div>
               )}
             </div>
@@ -212,14 +220,14 @@ function CandidateList(args: {
                       ? "Not Selectable (Processing)"
                       : "Not Selectable (Failed)"}
               </button>
-              {status === "failed" ? (
+              {status === "failed" || needsPreviewIngestion ? (
                 <button
                   type="button"
                   className="hs-imap-candidate-apply"
                   disabled={args.disabled}
                   onClick={() => args.onRetryCandidateIngestion(candidate.asset_id)}
                 >
-                  Retry Ingestion
+                  {status === "failed" ? "Retry Ingestion" : "Generate Thumbnail"}
                 </button>
               ) : null}
             </div>
@@ -275,7 +283,9 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
     const candidatesNeedingLoad = beatCandidates.filter((candidate) => {
       if (!candidate.asset_id) return false;
       if (candidate.ingest_status === "processing") return false;
-      const previewPath = (candidate.preview_path ?? candidate.path ?? "").trim();
+      const previewPath = isVideoCandidate(candidate)
+        ? (candidate.preview_path ?? candidate.thumbnail_path ?? "").trim()
+        : (candidate.preview_path ?? candidate.path ?? "").trim();
       if (!previewPath) return false;
       if (resolveDirectCandidatePreviewSource(candidate)) return false;
       return true;
@@ -296,7 +306,9 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
     void Promise.all(candidatesNeedingLoad.map(async (candidate) => {
       const result = await loadImageMapCandidatePreviewDataUrl({
         workpieceId: episodeId,
-        path: candidate.preview_path ?? candidate.path ?? null,
+        path: isVideoCandidate(candidate)
+          ? (candidate.preview_path ?? candidate.thumbnail_path ?? null)
+          : (candidate.preview_path ?? candidate.path ?? null),
         mimeType: "image/jpeg",
       });
       return { assetId: candidate.asset_id, result };

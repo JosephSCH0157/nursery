@@ -7345,7 +7345,9 @@ export default function HearthShell({
       renderFocusEditor={renderFocusEditor}
     />
   );
-  const mobileMainContent = renderEpisodesView();
+  const mobileMainContent = incomingBarStockIntakeRoute && routeSparkId && !routeProjectId && !hasActiveEpisode
+    ? renderSparkRouteBootstrapView()
+    : renderEpisodesView();
 
   const sourcesBadge = missingSourcesCount > 0 ? String(missingSourcesCount) : null;
   const sourcesBadgeTitle = missingSourcesCount > 0
