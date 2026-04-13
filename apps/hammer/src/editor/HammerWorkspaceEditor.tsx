@@ -1215,10 +1215,27 @@ export default function HammerWorkspaceEditor(
     });
 
     if (prepAiFallbackRequested && prepAiNoticeResolutionState === "loading") {
+      // eslint-disable-next-line no-console
+      console.info("[HammerTranscriptPrep] gate:policy_resolution_loading", {
+        instance_id: hammerRuntimeInstanceIdRef.current,
+        run_key: prepRunKey,
+        workspace_id: effectiveLaunchContext.workspace_id,
+        workpiece_id: effectiveLaunchContext.workpiece_id,
+        effective_lane: prepAiNoticeModel.laneSignature,
+      });
       return;
     }
 
     if (prepAiFallbackRequested && prepAiNoticeResolutionState === "error") {
+      // eslint-disable-next-line no-console
+      console.warn("[HammerTranscriptPrep] gate:policy_resolution_error", {
+        instance_id: hammerRuntimeInstanceIdRef.current,
+        run_key: prepRunKey,
+        workspace_id: effectiveLaunchContext.workspace_id,
+        workpiece_id: effectiveLaunchContext.workpiece_id,
+        effective_lane: prepAiNoticeModel.laneSignature,
+        message: props.prepAiNoticeResolutionError?.trim() || null,
+      });
       setPrepState(createHammerPrepState(
         "prep_failed",
         null,
@@ -1231,6 +1248,15 @@ export default function HammerWorkspaceEditor(
     // Once requested, show the consent modal (if required) and then proceed.
     if (prepAiFallbackRequested && shouldPromptPrepAiNotice && prepAiNoticeApprovedRunKeyRef.current !== prepRunKey) {
       prepAiNoticePendingRunKeyRef.current = prepRunKey;
+      // eslint-disable-next-line no-console
+      console.info("[HammerTranscriptPrep] gate:ai_notice_required", {
+        instance_id: hammerRuntimeInstanceIdRef.current,
+        run_key: prepRunKey,
+        workspace_id: effectiveLaunchContext.workspace_id,
+        workpiece_id: effectiveLaunchContext.workpiece_id,
+        effective_lane: prepAiNoticeModel.laneSignature,
+        acknowledged_lane: props.prepAiNoticeAcknowledgedLaneSignature ?? null,
+      });
       setShowPrepAiNotice(true);
       return;
     }
@@ -1574,7 +1600,18 @@ export default function HammerWorkspaceEditor(
         if (!isPrepExecutionActive(executionId)) return;
 
         let canonicalAfterSeal: HammerCanonicalRecordingRecord | null = activeCanonicalRecording;
-        if (persistenceTarget && activeCanonicalRecording && !activeCanonicalRecording.sealed_at) {
+        if (!persistenceTarget) {
+          logTranscriptStage("seal:skipped", { reason: "missing_persistence_target" }, "warn");
+        } else if (!activeCanonicalRecording) {
+          logTranscriptStage("seal:skipped", { reason: "missing_canonical_recording" }, "warn");
+        } else if (activeCanonicalRecording.sealed_at) {
+          logTranscriptStage("seal:skipped", {
+            reason: "already_sealed",
+            canonical_recording_id: activeCanonicalRecording.id,
+            sealed_at: activeCanonicalRecording.sealed_at ?? null,
+            note: "Skipping baseline seal; transcript must already exist on the canonical recording baseline for non-AI reuse.",
+          }, "warn");
+        } else {
           logTranscriptStage("seal:start", { canonical_recording_id: activeCanonicalRecording.id });
           const sealSpan = run.span("canonical:seal_transcript");
           const sealResult = await sealHammerCanonicalBaseline(
