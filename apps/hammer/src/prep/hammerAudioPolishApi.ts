@@ -31,6 +31,20 @@ export interface HammerAudioPolishRequest {
   workspace_id: string;
   workpiece_id: string;
   media_kind: MediaKind;
+  /**
+   * Processing inputs must be concrete and executable:
+   * - `local_path`: an absolute path on the operator machine (server-side runtime reads from disk).
+   * - `url`: a fully-qualified URL that the runtime can fetch (server-side runtime fetches bytes).
+   */
+  input?: {
+    type: "local_path" | "url";
+    value: string;
+  };
+  /**
+   * Optional override for canonical Tongs HTTP origin used by the server-side runtime
+   * when it needs to read or commit canonical workpiece artifacts.
+   */
+  tongs_origin?: string | null;
   local_root_abs?: string | null;
   local_relpath?: string | null;
   canonical_workpiece_path?: string | null;

@@ -36,8 +36,9 @@ import {
   buildHearthResearchRequest,
   type HearthResearchResult,
   type HearthResearchRequest,
+  type HearthResearchSource,
 } from "../../../hearth/src/lib/hearth-research-contract";
-import { createHearthResearchRuntime } from "./hearth-research-runtime";
+import { createHearthResearchRuntime, extractUrlToResearchSource } from "./hearth-research-runtime";
 import {
   FORGE_ALLOWED_CHAT_MODELS,
 } from "./ai-pricing";
@@ -170,6 +171,7 @@ const RISK_NUDGE_RE = /\b(risk|risky|legal|defamation|liability|compliance|sensi
 const RECORD_ANYWAY_RE = /\b(record anyway|record now anyway|ok to record anyway|okay to record anyway|go ahead and record)\b/i;
 const CDC_REQUEST_RE = /\b(cdc|contextual data composite|chart|graph|plot|dataset|bar chart|line chart|pie chart)\b/i;
 const RESEARCH_INTENT_RE = /\b(browse|look up|lookup|find(?: me)?|search|news|reports?|reporting|examples?|case studies?|incidents?|breach(?:es)?|source|sources|citations?|evidence)\b/i;
+const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
 const CROSS_PROJECT_REFERENCE_RE = /\b(use|pull in|bring in|remember|recall|like|from)\b[\s\S]{0,120}\b(script|episode|project|conversation|workspace|last week|other chat|that)\b/i;
 const ALLOWED_CHAT_MODELS = new Set<string>(FORGE_ALLOWED_CHAT_MODELS);
 const DEFAULT_CREATOR_PROFILE: CreatorProfile = {
@@ -305,7 +307,11 @@ async function resolveRuntimeAiPolicy(args: {
     userId: args.userId,
     provider: args.provider,
   });
-  return resolveAiPolicy(args.supabaseService, {
+  const tongsSupabaseService = (
+    args.supabaseService as unknown as { schema?: (name: string) => unknown }
+  ).schema?.("tongs") as unknown as SupabaseClient | undefined;
+  const supabaseForPolicy = tongsSupabaseService ?? (args.supabaseService as unknown as SupabaseClient);
+  return resolveAiPolicy(supabaseForPolicy, {
     orgId: null,
     workspaceId: args.workspaceId,
     userId: args.userId,
@@ -328,6 +334,17 @@ function clamp01(value: number): number {
   if (value <= 0) return 0;
   if (value >= 1) return 1;
   return value;
+}
+
+type AllowedForgeChatModel = (typeof FORGE_ALLOWED_CHAT_MODELS)[number];
+
+function isOpenAiModelAccessError(detail: string): boolean {
+  const normalized = (detail || "").toLowerCase();
+  if (!normalized) return false;
+  if (normalized.includes("model") && normalized.includes("does not exist")) return true;
+  if (normalized.includes("model") && normalized.includes("do not have access")) return true;
+  if (normalized.includes("model_not_found")) return true;
+  return false;
 }
 
 function isUuid(value: string | null): value is string {
@@ -464,6 +481,132 @@ function buildStyleCorpusSnippet(args: {
 
 function compactSpaces(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function extractUrls(input: string): string[] {
+  const raw = String(input ?? "");
+  const matches = raw.match(URL_RE) ?? [];
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const match of matches) {
+    const trimmed = match.replace(/[),.;:!?]+$/g, "");
+    try {
+      const url = new URL(trimmed);
+      if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+      const normalized = url.toString();
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      urls.push(normalized);
+      if (urls.length >= 4) break;
+    } catch {
+      // ignore invalid URLs
+    }
+  }
+  return urls;
+}
+
+function removeUrls(input: string): string {
+  return condenseWhitespace(String(input ?? "").replace(URL_RE, " "));
+}
+
+function buildLinkOnlyResearchResult(args: {
+  sources: HearthResearchSource[];
+}): HearthResearchResult {
+  const extracted = args.sources.filter((source) => source.extractionStatus === "extracted").length;
+  const failed = args.sources.length - extracted;
+  const uncertainties: string[] = [];
+  if (!args.sources.length) {
+    uncertainties.push("No URLs were provided for link extraction.");
+  }
+  if (failed > 0) {
+    uncertainties.push(`${failed} link(s) could not be fully extracted (blocked, timed out, or unsupported content type).`);
+  }
+  return {
+    mode: "retrieval_first",
+    runtimeStatus: args.sources.length === 0
+      ? "no_results"
+      : extracted > 0
+        ? (failed > 0 ? "partial" : "ok")
+        : "partial",
+    sources: args.sources,
+    synthesis: {
+      summary: args.sources.length
+        ? `Extracted ${extracted}/${args.sources.length} link(s).`
+        : "No link sources were provided.",
+      keyPoints: args.sources.slice(0, 6).map((source) => {
+        const label = source.title?.trim() || source.domain || source.url;
+        const note = source.extractionStatus === "extracted"
+          ? "extracted"
+          : source.extractionError
+            ? `not extracted (${source.extractionError})`
+            : `not extracted (${source.extractionStatus})`;
+        return `${label} — ${note}`;
+      }),
+      uncertainties,
+      coverageNote: `Extraction coverage: ${extracted}/${args.sources.length} links extracted.`,
+    },
+  };
+}
+
+function shouldShortCircuitLinkIngest(requestTextWithoutUrls: string): boolean {
+  const trimmed = requestTextWithoutUrls.trim();
+  if (!trimmed) return true;
+  if (trimmed.length <= 24 && /^(try|again|check|test|one last time|ok|please|retry)$/i.test(trimmed)) return true;
+  if (/^(try|retry|check|test)\b/i.test(trimmed) && trimmed.length <= 48) return true;
+  return false;
+}
+
+function buildLinkIngestOnlyReply(args: { sources: HearthResearchSource[] }): string {
+  if (!args.sources.length) {
+    return "I didn’t receive any URLs to ingest.";
+  }
+
+  const source = args.sources[0];
+  const lines: string[] = [];
+  const isYoutube = source.sourceType === "youtube_video";
+
+  if (isYoutube) {
+    const basedOn = source.transcriptAvailable
+      ? "Based on video metadata and captions."
+      : "Based on video metadata only.";
+    lines.push(basedOn);
+  } else {
+    lines.push("Based on retrieved source metadata and extracted text (when available).");
+  }
+
+  const title = source.title?.trim() || null;
+  const publisher = source.publisher?.trim() || null;
+  const author = source.author?.trim() || null;
+  const publishedAt = source.publishedAt?.trim() || null;
+  const url = source.url;
+
+  lines.push(
+    "",
+    `Source: ${title ?? url}`,
+    ...(publisher ? [`Publisher: ${publisher}`] : []),
+    ...(author ? [`Author: ${author}`] : []),
+    ...(publishedAt ? [`Published: ${publishedAt}`] : []),
+    ...(source.ingestMode ? [`Ingest mode: ${source.ingestMode}`] : []),
+    ...(typeof source.transcriptAvailable === "boolean" ? [`Transcript available: ${source.transcriptAvailable}`] : []),
+  );
+
+  if (Array.isArray(source.warnings) && source.warnings.length) {
+    lines.push("", "Warnings:");
+    for (const warning of source.warnings.slice(0, 6)) {
+      lines.push(`- ${warning}`);
+    }
+  }
+
+  if (isYoutube) {
+    if (source.transcriptAvailable && Array.isArray(source.transcriptSegments) && source.transcriptSegments.length) {
+      lines.push("", `Captions: ${source.transcriptSegments.length} cue(s) extracted. Ask for timestamped quote pulls.`);
+    } else {
+      lines.push("", "Next step: paste YouTube “Show transcript” text (or any captions export) if you want timestamped quote pulls.");
+    }
+  }
+
+  return lines.join("\n").trim();
 }
 
 function hasExplicitDraftNow(text: string): boolean {
@@ -1155,6 +1298,15 @@ function buildSystemPrompt(
       "- Tie examples back to the user's thesis or production angle in one concise pattern statement.",
       "- Include verification gaps only as a lightweight follow-up section; do not block delivery on them.",
       "- Prefer fast producer momentum: first pass now, deeper sourcing next.",
+      "Evidence hygiene (hard rule):",
+      "- Do not imply you 'watched' a video; you may only cite metadata, description, and transcript/captions if present.",
+      "- If a YouTube source has transcriptAvailable=true, say 'Based on video metadata and captions'. If transcriptAvailable=false, say 'Based on video metadata only'.",
+      "- Numeric impact claims require corroboration (prefer primary sources) before graduating into script fact.",
+      "- Keep claims vs quotes separate; quotes must preserve speaker/org when possible.",
+      "When a pasted URL was ingested, use this briefing format:",
+      "1) Safe fact claims (3-6 bullets; note if 'reported' vs confirmed).",
+      "2) Attributed quotes (2-3; speaker + org + quote).",
+      "3) Follow-on links to pull next (1-2; prefer primary sources like gov/regulator/operator).",
       "Research response shape:",
       "1) Brief angle confirmation.",
       "2) Immediate examples.",
@@ -1450,8 +1602,31 @@ function summarizeResearchResult(result: HearthResearchResult): Record<string, n
   };
 }
 
-function formatResearchSourceArtifact(source: { title: string | null; domain: string | null; url: string }): string {
+function formatResearchSourceArtifact(source: {
+  title: string | null;
+  domain: string | null;
+  url: string;
+  sourceType?: unknown;
+  ingestMode?: unknown;
+  transcriptAvailable?: unknown;
+  warnings?: unknown;
+}): string {
   const label = readOptionalString(source.title) ?? readOptionalString(source.domain) ?? source.url;
+  const sourceType = typeof source.sourceType === "string" ? source.sourceType : null;
+  const ingestMode = typeof source.ingestMode === "string" ? source.ingestMode : null;
+  const transcriptAvailable = typeof source.transcriptAvailable === "boolean" ? source.transcriptAvailable : null;
+  const warnings = Array.isArray(source.warnings)
+    ? source.warnings.filter((entry): entry is string => typeof entry === "string").slice(0, 2)
+    : [];
+
+  if (sourceType === "youtube_video") {
+    const mode = ingestMode ? ingestMode.replace(/_/g, " ") : null;
+    const captions = transcriptAvailable === true ? "captions: yes" : transcriptAvailable === false ? "captions: no" : null;
+    const extras = [mode, captions].filter(Boolean).join(", ");
+    const warningSuffix = warnings.length ? ` (${warnings.join("; ")})` : "";
+    return extras ? `${label} — youtube (${extras})${warningSuffix}` : `${label} — youtube${warningSuffix}`;
+  }
+
   return label;
 }
 
@@ -1505,6 +1680,27 @@ function buildResearchOutcomeLead(args: {
 }): string {
   const query = args.request.query.trim() || "this query";
   const sourceCount = args.result.sources.length;
+  const youtubeSource = args.result.sources.find((source) => source && typeof source === "object" && (source as { sourceType?: unknown }).sourceType === "youtube_video") as (
+    | null
+    | {
+      transcriptAvailable?: unknown;
+      warnings?: unknown;
+    }
+  );
+  const youtubeTranscriptAvailable = youtubeSource && typeof youtubeSource.transcriptAvailable === "boolean"
+    ? youtubeSource.transcriptAvailable
+    : null;
+  const youtubeWarnings = youtubeSource && Array.isArray(youtubeSource.warnings)
+    ? youtubeSource.warnings.filter((entry): entry is string => typeof entry === "string").slice(0, 2)
+    : [];
+  const youtubeEvidenceLine = youtubeTranscriptAvailable === true
+    ? "Video ingest: Based on video metadata and captions."
+    : youtubeTranscriptAvailable === false
+      ? "Video ingest: Based on video metadata only."
+      : null;
+  const youtubeWarningLine = youtubeWarnings.length
+    ? `Video warnings: ${youtubeWarnings.join(" ")}`
+    : null;
   const topArtifacts = args.result.sources
     .slice(0, 3)
     .map((source) => formatResearchSourceArtifact(source))
@@ -1540,7 +1736,10 @@ function buildResearchOutcomeLead(args: {
     : readOptionalString(args.result.synthesis.summary)
       ? `Retrieved findings: ${args.result.synthesis.summary}`
       : "Retrieved findings are available from the runtime source set.";
-  return `Research outcome: Retrieval found sources for "${query}". ${artifactLine} ${findingsLine}`;
+  const addendum = [youtubeEvidenceLine, youtubeWarningLine].filter(Boolean).join(" ");
+  return addendum
+    ? `Research outcome: Retrieval found sources for "${query}". ${artifactLine} ${findingsLine} ${addendum}`
+    : `Research outcome: Retrieval found sources for "${query}". ${artifactLine} ${findingsLine}`;
 }
 
 function enforceResearchOutcomeReply(args: {
@@ -3003,7 +3202,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const priorMessages = typeof latestUserMessageIndex === "number"
         ? messages.filter((_, index) => index !== latestUserMessageIndex)
         : messages;
-      const researchModeRequested = isResearchIntentRequest(requestText);
+      const urlsInRequest = extractUrls(requestText);
+      const textWithoutUrls = removeUrls(requestText);
+      const linkModeRequested = urlsInRequest.length > 0;
+      const researchModeRequested = linkModeRequested || isResearchIntentRequest(textWithoutUrls || requestText);
       const estimatedInputTokens = Math.max(
         1,
         Math.ceil(
@@ -3035,7 +3237,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      const model = aiRoute.model;
+      let model = aiRoute.model;
       const reasoningEffort = aiRoute.reasoning;
       if (!ALLOWED_CHAT_MODELS.has(model)) {
         return jsonResponse(503, {
@@ -3045,11 +3247,21 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      const researchRequest = researchModeRequested
-        ? buildHearthResearchRequest({ query: requestText })
+      const researchQuery = textWithoutUrls.trim() || urlsInRequest.join(" ");
+      const researchRequest = researchModeRequested && researchQuery
+        ? buildHearthResearchRequest({ query: researchQuery })
         : null;
       let researchResult: HearthResearchResult | null = null;
-      if (researchRequest) {
+      if (linkModeRequested) {
+        const linkSources = await Promise.all(
+          urlsInRequest.slice(0, 3).map((url, index) => extractUrlToResearchSource({
+            url,
+            sourceId: `link-${index + 1}`,
+            signal: request.signal,
+          })),
+        );
+        researchResult = buildLinkOnlyResearchResult({ sources: linkSources });
+      } else if (researchRequest) {
         try {
           researchResult = await researchRuntime.run({
             request: researchRequest,
@@ -3064,6 +3276,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             summary: "Research runtime failed before synthesis.",
           });
         }
+      }
+      if (researchRequest && researchResult) {
         await recordHearthEventForToken({
           accessToken: bearerToken,
           episodeId: episodeContext.episodeId,
@@ -3078,6 +3292,24 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             require_full_extraction: researchRequest.requireFullExtraction,
             ...summarizeResearchResult(researchResult),
           },
+        });
+      }
+
+      if (linkModeRequested && researchResult && shouldShortCircuitLinkIngest(textWithoutUrls)) {
+        const assistantText = buildLinkIngestOnlyReply({ sources: researchResult.sources });
+        return jsonResponse(200, {
+          ok: true,
+          assistant_text: assistantText,
+          reply: assistantText,
+          ops: [],
+          script_text: null,
+          tag_audit: null,
+          research_result: researchResult,
+          total_tokens: null,
+          actual_cost_usd: 0,
+          billable_tokens: 0,
+          credits_warning: null,
+          ...buildBillingSnapshot(lane),
         });
       }
       const readinessCheckRequested = isReadinessCheckRequest(requestText);
@@ -3175,15 +3407,18 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const modelAllowsTemperatureOverride = !isGpt5FamilyModel(model);
         const requestedTemperature = readBehaviorTemperature(bodyRaw.behavior);
         const completionMessages = [system, ...messages];
-        const callOpenAi = async (allowTemperatureOverride: boolean): Promise<Response> => {
+        const callOpenAi = async (
+          currentModel: string,
+          allowTemperatureOverride: boolean,
+        ): Promise<Response> => {
           const payload = allowTemperatureOverride
             ? {
-                model,
+                model: currentModel,
                 temperature: requestedTemperature,
                 messages: completionMessages,
               }
             : {
-                model,
+                model: currentModel,
                 messages: completionMessages,
               };
           return runAIRequest({
@@ -3194,7 +3429,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             sessionId: null,
             feature: chatFeature.feature,
             subfeature: chatFeature.subfeature,
-            model,
+            model: currentModel,
             reasoningEffort,
             trigger: AI_USAGE_TRIGGER.USER,
             ...usageAttribution,
@@ -3222,7 +3457,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         let upstream: Response;
         let usedTemperatureOverride = modelAllowsTemperatureOverride;
         try {
-          upstream = await callOpenAi(usedTemperatureOverride);
+          upstream = await callOpenAi(model, usedTemperatureOverride);
         } catch (error) {
           if (clientAborted || upstreamAbort.signal.aborted) {
             return new Response(null, { status: 499 });
@@ -3242,7 +3477,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             && isTemperatureUnsupportedError(detail)
           ) {
             try {
-              upstream = await callOpenAi(false);
+              upstream = await callOpenAi(model, false);
               usedTemperatureOverride = false;
             } catch (error) {
               if (clientAborted || upstreamAbort.signal.aborted) {
@@ -3253,6 +3488,37 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
             if (!clientAborted && !upstream.ok) {
               detail = await upstream.text();
+            }
+          }
+
+          if (
+            !upstream.ok
+            && upstream.status >= 400
+            && upstream.status <= 499
+            && isOpenAiModelAccessError(detail)
+          ) {
+            const fallbackModels: AllowedForgeChatModel[] = model === "gpt-5.3"
+              ? ["gpt-5.2", "gpt-5.1"]
+              : model === "gpt-5.2"
+                ? ["gpt-5.1"]
+                : [];
+            for (const candidateModel of fallbackModels) {
+              if (!ALLOWED_CHAT_MODELS.has(candidateModel)) continue;
+              try {
+                upstream = await callOpenAi(candidateModel, usedTemperatureOverride);
+              } catch (error) {
+                if (clientAborted || upstreamAbort.signal.aborted) {
+                  return new Response(null, { status: 499 });
+                }
+                throw error;
+              }
+              if (clientAborted) return new Response(null, { status: 499 });
+              if (upstream.ok) {
+                model = candidateModel;
+                break;
+              }
+              detail = await upstream.text();
+              if (!isOpenAiModelAccessError(detail)) break;
             }
           }
 

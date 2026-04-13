@@ -52,6 +52,26 @@ function testPostChainAppliedFlag() {
   assert.equal(plan?.filterComplex.includes("[timeline]acompressor=threshold=0.2[outa]"), true);
 }
 
+function testSeamFadeOptionalFlag() {
+  const plan = buildHammerTimelineAudioRenderPlan({
+    segments: [
+      { segment_id: "a", start_sec: 0, end_sec: 1 },
+    ],
+  });
+  assert.ok(plan);
+  assert.equal(plan.filterComplex.includes("afade="), false);
+
+  const withFade = buildHammerTimelineAudioRenderPlan({
+    segments: [
+      { segment_id: "a", start_sec: 0, end_sec: 1 },
+    ],
+    seamFadeSec: 0.01,
+  });
+  assert.ok(withFade);
+  assert.equal(withFade.filterComplex.includes("afade=t=in"), true);
+  assert.equal(withFade.filterComplex.includes("afade=t=out"), true);
+}
+
 function testEmptyActiveSegmentsReturnsNull() {
   const plan = buildHammerTimelineAudioRenderPlan({
     segments: [
@@ -67,6 +87,7 @@ function run() {
   testGainAffectsFilterPlan();
   testTimelineOrderPreserved();
   testPostChainAppliedFlag();
+  testSeamFadeOptionalFlag();
   testEmptyActiveSegmentsReturnsNull();
   // eslint-disable-next-line no-console
   console.log("Hammer audio timeline render plan tests passed.");

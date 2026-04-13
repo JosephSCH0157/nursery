@@ -37,6 +37,8 @@ function baseState(): HammerEditorStateSerializable {
       uncertainty_flags: [],
       placements: [],
     },
+    visualTimeline: null,
+    audioEdit: null,
     studioRack: createDefaultHammerStudioRackState(),
     editorialAuthorityGraph: projectEditorialAuthorityGraphFromEditPlan({
       editPlan: {

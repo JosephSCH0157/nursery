@@ -10,5 +10,9 @@ const source = readFileSync(
 assert.match(source, /preferredWorkspaceTab:\s*"script"/);
 assert.match(source, /preferredEditorPanel:\s*"script"/);
 assert.doesNotMatch(source, /pendingDraftEditorPanelRef\.current = "manual"/);
+assert.match(
+  source,
+  /const mobileMainContent = incomingBarStockIntakeRoute && routeSparkId && !routeProjectId && !hasActiveEpisode\s*\n\s*\?\s*renderSparkRouteBootstrapView\(\)\s*\n\s*:\s*renderEpisodesView\(\);/s,
+);
 
 console.log("[ok] hearth-spark-entry-smoke");

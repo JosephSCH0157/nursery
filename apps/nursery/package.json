@@ -16,6 +16,7 @@
     "preview": "node scripts/run-vite.mjs preview --configLoader runner",
     "smoke:tongs-commit-api": "node scripts/smoke-tongs-commit-api.mjs",
     "test:hammer-boundary": "tsx tests/hammer-runtime-boundary.test.mts",
+    "test:hammer-open-hydration": "tsx tests/hammer-open-hydration.test.mts",
     "test:hammer-transcript-preflight": "tsx tests/hammer-transcript-policy-preflight.test.mts",
     "test:hammer-cleanup-preflight": "tsx tests/hammer-transcript-cleanup-preflight.test.mts",
     "test:hammer-visual-preflight": "tsx tests/hammer-visual-assist-preflight.test.mts",

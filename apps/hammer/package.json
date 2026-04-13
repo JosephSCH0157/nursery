@@ -34,7 +34,7 @@
     "test:snapshot-production": "tsx tests/hammerSnapshotProduction.test.ts",
     "test:snapshot-recovery-flow": "tsx tests/hammerSnapshotRecoveryFlow.test.ts",
     "test:polish-result-summary": "tsx tests/hammerPolishResultSummary.test.ts",
-    "test:workspace-core": "pnpm run test:workspace-timeline && pnpm run test:workspace-transcript && pnpm run test:workspace-history && pnpm run test:workspace-authority && pnpm run test:runtime-data && pnpm run test:audio-backend && pnpm run test:audio-timeline-render-plan && pnpm run test:studio-rack-ffmpeg-plan && pnpm run test:source-desk-media && pnpm run test:source-desk-preview-churn && pnpm run test:snapshot-production && pnpm run test:snapshot-recovery-flow && pnpm run test:polish-result-summary",
+    "test:workspace-core": "pnpm run test:workspace-timeline && pnpm run test:workspace-transcript && pnpm run test:workspace-history && pnpm run test:workspace-authority && pnpm run test:runtime-data && pnpm run test:audio-backend && pnpm run test:cleanup-execution && pnpm run test:audio-timeline-render-plan && pnpm run test:studio-rack-ffmpeg-plan && pnpm run test:source-desk-media && pnpm run test:source-desk-preview-churn && pnpm run test:snapshot-production && pnpm run test:snapshot-recovery-flow && pnpm run test:polish-result-summary",
     "test:source-desk-media": "tsx tests/hammerSourceDeskMediaApi.test.ts",
     "test:source-desk-preview-churn": "tsx tests/hammerSourceDeskPreviewChurn.test.ts",
     "test:transcript-hardening": "tsx tests/hammerTranscriptHardening.test.ts",
@@ -44,7 +44,8 @@
     "test:audio-backend": "tsx tests/hammerAudioProcessingBackend.test.ts",
     "test:studio-rack-ffmpeg-plan": "tsx tests/hammerStudioRackFfmpegPlan.test.ts",
     "test:audio-timeline-render-plan": "tsx tests/hammerAudioTimelineRenderPlan.test.ts",
-    "test:quench-release-packet": "tsx tests/hammerQuenchReleasePacket.test.ts"
+    "test:quench-release-packet": "tsx tests/hammerQuenchReleasePacket.test.ts",
+    "test:cleanup-execution": "tsx tests/hammerCleanupExecution.test.ts"
   },
   "dependencies": {
     "@mediapipe/selfie_segmentation": "^0.1.1675465747",

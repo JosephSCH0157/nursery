@@ -19,6 +19,7 @@ import type {
   HammerPassId,
   HammerPassStatusMap,
   HammerDerivedTextLayer,
+  HammerPersistedAudioEdit,
   HammerPersistedAudioPolish,
   HammerPersistedVisualPreviewSettings,
   HammerPersistedStructuredTranscript,
@@ -97,6 +98,9 @@ import {
 import {
   deriveAudioCutsForDeadAirClosure,
   deriveAudioCutsForRemovedSegments,
+  HAMMER_FILLER_CUT_PAD_AFTER_SEC,
+  HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
+  HAMMER_FILLER_CUT_SEAM_FADE_SEC,
 } from "./hammerCleanupExecution";
 import {
   resolveSelectedSegmentId,
@@ -208,6 +212,7 @@ import { buildHammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBack
 import { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
 import { preserveTranscriptMetadata } from "../prep/hammerPrep";
 import {
+  buildNotStartedHammerAudioPolish,
   cloneHammerAudioEdit,
   cloneHammerAudioPolish,
 } from "../prep/hammerAudioPolish";
@@ -512,7 +517,7 @@ function normalizeVisualPreviewSettings(
     background_blur_px: Math.max(0, Math.min(64, Number(value.background_blur_px ?? defaults.background_blur_px))),
     background_blur_feather_px: Math.max(0, Math.min(64, Number(value.background_blur_feather_px ?? defaults.background_blur_feather_px))),
     background_blur_temporal_smoothing: Math.max(0, Math.min(1, Number(value.background_blur_temporal_smoothing ?? defaults.background_blur_temporal_smoothing))),
-    background_blur_subject_expansion_px: Math.max(0, Math.min(48, Number(value.background_blur_subject_expansion_px ?? defaults.background_blur_subject_expansion_px))),
+    background_blur_subject_expansion_px: Math.max(-12, Math.min(12, Number(value.background_blur_subject_expansion_px ?? defaults.background_blur_subject_expansion_px))),
     background_blur_quality_mode: value.background_blur_quality_mode === "low" || value.background_blur_quality_mode === "high"
       ? value.background_blur_quality_mode
       : "medium",
@@ -975,6 +980,7 @@ function toEditorState(args: {
   segments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
   visualTimeline: HammerVisualTimelineState | null;
+  audioEdit: HammerPersistedAudioEdit | null;
   studioRack: HammerStudioRackState;
   editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   outputSelection: HammerOutputSelectionState;
@@ -1016,6 +1022,7 @@ function toEditorState(args: {
         })),
       }
       : null,
+    audioEdit: cloneHammerAudioEdit(args.audioEdit),
     studioRack: cloneHammerStudioRackState(args.studioRack),
     editorialAuthorityGraph: args.editorialAuthorityGraph
       ? {
@@ -1060,6 +1067,7 @@ function toShellState(state: HammerEditorStateSerializable): {
   segments: HammerTranscriptSegment[];
   visualPlacements: HammerPersistedVisualPlacements | null;
   visualTimeline: HammerVisualTimelineState | null;
+  audioEdit: HammerPersistedAudioEdit | null;
   studioRack: HammerStudioRackState;
   editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   outputSelection: HammerOutputSelectionState;
@@ -1103,6 +1111,7 @@ function toShellState(state: HammerEditorStateSerializable): {
         })),
       }
       : null,
+    audioEdit: cloneHammerAudioEdit(state.audioEdit),
     studioRack: cloneHammerStudioRackState(state.studioRack),
     editorialAuthorityGraph: state.editorialAuthorityGraph
       ? {
@@ -1283,7 +1292,8 @@ function transformToGeometry(transform: HammerImagePlacementTransform): HammerVi
 function resolvePlacementAnimationPreset(
   placement: HammerVisualPlacementRecord | null | undefined,
 ): HammerImageAnimationPreset {
-  const preset = placement?.animation_preset ?? null;  return (
+  const preset = placement?.animation_preset ?? null;
+  return (
     preset === "fade_in"
     || preset === "fade_out"
     || preset === "fade_in_out"
@@ -1800,8 +1810,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [activeTranscriptToolSection, setActiveTranscriptToolSection] = useState<"fillers" | "retakes" | "silence_gaps">("fillers");
   const [candidateEditModeById, setCandidateEditModeById] = useState<Record<string, boolean>>({});
   const [candidateProposedTextById, setCandidateProposedTextById] = useState<Record<string, string>>({});
-  const [candidateCutEnabledById, setCandidateCutEnabledById] = useState<Record<string, boolean>>({});
-  const [candidateCutDraftById, setCandidateCutDraftById] = useState<Record<string, { startSec: string; endSec: string }>>({});
   const [candidateReceiptByKind, setCandidateReceiptByKind] = useState<Record<HammerCandidateReviewKind, string | null>>({
     fillers: null,
     retakes: null,
@@ -1877,6 +1885,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     Number(initialVisualPreviewSettings.background_wash_desaturate_amount ?? 0.25),
   );
   const [visualBackgroundBlurDebugMask, setVisualBackgroundBlurDebugMask] = useState(false);
+  const [visualBackgroundMaskPreviewMode, setVisualBackgroundMaskPreviewMode] = useState(false);
+  const [visualBackgroundMaskPreviewStage, setVisualBackgroundMaskPreviewStage] = useState<"raw" | "expanded" | "feathered" | "refined" | "final_composite">("raw");
   const [visualBackgroundBlurRuntimeStatus, setVisualBackgroundBlurRuntimeStatus] = useState<HammerBackgroundBlurRuntimeStatus | null>(null);
   const [visualEyeContactAssistDebugOverlay, setVisualEyeContactAssistDebugOverlay] = useState(false);
   const [visualEyeContactAssistRuntimeStatus, setVisualEyeContactAssistRuntimeStatus] = useState<HammerEyeContactAssistRuntimeStatus | null>(null);
@@ -1961,6 +1971,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const previewSurfaceRef = useRef<HTMLDivElement | null>(null);
   const imageAnimationContextMenuRef = useRef<HTMLDivElement | null>(null);
   const previewBrollVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const cutSeekFadeRef = useRef<{
+    token: number;
+    timerId: number | null;
+  }>({
+    token: 0,
+    timerId: null,
+  });
   const handleBackgroundEffectCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
     visualBackgroundEffectCanvasRef.current = canvas;
   }, []);
@@ -1968,7 +1985,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const lastPlaybackMediaSrcRef = useRef<string | null>(null);
   const captionEditorRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const lastHandledHandoffTokenRef = useRef<number | null>(null);
-  const transcriptLineRefs = useRef(new Map<string, HTMLButtonElement>());
+  const transcriptLineRefs = useRef(new Map<string, HTMLElement>());
   const visualPlacementCardRefs = useRef(new Map<string, HTMLElement>());
   const timelineTrackScrollRef = useRef<HTMLDivElement | null>(null);
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
@@ -2003,11 +2020,17 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const editableAudioPolishRef = useRef<HammerPersistedAudioPolish | null>(
     cloneHammerAudioPolish(props.audioPolish),
   );
+  const onHistoryRecoveryStatusChangeRef = useRef(props.onHistoryRecoveryStatusChange);
   const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
 
   useEffect(() => {
-    props.onHistoryRecoveryStatusChange?.(historyStatus);
-  }, [historyStatus, props]);
+    onHistoryRecoveryStatusChangeRef.current = props.onHistoryRecoveryStatusChange;
+  }, [props.onHistoryRecoveryStatusChange]);
+
+  useEffect(() => {
+    // Avoid render loops when parents pass unstable callback identities.
+    onHistoryRecoveryStatusChangeRef.current?.(historyStatus);
+  }, [historyStatus]);
 
   useEffect(() => {
     audioPolishHasLocalEditsRef.current = false;
@@ -2017,6 +2040,47 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setAudioCutSelectionEndSec(null);
     setDismissedSilenceSuggestionIds(new Set());
   }, [launchContext.workpiece_id]);
+
+  const seekPreviewAudioWithOptionalSeamFade = useCallback((args: {
+    audio: HTMLVideoElement;
+    targetTime: number;
+    applySeamFade: boolean;
+  }): void => {
+    const targetTime = args.targetTime;
+    if (!Number.isFinite(targetTime) || targetTime < 0) {
+      args.audio.currentTime = 0;
+      return;
+    }
+
+    if (!args.applySeamFade || args.audio.muted || args.audio.volume <= 0) {
+      args.audio.currentTime = targetTime;
+      return;
+    }
+
+    const restoreVolume = args.audio.volume;
+    const ref = cutSeekFadeRef.current;
+    ref.token += 1;
+    const token = ref.token;
+    if (ref.timerId != null) {
+      window.clearTimeout(ref.timerId);
+      ref.timerId = null;
+    }
+
+    // Use a near-silent volume rather than exactly 0, so downstream "restore volume if 0" guards don't break the seam fade.
+    const nearSilent = 0.0001;
+    args.audio.volume = nearSilent;
+    args.audio.currentTime = targetTime;
+
+    ref.timerId = window.setTimeout(() => {
+      if (cutSeekFadeRef.current.token !== token) return;
+      const audio = args.audio;
+      if (!audio) return;
+      if (!audio.muted) {
+        audio.volume = restoreVolume;
+      }
+      cutSeekFadeRef.current.timerId = null;
+    }, Math.max(0, Math.round(HAMMER_FILLER_CUT_SEAM_FADE_SEC * 1000)));
+  }, [HAMMER_FILLER_CUT_SEAM_FADE_SEC]);
 
   useEffect(() => {
     setEditableAudioPolish((current) => {
@@ -2387,28 +2451,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return byId;
   }, [editableTranscriptSegments]);
-  useEffect(() => {
-    if (!activeCandidateCard) return;
-    const candidateId = activeCandidateCard.id;
-    const defaultCutEnabled = activeCandidateCard.apply.removeSegmentIds.length > 0;
-    setCandidateCutEnabledById((current) => (
-      Object.prototype.hasOwnProperty.call(current, candidateId)
-        ? current
-        : { ...current, [candidateId]: defaultCutEnabled }
-    ));
-    setCandidateCutDraftById((current) => {
-      if (Object.prototype.hasOwnProperty.call(current, candidateId)) return current;
-      const suggested = resolveCandidateSuggestedCut(activeCandidateCard);
-      if (!suggested) return current;
-      return {
-        ...current,
-        [candidateId]: {
-          startSec: String(suggested.startSec),
-          endSec: String(suggested.endSec),
-        },
-      };
-    });
-  }, [activeCandidateCard, transcriptSegmentsById]);
   const transcriptSelectionAllDisabled = useMemo(() => (
     hasTranscriptSelection && transcriptSelectionRange.segmentIds.every(
       (segmentId) => transcriptSegmentsById.get(segmentId)?.is_disabled === true,
@@ -2825,7 +2867,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     washDesaturateAmount: Math.max(0, Math.min(1, Number(visualBackgroundWashDesaturateAmount) || 0)),
     edgeFeatherPx: Math.max(0, Math.min(64, Number(visualBackgroundBlurFeatherPx) || 0)),
     temporalSmoothing: Math.max(0, Math.min(1, Number(visualBackgroundBlurTemporalSmoothing) || 0)),
-    subjectExpansionPx: Math.max(0, Math.min(48, Number(visualBackgroundBlurSubjectExpansionPx) || 0)),
+    subjectExpansionPx: Math.max(-12, Math.min(12, Number(visualBackgroundBlurSubjectExpansionPx) || 0)),
     qualityMode: visualBackgroundBlurQualityMode,
     fallbackMode: visualBackgroundBlurFallbackMode,
   }), [
@@ -3405,6 +3447,26 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       derived_text_layers: cloneHammerDerivedTextLayers(editableDerivedTextLayers),
     };
   }, [editableDerivedTextLayers, props.structuredTranscript]);
+
+  const canonicalStructuredTranscriptForPersistence = useMemo(() => {
+    const base = preserveTranscriptMetadata(
+      editableTranscriptSegments,
+      workspaceStructuredTranscript ?? props.structuredTranscript ?? null,
+      mediaRef,
+      transcriptSourceId,
+    );
+    return {
+      ...base,
+      derived_text_layers: cloneHammerDerivedTextLayers(editableDerivedTextLayers),
+    };
+  }, [
+    editableDerivedTextLayers,
+    editableTranscriptSegments,
+    mediaRef,
+    props.structuredTranscript,
+    transcriptSourceId,
+    workspaceStructuredTranscript,
+  ]);
   const mediaPrepOutputs = useMemo(
     () => buildHammerMediaPrepOutputsPackage({
       structuredTranscript: workspaceStructuredTranscript ?? null,
@@ -3548,6 +3610,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       segments: editableTranscriptSegments,
       visualPlacements: editableVisualPlacements,
       visualTimeline: editableVisualTimeline,
+      audioEdit: editableAudioPolish?.audio_edit ?? null,
       studioRack: editableStudioRack,
       editorialAuthorityGraph: editableEditorialAuthorityGraph,
       outputSelection: editableOutputSelection,
@@ -3621,6 +3684,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setSelectedSegmentId(normalized.selectedSegmentId);
     setPlayheadSec(normalized.playheadSec);
     setTranscriptTimingHint(normalized.transcriptTimingHint);
+    setEditableAudioPolish((current) => {
+      const base = cloneHammerAudioPolish(current)
+        ?? cloneHammerAudioPolish(props.audioPolish)
+        ?? buildNotStartedHammerAudioPolish();
+      base.audio_edit = cloneHammerAudioEdit(normalized.audioEdit);
+      editableAudioPolishRef.current = base;
+      audioPolishHasLocalEditsRef.current = true;
+      return base;
+    });
     setCleanupPreview(null);
   }
 
@@ -3987,6 +4059,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     visualTimelineResetKey,
     transcriptSourceId,
     previewMode,
+    audioEdit: props.audioPolish?.audio_edit ?? null,
     maxUndoSteps: HISTORY_MAX_SIZE,
     playheadSec,
     selectedSegmentId,
@@ -4228,7 +4301,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     const shouldSynchronizeCurrentTime = srcChanged || !isPlaybackActive || isScrubbing || transportProgress.shouldSyncMediaTime;
     if (shouldSynchronizeCurrentTime && Math.abs(previewAudio.currentTime - targetTime) > SCRUB_SEEK_THRESHOLD_SEC) {
-      previewAudio.currentTime = targetTime;
+      seekPreviewAudioWithOptionalSeamFade({
+        audio: previewAudio,
+        targetTime,
+        applySeamFade: transportProgress.shouldSyncMediaTime,
+      });
     }
 
     if (transportProgress.shouldStop) {
@@ -4274,6 +4351,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     releaseGlobalPlaybackAuthority(previewAudio);
     pauseAuxiliaryMediaPlayback();
   }, [pauseAuxiliaryMediaPlayback, releaseGlobalPlaybackAuthority]);
+
+  useEffect(() => () => {
+    const timerId = cutSeekFadeRef.current.timerId;
+    if (timerId != null) {
+      window.clearTimeout(timerId);
+      cutSeekFadeRef.current.timerId = null;
+    }
+    cutSeekFadeRef.current.token += 1;
+  }, []);
 
   useEffect(() => {
     if (isPlaybackActive) return;
@@ -4732,14 +4818,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     endSec: number | null;
     operationId?: string;
   }): boolean {
+    const controller = historyControllerRef.current;
+    if (!controller) return false;
+
+    const beforeState = controller.getState();
     if (args.operationId) {
-      const existing = editableAudioPolishRef.current?.audio_edit?.operations ?? [];
+      const existing = beforeState.audioEdit?.operations ?? [];
       if (existing.some((op) => op.id === args.operationId)) {
         return false;
       }
     }
+
     const committed = commitAudioCutSelection({
-      audioPolish: editableAudioPolishRef.current,
+      audioPolish: {
+        ...buildNotStartedHammerAudioPolish(),
+        audio_edit: cloneHammerAudioEdit(beforeState.audioEdit),
+      },
       selection: {
         startSec: args.startSec,
         endSec: args.endSec,
@@ -4747,38 +4841,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       durationSec: playbackTransportDurationSec,
       operationId: args.operationId,
     });
-    if (!committed) {
-      return false;
-    }
+    if (!committed) return false;
 
-    audioPolishHasLocalEditsRef.current = true;
-    editableAudioPolishRef.current = committed.audioPolish;
-    setEditableAudioPolish(committed.audioPolish);
+    const applied = applyHistoryMutation({
+      label: "Add audio cut",
+      kind: "timing_adjustment",
+      toolId: "polish",
+      immediatePersist: true,
+      computeAfter: (before) => ({
+        ...before,
+        audioEdit: cloneHammerAudioEdit(committed.audioPolish.audio_edit),
+        transcriptTimingHint: null,
+      }),
+    });
+    if (!applied) return false;
+
     setFocusOverride("time-focus");
     return true;
-  }
-
-  function commitAudioCuts(
-    selections: Array<{ startSec: number; endSec: number }>,
-    options?: { operationIdPrefix?: string },
-  ): number {
-    if (!Array.isArray(selections) || selections.length === 0) return 0;
-    let appliedCount = 0;
-    for (let index = 0; index < selections.length; index += 1) {
-      const selection = selections[index];
-      const operationId = options?.operationIdPrefix
-        ? `${options.operationIdPrefix}:${index}`
-        : undefined;
-      const applied = commitEditableAudioCut({
-        startSec: selection.startSec,
-        endSec: selection.endSec,
-        operationId,
-      });
-      if (applied) {
-        appliedCount += 1;
-      }
-    }
-    return appliedCount;
   }
 
   function applyAudioCutSelection(): void {
@@ -5579,41 +5658,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     lastHandledCandidateIdRef.current[kind] = null;
   }
 
-  function resolveCandidateSuggestedCut(card: HammerCandidateCard): { startSec: number; endSec: number } | null {
-    if (!card) return null;
-    const ids = card.apply.removeSegmentIds.length > 0 ? card.apply.removeSegmentIds : card.segmentIds;
-    if (ids.length === 0) return null;
-    let startSec: number | null = null;
-    let endSec: number | null = null;
-    for (const segmentId of ids) {
-      const segment = transcriptSegmentsById.get(segmentId) ?? null;
-      if (!segment) continue;
-      const segStart = Number(segment.start_sec);
-      const segEnd = Number(segment.end_sec);
-      if (!Number.isFinite(segStart) || !Number.isFinite(segEnd)) continue;
-      startSec = startSec == null ? segStart : Math.min(startSec, segStart);
-      endSec = endSec == null ? segEnd : Math.max(endSec, segEnd);
-    }
-    if (startSec == null || endSec == null) return null;
-    if (endSec <= startSec) return null;
-    return { startSec: roundToTenth(startSec), endSec: roundToTenth(endSec) };
-  }
-
-  function resolveCandidateCutOverride(card: HammerCandidateCard): { startSec: number; endSec: number } | null {
-    const enabled = candidateCutEnabledById[card.id] === true;
-    if (!enabled) return null;
-    const draft = candidateCutDraftById[card.id] ?? null;
-    if (!draft) return null;
-    const normalized = normalizeAudioCutSelection({
-      selection: {
-        startSec: Number(draft.startSec),
-        endSec: Number(draft.endSec),
-      },
-      durationSec: playbackTransportDurationSec,
-    });
-    return normalized ? { startSec: normalized.startSec, endSec: normalized.endSec } : null;
-  }
-
   function rebuildCandidateQueue(args: {
     kind: HammerCandidateReviewKind;
     segments: HammerTranscriptSegment[];
@@ -5655,8 +5699,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     setActiveReviewKind(kind);
     setCandidateEditModeById({});
     setCandidateProposedTextById({});
-    setCandidateCutEnabledById({});
-    setCandidateCutDraftById({});
     setCandidateReceiptByKind((current) => ({ ...current, [kind]: null }));
     rebuildCandidateQueue({
       kind,
@@ -5669,7 +5711,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   function handleCandidateDecision(
     kind: HammerCandidateReviewKind,
     approve: boolean,
-    options?: { useEditedProposal?: boolean; editedProposalText?: string | null; cutOverride?: { startSec: number; endSec: number } | null },
+    options?: { useEditedProposal?: boolean; editedProposalText?: string | null },
   ): void {
     setActiveReviewKind(kind);
     const card = kind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
@@ -5678,12 +5720,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (lastHandledCandidateIdRef.current[card.kind] === card.id) return;
 
     candidateDecisionInFlightRef.current[kind] = true;
-    lastHandledCandidateIdRef.current[card.kind] = card.id;
     if (kind === "fillers") setFillerDecisionInFlight(true);
     else setRetakeDecisionInFlight(true);
 
     try {
-      handledCandidateIdsRef.current[card.kind].add(card.id);
       const preserveIndex = kind === "retakes" ? retakeActiveCandidateIndex : fillerActiveCandidateIndex;
 
       const beforeState = captureWorkspaceState();
@@ -5730,13 +5770,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         })();
 
         if (!approvePlan) {
-          candidateDecisionInFlightRef.current[kind] = false;
-          if (kind === "fillers") setFillerDecisionInFlight(false);
-          else setRetakeDecisionInFlight(false);
+          lastHandledCandidateIdRef.current[card.kind] = null;
           return;
         }
 
-        const computeAfter = (before: HammerEditorStateSerializable): HammerEditorStateSerializable => {
+        const baselineTextById = new Map(beforeState.transcriptSegments.map((segment) => [segment.segment_id, segment.text] as const));
+        const transcriptWouldChange = approvePlan.removeSegmentIds.length > 0
+          || approvePlan.updateSegments.some((update) => {
+            const baseline = baselineTextById.get(update.segmentId);
+            return baseline != null && update.text != null && update.text !== baseline;
+          });
+
+        const computeTranscriptAfter = (before: HammerEditorStateSerializable): HammerEditorStateSerializable => {
           let updatedSegments = before.transcriptSegments.filter((segment) => (
             !approvePlan.removeSegmentIds.includes(segment.segment_id)
           ));
@@ -5751,9 +5796,31 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
             ...before,
             transcriptSegments: synced.segments,
             selectedSegmentId: synced.selectedSegmentId,
-            transcriptTimingHint: null,
           };
         };
+
+        const cutSelections = deriveAudioCutsForRemovedSegments({
+          segments: beforeState.transcriptSegments,
+          removeSegmentIds: approvePlan.removeSegmentIds,
+          durationSec: playbackTransportDurationSec,
+          ...(kind === "fillers"
+            ? {
+              padBeforeSec: HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
+              padAfterSec: HAMMER_FILLER_CUT_PAD_AFTER_SEC,
+            }
+            : {}),
+        });
+
+        if (!transcriptWouldChange && cutSelections.length === 0) {
+          setCandidateReceiptByKind((current) => ({
+            ...current,
+            [card.kind]: "No-op: candidate approval produced no transcript or playback changes.",
+          }));
+          lastHandledCandidateIdRef.current[card.kind] = null;
+          return;
+        }
+
+        const beforeAudioOpCount = beforeState.audioEdit?.operations?.length ?? 0;
 
         const applied = applyHistoryMutation({
           label: card.kind === "fillers" ? "Approve filler removal" : "Approve retake removal",
@@ -5761,32 +5828,94 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           toolId: "polish",
           affectedSegments: card.segmentIds,
           immediatePersist: true,
-          computeAfter,
+          computeAfter: (before) => {
+            const transcriptAfter = computeTranscriptAfter(before);
+            let nextAudioEdit = cloneHammerAudioEdit(before.audioEdit);
+            if (cutSelections.length > 0) {
+              let audioPolish = {
+                ...buildNotStartedHammerAudioPolish(),
+                audio_edit: cloneHammerAudioEdit(before.audioEdit),
+              };
+              for (let index = 0; index < cutSelections.length; index += 1) {
+                const selection = cutSelections[index];
+                const operationId = `cleanup:${card.kind}:${card.id}:${index}`;
+                const committed = commitAudioCutSelection({
+                  audioPolish,
+                  selection: { startSec: selection.startSec, endSec: selection.endSec },
+                  durationSec: playbackTransportDurationSec,
+                  operationId,
+                });
+                if (committed) {
+                  audioPolish = committed.audioPolish;
+                }
+              }
+              nextAudioEdit = cloneHammerAudioEdit(audioPolish.audio_edit);
+            }
+            const afterAudioOpCount = nextAudioEdit?.operations?.length ?? 0;
+            const changesCommitted = transcriptWouldChange || afterAudioOpCount !== (before.audioEdit?.operations?.length ?? 0);
+            return {
+              ...transcriptAfter,
+              audioEdit: nextAudioEdit,
+              transcriptTimingHint: changesCommitted ? null : before.transcriptTimingHint,
+            };
+          },
         });
-        if (!applied) return;
-
-        const cutOverride = options?.cutOverride ?? null;
-        let committedCutCount = 0;
-        if (cutOverride) {
-          committedCutCount = 1;
-          commitAudioCuts([cutOverride], { operationIdPrefix: `cleanup:${card.kind}:${card.id}:override` });
-        } else {
-          const cutSelections = deriveAudioCutsForRemovedSegments({
-            segments: beforeState.transcriptSegments,
-            removeSegmentIds: approvePlan.removeSegmentIds,
-            durationSec: playbackTransportDurationSec,
-          });
-          committedCutCount = cutSelections.length;
-          commitAudioCuts(cutSelections, { operationIdPrefix: `cleanup:${card.kind}:${card.id}` });
+        if (!applied) {
+          setCandidateReceiptByKind((current) => ({
+            ...current,
+            [card.kind]: "No-op: candidate approval did not commit any canonical changes.",
+          }));
+          lastHandledCandidateIdRef.current[card.kind] = null;
+          return;
         }
+
+        const afterState = historyControllerRef.current?.getState() ?? null;
+        const afterAudioOpCount = afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount;
+        const committedCutCount = Math.max(0, afterAudioOpCount - beforeAudioOpCount);
+
+        handledCandidateIdsRef.current[card.kind].add(card.id);
+        lastHandledCandidateIdRef.current[card.kind] = card.id;
+
+        if (import.meta.env.DEV && typeof window !== "undefined") {
+          const enabled = Boolean((window as any).__forgeHammerDebugCandidateApproval__);
+          if (enabled) {
+            const effectiveRegions = getEffectiveCutRegions(afterState?.audioEdit ?? null, playbackTransportDurationSec);
+            const seekTarget = afterState
+              ? resolveNextAudiblePlaybackTime({
+                requestedTimeSec: afterState.playheadSec,
+                durationSec: playbackTransportDurationSec,
+                effectiveCutRegions: effectiveRegions,
+                transcriptSegments: afterState.transcriptSegments,
+              })
+              : null;
+            // eslint-disable-next-line no-console
+            console.debug("[HammerCandidateApproval]", {
+              kind: card.kind,
+              cardId: card.id,
+              primarySegmentId: card.primarySegmentId,
+              transcriptWouldChange,
+              removeSegmentIds: approvePlan.removeSegmentIds,
+              updateSegments: approvePlan.updateSegments,
+              plannedCutCount: cutSelections.length,
+              beforeAudioOpCount,
+              afterAudioOpCount,
+              committedCutCount,
+              effectiveCutRegions: effectiveRegions.length,
+              seekTarget,
+            });
+          }
+        }
+
         setCandidateReceiptByKind((current) => ({
           ...current,
-          [card.kind]: committedCutCount === 0
-            ? "Applied transcript cleanup only (audio unchanged). To change playback, enable a Cut Span and commit time coordinates."
-            : `Applied transcript cleanup + ${committedCutCount} timeline cut${committedCutCount === 1 ? "" : "s"}.`,
+          [card.kind]: committedCutCount > 0
+            ? `Applied cleanup + ${committedCutCount} timeline cut${committedCutCount === 1 ? "" : "s"}.`
+            : "Applied transcript cleanup (no new timeline cuts committed).",
         }));
-        nextSegments = computeAfter(cloneEditorState(beforeState)).transcriptSegments;
+        nextSegments = afterState?.transcriptSegments ?? nextSegments;
       } else {
+        handledCandidateIdsRef.current[card.kind].add(card.id);
+        lastHandledCandidateIdRef.current[card.kind] = card.id;
         setCandidateReceiptByKind((current) => ({
           ...current,
           [card.kind]: "Candidate discarded (no transcript or audio change).",
@@ -5833,7 +5962,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         analysis,
         durationSec: playbackTransportDurationSec,
       });
-      commitAudioCuts(cutSelections, { operationIdPrefix: `dead_air:${analysis.thresholdSec.toFixed(1)}` });
 
       const affected = new Set<string>();
       for (const gap of analysis.gaps) {
@@ -5849,10 +5977,32 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         immediatePersist: true,
         computeAfter: (before) => {
           const synced = syncEditableTranscriptSegments(updated, before.selectedSegmentId);
+          let nextAudioEdit = cloneHammerAudioEdit(before.audioEdit);
+          if (cutSelections.length > 0) {
+            let audioPolish = {
+              ...buildNotStartedHammerAudioPolish(),
+              audio_edit: cloneHammerAudioEdit(before.audioEdit),
+            };
+            for (let index = 0; index < cutSelections.length; index += 1) {
+              const selection = cutSelections[index];
+              const operationId = `dead_air:${analysis.thresholdSec.toFixed(1)}:${index}`;
+              const committed = commitAudioCutSelection({
+                audioPolish,
+                selection: { startSec: selection.startSec, endSec: selection.endSec },
+                durationSec: playbackTransportDurationSec,
+                operationId,
+              });
+              if (committed) {
+                audioPolish = committed.audioPolish;
+              }
+            }
+            nextAudioEdit = cloneHammerAudioEdit(audioPolish.audio_edit);
+          }
           return {
             ...before,
             transcriptSegments: synced.segments,
             selectedSegmentId: synced.selectedSegmentId,
+            audioEdit: nextAudioEdit,
             transcriptTimingHint: null,
           };
         },
@@ -9033,6 +9183,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       settings: backgroundBlurSettings,
       providerId: visualBackgroundBlurProviderId,
       debugMasks: visualBackgroundBlurDebugMask,
+      maskPreviewMode: visualBackgroundMaskPreviewMode,
+      maskPreviewStage: visualBackgroundMaskPreviewStage,
       onStatus: setVisualBackgroundBlurRuntimeStatus,
       onCanvas: handleBackgroundEffectCanvas,
     },
@@ -9099,6 +9251,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     togglePlayback,
     visualBackgroundBlur,
     visualBackgroundBlurDebugMask,
+    visualBackgroundMaskPreviewMode,
     visualBackgroundBlurProviderId,
     visualBackgroundReplaceEnabled,
     visualBackgroundWashEnabled,
@@ -9779,9 +9932,12 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     mediaRef,
     workspaceMapping,
     mediaSourceLabel,
+    canonicalWorkpieceLabel,
+    legacyCaptureLabel,
+    mediaLabelMismatchWarning,
     selectedMacroRecipeRef: props.selectedMacroRecipeRef ?? null,
     lastMacroRunRef: props.lastMacroRunRef ?? null,
-    exportTranscriptForRelease: exportBasis.transcriptForRelease,
+    canonicalStructuredTranscript: canonicalStructuredTranscriptForPersistence,
     exportCanonicalGraph: exportBasis.canonicalGraph,
     currentPass,
     passStatus,
@@ -9853,8 +10009,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     backgroundBlurProviderDescriptor,
     boundAttentionQueue,
     boundAttentionSummary,
-    candidateCutDraftById,
-    candidateCutEnabledById,
     candidateEditModeById,
     candidateProposedTextById,
     candidateReceiptByKind,
@@ -9971,8 +10125,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     removePackagingPlacement,
     removeVisualPlacement,
     replaceResolvedBrollBinding,
-    resolveCandidateCutOverride,
-    resolveCandidateSuggestedCut,
     resolvedBrollBindingItems,
     resolveHearthBrollSuggestion,
     retakeActiveCandidateIndex,
@@ -10002,8 +10154,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setAudioFinalizationCompare,
     setAudioLevelingEnabled,
     setAudioNoiseReductionEnabled,
-    setCandidateCutDraftById,
-    setCandidateCutEnabledById,
     setCandidateEditModeById,
     setCandidateProposedTextById,
     setCaptionFormatting,
@@ -10032,8 +10182,11 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setVideoSnapMode,
     setVisualBackgroundBlur,
     setVisualBackgroundBlurDebugMask,
+    setVisualBackgroundMaskPreviewMode,
+    setVisualBackgroundMaskPreviewStage,
     setVisualBackgroundBlurFallbackMode,
     setVisualBackgroundBlurFeatherPx,
+    setVisualBackgroundBlurSubjectExpansionPx,
     setVisualBackgroundBlurProviderId,
     setVisualBackgroundBlurPx,
     setVisualBackgroundBlurQualityMode,
@@ -10085,8 +10238,11 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     viewingModeSummary,
     visualBackgroundBlur,
     visualBackgroundBlurDebugMask,
+    visualBackgroundMaskPreviewMode,
+    visualBackgroundMaskPreviewStage,
     visualBackgroundBlurFallbackMode,
     visualBackgroundBlurFeatherPx,
+    visualBackgroundBlurSubjectExpansionPx,
     visualBackgroundBlurPx,
     visualBackgroundBlurQualityMode,
     visualBackgroundBlurRuntimeStatus,
@@ -10147,8 +10303,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     backgroundBlurProviderDescriptor,
     boundAttentionQueue,
     boundAttentionSummary,
-    candidateCutDraftById,
-    candidateCutEnabledById,
     candidateEditModeById,
     candidateProposedTextById,
     candidateReceiptByKind,
@@ -10265,8 +10419,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     removePackagingPlacement,
     removeVisualPlacement,
     replaceResolvedBrollBinding,
-    resolveCandidateCutOverride,
-    resolveCandidateSuggestedCut,
     resolvedBrollBindingItems,
     resolveHearthBrollSuggestion,
     retakeActiveCandidateIndex,
@@ -10296,8 +10448,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setAudioFinalizationCompare,
     setAudioLevelingEnabled,
     setAudioNoiseReductionEnabled,
-    setCandidateCutDraftById,
-    setCandidateCutEnabledById,
     setCandidateEditModeById,
     setCandidateProposedTextById,
     setCaptionFormatting,
@@ -10326,8 +10476,11 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     setVideoSnapMode,
     setVisualBackgroundBlur,
     setVisualBackgroundBlurDebugMask,
+    setVisualBackgroundMaskPreviewMode,
+    setVisualBackgroundMaskPreviewStage,
     setVisualBackgroundBlurFallbackMode,
     setVisualBackgroundBlurFeatherPx,
+    setVisualBackgroundBlurSubjectExpansionPx,
     setVisualBackgroundBlurProviderId,
     setVisualBackgroundBlurPx,
     setVisualBackgroundBlurQualityMode,
@@ -10379,8 +10532,11 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     viewingModeSummary,
     visualBackgroundBlur,
     visualBackgroundBlurDebugMask,
+    visualBackgroundMaskPreviewMode,
+    visualBackgroundMaskPreviewStage,
     visualBackgroundBlurFallbackMode,
     visualBackgroundBlurFeatherPx,
+    visualBackgroundBlurSubjectExpansionPx,
     visualBackgroundBlurPx,
     visualBackgroundBlurQualityMode,
     visualBackgroundBlurRuntimeStatus,

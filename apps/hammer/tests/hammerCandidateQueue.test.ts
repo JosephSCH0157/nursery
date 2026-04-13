@@ -64,6 +64,32 @@ async function testBuildQueueFiltersHandledCandidates() {
   assert.equal(third.cards.length, 0);
 }
 
+async function testFillerCardCanRemoveSegmentWhenFillerOnly() {
+  const segments = [
+    {
+      segment_id: "seg_1",
+      start_sec: 0,
+      end_sec: 1,
+      speaker: "S1",
+      text: "um.",
+    },
+  ];
+
+  const result = buildCandidateQueue({
+    kind: "fillers",
+    segments: segments as never,
+    fillerOptions: fillerOptions as never,
+    retakeOptions: retakeOptions as never,
+    handledCandidateIds: new Set<string>(),
+  });
+
+  assert.equal(result.cards.length, 1);
+  const card = result.cards[0]!;
+  assert.equal(card.afterText, null);
+  assert.deepEqual(card.apply.removeSegmentIds, ["seg_1"]);
+  assert.deepEqual(card.apply.updateSegments, []);
+}
+
 async function testRetakePairCardBuildsFromSuggestionId() {
   const segments = [
     {
@@ -153,6 +179,7 @@ async function testClampIndex() {
 
 async function run() {
   await testBuildQueueFiltersHandledCandidates();
+  await testFillerCardCanRemoveSegmentWhenFillerOnly();
   await testRetakePairCardBuildsFromSuggestionId();
   await testRetakeChainCardRemovesMarkerAndAbort();
   await testClampIndex();

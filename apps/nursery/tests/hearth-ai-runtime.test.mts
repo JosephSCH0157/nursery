@@ -9,6 +9,7 @@ import { createHearthAiHandler } from "../server/hearth/create-hearth-ai-handler
 import type { HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 import { mwHearthChatApi } from "../scripts/mw-hearth-chat-api";
+import "./hearth-youtube-source-ingest.test.mts";
 
 function buildConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntimeConfig {
   return {

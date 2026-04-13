@@ -22,6 +22,7 @@ import {
 } from "../../../hammer/src/prep/hammerAudioPolish";
 import { requestHammerAudioPolish } from "../../../hammer/src/prep/hammerAudioPolishApi";
 import { resolveHammerPrepSource } from "../../../hammer/src/prep/hammerPrep";
+import { resolveAudioPolishInputSource } from "../../../hammer/src/prep/resolveAudioPolishInputSource";
 import type { TongsReleaseOperatorActionStep } from "./tongsReleaseOperatorExecution";
 
 const TONGS_OPERATOR_WRITTEN_BY = {
@@ -198,10 +199,19 @@ async function regenerateAudioPolish(args: {
   }
 
   try {
+    const resolvedInput = resolveAudioPolishInputSource({
+      workpiece_id: args.target.workpieceId,
+      prepSource,
+    });
+    if (!resolvedInput.supported) {
+      throw new Error(resolvedInput.reason);
+    }
     const response = await requestHammerAudioPolish({
       workspace_id: args.target.workspaceId,
       workpiece_id: args.target.workpieceId,
       media_kind: prepSource.mediaRef.kind,
+      input: resolvedInput.source,
+      tongs_origin: typeof window !== "undefined" ? window.location.origin : null,
       local_root_abs: prepSource.local_root_abs,
       local_relpath: prepSource.local_relpath,
       canonical_workpiece_path: prepSource.canonical_workpiece_path,

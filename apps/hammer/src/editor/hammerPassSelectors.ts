@@ -127,7 +127,12 @@ function imagePlacementReasonCodes(
   if (context.visualPlacements.placements.some((placement) => placement.status === "uncertain")) {
     reasons.push("visual_placements_uncertain");
   }
-  if (context.visualPlacements.placements.some((placement) => !placement.asset_path && !placement.storage_key)) {
+  const hasExplicitlyRequiredMissingImage = context.visualPlacements.placements.some((placement) => {
+    if (placement.asset_path || placement.storage_key) return false;
+    // Optional omissions are neutral unless the image had been explicitly approved/bound.
+    return placement.ingest_state === "approved";
+  });
+  if (hasExplicitlyRequiredMissingImage) {
     reasons.push("image_media_unresolved");
   }
   return [...new Set(reasons)];

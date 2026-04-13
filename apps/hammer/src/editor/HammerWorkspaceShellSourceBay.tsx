@@ -1,4 +1,4 @@
-import type { JSX } from "react";
+import { useEffect, useMemo, useRef, useState, type JSX } from "react";
 
 export type HammerWorkspaceShellSourceTabVM = {
   id: string;
@@ -80,15 +80,11 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const ctx = vm as any;
   const selectedSourceTab = ctx.selectedSourceTab as string;
   const editableTranscriptSegments = ctx.editableTranscriptSegments as any[];
-  const selectedSegment = ctx.selectedSegment as any | null;
   const selectedSegmentId = ctx.selectedSegmentId as string | null;
   const setFocusOverride = ctx.setFocusOverride as (mode: "auto" | "source-focus" | "tool-focus" | "time-focus") => void;
-  const roundToTenth = ctx.roundToTenth as (value: number) => number;
   const applyHistoryMutation = ctx.applyHistoryMutation as (args: { computeAfter: (before: any) => any } & Record<string, any>) => void;
   const updateSegmentInTimeline = ctx.updateSegmentInTimeline as (segments: any[], segmentId: string, updater: (segment: any) => any) => any[];
   const transcriptTimingHint = ctx.transcriptTimingHint as string | null;
-  const activeTool = ctx.activeTool as string;
-  const updateTranscriptSegmentSpeaker = ctx.updateTranscriptSegmentSpeaker as (...args: any[]) => any;
   const applyTranscriptSelection = ctx.applyTranscriptSelection as (segmentId: string, extend: boolean) => void;
   const disableTranscriptSelection = ctx.disableTranscriptSelection as () => void;
   const cutTranscriptSelection = ctx.cutTranscriptSelection as () => void;
@@ -102,9 +98,90 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const modifiedSegmentCount = ctx.modifiedSegmentCount as number;
   const candidateSegmentIdSet = ctx.candidateSegmentIdSet as Set<string>;
   const activeCandidateSegmentIdSet = ctx.activeCandidateSegmentIdSet as Set<string>;
-  const transcriptLineRefs = ctx.transcriptLineRefs as { current: Map<string, HTMLButtonElement> };
+  const transcriptLineRefs = ctx.transcriptLineRefs as { current: Map<string, HTMLElement> };
   const isSubtractiveTranscriptEdit = ctx.isSubtractiveTranscriptEdit as (before: string, after: string) => boolean;
   const setTranscriptTimingHint = ctx.setTranscriptTimingHint as (message: string | null) => void;
+
+  const [draftTextBySegmentId, setDraftTextBySegmentId] = useState<Record<string, string>>({});
+  const [inlineEditHint, setInlineEditHint] = useState<string | null>(null);
+  const hintTimerRef = useRef<number | null>(null);
+
+  const segmentById = useMemo(() => {
+    const next = new Map<string, any>();
+    for (const segment of editableTranscriptSegments) {
+      next.set(segment.segment_id, segment);
+    }
+    return next;
+  }, [editableTranscriptSegments]);
+
+  useEffect(() => {
+    setDraftTextBySegmentId({});
+    setInlineEditHint(null);
+  }, [editableTranscriptSegments]);
+
+  const dirtyTranscriptEdits = useMemo(() => {
+    const dirtyIds = new Set<string>();
+    for (const [segmentId, draftText] of Object.entries(draftTextBySegmentId)) {
+      const segment = segmentById.get(segmentId);
+      if (!segment) continue;
+      if (draftText !== segment.text) {
+        dirtyIds.add(segmentId);
+      }
+    }
+    return dirtyIds;
+  }, [draftTextBySegmentId, segmentById]);
+  const hasDirtyTranscriptEdits = dirtyTranscriptEdits.size > 0;
+
+  const transcriptTurns = useMemo(() => {
+    const turns: Array<{ speaker: string; segments: any[] }> = [];
+    for (const segment of editableTranscriptSegments) {
+      const speaker = String(segment.speaker ?? "");
+      const last = turns[turns.length - 1] ?? null;
+      if (last && last.speaker === speaker) {
+        last.segments.push(segment);
+      } else {
+        turns.push({ speaker, segments: [segment] });
+      }
+    }
+    return turns;
+  }, [editableTranscriptSegments]);
+
+  function getSegmentJoiner(prevText: string, nextText: string): string {
+    const prevEndsWithSpace = /\s$/.test(prevText);
+    const nextStartsWithSpace = /^\s/.test(nextText);
+    if (prevEndsWithSpace || nextStartsWithSpace) return "";
+    return " ";
+  }
+
+  const showTranscriptSegmentDiagnostics = useMemo(() => (
+    import.meta.env.DEV
+    && typeof window !== "undefined"
+    && Boolean((window as any).__forgeHammerDebugTranscriptSegments__)
+  ), []);
+
+  function hashToHue(value: string): number {
+    let hash = 0;
+    for (let i = 0; i < value.length; i += 1) {
+      hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash) % 360;
+  }
+
+  function showInlineEditHint(message: string): void {
+    setInlineEditHint(message);
+    if (hintTimerRef.current != null) {
+      window.clearTimeout(hintTimerRef.current);
+    }
+    hintTimerRef.current = window.setTimeout(() => {
+      setInlineEditHint(null);
+    }, 2200);
+  }
+
+  useEffect(() => () => {
+    if (hintTimerRef.current != null) {
+      window.clearTimeout(hintTimerRef.current);
+    }
+  }, []);
 
   const sourceImageItems = ctx.sourceImageItems as any[];
   const sourceImageLibraryItems = ctx.sourceImageLibraryItems as any[];
@@ -329,163 +406,74 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
               {selectedSourceTab === "transcript" ? (
                 editableTranscriptSegments.length > 0 ? (
                   <>
-                    {selectedSegment ? (
-                      <section className="hammer-transcript-editor" aria-label="Selected transcript segment editor">
-                        <div className="hammer-transcript-editor__meta">
-                          <span>{selectedSegment.start_sec.toFixed(1)}s - {selectedSegment.end_sec.toFixed(1)}s</span>
-                          <span>{selectedSegment.segment_id}</span>
-                        </div>
-                        <div className="hammer-transcript-editor__meta">
-                          <label className="hammer-transcript-editor__field">
-                            <span>Start (s)</span>
-                            <input
-                              type="number"
-                              min={0}
-                              step={0.1}
-                              value={selectedSegment.start_sec}
-                              onFocus={() => setFocusOverride("source-focus")}
-                              onChange={(event) => {
-                                const parsed = Number(event.target.value);
-                                if (!Number.isFinite(parsed)) return;
-                                const nextStart = Math.max(0, roundToTenth(parsed));
-                                setFocusOverride("source-focus");
-                                applyHistoryMutation({
-                                  label: "Adjust segment start",
-                                  kind: "timing_adjustment",
-                                  affectedSegments: [selectedSegment.segment_id],
-                                  computeAfter: (before) => ({
-                                    ...before,
-                                    transcriptSegments: updateSegmentInTimeline(
-                                      before.transcriptSegments,
-                                      selectedSegment.segment_id,
-                                      (segment) => {
-                                        const endFloor = roundToTenth(nextStart + 0.1);
-                                        return {
-                                          ...segment,
-                                          start_sec: nextStart,
-                                          end_sec: Math.max(roundToTenth(segment.end_sec), endFloor),
-                                        };
-                                      },
-                                    ),
-                                    selectedSegmentId: selectedSegment.segment_id,
-                                    playheadSec: nextStart,
-                                    transcriptTimingHint: nextStart !== parsed
-                                      ? `Start adjusted to ${nextStart.toFixed(1)}s to stay on the timeline grid.`
-                                      : null,
-                                  }),
-                                });
-                              }}
-                            />
-                          </label>
-                          <label className="hammer-transcript-editor__field">
-                            <span>End (s)</span>
-                            <input
-                              type="number"
-                              min={0}
-                              step={0.1}
-                              value={selectedSegment.end_sec}
-                              onFocus={() => setFocusOverride("source-focus")}
-                              onChange={(event) => {
-                                const parsed = Number(event.target.value);
-                                if (!Number.isFinite(parsed)) return;
-                                const nextEnd = Math.max(0, roundToTenth(parsed));
-                                const minimumEnd = roundToTenth(selectedSegment.start_sec + 0.1);
-                                const adjustedEnd = Math.max(nextEnd, minimumEnd);
-                                setFocusOverride("source-focus");
-                                applyHistoryMutation({
-                                  label: "Adjust segment end",
-                                  kind: "timing_adjustment",
-                                  affectedSegments: [selectedSegment.segment_id],
-                                  computeAfter: (before) => ({
-                                    ...before,
-                                    transcriptSegments: updateSegmentInTimeline(
-                                      before.transcriptSegments,
-                                      selectedSegment.segment_id,
-                                      (segment) => ({
-                                        ...segment,
-                                        end_sec: Math.max(adjustedEnd, roundToTenth(segment.start_sec + 0.1)),
-                                      }),
-                                    ),
-                                    selectedSegmentId: selectedSegment.segment_id,
-                                    transcriptTimingHint: adjustedEnd !== parsed
-                                      ? `End adjusted to ${adjustedEnd.toFixed(1)}s to remain after start time.`
-                                      : null,
-                                  }),
-                                });
-                              }}
-                            />
-                          </label>
-                        </div>
-                        {transcriptTimingHint ? (
-                          <div className="hammer-transcript-editor__hint" role="status">
-                            {transcriptTimingHint}
-                          </div>
-                        ) : null}
-                        <label className="hammer-transcript-editor__field">
-                          <span>Speaker</span>
-                          <input
-                            type="text"
-                            value={selectedSegment.speaker}
-                            onFocus={() => setFocusOverride("source-focus")}
-                            onChange={(event) => {
-                              setFocusOverride("source-focus");
-                              applyHistoryMutation({
-                                label: "Edit speaker label",
-                                kind: "speaker_edit",
-                                affectedSegments: [selectedSegment.segment_id],
-                                transactionId: `speaker:${selectedSegment.segment_id}:${activeTool}:${selectedSourceTab}`,
-                                allowCoalesce: true,
-                                computeAfter: (before) => ({
-                                  ...before,
-                                  transcriptSegments: updateTranscriptSegmentSpeaker(
-                                    before.transcriptSegments,
-                                    selectedSegment.segment_id,
-                                    event.target.value,
-                                  ),
-                                  transcriptTimingHint: null,
-                                }),
-                              });
-                            }}
-                          />
-                        </label>
-                        <label className="hammer-transcript-editor__field">
-                          <span>Text</span>
-                          <textarea
-                            value={selectedSegment.text}
-                            onFocus={() => setFocusOverride("source-focus")}
-                            onChange={(event) => {
-                              const nextValue = event.target.value;
-                              if (!isSubtractiveTranscriptEdit(selectedSegment.text, nextValue)) {
-                                setTranscriptTimingHint("Hammer v2 allows subtractive transcript edits only (deletions, no additions).");
+                    <section className="hammer-transcript-page-actions" aria-label="Transcript editor actions">
+                      <div className="hammer-transcript-page-actions__meta">
+                        <span>{hasDirtyTranscriptEdits ? "Unsaved transcript edits" : "Transcript edits saved"}</span>
+                        <span>Subtractive-only: delete words/phrases, no additions.</span>
+                      </div>
+                      <div className="hammer-transcript-page-actions__buttons">
+                        <button
+                          type="button"
+                          disabled={!hasDirtyTranscriptEdits}
+                          onClick={() => {
+                            setFocusOverride("source-focus");
+                            const dirtyIds = Array.from(dirtyTranscriptEdits);
+                            for (const segmentId of dirtyIds) {
+                              const baseline = segmentById.get(segmentId)?.text ?? null;
+                              const draft = draftTextBySegmentId[segmentId];
+                              if (baseline == null || draft == null) continue;
+                              if (!isSubtractiveTranscriptEdit(baseline, draft)) {
+                                showInlineEditHint("Subtractive-only editing: delete words/phrases, but you cannot add new words.");
                                 return;
                               }
-                              setFocusOverride("source-focus");
-                              applyHistoryMutation({
-                                label: "Delete transcript text",
-                                kind: "transcript_text_edit",
-                                affectedSegments: [selectedSegment.segment_id],
-                                transactionId: `text:${selectedSegment.segment_id}:${activeTool}:${selectedSourceTab}`,
-                                allowCoalesce: true,
-                                computeAfter: (before) => ({
+                            }
+                            applyHistoryMutation({
+                              label: "Edit transcript",
+                              kind: "transcript_text_edit",
+                              affectedSegments: dirtyIds,
+                              immediatePersist: true,
+                              computeAfter: (before) => {
+                                let updatedSegments = before.transcriptSegments;
+                                for (const segmentId of dirtyIds) {
+                                  const draftText = draftTextBySegmentId[segmentId];
+                                  if (draftText == null) continue;
+                                  updatedSegments = updateSegmentInTimeline(
+                                    updatedSegments,
+                                    segmentId,
+                                    (segment) => ({ ...segment, text: draftText }),
+                                  );
+                                }
+                                return {
                                   ...before,
-                                  transcriptSegments: updateSegmentInTimeline(
-                                    before.transcriptSegments,
-                                    selectedSegment.segment_id,
-                                    (segment) => ({
-                                      ...segment,
-                                      text: nextValue,
-                                    }),
-                                  ),
+                                  transcriptSegments: updatedSegments,
                                   transcriptTimingHint: null,
-                                }),
-                              });
-                            }}
-                          />
-                          <small className="hammer-transcript-editor__hint">
-                            Subtractive-only editing: delete words/phrases, but you cannot add new words.
-                          </small>
-                        </label>
-                      </section>
+                                };
+                              },
+                            });
+                            setDraftTextBySegmentId({});
+                            setInlineEditHint(null);
+                          }}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!hasDirtyTranscriptEdits}
+                          onClick={() => {
+                            setFocusOverride("source-focus");
+                            setDraftTextBySegmentId({});
+                            setInlineEditHint(null);
+                            setTranscriptTimingHint(null);
+                          }}
+                        >
+                          Discard
+                        </button>
+                      </div>
+                    </section>
+                    {inlineEditHint || transcriptTimingHint ? (
+                      <div className="hammer-tool-hint" role="status">
+                        {inlineEditHint ?? transcriptTimingHint}
+                      </div>
                     ) : null}
                     <section className="hammer-transcript-selection-actions" aria-label="Transcript structural actions">
                       {hasTranscriptSelection ? (
@@ -525,44 +513,146 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                       <span>{modifiedSegmentCount} modified</span>
                       <span>{modifiedSegmentCount > 0 ? "recompute needed" : "in sync"}</span>
                     </div>
-                    <article className="hammer-transcript-document" aria-label="Transcript document">
-                      {editableTranscriptSegments.map((segment) => (
-                        <button
-                          key={segment.segment_id}
-                          type="button"
-                          className={[
-                            "hammer-transcript-line",
-                            segment.segment_id === selectedSegmentId ? "is-active" : "",
-                            transcriptSelectionSegmentIdSet.has(segment.segment_id) ? "is-range" : "",
-                            modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
-                            candidateSegmentIdSet.has(segment.segment_id) ? "is-candidate" : "",
-                            activeCandidateSegmentIdSet.has(segment.segment_id) ? "is-candidate-active" : "",
-                            segment.is_disabled ? "is-disabled" : "",
-                          ].filter(Boolean).join(" ")}
-                          onClick={(event) => {
-                            applyTranscriptSelection(segment.segment_id, event.shiftKey);
-                          }}
-                          ref={(element) => {
-                            if (element) {
-                              transcriptLineRefs.current.set(segment.segment_id, element);
-                            } else {
-                              transcriptLineRefs.current.delete(segment.segment_id);
-                            }
-                          }}
+                    <article className="hammer-transcript-doc" aria-label="Transcript document view">
+                      {transcriptTurns.map((turn, turnIndex) => (
+                        <section
+                          key={`doc-turn-${turnIndex}-${turn.speaker}`}
+                          className="hammer-transcript-doc-turn"
+                          style={{ ["--speaker-hue" as any]: hashToHue(turn.speaker) }}
                         >
-                          <span className="hammer-transcript-line__meta">
-                            {segment.start_sec.toFixed(1)}s - {segment.end_sec.toFixed(1)}s
-                            {" · "}
-                            {(segment.end_sec - segment.start_sec).toFixed(1)}s
-                            {modifiedTranscriptSegmentIds.has(segment.segment_id) ? " · modified" : ""}
-                            {segment.is_disabled ? " · disabled" : ""}
-                            {segment.gain_db != null && segment.gain_db !== 0 ? ` · gain ${segment.gain_db.toFixed(1)}dB` : ""}
-                          </span>
-                          <span className="hammer-transcript-line__speaker">{segment.speaker}:</span>
-                          <span className="hammer-transcript-line__text">{segment.text}</span>
-                        </button>
+                          <header className="hammer-transcript-doc-turn__head">
+                            <span className="hammer-transcript-doc-turn__label">{turn.speaker || "Speaker"}</span>
+                          </header>
+                          <p className="hammer-transcript-doc-turn__para">
+                            {turn.segments.map((segment, segmentIndex) => {
+                              const draftText = draftTextBySegmentId[segment.segment_id];
+                              const value = draftText ?? segment.text;
+                              const prevText = segmentIndex > 0 ? String(turn.segments[segmentIndex - 1]?.text ?? "") : "";
+                              const joiner = segmentIndex > 0 ? getSegmentJoiner(prevText, String(value ?? "")) : "";
+                              return (
+                                <span
+                                  key={segment.segment_id}
+                                  className={[
+                                    "hammer-transcript-doc-seg",
+                                    segment.segment_id === selectedSegmentId ? "is-active" : "",
+                                    transcriptSelectionSegmentIdSet.has(segment.segment_id) ? "is-range" : "",
+                                    modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
+                                    candidateSegmentIdSet.has(segment.segment_id) ? "is-candidate" : "",
+                                    activeCandidateSegmentIdSet.has(segment.segment_id) ? "is-candidate-active" : "",
+                                    segment.is_disabled ? "is-disabled" : "",
+                                  ].filter(Boolean).join(" ")}
+                                  title={`${segment.start_sec.toFixed(1)}s - ${segment.end_sec.toFixed(1)}s`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setFocusOverride("source-focus");
+                                    applyTranscriptSelection(segment.segment_id, event.shiftKey);
+                                  }}
+                                  ref={(element) => {
+                                    if (element) {
+                                      transcriptLineRefs.current.set(segment.segment_id, element);
+                                    } else {
+                                      transcriptLineRefs.current.delete(segment.segment_id);
+                                    }
+                                  }}
+                                >
+                                  {joiner}
+                                  {value}
+                                </span>
+                              );
+                            })}
+                          </p>
+                        </section>
                       ))}
                     </article>
+                    {showTranscriptSegmentDiagnostics ? (
+                      <article className="hammer-transcript-page" aria-label="Transcript segment diagnostics">
+                        {transcriptTurns.map((turn, turnIndex) => (
+                          <section
+                            key={`turn-${turnIndex}-${turn.speaker}`}
+                            className="hammer-transcript-turn"
+                            style={{ ["--speaker-hue" as any]: hashToHue(turn.speaker) }}
+                          >
+                            <header className="hammer-transcript-turn__head">
+                              <span className="hammer-transcript-turn__label">{turn.speaker || "Speaker"}</span>
+                            </header>
+                            <div className="hammer-transcript-turn__body">
+                              {turn.segments.map((segment) => {
+                                const draftText = draftTextBySegmentId[segment.segment_id];
+                                const value = draftText ?? segment.text;
+                                return (
+                                  <div
+                                    key={`diag-${segment.segment_id}`}
+                                    className={[
+                                      "hammer-transcript-page-seg",
+                                      segment.segment_id === selectedSegmentId ? "is-active" : "",
+                                      transcriptSelectionSegmentIdSet.has(segment.segment_id) ? "is-range" : "",
+                                      modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
+                                      candidateSegmentIdSet.has(segment.segment_id) ? "is-candidate" : "",
+                                      activeCandidateSegmentIdSet.has(segment.segment_id) ? "is-candidate-active" : "",
+                                      segment.is_disabled ? "is-disabled" : "",
+                                    ].filter(Boolean).join(" ")}
+                                    onClick={(event) => {
+                                      const target = event.target as HTMLElement;
+                                      if (target.closest("textarea")) return;
+                                      applyTranscriptSelection(segment.segment_id, event.shiftKey);
+                                    }}
+                                    ref={(element) => {
+                                      if (element) {
+                                        transcriptLineRefs.current.set(`diag:${segment.segment_id}`, element);
+                                      } else {
+                                        transcriptLineRefs.current.delete(`diag:${segment.segment_id}`);
+                                      }
+                                    }}
+                                  >
+                                    <div className="hammer-transcript-page-seg__meta">
+                                      <span>
+                                        {segment.start_sec.toFixed(1)}s - {segment.end_sec.toFixed(1)}s
+                                        {" · "}
+                                        {(segment.end_sec - segment.start_sec).toFixed(1)}s
+                                        {modifiedTranscriptSegmentIds.has(segment.segment_id) ? " · modified" : ""}
+                                        {segment.is_disabled ? " · disabled" : ""}
+                                        {segment.gain_db != null && segment.gain_db !== 0 ? ` · gain ${segment.gain_db.toFixed(1)}dB` : ""}
+                                      </span>
+                                    </div>
+                                    <textarea
+                                      className="hammer-transcript-page-seg__text"
+                                      aria-label={`Transcript segment ${segment.segment_id} (diagnostics)`}
+                                      value={value}
+                                      disabled={segment.is_disabled}
+                                      rows={1}
+                                      onMouseDown={(event) => {
+                                        event.stopPropagation();
+                                      }}
+                                      onFocus={() => {
+                                        setFocusOverride("source-focus");
+                                        applyTranscriptSelection(segment.segment_id, false);
+                                      }}
+                                      onChange={(event) => {
+                                        const nextValue = event.target.value;
+                                        if (!isSubtractiveTranscriptEdit(segment.text, nextValue)) {
+                                          showInlineEditHint(
+                                            "Subtractive-only editing: delete words/phrases, but you cannot add new words.",
+                                          );
+                                          return;
+                                        }
+                                        setFocusOverride("source-focus");
+                                        setDraftTextBySegmentId((current) => ({
+                                          ...current,
+                                          [segment.segment_id]: nextValue,
+                                        }));
+                                        setTranscriptTimingHint(null);
+                                        event.currentTarget.style.height = "auto";
+                                        event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`;
+                                      }}
+                                    />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </section>
+                        ))}
+                      </article>
+                    ) : null}
                   </>
                 ) : <div className="hammer-empty-state">Transcript is not loaded yet.</div>
               ) : null}
@@ -624,7 +714,9 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                               />
                             ) : (
                               <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">
-                                {item.assetPath && sourceDeskPreviewFailures[item.assetPath] ? "Preview unavailable" : "No thumbnail"}
+                                {item.assetPath
+                                  ? (sourceDeskPreviewFailures[item.assetPath] ? "Preview unavailable" : "No thumbnail")
+                                  : "Not provided"}
                               </div>
                             )}
                             <header className="hammer-source-card__head">
@@ -635,6 +727,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                               <span>Type: image</span>
                               <span>{item.startSec.toFixed(1)}s - {item.endSec.toFixed(1)}s</span>
                               <span>Uses: 1</span>
+                              <span>{item.assetPath ? "Asset linked" : "Asset: not provided"}</span>
                               <span>{item.visualMode ?? "visual"}</span>
                               <span>{item.confidence != null ? `${Math.round(item.confidence * 100)}% match` : "match n/a"}</span>
                             </div>

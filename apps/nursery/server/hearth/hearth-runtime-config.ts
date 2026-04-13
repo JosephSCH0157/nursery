@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { HearthAiLane } from "../../../hearth/src/lib/hearth-ai-runtime-contract";
 import { FORGE_ALLOWED_CHAT_MODELS } from "./ai-pricing";
 
@@ -10,10 +9,11 @@ const DEFAULT_CHAT_MODEL = "gpt-5.3";
 const DEFAULT_FORGE_TOKEN_BALANCE = 12430;
 const ALLOWED_CHAT_MODELS = new Set<string>(FORGE_ALLOWED_CHAT_MODELS);
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const ENV_ROOT = path.join(__dirname, "..", "..");
 const ENV_FILES = [".env.local", ".env"];
+const ENV_ROOT_CANDIDATES = [
+  process.cwd(),
+  path.join(process.cwd(), "apps", "nursery"),
+];
 
 let envLoaded = false;
 
@@ -88,8 +88,10 @@ function resolveAllowedChatModel(candidate: string | undefined): string {
 
 export function bootstrapHearthRuntimeEnv(): void {
   if (envLoaded) return;
-  for (const filename of ENV_FILES) {
-    loadEnvFile(path.join(ENV_ROOT, filename));
+  for (const envRoot of ENV_ROOT_CANDIDATES) {
+    for (const filename of ENV_FILES) {
+      loadEnvFile(path.join(envRoot, filename));
+    }
   }
   envLoaded = true;
 }

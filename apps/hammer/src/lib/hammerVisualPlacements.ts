@@ -28,6 +28,8 @@ const MIN_VISUAL_HOLD_SEC = 1.6;
 const MAX_VISUAL_HOLD_SEC = 6;
 const MIN_VISUAL_SLIVER_SEC = 0.25;
 const EPISODE_MEDIA_MAP_PATH = "hearth/media_map.v1.json";
+const ANCHOR_PLACED_CONFIDENCE = 0.85;
+const ANCHOR_UNCERTAIN_CONFIDENCE = 0.5;
 
 type VisualPackageResult =
   | { ok: true; status: number; data: WorkpieceVisualPackageResponseData }
@@ -605,6 +607,69 @@ function computeTextMatchScore(anchorText: string, candidateText: string): numbe
   return Math.min(1, Math.max(dice, (dice * 0.7) + (anchorCoverage * 0.3) + containsBoost));
 }
 
+type AnchorMatchType = "exact" | "fuzzy";
+type AnchorMatchClassification = "placed" | "uncertain" | "unresolved";
+
+function classifyAnchorMatch(args: {
+  anchorText: string;
+  matchedText: string;
+  deterministicCandidate: PlacementCandidate | null;
+  candidate: PlacementCandidate | null;
+}): {
+  matchType: AnchorMatchType;
+  confidence: number;
+  classification: AnchorMatchClassification;
+} {
+  const normalizedAnchor = normalizeForMatch(args.anchorText);
+  const normalizedMatched = normalizeForMatch(args.matchedText);
+  const exact = Boolean(normalizedAnchor && normalizedMatched && normalizedAnchor === normalizedMatched);
+
+  const confidence = args.candidate
+    ? args.candidate.rawScore
+    : computeTextMatchScore(args.anchorText, args.matchedText);
+
+  if (exact) {
+    return { matchType: "exact", confidence: 1, classification: "placed" };
+  }
+
+  const classification: AnchorMatchClassification = confidence >= ANCHOR_PLACED_CONFIDENCE
+    ? "placed"
+    : confidence >= ANCHOR_UNCERTAIN_CONFIDENCE
+      ? "uncertain"
+      : "unresolved";
+
+  return {
+    matchType: args.deterministicCandidate ? "fuzzy" : "fuzzy",
+    confidence,
+    classification,
+  };
+}
+
+function logAnchorMatchDebug(args: {
+  anchorText: string;
+  matchedText: string;
+  matchType: AnchorMatchType;
+  confidence: number;
+  classification: AnchorMatchClassification;
+}): void {
+  if (typeof window === "undefined") return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const isDev = Boolean((import.meta as any)?.env?.DEV);
+    if (!isDev) return;
+  } catch {
+    return;
+  }
+  // eslint-disable-next-line no-console
+  console.log("[AnchorMatch]", {
+    anchor_text: args.anchorText,
+    matched_text: args.matchedText,
+    match_type: args.matchType,
+    confidence: Number(args.confidence.toFixed(3)),
+    classification: args.classification,
+  });
+}
+
 function buildVisualPlacementSourceRefs(
   transcriptSourceId: string,
   visualPackage: WorkpieceVisualPackageResponseData,
@@ -973,13 +1038,11 @@ export function deriveHammerVisualPlacements(args: {
     const placementFlags: string[] = [];
     let startIndex = searchFloor;
     let endIndex = Math.min(transcriptSegments.length - 1, searchFloor);
-    let confidence: number | null = null;
     let timingSource: HammerVisualPlacementRecord["timing_source"] = "ordered_fallback";
 
     if (candidate && candidate.rawScore >= MATCH_MIN_SCORE) {
       startIndex = candidate.startIndex;
       endIndex = candidate.endIndex;
-      confidence = Number(candidate.rawScore.toFixed(3));
       timingSource = "transcript_match";
       if (!deterministicCandidate && candidate.rawScore < MATCH_STRONG_SCORE) {
         placementFlags.push("low_confidence_match");
@@ -995,11 +1058,30 @@ export function deriveHammerVisualPlacements(args: {
     }
 
     const matchedSegments = transcriptSegments.slice(startIndex, endIndex + 1);
+    const matchedText = matchedSegments.map((segment) => segment.text).join(" ");
+    const anchorMatch = classifyAnchorMatch({
+      anchorText,
+      matchedText,
+      deterministicCandidate,
+      candidate,
+    });
+    logAnchorMatchDebug({
+      anchorText,
+      matchedText,
+      matchType: anchorMatch.matchType,
+      confidence: anchorMatch.confidence,
+      classification: anchorMatch.classification,
+    });
     const startSec = matchedSegments[0]?.start_sec ?? 0;
     const endSec = matchedSegments.at(-1)?.end_sec ?? startSec;
     searchFloor = Math.min(transcriptSegments.length - 1, endIndex + 1);
 
     const promotedCandidate = visual.status !== "selected";
+    if (anchorMatch.classification === "unresolved") {
+      placementFlags.push("anchor_match_unresolved");
+    } else if (anchorMatch.classification === "uncertain") {
+      placementFlags.push("anchor_match_uncertain");
+    }
     placements.push({
       placement_id: `placement_${visual.entry_id}`,
       entry_id: visual.entry_id,
@@ -1020,9 +1102,9 @@ export function deriveHammerVisualPlacements(args: {
             ?? "image",
       start_sec: startSec,
       end_sec: endSec,
-      confidence,
+      confidence: Number(anchorMatch.confidence.toFixed(3)),
       timing_source: timingSource,
-      status: placementFlags.length > 0 ? "uncertain" : "placed",
+      status: anchorMatch.classification === "placed" ? "placed" : "uncertain",
       ingest_state: visual.status === "selected" ? "approved" : "suggested",
       uncertainty_flags: promotedCandidate
         ? [...placementFlags, "image_map_candidate_promoted"]

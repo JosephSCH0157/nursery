@@ -142,6 +142,7 @@ async function main(): Promise<void> {
     workspace_id: "ws_01",
     workpiece_id: "wp_with_analysis",
     media_kind: "recording_audio",
+    input: { type: "url", value: "http://example.test/source.wav" },
     canonical_workpiece_path: "recordings/example.wav",
     mime_type: "audio/wav",
   });
@@ -261,6 +262,7 @@ async function main(): Promise<void> {
     workspace_id: "ws_01",
     workpiece_id: "wp_legacy_reason",
     media_kind: "recording_audio",
+    input: { type: "url", value: "http://example.test/legacy-reason.wav" },
     canonical_workpiece_path: "recordings/legacy-reason.wav",
     mime_type: "audio/wav",
   });
@@ -354,6 +356,7 @@ async function main(): Promise<void> {
     workspace_id: "ws_01",
     workpiece_id: "wp_legacy_no_waveform",
     media_kind: "recording_audio",
+    input: { type: "url", value: "http://example.test/legacy-no-waveform.wav" },
     canonical_workpiece_path: "recordings/legacy-no-waveform.wav",
     mime_type: "audio/wav",
   });
@@ -367,6 +370,7 @@ async function main(): Promise<void> {
     workspace_id: "ws_01",
     workpiece_id: "wp_legacy",
     media_kind: "recording_audio",
+    input: { type: "url", value: "http://example.test/legacy.wav" },
     canonical_workpiece_path: "recordings/legacy.wav",
     mime_type: "audio/wav",
   });

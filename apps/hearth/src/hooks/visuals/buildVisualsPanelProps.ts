@@ -57,6 +57,7 @@ type BuildMediaMapPanelArgs = {
 type BuildBrollPanelArgs = {
   beats: EpisodeBrollPlan["beats"];
   selectedBeatId: string | null;
+  workpieceId: string | null;
   coverageStrength: EpisodeBrollPlan["coverage_strength"] | null;
   saveState: BrollPanelProps["saveState"];
   saveError: string | null;
@@ -76,6 +77,7 @@ type BuildBrollPanelArgs = {
   onFindStock: () => void;
   onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
+  onRetryCandidateIngestion: (candidateId: string) => void;
   onCopyPrompt: () => void;
   onDownloadBrief: () => void;
   onDownloadBriefJson: () => void;
@@ -304,6 +306,7 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
   return {
     beats: args.beats,
     selectedBeatId: args.selectedBeatId,
+    workpieceId: args.workpieceId,
     coverageStrength: args.coverageStrength ?? null,
     saveState: args.saveState,
     saveError: args.saveError,
@@ -323,6 +326,7 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     onFindStock: args.onFindStock,
     onUploadAsset: args.onUploadAsset,
     onSelectCandidate: args.onSelectCandidate,
+    onRetryCandidateIngestion: args.onRetryCandidateIngestion,
     onCopyPrompt: args.onCopyPrompt,
     onDownloadBrief: args.onDownloadBrief,
     onDownloadBriefJson: args.onDownloadBriefJson,

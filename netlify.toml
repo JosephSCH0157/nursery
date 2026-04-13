@@ -61,6 +61,12 @@
   force = true
 
 [[redirects]]
+  from = "/anvil/dist/manifest.json"
+  to = "/anvil/manifest.json"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

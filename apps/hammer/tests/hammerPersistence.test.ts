@@ -722,6 +722,76 @@ try {
 
   await assertStructuredTranscriptRoundTripsToCanonicalShape();
 
+  async function assertCanonicalTranscriptSegmentsWinOverStructuredTranscriptSegments(): Promise<void> {
+    const truncatedStructuredTranscript = {
+      ...(snapshot.structuredTranscript ?? {
+        schema_version: 1,
+        transcript_id: snapshot.transcriptSourceId,
+        media_id: null,
+        media_signature: null,
+        prepared_at: "2026-04-11T00:00:00.000Z",
+        structure: "speaker_turns",
+        source_media_ref: null,
+        diarization: {
+          label_scheme: "forge-neutral-speakers.v1",
+          labels: ["S1"],
+          raw_labels: [],
+          version: null,
+          provider: "openai",
+          provider_request_id: null,
+          model: null,
+        },
+        confidence_flags: [],
+        segments: [],
+        derived_text_layers: {
+          schema_version: 1,
+          active_layer_id: null,
+          output_layer_id: null,
+          layers: [],
+        },
+        subtitle_outputs: {
+          schema_version: 1,
+          last_generated_format: null,
+          srt: null,
+          vtt: null,
+        },
+      }),
+      segments: [
+        {
+          segment_id: snapshot.transcriptSegments[0]?.segment_id ?? "seg_001",
+          start_sec: 0,
+          end_sec: 4,
+          speaker: "S1",
+          text: "Truncated",
+        },
+      ],
+    };
+
+    const saveRequest = buildHammerPersistenceSaveRequest({
+      ...snapshot,
+      structuredTranscript: truncatedStructuredTranscript,
+      transcriptSegments: [
+        ...snapshot.transcriptSegments,
+        {
+          segment_id: "seg_disabled",
+          start_sec: 8,
+          end_sec: 10,
+          speaker: "S1",
+          text: "Disabled segment",
+          is_disabled: true,
+        },
+      ],
+    });
+
+    assert.equal(saveRequest.structured_transcript?.data.segments.length, 3);
+    assert.equal(
+      saveRequest.structured_transcript?.data.segments.some((segment) => segment.segment_id === "seg_disabled" && segment.is_disabled === true),
+      true,
+    );
+  }
+
+  await assertCanonicalTranscriptSegmentsWinOverStructuredTranscriptSegments();
+
   async function assertVisualPlacementsRoundTripToCanonicalShape(): Promise<void> {
     globalThis.fetch = async (): Promise<Response> => new Response(JSON.stringify({
       ok: true,

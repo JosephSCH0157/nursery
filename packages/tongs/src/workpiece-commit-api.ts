@@ -1,5 +1,23 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "./db.types.js";
+
+type UntypedPostgrestResult = {
+  data: unknown;
+  error: { message: string } | null;
+};
+
+type UntypedPostgrestBuilder = PromiseLike<UntypedPostgrestResult> & {
+  select: (columns: string) => UntypedPostgrestBuilder;
+  eq: (column: string, value: unknown) => UntypedPostgrestBuilder;
+  insert: (values: Record<string, unknown>) => UntypedPostgrestBuilder;
+  update: (values: Record<string, unknown>) => UntypedPostgrestBuilder;
+  maybeSingle: () => Promise<UntypedPostgrestResult>;
+  single: () => Promise<UntypedPostgrestResult>;
+};
+
+type UntypedTongsSchemaClient = {
+  from: (table: string) => UntypedPostgrestBuilder;
+};
 import {
   OpenAiImageProvider,
   type GenerateImageInput,
@@ -5556,9 +5574,7 @@ export class TongsCommitService {
     const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
     const writtenBy = normalizeWrittenBy(input.written_by);
 
-    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
-      from: (table: string) => any;
-    };
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
 
     const existingResult = await tongsUntyped
       .from("canonical_recordings")
@@ -5667,9 +5683,7 @@ export class TongsCommitService {
     const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
     const writtenBy = normalizeWrittenBy(input.written_by);
 
-    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
-      from: (table: string) => any;
-    };
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
 
     const existingResult = await tongsUntyped
       .from("canonical_recordings")
@@ -5843,9 +5857,7 @@ export class TongsCommitService {
     );
 
     const nowIso = new Date().toISOString();
-    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
-      from: (table: string) => any;
-    };
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
 
     const insertResult = await tongsUntyped
       .from("recording_revisions")
@@ -5919,9 +5931,7 @@ export class TongsCommitService {
       options,
     );
 
-    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
-      from: (table: string) => any;
-    };
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
 
     const episodeResult = await tongsUntyped
       .from("episodes")
@@ -5930,7 +5940,7 @@ export class TongsCommitService {
       .eq("id", workpieceId)
       .maybeSingle();
     const activeRevisionId = !episodeResult?.error && episodeResult?.data
-      ? (episodeResult.data.active_revision_id as string | null)
+      ? ((episodeResult.data as Record<string, unknown>).active_revision_id as string | null)
       : null;
 
     if (activeRevisionId) {
@@ -5968,9 +5978,7 @@ export class TongsCommitService {
     await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
     await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
 
-    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
-      from: (table: string) => any;
-    };
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
 
     const revisionResult = await tongsUntyped
       .from("recording_revisions")
@@ -6073,9 +6081,7 @@ export class TongsCommitService {
     const historyPath = await commitRevisionArtifact("history", input.history);
     const snapshotsManifestPath = await commitRevisionArtifact("snapshots_manifest", input.snapshots_manifest);
 
-    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
-      from: (table: string) => any;
-    };
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
     const updateValues: Record<string, unknown> = {
       updated_at: nowIso,
       updated_by: auth.userId,
@@ -6122,9 +6128,7 @@ export class TongsCommitService {
     this.assertRevisionWritable(revision);
 
     const nowIso = new Date().toISOString();
-    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
-      from: (table: string) => any;
-    };
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
 
     const discardResult = await tongsUntyped
       .from("recording_revisions")

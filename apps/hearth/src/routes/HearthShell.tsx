@@ -4384,6 +4384,7 @@ export default function HearthShell({
     onFindStockForBrollBeat,
     onUploadBrollBeatAsset,
     onSelectBrollCandidate,
+    onRetryBrollCandidateIngestion,
   } = useBrollBridgeActions({
     episodePackage,
     selectedBrollBeat,
@@ -6812,6 +6813,7 @@ export default function HearthShell({
     const brollPlanPanelProps = buildHearthBrollPanelProps({
       beats: brollBeats,
       selectedBeatId: selectedBrollBeatId,
+      workpieceId,
       coverageStrength: brollPlan?.coverage_strength ?? null,
       saveState: brollSaveState,
       saveError: brollSaveError,
@@ -6854,6 +6856,7 @@ export default function HearthShell({
       onFindStock: () => void onFindStockForBrollBeat(),
       onUploadAsset: (file: File) => void onUploadBrollBeatAsset(file),
       onSelectCandidate: (candidateId: string) => void onSelectBrollCandidate(candidateId),
+      onRetryCandidateIngestion: (candidateId: string) => void onRetryBrollCandidateIngestion(candidateId),
       onCopyPrompt: () => {
         void onCopyBrollPrompt().then((copied) => {
           if (copied) acknowledgeCopy("broll.prompt");
@@ -7342,7 +7345,9 @@ export default function HearthShell({
       renderFocusEditor={renderFocusEditor}
     />
   );
-  const mobileMainContent = renderEpisodesView();
+  const mobileMainContent = incomingBarStockIntakeRoute && routeSparkId && !routeProjectId && !hasActiveEpisode
+    ? renderSparkRouteBootstrapView()
+    : renderEpisodesView();
 
   const sourcesBadge = missingSourcesCount > 0 ? String(missingSourcesCount) : null;
   const sourcesBadgeTitle = missingSourcesCount > 0
