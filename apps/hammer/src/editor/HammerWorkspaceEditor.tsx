@@ -115,6 +115,22 @@ export interface HammerWorkspaceEditorProps {
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const READY_HANDOFF_DELAY_MS = 320;
 const SAVE_DEBOUNCE_MS = 400;
+const PREP_DUPLICATE_KICK_WINDOW_MS = 2_000;
+
+function shouldSkipDuplicatePrepKick(runKey: string): boolean {
+  if (typeof window === "undefined") return false;
+  const runtime = window as unknown as Record<string, unknown>;
+  const raw = runtime.__forgeHammerPrepKickLedger__;
+  const ledger = (raw && typeof raw === "object" && !Array.isArray(raw))
+    ? raw as Record<string, number>
+    : {};
+  runtime.__forgeHammerPrepKickLedger__ = ledger;
+
+  const now = Date.now();
+  const last = ledger[runKey];
+  ledger[runKey] = now;
+  return typeof last === "number" && Number.isFinite(last) && (now - last) < PREP_DUPLICATE_KICK_WINDOW_MS;
+}
 
 type HammerPreparedActionIntent = {
   id: Exclude<
@@ -261,6 +277,11 @@ export default function HammerWorkspaceEditor(
     if (!ingestLog.enabled) return;
     // eslint-disable-next-line no-console
     console.log("[HammerPrep] mount", { instance_id: hammerRuntimeInstanceIdRef.current });
+    // eslint-disable-next-line no-console
+    console.info("[HammerTranscriptPrep] instrumentation:active", {
+      instance_id: hammerRuntimeInstanceIdRef.current,
+      note: "If you do not see subsequent [HammerTranscriptPrep] stage logs, the client is not running the latest bundle or prep isn't reaching the transcript request.",
+    });
     return () => {
       // eslint-disable-next-line no-console
       console.log("[HammerPrep] unmount", { instance_id: hammerRuntimeInstanceIdRef.current });
@@ -1021,6 +1042,10 @@ export default function HammerWorkspaceEditor(
       if (prepRunKeyRef.current === reuseRunKey) {
         return;
       }
+      if (shouldSkipDuplicatePrepKick(reuseRunKey)) {
+        logPrepDebug("[HammerPrep] skip_duplicate_kick", { run_key: reuseRunKey });
+        return;
+      }
 
       if (ingestLog.enabled) {
         const launchHasStubTranscript = Boolean(
@@ -1171,6 +1196,10 @@ export default function HammerWorkspaceEditor(
     const prepRunKey = `${targetKey ?? "hammer"}:${prepSource.media_signature}:${prepAttemptNonce}`;
     lastPrepRunKeyRef.current = prepRunKey;
     if (prepRunKeyRef.current === prepRunKey) {
+      return;
+    }
+    if (shouldSkipDuplicatePrepKick(prepRunKey)) {
+      logPrepDebug("[HammerPrep] skip_duplicate_kick", { run_key: prepRunKey });
       return;
     }
     if (!prepAiFallbackRequested && prepAiNoticeCancelledRunKeyRef.current === prepRunKey) {
