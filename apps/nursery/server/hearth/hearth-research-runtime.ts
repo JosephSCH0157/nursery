@@ -371,7 +371,7 @@ function extractYouTubeDescriptionFromHtml(html: string): string | null {
   const og = extractMetaContent(html, ["og:description", "description"]);
   if (og) return og;
 
-  const match = html.match(/\"shortDescription\":\"((?:\\\\.|[^\"\\\\])*)\"/);
+  const match = html.match(/"shortDescription":"((?:\\\\.|[^"\\])*)"/);
   if (!match || !match[1]) return null;
   try {
     const decoded = JSON.parse(`"${match[1]}"`) as unknown;

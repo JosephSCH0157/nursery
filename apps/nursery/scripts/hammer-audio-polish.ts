@@ -311,61 +311,6 @@ function canUseCanonicalTongsContext(
   );
 }
 
-async function loadCanonicalWorkpieceFile(args: {
-  context: HammerAudioPolishRequestContext;
-  request: NormalizedHammerAudioPolishRequest;
-  workpiecePath: string;
-}): Promise<{
-  contentType: string;
-  fileBytes: Buffer;
-}> {
-  const origin = args.request.tongs_origin ?? args.context.origin;
-  const url = new URL(`/tongs/workpieces/${encodeURIComponent(args.request.workpiece_id)}/read-file`, origin);
-  url.searchParams.set("path", args.workpiecePath);
-  url.searchParams.set("encoding", "binary");
-
-  const fetchTimeout = createTimeoutAbortController(CANONICAL_MEDIA_FETCH_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        accept: "application/octet-stream, application/json",
-        ...(args.context.authorization ? { authorization: args.context.authorization } : {}),
-        ...(args.context.userAuthorization ? { "x-forge-user-authorization": args.context.userAuthorization } : {}),
-      },
-      signal: fetchTimeout.controller.signal,
-    });
-
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      throw new Error(readErrorMessage(payload, "Hammer could not read canonical workpiece media."));
-    }
-
-    const contentLength = readHeaderNumber(response.headers, "content-length");
-    if (contentLength != null && contentLength > MAX_AUDIO_POLISH_SOURCE_BYTES) {
-      throw new Error(buildAudioPolishSourceTooLargeMessage(contentLength));
-    }
-
-    const fileBytes = Buffer.from(await response.arrayBuffer());
-    if (fileBytes.byteLength > MAX_AUDIO_POLISH_SOURCE_BYTES) {
-      throw new Error(buildAudioPolishSourceTooLargeMessage(fileBytes.byteLength));
-    }
-
-    return {
-      contentType: readTrimmed(response.headers.get("content-type"))
-        ?? inferContentType(args.workpiecePath, args.request.mime_type),
-      fileBytes,
-    };
-  } catch (error) {
-    if (fetchTimeout.controller.signal.aborted) {
-      throw new Error("Hammer timed out while reading canonical workpiece media for audio prep.");
-    }
-    throw error;
-  } finally {
-    fetchTimeout.dispose();
-  }
-}
-
 async function commitCanonicalWorkpieceFile(args: {
   context: HammerAudioPolishRequestContext;
   request: NormalizedHammerAudioPolishRequest;
@@ -598,17 +543,17 @@ async function renderWorkingAudioWaveBufferWithFfmpeg(args: {
         child.kill();
       }, FFMPEG_PROCESS_TIMEOUT_MS);
 
-      child.stderr.on("data", (chunk) => {
+      child.stderr.on("data", (chunk: Buffer) => {
         const next = chunk.toString("utf8");
         if (stderr.length < 16_384) {
           stderr += next.slice(0, 16_384 - stderr.length);
         }
       });
-      child.on("error", (error) => {
+      child.on("error", (error: unknown) => {
         clearTimeout(timeoutId);
         reject(error);
       });
-      child.on("close", (code) => {
+      child.on("close", (code: number | null) => {
         clearTimeout(timeoutId);
         if (timedOut) {
           reject(new Error("Hammer FFmpeg working-audio extraction timed out."));
@@ -760,20 +705,20 @@ async function probeMediaTruthWithFfprobe(args: {
         child.kill();
       }, FFPROBE_PROCESS_TIMEOUT_MS);
 
-      child.stdout.on("data", (chunk) => {
+      child.stdout.on("data", (chunk: Buffer) => {
         stdout += chunk.toString("utf8");
       });
-      child.stderr.on("data", (chunk) => {
+      child.stderr.on("data", (chunk: Buffer) => {
         const next = chunk.toString("utf8");
         if (stderr.length < 16_384) {
           stderr += next.slice(0, 16_384 - stderr.length);
         }
       });
-      child.on("error", (error) => {
+      child.on("error", (error: unknown) => {
         clearTimeout(timeoutId);
         reject(error);
       });
-      child.on("close", (code) => {
+      child.on("close", (code: number | null) => {
         clearTimeout(timeoutId);
         if (timedOut) {
           reject(new Error("Hammer FFprobe media truth probe timed out."));
@@ -1177,17 +1122,17 @@ async function analyzeLoudnessWithFfmpeg(args: {
         child.kill();
       }, FFMPEG_PROCESS_TIMEOUT_MS);
 
-      child.stderr.on("data", (chunk) => {
+      child.stderr.on("data", (chunk: Buffer) => {
         const next = chunk.toString("utf8");
         if (stderrText.length < 64_000) {
           stderrText += next.slice(0, 64_000 - stderrText.length);
         }
       });
-      child.on("error", (error) => {
+      child.on("error", (error: unknown) => {
         clearTimeout(timeoutId);
         reject(error);
       });
-      child.on("close", (code) => {
+      child.on("close", (code: number | null) => {
         clearTimeout(timeoutId);
         if (timedOut) {
           reject(new Error("Hammer loudness analysis timed out."));
@@ -1414,17 +1359,17 @@ async function analyzeSegmentationWithFfmpeg(args: {
         child.kill();
       }, FFMPEG_PROCESS_TIMEOUT_MS);
 
-      child.stderr.on("data", (chunk) => {
+      child.stderr.on("data", (chunk: Buffer) => {
         const next = chunk.toString("utf8");
         if (stderrText.length < 64_000) {
           stderrText += next.slice(0, 64_000 - stderrText.length);
         }
       });
-      child.on("error", (error) => {
+      child.on("error", (error: unknown) => {
         clearTimeout(timeoutId);
         reject(error);
       });
-      child.on("close", (code) => {
+      child.on("close", (code: number | null) => {
         clearTimeout(timeoutId);
         if (timedOut) {
           reject(new Error("Hammer silence detection timed out."));
@@ -1953,23 +1898,26 @@ export async function handleHammerAudioPolishRequest(
     let loudnessParseError: string | null = null;
     let loudnessStderrExcerpt: string | null = null;
     const loudnessAnalysis = ffmpegBin
-      ? (() => analyzeLoudnessWithFfmpeg({
-        ffmpegBin,
-        wavBytes: workingWaveBytes,
-        sourceLabel: workingAudioWorkpiecePath ?? sourceMedia.sourceLabel,
-      }).then((result) => {
-        loudnessParseOk = result.parseOk;
-        loudnessParseError = result.parseError;
-        loudnessStderrExcerpt = result.stderrExcerpt;
-        return result.analysis;
-      }).catch((error) => {
-        loudnessParseOk = false;
-        loudnessParseError = error instanceof Error && error.message.trim()
-          ? error.message.trim()
-          : "Hammer loudness analysis failed.";
-        loudnessStderrExcerpt = null;
-        return buildEmptyLoudnessAnalysis();
-      }))()
+      ? await (async () => {
+        try {
+          const result = await analyzeLoudnessWithFfmpeg({
+            ffmpegBin,
+            wavBytes: workingWaveBytes,
+            sourceLabel: workingAudioWorkpiecePath ?? sourceMedia.sourceLabel,
+          });
+          loudnessParseOk = result.parseOk;
+          loudnessParseError = result.parseError;
+          loudnessStderrExcerpt = result.stderrExcerpt;
+          return result.analysis;
+        } catch (error) {
+          loudnessParseOk = false;
+          loudnessParseError = error instanceof Error && error.message.trim()
+            ? error.message.trim()
+            : "Hammer loudness analysis failed.";
+          loudnessStderrExcerpt = null;
+          return buildEmptyLoudnessAnalysis();
+        }
+      })()
       : buildEmptyLoudnessAnalysis();
     loudnessAnalysis.rms_dbfs = computeWaveRmsDbfs(parsedWave);
     setPhase("detecting_silence");
