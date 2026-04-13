@@ -1023,6 +1023,11 @@ export default function HammerWorkspaceEditor(
       }
 
       if (ingestLog.enabled) {
+        const launchHasStubTranscript = Boolean(
+          effectiveLaunchContext
+          && effectiveLaunchContext.transcript.kind === "tongs-stub"
+          && effectiveLaunchContext.transcript.segments.length > 0,
+        );
         // eslint-disable-next-line no-console
         console.log("[HammerPrep] trigger_reason", {
           instance_id: hammerRuntimeInstanceIdRef.current,
@@ -1044,7 +1049,7 @@ export default function HammerWorkspaceEditor(
           workspace_id: effectiveLaunchContext.workspace_id,
           workpiece_id: effectiveLaunchContext.workpiece_id,
           target_key: targetKey,
-          snapshot_has_transcript: Boolean(loadedPersistenceSnapshot?.structured_transcript.data?.segments.length),
+          snapshot_has_transcript: Boolean(loadedPersistenceSnapshot?.structured_transcript.data?.segments.length) || launchHasStubTranscript,
           snapshot_audio_polish_status: loadedPersistenceSnapshot?.audio_polish.data?.status ?? null,
         });
       }
@@ -1392,6 +1397,12 @@ export default function HammerWorkspaceEditor(
           }
 
           // Legacy transcript not available: stop here and offer AI fallback explicitly.
+          run.log("legacy_transcript:missing", {
+            ai_fallback_requested: prepAiFallbackRequested,
+            canonical_recording_id: activeCanonicalRecording?.id ?? null,
+            sealed_at: activeCanonicalRecording?.sealed_at ?? null,
+            note: "No legacy transcript artifacts were found to seal. Offer AI fallback.",
+          });
           setPrepState(createHammerPrepState(
             "prep_failed",
             null,
@@ -1420,6 +1431,12 @@ export default function HammerWorkspaceEditor(
         }
 
         if (!prepAiFallbackRequested) {
+          run.log("legacy_transcript:missing", {
+            ai_fallback_requested: prepAiFallbackRequested,
+            canonical_recording_id: activeCanonicalRecording?.id ?? null,
+            sealed_at: activeCanonicalRecording?.sealed_at ?? null,
+            note: "No legacy transcript artifacts were found; AI fallback not requested.",
+          });
           setPrepState(createHammerPrepState(
             "prep_failed",
             null,

@@ -442,6 +442,18 @@ export function resolveHammerPrepOpenDecision(
     };
   }
 
+  if (
+    launchContext.transcript.kind === "tongs-stub"
+    && Array.isArray(launchContext.transcript.segments)
+    && launchContext.transcript.segments.length > 0
+  ) {
+    return {
+      action: "reuse",
+      state: createHammerPrepState("prepared", "ready_for_next_step"),
+      reason: "reuse_stub_transcript",
+    };
+  }
+
   if (isReusablePreparedTranscript(launchContext, snapshot)) {
     return {
       action: "reuse",

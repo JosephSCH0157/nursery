@@ -1169,6 +1169,17 @@ export function deriveHammerVisualPlacements(args: {
 }): HammerPersistedVisualPlacements {
   const { transcriptSegments, transcriptSourceId, visualPackage } = args;
   if (transcriptSegments.length === 0) {
+    // eslint-disable-next-line no-console
+    console.warn("[Hammer][VisualPlacementDecision] skipped", {
+      reason: "transcript_unavailable",
+      transcript_source_id: transcriptSourceId,
+      transcript_segment_count: transcriptSegments.length,
+      total_visual_count: visualPackage.visuals.length,
+      selected_visual_count: visualPackage.visuals.filter((visual) => Boolean(visual.selected_asset)).length,
+      script_updated_at: visualPackage.script_updated_at ?? null,
+      image_map_updated_at: visualPackage.image_map_updated_at ?? null,
+      image_map_asset_updated_at: visualPackage.image_map_asset_updated_at ?? null,
+    });
     return buildUnavailableHammerVisualPlacements(transcriptSourceId, "transcript_unavailable");
   }
 
@@ -1185,6 +1196,17 @@ export function deriveHammerVisualPlacements(args: {
     });
 
   if (visualsWithAssets.length === 0) {
+    // eslint-disable-next-line no-console
+    console.info("[Hammer][VisualPlacementDecision] skipped", {
+      reason: "no_selected_visuals",
+      transcript_source_id: transcriptSourceId,
+      transcript_segment_count: transcriptSegments.length,
+      total_visual_count: visualPackage.visuals.length,
+      selected_visual_count: 0,
+      script_updated_at: visualPackage.script_updated_at ?? null,
+      image_map_updated_at: visualPackage.image_map_updated_at ?? null,
+      image_map_asset_updated_at: visualPackage.image_map_asset_updated_at ?? null,
+    });
     return {
       schema_version: 1,
       status: "not_started",
