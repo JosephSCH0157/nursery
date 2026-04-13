@@ -340,7 +340,22 @@ function normalizeResponse(payload: unknown): HammerAudioPolishResponse | null {
   };
 }
 
-const HAMMER_AUDIO_POLISH_TIMEOUT_MS = 3 * 60 * 1000;
+const DEFAULT_AUDIO_POLISH_TIMEOUT_MS = 15 * 60 * 1000;
+
+function resolveAudioPolishTimeoutMs(): number {
+  if (typeof window !== "undefined") {
+    try {
+      const runtime = window as unknown as Record<string, unknown>;
+      const override = runtime.__forgeHammerAudioPolishTimeoutMs__;
+      if (typeof override === "number" && Number.isFinite(override) && override >= 30_000) {
+        return Math.trunc(override);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return DEFAULT_AUDIO_POLISH_TIMEOUT_MS;
+}
 const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
 const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
 
@@ -535,9 +550,10 @@ export async function requestHammerAudioPolish(
 
   const abortController = new AbortController();
   const timers = globalThis as typeof globalThis & RuntimeTimers;
+  const timeoutMs = resolveAudioPolishTimeoutMs();
   const timeoutId = timers.setTimeout?.(
     () => abortController.abort(),
-    HAMMER_AUDIO_POLISH_TIMEOUT_MS,
+    timeoutMs,
   );
 
   let response: Response;
@@ -550,7 +566,17 @@ export async function requestHammerAudioPolish(
     });
   } catch (error) {
     if (abortController.signal.aborted) {
-      throw new Error("Hammer audio polish timed out after 3 minutes. Restart the Nursery dev server and retry.");
+      const minutes = Math.round(timeoutMs / 60_000);
+      // eslint-disable-next-line no-console
+      console.error("[HammerAudioPolish] timeout", {
+        timeout_ms: timeoutMs,
+        workspace_id: request.workspace_id,
+        workpiece_id: request.workpiece_id,
+        media_kind: request.media_kind,
+        local_relpath: request.local_relpath ?? null,
+        canonical_workpiece_path: request.canonical_workpiece_path ?? null,
+      });
+      throw new Error(`Hammer audio polish timed out after ${minutes} minutes. Retry, then check the Nursery server logs if it keeps timing out.`);
     }
     throw error;
   } finally {

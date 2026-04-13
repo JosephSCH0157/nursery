@@ -2,6 +2,22 @@ import type { MediaKind } from "../../../../packages/contracts/hammer/media-reso
 
 export const HAMMER_TRANSCRIPT_PREP_ROUTE = "/api/hammer/prep/transcript";
 
+function resolveTranscriptPrepDebugEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (Boolean((import.meta as any)?.env?.DEV)) return true;
+  } catch {
+    // ignore
+  }
+  try {
+    const runtime = window as unknown as Record<string, unknown>;
+    return runtime.__forgeHammerDebugTranscriptPrep__ === true;
+  } catch {
+    return false;
+  }
+}
+
 export interface HammerTranscriptPrepRequest {
   workspace_id: string;
   workpiece_id: string;
@@ -10,6 +26,7 @@ export interface HammerTranscriptPrepRequest {
   local_relpath?: string | null;
   canonical_workpiece_path?: string | null;
   mime_type?: string | null;
+  client_request_id?: string | null;
 }
 
 export interface HammerTranscriptPrepSegment {
@@ -29,7 +46,22 @@ export interface HammerTranscriptPrepResponse {
   segments: HammerTranscriptPrepSegment[];
 }
 
-const HAMMER_TRANSCRIPT_PREP_TIMEOUT_MS = 3 * 60 * 1000;
+const DEFAULT_TRANSCRIPT_PREP_TIMEOUT_MS = 15 * 60 * 1000;
+
+function resolveTranscriptPrepTimeoutMs(): number {
+  if (typeof window !== "undefined") {
+    try {
+      const runtime = window as unknown as Record<string, unknown>;
+      const override = runtime.__forgeHammerTranscriptPrepTimeoutMs__;
+      if (typeof override === "number" && Number.isFinite(override) && override >= 30_000) {
+        return Math.trunc(override);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return DEFAULT_TRANSCRIPT_PREP_TIMEOUT_MS;
+}
 
 const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
 const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
@@ -280,6 +312,32 @@ function normalizeResponse(payload: unknown): HammerTranscriptPrepResponse | nul
 export async function requestHammerTranscriptPrep(
   request: HammerTranscriptPrepRequest,
 ): Promise<HammerTranscriptPrepResponse> {
+  const debugEnabled = resolveTranscriptPrepDebugEnabled();
+  const startedAt = typeof performance !== "undefined" ? performance.now() : null;
+  const elapsedMs = (): number | null => (
+    startedAt == null || typeof performance === "undefined" ? null : Math.round(performance.now() - startedAt)
+  );
+  const clientRequestId = request.client_request_id
+    ?? (typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `client_${Date.now()}_${Math.random().toString(16).slice(2)}`);
+  const effectiveRequest: HammerTranscriptPrepRequest = request.client_request_id
+    ? request
+    : { ...request, client_request_id: clientRequestId };
+
+  if (debugEnabled) {
+    // eslint-disable-next-line no-console
+    console.info("[HammerTranscriptPrep] request:start", {
+      elapsed_ms: elapsedMs(),
+      client_request_id: clientRequestId,
+      workspace_id: request.workspace_id,
+      workpiece_id: request.workpiece_id,
+      media_kind: request.media_kind,
+      local_relpath: request.local_relpath ?? null,
+      canonical_workpiece_path: request.canonical_workpiece_path ?? null,
+      mime_type: request.mime_type ?? null,
+    });
+  }
   const headers = new Headers({
     "content-type": "application/json",
   });
@@ -297,22 +355,37 @@ export async function requestHammerTranscriptPrep(
 
   const abortController = new AbortController();
   const timers = globalThis as typeof globalThis & RuntimeTimers;
+  const timeoutMs = resolveTranscriptPrepTimeoutMs();
   const timeoutId = timers.setTimeout?.(
     () => abortController.abort(),
-    HAMMER_TRANSCRIPT_PREP_TIMEOUT_MS,
+    timeoutMs,
   );
 
   let response: Response;
   try {
+    if (debugEnabled) {
+      // eslint-disable-next-line no-console
+      console.info("[HammerTranscriptPrep] request:sent", { elapsed_ms: elapsedMs() });
+    }
     response = await fetch(HAMMER_TRANSCRIPT_PREP_ROUTE, {
       method: "POST",
       headers,
-      body: JSON.stringify(request),
+      body: JSON.stringify(effectiveRequest),
       signal: abortController.signal,
     });
   } catch (error) {
     if (abortController.signal.aborted) {
-      throw new Error("Hammer transcript prep timed out after 3 minutes. Restart the Nursery dev server and retry.");
+      const minutes = Math.round(timeoutMs / 60_000);
+      // eslint-disable-next-line no-console
+      console.error("[HammerTranscriptPrep] timeout", {
+        timeout_ms: timeoutMs,
+        workspace_id: request.workspace_id,
+        workpiece_id: request.workpiece_id,
+        media_kind: request.media_kind,
+        local_relpath: request.local_relpath ?? null,
+        canonical_workpiece_path: request.canonical_workpiece_path ?? null,
+      });
+      throw new Error(`Hammer transcript prep timed out after ${minutes} minutes. Retry, then check the Nursery server logs if it keeps timing out.`);
     }
     throw error;
   } finally {
@@ -321,14 +394,47 @@ export async function requestHammerTranscriptPrep(
     }
   }
 
+  if (debugEnabled) {
+    // eslint-disable-next-line no-console
+    console.info("[HammerTranscriptPrep] response:received", {
+      elapsed_ms: elapsedMs(),
+      client_request_id: clientRequestId,
+      status: response.status,
+    });
+  }
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
+    if (debugEnabled) {
+      // eslint-disable-next-line no-console
+      console.warn("[HammerTranscriptPrep] response:error", {
+        elapsed_ms: elapsedMs(),
+        client_request_id: clientRequestId,
+        status: response.status,
+        message: readErrorMessage(payload, "Hammer transcript prep failed."),
+      });
+    }
     throw new Error(readErrorMessage(payload));
   }
 
   const normalized = normalizeResponse(payload);
   if (!normalized) {
+    if (debugEnabled) {
+      // eslint-disable-next-line no-console
+      console.warn("[HammerTranscriptPrep] response:invalid", { elapsed_ms: elapsedMs() });
+    }
     throw new Error("Hammer transcript prep returned an invalid response.");
+  }
+  if (debugEnabled) {
+    // eslint-disable-next-line no-console
+    console.info("[HammerTranscriptPrep] response:ok", {
+      elapsed_ms: elapsedMs(),
+      client_request_id: clientRequestId,
+      provider: normalized.provider,
+      model: normalized.model,
+      provider_request_id: normalized.provider_request_id ?? null,
+      segments: normalized.segments.length,
+      has_text: Boolean(normalized.text),
+    });
   }
 
   return normalized;

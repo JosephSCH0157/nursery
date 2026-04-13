@@ -54,7 +54,7 @@ const DEFAULT_CHAT_FALLBACK_MODEL = "gpt-4o-mini";
 const ALLOWED_MEDIA_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".wav", ".mp3", ".m4a"]);
 const MAX_TRANSCRIBE_SOURCE_BYTES = 96 * 1024 * 1024;
 const CANONICAL_MEDIA_FETCH_TIMEOUT_MS = 60_000;
-const OPENAI_TRANSCRIBE_TIMEOUT_MS = 4 * 60 * 1000;
+const DEFAULT_OPENAI_TRANSCRIBE_TIMEOUT_MS = 15 * 60 * 1000;
 const OPENAI_CLEANUP_TIMEOUT_MS = 90_000;
 const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
   ".mp4": "video/mp4",
@@ -76,6 +76,55 @@ type HammerAudioPolishProgressRecord = {
 };
 
 const hammerAudioPolishProgressByKey = new Map<string, HammerAudioPolishProgressRecord>();
+
+function resolveOpenAiTranscribeTimeoutMs(): number {
+  const raw = process.env.HAMMER_OPENAI_TRANSCRIBE_TIMEOUT_MS;
+  if (!raw) return DEFAULT_OPENAI_TRANSCRIBE_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return DEFAULT_OPENAI_TRANSCRIBE_TIMEOUT_MS;
+  const clamped = Math.max(30_000, Math.min(60 * 60 * 1000, Math.trunc(parsed)));
+  return clamped;
+}
+
+type HammerTranscriptStageTimer = {
+  mark: (stage: string, detail?: Record<string, unknown>, level?: "info" | "warn" | "error") => void;
+  elapsedMs: () => number;
+};
+
+function createHammerTranscriptStageTimer(args: {
+  runId: string;
+  workspaceId: string;
+  workpieceId: string;
+  mediaKind: string | null;
+  clientRequestId: string | null;
+}): HammerTranscriptStageTimer {
+  const startedAt = Date.now();
+  let stageIndex = 0;
+  const base = {
+    run_id: args.runId,
+    client_request_id: args.clientRequestId,
+    workspace_id: args.workspaceId,
+    workpiece_id: args.workpieceId,
+    media_kind: args.mediaKind,
+  };
+  const elapsedMs = () => Math.max(0, Date.now() - startedAt);
+  const mark: HammerTranscriptStageTimer["mark"] = (stage, detail, level = "info") => {
+    stageIndex += 1;
+    const payload = {
+      ...base,
+      stage_index: stageIndex,
+      stage,
+      elapsed_ms: elapsedMs(),
+      ...(detail ?? {}),
+    };
+    // eslint-disable-next-line no-console
+    (level === "error" ? console.error : level === "warn" ? console.warn : console.info)(
+      "[HammerTranscriptPrep]",
+      payload,
+    );
+  };
+  return { mark, elapsedMs };
+}
 
 function buildAudioPolishProgressKey(workspaceId: string, workpieceId: string): string {
   return `${workspaceId}:${workpieceId}`;
@@ -264,6 +313,7 @@ function normalizeRequest(body: unknown): NormalizedLocalRequest | NormalizedCan
   const localRelpath = readTrimmed(row.local_relpath);
   const canonicalWorkpiecePath = readTrimmed(row.canonical_workpiece_path);
   const mediaKind = readTrimmed(row.media_kind);
+  const clientRequestId = readTrimmed(row.client_request_id);
   if (!workspaceId || !workpieceId || !mediaKind) {
     return null;
   }
@@ -276,6 +326,7 @@ function normalizeRequest(body: unknown): NormalizedLocalRequest | NormalizedCan
       local_root_abs: localRootAbs,
       local_relpath: localRelpath,
       mime_type: readTrimmed(row.mime_type),
+      client_request_id: clientRequestId,
     };
   }
 
@@ -289,6 +340,7 @@ function normalizeRequest(body: unknown): NormalizedLocalRequest | NormalizedCan
     media_kind: mediaKind as HammerTranscriptPrepRequest["media_kind"],
     canonical_workpiece_path: canonicalWorkpiecePath,
     mime_type: readTrimmed(row.mime_type),
+    client_request_id: clientRequestId,
   };
 }
 
@@ -1382,8 +1434,28 @@ export function createHammerPrepMiddleware() {
         return;
       }
 
+      const telemetryActionId = crypto.randomUUID();
+      const stageTimer = createHammerTranscriptStageTimer({
+        runId: telemetryActionId,
+        workspaceId: request.workspace_id,
+        workpieceId: request.workpiece_id,
+        mediaKind: request.media_kind,
+        clientRequestId: request.client_request_id ?? null,
+      });
+      const openAiTimeoutMs = resolveOpenAiTranscribeTimeoutMs();
+      stageTimer.mark("request:received", {
+        has_local_mapping: ("local_root_abs" in request && "local_relpath" in request),
+        local_relpath: ("local_relpath" in request ? request.local_relpath : null),
+        canonical_workpiece_path: ("canonical_workpiece_path" in request ? request.canonical_workpiece_path : null),
+        mime_type_hint: request.mime_type ?? null,
+        client_request_id: request.client_request_id ?? null,
+        openai_timeout_ms: openAiTimeoutMs,
+        max_source_bytes: MAX_TRANSCRIBE_SOURCE_BYTES,
+      });
+
       const userAccessToken = readForgeUserAccessToken(req);
       if (!userAccessToken) {
+        stageTimer.mark("request:rejected", { reason: "missing_user_access_token" }, "warn");
         sendJson(res, 401, {
           ok: false,
           error: { message: "Sign in required before Hammer transcript prep can run AI policy preflight." },
@@ -1392,6 +1464,7 @@ export function createHammerPrepMiddleware() {
       }
 
       if (!runtimeConfig.supabaseUrl || !runtimeConfig.supabaseRpcKey) {
+        stageTimer.mark("request:rejected", { reason: "missing_ai_policy_preflight_config" }, "error");
         sendJson(res, 500, {
           ok: false,
           error: { message: "Hammer AI policy preflight is not configured on this server." },
@@ -1399,6 +1472,7 @@ export function createHammerPrepMiddleware() {
         return;
       }
 
+      stageTimer.mark("policy:preflight:start");
       const preflight = await runHammerTranscriptPolicyPreflight({
         supabaseUrl: runtimeConfig.supabaseUrl,
         rpcKey: runtimeConfig.supabaseRpcKey,
@@ -1408,46 +1482,56 @@ export function createHammerPrepMiddleware() {
         feature: "heavy_tasks",
       });
       if (!preflight.ok) {
+        stageTimer.mark("policy:preflight:denied", { status: preflight.status || null, error: preflight.error }, "warn");
         sendJson(res, preflight.status || 500, { ok: false, error: { message: preflight.error } });
         return;
       }
+      stageTimer.mark("policy:preflight:ok");
 
+      stageTimer.mark("auth:user_id:start");
       const userId = await resolveUserIdFromAccessToken({
         supabaseUrl: runtimeConfig.supabaseUrl,
         rpcKey: runtimeConfig.supabaseRpcKey,
         userAccessToken,
       });
       if (!userId) {
+        stageTimer.mark("auth:user_id:missing", {}, "warn");
         sendJson(res, 401, {
           ok: false,
           error: { message: "Sign in required before Hammer transcript prep can log AI usage." },
         });
         return;
       }
-      const telemetryActionId = crypto.randomUUID();
+      stageTimer.mark("auth:user_id:ok");
+      stageTimer.mark("request:accepted");
 
       let fileBytes: Buffer;
       let sourceLabel: string;
       let contentType: string;
 
+      stageTimer.mark("media:load:start");
       if ("local_root_abs" in request && "local_relpath" in request) {
         if (!path.isAbsolute(request.local_root_abs) || !fs.existsSync(request.local_root_abs)) {
+          stageTimer.mark("media:load:failed", { reason: "mapped_media_root_missing", local_root_abs: request.local_root_abs }, "warn");
           sendJson(res, 404, { ok: false, error: { message: "Mapped media root was not found on this machine." } });
           return;
         }
 
         const absolutePath = resolveMediaFileAbs(request.local_root_abs, request.local_relpath);
         if (!absolutePath) {
+          stageTimer.mark("media:load:failed", { reason: "invalid_local_relpath", local_relpath: request.local_relpath }, "warn");
           sendJson(res, 400, { ok: false, error: { message: "local_relpath is invalid for this media root." } });
           return;
         }
 
         const stat = await fsPromises.stat(absolutePath).catch(() => null);
         if (!stat || !stat.isFile()) {
+          stageTimer.mark("media:load:failed", { reason: "local_file_missing", absolute_path: absolutePath }, "warn");
           sendJson(res, 404, { ok: false, error: { message: "Requested media file was not found." } });
           return;
         }
         if (stat.size > MAX_TRANSCRIBE_SOURCE_BYTES) {
+          stageTimer.mark("media:load:failed", { reason: "file_too_large", byte_count: stat.size }, "warn");
           sendJson(res, 413, { ok: false, error: { message: buildSourceTooLargeMessage(stat.size) } });
           return;
         }
@@ -1456,21 +1540,33 @@ export function createHammerPrepMiddleware() {
         sourceLabel = absolutePath;
         contentType = inferContentType(absolutePath, request.mime_type);
       } else {
+        stageTimer.mark("media:load:canonical:start", { canonical_workpiece_path: request.canonical_workpiece_path });
         const canonicalMedia = await loadCanonicalWorkpieceMediaFile(req, request);
         if (!canonicalMedia.ok) {
+          stageTimer.mark("media:load:canonical:failed", { status: canonicalMedia.status, message: canonicalMedia.message }, "warn");
           sendJson(res, canonicalMedia.status, { ok: false, error: { message: canonicalMedia.message } });
           return;
         }
         fileBytes = canonicalMedia.fileBytes;
         sourceLabel = canonicalMedia.sourceLabel;
         contentType = canonicalMedia.contentType;
+        stageTimer.mark("media:load:canonical:ok", { byte_count: fileBytes.byteLength, content_type: contentType });
       }
+      stageTimer.mark("media:load:ok", { byte_count: fileBytes.byteLength, content_type: contentType, source_label: sourceLabel });
 
       const extension = path.extname(sourceLabel).toLowerCase();
       if (!ALLOWED_MEDIA_EXTENSIONS.has(extension)) {
+        stageTimer.mark("media:validate:failed", { reason: "unsupported_extension", extension }, "warn");
         sendJson(res, 400, { ok: false, error: { message: "Hammer prep only supports audio/video media files." } });
         return;
       }
+      const isVideo = extension === ".mp4" || extension === ".webm" || extension === ".mov";
+      stageTimer.mark("media:transcode:skipped", {
+        reason: "sending_source_bytes_directly",
+        extension,
+        is_video: isVideo,
+        note: "Nursery currently sends the original media bytes to OpenAI transcription without extracting audio.",
+      });
       const form = new FormData();
       form.set("model", model);
       form.set("response_format", "diarized_json");
@@ -1481,9 +1577,17 @@ export function createHammerPrepMiddleware() {
         path.basename(sourceLabel),
       );
 
-      const upstreamTimeout = createTimeoutAbortController(OPENAI_TRANSCRIBE_TIMEOUT_MS);
+      const upstreamTimeout = createTimeoutAbortController(openAiTimeoutMs);
       let upstream: Response;
       try {
+        stageTimer.mark("openai:request:start", {
+          model,
+          response_format: "diarized_json",
+          chunking_strategy: "auto",
+          content_type: contentType,
+          file_name: path.basename(sourceLabel),
+          byte_count: fileBytes.byteLength,
+        });
         upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
           method: "POST",
           headers: {
@@ -1494,6 +1598,7 @@ export function createHammerPrepMiddleware() {
         });
       } catch (error) {
         if (upstreamTimeout.controller.signal.aborted) {
+          stageTimer.mark("openai:request:timeout", { timeout_ms: openAiTimeoutMs }, "warn");
           sendJson(res, 504, {
             ok: false,
             error: {
@@ -1502,6 +1607,7 @@ export function createHammerPrepMiddleware() {
           });
           return;
         }
+        stageTimer.mark("openai:request:failed", { error: error instanceof Error ? error.message : String(error) }, "error");
         sendJson(res, 502, {
           ok: false,
           error: {
@@ -1513,8 +1619,13 @@ export function createHammerPrepMiddleware() {
         upstreamTimeout.dispose();
       }
 
+      stageTimer.mark("openai:response:received", {
+        status: upstream.status,
+        provider_request_id: upstream.headers.get("x-request-id"),
+      });
       if (!upstream.ok) {
         const detail = await upstream.text();
+        stageTimer.mark("openai:response:error", { status: upstream.status, detail_sample: detail.slice(0, 400) }, "warn");
         await recordAiUsageEvent({
           supabaseService,
           userId,
@@ -1548,9 +1659,12 @@ export function createHammerPrepMiddleware() {
         return;
       }
 
+      stageTimer.mark("openai:response:json:start");
       const payload = (await upstream.json()) as unknown;
+      stageTimer.mark("openai:response:json:ok");
       const segments = normalizeSegments(payload);
       if (segments.length === 0) {
+        stageTimer.mark("normalize:segments:empty", {}, "warn");
         await recordAiUsageEvent({
           supabaseService,
           userId,
@@ -1594,6 +1708,13 @@ export function createHammerPrepMiddleware() {
         text: transcriptText,
         billableMode: "non-billable",
       });
+      stageTimer.mark("normalize:segments:ok", {
+        segments: segments.length,
+        transcript_text_chars: transcriptText.length,
+        provider_request_id: upstream.headers.get("x-request-id"),
+      });
+
+      stageTimer.mark("telemetry:ai_usage:start", { model });
       await recordAiUsageEvent({
         supabaseService,
         userId,
@@ -1616,6 +1737,17 @@ export function createHammerPrepMiddleware() {
         actionId: telemetryActionId,
         providerRequestId: upstream.headers.get("x-request-id"),
         correlationId: telemetryActionId,
+      });
+      stageTimer.mark("telemetry:ai_usage:ok", {
+        estimated_cost_usd: accounting.estimatedCostUsd,
+        actual_cost_usd: accounting.actualCostUsd,
+      });
+
+      stageTimer.mark("response:ok", {
+        segments: segments.length,
+        provider: "openai",
+        model,
+        provider_request_id: upstream.headers.get("x-request-id"),
       });
       sendJson(res, 200, {
         ok: true,
