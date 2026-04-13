@@ -10,6 +10,7 @@ import {
 } from "../../lib/hearth-visual-actionability";
 import type {
   EpisodeBrollMotionAssetCategory,
+  EpisodeBrollAssetCandidate,
   EpisodeBrollPlan,
   EpisodeBrollPlanBeat,
   EpisodeExternalRequestState,
@@ -569,13 +570,15 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       const nextCandidates = (args.selectedBrollBeat.candidate_assets ?? []).map((candidate) => (
         candidate.asset_id === ingestedCandidate.asset_id ? ingestedCandidate : candidate
       ));
-      const nextSelectedAssetId = ingestedCandidate.ingest_status === "ready"
-        ? (args.selectedBrollBeat.selected_asset_id === ingestedCandidate.asset_id
-          ? ingestedCandidate.asset_id
-          : args.selectedBrollBeat.selected_asset_id)
-        : (args.selectedBrollBeat.selected_asset_id === ingestedCandidate.asset_id
-          ? null
-          : args.selectedBrollBeat.selected_asset_id);
+      const nextSelectedAssetId = (
+        ingestedCandidate.ingest_status === "ready"
+          ? (args.selectedBrollBeat.selected_asset_id === ingestedCandidate.asset_id
+            ? ingestedCandidate.asset_id
+            : args.selectedBrollBeat.selected_asset_id)
+          : (args.selectedBrollBeat.selected_asset_id === ingestedCandidate.asset_id
+            ? null
+            : args.selectedBrollBeat.selected_asset_id)
+      ) ?? null;
       const nextBeat: EpisodeBrollPlanBeat = {
         ...args.selectedBrollBeat,
         candidate_assets: nextCandidates,

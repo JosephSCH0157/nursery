@@ -263,7 +263,10 @@ export async function ingestBrollBeatAssetCandidate(args: {
     if (!loaded.ok) {
       return withFailedIngestion(args.candidateAsset, loaded.error);
     }
-    sourceBlob = new Blob([loaded.bytes], {
+    const blobBytes = loaded.bytes.buffer instanceof ArrayBuffer
+      ? (loaded.bytes as unknown as ArrayBufferView<ArrayBuffer>)
+      : (new Uint8Array(loaded.bytes) as unknown as ArrayBufferView<ArrayBuffer>);
+    sourceBlob = new Blob([blobBytes], {
       type: loaded.contentType ?? mimeType,
     });
   }

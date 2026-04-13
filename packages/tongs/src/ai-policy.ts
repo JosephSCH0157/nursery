@@ -186,7 +186,7 @@ export function isAiAllowDecision(result: AiPolicyResolveResult): boolean {
 }
 
 export async function getMembershipEntitlement(
-  supabase: SupabaseClient,
+  supabase: SupabaseClient<any, any, any>,
   args: {
     userId: string;
     orgId: string | null;
@@ -222,7 +222,7 @@ export async function getMembershipEntitlement(
 }
 
 export async function resolveAiPolicy(
-  supabase: SupabaseClient,
+  supabase: SupabaseClient<any, any, any>,
   input: AiPolicyResolveInput,
 ): Promise<AiPolicyResolveResult> {
   const { data, error } = await supabase.rpc("resolve_ai_policy", {
