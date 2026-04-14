@@ -20,6 +20,7 @@ import {
 import { deriveHammerSessionState } from "./hammerSessionState";
 import { deriveHammerIssueDiagnostics, type HammerIssueFixActionId } from "./hammerIssueDiagnostics";
 import { HammerWorkspaceDiagnosticsBanner } from "./HammerWorkspaceDiagnosticsBanner";
+import { HammerIngestDiagnosticsPanel } from "./HammerIngestDiagnosticsPanel";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import {
   buildHammerPersistenceSaveRequest,
@@ -1979,6 +1980,13 @@ export default function HammerWorkspaceEditor(
               ...(ingestDiagnosticRef.current.request_ids ?? {}),
               provider_request_id: preparedResult.meta?.provider_request_id ?? undefined,
             };
+            ingestDiagnosticRef.current.extra = {
+              ...(ingestDiagnosticRef.current.extra ?? {}),
+              prep_error_code: preparedResult.error.code,
+              prep_error_message: preparedResult.error.message,
+              prep_error_retryable: preparedResult.error.retryable,
+              prep_error_status: preparedResult.status,
+            };
           }
           const message = mapTranscriptPrepErrorToUserMessage(preparedResult.error);
           logTranscriptStage("request:failed", {
@@ -1993,6 +2001,14 @@ export default function HammerWorkspaceEditor(
 
         const preparedResponse = preparedResult.data;
         usedAiPrep = true;
+        if (ingestDiagnosticRef.current) {
+          ingestDiagnosticRef.current.extra = {
+            ...(ingestDiagnosticRef.current.extra ?? {}),
+            prep_provider: preparedResponse.provider,
+            prep_model: preparedResponse.model,
+            prep_segments: preparedResponse.segments.length,
+          };
+        }
         transcriptSpan.end({
           ok: true,
           provider: preparedResponse.provider,
@@ -3207,6 +3223,7 @@ export default function HammerWorkspaceEditor(
               onRunFixAll={runDiagnosticsFixAll}
             />
           </div>
+          <HammerIngestDiagnosticsPanel workpieceId={persistenceTarget?.workpieceId ?? null} />
           {transcriptPrepPreferenceNotice ? (
             <div className="hammer-prep-shell__preference-notice">
               <span>{transcriptPrepPreferenceNotice.label}</span>
