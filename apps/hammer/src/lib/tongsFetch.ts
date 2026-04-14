@@ -251,57 +251,46 @@ function resolveRawTongsApiToken(): string | null {
 }
 
 export async function tongsFetch(url: string, options: TongsFetchOptions = {}): Promise<Response> {
+
   const { json, headers: initHeaders, body: initBody, timeoutMs, signal: initSignal, ...rest } = options;
   const headers = new Headers(initHeaders ?? {});
   const apiToken = resolveRawTongsApiToken();
   const userAccessToken = await resolveUserAccessToken();
-  const hasAuth = Boolean(userAccessToken);
-
-  // --- LOGGING: Outgoing request diagnostics ---
   const method = (rest.method || "GET").toUpperCase();
-  const hasAuthHeader = headers.has("authorization");
-  const hasUserAuthHeader = headers.has("x-forge-user-authorization");
-  // Only log the presence, not the value, of tokens
+
+  // Always require a user access token for Tongs requests
+  if (!userAccessToken) {
+    // eslint-disable-next-line no-console
+    console.error("[tongsFetch] BLOCKED: No user access token for outgoing Tongs request", {
+      method,
+      url,
+      apiTokenPresent: Boolean(apiToken),
+      userAccessTokenPresent: false,
+    });
+    throw new Error(
+      `[tongsFetch] BLOCKED: Refusing to send unauthenticated Tongs request. Method: ${method}, URL: ${url}`
+    );
+  }
+
+  // Attach tokens deterministically
+  if (apiToken) {
+    headers.set("authorization", `Bearer ${apiToken}`);
+  }
+  if (userAccessToken) {
+    headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
+    headers.set("x-forge-user-token", userAccessToken);
+  }
+
+  // Log outgoing request (presence only)
   // eslint-disable-next-line no-console
   console.info("[tongsFetch] outgoing", {
     method,
     url,
-    hasAuthHeader,
-    hasUserAuthHeader,
+    hasAuthHeader: headers.has("authorization"),
+    hasUserAuthHeader: headers.has("x-forge-user-authorization"),
     apiTokenPresent: Boolean(apiToken),
     userAccessTokenPresent: Boolean(userAccessToken),
   });
-  if (!userAccessToken) {
-    // eslint-disable-next-line no-console
-    console.warn("[tongsFetch] WARNING: userAccessToken missing for request", { method, url });
-  }
-
-  if (!hasAuth) {
-    // eslint-disable-next-line no-console
-    console.warn("[tongsFetch] DENY: missing user token, returning 401", { method, url });
-    return new Response(JSON.stringify({
-      ok: false,
-      error: {
-        code: "missing_user_token_header",
-        message: "Missing x-forge-user-authorization (or x-forge-user-token) header.",
-      },
-    }), {
-      status: 401,
-      headers: {
-        "content-type": "application/json",
-      },
-    });
-  }
-
-  if (apiToken && !headers.has("authorization")) {
-    headers.set("authorization", `Bearer ${apiToken}`);
-  }
-  if (userAccessToken && !headers.has("x-forge-user-authorization")) {
-    headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
-  }
-  if (userAccessToken && !headers.has("x-forge-user-token")) {
-    headers.set("x-forge-user-token", userAccessToken);
-  }
 
   let body = initBody;
   if (json !== undefined) {
