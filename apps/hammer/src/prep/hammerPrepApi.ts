@@ -46,6 +46,39 @@ export interface HammerTranscriptPrepResponse {
   segments: HammerTranscriptPrepSegment[];
 }
 
+export type HammerTranscriptPrepErrorCode =
+  | "AUTH_REQUIRED"
+  | "POLICY_DENIED"
+  | "SERVER_NOT_CONFIGURED"
+  | "SOURCE_TOO_LARGE"
+  | "MEDIA_READ_TIMEOUT"
+  | "MEDIA_READ_FAILED"
+  | "MEDIA_READ_FORBIDDEN"
+  | "OPENAI_TIMEOUT"
+  | "OPENAI_UPSTREAM_ERROR"
+  | "NORMALIZE_EMPTY"
+  | "INVALID_REQUEST"
+  | "UNKNOWN_ERROR";
+
+export type HammerTranscriptPrepError = {
+  code: HammerTranscriptPrepErrorCode;
+  message: string;
+  retryable: boolean;
+  detail?: unknown;
+};
+
+export type HammerTranscriptPrepMeta = {
+  timestamp: string;
+  workspace_id: string | null;
+  workpiece_id: string | null;
+  client_request_id: string;
+  provider_request_id?: string | null;
+};
+
+export type HammerTranscriptPrepResult =
+  | { ok: true; status: number; data: HammerTranscriptPrepResponse; meta?: HammerTranscriptPrepMeta }
+  | { ok: false; status: number; error: HammerTranscriptPrepError; meta?: HammerTranscriptPrepMeta };
+
 const DEFAULT_TRANSCRIPT_PREP_TIMEOUT_MS = 15 * 60 * 1000;
 
 function resolveTranscriptPrepTimeoutMs(): number {
@@ -110,6 +143,10 @@ function readNumber(value: unknown): number | null {
 function readObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+function readBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
 }
 
 function readLocalStorage(key: string): string | null {
@@ -309,9 +346,42 @@ function normalizeResponse(payload: unknown): HammerTranscriptPrepResponse | nul
   };
 }
 
+function normalizeErrorEnvelope(payload: unknown): { error: HammerTranscriptPrepError; meta?: HammerTranscriptPrepMeta } | null {
+  const root = readObject(payload);
+  if (!root || root.ok !== false) return null;
+  const errorRow = readObject(root.error);
+  const metaRow = readObject(root.meta);
+  const code = readString(errorRow?.code) as HammerTranscriptPrepErrorCode | null;
+  const message = readString(errorRow?.message);
+  const retryable = readBoolean(errorRow?.retryable);
+  if (!code || !message || retryable == null) return null;
+
+  const timestamp = readString(metaRow?.timestamp);
+  const clientRequestId = readString(metaRow?.client_request_id);
+  const meta = timestamp && clientRequestId
+    ? {
+      timestamp,
+      workspace_id: readString(metaRow?.workspace_id),
+      workpiece_id: readString(metaRow?.workpiece_id),
+      client_request_id: clientRequestId,
+      provider_request_id: readString(metaRow?.provider_request_id),
+    }
+    : undefined;
+
+  return {
+    error: {
+      code,
+      message,
+      retryable,
+      ...(typeof errorRow?.detail === "undefined" ? {} : { detail: errorRow.detail }),
+    },
+    ...(meta ? { meta } : {}),
+  };
+}
+
 export async function requestHammerTranscriptPrep(
   request: HammerTranscriptPrepRequest,
-): Promise<HammerTranscriptPrepResponse> {
+): Promise<HammerTranscriptPrepResult> {
   const debugEnabled = resolveTranscriptPrepDebugEnabled();
   const startedAt = typeof performance !== "undefined" ? performance.now() : null;
   const elapsedMs = (): number | null => (
@@ -385,9 +455,37 @@ export async function requestHammerTranscriptPrep(
         local_relpath: request.local_relpath ?? null,
         canonical_workpiece_path: request.canonical_workpiece_path ?? null,
       });
-      throw new Error(`Hammer transcript prep timed out after ${minutes} minutes. Retry, then check the Nursery server logs if it keeps timing out.`);
+      return {
+        ok: false,
+        status: 504,
+        error: {
+          code: "UNKNOWN_ERROR",
+          message: `Hammer transcript prep timed out after ${minutes} minutes. Retry, then check the Nursery server logs if it keeps timing out.`,
+          retryable: true,
+        },
+        meta: {
+          timestamp: new Date().toISOString(),
+          workspace_id: request.workspace_id,
+          workpiece_id: request.workpiece_id,
+          client_request_id: clientRequestId,
+        },
+      };
     }
-    throw error;
+    return {
+      ok: false,
+      status: 502,
+      error: {
+        code: "UNKNOWN_ERROR",
+        message: error instanceof Error ? error.message : "Hammer transcript prep request failed unexpectedly.",
+        retryable: true,
+      },
+      meta: {
+        timestamp: new Date().toISOString(),
+        workspace_id: request.workspace_id,
+        workpiece_id: request.workpiece_id,
+        client_request_id: clientRequestId,
+      },
+    };
   } finally {
     if (timeoutId != null) {
       timers.clearTimeout?.(timeoutId);
@@ -402,6 +500,24 @@ export async function requestHammerTranscriptPrep(
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
+    const envelope = normalizeErrorEnvelope(payload);
+    if (envelope) {
+      // eslint-disable-next-line no-console
+      console.warn("[HammerTranscriptPrep] response:error", {
+        elapsed_ms: elapsedMs(),
+        client_request_id: clientRequestId,
+        status: response.status,
+        code: envelope.error.code,
+        retryable: envelope.error.retryable,
+        message: envelope.error.message,
+      });
+      return {
+        ok: false,
+        status: response.status,
+        error: envelope.error,
+        ...(envelope.meta ? { meta: envelope.meta } : {}),
+      };
+    }
     // eslint-disable-next-line no-console
     console.warn("[HammerTranscriptPrep] response:error", {
       elapsed_ms: elapsedMs(),
@@ -409,14 +525,42 @@ export async function requestHammerTranscriptPrep(
       status: response.status,
       message: readErrorMessage(payload),
     });
-    throw new Error(readErrorMessage(payload));
+    return {
+      ok: false,
+      status: response.status,
+      error: {
+        code: "UNKNOWN_ERROR",
+        message: readErrorMessage(payload),
+        retryable: response.status >= 500 || response.status === 429,
+      },
+      meta: {
+        timestamp: new Date().toISOString(),
+        workspace_id: request.workspace_id,
+        workpiece_id: request.workpiece_id,
+        client_request_id: clientRequestId,
+      },
+    };
   }
 
   const normalized = normalizeResponse(payload);
   if (!normalized) {
     // eslint-disable-next-line no-console
     console.warn("[HammerTranscriptPrep] response:invalid", { elapsed_ms: elapsedMs(), client_request_id: clientRequestId });
-    throw new Error("Hammer transcript prep returned an invalid response.");
+    return {
+      ok: false,
+      status: 502,
+      error: {
+        code: "UNKNOWN_ERROR",
+        message: "Hammer transcript prep returned an invalid response.",
+        retryable: true,
+      },
+      meta: {
+        timestamp: new Date().toISOString(),
+        workspace_id: request.workspace_id,
+        workpiece_id: request.workpiece_id,
+        client_request_id: clientRequestId,
+      },
+    };
   }
   // eslint-disable-next-line no-console
   console.info("[HammerTranscriptPrep] response:ok", {
@@ -429,5 +573,5 @@ export async function requestHammerTranscriptPrep(
     has_text: Boolean(normalized.text),
   });
 
-  return normalized;
+  return { ok: true, status: response.status, data: normalized };
 }

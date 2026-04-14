@@ -596,6 +596,16 @@ export type OpenHammerRecordingSessionResult = {
   revision: RecordingRevisionRecord;
 };
 
+export type ClearHammerTranscriptPointerRequest = {
+  written_by: WrittenBy;
+  reason?: string | null;
+};
+
+export type ClearHammerTranscriptPointerResult = {
+  cleared: boolean;
+  prior_path: string | null;
+};
+
 export type ResetHammerWorkpieceToRawRequest = {
   written_by: WrittenBy;
   reason?: string | null;
@@ -1142,6 +1152,12 @@ export type TongsCommitApiService = {
     workpieceId: string,
     options?: { userAccessToken?: string | null },
   ): Promise<HammerPersistenceSnapshot>;
+  clearHammerTranscriptPointer(
+    workspaceId: string,
+    workpieceId: string,
+    input: ClearHammerTranscriptPointerRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ClearHammerTranscriptPointerResult>;
   saveHammerWorkpieceState(
     workspaceId: string,
     workpieceId: string,
@@ -2856,6 +2872,21 @@ function normalizeOpenHammerRecordingSessionRequest(
   return {
     written_by: writtenBy,
     ...(typeof revisionLabel === "undefined" ? {} : { revision_label: revisionLabel }),
+  };
+}
+
+function normalizeClearHammerTranscriptPointerRequest(
+  body: Record<string, unknown>,
+): ClearHammerTranscriptPointerRequest {
+  const writtenBy = normalizeWrittenBy(body.written_by);
+  const reason = typeof body.reason === "undefined"
+    ? undefined
+    : body.reason === null
+      ? null
+      : normalizeNonEmptyString(body.reason, "reason");
+  return {
+    written_by: writtenBy,
+    ...(typeof reason === "undefined" ? {} : { reason }),
   };
 }
 
@@ -5403,6 +5434,72 @@ export class TongsCommitService {
         last_run_ref: normalizedState?.last_macro_run_ref ?? null,
       },
     };
+  }
+
+  async clearHammerTranscriptPointer(
+    workspaceId: string,
+    workpieceId: string,
+    input: ClearHammerTranscriptPointerRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ClearHammerTranscriptPointerResult> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    const writtenBy = normalizeWrittenBy(input.written_by);
+
+    const { data: state, error } = await this.supabase
+      .schema("tongs")
+      .from("hammer_workpiece_state")
+      .select("transcript_artifact_path")
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .maybeSingle();
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to read Hammer workpiece transcript pointer", {
+        reason: error.message,
+      });
+    }
+
+    const priorPath = typeof state?.transcript_artifact_path === "string" && state.transcript_artifact_path.trim()
+      ? state.transcript_artifact_path.trim()
+      : null;
+    if (!priorPath) {
+      return { cleared: false, prior_path: null };
+    }
+
+    const { error: updateError } = await this.supabase
+      .schema("tongs")
+      .from("hammer_workpiece_state")
+      .update({
+        transcript_artifact_path: null,
+        updated_by: auth.userId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId);
+
+    if (updateError) {
+      throw new HttpError(502, "db_write_failed", "Failed to clear Hammer transcript pointer", {
+        reason: updateError.message,
+      });
+    }
+
+    await this.insertEvent({
+      workpieceId,
+      eventName: "hammer.pointer.cleared.v1",
+      payload: {
+        schema_version: 1,
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        prior_path: priorPath,
+        reason: typeof input.reason === "undefined" ? null : input.reason,
+      } as Json,
+      writtenBy,
+      correlationId: null,
+    });
+
+    return { cleared: true, prior_path: priorPath };
   }
 
   async saveHammerWorkpieceState(
@@ -10339,6 +10436,30 @@ export function createTongsCommitApiHandlerWithService(
             warnings: result.warnings,
           },
         });
+      }
+
+      if (
+        parts.length === 8
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "workpieces"
+        && parts[5] === "hammer"
+        && parts[6] === "state"
+        && parts[7] === "clear-transcript-pointer"
+      ) {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const payload = normalizeClearHammerTranscriptPointerRequest(body);
+        const result = await service.clearHammerTranscriptPointer(
+          workspaceId,
+          workpieceId,
+          payload,
+          { userAccessToken },
+        );
+        return jsonResponse(200, { ok: true, data: { result } });
       }
 
       if (

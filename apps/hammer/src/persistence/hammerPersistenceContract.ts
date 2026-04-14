@@ -252,6 +252,7 @@ export type HammerAudioPolishStatus = "not_started" | "preparing" | "prepared" |
 export type HammerAudioPolishFailureCode =
   | "unsupported_source"
   | "source_unavailable"
+  | "stuck_preparing"
   | "processing_failed";
 
 export interface HammerAudioPolishAnalysisLoudness {

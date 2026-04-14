@@ -49,7 +49,7 @@ export type HammerRecordingRevisionRecord = {
 
 type PersistenceResult<T> =
   | { ok: true; status: number; data: T }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; error_code?: string | null; error_details?: unknown };
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -82,6 +82,16 @@ function readErrorMessage(payload: unknown, fallback: string): string {
   const root = readJsonObject(payload);
   const error = readJsonObject(root?.error);
   return readString(error?.message) ?? fallback;
+}
+
+function readErrorInfo(payload: unknown, fallback: string): { message: string; code: string | null; details?: unknown } {
+  const root = readJsonObject(payload);
+  const error = readJsonObject(root?.error);
+  return {
+    message: readString(error?.message) ?? fallback,
+    code: readString(error?.code),
+    ...(typeof error?.details === "undefined" ? {} : { details: error?.details }),
+  };
 }
 
 function isMissingFileResponse(status: number, payload: unknown): boolean {
@@ -147,7 +157,14 @@ export async function openHammerRecordingSession(
 
   const payload = await readJsonBody(response);
   if (!response.ok) {
-    return { ok: false, status: response.status, error: readErrorMessage(payload, "Failed to open Hammer session.") };
+    const info = readErrorInfo(payload, "Failed to open Hammer session.");
+    return {
+      ok: false,
+      status: response.status,
+      error: info.message,
+      error_code: info.code,
+      ...(typeof info.details === "undefined" ? {} : { error_details: info.details }),
+    };
   }
 
   const root = readJsonObject(payload);
@@ -415,7 +432,14 @@ export async function sealHammerCanonicalBaseline(
 
   const payload = await readJsonBody(response);
   if (!response.ok) {
-    return { ok: false, status: response.status, error: readErrorMessage(payload, "Failed to seal canonical baseline.") };
+    const info = readErrorInfo(payload, "Failed to seal canonical baseline.");
+    return {
+      ok: false,
+      status: response.status,
+      error: info.message,
+      error_code: info.code,
+      ...(typeof info.details === "undefined" ? {} : { error_details: info.details }),
+    };
   }
 
   const root = readJsonObject(payload);

@@ -10,8 +10,12 @@ type CaseDef = {
   decision: "ALLOW" | "SOFT_DENY" | "HARD_DENY";
   reasonCode: string | null;
   expectedStatus: number;
+  expectedErrorCode: string | null;
   expectedMessageIncludes: string | null;
   expectOpenAiCalled: boolean;
+  openAiBehavior?: "ok" | "empty" | "timeout";
+  includeAuthHeader?: boolean;
+  requestOverride?: Record<string, unknown>;
 };
 
 type FetchCall = {
@@ -66,6 +70,11 @@ async function runCase(caseDef: CaseDef): Promise<void> {
   process.env.OPENAI_API_KEY = "test-openai-key";
   process.env.TONGS_SUPABASE_URL = "https://example.supabase.co";
   process.env.TONGS_SUPABASE_ANON_KEY = "test-anon-key";
+  if (caseDef.openAiBehavior === "timeout") {
+    process.env.HAMMER_OPENAI_TRANSCRIBE_TIMEOUT_MS = "1";
+  } else {
+    delete process.env.HAMMER_OPENAI_TRANSCRIBE_TIMEOUT_MS;
+  }
 
   const middleware = createHammerPrepMiddleware();
   const server = await listenServer((req, res) => {
@@ -103,6 +112,15 @@ async function runCase(caseDef: CaseDef): Promise<void> {
       }
       calls.push({ url, method, headers, body });
 
+      if (url.includes("/tongs/workpieces/") && url.includes("/read-file")) {
+        return new Response(Buffer.from("fake-audio-bytes"), {
+          status: 200,
+          headers: {
+            "content-type": "audio/wav",
+            "content-length": "9999999999",
+          },
+        });
+      }
       if (url.endsWith("/auth/v1/user")) {
         return jsonResponse(200, { id: TEST_USER_ID });
       }
@@ -113,6 +131,19 @@ async function runCase(caseDef: CaseDef): Promise<void> {
         return jsonResponse(200, [{ decision_type: caseDef.decision, reason_code: caseDef.reasonCode }]);
       }
       if (url === "https://api.openai.com/v1/audio/transcriptions") {
+        if (caseDef.openAiBehavior === "timeout") {
+          return await new Promise<Response>((resolve, reject) => {
+            const signal = init?.signal;
+            if (signal?.aborted) {
+              reject(new Error("aborted"));
+              return;
+            }
+            signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+          });
+        }
+        if (caseDef.openAiBehavior === "empty") {
+          return jsonResponse(200, { text: "", segments: [] });
+        }
         return jsonResponse(200, {
           text: "hello",
           segments: [{ id: "seg_1", start: 0, end: 1, text: "hello", speaker: "speaker_1" }],
@@ -121,11 +152,12 @@ async function runCase(caseDef: CaseDef): Promise<void> {
       throw new Error(`Unexpected fetch url in test: ${url}`);
     }) as typeof fetch;
 
+    const includeAuthHeader = caseDef.includeAuthHeader ?? true;
     const response = await fetch(`${server.origin}/api/hammer/prep/transcript`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-forge-user-authorization": "Bearer test-user-access-token",
+        ...(includeAuthHeader ? { "x-forge-user-authorization": "Bearer test-user-access-token" } : {}),
       },
       body: JSON.stringify({
         workspace_id: TEST_WORKSPACE_ID,
@@ -134,37 +166,45 @@ async function runCase(caseDef: CaseDef): Promise<void> {
         local_root_abs: tempRoot,
         local_relpath: mediaName,
         mime_type: "audio/wav",
+        ...(caseDef.requestOverride ?? {}),
       }),
     });
 
     const payload = await response.json();
     assert.equal(response.status, caseDef.expectedStatus, `${caseDef.label}: status mismatch`);
     assert.equal(Boolean(payload?.ok), caseDef.expectedStatus === 200, `${caseDef.label}: ok flag mismatch`);
+    if (caseDef.expectedStatus !== 200) {
+      assert.equal(String(payload?.error?.code ?? ""), String(caseDef.expectedErrorCode ?? ""), `${caseDef.label}: error.code mismatch`);
+      assert.equal(typeof payload?.meta?.timestamp, "string", `${caseDef.label}: meta.timestamp missing`);
+      assert.equal(typeof payload?.meta?.client_request_id, "string", `${caseDef.label}: meta.client_request_id missing`);
+    }
     if (caseDef.expectedMessageIncludes) {
       const message = String(payload?.error?.message ?? "");
       assert.equal(message.includes(caseDef.expectedMessageIncludes), true, `${caseDef.label}: message mismatch`);
     }
 
-    const rpcCall = calls.find((call) => call.url.endsWith("/rest/v1/rpc/resolve_ai_policy"));
-    assert(rpcCall, `${caseDef.label}: missing resolve_ai_policy call`);
-    assert.equal((rpcCall?.body as Record<string, unknown>)?.p_tool, "hammer", `${caseDef.label}: tool mismatch`);
-    assert.equal((rpcCall?.body as Record<string, unknown>)?.p_feature, "heavy_tasks", `${caseDef.label}: feature mismatch`);
-    assert.equal((rpcCall?.body as Record<string, unknown>)?.p_action, "stt", `${caseDef.label}: action mismatch`);
-    assert.equal(
-      (rpcCall?.body as Record<string, unknown>)?.p_workspace_id,
-      TEST_WORKSPACE_ID,
-      `${caseDef.label}: workspace mismatch`,
-    );
-    assert.equal(
-      (rpcCall?.body as Record<string, unknown>)?.p_org_id,
-      TEST_ORG_ID,
-      `${caseDef.label}: org mismatch`,
-    );
-    assert.equal(
-      (rpcCall?.body as Record<string, unknown>)?.p_user_id,
-      TEST_USER_ID,
-      `${caseDef.label}: user mismatch`,
-    );
+    if (includeAuthHeader) {
+      const rpcCall = calls.find((call) => call.url.endsWith("/rest/v1/rpc/resolve_ai_policy"));
+      assert(rpcCall, `${caseDef.label}: missing resolve_ai_policy call`);
+      assert.equal((rpcCall?.body as Record<string, unknown>)?.p_tool, "hammer", `${caseDef.label}: tool mismatch`);
+      assert.equal((rpcCall?.body as Record<string, unknown>)?.p_feature, "heavy_tasks", `${caseDef.label}: feature mismatch`);
+      assert.equal((rpcCall?.body as Record<string, unknown>)?.p_action, "stt", `${caseDef.label}: action mismatch`);
+      assert.equal(
+        (rpcCall?.body as Record<string, unknown>)?.p_workspace_id,
+        TEST_WORKSPACE_ID,
+        `${caseDef.label}: workspace mismatch`,
+      );
+      assert.equal(
+        (rpcCall?.body as Record<string, unknown>)?.p_org_id,
+        TEST_ORG_ID,
+        `${caseDef.label}: org mismatch`,
+      );
+      assert.equal(
+        (rpcCall?.body as Record<string, unknown>)?.p_user_id,
+        TEST_USER_ID,
+        `${caseDef.label}: user mismatch`,
+      );
+    }
 
     const openAiCalls = calls.filter((call) => call.url === "https://api.openai.com/v1/audio/transcriptions");
     assert.equal(openAiCalls.length > 0, caseDef.expectOpenAiCalled, `${caseDef.label}: openai call expectation mismatch`);
@@ -181,8 +221,10 @@ async function main(): Promise<void> {
     decision: "ALLOW",
     reasonCode: null,
     expectedStatus: 200,
+    expectedErrorCode: null,
     expectedMessageIncludes: null,
     expectOpenAiCalled: true,
+    openAiBehavior: "ok",
   });
 
   await runCase({
@@ -190,6 +232,7 @@ async function main(): Promise<void> {
     decision: "SOFT_DENY",
     reasonCode: "PERSONAL_AI_REQUIRED_NOT_CONFIGURED",
     expectedStatus: 403,
+    expectedErrorCode: "POLICY_DENIED",
     expectedMessageIncludes: "Configure a personal AI connection and retry.",
     expectOpenAiCalled: false,
   });
@@ -199,8 +242,57 @@ async function main(): Promise<void> {
     decision: "HARD_DENY",
     reasonCode: "MEMBERSHIP_REQUIRED_STUDIO_OR_FOUNDER",
     expectedStatus: 403,
+    expectedErrorCode: "POLICY_DENIED",
     expectedMessageIncludes: "Studio or Founder entitlement",
     expectOpenAiCalled: false,
+  });
+
+  await runCase({
+    label: "auth-required",
+    decision: "ALLOW",
+    reasonCode: null,
+    expectedStatus: 401,
+    expectedErrorCode: "AUTH_REQUIRED",
+    expectedMessageIncludes: "Sign in required",
+    expectOpenAiCalled: false,
+    includeAuthHeader: false,
+  });
+
+  await runCase({
+    label: "source-too-large",
+    decision: "ALLOW",
+    reasonCode: null,
+    expectedStatus: 413,
+    expectedErrorCode: "SOURCE_TOO_LARGE",
+    expectedMessageIncludes: "exceeds",
+    expectOpenAiCalled: false,
+    requestOverride: {
+      local_root_abs: null,
+      local_relpath: null,
+      canonical_workpiece_path: "recordings/example.wav",
+    },
+  });
+
+  await runCase({
+    label: "normalize-empty",
+    decision: "ALLOW",
+    reasonCode: null,
+    expectedStatus: 502,
+    expectedErrorCode: "NORMALIZE_EMPTY",
+    expectedMessageIncludes: "without usable segments",
+    expectOpenAiCalled: true,
+    openAiBehavior: "empty",
+  });
+
+  await runCase({
+    label: "openai-timeout",
+    decision: "ALLOW",
+    reasonCode: null,
+    expectedStatus: 504,
+    expectedErrorCode: "OPENAI_TIMEOUT",
+    expectedMessageIncludes: "timed out",
+    expectOpenAiCalled: true,
+    openAiBehavior: "timeout",
   });
 
   console.log("Hammer transcript policy preflight tests passed.");

@@ -117,7 +117,6 @@ function createHammerTranscriptStageTimer(args: {
       elapsed_ms: elapsedMs(),
       ...(detail ?? {}),
     };
-    // eslint-disable-next-line no-console
     (level === "error" ? console.error : level === "warn" ? console.warn : console.info)(
       "[HammerTranscriptPrep]",
       payload,
@@ -172,12 +171,49 @@ type QuenchMetadataAssistRequest = {
   tags: string[];
 };
 
+type HammerTranscriptPrepErrorCode =
+  | "AUTH_REQUIRED"
+  | "POLICY_DENIED"
+  | "SERVER_NOT_CONFIGURED"
+  | "SOURCE_TOO_LARGE"
+  | "MEDIA_READ_TIMEOUT"
+  | "MEDIA_READ_FAILED"
+  | "MEDIA_READ_FORBIDDEN"
+  | "OPENAI_TIMEOUT"
+  | "OPENAI_UPSTREAM_ERROR"
+  | "NORMALIZE_EMPTY"
+  | "INVALID_REQUEST"
+  | "UNKNOWN_ERROR";
+
 const AI_POLICY_REASON_CODE_SET = new Set<string>(AI_REASON_CODES);
 
 function readTrimmed(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function readPrepMetaFromBody(body: unknown): {
+  workspace_id: string | null;
+  workpiece_id: string | null;
+  client_request_id: string | null;
+} {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { workspace_id: null, workpiece_id: null, client_request_id: null };
+  }
+  const row = body as Record<string, unknown>;
+  return {
+    workspace_id: readTrimmed(row.workspace_id),
+    workpiece_id: readTrimmed(row.workpiece_id),
+    client_request_id: readTrimmed(row.client_request_id),
+  };
+}
+
+function ensureClientRequestId(explicit: string | null): string {
+  if (explicit && explicit.trim()) return explicit.trim();
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `server_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
 function readNumber(value: unknown): number | null {
@@ -302,6 +338,37 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader("cache-control", "no-store");
   res.end(body);
+}
+
+function sendTranscriptPrepError(res: ServerResponse, args: {
+  status: number;
+  code: HammerTranscriptPrepErrorCode;
+  message: string;
+  retryable: boolean;
+  detail?: unknown;
+  provider_request_id?: string | null;
+  meta: {
+    workspace_id: string | null;
+    workpiece_id: string | null;
+    client_request_id: string | null;
+  };
+}): void {
+  sendJson(res, args.status, {
+    ok: false,
+    error: {
+      code: args.code,
+      message: args.message,
+      retryable: args.retryable,
+      ...(typeof args.detail === "undefined" ? {} : { detail: args.detail }),
+    },
+    meta: {
+      timestamp: new Date().toISOString(),
+      workspace_id: args.meta.workspace_id,
+      workpiece_id: args.meta.workpiece_id,
+      client_request_id: ensureClientRequestId(args.meta.client_request_id),
+      ...(args.provider_request_id ? { provider_request_id: args.provider_request_id } : {}),
+    },
+  });
 }
 
 function normalizeRequest(body: unknown): NormalizedLocalRequest | NormalizedCanonicalWorkpieceRequest | null {
@@ -996,6 +1063,7 @@ async function loadCanonicalWorkpieceMediaFile(
   ok: false;
   status: number;
   message: string;
+  detail?: unknown;
 }> {
   const origin = buildRequestOrigin(req);
   const url = new URL(`/tongs/workpieces/${encodeURIComponent(request.workpiece_id)}/read-file`, origin);
@@ -1032,6 +1100,10 @@ async function loadCanonicalWorkpieceMediaFile(
         ok: false,
         status: 413,
         message: buildSourceTooLargeMessage(contentLength),
+        detail: {
+          max_source_bytes: MAX_TRANSCRIBE_SOURCE_BYTES,
+          observed_bytes: contentLength,
+        },
       };
     }
 
@@ -1041,6 +1113,10 @@ async function loadCanonicalWorkpieceMediaFile(
         ok: false,
         status: 413,
         message: buildSourceTooLargeMessage(fileBytes.byteLength),
+        detail: {
+          max_source_bytes: MAX_TRANSCRIBE_SOURCE_BYTES,
+          observed_bytes: fileBytes.byteLength,
+        },
       };
     }
 
@@ -1169,6 +1245,16 @@ export function createHammerPrepMiddleware() {
       }
 
       if (method !== "POST") {
+        if (url.pathname === HAMMER_TRANSCRIPT_PREP_ROUTE) {
+          sendTranscriptPrepError(res, {
+            status: 405,
+            code: "INVALID_REQUEST",
+            message: "Method not allowed.",
+            retryable: false,
+            meta: readPrepMetaFromBody(null),
+          });
+          return;
+        }
         sendJson(res, 405, { ok: false, error: { message: "Method not allowed." } });
         return;
       }
@@ -1421,16 +1507,25 @@ export function createHammerPrepMiddleware() {
       }
 
       if (!textApiKey) {
-        sendJson(res, 500, {
-          ok: false,
-          error: { message: "Missing OPENAI_TEXT_API_KEY (or OPENAI_API_KEY) in server env." },
+        sendTranscriptPrepError(res, {
+          status: 500,
+          code: "SERVER_NOT_CONFIGURED",
+          message: "Missing OPENAI_TEXT_API_KEY (or OPENAI_API_KEY) in server env.",
+          retryable: false,
+          meta: readPrepMetaFromBody(body),
         });
         return;
       }
 
       const request = normalizeRequest(body);
       if (!request) {
-        sendJson(res, 400, { ok: false, error: { message: "Invalid Hammer transcript prep payload." } });
+        sendTranscriptPrepError(res, {
+          status: 400,
+          code: "INVALID_REQUEST",
+          message: "Invalid Hammer transcript prep payload.",
+          retryable: false,
+          meta: readPrepMetaFromBody(body),
+        });
         return;
       }
 
@@ -1456,18 +1551,32 @@ export function createHammerPrepMiddleware() {
       const userAccessToken = readForgeUserAccessToken(req);
       if (!userAccessToken) {
         stageTimer.mark("request:rejected", { reason: "missing_user_access_token" }, "warn");
-        sendJson(res, 401, {
-          ok: false,
-          error: { message: "Sign in required before Hammer transcript prep can run AI policy preflight." },
+        sendTranscriptPrepError(res, {
+          status: 401,
+          code: "AUTH_REQUIRED",
+          message: "Sign in required before Hammer transcript prep can run AI policy preflight.",
+          retryable: false,
+          meta: {
+            workspace_id: request.workspace_id,
+            workpiece_id: request.workpiece_id,
+            client_request_id: request.client_request_id ?? null,
+          },
         });
         return;
       }
 
       if (!runtimeConfig.supabaseUrl || !runtimeConfig.supabaseRpcKey) {
         stageTimer.mark("request:rejected", { reason: "missing_ai_policy_preflight_config" }, "error");
-        sendJson(res, 500, {
-          ok: false,
-          error: { message: "Hammer AI policy preflight is not configured on this server." },
+        sendTranscriptPrepError(res, {
+          status: 500,
+          code: "SERVER_NOT_CONFIGURED",
+          message: "Hammer AI policy preflight is not configured on this server.",
+          retryable: false,
+          meta: {
+            workspace_id: request.workspace_id,
+            workpiece_id: request.workpiece_id,
+            client_request_id: request.client_request_id ?? null,
+          },
         });
         return;
       }
@@ -1483,7 +1592,17 @@ export function createHammerPrepMiddleware() {
       });
       if (!preflight.ok) {
         stageTimer.mark("policy:preflight:denied", { status: preflight.status || null, error: preflight.error }, "warn");
-        sendJson(res, preflight.status || 500, { ok: false, error: { message: preflight.error } });
+        sendTranscriptPrepError(res, {
+          status: preflight.status || 500,
+          code: "POLICY_DENIED",
+          message: preflight.error,
+          retryable: false,
+          meta: {
+            workspace_id: request.workspace_id,
+            workpiece_id: request.workpiece_id,
+            client_request_id: request.client_request_id ?? null,
+          },
+        });
         return;
       }
       stageTimer.mark("policy:preflight:ok");
@@ -1496,9 +1615,16 @@ export function createHammerPrepMiddleware() {
       });
       if (!userId) {
         stageTimer.mark("auth:user_id:missing", {}, "warn");
-        sendJson(res, 401, {
-          ok: false,
-          error: { message: "Sign in required before Hammer transcript prep can log AI usage." },
+        sendTranscriptPrepError(res, {
+          status: 401,
+          code: "AUTH_REQUIRED",
+          message: "Sign in required before Hammer transcript prep can log AI usage.",
+          retryable: false,
+          meta: {
+            workspace_id: request.workspace_id,
+            workpiece_id: request.workpiece_id,
+            client_request_id: request.client_request_id ?? null,
+          },
         });
         return;
       }
@@ -1513,26 +1639,70 @@ export function createHammerPrepMiddleware() {
       if ("local_root_abs" in request && "local_relpath" in request) {
         if (!path.isAbsolute(request.local_root_abs) || !fs.existsSync(request.local_root_abs)) {
           stageTimer.mark("media:load:failed", { reason: "mapped_media_root_missing", local_root_abs: request.local_root_abs }, "warn");
-          sendJson(res, 404, { ok: false, error: { message: "Mapped media root was not found on this machine." } });
+          sendTranscriptPrepError(res, {
+            status: 404,
+            code: "MEDIA_READ_FAILED",
+            message: "Mapped media root was not found on this machine.",
+            retryable: false,
+            meta: {
+              workspace_id: request.workspace_id,
+              workpiece_id: request.workpiece_id,
+              client_request_id: request.client_request_id ?? null,
+            },
+          });
           return;
         }
 
         const absolutePath = resolveMediaFileAbs(request.local_root_abs, request.local_relpath);
         if (!absolutePath) {
           stageTimer.mark("media:load:failed", { reason: "invalid_local_relpath", local_relpath: request.local_relpath }, "warn");
-          sendJson(res, 400, { ok: false, error: { message: "local_relpath is invalid for this media root." } });
+          sendTranscriptPrepError(res, {
+            status: 400,
+            code: "INVALID_REQUEST",
+            message: "local_relpath is invalid for this media root.",
+            retryable: false,
+            meta: {
+              workspace_id: request.workspace_id,
+              workpiece_id: request.workpiece_id,
+              client_request_id: request.client_request_id ?? null,
+            },
+          });
           return;
         }
 
         const stat = await fsPromises.stat(absolutePath).catch(() => null);
         if (!stat || !stat.isFile()) {
           stageTimer.mark("media:load:failed", { reason: "local_file_missing", absolute_path: absolutePath }, "warn");
-          sendJson(res, 404, { ok: false, error: { message: "Requested media file was not found." } });
+          sendTranscriptPrepError(res, {
+            status: 404,
+            code: "MEDIA_READ_FAILED",
+            message: "Requested media file was not found.",
+            retryable: false,
+            meta: {
+              workspace_id: request.workspace_id,
+              workpiece_id: request.workpiece_id,
+              client_request_id: request.client_request_id ?? null,
+            },
+          });
           return;
         }
         if (stat.size > MAX_TRANSCRIBE_SOURCE_BYTES) {
           stageTimer.mark("media:load:failed", { reason: "file_too_large", byte_count: stat.size }, "warn");
-          sendJson(res, 413, { ok: false, error: { message: buildSourceTooLargeMessage(stat.size) } });
+          sendTranscriptPrepError(res, {
+            status: 413,
+            code: "SOURCE_TOO_LARGE",
+            message: buildSourceTooLargeMessage(stat.size),
+            retryable: false,
+            detail: {
+              max_source_bytes: MAX_TRANSCRIBE_SOURCE_BYTES,
+              observed_bytes: stat.size,
+            },
+            meta: {
+              workspace_id: request.workspace_id,
+              workpiece_id: request.workpiece_id,
+              client_request_id: request.client_request_id ?? null,
+            },
+          });
           return;
         }
 
@@ -1544,7 +1714,25 @@ export function createHammerPrepMiddleware() {
         const canonicalMedia = await loadCanonicalWorkpieceMediaFile(req, request);
         if (!canonicalMedia.ok) {
           stageTimer.mark("media:load:canonical:failed", { status: canonicalMedia.status, message: canonicalMedia.message }, "warn");
-          sendJson(res, canonicalMedia.status, { ok: false, error: { message: canonicalMedia.message } });
+          const errorCode: HammerTranscriptPrepErrorCode = canonicalMedia.status === 413
+            ? "SOURCE_TOO_LARGE"
+            : canonicalMedia.status === 504
+              ? "MEDIA_READ_TIMEOUT"
+              : canonicalMedia.status === 401 || canonicalMedia.status === 403
+                ? "MEDIA_READ_FORBIDDEN"
+                : "MEDIA_READ_FAILED";
+          sendTranscriptPrepError(res, {
+            status: canonicalMedia.status,
+            code: errorCode,
+            message: canonicalMedia.message,
+            retryable: errorCode === "MEDIA_READ_TIMEOUT" || errorCode === "MEDIA_READ_FAILED",
+            detail: canonicalMedia.detail,
+            meta: {
+              workspace_id: request.workspace_id,
+              workpiece_id: request.workpiece_id,
+              client_request_id: request.client_request_id ?? null,
+            },
+          });
           return;
         }
         fileBytes = canonicalMedia.fileBytes;
@@ -1557,7 +1745,17 @@ export function createHammerPrepMiddleware() {
       const extension = path.extname(sourceLabel).toLowerCase();
       if (!ALLOWED_MEDIA_EXTENSIONS.has(extension)) {
         stageTimer.mark("media:validate:failed", { reason: "unsupported_extension", extension }, "warn");
-        sendJson(res, 400, { ok: false, error: { message: "Hammer prep only supports audio/video media files." } });
+        sendTranscriptPrepError(res, {
+          status: 400,
+          code: "INVALID_REQUEST",
+          message: "Hammer prep only supports audio/video media files.",
+          retryable: false,
+          meta: {
+            workspace_id: request.workspace_id,
+            workpiece_id: request.workpiece_id,
+            client_request_id: request.client_request_id ?? null,
+          },
+        });
         return;
       }
       const isVideo = extension === ".mp4" || extension === ".webm" || extension === ".mov";
@@ -1599,19 +1797,29 @@ export function createHammerPrepMiddleware() {
       } catch (error) {
         if (upstreamTimeout.controller.signal.aborted) {
           stageTimer.mark("openai:request:timeout", { timeout_ms: openAiTimeoutMs }, "warn");
-          sendJson(res, 504, {
-            ok: false,
-            error: {
-              message: "Hammer transcript prep timed out while waiting for OpenAI transcription.",
+          sendTranscriptPrepError(res, {
+            status: 504,
+            code: "OPENAI_TIMEOUT",
+            message: "Hammer transcript prep timed out while waiting for OpenAI transcription.",
+            retryable: true,
+            meta: {
+              workspace_id: request.workspace_id,
+              workpiece_id: request.workpiece_id,
+              client_request_id: request.client_request_id ?? null,
             },
           });
           return;
         }
         stageTimer.mark("openai:request:failed", { error: error instanceof Error ? error.message : String(error) }, "error");
-        sendJson(res, 502, {
-          ok: false,
-          error: {
-            message: `Hammer transcript prep could not reach OpenAI transcription (${error instanceof Error ? error.message : "unknown error"}).`,
+        sendTranscriptPrepError(res, {
+          status: 502,
+          code: "OPENAI_UPSTREAM_ERROR",
+          message: `Hammer transcript prep could not reach OpenAI transcription (${error instanceof Error ? error.message : "unknown error"}).`,
+          retryable: true,
+          meta: {
+            workspace_id: request.workspace_id,
+            workpiece_id: request.workpiece_id,
+            client_request_id: request.client_request_id ?? null,
           },
         });
         return;
@@ -1649,11 +1857,17 @@ export function createHammerPrepMiddleware() {
           providerRequestId: upstream.headers.get("x-request-id"),
           correlationId: telemetryActionId,
         });
-        sendJson(res, upstream.status, {
-          ok: false,
-          error: {
-            message: readUpstreamErrorMessage(detail) ?? "OpenAI transcription failed.",
-            detail,
+        sendTranscriptPrepError(res, {
+          status: upstream.status,
+          code: "OPENAI_UPSTREAM_ERROR",
+          message: readUpstreamErrorMessage(detail) ?? "OpenAI transcription failed.",
+          retryable: upstream.status >= 500 || upstream.status === 429,
+          detail,
+          provider_request_id: upstream.headers.get("x-request-id"),
+          meta: {
+            workspace_id: request.workspace_id,
+            workpiece_id: request.workpiece_id,
+            client_request_id: request.client_request_id ?? null,
           },
         });
         return;
@@ -1688,10 +1902,16 @@ export function createHammerPrepMiddleware() {
           providerRequestId: upstream.headers.get("x-request-id"),
           correlationId: telemetryActionId,
         });
-        sendJson(res, 502, {
-          ok: false,
-          error: {
-            message: "OpenAI returned a diarized transcript without usable segments.",
+        sendTranscriptPrepError(res, {
+          status: 502,
+          code: "NORMALIZE_EMPTY",
+          message: "OpenAI returned a diarized transcript without usable segments.",
+          retryable: true,
+          provider_request_id: upstream.headers.get("x-request-id"),
+          meta: {
+            workspace_id: request.workspace_id,
+            workpiece_id: request.workpiece_id,
+            client_request_id: request.client_request_id ?? null,
           },
         });
         return;
@@ -1764,12 +1984,26 @@ export function createHammerPrepMiddleware() {
         next(error);
         return;
       }
-      sendJson(res, 500, {
-        ok: false,
-        error: {
+      const rawUrl = req.url || "";
+      const origin = `http://${req.headers.host || "localhost"}`;
+      const pathname = (() => {
+        try {
+          return new URL(rawUrl, origin).pathname;
+        } catch {
+          return "";
+        }
+      })();
+      if (pathname === HAMMER_TRANSCRIPT_PREP_ROUTE) {
+        sendTranscriptPrepError(res, {
+          status: 500,
+          code: "UNKNOWN_ERROR",
           message: error instanceof Error ? error.message : "Hammer prep middleware crashed unexpectedly.",
-        },
-      });
+          retryable: true,
+          meta: readPrepMetaFromBody(null),
+        });
+        return;
+      }
+      sendJson(res, 500, { ok: false, error: { message: error instanceof Error ? error.message : "Hammer prep middleware crashed unexpectedly." } });
     }
   };
 }

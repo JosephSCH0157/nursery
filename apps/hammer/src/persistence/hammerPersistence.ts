@@ -787,6 +787,10 @@ function buildStateUrl(target: HammerPersistenceTarget): string {
   return `/tongs/workspaces/${encodeURIComponent(target.workspaceId)}/workpieces/${encodeURIComponent(target.workpieceId)}/hammer/state`;
 }
 
+function buildClearTranscriptPointerUrl(target: HammerPersistenceTarget): string {
+  return `${buildStateUrl(target)}/clear-transcript-pointer`;
+}
+
 function buildPresenceUrl(target: HammerPersistenceTarget): string {
   return `/tongs/workspaces/${encodeURIComponent(target.workspaceId)}/workpieces/${encodeURIComponent(target.workpieceId)}/hammer/presence`;
 }
@@ -926,6 +930,50 @@ export async function resetHammerWorkpieceToRaw(
     ok: true,
     status: response.status,
     data: { reset_at: resetAt },
+  };
+}
+
+export async function clearHammerTranscriptPointer(
+  target: HammerPersistenceTarget,
+  args?: { reason?: string | null },
+): Promise<PersistenceResult<{ cleared: boolean; prior_path: string | null }>> {
+  let response: Response;
+  try {
+    response = await tongsFetch(buildClearTranscriptPointerUrl(target), {
+      method: "POST",
+      json: {
+        written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
+        ...(typeof args?.reason === "undefined" ? {} : { reason: args.reason }),
+      },
+      timeoutMs: HAMMER_PERSISTENCE_SAVE_TIMEOUT_MS,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      status: 504,
+      error: toRequestErrorMessage(error, "Hammer clear transcript pointer timed out."),
+    };
+  }
+
+  const payload = await readJsonBody(response);
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: readErrorMessage(payload, "Failed to clear Hammer transcript pointer."),
+    };
+  }
+
+  const root = readJsonObject(payload);
+  const data = readJsonObject(root?.data);
+  const result = readJsonObject(data?.result);
+  const cleared = result?.cleared === true;
+  const priorPath = readString(result?.prior_path);
+
+  return {
+    ok: true,
+    status: response.status,
+    data: { cleared, prior_path: priorPath },
   };
 }
 
