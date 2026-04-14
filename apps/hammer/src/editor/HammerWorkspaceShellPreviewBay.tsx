@@ -7,9 +7,11 @@ export type HammerWorkspaceShellPreviewBayVM = {
   previewModeLabel: string;
 
   previewSurfaceRef: RefObject<HTMLDivElement | null>;
+  previewVideoRef: RefObject<HTMLVideoElement | null>;
   previewAudioRef: RefObject<HTMLVideoElement | null>;
   previewBrollVideoRefs: MutableRefObject<Map<string, HTMLVideoElement>>;
 
+  previewVideoSrc: string | null;
   playbackMediaSrc: string | null;
   isPlaybackActive: boolean;
   playbackWindow: { mode: "loop" | "roll"; startSec: number; endSec: number; label: string } | null;
@@ -72,6 +74,14 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
       <div className="hammer-bay-body hammer-preview-bay__body">
         <div className="hammer-preview-surface" ref={vm.previewSurfaceRef}>
           <video
+            ref={vm.previewVideoRef}
+            src={vm.previewVideoSrc ?? undefined}
+            muted
+            preload="metadata"
+            playsInline
+            className="hammer-preview-media"
+          />
+          <video
             ref={vm.previewAudioRef}
             src={vm.playbackMediaSrc ?? undefined}
             preload="metadata"
@@ -86,13 +96,13 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
                 vm.clearPlaybackWindow();
               }
             }}
-            className="hammer-preview-media"
+            className="hammer-preview-media hammer-preview-media--audio"
           />
           <BackgroundBlurPreviewLayer
             enabled={vm.backgroundEffect.enabled}
             settings={vm.backgroundEffect.settings}
             providerId={vm.backgroundEffect.providerId}
-            videoRef={vm.previewAudioRef}
+            videoRef={vm.previewVideoRef}
             onStatus={vm.backgroundEffect.onStatus}
             debugMasks={vm.backgroundEffect.debugMasks}
             maskPreviewMode={vm.backgroundEffect.maskPreviewMode}
@@ -105,7 +115,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
               enabled: vm.eyeContactAssist.enabled,
               strength: vm.eyeContactAssist.strength,
             }}
-            videoRef={vm.previewAudioRef}
+            videoRef={vm.previewVideoRef}
             backgroundCanvasRef={vm.eyeContactAssist.backgroundCanvasRef}
             useBackgroundCanvasAsSource={vm.eyeContactAssist.useBackgroundCanvasAsSource}
             debugOverlay={vm.eyeContactAssist.debugOverlay}
@@ -146,7 +156,8 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             <span className="hammer-preview-meta__warning">{vm.mediaLabelMismatchWarning}</span>
           ) : null}
           <span>Playback lane: {vm.playbackBackendLabel}</span>
-          <span>{vm.playbackMediaSrc ? "Mapped media ready" : "Mapped media unavailable"}</span>
+          <span>{vm.previewVideoSrc ? "Base video ready" : "Base video unavailable"}</span>
+          <span>{vm.playbackMediaSrc ? "Playback media ready" : "Playback media unavailable"}</span>
           {vm.currentPassId === "visual_finishing" ? (
             <span>Visual finishing preview mode active</span>
           ) : null}

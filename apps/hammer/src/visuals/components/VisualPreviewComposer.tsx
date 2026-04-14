@@ -92,7 +92,7 @@ export default function VisualPreviewComposer(props: VisualPreviewComposerProps)
         </div>
       ))}
       {props.overlays.length === 0 ? (
-        <div className="hammer-preview-canvas__empty">
+        <div className="hammer-preview-canvas__empty-badge">
           No active visual overlay at this playhead time.
         </div>
       ) : null}

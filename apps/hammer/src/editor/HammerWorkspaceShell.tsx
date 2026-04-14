@@ -1974,6 +1974,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [thumbnailPromptDraft, setThumbnailPromptDraft] = useState("");
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const [playbackMediaSrc, setPlaybackMediaSrc] = useState<string | null>(null);
+  const [previewVideoSrc, setPreviewVideoSrc] = useState<string | null>(null);
   const [canonicalWorkpieceLabel, setCanonicalWorkpieceLabel] = useState<string | null>(null);
   const [visualTimelineFocusNonce, setVisualTimelineFocusNonce] = useState(0);
   const editableVisualPlacements = useMemo(
@@ -1993,6 +1994,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
   const previewAudioRef = useRef<HTMLVideoElement | null>(null);
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewSurfaceRef = useRef<HTMLDivElement | null>(null);
   const imageAnimationContextMenuRef = useRef<HTMLDivElement | null>(null);
   const previewBrollVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
@@ -2008,6 +2010,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }, []);
   const workspaceShellRef = useRef<HTMLElement | null>(null);
   const lastPlaybackMediaSrcRef = useRef<string | null>(null);
+  const lastPreviewVideoSrcRef = useRef<string | null>(null);
   const captionEditorRefs = useRef(new Map<string, HTMLTextAreaElement>());
   const lastHandledHandoffTokenRef = useRef<number | null>(null);
   const transcriptLineRefs = useRef(new Map<string, HTMLElement>());
@@ -4199,18 +4202,20 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   useEffect(() => {
     let active = true;
-    let objectUrlToRevoke: string | null = null;
+    let playbackObjectUrlToRevoke: string | null = null;
+    let previewVideoObjectUrlToRevoke: string | null = null;
 
-    const resolveRawPlaybackSrc = async (): Promise<void> => {
+    const resolveRawPreviewVideoSrc = async (): Promise<string | null> => {
       const localRelpath = mediaRef?.local_relpath ?? null;
       if (!localRelpath) {
-        setPlaybackMediaSrc(null);
-        return;
+        setPreviewVideoSrc(null);
+        return null;
       }
 
       if (playbackLocalRootAbs) {
-        setPlaybackMediaSrc(buildHammerDevMediaUrl(playbackLocalRootAbs, localRelpath));
-        return;
+        const url = buildHammerDevMediaUrl(playbackLocalRootAbs, localRelpath);
+        setPreviewVideoSrc(url);
+        return url;
       }
 
       try {
@@ -4222,17 +4227,22 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         });
         if (!active) {
           URL.revokeObjectURL(previewUrl);
-          return;
+          return null;
         }
-        objectUrlToRevoke = previewUrl;
-        setPlaybackMediaSrc(previewUrl);
+        previewVideoObjectUrlToRevoke = previewUrl;
+        setPreviewVideoSrc(previewUrl);
+        return previewUrl;
       } catch {
-        if (!active) return;
-        setPlaybackMediaSrc(null);
+        if (!active) return null;
+        setPreviewVideoSrc(null);
+        return null;
       }
     };
 
     (async () => {
+      const rawVideoSrc = await resolveRawPreviewVideoSrc();
+      if (!active) return;
+
       if (preferredPlayback.kind === "polished") {
         if (preferredPlayback.local_relpath && playbackLocalRootAbs) {
           setPlaybackMediaSrc(
@@ -4252,7 +4262,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
               URL.revokeObjectURL(previewUrl);
               return;
             }
-            objectUrlToRevoke = previewUrl;
+            playbackObjectUrlToRevoke = previewUrl;
             setPlaybackMediaSrc(previewUrl);
             return;
           } catch {
@@ -4261,13 +4271,16 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         }
       }
 
-      await resolveRawPlaybackSrc();
+      setPlaybackMediaSrc(rawVideoSrc);
     })();
 
     return () => {
       active = false;
-      if (objectUrlToRevoke) {
-        URL.revokeObjectURL(objectUrlToRevoke);
+      if (playbackObjectUrlToRevoke) {
+        URL.revokeObjectURL(playbackObjectUrlToRevoke);
+      }
+      if (previewVideoObjectUrlToRevoke && previewVideoObjectUrlToRevoke !== playbackObjectUrlToRevoke) {
+        URL.revokeObjectURL(previewVideoObjectUrlToRevoke);
       }
     };
   }, [
@@ -4284,6 +4297,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   useEffect(() => {
     const previewAudio = previewAudioRef.current;
     if (!previewAudio) return;
+    const previewVideo = previewVideoRef.current;
     const runtimeWindow = window as HammerPlaybackAuthorityWindow;
     const activeOwnerId = runtimeWindow.__forgeHammerActivePreviewOwnerId__;
     if (isPlaybackActive && activeOwnerId && activeOwnerId !== playbackOwnerIdRef.current) {
@@ -4298,12 +4312,24 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       previewAudio.pause();
     }
 
+    const previewVideoSrcChanged = lastPreviewVideoSrcRef.current !== previewVideoSrc;
+    if (previewVideoSrcChanged) {
+      lastPreviewVideoSrcRef.current = previewVideoSrc;
+      previewVideo?.pause();
+    }
+
     if (!playbackMediaSrc) {
       previewAudio.pause();
       previewAudio.removeAttribute("src");
       previewAudio.load();
       if (isPlaybackActive) setIsPlaybackActive(false);
       return;
+    }
+
+    if (previewVideo && !previewVideoSrc) {
+      previewVideo.pause();
+      previewVideo.removeAttribute("src");
+      previewVideo.load();
     }
 
     const transportProgress = isPlaybackActive
@@ -4332,9 +4358,15 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         applySeamFade: transportProgress.shouldSyncMediaTime,
       });
     }
+    if (previewVideoSrc && previewVideo && shouldSynchronizeCurrentTime && Math.abs(previewVideo.currentTime - targetTime) > SCRUB_SEEK_THRESHOLD_SEC) {
+      previewVideo.muted = true;
+      previewVideo.volume = 0;
+      previewVideo.currentTime = targetTime;
+    }
 
     if (transportProgress.shouldStop) {
       previewAudio.pause();
+      previewVideo?.pause();
       if (isPlaybackActive) setIsPlaybackActive(false);
       if (playbackWindow?.mode === "roll") {
         setPlaybackWindow(null);
@@ -4344,6 +4376,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     if (!isPlaybackActive) {
       previewAudio.pause();
+      previewVideo?.pause();
       return;
     }
 
@@ -4358,11 +4391,23 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         setIsPlaybackActive(false);
       });
     }
+
+    if (previewVideoSrc && previewVideo) {
+      previewVideo.muted = true;
+      previewVideo.volume = 0;
+      previewVideo.playbackRate = previewAudio.playbackRate;
+      if (previewVideo.paused) {
+        void previewVideo.play().catch(() => {
+          // keep base video best-effort; audio continues as authority
+        });
+      }
+    }
   }, [
     claimGlobalPlaybackAuthority,
     isPlaybackActive,
     isScrubbing,
     playbackMediaSrc,
+    previewVideoSrc,
     playbackTransportDurationSec,
     playheadSec,
     playbackWindow,
@@ -9178,8 +9223,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const previewBayVM = useMemo(() => ({
     previewModeLabel: previewMode,
     previewSurfaceRef,
+    previewVideoRef,
     previewAudioRef,
     previewBrollVideoRefs,
+    previewVideoSrc,
     playbackMediaSrc,
     isPlaybackActive,
     playbackWindow,
@@ -9259,6 +9306,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     playheadSec,
     previewAudioRef,
     previewBrollVideoRefs,
+    previewVideoRef,
+    previewVideoSrc,
     previewMode,
     previewSurfaceLabel,
     previewSurfaceRef,

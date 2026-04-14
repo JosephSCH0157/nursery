@@ -1137,18 +1137,21 @@ Guardrails:
   box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.7);
 }
 
-.hammer-preview-canvas__empty {
+.hammer-preview-canvas__empty-badge {
   position: absolute;
-  inset: 14% 18%;
+  left: 12px;
+  bottom: 12px;
+  z-index: 4;
+  pointer-events: none;
+  max-width: calc(100% - 24px);
   border: 1px dashed rgba(148, 163, 184, 0.38);
   border-radius: 12px;
-  display: grid;
-  place-items: center;
-  color: #cbd5e1;
-  font-size: 12px;
-  text-align: center;
-  padding: 10px;
-  background: rgba(15, 23, 42, 0.36);
+  color: rgba(226, 232, 240, 0.92);
+  font-size: 11px;
+  text-align: left;
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, 0.22);
+  backdrop-filter: blur(2px);
 }
 
 .hammer-preview-media {
@@ -1159,6 +1162,16 @@ Guardrails:
   height: 100%;
   object-fit: contain;
   background: radial-gradient(circle at top, rgba(59, 130, 246, 0.14), rgba(2, 6, 23, 0.96));
+}
+
+.hammer-preview-media--audio {
+  width: 1px;
+  height: 1px;
+  left: -9999px;
+  right: auto;
+  bottom: auto;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .hammer-preview-meta,
