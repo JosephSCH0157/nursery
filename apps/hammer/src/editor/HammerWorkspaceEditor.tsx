@@ -1667,6 +1667,7 @@ export default function HammerWorkspaceEditor(
           activeRevision.id,
           {
             editor_session: preparedRequest.editor_session,
+            revision_transcript: { data: preparedTranscript.structuredTranscript },
             visual_placements: preparedRequest.visual_placements,
           },
         );
@@ -1675,10 +1676,12 @@ export default function HammerWorkspaceEditor(
           ok: true,
           visual_placements_path: preparedSaveRevision.data.revision.visual_placements_path,
           editor_session_path: preparedSaveRevision.data.revision.editor_session_path,
+          revision_transcript_path: preparedSaveRevision.data.revision.revision_transcript_path ?? null,
         });
         logTranscriptStage("persist:ok", {
           visual_placements_path: preparedSaveRevision.data.revision.visual_placements_path,
           editor_session_path: preparedSaveRevision.data.revision.editor_session_path,
+          revision_transcript_path: preparedSaveRevision.data.revision.revision_transcript_path ?? null,
         });
         setActiveRevision(preparedSaveRevision.data.revision);
         const effectiveCanonical = canonicalAfterSeal ?? activeCanonicalRecording ?? {
