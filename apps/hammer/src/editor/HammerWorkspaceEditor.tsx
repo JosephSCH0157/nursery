@@ -911,6 +911,18 @@ export default function HammerWorkspaceEditor(
           const revisionVisualTimeline = revisionArtifactsResult.ok ? revisionArtifactsResult.data.visual_timeline : null;
           const revisionVisualPlacements = revisionArtifactsResult.ok ? revisionArtifactsResult.data.visual_placements : null;
 
+          // --- Transcript Reuse Logic ---
+          let transcriptSource = "none";
+          let hydratedTranscript = null;
+          // Prefer revision transcript if valid, else canonical baseline
+          if (revisionTranscript && Array.isArray(revisionTranscript.segments) && revisionTranscript.segments.length > 0) {
+            hydratedTranscript = revisionTranscript;
+            transcriptSource = "revision_transcript";
+          } else if (canonicalTranscript && Array.isArray(canonicalTranscript.segments) && canonicalTranscript.segments.length > 0) {
+            hydratedTranscript = canonicalTranscript;
+            transcriptSource = "canonical_baseline";
+          }
+
           const nextHydratedSnapshot = buildHydratedSnapshot({
             target: persistenceTarget,
             canonicalRecording: sessionResult.data.canonical_recording,
@@ -918,13 +930,23 @@ export default function HammerWorkspaceEditor(
             canonicalTranscript,
             canonicalSpeakerMap,
             revisionEditorSession,
-            revisionTranscript,
+            revisionTranscript: hydratedTranscript,
             revisionAudioPolish,
             revisionVisualTimeline,
             revisionVisualPlacements,
           });
           hydratedSnapshot = nextHydratedSnapshot;
           setLoadedPersistenceSnapshot(nextHydratedSnapshot);
+
+          // --- Log transcript reuse/fallback decision ---
+          const needsAiFallback = transcriptSource === "none";
+          // eslint-disable-next-line no-console
+          console.info("[HammerTranscriptReuse]", {
+            transcriptSource,
+            needsAiFallback,
+            revisionTranscriptPresent: !!revisionTranscript,
+            canonicalTranscriptPresent: !!canonicalTranscript,
+          });
 
           const openHydration = hydrateHammerOpenLaunchContext({
             target: persistenceTarget,
