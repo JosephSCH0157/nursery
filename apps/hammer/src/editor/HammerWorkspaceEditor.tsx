@@ -21,6 +21,18 @@ import { deriveHammerSessionState } from "./hammerSessionState";
 import { deriveHammerIssueDiagnostics, type HammerIssueFixActionId } from "./hammerIssueDiagnostics";
 import { HammerWorkspaceDiagnosticsBanner } from "./HammerWorkspaceDiagnosticsBanner";
 import { HammerIngestDiagnosticsPanel } from "./HammerIngestDiagnosticsPanel";
+
+type HammerAiTranscriptRegenerationResult = {
+  finished_at: string;
+  transcript_source_before: string | null;
+  segment_count_before: number;
+  segment_count_after: number | null;
+  placements_refreshed: boolean;
+  placement_count_before: number | null;
+  placement_count_after: number | null;
+  uncertain_count_before: number | null;
+  uncertain_count_after: number | null;
+};
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import {
   buildHammerPersistenceSaveRequest,
@@ -30,7 +42,12 @@ import {
   readHammerPersistenceTarget,
   upsertHammerPresence,
 } from "../persistence/hammerPersistence";
-import type { HammerPersistenceSnapshot, HammerPersistenceTarget, HammerPresenceRow } from "../persistence/hammerPersistenceContract";
+import type {
+  HammerPersistedVisualPlacements,
+  HammerPersistenceSnapshot,
+  HammerPersistenceTarget,
+  HammerPresenceRow,
+} from "../persistence/hammerPersistenceContract";
 import {
   loadHammerCanonicalBaselineArtifacts,
   loadHammerRecordingRevisionArtifacts,
@@ -78,6 +95,7 @@ import {
   type HammerIngestDiagnosticV1,
   writeHammerIngestDiagnostics,
 } from "../diagnostics/hammerIngestDiagnostics";
+import { loadLatestHammerIngestDiagnostics } from "../diagnostics/hammerIngestDiagnosticsRead";
 import {
   computeIngestFinalStatus,
   evaluateRegisteredTranscriptPointer,
@@ -312,6 +330,29 @@ export default function HammerWorkspaceEditor(
   const [showPrepAiNotice, setShowPrepAiNotice] = useState(false);
   const [prepAiNoticeDontShowAgain, setPrepAiNoticeDontShowAgain] = useState(false);
   const [prepAiNoticeDecisionNonce, setPrepAiNoticeDecisionNonce] = useState(0);
+  const [regenAiTranscriptOpen, setRegenAiTranscriptOpen] = useState(false);
+  const [regenAiTranscriptRefreshPlacements, setRegenAiTranscriptRefreshPlacements] = useState(true);
+  const [regenAiTranscriptInFlight, setRegenAiTranscriptInFlight] = useState(false);
+  const [regenAiTranscriptError, setRegenAiTranscriptError] = useState<string | null>(null);
+  const [regenAiTranscriptResult, setRegenAiTranscriptResult] = useState<HammerAiTranscriptRegenerationResult | null>(null);
+  const [regenAiTranscriptCurrentIngest, setRegenAiTranscriptCurrentIngest] = useState<{
+    final_status: string | null;
+    selected_source: string | null;
+    segment_count: number | null;
+    timestamp: string | null;
+  } | null>(null);
+  const [regenAiTranscriptCurrentIngestLoading, setRegenAiTranscriptCurrentIngestLoading] = useState(false);
+  const [regenAiTranscriptCurrentIngestError, setRegenAiTranscriptCurrentIngestError] = useState<string | null>(null);
+  const [regenAiTranscriptCurrentIngestNonce, setRegenAiTranscriptCurrentIngestNonce] = useState(0);
+  const regenAiTranscriptRequestRef = useRef<{
+    token: number;
+    refreshPlacements: boolean;
+    transcriptSourceBefore: string | null;
+    segmentCountBefore: number;
+    placementCountBefore: number | null;
+    uncertainCountBefore: number | null;
+    previousAiFallbackRequested: boolean;
+  } | null>(null);
   const openedAtRef = useRef(new Date().toISOString());
   const ingestCorrelationIdRef = useRef<string | null>(null);
   const ingestDiagnosticRef = useRef<HammerIngestDiagnosticV1 | null>(null);
@@ -1319,6 +1360,76 @@ export default function HammerWorkspaceEditor(
     && hasCanonicalBasis;
 
   useEffect(() => {
+    if (!regenAiTranscriptOpen) return;
+    if (!persistenceTarget?.workpieceId) return;
+
+    let active = true;
+    setRegenAiTranscriptCurrentIngestLoading(true);
+    setRegenAiTranscriptCurrentIngestError(null);
+
+    void loadLatestHammerIngestDiagnostics(persistenceTarget.workpieceId)
+      .then((result) => {
+        if (!active) return;
+        if (!result.ok) {
+          setRegenAiTranscriptCurrentIngest(null);
+          setRegenAiTranscriptCurrentIngestError(result.error);
+          return;
+        }
+        if (!result.exists) {
+          setRegenAiTranscriptCurrentIngest(null);
+          return;
+        }
+
+        const diag = result.payload as unknown as Record<string, unknown> | null;
+        const finalStatus = typeof diag?.final_status === "string" ? diag.final_status : null;
+        const timestamp = typeof diag?.timestamp === "string" ? diag.timestamp : null;
+        const extra = (diag?.extra && typeof diag.extra === "object" && !Array.isArray(diag.extra))
+          ? diag.extra as Record<string, unknown>
+          : null;
+        const selectedSource = typeof extra?.selected_transcript_source === "string"
+          ? extra.selected_transcript_source
+          : null;
+
+        let segmentCount: number | null = null;
+        const evaluated = Array.isArray(diag?.transcript_sources_evaluated) ? diag.transcript_sources_evaluated as unknown[] : [];
+        const sourceKey = selectedSource === "registered_transcript"
+          ? "registered"
+          : selectedSource === "revision_transcript"
+            ? "revision"
+            : selectedSource === "canonical_baseline"
+              ? "baseline"
+              : null;
+        if (sourceKey) {
+          for (const entry of evaluated) {
+            if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+            const row = entry as Record<string, unknown>;
+            if (row.source !== sourceKey) continue;
+            const count = row.segment_count;
+            if (typeof count === "number" && Number.isFinite(count)) {
+              segmentCount = Math.trunc(count);
+            }
+            break;
+          }
+        }
+
+        setRegenAiTranscriptCurrentIngest({
+          final_status: finalStatus,
+          selected_source: selectedSource,
+          segment_count: segmentCount,
+          timestamp,
+        });
+      })
+      .finally(() => {
+        if (!active) return;
+        setRegenAiTranscriptCurrentIngestLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [persistenceTarget?.workpieceId, regenAiTranscriptOpen, regenAiTranscriptResult?.finished_at, regenAiTranscriptCurrentIngestNonce]);
+
+  useEffect(() => {
     if (persistenceMode !== "canonical" || !persistenceTarget || !hydrationReady) {
       return;
     }
@@ -1332,7 +1443,16 @@ export default function HammerWorkspaceEditor(
       effectiveLaunchContext,
       loadedPersistenceSnapshot,
     );
-    if (openDecision.action === "reuse") {
+    const regenRequest = regenAiTranscriptRequestRef.current;
+    const effectiveOpenDecision = regenRequest
+      ? {
+        action: "prepare" as const,
+        state: createHammerPrepState("preparing", "transcribing_audio"),
+        reason: "manual_regenerate_ai_transcript",
+      }
+      : openDecision;
+
+    if (effectiveOpenDecision.action === "reuse") {
       // Avoid keeping a stale "prep_failed" state when we have a reusable transcript.
       // This can happen when a previous attempt failed but a new hydration finds transcript truth.
       if (prepState.status === "prep_failed") {
@@ -1341,7 +1461,7 @@ export default function HammerWorkspaceEditor(
         setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
       }
       if (!effectiveLaunchContext || effectiveLaunchContext.transcript.kind !== "tongs-stub") {
-        setPrepState(openDecision.state);
+        setPrepState(effectiveOpenDecision.state);
         setShowPreparedHandoff(true);
         return;
       }
@@ -1369,8 +1489,8 @@ export default function HammerWorkspaceEditor(
         console.log("[HammerPrep] trigger_reason", {
           instance_id: hammerRuntimeInstanceIdRef.current,
           tick: triggerTick,
-          action: openDecision.action,
-          reason: openDecision.reason,
+          action: effectiveOpenDecision.action,
+          reason: effectiveOpenDecision.reason,
           run_key: reuseRunKey,
         });
         // eslint-disable-next-line no-console
@@ -1395,8 +1515,8 @@ export default function HammerWorkspaceEditor(
       if (prepInFlightRunKeyRef.current) {
         logPrepDebug("[HammerPrep] skip_trigger_in_flight", {
           tick: triggerTick,
-          action: openDecision.action,
-          reason: openDecision.reason,
+          action: effectiveOpenDecision.action,
+          reason: effectiveOpenDecision.reason,
           run_key: reuseRunKey,
           in_flight_run_key: prepInFlightRunKeyRef.current,
         });
@@ -1517,8 +1637,8 @@ export default function HammerWorkspaceEditor(
       void runReuse();
       return;
     }
-    if (openDecision.action === "blocked" || !effectiveLaunchContext) {
-      setPrepState(openDecision.state);
+    if (effectiveOpenDecision.action === "blocked" || !effectiveLaunchContext) {
+      setPrepState(effectiveOpenDecision.state);
       return;
     }
 
@@ -1605,8 +1725,8 @@ export default function HammerWorkspaceEditor(
       console.log("[HammerPrep] trigger_reason", {
         instance_id: hammerRuntimeInstanceIdRef.current,
         tick: triggerTick,
-        action: openDecision.action,
-        reason: openDecision.reason,
+        action: effectiveOpenDecision.action,
+        reason: effectiveOpenDecision.reason,
         run_key: prepRunKey,
       });
       // eslint-disable-next-line no-console
@@ -1634,8 +1754,8 @@ export default function HammerWorkspaceEditor(
     if (prepInFlightRunKeyRef.current) {
       logPrepDebug("[HammerPrep] skip_trigger_in_flight", {
         tick: triggerTick,
-        action: openDecision.action,
-        reason: openDecision.reason,
+        action: effectiveOpenDecision.action,
+        reason: effectiveOpenDecision.reason,
         run_key: prepRunKey,
         in_flight_run_key: prepInFlightRunKeyRef.current,
       });
@@ -1662,6 +1782,12 @@ export default function HammerWorkspaceEditor(
       setShowPreparedHandoff(false);
       setPrepState(createHammerPrepState("preparing", "loading_context"));
       setPrepFailureKind(null);
+
+      const regenContext = regenAiTranscriptRequestRef.current;
+      if (regenContext) {
+        regenAiTranscriptRequestRef.current = null;
+      }
+      const regenRefreshPlacements = regenContext?.refreshPlacements ?? true;
 
       const transcriptPipelineStartedAt = typeof performance !== "undefined" ? performance.now() : null;
       const transcriptElapsedMs = (): number | null => (
@@ -1694,6 +1820,8 @@ export default function HammerWorkspaceEditor(
         media_kind: prepSource.mediaRef.kind,
         local_relpath: prepSource.local_relpath,
         canonical_workpiece_path: prepSource.canonical_workpiece_path,
+        manual_regenerate_ai_transcript: Boolean(regenContext),
+        refresh_visual_placements: regenContext ? regenRefreshPlacements : null,
       });
 
       let outcome: "prepared" | "failed" | "non_ai_missing" | "error" = "error";
@@ -2142,31 +2270,44 @@ export default function HammerWorkspaceEditor(
         nextLaunchContext = applyPreparedTranscriptToLaunchContext(effectiveLaunchContext, preparedTranscript);
         if (!isPrepExecutionActive(executionId)) return;
 
-        setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
-        const visualPackageSpan = run.span("visual_package:load");
-        const visualPackageResult = await loadHammerWorkpieceVisualPackage(
-          nextLaunchContext.workpiece_id,
-          nextLaunchContext.workspace_id,
-        );
-        visualPackageSpan.end({ ok: visualPackageResult.ok, status: visualPackageResult.status });
-        if (!isPrepExecutionActive(executionId)) return;
-
-        const visualPlacements = visualPackageResult.ok
-          ? deriveHammerVisualPlacements({
-            transcriptSourceId: preparedTranscript.transcriptId,
-            transcriptSegments: preparedTranscript.turns,
-            visualPackage: visualPackageResult.data,
-          })
-          : buildUnavailableHammerVisualPlacements(
-            preparedTranscript.transcriptId,
-            `visual_package_unavailable:${visualPackageResult.status}`,
+        let placementsRefreshed = false;
+        let visualPlacementsToPersist: HammerPersistedVisualPlacements | null = null;
+        if (regenContext && !regenRefreshPlacements) {
+          logTranscriptStage("visuals:skipped", { note: "Preserving existing visual placements by request." }, "warn");
+        } else {
+          setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
+          const visualPackageSpan = run.span("visual_package:load");
+          const visualPackageResult = await loadHammerWorkpieceVisualPackage(
+            nextLaunchContext.workpiece_id,
+            nextLaunchContext.workspace_id,
           );
+          visualPackageSpan.end({ ok: visualPackageResult.ok, status: visualPackageResult.status });
+          if (!isPrepExecutionActive(executionId)) return;
+
+          if (visualPackageResult.ok) {
+            visualPlacementsToPersist = deriveHammerVisualPlacements({
+              transcriptSourceId: preparedTranscript.transcriptId,
+              transcriptSegments: preparedTranscript.turns,
+              visualPackage: visualPackageResult.data,
+            });
+            placementsRefreshed = true;
+          } else if (regenContext) {
+            // For manual regeneration, never wipe a user's existing placements just because refresh failed.
+            logTranscriptStage("visuals:preserved_after_error", { status: visualPackageResult.status }, "warn");
+            visualPlacementsToPersist = null;
+          } else {
+            visualPlacementsToPersist = buildUnavailableHammerVisualPlacements(
+              preparedTranscript.transcriptId,
+              `visual_package_unavailable:${visualPackageResult.status}`,
+            );
+          }
+        }
 
         const preparedRequest = buildHammerPrepPersistenceSaveRequest({
           launchContext: nextLaunchContext,
           status: "prepared",
           preparedTranscript,
-          visualPlacements,
+          ...(visualPlacementsToPersist ? { visualPlacements: visualPlacementsToPersist } : {}),
         });
         if (!activeRevision) {
           throw new Error("Hammer prep requires an active revision.");
@@ -2179,7 +2320,7 @@ export default function HammerWorkspaceEditor(
           {
             editor_session: preparedRequest.editor_session,
             revision_transcript: { data: preparedTranscript.structuredTranscript },
-            visual_placements: preparedRequest.visual_placements,
+            ...(preparedRequest.visual_placements ? { visual_placements: preparedRequest.visual_placements } : {}),
           },
         );
         if (!preparedSaveRevision.ok) throw new Error(preparedSaveRevision.error);
@@ -2195,6 +2336,30 @@ export default function HammerWorkspaceEditor(
           revision_transcript_path: preparedSaveRevision.data.revision.revision_transcript_path ?? null,
         });
         setActiveRevision(preparedSaveRevision.data.revision);
+        if (regenContext) {
+          const finishedAt = new Date().toISOString();
+          const placementCountAfter = placementsRefreshed && visualPlacementsToPersist
+            ? visualPlacementsToPersist.placements.length
+            : regenContext.placementCountBefore;
+          const uncertainCountAfter = placementsRefreshed && visualPlacementsToPersist
+            ? visualPlacementsToPersist.placements.reduce(
+              (count, placement) => count + (placement.status === "uncertain" ? 1 : 0),
+              0,
+            )
+            : regenContext.uncertainCountBefore;
+          setRegenAiTranscriptResult({
+            finished_at: finishedAt,
+            transcript_source_before: regenContext.transcriptSourceBefore,
+            segment_count_before: regenContext.segmentCountBefore,
+            segment_count_after: preparedTranscript.turns.length,
+            placements_refreshed: placementsRefreshed,
+            placement_count_before: regenContext.placementCountBefore,
+            placement_count_after: placementCountAfter,
+            uncertain_count_before: regenContext.uncertainCountBefore,
+            uncertain_count_after: uncertainCountAfter,
+          });
+          setRegenAiTranscriptError(null);
+        }
         const effectiveCanonical = canonicalAfterSeal ?? activeCanonicalRecording ?? {
           id: "canonical_missing",
           workspace_id: persistenceTarget.workspaceId,
@@ -2217,7 +2382,7 @@ export default function HammerWorkspaceEditor(
           revisionTranscript: null,
           revisionAudioPolish: null,
           revisionVisualTimeline: null,
-          revisionVisualPlacements: visualPlacements,
+          revisionVisualPlacements: visualPlacementsToPersist ?? loadedPersistenceSnapshot?.visual_placements.data ?? null,
         });
         setLoadedPersistenceSnapshot(hydratedAfterPrep);
         finalSnapshot = hydratedAfterPrep;
@@ -2273,6 +2438,20 @@ export default function HammerWorkspaceEditor(
       } catch (error) {
         if (!isPrepExecutionActive(executionId)) return;
         const message = toErrorMessage(error, "Hammer could not prepare the transcript.");
+        if (regenContext) {
+          setRegenAiTranscriptError(message);
+          setRegenAiTranscriptResult({
+            finished_at: new Date().toISOString(),
+            transcript_source_before: regenContext.transcriptSourceBefore,
+            segment_count_before: regenContext.segmentCountBefore,
+            segment_count_after: null,
+            placements_refreshed: false,
+            placement_count_before: regenContext.placementCountBefore,
+            placement_count_after: regenContext.placementCountBefore,
+            uncertain_count_before: regenContext.uncertainCountBefore,
+            uncertain_count_after: regenContext.uncertainCountBefore,
+          });
+        }
         setPrepState(createHammerPrepState("prep_failed", null, message));
         setShowPreparedHandoff(false);
         setPrepFailureKind("ai_failed");
@@ -2296,6 +2475,10 @@ export default function HammerWorkspaceEditor(
           // Keep the user-facing failure stable even if persistence also failed.
         }
       } finally {
+        if (regenContext) {
+          setRegenAiTranscriptInFlight(false);
+          setPrepAiFallbackRequested(regenContext.previousAiFallbackRequested);
+        }
         if (ingestDiagnosticRef.current && persistenceTarget) {
           const visualStatus = finalSnapshot?.visual_placements.data?.status ?? null;
           const audioStatus = finalSnapshot?.audio_polish.data?.status ?? null;
@@ -2644,6 +2827,17 @@ export default function HammerWorkspaceEditor(
   const canRenderPrepAiNoticeSettingsAction = Boolean(props.onRequestAiSettings);
   const shouldRenderEditor = persistenceMode !== "canonical" || prepState.status === "prepared";
   const visualPlacementData = loadedPersistenceSnapshot?.visual_placements.data ?? null;
+  const visualPlacementCounts = useMemo(() => {
+    if (!visualPlacementData) {
+      return { total: null as number | null, uncertain: null as number | null };
+    }
+    const total = visualPlacementData.placements.length;
+    const uncertain = visualPlacementData.placements.reduce(
+      (count, placement) => count + (placement.status === "uncertain" ? 1 : 0),
+      0,
+    );
+    return { total, uncertain };
+  }, [visualPlacementData]);
   const visualTimelineData = useMemo(
     () => loadHammerVisualTimelineStateFromSnapshot(loadedPersistenceSnapshot),
     [loadedPersistenceSnapshot],
@@ -2774,6 +2968,75 @@ export default function HammerWorkspaceEditor(
     setTranscriptPrepPreferenceNonce,
     bumpPrepAttemptNonce,
     resetPrepRunKey,
+  ]);
+
+  const openRegenAiTranscriptModal = useCallback((): void => {
+    setRegenAiTranscriptError(null);
+    setRegenAiTranscriptOpen(true);
+  }, []);
+
+  const startRegenAiTranscript = useCallback((): void => {
+    if (!canPersistCanonicalState || !persistenceTarget || !effectiveLaunchContext) {
+      setRegenAiTranscriptError("Hammer is not ready to regenerate a transcript yet. Wait for session hydration to finish, then retry.");
+      setRegenAiTranscriptOpen(true);
+      return;
+    }
+    if (regenAiTranscriptInFlight) return;
+
+    const structuredSegments = loadedPersistenceSnapshot?.structured_transcript.data?.segments ?? null;
+    const stubSegments = effectiveLaunchContext.transcript.kind === "tongs-stub"
+      ? effectiveLaunchContext.transcript.segments
+      : null;
+    const segmentCountBefore = structuredSegments?.length ?? stubSegments?.length ?? 0;
+
+    const placements = loadedPersistenceSnapshot?.visual_placements.data?.placements ?? null;
+    const placementCountBefore = placements ? placements.length : null;
+    const uncertainCountBefore = placements
+      ? placements.reduce((count, placement) => count + (placement.status === "uncertain" ? 1 : 0), 0)
+      : null;
+
+    const transcriptSourceBefore = regenAiTranscriptCurrentIngest?.selected_source
+      ?? (structuredSegments ? "prepared_transcript" : stubSegments ? "registered_transcript" : null);
+
+    regenAiTranscriptRequestRef.current = {
+      token: Date.now(),
+      refreshPlacements: regenAiTranscriptRefreshPlacements,
+      transcriptSourceBefore,
+      segmentCountBefore,
+      placementCountBefore,
+      uncertainCountBefore,
+      previousAiFallbackRequested: prepAiFallbackRequested,
+    };
+
+    setRegenAiTranscriptResult(null);
+    setRegenAiTranscriptError(null);
+    setRegenAiTranscriptInFlight(true);
+    setPrepAiFallbackRequested(true);
+    beginPrepExecution();
+    resetPrepRunKey("manual_regenerate_ai_transcript", {
+      refresh_placements: regenAiTranscriptRefreshPlacements,
+      transcript_source_before: transcriptSourceBefore,
+      segment_count_before: segmentCountBefore,
+    });
+    setShowPreparedHandoff(false);
+    setPrepState(createHammerPrepState("preparing", "loading_context"));
+    bumpPrepAttemptNonce("manual_regenerate_ai_transcript", { refreshPlacements: regenAiTranscriptRefreshPlacements });
+  }, [
+    beginPrepExecution,
+    bumpPrepAttemptNonce,
+    canPersistCanonicalState,
+    effectiveLaunchContext,
+    loadedPersistenceSnapshot?.structured_transcript.data?.segments,
+    loadedPersistenceSnapshot?.visual_placements.data?.placements,
+    persistenceTarget,
+    prepAiFallbackRequested,
+    regenAiTranscriptCurrentIngest?.selected_source,
+    regenAiTranscriptInFlight,
+    regenAiTranscriptRefreshPlacements,
+    resetPrepRunKey,
+    setPrepAiFallbackRequested,
+    setPrepState,
+    setShowPreparedHandoff,
   ]);
 
   // Note: We intentionally do not auto-apply saved transcript-prep preferences (non-AI missing) via an effect.
@@ -3234,6 +3497,199 @@ export default function HammerWorkspaceEditor(
               onRunFixAll={runDiagnosticsFixAll}
             />
           </div>
+          <div className="hammer-prep-shell__session-actions">
+            <div className="hammer-prep-shell__session-actions-summary">
+              <span>
+                Transcript: {transcriptSegmentCount} segments
+              </span>
+              <span>
+                Visual placements: {visualPlacementCounts.total ?? "—"}
+                {typeof visualPlacementCounts.uncertain === "number"
+                  ? ` (${visualPlacementCounts.uncertain} uncertain)`
+                  : ""}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="hammer-prep-shell__session-action"
+              onClick={openRegenAiTranscriptModal}
+              disabled={!canPersistCanonicalState || regenAiTranscriptInFlight}
+              aria-label="Regenerate AI transcript"
+            >
+              {regenAiTranscriptInFlight ? "Regenerating AI Transcript…" : "Regenerate AI Transcript"}
+            </button>
+          </div>
+
+          {regenAiTranscriptOpen ? (
+            <div className="hammer-prep-shell__overlay" role="presentation">
+              <section
+                className="hammer-prep-shell__modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="hammer-regen-ai-transcript-title"
+              >
+                <div className="hammer-prep-shell__content">
+                  <h2 id="hammer-regen-ai-transcript-title">Regenerate AI Transcript</h2>
+                  <p>
+                    Generates a fresh AI transcript and replaces the current prepared transcript for this workpiece.
+                  </p>
+
+                  <div className="hammer-prep-shell__note">
+                    <strong>Scope</strong>
+                    <div>Replace current prepared transcript.</div>
+                    <div>
+                      {regenAiTranscriptRefreshPlacements
+                        ? "Refresh visual placements after transcript update."
+                        : "Keep existing visual placements (may become stale)."}
+                    </div>
+                  </div>
+
+                  <dl className="hammer-ingest-diagnostics__grid">
+                    <div>
+                      <dt>Current ingest result</dt>
+                      <dd>
+                        {regenAiTranscriptCurrentIngestLoading ? "Loading…" : (regenAiTranscriptCurrentIngest?.final_status ?? "—")}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Current transcript source</dt>
+                      <dd>
+                        {regenAiTranscriptCurrentIngestLoading ? "Loading…" : (regenAiTranscriptCurrentIngest?.selected_source ?? "—")}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Current segments</dt>
+                      <dd>
+                        {typeof regenAiTranscriptCurrentIngest?.segment_count === "number"
+                          ? regenAiTranscriptCurrentIngest.segment_count
+                          : transcriptSegmentCount}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Current placements</dt>
+                      <dd>
+                        {visualPlacementCounts.total ?? "—"}
+                        {typeof visualPlacementCounts.uncertain === "number"
+                          ? ` (${visualPlacementCounts.uncertain} uncertain)`
+                          : ""}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <div className="hammer-prep-shell__note">
+                    <label className="hammer-prep-shell__checkbox">
+                      <input
+                        type="checkbox"
+                        checked={regenAiTranscriptRefreshPlacements}
+                        onChange={(event) => setRegenAiTranscriptRefreshPlacements(event.target.checked)}
+                        disabled={regenAiTranscriptInFlight}
+                      />
+                      <span>Refresh visual placements after transcript update</span>
+                    </label>
+                  </div>
+
+                  {(regenAiTranscriptCurrentIngest?.final_status === "prepared_transcript"
+                    || Boolean(loadedPersistenceSnapshot?.structured_transcript.data)) ? (
+                      <div className="hammer-prep-shell__note hammer-prep-shell__note--warning">
+                        You are about to overwrite an existing prepared transcript.
+                      </div>
+                    ) : null}
+
+                  {!regenAiTranscriptRefreshPlacements ? (
+                    <div className="hammer-prep-shell__note hammer-prep-shell__note--warning">
+                      Placements will likely remain stale until you refresh them.
+                    </div>
+                  ) : null}
+
+                  {regenAiTranscriptCurrentIngestError ? (
+                    <div className="hammer-prep-shell__note">
+                      Failed to load ingest diagnostics: {regenAiTranscriptCurrentIngestError}
+                    </div>
+                  ) : null}
+
+                  {regenAiTranscriptError ? (
+                    <div className="hammer-prep-shell__note hammer-prep-shell__note--warning">
+                      {regenAiTranscriptError}
+                    </div>
+                  ) : null}
+
+                  {regenAiTranscriptResult ? (
+                    <div className="hammer-prep-shell__note">
+                      <strong>Result</strong>
+                      <div>
+                        Segments: {regenAiTranscriptResult.segment_count_before}
+                        {" → "}
+                        {typeof regenAiTranscriptResult.segment_count_after === "number"
+                          ? regenAiTranscriptResult.segment_count_after
+                          : "—"}
+                      </div>
+                      <div>
+                        Placements refreshed: {regenAiTranscriptResult.placements_refreshed ? "Yes" : "No"}
+                      </div>
+                      {typeof regenAiTranscriptResult.uncertain_count_before === "number"
+                        && typeof regenAiTranscriptResult.uncertain_count_after === "number" ? (
+                          <div>
+                            Uncertain: {regenAiTranscriptResult.uncertain_count_before}
+                            {" → "}
+                            {regenAiTranscriptResult.uncertain_count_after}
+                          </div>
+                        ) : null}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="hammer-prep-shell__actions">
+                  <button
+                    type="button"
+                    className="hammer-prep-shell__action-button"
+                    onClick={() => setRegenAiTranscriptCurrentIngestNonce((value) => value + 1)}
+                    disabled={regenAiTranscriptInFlight || regenAiTranscriptCurrentIngestLoading}
+                  >
+                    Refresh status
+                  </button>
+                  {regenAiTranscriptResult ? (
+                    <button
+                      type="button"
+                      className="hammer-prep-shell__action-button"
+                      onClick={() => {
+                        const payload = {
+                          finished_at: regenAiTranscriptResult.finished_at,
+                          transcript_source_before: regenAiTranscriptResult.transcript_source_before,
+                          segment_count_before: regenAiTranscriptResult.segment_count_before,
+                          segment_count_after: regenAiTranscriptResult.segment_count_after,
+                          placements_refreshed: regenAiTranscriptResult.placements_refreshed,
+                          placement_count_before: regenAiTranscriptResult.placement_count_before,
+                          placement_count_after: regenAiTranscriptResult.placement_count_after,
+                          uncertain_count_before: regenAiTranscriptResult.uncertain_count_before,
+                          uncertain_count_after: regenAiTranscriptResult.uncertain_count_after,
+                        };
+                        void navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+                      }}
+                    >
+                      Copy result
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="hammer-prep-shell__action-button"
+                    onClick={() => setRegenAiTranscriptOpen(false)}
+                    disabled={regenAiTranscriptInFlight}
+                  >
+                    {regenAiTranscriptResult ? "Close" : "Cancel"}
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-prep-shell__action-button hammer-prep-shell__action-button--primary"
+                    onClick={startRegenAiTranscript}
+                    disabled={regenAiTranscriptInFlight}
+                  >
+                    Regenerate AI Transcript
+                  </button>
+                </div>
+              </section>
+            </div>
+          ) : null}
+
           <HammerIngestDiagnosticsPanel workpieceId={persistenceTarget?.workpieceId ?? null} />
           {transcriptPrepPreferenceNotice ? (
             <div className="hammer-prep-shell__preference-notice">
