@@ -158,6 +158,19 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const setStudioRackOpen = ctx.setStudioRackOpen as any;
   const setThumbnailPromptDraft = ctx.setThumbnailPromptDraft as any;
   const setTranscriptTimingHint = ctx.setTranscriptTimingHint as any;
+  const hasSilenceSuggestionAnalysis = ctx.hasSilenceSuggestionAnalysis as boolean;
+  const silenceSuggestionCountForGaps = ctx.silenceSuggestionCount as number;
+  const silenceCutSuggestions = ctx.silenceCutSuggestions as Array<{ id: string }> | null;
+  const visibleSilenceCutSuggestions = ctx.visibleSilenceCutSuggestions as Array<{
+    id: string;
+    startSec: number;
+    endSec: number;
+    durationSec: number;
+    reason: string;
+  }>;
+  const acceptSilenceCutSuggestion = ctx.acceptSilenceCutSuggestion as (id: string) => void;
+  const dismissSilenceCutSuggestion = ctx.dismissSilenceCutSuggestion as (id: string) => void;
+  const seekPlayheadToTime = ctx.seekPlayheadToTime as ((nextTimeSec: number, origin: "timeline" | "playhead", options?: { snapToBoundary?: boolean }) => void) | null;
   const setVideoSnapMode = ctx.setVideoSnapMode as any;
   const setVisualBackgroundBlur = ctx.setVisualBackgroundBlur as any;
   const setVisualBackgroundBlurDebugMask = ctx.setVisualBackgroundBlurDebugMask as any;
@@ -732,6 +745,69 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                             ? "No silence gaps exceed the selected threshold."
                             : `${deadAirAnalysis.eligibleGapCount} gap${deadAirAnalysis.eligibleGapCount === 1 ? "" : "s"} exceed ${deadAirAnalysis.thresholdSec.toFixed(1)}s; applying would remove ${deadAirAnalysis.totalRemovableSec.toFixed(1)}s of silence.`}
                       </div>
+
+                      {hasSilenceSuggestionAnalysis ? (
+                        <details className="hammer-timeline-suggestion-list" open>
+                          <summary className="hammer-timeline-suggestion-list__meta">
+                            <span>
+                              Suggested silence cuts: {silenceSuggestionCountForGaps} visible
+                              {` · ${(silenceCutSuggestions?.length ?? 0)} total from segmentation`}
+                            </span>
+                            <span>Accept creates a real cut. Dismiss hides it for this session.</span>
+                          </summary>
+                          {visibleSilenceCutSuggestions.length > 0 ? (
+                            <div className="hammer-timeline-suggestion-list__items">
+                              {visibleSilenceCutSuggestions.map((suggestion) => (
+                                <article key={suggestion.id} className="hammer-timeline-suggestion-card">
+                                  <div className="hammer-timeline-suggestion-card__copy">
+                                    <strong>
+                                      Cut silence {suggestion.startSec.toFixed(1)}s-{suggestion.endSec.toFixed(1)}s
+                                    </strong>
+                                    <span>
+                                      {suggestion.durationSec.toFixed(1)}s pause · {suggestion.reason === "long_silence" ? "long silence" : suggestion.reason}
+                                    </span>
+                                  </div>
+                                  <div className="hammer-timeline-suggestion-card__actions">
+                                    {typeof seekPlayheadToTime === "function" ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setFocusOverride("time-focus");
+                                          seekPlayheadToTime(suggestion.startSec, "timeline", { snapToBoundary: true });
+                                        }}
+                                      >
+                                        Jump
+                                      </button>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setFocusOverride("tool-focus");
+                                        acceptSilenceCutSuggestion(suggestion.id);
+                                      }}
+                                    >
+                                      Accept
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setFocusOverride("tool-focus");
+                                        dismissSilenceCutSuggestion(suggestion.id);
+                                      }}
+                                    >
+                                      Dismiss
+                                    </button>
+                                  </div>
+                                </article>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="hammer-timeline-suggestion-list__empty">
+                              No long silence suggestions remain above the threshold.
+                            </div>
+                          )}
+                        </details>
+                      ) : null}
                     </div>
                   </section>
                 ) : (
@@ -2937,7 +3013,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                       <div className="hammer-caption-manual-summary">{captionEditedChangeSummary}</div>
                     ) : null}
                     <div className="hammer-tool-hint">
-                      Export basis authority: captions follow Export Basis, not current Viewing layer.
+                      Captions follow Export Basis (Source Desk → Advanced), not the transcript editor view.
                     </div>
                     <div className="hammer-tool-hint">Release prep caption source: {captionReleaseSourceLabel}</div>
                     {captionBuildState ? (
@@ -3562,7 +3638,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                       Requested but not yet rendered in v1: {studioRackRenderDeferredModules.join(", ")}
                     </div>
                   ) : null}
-                  <div className="hammer-tool-hint">Layer selection lives in the Layer State block.</div>
+                  <div className="hammer-tool-hint">Layer selection lives in Source Desk → Advanced.</div>
                   {releasePrepLoading ? (
                     <div className="hammer-tool-hint">Checking Quench packet state...</div>
                   ) : null}

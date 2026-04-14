@@ -48,19 +48,6 @@ export type HammerWorkspaceShellTimelineDockVM = {
   applyAudioCutSelection: () => void;
   clearAudioCutSelection: () => void;
 
-  hasSilenceSuggestionAnalysis: boolean;
-  silenceSuggestionCount: number;
-  silenceCutSuggestions: any[];
-  visibleSilenceCutSuggestions: Array<{
-    id: string;
-    startSec: number;
-    endSec: number;
-    durationSec: number;
-    reason: string;
-  }>;
-  acceptSilenceCutSuggestion: (id: string) => void;
-  dismissSilenceCutSuggestion: (id: string) => void;
-
   jumpToMarkerById: (id: string) => void;
   removeMarker: (id: string) => void;
 
@@ -144,12 +131,6 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
     markAudioCutBoundary,
     applyAudioCutSelection,
     clearAudioCutSelection,
-    hasSilenceSuggestionAnalysis,
-    silenceSuggestionCount,
-    silenceCutSuggestions,
-    visibleSilenceCutSuggestions,
-    acceptSilenceCutSuggestion,
-    dismissSilenceCutSuggestion,
     jumpToMarkerById,
     removeMarker,
     moveSegment,
@@ -299,45 +280,6 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
             </button>
           </div>
         </section>
-        {hasSilenceSuggestionAnalysis ? (
-          <section className="hammer-timeline-suggestion-list" aria-label="Silence cut suggestions">
-            <div className="hammer-timeline-suggestion-list__meta">
-              <span>
-                Silence suggestions: {silenceSuggestionCount} visible
-                {` · ${silenceCutSuggestions.length} total from segmentation`}
-              </span>
-              <span>Conservative only. Accept creates a real cut. Dismiss hides it for this session.</span>
-            </div>
-            {visibleSilenceCutSuggestions.length > 0 ? (
-              <div className="hammer-timeline-suggestion-list__items">
-                {visibleSilenceCutSuggestions.map((suggestion) => (
-                  <article key={suggestion.id} className="hammer-timeline-suggestion-card">
-                    <div className="hammer-timeline-suggestion-card__copy">
-                      <strong>
-                        Cut silence {suggestion.startSec.toFixed(1)}s-{suggestion.endSec.toFixed(1)}s
-                      </strong>
-                      <span>
-                        {suggestion.durationSec.toFixed(1)}s pause · {suggestion.reason === "long_silence" ? "long silence" : suggestion.reason}
-                      </span>
-                    </div>
-                    <div className="hammer-timeline-suggestion-card__actions">
-                      <button type="button" onClick={() => acceptSilenceCutSuggestion(suggestion.id)}>
-                        Accept
-                      </button>
-                      <button type="button" onClick={() => dismissSilenceCutSuggestion(suggestion.id)}>
-                        Dismiss
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="hammer-timeline-suggestion-list__empty">
-                No long silence suggestions remain above the threshold.
-              </div>
-            )}
-          </section>
-        ) : null}
         <input
           type="range"
           min={0}

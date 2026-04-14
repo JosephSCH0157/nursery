@@ -3137,6 +3137,11 @@ export default function HammerWorkspaceEditor(
     setShowPreparedHandoff(false);
   }
 
+  function handleReturnToTranscriptEditing(): void {
+    setRegenAiTranscriptOpen(false);
+    handlePreparedHandoffAction("review_transcript");
+  }
+
   function handlePreparedSummaryClick(summaryId: "transcript" | "visuals" | "audio"): void {
     if (summaryId === "transcript") {
       handlePreparedHandoffAction("review_transcript");
@@ -3638,98 +3643,174 @@ export default function HammerWorkspaceEditor(
                     </div>
                   ) : null}
 
-                  {regenAiTranscriptResult ? (
-                    <div className="hammer-prep-shell__note">
-                      <strong>Result</strong>
-                      <div>
-                        Segments: <strong>{regenAiTranscriptResult.segment_count_before}</strong>
-                        {" → "}
-                        <strong>
-                          {typeof regenAiTranscriptResult.segment_count_after === "number"
-                            ? regenAiTranscriptResult.segment_count_after
-                            : "—"}
-                        </strong>
-                      </div>
-                      <div>
-                        Placements refreshed: {regenAiTranscriptResult.placements_refreshed ? "Yes" : "No"}
-                      </div>
-                      {typeof regenAiTranscriptResult.uncertain_count_before === "number"
-                        && typeof regenAiTranscriptResult.uncertain_count_after === "number" ? (
-                          <div>
-                            Uncertain: {regenAiTranscriptResult.uncertain_count_before}
+                  {regenAiTranscriptResult ? (() => {
+                    const ok = typeof regenAiTranscriptResult.segment_count_after === "number" && !regenAiTranscriptError;
+                    const uncertainBeforeN = typeof regenAiTranscriptResult.uncertain_count_before === "number"
+                      ? regenAiTranscriptResult.uncertain_count_before
+                      : null;
+                    const uncertainAfterN = typeof regenAiTranscriptResult.uncertain_count_after === "number"
+                      ? regenAiTranscriptResult.uncertain_count_after
+                      : null;
+                    const hasUncertainDelta = uncertainBeforeN != null && uncertainAfterN != null;
+                    const uncertainDrop = hasUncertainDelta ? uncertainBeforeN - uncertainAfterN : null;
+                    const uncertainMaterial = typeof uncertainDrop === "number"
+                      && uncertainDrop > 0
+                      && (
+                        uncertainDrop >= 5
+                        || (uncertainBeforeN != null && uncertainBeforeN > 0 && (uncertainDrop / Math.max(1, uncertainBeforeN)) >= 0.2)
+                      );
+                    const nextStepLine = ok
+                      ? (regenAiTranscriptResult.placements_refreshed && uncertainMaterial
+                        ? "Transcript and placement data are updated. You’re good to continue editing."
+                        : regenAiTranscriptResult.placements_refreshed
+                          ? "You can now continue editing your transcript or timeline."
+                          : "You can continue editing now, or refresh placements separately if needed.")
+                      : null;
+
+                    return (
+                      <div className={ok ? "hammer-prep-shell__note hammer-prep-shell__note--success" : "hammer-prep-shell__note"}>
+                        {ok ? <strong>Transcript regenerated successfully</strong> : <strong>Result</strong>}
+                        <ul className="hammer-prep-shell__result-list">
+                          <li>
+                            Segments: <strong>{regenAiTranscriptResult.segment_count_before}</strong>
                             {" → "}
-                            {regenAiTranscriptResult.uncertain_count_after}
+                            <strong>{regenAiTranscriptResult.segment_count_after}</strong>
+                          </li>
+                          {regenAiTranscriptResult.placements_refreshed ? (
+                            <li>Visual placements refreshed: <strong>Yes</strong></li>
+                          ) : (
+                            <li>Visual placements refreshed: <strong>No</strong></li>
+                          )}
+                          {hasUncertainDelta ? (
+                            <li>
+                              Uncertain placements: <strong>{uncertainBeforeN}</strong>
+                              {" → "}
+                              <strong>{uncertainAfterN}</strong>
+                            </li>
+                          ) : null}
+                        </ul>
+                        {ok && nextStepLine ? (
+                          <div className="hammer-prep-shell__note-next">
+                            {nextStepLine}
                           </div>
                         ) : null}
-                    </div>
-                  ) : null}
+                      </div>
+                    );
+                  })() : null}
                 </div>
 
                 <div className="hammer-prep-shell__actions">
-                  <button
-                    type="button"
-                    className="hammer-prep-shell__action-button"
-                    onClick={() => setRegenAiTranscriptCurrentIngestNonce((value) => value + 1)}
-                    disabled={regenAiTranscriptInFlight || regenAiTranscriptCurrentIngestLoading}
-                  >
-                    Refresh status
-                  </button>
-                  <button
-                    type="button"
-                    className="hammer-prep-shell__action-button hammer-prep-shell__action-button--primary"
-                    onClick={() => {
-                      if (!regenAiTranscriptRefreshPlacements) {
-                        setRegenAiTranscriptRefreshPlacements(true);
-                      }
-                      startRegenAiTranscript();
-                    }}
-                    disabled={regenAiTranscriptInFlight}
-                  >
-                    Regenerate + Refresh placements
-                  </button>
-                  <button
-                    type="button"
-                    className="hammer-prep-shell__action-button"
-                    onClick={() => {
-                      if (regenAiTranscriptRefreshPlacements) {
-                        setRegenAiTranscriptRefreshPlacements(false);
-                      }
-                      startRegenAiTranscript();
-                    }}
-                    disabled={regenAiTranscriptInFlight}
-                  >
-                    Regenerate transcript only
-                  </button>
-                  {regenAiTranscriptResult ? (
-                    <button
-                      type="button"
-                      className="hammer-prep-shell__action-button"
-                      onClick={() => {
-                        const payload = {
-                          finished_at: regenAiTranscriptResult.finished_at,
-                          transcript_source_before: regenAiTranscriptResult.transcript_source_before,
-                          segment_count_before: regenAiTranscriptResult.segment_count_before,
-                          segment_count_after: regenAiTranscriptResult.segment_count_after,
-                          placements_refreshed: regenAiTranscriptResult.placements_refreshed,
-                          placement_count_before: regenAiTranscriptResult.placement_count_before,
-                          placement_count_after: regenAiTranscriptResult.placement_count_after,
-                          uncertain_count_before: regenAiTranscriptResult.uncertain_count_before,
-                          uncertain_count_after: regenAiTranscriptResult.uncertain_count_after,
-                        };
-                        void navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-                      }}
-                    >
-                      Copy result
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="hammer-prep-shell__action-button"
-                    onClick={() => setRegenAiTranscriptOpen(false)}
-                    disabled={regenAiTranscriptInFlight}
-                  >
-                    {regenAiTranscriptResult ? "Close" : "Cancel"}
-                  </button>
+                  {(() => {
+                    const regenOk = Boolean(
+                      regenAiTranscriptResult
+                        && typeof regenAiTranscriptResult.segment_count_after === "number"
+                        && !regenAiTranscriptError,
+                    );
+
+                    const copyResult = regenAiTranscriptResult ? (
+                      <button
+                        type="button"
+                        className="hammer-prep-shell__action-button"
+                        onClick={() => {
+                          const payload = {
+                            finished_at: regenAiTranscriptResult.finished_at,
+                            transcript_source_before: regenAiTranscriptResult.transcript_source_before,
+                            segment_count_before: regenAiTranscriptResult.segment_count_before,
+                            segment_count_after: regenAiTranscriptResult.segment_count_after,
+                            placements_refreshed: regenAiTranscriptResult.placements_refreshed,
+                            placement_count_before: regenAiTranscriptResult.placement_count_before,
+                            placement_count_after: regenAiTranscriptResult.placement_count_after,
+                            uncertain_count_before: regenAiTranscriptResult.uncertain_count_before,
+                            uncertain_count_after: regenAiTranscriptResult.uncertain_count_after,
+                          };
+                          void navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+                        }}
+                      >
+                        Copy result
+                      </button>
+                    ) : null;
+
+                    const regenButtons = (
+                      <>
+                        <button
+                          type="button"
+                          className="hammer-prep-shell__action-button"
+                          onClick={() => {
+                            if (!regenAiTranscriptRefreshPlacements) {
+                              setRegenAiTranscriptRefreshPlacements(true);
+                            }
+                            startRegenAiTranscript();
+                          }}
+                          disabled={regenAiTranscriptInFlight}
+                        >
+                          Regenerate + Refresh placements
+                        </button>
+                        <button
+                          type="button"
+                          className="hammer-prep-shell__action-button"
+                          onClick={() => {
+                            if (regenAiTranscriptRefreshPlacements) {
+                              setRegenAiTranscriptRefreshPlacements(false);
+                            }
+                            startRegenAiTranscript();
+                          }}
+                          disabled={regenAiTranscriptInFlight}
+                        >
+                          Regenerate transcript only
+                        </button>
+                      </>
+                    );
+
+                    return (
+                      <>
+                        {regenOk ? (
+                          <button
+                            type="button"
+                            className="hammer-prep-shell__action-button hammer-prep-shell__action-button--primary"
+                            onClick={handleReturnToTranscriptEditing}
+                            disabled={regenAiTranscriptInFlight}
+                          >
+                            Return to Transcript Editing
+                          </button>
+                        ) : null}
+
+                        {regenOk ? (
+                          <details className="hammer-prep-shell__run-again">
+                            <summary>Run again</summary>
+                            <div className="hammer-prep-shell__run-again-actions">
+                              {regenButtons}
+                              {copyResult}
+                            </div>
+                          </details>
+                        ) : (
+                          <>
+                            {regenButtons}
+                            {copyResult}
+                          </>
+                        )}
+
+                        {regenOk ? null : (
+                          <button
+                            type="button"
+                            className="hammer-prep-shell__action-button"
+                            onClick={() => setRegenAiTranscriptCurrentIngestNonce((value) => value + 1)}
+                            disabled={regenAiTranscriptInFlight || regenAiTranscriptCurrentIngestLoading}
+                          >
+                            Refresh status
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          className="hammer-prep-shell__action-button"
+                          onClick={() => setRegenAiTranscriptOpen(false)}
+                          disabled={regenAiTranscriptInFlight}
+                        >
+                          {regenAiTranscriptResult ? "Close" : "Cancel"}
+                        </button>
+                      </>
+                    );
+                  })()}
                 </div>
               </section>
             </div>

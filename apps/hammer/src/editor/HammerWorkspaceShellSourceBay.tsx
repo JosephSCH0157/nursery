@@ -160,6 +160,21 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
     && typeof window !== "undefined"
     && Boolean((window as any).__forgeHammerDebugTranscriptSegments__)
   ), []);
+  const showAdvancedLayerState = useMemo(() => (
+    import.meta.env.DEV
+    || vm.viewingLayer.options.length > 0
+    || vm.exportBasis.options.length > 0
+  ), [vm.exportBasis.options.length, vm.viewingLayer.options.length]);
+  const exportBasisLabel = useMemo(() => {
+    if (vm.exportBasis.value === "__raw__") return "Raw transcript";
+    const match = vm.exportBasis.options.find((layer) => layer.id === vm.exportBasis.value);
+    return match?.label ?? "Derived layer";
+  }, [vm.exportBasis.options, vm.exportBasis.value]);
+  const viewingLayerLabel = useMemo(() => {
+    if (vm.viewingLayer.value === "__raw__") return "Raw transcript";
+    const match = vm.viewingLayer.options.find((layer) => layer.id === vm.viewingLayer.value);
+    return match?.label ?? "Derived layer";
+  }, [vm.viewingLayer.options, vm.viewingLayer.value]);
 
   function hashToHue(value: string): number {
     let hash = 0;
@@ -307,46 +322,58 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
         <div className="hammer-source-status hammer-source-status--info" role="status">
           History: {vm.undo.depth} undo / {vm.redo.depth} redo
         </div>
-        <section className="hammer-layer-selector" aria-label="Layer state">
-          <header className="hammer-layer-selector__head">
-            <strong>Layer State</strong>
-          </header>
-          <label className="hammer-layer-selector__field">
-            <span>Viewing layer</span>
-            <select
-              value={vm.viewingLayer.value}
-              onChange={(event) => {
-                const nextLayerId = event.target.value === "__raw__" ? null : event.target.value;
-                vm.viewingLayer.onChange(nextLayerId);
-              }}
-              disabled={vm.viewingLayer.disabled}
-            >
-              <option value="__raw__">Raw transcript</option>
-              {vm.viewingLayer.options.map((layer) => (
-                <option key={layer.id} value={layer.id}>
-                  {layer.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="hammer-layer-selector__field">
-            <span>Export basis</span>
-            <select
-              value={vm.exportBasis.value}
-              onChange={(event) => {
-                const nextLayerId = event.target.value === "__raw__" ? null : event.target.value;
-                vm.exportBasis.onChange(nextLayerId);
-              }}
-            >
-              <option value="__raw__">Raw transcript</option>
-              {vm.exportBasis.options.map((layer) => (
-                <option key={layer.id} value={layer.id}>
-                  {layer.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </section>
+        {showAdvancedLayerState ? (
+          <details className="hammer-layer-selector" aria-label="Advanced transcript layer controls">
+            <summary className="hammer-layer-selector__head">
+              <strong>Advanced</strong>
+              <span>Export basis: {exportBasisLabel}</span>
+            </summary>
+            {import.meta.env.DEV ? (
+              <label className="hammer-layer-selector__field">
+                <span>Viewing layer (debug)</span>
+                <select
+                  value={vm.viewingLayer.value}
+                  onChange={(event) => {
+                    const nextLayerId = event.target.value === "__raw__" ? null : event.target.value;
+                    vm.viewingLayer.onChange(nextLayerId);
+                  }}
+                  disabled={vm.viewingLayer.disabled}
+                >
+                  <option value="__raw__">Raw transcript</option>
+                  {vm.viewingLayer.options.map((layer) => (
+                    <option key={layer.id} value={layer.id}>
+                      {layer.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="hammer-layer-selector__hint">
+                  Viewing layer is a debug control and does not change the transcript editor content yet.
+                  Current: {viewingLayerLabel}
+                </div>
+              </label>
+            ) : null}
+            <label className="hammer-layer-selector__field">
+              <span>Export basis</span>
+              <select
+                value={vm.exportBasis.value}
+                onChange={(event) => {
+                  const nextLayerId = event.target.value === "__raw__" ? null : event.target.value;
+                  vm.exportBasis.onChange(nextLayerId);
+                }}
+              >
+                <option value="__raw__">Raw transcript</option>
+                {vm.exportBasis.options.map((layer) => (
+                  <option key={layer.id} value={layer.id}>
+                    {layer.label}
+                  </option>
+                ))}
+              </select>
+              <div className="hammer-layer-selector__hint">
+                Controls which transcript layer is used for captions/export.
+              </div>
+            </label>
+          </details>
+        ) : null}
         <section className="hammer-history-panel" aria-label="Edit history">
           <header className="hammer-history-panel__head">
             <strong>History</strong>
