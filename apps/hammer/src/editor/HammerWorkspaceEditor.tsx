@@ -1333,6 +1333,13 @@ export default function HammerWorkspaceEditor(
       loadedPersistenceSnapshot,
     );
     if (openDecision.action === "reuse") {
+      // Avoid keeping a stale "prep_failed" state when we have a reusable transcript.
+      // This can happen when a previous attempt failed but a new hydration finds transcript truth.
+      if (prepState.status === "prep_failed") {
+        setPrepFailureKind(null);
+        setShowPreparedHandoff(false);
+        setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
+      }
       if (!effectiveLaunchContext || effectiveLaunchContext.transcript.kind !== "tongs-stub") {
         setPrepState(openDecision.state);
         setShowPreparedHandoff(true);
