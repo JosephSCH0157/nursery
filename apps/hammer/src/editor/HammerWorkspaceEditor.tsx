@@ -1362,6 +1362,9 @@ export default function HammerWorkspaceEditor(
           && effectiveLaunchContext.transcript.kind === "tongs-stub"
           && effectiveLaunchContext.transcript.segments.length > 0,
         );
+        const prepStatusWasOverridden = prepState.status === "prep_failed";
+        const prepStatusForLog = prepStatusWasOverridden ? "preparing" : prepState.status;
+        const prepStepForLog = prepStatusWasOverridden ? "placing_initial_visuals" : prepState.step;
         // eslint-disable-next-line no-console
         console.log("[HammerPrep] trigger_reason", {
           instance_id: hammerRuntimeInstanceIdRef.current,
@@ -1376,8 +1379,9 @@ export default function HammerWorkspaceEditor(
           tick: triggerTick,
           persistence_mode: persistenceMode,
           hydration_ready: hydrationReady,
-          prep_status: prepState.status,
-          prep_step: prepState.step,
+          prep_status: prepStatusForLog,
+          prep_step: prepStepForLog,
+          prep_status_overridden: prepStatusWasOverridden,
           prep_attempt_nonce: prepAttemptNonce,
           ai_fallback_requested: prepAiFallbackRequested,
           workspace_id: effectiveLaunchContext.workspace_id,
