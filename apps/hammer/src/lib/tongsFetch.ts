@@ -257,7 +257,28 @@ export async function tongsFetch(url: string, options: TongsFetchOptions = {}): 
   const userAccessToken = await resolveUserAccessToken();
   const hasAuth = Boolean(userAccessToken);
 
+  // --- LOGGING: Outgoing request diagnostics ---
+  const method = (rest.method || "GET").toUpperCase();
+  const hasAuthHeader = headers.has("authorization");
+  const hasUserAuthHeader = headers.has("x-forge-user-authorization");
+  // Only log the presence, not the value, of tokens
+  // eslint-disable-next-line no-console
+  console.info("[tongsFetch] outgoing", {
+    method,
+    url,
+    hasAuthHeader,
+    hasUserAuthHeader,
+    apiTokenPresent: Boolean(apiToken),
+    userAccessTokenPresent: Boolean(userAccessToken),
+  });
+  if (!userAccessToken) {
+    // eslint-disable-next-line no-console
+    console.warn("[tongsFetch] WARNING: userAccessToken missing for request", { method, url });
+  }
+
   if (!hasAuth) {
+    // eslint-disable-next-line no-console
+    console.warn("[tongsFetch] DENY: missing user token, returning 401", { method, url });
     return new Response(JSON.stringify({
       ok: false,
       error: {
