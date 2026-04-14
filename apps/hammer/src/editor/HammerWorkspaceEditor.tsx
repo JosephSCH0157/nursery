@@ -892,15 +892,22 @@ export default function HammerWorkspaceEditor(
 
         let nextLaunchContext = withSessionId(props.launchContext);
         let nextHasCanonicalBasis = Boolean(nextLaunchContext);
+
         let hydratedSnapshot: HammerPersistenceSnapshot | null = null;
 
         if (sessionResult.ok) {
           setActiveCanonicalRecording(sessionResult.data.canonical_recording);
           setActiveRevision(sessionResult.data.revision);
 
-          const [baselineResult, revisionArtifactsResult] = await Promise.all([
+          // --- Load all transcript sources in precedence order ---
+          // 1. Registered transcript (from tongs.hammer_workpiece_state.transcript_artifact_path)
+          // 2. Revision transcript
+          // 3. Canonical baseline transcript
+
+          const [baselineResult, revisionArtifactsResult, persistenceSnapshotResult] = await Promise.all([
             loadHammerCanonicalBaselineArtifacts(sessionResult.data.canonical_recording),
             loadHammerRecordingRevisionArtifacts(sessionResult.data.revision),
+            loadHammerPersistenceSnapshot(persistenceTarget),
           ]);
 
           const canonicalTranscript = baselineResult.ok ? baselineResult.data.structured_transcript : null;
@@ -911,17 +918,70 @@ export default function HammerWorkspaceEditor(
           const revisionVisualTimeline = revisionArtifactsResult.ok ? revisionArtifactsResult.data.visual_timeline : null;
           const revisionVisualPlacements = revisionArtifactsResult.ok ? revisionArtifactsResult.data.visual_placements : null;
 
-          // --- Transcript Reuse Logic ---
+          // --- Registered transcript artifact ---
+          let registeredTranscript: any = null;
+          let registeredTranscriptLoadOk = false;
+          let registeredTranscriptSegmentCount = 0;
+          let registeredTranscriptPath = null;
+          if (persistenceSnapshotResult.ok && persistenceSnapshotResult.data?.state?.transcript_artifact_path) {
+            registeredTranscriptPath = persistenceSnapshotResult.data.state.transcript_artifact_path;
+            // Try to load the registered transcript artifact
+            try {
+              const reg = persistenceSnapshotResult.data.structured_transcript;
+              if (reg && reg.data && Array.isArray(reg.data.segments)) {
+                registeredTranscript = reg.data;
+                registeredTranscriptLoadOk = true;
+                registeredTranscriptSegmentCount = reg.data.segments.length;
+              }
+            } catch (err) {
+              registeredTranscriptLoadOk = false;
+            }
+          }
+
+          // --- Revision transcript ---
+          const revisionTranscriptLoadOk = !!(revisionTranscript && Array.isArray(revisionTranscript.segments));
+          const revisionTranscriptSegmentCount = revisionTranscriptLoadOk ? revisionTranscript.segments.length : 0;
+
+          // --- Canonical baseline transcript ---
+          const baselineTranscriptLoadOk = !!(canonicalTranscript && Array.isArray(canonicalTranscript.segments));
+          const baselineTranscriptSegmentCount = baselineTranscriptLoadOk ? canonicalTranscript.segments.length : 0;
+
+          // --- Transcript selection logic ---
           let transcriptSource = "none";
           let hydratedTranscript = null;
-          // Prefer revision transcript if valid, else canonical baseline
-          if (revisionTranscript && Array.isArray(revisionTranscript.segments) && revisionTranscript.segments.length > 0) {
+          let selectedTranscriptSegmentCount = 0;
+          let rejectionReason = null;
+
+          if (registeredTranscriptLoadOk && registeredTranscriptSegmentCount > 0) {
+            hydratedTranscript = registeredTranscript;
+            transcriptSource = "registered_transcript";
+            selectedTranscriptSegmentCount = registeredTranscriptSegmentCount;
+          } else if (revisionTranscriptLoadOk && revisionTranscriptSegmentCount > 0) {
             hydratedTranscript = revisionTranscript;
             transcriptSource = "revision_transcript";
-          } else if (canonicalTranscript && Array.isArray(canonicalTranscript.segments) && canonicalTranscript.segments.length > 0) {
+            selectedTranscriptSegmentCount = revisionTranscriptSegmentCount;
+          } else if (baselineTranscriptLoadOk && baselineTranscriptSegmentCount > 0) {
             hydratedTranscript = canonicalTranscript;
             transcriptSource = "canonical_baseline";
+            selectedTranscriptSegmentCount = baselineTranscriptSegmentCount;
+          } else {
+            rejectionReason = "No valid transcript found in any source (registered, revision, baseline)";
           }
+
+          // --- Logging ---
+          // eslint-disable-next-line no-console
+          console.info("[HammerTranscriptReuse]", {
+            registered_transcript_artifact_path: registeredTranscriptPath,
+            registered_transcript_load_ok: registeredTranscriptLoadOk,
+            registered_segment_count: registeredTranscriptSegmentCount,
+            revision_transcript_load_ok: revisionTranscriptLoadOk,
+            revision_segment_count: revisionTranscriptSegmentCount,
+            baseline_transcript_load_ok: baselineTranscriptLoadOk,
+            baseline_segment_count: baselineTranscriptSegmentCount,
+            selected_transcript_source: transcriptSource,
+            reuse_decision: transcriptSource !== "none" ? "reused" : "rejected",
+            rejection_reason: rejectionReason,
+          });
 
           const nextHydratedSnapshot = buildHydratedSnapshot({
             target: persistenceTarget,
@@ -937,16 +997,6 @@ export default function HammerWorkspaceEditor(
           });
           hydratedSnapshot = nextHydratedSnapshot;
           setLoadedPersistenceSnapshot(nextHydratedSnapshot);
-
-          // --- Log transcript reuse/fallback decision ---
-          const needsAiFallback = transcriptSource === "none";
-          // eslint-disable-next-line no-console
-          console.info("[HammerTranscriptReuse]", {
-            transcriptSource,
-            needsAiFallback,
-            revisionTranscriptPresent: !!revisionTranscript,
-            canonicalTranscriptPresent: !!canonicalTranscript,
-          });
 
           const openHydration = hydrateHammerOpenLaunchContext({
             target: persistenceTarget,
