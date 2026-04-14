@@ -2790,7 +2790,11 @@ export default function HammerWorkspaceEditor(
                 </div>
               </div>
               <div id="hammer-prep-shell-title" className="hammer-prep-shell__title">{effectiveOverlayViewModel.title}</div>
-              <div className="hammer-prep-shell__message" style={{ opacity: prepVoiceOpacity }}>{effectiveOverlayViewModel.message}</div>
+              <div
+                className={`hammer-prep-shell__message ${prepVoiceOpacity === 0 ? "hammer-prep-shell__message--transparent" : "hammer-prep-shell__message--opaque"}`}
+              >
+                {effectiveOverlayViewModel.message}
+              </div>
               <div id="hammer-prep-shell-note" className="hammer-prep-shell__note">{effectiveOverlayViewModel.note}</div>
             </div>
 

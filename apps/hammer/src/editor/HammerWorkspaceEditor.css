@@ -626,7 +626,15 @@
   line-height: 1.15;
   font-weight: 600;
   text-align: center;
-  transition: opacity 220ms ease;
+  transition: opacity 0.3s;
+}
+
+.hammer-prep-shell__message--transparent {
+  opacity: 0;
+}
+
+.hammer-prep-shell__message--opaque {
+  opacity: 1;
 }
 
 .hammer-prep-shell__note {
