@@ -28,6 +28,8 @@ export type HammerWorkspaceShellHistoryEntryVM = {
 
 export type HammerWorkspaceShellSourceBayVM = {
   aiInUse: boolean;
+  onRequestRegenerateAiTranscript?: () => void;
+  regenerateAiTranscriptDisabled?: boolean;
 
   undo: {
     canUndo: boolean;
@@ -277,6 +279,18 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
             </button>
           ))}
         </div>
+        {selectedSourceTab === "transcript" && vm.onRequestRegenerateAiTranscript ? (
+          <div className="hammer-bay-tabs">
+            <button
+              type="button"
+              onClick={vm.onRequestRegenerateAiTranscript}
+              disabled={Boolean(vm.regenerateAiTranscriptDisabled)}
+              title="Regenerate AI transcript and optionally refresh visual placements"
+            >
+              Regenerate AI Transcript
+            </button>
+          </div>
+        ) : null}
       </header>
       <div className="hammer-bay-body">
         {vm.sourceDeskLoading ? (
@@ -518,7 +532,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                         <section
                           key={`doc-turn-${turnIndex}-${turn.speaker}`}
                           className="hammer-transcript-doc-turn"
-                          style={{ ["--speaker-hue" as any]: hashToHue(turn.speaker) }}
+                          data-speaker-hue={hashToHue(turn.speaker)}
                         >
                           <header className="hammer-transcript-doc-turn__head">
                             <span className="hammer-transcript-doc-turn__label">{turn.speaker || "Speaker"}</span>
@@ -570,7 +584,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                           <section
                             key={`turn-${turnIndex}-${turn.speaker}`}
                             className="hammer-transcript-turn"
-                            style={{ ["--speaker-hue" as any]: hashToHue(turn.speaker) }}
+                            data-speaker-hue={hashToHue(turn.speaker)}
                           >
                             <header className="hammer-transcript-turn__head">
                               <span className="hammer-transcript-turn__label">{turn.speaker || "Speaker"}</span>

@@ -1,3 +1,7 @@
+/* Set --speaker-hue from data attribute for transcript turns */
+[data-speaker-hue] {
+  --speaker-hue: attr(data-speaker-hue);
+}
 /*
 Hammer CDL Geometry Contract (v1)
 

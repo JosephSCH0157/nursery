@@ -33,6 +33,36 @@ type HammerAiTranscriptRegenerationResult = {
   uncertain_count_before: number | null;
   uncertain_count_after: number | null;
 };
+
+function mapTranscriptSourceLabel(value: string | null): string {
+  switch (value) {
+    case "registered_transcript":
+      return "Registered pointer";
+    case "revision_transcript":
+      return "Revision transcript";
+    case "canonical_baseline":
+      return "Canonical baseline";
+    case "prepared_transcript":
+      return "AI-prepared transcript";
+    default:
+      return value ? value : "Unknown";
+  }
+}
+
+function mapIngestFinalStatusLabel(value: string | null): string {
+  switch (value) {
+    case "reused_transcript":
+      return "Reused transcript";
+    case "prepared_transcript":
+      return "Prepared transcript";
+    case "degraded":
+      return "Degraded";
+    case "blocked":
+      return "Blocked";
+    default:
+      return value ? value : "—";
+  }
+}
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import {
   buildHammerPersistenceSaveRequest,
@@ -3509,15 +3539,6 @@ export default function HammerWorkspaceEditor(
                   : ""}
               </span>
             </div>
-            <button
-              type="button"
-              className="hammer-prep-shell__session-action"
-              onClick={openRegenAiTranscriptModal}
-              disabled={!canPersistCanonicalState || regenAiTranscriptInFlight}
-              aria-label="Regenerate AI transcript"
-            >
-              {regenAiTranscriptInFlight ? "Regenerating AI Transcript…" : "Regenerate AI Transcript"}
-            </button>
           </div>
 
           {regenAiTranscriptOpen ? (
@@ -3548,13 +3569,17 @@ export default function HammerWorkspaceEditor(
                     <div>
                       <dt>Current ingest result</dt>
                       <dd>
-                        {regenAiTranscriptCurrentIngestLoading ? "Loading…" : (regenAiTranscriptCurrentIngest?.final_status ?? "—")}
+                        {regenAiTranscriptCurrentIngestLoading
+                          ? "Loading…"
+                          : mapIngestFinalStatusLabel(regenAiTranscriptCurrentIngest?.final_status ?? null)}
                       </dd>
                     </div>
                     <div>
                       <dt>Current transcript source</dt>
                       <dd>
-                        {regenAiTranscriptCurrentIngestLoading ? "Loading…" : (regenAiTranscriptCurrentIngest?.selected_source ?? "—")}
+                        {regenAiTranscriptCurrentIngestLoading
+                          ? "Loading…"
+                          : mapTranscriptSourceLabel(regenAiTranscriptCurrentIngest?.selected_source ?? null)}
                       </dd>
                     </div>
                     <div>
@@ -3617,11 +3642,13 @@ export default function HammerWorkspaceEditor(
                     <div className="hammer-prep-shell__note">
                       <strong>Result</strong>
                       <div>
-                        Segments: {regenAiTranscriptResult.segment_count_before}
+                        Segments: <strong>{regenAiTranscriptResult.segment_count_before}</strong>
                         {" → "}
-                        {typeof regenAiTranscriptResult.segment_count_after === "number"
-                          ? regenAiTranscriptResult.segment_count_after
-                          : "—"}
+                        <strong>
+                          {typeof regenAiTranscriptResult.segment_count_after === "number"
+                            ? regenAiTranscriptResult.segment_count_after
+                            : "—"}
+                        </strong>
                       </div>
                       <div>
                         Placements refreshed: {regenAiTranscriptResult.placements_refreshed ? "Yes" : "No"}
@@ -3646,6 +3673,32 @@ export default function HammerWorkspaceEditor(
                     disabled={regenAiTranscriptInFlight || regenAiTranscriptCurrentIngestLoading}
                   >
                     Refresh status
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-prep-shell__action-button hammer-prep-shell__action-button--primary"
+                    onClick={() => {
+                      if (!regenAiTranscriptRefreshPlacements) {
+                        setRegenAiTranscriptRefreshPlacements(true);
+                      }
+                      startRegenAiTranscript();
+                    }}
+                    disabled={regenAiTranscriptInFlight}
+                  >
+                    Regenerate + Refresh placements
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-prep-shell__action-button"
+                    onClick={() => {
+                      if (regenAiTranscriptRefreshPlacements) {
+                        setRegenAiTranscriptRefreshPlacements(false);
+                      }
+                      startRegenAiTranscript();
+                    }}
+                    disabled={regenAiTranscriptInFlight}
+                  >
+                    Regenerate transcript only
                   </button>
                   {regenAiTranscriptResult ? (
                     <button
@@ -3676,14 +3729,6 @@ export default function HammerWorkspaceEditor(
                     disabled={regenAiTranscriptInFlight}
                   >
                     {regenAiTranscriptResult ? "Close" : "Cancel"}
-                  </button>
-                  <button
-                    type="button"
-                    className="hammer-prep-shell__action-button hammer-prep-shell__action-button--primary"
-                    onClick={startRegenAiTranscript}
-                    disabled={regenAiTranscriptInFlight}
-                  >
-                    Regenerate AI Transcript
                   </button>
                 </div>
               </section>
@@ -3724,6 +3769,8 @@ export default function HammerWorkspaceEditor(
             resetToRawInFlight={resetToRawInFlight}
             resetToRawError={resetToRawError}
             onRequestResetToRaw={canPersistCanonicalState ? handleResetToRaw : undefined}
+            onRequestRegenerateAiTranscript={openRegenAiTranscriptModal}
+            regenerateAiTranscriptDisabled={!canPersistCanonicalState || regenAiTranscriptInFlight}
             onHistoryRecoveryStatusChange={setHistoryRecoveryStatus}
             onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
           />

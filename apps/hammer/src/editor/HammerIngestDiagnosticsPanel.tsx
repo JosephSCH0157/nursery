@@ -239,10 +239,18 @@ export function HammerIngestDiagnosticsPanel(props: { workpieceId: string | null
 
         {copyStatus ? <div className="hammer-ingest-diagnostics__muted">{copyStatus}</div> : null}
 
-        <details className="hammer-ingest-diagnostics__details">
-          <summary>Show ingest details</summary>
-          <pre className="hammer-ingest-diagnostics__json">{JSON.stringify(payload, null, 2)}</pre>
-        </details>
+        {exists === false ? null : (
+          <details className="hammer-ingest-diagnostics__details">
+            <summary>Show ingest details</summary>
+            {payload == null ? (
+              <div className="hammer-ingest-diagnostics__muted">
+                No ingest diagnostics recorded yet. Run a prep cycle (or regenerate transcript) to produce `hammer/diagnostics/ingest-last.v1.json`.
+              </div>
+            ) : (
+              <pre className="hammer-ingest-diagnostics__json">{JSON.stringify(payload, null, 2)}</pre>
+            )}
+          </details>
+        )}
       </div>
     </section>
   );

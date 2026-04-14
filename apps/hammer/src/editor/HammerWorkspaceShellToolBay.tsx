@@ -736,7 +736,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                   </section>
                 ) : (
                 <section className="hammer-tool-card">
-                  <header className="hammer-tool-card__head">Transcript Polish</header>
+                  <header className="hammer-tool-card__head">
+                    Transcript Polish
+                  </header>
                   <label className="hammer-tool-field">
                     <span>Cleanup Strength: {polishStrength}%</span>
                     <input

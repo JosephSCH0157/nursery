@@ -410,6 +410,8 @@ type HammerWorkspaceShellProps = {
   resetToRawInFlight?: boolean;
   resetToRawError?: string | null;
   onRequestResetToRaw?: () => void;
+  onRequestRegenerateAiTranscript?: () => void;
+  regenerateAiTranscriptDisabled?: boolean;
   onHistoryRecoveryStatusChange?: (status: string | null) => void;
   onWorkspaceSnapshotChange?: (snapshot: HammerWorkspaceSnapshot) => void;
 };
@@ -8933,6 +8935,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
     return {
       aiInUse: Boolean(props.aiInUse),
+      onRequestRegenerateAiTranscript: props.onRequestRegenerateAiTranscript,
+      regenerateAiTranscriptDisabled: props.regenerateAiTranscriptDisabled ?? false,
       undo: {
         canUndo,
         label: undoLabel,
