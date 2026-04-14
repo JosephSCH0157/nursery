@@ -310,6 +310,33 @@ function testPreparedTranscriptUsesNeutralForgeTagsAndSpeakerTurns() {
   );
 }
 
+function testPreparedTranscriptSplitsOversizedSpeakerTurnsDeterministically() {
+  const longSentence = [
+    "Here is the weird part.",
+    "This is a longer sentence designed to force deterministic splitting because it contains a lot of words without stopping for a while.",
+    "Now watch this!",
+    "Right?",
+  ].join(" ");
+
+  const preparedTranscript = buildPreparedTranscript(buildLaunchContext(), {
+    provider: "openai",
+    model: "gpt-4o-transcribe-diarize",
+    provider_request_id: "req_long",
+    text: longSentence,
+    segments: [
+      { id: "a1", start: 0, end: 60, text: longSentence, speaker: "A" },
+    ],
+  });
+
+  assert.equal(preparedTranscript.turns.length >= 8, true, "expected long segment to be split into multiple turns");
+
+  const maxDuration = Math.max(...preparedTranscript.turns.map((turn) => turn.end_sec - turn.start_sec));
+  assert.equal(maxDuration <= 8.0, true, "expected no segment to exceed absolute 8s max duration");
+
+  const maxWords = Math.max(...preparedTranscript.turns.map((turn) => turn.text.trim().split(/\s+/).filter(Boolean).length));
+  assert.equal(maxWords <= 24, true, "expected no segment to exceed absolute 24 word max");
+}
+
 function testOverlayViewModelTracksPrepStages() {
   const transcribing = buildHammerPrepOverlayViewModel(createHammerPrepState("preparing", "transcribing_audio"));
   const finalizing = buildHammerPrepOverlayViewModel(createHammerPrepState("preparing", "finalizing_transcript"));
@@ -435,6 +462,7 @@ try {
   testOpenDecisionPreparesFromCanonicalWorkpieceMediaWithoutLocalMapping();
   testOpenDecisionReusesPreparedTranscript();
   testPreparedTranscriptUsesNeutralForgeTagsAndSpeakerTurns();
+  testPreparedTranscriptSplitsOversizedSpeakerTurnsDeterministically();
   testOverlayViewModelTracksPrepStages();
   testPrepPersistenceSeedWritesPreparedTranscript();
   testPrepPersistenceSeedWritesAudioPolishArtifact();

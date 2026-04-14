@@ -265,6 +265,84 @@ function normalizePrepSegments(
 function buildSpeakerTurnsFromPrepSegments(
   segments: HammerTranscriptPrepSegment[],
 ): { turns: HammerTranscriptSegment[]; rawLabels: string[]; lowConfidenceTurnIds: string[] } {
+  const ABS_MAX_DURATION_SEC = 8.0;
+  const ABS_MAX_WORDS = 24;
+  const PREF_MERGE_MAX_DURATION_SEC = 5.5;
+  const PREF_MERGE_MAX_WORDS = 14;
+  const PREF_PAUSE_SPLIT_SEC = 0.45;
+
+  const STRONG_PUNCT_RE = /[.!?…]+$/u;
+  const SENTENCE_SPLIT_RE = /(?<=[.!?…])\s+/u;
+
+  function countWords(text: string): number {
+    return text.trim().split(/\s+/).filter(Boolean).length;
+  }
+
+  function endsWithStrongPunctuation(text: string): boolean {
+    return STRONG_PUNCT_RE.test(text.trim());
+  }
+
+  function splitToSentences(text: string): string[] {
+    const normalized = normalizeWhitespace(text);
+    if (!normalized) return [];
+    const parts = normalized.split(SENTENCE_SPLIT_RE).map((part) => normalizeWhitespace(part)).filter(Boolean);
+    return parts.length > 0 ? parts : [normalized];
+  }
+
+  function splitSentenceToWordWindows(sentence: string): string[] {
+    const words = sentence.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return [];
+    if (words.length <= ABS_MAX_WORDS) return [sentence.trim()];
+
+    const out: string[] = [];
+    let cursor = 0;
+    while (cursor < words.length) {
+      const remaining = words.length - cursor;
+      const target = remaining <= 12 ? remaining : 10;
+      const take = Math.min(Math.max(8, target), remaining, 12);
+      out.push(words.slice(cursor, cursor + take).join(" "));
+      cursor += take;
+    }
+    return out;
+  }
+
+  function splitOversizedRange(args: { text: string; start: number; end: number }): Array<{ text: string; start: number; end: number }> {
+    const duration = args.end - args.start;
+    const wordCount = countWords(args.text);
+    if (!Number.isFinite(duration) || duration <= 0 || wordCount <= 0) {
+      return [];
+    }
+
+    const tooLongByDuration = duration > ABS_MAX_DURATION_SEC;
+    const tooLongByWords = wordCount > ABS_MAX_WORDS;
+    if (!tooLongByDuration && !tooLongByWords) {
+      return [{ ...args, text: normalizeWhitespace(args.text) }];
+    }
+
+    const minPartsByDuration = Math.ceil(duration / ABS_MAX_DURATION_SEC);
+    const minPartsByWords = Math.ceil(wordCount / ABS_MAX_WORDS);
+    const parts = Math.max(1, Math.max(minPartsByDuration, minPartsByWords));
+    const wordsPerPart = Math.max(1, Math.ceil(wordCount / parts));
+
+    const words = normalizeWhitespace(args.text).split(/\s+/).filter(Boolean);
+    const out: Array<{ text: string; start: number; end: number }> = [];
+    for (let partIndex = 0; partIndex < parts; partIndex += 1) {
+      const startWordIndex = partIndex * wordsPerPart;
+      if (startWordIndex >= words.length) break;
+      const endWordIndexExclusive = Math.min(words.length, startWordIndex + wordsPerPart);
+      const partText = words.slice(startWordIndex, endWordIndexExclusive).join(" ").trim();
+      if (!partText) continue;
+
+      const startRatio = startWordIndex / words.length;
+      const endRatio = endWordIndexExclusive / words.length;
+      const partStart = args.start + (duration * startRatio);
+      const partEnd = Math.max(partStart + 0.05, args.start + (duration * endRatio));
+      out.push({ text: partText, start: partStart, end: Math.min(args.end, partEnd) });
+    }
+
+    return out.length > 0 ? out.flatMap((part) => splitOversizedRange(part)) : [];
+  }
+
   const normalizedSegments = normalizePrepSegments(segments);
   const rawSpeakerToNeutral = new Map<string, string>();
   const turns: Array<{
@@ -276,32 +354,80 @@ function buildSpeakerTurnsFromPrepSegments(
     lowConfidence: boolean;
   }> = [];
 
+  const atomic: Array<{
+    start: number;
+    end: number;
+    text: string;
+    rawSpeaker: string;
+    lowConfidence: boolean;
+  }> = [];
+
   for (const segment of normalizedSegments) {
-    const speaker = rawSpeakerToNeutral.get(segment.rawSpeaker)
+    const sentences = splitToSentences(segment.text).flatMap((sentence) => splitSentenceToWordWindows(sentence));
+    if (sentences.length <= 1) {
+      atomic.push({ ...segment });
+      continue;
+    }
+
+    const duration = segment.end - segment.start;
+    const wordCounts = sentences.map((sentence) => Math.max(1, countWords(sentence)));
+    const totalWords = Math.max(1, wordCounts.reduce((sum, value) => sum + value, 0));
+    let cursor = segment.start;
+    for (let index = 0; index < sentences.length; index += 1) {
+      const sentenceText = sentences[index];
+      const partDuration = duration * (wordCounts[index] / totalWords);
+      const end = Math.min(segment.end, Math.max(cursor + 0.05, cursor + partDuration));
+      atomic.push({
+        start: cursor,
+        end,
+        text: normalizeWhitespace(sentenceText) ?? sentenceText.trim(),
+        rawSpeaker: segment.rawSpeaker,
+        lowConfidence: segment.lowConfidence,
+      });
+      cursor = end;
+    }
+  }
+
+  const splitAtomic = atomic.flatMap((unit) => splitOversizedRange({ text: unit.text, start: unit.start, end: unit.end }).map((part) => ({
+    ...part,
+    rawSpeaker: unit.rawSpeaker,
+    lowConfidence: unit.lowConfidence,
+  })));
+
+  for (const unit of splitAtomic) {
+    const speaker = rawSpeakerToNeutral.get(unit.rawSpeaker)
       ?? createForgeNeutralSpeakerLabel(rawSpeakerToNeutral.size);
-    if (!rawSpeakerToNeutral.has(segment.rawSpeaker)) {
-      rawSpeakerToNeutral.set(segment.rawSpeaker, speaker);
+    if (!rawSpeakerToNeutral.has(unit.rawSpeaker)) {
+      rawSpeakerToNeutral.set(unit.rawSpeaker, speaker);
     }
 
     const previous = turns.at(-1) ?? null;
-    if (
+    const gap = previous ? (unit.start - previous.end_sec) : null;
+    const canMerge = Boolean(
       previous
       && previous.speaker === speaker
-      && segment.start - previous.end_sec <= 1.2
-    ) {
-      previous.end_sec = Math.max(previous.end_sec, segment.end);
-      previous.text = normalizeWhitespace(`${previous.text} ${segment.text}`);
-      previous.lowConfidence = previous.lowConfidence || segment.lowConfidence;
+      && gap != null
+      && gap >= 0
+      && gap < PREF_PAUSE_SPLIT_SEC
+      && !endsWithStrongPunctuation(previous.text)
+      && (unit.end - previous.start_sec) <= PREF_MERGE_MAX_DURATION_SEC
+      && (countWords(previous.text) + countWords(unit.text)) <= PREF_MERGE_MAX_WORDS,
+    );
+
+    if (canMerge) {
+      previous!.end_sec = Math.max(previous!.end_sec, unit.end);
+      previous!.text = normalizeWhitespace(`${previous!.text} ${unit.text}`) ?? `${previous!.text} ${unit.text}`;
+      previous!.lowConfidence = previous!.lowConfidence || unit.lowConfidence;
       continue;
     }
 
     turns.push({
       segment_id: createTurnId(turns.length),
-      start_sec: segment.start,
-      end_sec: segment.end,
+      start_sec: unit.start,
+      end_sec: unit.end,
       speaker,
-      text: segment.text,
-      lowConfidence: segment.lowConfidence,
+      text: unit.text,
+      lowConfidence: unit.lowConfidence,
     });
   }
 

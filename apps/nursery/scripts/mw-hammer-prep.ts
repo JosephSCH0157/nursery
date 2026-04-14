@@ -1142,6 +1142,165 @@ async function loadCanonicalWorkpieceMediaFile(
 }
 
 function normalizeSegments(payload: unknown): HammerTranscriptPrepSegment[] {
+  type RawSegment = {
+    id: string;
+    start: number;
+    end: number;
+    text: string;
+    speaker: string | null;
+    confidence: number | null;
+  };
+
+  const ABS_MAX_DURATION_SEC = 8.0;
+  const ABS_MAX_WORDS = 24;
+  const PREF_MERGE_MAX_DURATION_SEC = 5.5;
+  const PREF_MERGE_MAX_WORDS = 14;
+
+  const STRONG_PUNCT_RE = /[.!?…]+$/u;
+  const SENTENCE_SPLIT_RE = /(?<=[.!?…])\s+/u;
+
+  function countWords(text: string): number {
+    return text.trim().split(/\s+/).filter(Boolean).length;
+  }
+
+  function endsWithStrongPunctuation(text: string): boolean {
+    return STRONG_PUNCT_RE.test(text.trim());
+  }
+
+  function splitToSentences(text: string): string[] {
+    const normalized = text.trim().replace(/\s+/g, " ");
+    if (!normalized) return [];
+    const parts = normalized.split(SENTENCE_SPLIT_RE).map((part) => part.trim()).filter(Boolean);
+    return parts.length > 0 ? parts : [normalized];
+  }
+
+  function splitSentenceToWordWindows(sentence: string): string[] {
+    const words = sentence.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return [];
+    if (words.length <= ABS_MAX_WORDS) return [sentence.trim()];
+
+    const out: string[] = [];
+    let cursor = 0;
+    while (cursor < words.length) {
+      const remaining = words.length - cursor;
+      const target = remaining <= 12 ? remaining : 10;
+      const take = Math.min(Math.max(8, target), remaining, 12);
+      out.push(words.slice(cursor, cursor + take).join(" "));
+      cursor += take;
+    }
+    return out;
+  }
+
+  function splitOversizedRange(args: { text: string; start: number; end: number }): Array<{ text: string; start: number; end: number }> {
+    const duration = args.end - args.start;
+    const wordCount = countWords(args.text);
+    if (!Number.isFinite(duration) || duration <= 0 || wordCount <= 0) {
+      return [];
+    }
+
+    const tooLongByDuration = duration > ABS_MAX_DURATION_SEC;
+    const tooLongByWords = wordCount > ABS_MAX_WORDS;
+    if (!tooLongByDuration && !tooLongByWords) {
+      return [{ ...args, text: args.text.trim().replace(/\s+/g, " ") }];
+    }
+
+    const minPartsByDuration = Math.ceil(duration / ABS_MAX_DURATION_SEC);
+    const minPartsByWords = Math.ceil(wordCount / ABS_MAX_WORDS);
+    const parts = Math.max(1, Math.max(minPartsByDuration, minPartsByWords));
+    const wordsPerPart = Math.max(1, Math.ceil(wordCount / parts));
+
+    const words = args.text.trim().split(/\s+/).filter(Boolean);
+    const out: Array<{ text: string; start: number; end: number }> = [];
+    for (let partIndex = 0; partIndex < parts; partIndex += 1) {
+      const startWordIndex = partIndex * wordsPerPart;
+      if (startWordIndex >= words.length) break;
+      const endWordIndexExclusive = Math.min(words.length, startWordIndex + wordsPerPart);
+      const partText = words.slice(startWordIndex, endWordIndexExclusive).join(" ").trim();
+      if (!partText) continue;
+
+      const startRatio = startWordIndex / words.length;
+      const endRatio = endWordIndexExclusive / words.length;
+      const partStart = args.start + (duration * startRatio);
+      const partEnd = Math.max(partStart + 0.05, args.start + (duration * endRatio));
+      out.push({ text: partText, start: partStart, end: Math.min(args.end, partEnd) });
+    }
+
+    return out.length > 0 ? out.flatMap((part) => splitOversizedRange(part)) : [];
+  }
+
+  function normalizeOne(raw: RawSegment): HammerTranscriptPrepSegment[] {
+    const duration = raw.end - raw.start;
+    const normalizedText = raw.text.trim().replace(/\s+/g, " ");
+    if (!normalizedText) return [];
+    if (!Number.isFinite(duration) || duration <= 0) return [];
+
+    const sentences = splitToSentences(normalizedText);
+    const sentenceParts = sentences.flatMap((sentence) => splitSentenceToWordWindows(sentence));
+    const totalWords = sentenceParts.reduce((sum, part) => sum + countWords(part), 0);
+    const safeTotalWords = Math.max(1, totalWords);
+
+    const preliminary: Array<{ text: string; start: number; end: number }> = [];
+    let cursorStart = raw.start;
+    for (let index = 0; index < sentenceParts.length; index += 1) {
+      const partText = sentenceParts[index];
+      const partWords = Math.max(1, countWords(partText));
+      const partDuration = duration * (partWords / safeTotalWords);
+      const nextEnd = Math.min(raw.end, Math.max(cursorStart + 0.05, cursorStart + partDuration));
+      preliminary.push({ text: partText, start: cursorStart, end: nextEnd });
+      cursorStart = nextEnd;
+    }
+
+    // Rebalance: enforce duration/word limits deterministically.
+    const splitParts = preliminary.flatMap((part) => splitOversizedRange(part));
+    const withSpeaker = splitParts.map((part) => ({
+      ...part,
+      speaker: raw.speaker,
+      confidence: raw.confidence,
+    }));
+
+    // Conservative merge of tiny fragments (never across strong punctuation or speaker changes).
+    const merged: typeof withSpeaker = [];
+    for (const part of withSpeaker) {
+      const prev = merged.at(-1) ?? null;
+      if (
+        prev
+        && prev.speaker === part.speaker
+        && !endsWithStrongPunctuation(prev.text)
+      ) {
+        const combinedText = `${prev.text} ${part.text}`.trim().replace(/\s+/g, " ");
+        const combinedDuration = part.end - prev.start;
+        const combinedWords = countWords(prev.text) + countWords(part.text);
+        if (combinedDuration <= PREF_MERGE_MAX_DURATION_SEC && combinedWords <= PREF_MERGE_MAX_WORDS) {
+          prev.text = combinedText;
+          prev.end = Math.max(prev.end, part.end);
+          continue;
+        }
+      }
+      merged.push({ ...part });
+    }
+
+    const hardClamped = merged.flatMap((part) => {
+      const duration = part.end - part.start;
+      if (duration <= ABS_MAX_DURATION_SEC && countWords(part.text) <= ABS_MAX_WORDS) {
+        return [part];
+      }
+      return splitOversizedRange({ text: part.text, start: part.start, end: part.end }).map((range) => ({
+        ...range,
+        speaker: part.speaker,
+        confidence: part.confidence,
+      }));
+    });
+
+    return hardClamped
+      .map((part) => ({
+        start: part.start,
+        end: part.end,
+        text: part.text,
+        speaker: part.speaker,
+        ...(part.confidence == null ? {} : { confidence: part.confidence }),
+      } satisfies HammerTranscriptPrepSegment));
+  }
+
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
   const row = payload as Record<string, unknown>;
   const segmentsRaw = Array.isArray(row.segments)
@@ -1150,7 +1309,7 @@ function normalizeSegments(payload: unknown): HammerTranscriptPrepSegment[] {
       ? row.utterances
       : [];
 
-  const segments: HammerTranscriptPrepSegment[] = [];
+  const rawSegments: RawSegment[] = [];
   segmentsRaw.forEach((value, index) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return;
     const segment = value as Record<string, unknown>;
@@ -1160,7 +1319,7 @@ function normalizeSegments(payload: unknown): HammerTranscriptPrepSegment[] {
     if (start == null || end == null || end <= start || !text) {
       return;
     }
-    segments.push({
+    rawSegments.push({
       id: readTrimmed(segment.id) ?? `seg_${index + 1}`,
       start,
       end,
@@ -1171,7 +1330,43 @@ function normalizeSegments(payload: unknown): HammerTranscriptPrepSegment[] {
       confidence: readNumber(segment.confidence),
     });
   });
-  return segments;
+
+  // Keep segmentation deterministic and placement-friendly:
+  // - Sentence-first splits
+  // - Enforce hard duration/word caps
+  // - Conservative merges only for tiny fragments
+  const normalized: HammerTranscriptPrepSegment[] = [];
+  for (const raw of rawSegments.sort((left, right) => left.start - right.start)) {
+    const parts = normalizeOne(raw);
+    for (const part of parts) {
+      // Prefer <= 6s, but only enforce 8s hard cap (splitting happens above).
+      const duration = part.end - part.start;
+      const wordCount = countWords(part.text);
+      if (duration > ABS_MAX_DURATION_SEC || wordCount > ABS_MAX_WORDS) {
+        continue;
+      }
+      normalized.push(part);
+    }
+  }
+
+  // If we ended up with extremely coarse output, keep it as-is (better than empty),
+  // but ensure we never regress below 1 segment for valid payloads.
+  if (normalized.length === 0 && rawSegments.length > 0) {
+    return rawSegments.map((raw) => ({
+      id: raw.id,
+      start: raw.start,
+      end: raw.end,
+      text: raw.text.trim().replace(/\s+/g, " "),
+      speaker: raw.speaker,
+      ...(raw.confidence == null ? {} : { confidence: raw.confidence }),
+    } satisfies HammerTranscriptPrepSegment));
+  }
+
+  // Assign stable ids.
+  return normalized.map((segment, index) => ({
+    id: `seg_${index + 1}`,
+    ...segment,
+  }));
 }
 
 export function createHammerPrepMiddleware() {
