@@ -2508,6 +2508,43 @@ Guardrails:
   opacity: 0.82;
 }
 
+.hammer-workspace-shell.is-visual-placement {
+  --hammer-shell-timeline-height: clamp(170px, 22vh, 228px);
+}
+
+.hammer-workspace-shell.is-visual-placement .hammer-workspace-shell__top {
+  grid-template-columns:
+    minmax(190px, 0.42fr)
+    minmax(0, 1.58fr)
+    0;
+}
+
+.hammer-workspace-shell.is-visual-placement .hammer-source-bay {
+  max-width: 360px;
+}
+
+.hammer-workspace-shell.is-visual-placement .hammer-source-bay .hammer-bay-body {
+  opacity: 0.9;
+}
+
+.hammer-workspace-shell.is-visual-placement .hammer-preview-bay {
+  max-width: none;
+  width: 100%;
+  justify-self: stretch;
+}
+
+.hammer-workspace-shell.is-visual-placement .hammer-preview-bay__body {
+  gap: 8px;
+}
+
+.hammer-workspace-shell.is-visual-placement .hammer-preview-surface {
+  min-height: clamp(420px, 64vh, 820px);
+}
+
+.hammer-workspace-shell.is-visual-placement .hammer-tool-bay {
+  display: none;
+}
+
 .hammer-workspace-shell.is-time-focus {
   --hammer-shell-timeline-height: var(--hammer-shell-timeline-time-focus-height);
 }
@@ -2602,6 +2639,13 @@ Guardrails:
     --hammer-shell-preview-width: 560px;
     --hammer-shell-preview-min-width: 380px;
   }
+
+  .hammer-workspace-shell.is-visual-placement .hammer-workspace-shell__top {
+    grid-template-columns:
+      minmax(180px, 0.38fr)
+      minmax(0, 1.62fr)
+      0;
+  }
 }
 
 @media (max-width: 1440px) {
@@ -2637,6 +2681,13 @@ Guardrails:
       minmax(var(--hammer-shell-preview-min-width), var(--hammer-shell-preview-width))
       minmax(260px, 0.9fr);
   }
+
+  .hammer-workspace-shell.is-visual-placement .hammer-workspace-shell__top {
+    grid-template-columns:
+      minmax(170px, 0.34fr)
+      minmax(0, 1.66fr)
+      0;
+  }
 }
 
 @media (max-width: 1280px) {
@@ -2664,6 +2715,25 @@ Guardrails:
   .hammer-workspace-shell.is-visual-finishing {
     --hammer-shell-preview-width: 420px;
     --hammer-shell-preview-min-width: 300px;
+  }
+
+  .hammer-workspace-shell.is-visual-placement {
+    --hammer-shell-timeline-height: clamp(160px, 20vh, 210px);
+  }
+
+  .hammer-workspace-shell.is-visual-placement .hammer-workspace-shell__top {
+    grid-template-columns:
+      minmax(150px, 0.3fr)
+      minmax(0, 1.7fr)
+      0;
+  }
+
+  .hammer-workspace-shell.is-visual-placement .hammer-source-bay {
+    max-width: 300px;
+  }
+
+  .hammer-workspace-shell.is-visual-placement .hammer-preview-surface {
+    min-height: clamp(360px, 56vh, 680px);
   }
 }
 

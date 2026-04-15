@@ -2848,6 +2848,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => sourceVisualPlacementItems.find((item) => item.id === effectiveSelectedClipId) ?? null,
     [effectiveSelectedClipId, sourceVisualPlacementItems],
   );
+  const workspaceLayoutMode = (
+    currentPass === "image_placement"
+    || (selectedSourceTab === "images" && selectedImagePlacement != null && visualPlacementEditingEnabled)
+  )
+    ? "visual-placement"
+    : "default";
   const selectedPlacementRecord = effectiveSelectedClipId
     ? (visualPlacementsById.get(effectiveSelectedClipId) ?? null)
     : null;
@@ -11061,6 +11067,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
   return (
     <section
       ref={workspaceShellRef}
+      data-layout-mode={workspaceLayoutMode}
       className={[
         "hammer-workspace-shell",
         workspaceFocusMode === "source-focus" ? "is-source-focus" : "",
@@ -11068,6 +11075,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
         workspaceFocusMode === "time-focus" ? "is-time-focus" : "",
         workspaceFocusMode === "balanced" ? "is-balanced" : "",
         currentPass === "visual_finishing" ? "is-visual-finishing" : "",
+        workspaceLayoutMode === "visual-placement" ? "is-visual-placement" : "",
       ].filter(Boolean).join(" ")}
     >
       <div className="hammer-workspace-shell__main">
