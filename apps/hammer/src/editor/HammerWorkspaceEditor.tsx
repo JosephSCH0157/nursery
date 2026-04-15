@@ -280,6 +280,37 @@ function useDynamicCssText(scopeId: string, cssText: string): void {
   }, [cssText, scopeId]);
 }
 
+function isTruthyDevToggle(value: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "on" || normalized === "yes";
+}
+
+function shouldShowHammerIngestDiagnosticsPanel(routeSearch?: string): boolean {
+  if (!import.meta.env.DEV || typeof window === "undefined") return false;
+
+  try {
+    const params = new URLSearchParams(routeSearch ?? window.location.search ?? "");
+    if (isTruthyDevToggle(params.get("dev"))) return true;
+    if (isTruthyDevToggle(params.get("tp_dev_mode"))) return true;
+  } catch {
+    // Ignore malformed query strings and fall through to other debug flags.
+  }
+
+  const hash = window.location.hash.trim().toLowerCase();
+  if (hash === "#dev" || hash.startsWith("#dev&") || hash.startsWith("#dev?")) {
+    return true;
+  }
+
+  try {
+    if (window.localStorage.getItem("tp_dev_mode") === "1") return true;
+  } catch {
+    // Ignore storage access failures.
+  }
+
+  return false;
+}
+
 export default function HammerWorkspaceEditor(
   props: HammerWorkspaceEditorProps,
 ): JSX.Element {
@@ -299,6 +330,10 @@ export default function HammerWorkspaceEditor(
       ? readHammerPersistenceTarget(props.routeSearch ?? "", props.launchContext)
       : null),
     [persistenceMode, props.launchContext, props.routeSearch],
+  );
+  const showIngestDiagnosticsPanel = useMemo(
+    () => shouldShowHammerIngestDiagnosticsPanel(props.routeSearch),
+    [props.routeSearch],
   );
   const targetKey = persistenceTarget
     ? buildTargetKey(persistenceTarget.workspaceId, persistenceTarget.workpieceId)
@@ -3756,7 +3791,9 @@ export default function HammerWorkspaceEditor(
             </div>
           ) : null}
 
-          <HammerIngestDiagnosticsPanel workpieceId={persistenceTarget?.workpieceId ?? null} />
+          {showIngestDiagnosticsPanel ? (
+            <HammerIngestDiagnosticsPanel workpieceId={persistenceTarget?.workpieceId ?? null} />
+          ) : null}
           {transcriptPrepPreferenceNotice ? (
             <div className="hammer-prep-shell__preference-notice">
               <span>{transcriptPrepPreferenceNotice.label}</span>
