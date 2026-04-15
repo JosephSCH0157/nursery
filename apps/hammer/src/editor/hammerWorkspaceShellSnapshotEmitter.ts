@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type { MediaRef, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
@@ -78,7 +78,11 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
     return next;
   };
 
-  useEffect(() => {
+  // NOTE: We intentionally use a layout effect here so that committed canonical workspace
+  // mutations (history/apply actions) produce a parent-visible snapshot as soon as possible.
+  // This reduces the "commit gap" where a user can close the page before autosave has a
+  // chance to queue the new revision payload.
+  useLayoutEffect(() => {
     if (!args.onWorkspaceSnapshotChange) return;
 
     const editPlan = args.launchContext.edit_plan

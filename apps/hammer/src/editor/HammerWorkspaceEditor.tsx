@@ -2421,13 +2421,13 @@ export default function HammerWorkspaceEditor(
     targetKey,
   ]);
 
-  useEffect(() => {
-    if (!canPersistCanonicalState || !persistenceTarget || !workspaceSnapshot || !activeRevision) {
+  const queueRevisionAutosave = useCallback((snapshot: HammerWorkspaceSnapshot): void => {
+    if (!canPersistCanonicalState || !persistenceTarget || !activeRevision) {
       return;
     }
 
     const legacyRequest = buildHammerPersistenceSaveRequest(
-      workspaceSnapshot,
+      snapshot,
       loadedPersistenceSnapshot?.structured_transcript.data ?? null,
       loadedPersistenceSnapshot?.audio_polish.data ?? null,
       openedAtRef.current,
@@ -2439,11 +2439,13 @@ export default function HammerWorkspaceEditor(
       visual_timeline: legacyRequest.visual_timeline,
       visual_placements: legacyRequest.visual_placements,
     };
+
     const payloadKey = JSON.stringify({
       target: persistenceTarget,
       revisionId: activeRevision.id,
       request,
     });
+
     if (payloadKey === lastSavedPayloadRef.current) {
       setHasPendingSaveChanges(false);
       pendingSaveRef.current = null;
@@ -2461,11 +2463,18 @@ export default function HammerWorkspaceEditor(
 
     if (saveTimerRef.current != null) {
       window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
     }
 
+    const scheduledPayloadKey = payloadKey;
     saveTimerRef.current = window.setTimeout(() => {
+      const pending = pendingSaveRef.current;
+      if (!pending || pending.payloadKey !== scheduledPayloadKey) {
+        return;
+      }
+
       setSaveInFlight(true);
-      void saveHammerRecordingRevision(persistenceTarget, activeRevision.id, request)
+      void saveHammerRecordingRevision(pending.target, pending.revisionId, pending.request as any)
         .then((result) => {
           if (!result.ok) {
             applyHostLoopState(resolveHammerSaveFailure({
@@ -2476,12 +2485,18 @@ export default function HammerWorkspaceEditor(
             }, result.error));
             return;
           }
-          lastSavedPayloadRef.current = payloadKey;
+
+          if (pendingSaveRef.current?.payloadKey !== scheduledPayloadKey) {
+            return;
+          }
+
+          lastSavedPayloadRef.current = scheduledPayloadKey;
           pendingSaveRef.current = null;
+          setHasPendingSaveChanges(false);
           setLastSavedAt(new Date().toISOString());
           setActiveRevision(result.data.revision);
           applyHostLoopState(resolveHammerSaveSuccess({
-            hasPendingSaveChanges: true,
+            hasPendingSaveChanges: false,
             saveFailureMessage,
             historyRecoveryStatus,
             presenceConflictDetail,
@@ -2489,25 +2504,44 @@ export default function HammerWorkspaceEditor(
         })
         .finally(() => {
           setSaveInFlight(false);
-          saveTimerRef.current = null;
+          if (saveTimerRef.current != null) {
+            saveTimerRef.current = null;
+          }
         });
     }, SAVE_DEBOUNCE_MS);
+  }, [
+    activeRevision,
+    canPersistCanonicalState,
+    historyRecoveryStatus,
+    loadedPersistenceSnapshot?.audio_polish.data,
+    loadedPersistenceSnapshot?.structured_transcript.data,
+    persistenceTarget,
+    presenceConflictDetail,
+    saveFailureMessage,
+  ]);
 
+  const handleWorkspaceSnapshotChange = useCallback((snapshot: HammerWorkspaceSnapshot): void => {
+    // Canonical working edits must queue the revision autosave immediately when they are
+    // user-visible as "committed" in Hammer. We keep the raw baseline immutable by only
+    // saving revision artifacts, never mutating ingest/baseline pointers.
+    setWorkspaceSnapshot(snapshot);
+    queueRevisionAutosave(snapshot);
+  }, [queueRevisionAutosave]);
+
+  useEffect(() => {
     return () => {
       if (saveTimerRef.current != null) {
         window.clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
       }
     };
-  }, [
-    activeRevision?.id,
-    canPersistCanonicalState,
-    loadedPersistenceSnapshot,
-    persistenceTarget,
-    saveRetryNonce,
-    targetKey,
-    workspaceSnapshot,
-  ]);
+  }, []);
+
+  useEffect(() => {
+    if (!canPersistCanonicalState || !workspaceSnapshot) return;
+    if (saveRetryNonce === 0) return;
+    queueRevisionAutosave(workspaceSnapshot);
+  }, [canPersistCanonicalState, queueRevisionAutosave, saveRetryNonce, workspaceSnapshot]);
 
   useEffect(() => {
     if (!canPersistCanonicalState) return;
@@ -2518,6 +2552,7 @@ export default function HammerWorkspaceEditor(
       if (!pending) return;
       if (pending.payloadKey === lastSavedPayloadRef.current) {
         pendingSaveRef.current = null;
+        setHasPendingSaveChanges(false);
         return;
       }
 
@@ -2526,14 +2561,35 @@ export default function HammerWorkspaceEditor(
         saveTimerRef.current = null;
       }
 
+      setSaveInFlight(true);
       void saveHammerRecordingRevision(pending.target, pending.revisionId, pending.request as any)
         .then((result) => {
-          if (!result.ok) return;
+          if (!result.ok) {
+            applyHostLoopState(resolveHammerSaveFailure({
+              hasPendingSaveChanges: true,
+              saveFailureMessage,
+              historyRecoveryStatus,
+              presenceConflictDetail,
+            }, result.error));
+            return;
+          }
           lastSavedPayloadRef.current = pending.payloadKey;
           pendingSaveRef.current = null;
+          setHasPendingSaveChanges(false);
+          setLastSavedAt(new Date().toISOString());
+          setActiveRevision(result.data.revision);
+          applyHostLoopState(resolveHammerSaveSuccess({
+            hasPendingSaveChanges: false,
+            saveFailureMessage,
+            historyRecoveryStatus,
+            presenceConflictDetail,
+          }));
         })
         .catch(() => {
           // keep flush best-effort; normal save loop will retry on next interaction
+        })
+        .finally(() => {
+          setSaveInFlight(false);
         });
     };
 
@@ -2549,7 +2605,7 @@ export default function HammerWorkspaceEditor(
       window.removeEventListener("pagehide", flushPendingSave);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [canPersistCanonicalState]);
+  }, [canPersistCanonicalState, historyRecoveryStatus, presenceConflictDetail, saveFailureMessage]);
 
   useEffect(() => {
     if (!canPersistCanonicalState || !persistenceTarget) return;
@@ -3737,7 +3793,7 @@ export default function HammerWorkspaceEditor(
             onRequestRegenerateAiTranscript={openRegenAiTranscriptModal}
             regenerateAiTranscriptDisabled={!canPersistCanonicalState || regenAiTranscriptInFlight}
             onHistoryRecoveryStatusChange={setHistoryRecoveryStatus}
-            onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
+            onWorkspaceSnapshotChange={canPersistCanonicalState ? handleWorkspaceSnapshotChange : undefined}
           />
         </div>
       ) : null}

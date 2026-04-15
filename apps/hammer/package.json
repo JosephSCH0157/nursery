@@ -33,6 +33,7 @@
     "test:candidate-queue": "tsx tests/hammerCandidateQueue.test.ts",
     "test:snapshot-production": "tsx tests/hammerSnapshotProduction.test.ts",
     "test:snapshot-recovery-flow": "tsx tests/hammerSnapshotRecoveryFlow.test.ts",
+    "test:autosave-commit-gap": "node tests/hammerAutosaveCommitGap.test.js",
     "test:polish-result-summary": "tsx tests/hammerPolishResultSummary.test.ts",
     "test:workspace-core": "pnpm run test:workspace-timeline && pnpm run test:workspace-transcript && pnpm run test:workspace-history && pnpm run test:workspace-authority && pnpm run test:runtime-data && pnpm run test:audio-backend && pnpm run test:cleanup-execution && pnpm run test:audio-timeline-render-plan && pnpm run test:studio-rack-ffmpeg-plan && pnpm run test:source-desk-media && pnpm run test:source-desk-preview-churn && pnpm run test:transcript-selection && pnpm run test:snapshot-production && pnpm run test:snapshot-recovery-flow && pnpm run test:polish-result-summary",
     "test:source-desk-media": "tsx tests/hammerSourceDeskMediaApi.test.ts",
