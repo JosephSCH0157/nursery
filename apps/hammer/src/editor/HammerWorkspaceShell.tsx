@@ -98,6 +98,7 @@ import {
 import {
   deriveAudioCutsForDeadAirClosure,
   deriveAudioCutsForRemovedSegments,
+  deriveAudioCutsForTimelineCompression,
   HAMMER_FILLER_CUT_PAD_AFTER_SEC,
   HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
   HAMMER_FILLER_CUT_SEAM_FADE_SEC,
@@ -6784,6 +6785,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         layers: listHammerDerivedTextLayers(withLayerActive, { includeDiscarded: false }),
       }));
       setCleanupReceipt(summary);
+      setTranscriptTimingHint("Applied as a derived transcript layer. Playback of source media is unchanged until a timeline edit or render is committed.");
       return;
     }
 
@@ -6795,12 +6797,38 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       immediatePersist: true,
       computeAfter: (before) => {
         const synced = syncEditableTranscriptSegments(preview.resultSegments, before.selectedSegmentId);
+        const nextCutSelections = deriveAudioCutsForTimelineCompression({
+          beforeSegments: before.transcriptSegments,
+          afterSegments: synced.segments,
+          durationSec: playbackTransportDurationSec,
+        });
+        let nextAudioEdit = cloneHammerAudioEdit(before.audioEdit);
+        if (nextCutSelections.length > 0) {
+          let audioPolish = {
+            ...buildNotStartedHammerAudioPolish(),
+            audio_edit: cloneHammerAudioEdit(before.audioEdit),
+          };
+          for (let index = 0; index < nextCutSelections.length; index += 1) {
+            const selection = nextCutSelections[index];
+            const committed = commitAudioCutSelection({
+              audioPolish,
+              selection,
+              durationSec: playbackTransportDurationSec,
+              operationId: `cleanup:${toolId}:${preview.label.toLowerCase().replace(/\s+/g, "-")}:${index}`,
+            });
+            if (committed) {
+              audioPolish = committed.audioPolish;
+            }
+          }
+          nextAudioEdit = cloneHammerAudioEdit(audioPolish.audio_edit);
+        }
         const selected = synced.selectedSegmentId
           ? synced.segments.find((segment) => segment.segment_id === synced.selectedSegmentId) ?? null
           : null;
         return {
           ...before,
           transcriptSegments: synced.segments,
+          audioEdit: nextAudioEdit,
           selectedSegmentId: synced.selectedSegmentId,
           playheadSec: selected ? selected.start_sec : before.playheadSec,
           transcriptTimingHint: null,
@@ -6809,6 +6837,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     });
     if (applied) {
       setCleanupReceipt(summary);
+      if (summary.estimatedSecondsSaved > 0) {
+        setTranscriptTimingHint(`Applied ${preview.label}. Playback now follows the shortened timeline (${summary.estimatedSecondsSaved.toFixed(1)}s saved).`);
+      } else {
+        setTranscriptTimingHint(`Applied ${preview.label}. Playback is unchanged because this edit only changed transcript text.`);
+      }
     }
   }
 

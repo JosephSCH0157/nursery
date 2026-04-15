@@ -77,6 +77,59 @@ export function deriveAudioCutsForRemovedSegments(args: {
   return normalizeAndMerge(selections);
 }
 
+export function deriveAudioCutsForTimelineCompression(args: {
+  beforeSegments: HammerTranscriptSegment[];
+  afterSegments: HammerTranscriptSegment[];
+  durationSec: number;
+}): HammerAudioCutSelection[] {
+  if (!Number.isFinite(args.durationSec) || args.durationSec <= 0) return [];
+
+  const beforeById = new Map<string, HammerTranscriptSegment>();
+  for (const segment of args.beforeSegments) {
+    beforeById.set(segment.segment_id, segment);
+  }
+
+  const orderedAfter = [...args.afterSegments].sort((left, right) => (
+    left.start_sec - right.start_sec || left.end_sec - right.end_sec
+  ));
+
+  const selections: HammerAudioCutSelection[] = [];
+  let cumulativeRemovedSec = 0;
+
+  for (const segment of orderedAfter) {
+    const before = beforeById.get(segment.segment_id);
+    if (!before) continue;
+
+    const impliedRemovedSec = clampNonNegative(Number(before.start_sec) - Number(segment.start_sec));
+    if (impliedRemovedSec <= cumulativeRemovedSec + MIN_CUT_SEC) {
+      cumulativeRemovedSec = Math.max(cumulativeRemovedSec, impliedRemovedSec);
+      continue;
+    }
+
+    const deltaSec = impliedRemovedSec - cumulativeRemovedSec;
+    const endSec = clampToDuration(Number(before.start_sec), args.durationSec);
+    const startSec = clampToDuration(endSec - deltaSec, args.durationSec);
+    if (endSec - startSec > MIN_CUT_SEC) {
+      selections.push({ startSec, endSec });
+    }
+    cumulativeRemovedSec = impliedRemovedSec;
+  }
+
+  const beforeEndSec = args.beforeSegments.reduce((max, segment) => Math.max(max, Number(segment.end_sec) || 0), 0);
+  const afterEndSec = args.afterSegments.reduce((max, segment) => Math.max(max, Number(segment.end_sec) || 0), 0);
+  const totalRemovedSec = clampNonNegative(beforeEndSec - afterEndSec);
+  if (totalRemovedSec > cumulativeRemovedSec + MIN_CUT_SEC) {
+    const deltaSec = totalRemovedSec - cumulativeRemovedSec;
+    const endSec = clampToDuration(beforeEndSec, args.durationSec);
+    const startSec = clampToDuration(endSec - deltaSec, args.durationSec);
+    if (endSec - startSec > MIN_CUT_SEC) {
+      selections.push({ startSec, endSec });
+    }
+  }
+
+  return normalizeAndMerge(selections);
+}
+
 export function deriveAudioCutsForDeadAirClosure(args: {
   analysis: HammerDeadAirAnalysis;
   durationSec: number;

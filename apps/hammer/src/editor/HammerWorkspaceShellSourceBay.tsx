@@ -454,8 +454,8 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                   <>
                     <section className="hammer-transcript-page-actions" aria-label="Transcript editor actions">
                       <div className="hammer-transcript-page-actions__meta">
-                        <span>{hasDirtyTranscriptEdits ? "Unsaved transcript edits" : "Transcript edits saved"}</span>
-                        <span>Subtractive-only: delete words/phrases, no additions.</span>
+                        <span>{hasDirtyTranscriptEdits ? "Unsaved transcript text edits" : "Transcript text saved"}</span>
+                        <span>Text-only edits do not change playback. Use structural actions to affect episode timing.</span>
                       </div>
                       <div className="hammer-transcript-page-actions__buttons">
                         <button
@@ -498,6 +498,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                             });
                             setDraftTextBySegmentId({});
                             setInlineEditHint(null);
+                            setTranscriptTimingHint("Transcript text saved. Playback is unchanged because text edits do not rewrite source audio.");
                           }}
                         >
                           Save
