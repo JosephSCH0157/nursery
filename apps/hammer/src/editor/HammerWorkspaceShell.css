@@ -2510,17 +2510,23 @@ Guardrails:
 
 .hammer-workspace-shell.is-visual-placement {
   --hammer-shell-timeline-height: clamp(170px, 22vh, 228px);
+  --hammer-shell-placement-source-width: clamp(280px, 24vw, 400px);
+  --hammer-shell-placement-preview-min-width: 620px;
+  --hammer-shell-placement-preview-max-width: min(66vw, 1120px);
 }
 
 .hammer-workspace-shell.is-visual-placement .hammer-workspace-shell__top {
   grid-template-columns:
-    minmax(190px, 0.42fr)
-    minmax(0, 1.58fr)
+    minmax(0, var(--hammer-shell-placement-source-width))
+    minmax(var(--hammer-shell-placement-preview-min-width), var(--hammer-shell-placement-preview-max-width))
     0;
+  justify-content: center;
 }
 
 .hammer-workspace-shell.is-visual-placement .hammer-source-bay {
-  max-width: 360px;
+  min-width: 0;
+  width: 100%;
+  max-width: none;
 }
 
 .hammer-workspace-shell.is-visual-placement .hammer-source-bay .hammer-bay-body {
@@ -2528,7 +2534,7 @@ Guardrails:
 }
 
 .hammer-workspace-shell.is-visual-placement .hammer-preview-bay {
-  max-width: none;
+  max-width: var(--hammer-shell-placement-preview-max-width);
   width: 100%;
   justify-self: stretch;
 }
@@ -2642,8 +2648,8 @@ Guardrails:
 
   .hammer-workspace-shell.is-visual-placement .hammer-workspace-shell__top {
     grid-template-columns:
-      minmax(180px, 0.38fr)
-      minmax(0, 1.62fr)
+      minmax(0, clamp(260px, 24vw, 380px))
+      minmax(560px, min(67vw, 1020px))
       0;
   }
 }
@@ -2684,8 +2690,8 @@ Guardrails:
 
   .hammer-workspace-shell.is-visual-placement .hammer-workspace-shell__top {
     grid-template-columns:
-      minmax(170px, 0.34fr)
-      minmax(0, 1.66fr)
+      minmax(0, clamp(240px, 25vw, 340px))
+      minmax(500px, min(68vw, 920px))
       0;
   }
 }
@@ -2719,17 +2725,20 @@ Guardrails:
 
   .hammer-workspace-shell.is-visual-placement {
     --hammer-shell-timeline-height: clamp(160px, 20vh, 210px);
+    --hammer-shell-placement-source-width: clamp(220px, 25vw, 300px);
+    --hammer-shell-placement-preview-min-width: 420px;
+    --hammer-shell-placement-preview-max-width: min(69vw, 820px);
   }
 
   .hammer-workspace-shell.is-visual-placement .hammer-workspace-shell__top {
     grid-template-columns:
-      minmax(150px, 0.3fr)
-      minmax(0, 1.7fr)
+      minmax(0, var(--hammer-shell-placement-source-width))
+      minmax(var(--hammer-shell-placement-preview-min-width), var(--hammer-shell-placement-preview-max-width))
       0;
   }
 
   .hammer-workspace-shell.is-visual-placement .hammer-source-bay {
-    max-width: 300px;
+    max-width: none;
   }
 
   .hammer-workspace-shell.is-visual-placement .hammer-preview-surface {
