@@ -3550,6 +3550,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     return mediaSourceLabel;
   }, [mediaSourceLabel, preferredPlayback.kind, preferredPlayback.local_relpath, preferredPlayback.source_label, preferredPlayback.workpiece_path]);
 
+  const historyController = historyControllerRef.current;
+  const historyHeadEntryId = historyController?.document.headEntryId ?? null;
+
+  const voicePolish = useMemo(
+    () => editableStudioRack.voice_polish ?? createDefaultHammerVoicePolishState(),
+    [editableStudioRack.voice_polish],
+  );
+  const voicePolishHasAnyFixEnabled = useMemo(
+    () => Object.values(voicePolish.fixes).some(Boolean),
+    [voicePolish.fixes],
+  );
+
   const shouldUseStudioRackPreviewForCompare = Boolean(
     activeTool === "audio"
     && currentPass === "audio_finalization"
@@ -3682,14 +3694,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (canonical.includes(legacy) || legacy.includes(canonical)) return null;
     return `Capture label "${legacyCaptureLabel}" does not match this episode title "${canonicalWorkpieceLabel}".`;
   }, [canonicalWorkpieceLabel, legacyCaptureLabel]);
-  const historyController = historyControllerRef.current;
   const canUndo = historyController?.canUndo() ?? false;
   const canRedo = historyController?.canRedo() ?? false;
   const undoLabel = historyController?.peekUndoEntry()?.label ?? null;
   const redoLabel = historyController?.peekRedoEntry()?.label ?? null;
   const undoDepth = historyController?.document.undoStack.length ?? 0;
   const redoDepth = historyController?.document.redoStack.length ?? 0;
-  const historyHeadEntryId = historyController?.document.headEntryId ?? null;
   const recentHistoryEntries = useMemo(
     () => [...(historyController?.document.entries ?? [])].slice(-12).reverse(),
     [historyController?.document.entries],
@@ -3728,14 +3738,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const studioRackEnabledModuleCount = useMemo(
     () => Object.values(editableStudioRack.modules).filter((module) => module.is_enabled && !module.is_bypassed).length,
     [editableStudioRack.modules],
-  );
-  const voicePolish = useMemo(
-    () => editableStudioRack.voice_polish ?? createDefaultHammerVoicePolishState(),
-    [editableStudioRack.voice_polish],
-  );
-  const voicePolishHasAnyFixEnabled = useMemo(
-    () => Object.values(voicePolish.fixes).some(Boolean),
-    [voicePolish.fixes],
   );
   const studioRackRenderAppliedModules = useMemo(() => {
     const summary = studioRackRenderStatus?.rawResponse?.settings_summary ?? null;
@@ -5691,11 +5693,24 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   function setAudioFinalizationCompare(nextMode: HammerAudioFinalizationCompareMode): void {
+    if (import.meta.env.DEV) {
+      console.info("[Hammer][AudioFinalization] compare", {
+        nextMode,
+        hasHistoryController: Boolean(historyControllerRef.current),
+      });
+    }
     setAudioFinalizationCompareMode(nextMode);
     setStudioRackBypassed(nextMode === "before");
   }
 
   function applyVoicePolishPreset(nextPresetId: HammerVoicePolishPresetId): void {
+    if (import.meta.env.DEV) {
+      console.info("[Hammer][AudioFinalization] preset", {
+        nextPresetId,
+        hasHistoryController: Boolean(historyControllerRef.current),
+        currentVoicePolish: editableStudioRack.voice_polish ?? null,
+      });
+    }
     applyStudioRackMutation("Apply audio preset", (current) => {
       const nextVoicePolish = applyHammerVoicePolishPreset(
         current.voice_polish ?? createDefaultHammerVoicePolishState(),
@@ -5713,6 +5728,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   }
 
   function setVoicePolishFixEnabled(fixId: HammerVoicePolishFixId, nextEnabled: boolean): void {
+    if (import.meta.env.DEV) {
+      console.info("[Hammer][AudioFinalization] fix", {
+        fixId,
+        nextEnabled,
+        hasHistoryController: Boolean(historyControllerRef.current),
+        currentVoicePolish: editableStudioRack.voice_polish ?? null,
+      });
+    }
     applyStudioRackMutation(nextEnabled ? `Enable ${fixId}` : `Disable ${fixId}`, (current) => ({
       ...current,
       is_enabled: true,
