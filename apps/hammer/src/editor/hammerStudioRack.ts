@@ -1,3 +1,6 @@
+import type { HammerVoicePolishState } from "./hammerVoicePolish";
+import { createDefaultHammerVoicePolishState } from "./hammerVoicePolish";
+
 export interface HammerStudioGateState {
   is_enabled: boolean;
   is_bypassed: boolean;
@@ -49,6 +52,7 @@ export interface HammerStudioRackState {
   is_enabled: boolean;
   is_bypassed: boolean;
   backend_preference: "native" | "ffmpeg";
+  voice_polish?: HammerVoicePolishState;
   modules: {
     gate: HammerStudioGateState;
     compressor: HammerStudioCompressorState;
@@ -92,6 +96,7 @@ export function createDefaultHammerStudioRackState(): HammerStudioRackState {
     is_enabled: false,
     is_bypassed: false,
     backend_preference: "native",
+    voice_polish: createDefaultHammerVoicePolishState(),
     modules: {
       gate: {
         is_enabled: false,
@@ -144,6 +149,11 @@ export function cloneHammerStudioRackState(state: HammerStudioRackState): Hammer
     is_enabled: state.is_enabled,
     is_bypassed: state.is_bypassed,
     backend_preference: state.backend_preference,
+    voice_polish: state.voice_polish ? {
+      preset_id: state.voice_polish.preset_id ?? null,
+      fixes: { ...state.voice_polish.fixes },
+      advanced: { ...state.voice_polish.advanced },
+    } : undefined,
     modules: {
       gate: { ...state.modules.gate },
       compressor: { ...state.modules.compressor },
@@ -165,11 +175,42 @@ export function normalizeHammerStudioRackState(value: unknown): HammerStudioRack
   const eq = readObject(modules?.eq);
   const reverb = readObject(modules?.reverb);
   const tubeMicCharacter = readObject(modules?.tubeMicCharacter);
+  const voicePolishRaw = readObject(row.voice_polish);
+
+  const voice_polish: HammerVoicePolishState = voicePolishRaw
+    ? {
+      preset_id: voicePolishRaw.preset_id === "podcast_voice_balanced"
+        || voicePolishRaw.preset_id === "clean_bright"
+        || voicePolishRaw.preset_id === "warm_full"
+        || voicePolishRaw.preset_id === "broadcast_ready"
+        ? voicePolishRaw.preset_id
+        : null,
+      fixes: {
+        remove_harsh_sibilance: readBoolean(readObject(voicePolishRaw.fixes)?.remove_harsh_sibilance, defaults.voice_polish!.fixes.remove_harsh_sibilance),
+        reduce_room_boxiness: readBoolean(readObject(voicePolishRaw.fixes)?.reduce_room_boxiness, defaults.voice_polish!.fixes.reduce_room_boxiness),
+        enhance_voice_clarity: readBoolean(readObject(voicePolishRaw.fixes)?.enhance_voice_clarity, defaults.voice_polish!.fixes.enhance_voice_clarity),
+        level_volume: readBoolean(readObject(voicePolishRaw.fixes)?.level_volume, defaults.voice_polish!.fixes.level_volume),
+      },
+      advanced: {
+        de_esser_strength: readObject(voicePolishRaw.advanced)?.de_esser_strength === "low"
+          || readObject(voicePolishRaw.advanced)?.de_esser_strength === "medium"
+          || readObject(voicePolishRaw.advanced)?.de_esser_strength === "high"
+          ? readObject(voicePolishRaw.advanced)!.de_esser_strength as HammerVoicePolishState["advanced"]["de_esser_strength"]
+          : defaults.voice_polish!.advanced.de_esser_strength,
+        eq_profile: readObject(voicePolishRaw.advanced)?.eq_profile === "flat"
+          || readObject(voicePolishRaw.advanced)?.eq_profile === "voice"
+          || readObject(voicePolishRaw.advanced)?.eq_profile === "bright"
+          ? readObject(voicePolishRaw.advanced)!.eq_profile as HammerVoicePolishState["advanced"]["eq_profile"]
+          : defaults.voice_polish!.advanced.eq_profile,
+      },
+    }
+    : defaults.voice_polish!;
 
   return {
     is_enabled: readBoolean(row.is_enabled, defaults.is_enabled),
     is_bypassed: readBoolean(row.is_bypassed, defaults.is_bypassed),
     backend_preference: row.backend_preference === "ffmpeg" ? "ffmpeg" : "native",
+    voice_polish,
     modules: {
       gate: {
         is_enabled: readBoolean(gate?.is_enabled, defaults.modules.gate.is_enabled),
@@ -219,6 +260,9 @@ export function normalizeHammerStudioRackState(value: unknown): HammerStudioRack
 
 export function isHammerStudioRackIdentity(state: HammerStudioRackState): boolean {
   if (!state.is_enabled || state.is_bypassed) return true;
+  if (state.voice_polish && Object.values(state.voice_polish.fixes).some(Boolean)) {
+    return false;
+  }
   return HAMMER_STUDIO_RACK_MODULE_ORDER.every((moduleId) => {
     const module = state.modules[moduleId];
     return !module.is_enabled || module.is_bypassed;

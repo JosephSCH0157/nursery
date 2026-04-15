@@ -207,6 +207,17 @@ import {
   type HammerStudioRackState,
 } from "./hammerStudioRack";
 import {
+  applyHammerVoicePolishPreset,
+  createDefaultHammerVoicePolishState,
+  setHammerVoicePolishDeEsserStrength,
+  setHammerVoicePolishEqProfile,
+  setHammerVoicePolishFixEnabled,
+  type HammerVoicePolishDeEsserStrength,
+  type HammerVoicePolishEqProfile,
+  type HammerVoicePolishFixId,
+  type HammerVoicePolishPresetId,
+} from "./hammerVoicePolish";
+import {
   executeDialogueAudioRenderWithBackend,
   processDialogueAudioWithBackend,
   resolveHammerAudioProcessingBackend,
@@ -1854,6 +1865,10 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
   const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
   const [audioFinalizationCompareMode, setAudioFinalizationCompareMode] = useState<HammerAudioFinalizationCompareMode>("after");
+  const [studioRackPreviewSrc, setStudioRackPreviewSrc] = useState<string | null>(null);
+  const studioRackPreviewSrcToRevokeRef = useRef<string | null>(null);
+  const studioRackPreviewInFlightRef = useRef(false);
+  const studioRackPreviewKeyRef = useRef<string | null>(null);
   const [videoSnapMode, setVideoSnapMode] = useState<"timeline" | "segment">("timeline");
   const initialVisualPreviewSettings = normalizeVisualPreviewSettings(props.initialVisualPreviewSettings);
   const [visualWhiteBalance, setVisualWhiteBalance] = useState(initialVisualPreviewSettings.white_balance);
@@ -3534,6 +3549,131 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return mediaSourceLabel;
   }, [mediaSourceLabel, preferredPlayback.kind, preferredPlayback.local_relpath, preferredPlayback.source_label, preferredPlayback.workpiece_path]);
+
+  const shouldUseStudioRackPreviewForCompare = Boolean(
+    activeTool === "audio"
+    && currentPass === "audio_finalization"
+    && audioFinalizationCompareMode === "after"
+    && editableStudioRack.is_enabled
+    && !editableStudioRack.is_bypassed
+    && voicePolishHasAnyFixEnabled,
+  );
+
+  useEffect(() => {
+    const current = studioRackPreviewSrcToRevokeRef.current;
+    if (current && current.startsWith("blob:") && current !== studioRackPreviewSrc) {
+      URL.revokeObjectURL(current);
+    }
+    studioRackPreviewSrcToRevokeRef.current = studioRackPreviewSrc && studioRackPreviewSrc.startsWith("blob:")
+      ? studioRackPreviewSrc
+      : null;
+    return () => {
+      const next = studioRackPreviewSrcToRevokeRef.current;
+      if (next && next.startsWith("blob:")) {
+        URL.revokeObjectURL(next);
+      }
+      studioRackPreviewSrcToRevokeRef.current = null;
+    };
+  }, [studioRackPreviewSrc]);
+
+  useEffect(() => {
+    if (!shouldUseStudioRackPreviewForCompare) {
+      studioRackPreviewKeyRef.current = null;
+      setStudioRackPreviewSrc(null);
+      return;
+    }
+
+    const renderLocalRelpath = preferredPlayback.kind === "polished"
+      ? (preferredPlayback.local_relpath ?? mediaRef?.local_relpath ?? null)
+      : (mediaRef?.local_relpath ?? null);
+    const renderCanonicalWorkpiecePath = preferredPlayback.kind === "polished"
+      ? (preferredPlayback.workpiece_path ?? null)
+      : (mediaRef?.local_relpath ?? null);
+
+    const key = JSON.stringify({
+      head: historyHeadEntryId ?? "head:unknown",
+      basis: renderCanonicalWorkpiecePath ?? renderLocalRelpath ?? "basis:unknown",
+      rack: editableStudioRack,
+    });
+
+    if (studioRackPreviewInFlightRef.current) return;
+    if (studioRackPreviewKeyRef.current === key && studioRackPreviewSrc) return;
+    if (!studioRackRenderBackendResolution.ffmpegAvailable) return;
+    if (!mediaRef) return;
+
+    studioRackPreviewInFlightRef.current = true;
+    studioRackPreviewKeyRef.current = key;
+
+    void (async () => {
+      try {
+        const renderExecution = await executeDialogueAudioRenderWithBackend({
+          workspaceId: launchContext.workspace_id,
+          workpieceId: launchContext.workpiece_id,
+          mediaKind: mediaRef.kind,
+          timelineSegments: editableTranscriptSegments.map((segment) => ({
+            segment_id: segment.segment_id,
+            start_sec: segment.start_sec,
+            end_sec: segment.end_sec,
+            is_disabled: segment.is_disabled,
+            gain_db: segment.gain_db,
+          })),
+          rackState: editableStudioRack,
+          localRootAbs: playbackLocalRootAbs,
+          localRelpath: renderLocalRelpath,
+          canonicalWorkpiecePath: renderCanonicalWorkpiecePath,
+          mimeType: preferredPlayback.kind === "polished" ? (preferredPlayback.mime_type ?? null) : null,
+          runtimeSummary: mediaBackboneRuntime,
+        });
+        setStudioRackRenderStatus(renderExecution);
+
+        if (renderExecution.status !== "processed") {
+          setStudioRackPreviewSrc(null);
+          return;
+        }
+
+        if (renderExecution.outputLocalRelpath && playbackLocalRootAbs) {
+          setStudioRackPreviewSrc(buildHammerDevMediaUrl(playbackLocalRootAbs, renderExecution.outputLocalRelpath));
+          return;
+        }
+
+        if (renderExecution.outputWorkpiecePath) {
+          const previewUrl = await loadCanonicalAudioPolishPreviewUrl({
+            workpieceId: launchContext.workpiece_id,
+            workpiecePath: renderExecution.outputWorkpiecePath,
+            mimeType: renderExecution.outputMimeType,
+          });
+          setStudioRackPreviewSrc(previewUrl);
+          return;
+        }
+
+        setStudioRackPreviewSrc(null);
+      } catch {
+        setStudioRackPreviewSrc(null);
+      } finally {
+        studioRackPreviewInFlightRef.current = false;
+      }
+    })();
+  }, [
+    activeTool,
+    audioFinalizationCompareMode,
+    currentPass,
+    editableStudioRack,
+    editableTranscriptSegments,
+    historyHeadEntryId,
+    launchContext.workpiece_id,
+    launchContext.workspace_id,
+    mediaBackboneRuntime,
+    mediaRef,
+    playbackLocalRootAbs,
+    preferredPlayback.kind,
+    preferredPlayback.local_relpath,
+    preferredPlayback.mime_type,
+    preferredPlayback.workpiece_path,
+    shouldUseStudioRackPreviewForCompare,
+    studioRackPreviewSrc,
+    studioRackRenderBackendResolution.ffmpegAvailable,
+    voicePolishHasAnyFixEnabled,
+  ]);
   const mediaLabelMismatchWarning = useMemo(() => {
     const canonical = normalizeLabelForComparison(canonicalWorkpieceLabel);
     const legacy = normalizeLabelForComparison(legacyCaptureLabel);
@@ -3589,33 +3729,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     () => Object.values(editableStudioRack.modules).filter((module) => module.is_enabled && !module.is_bypassed).length,
     [editableStudioRack.modules],
   );
-  const audioFinalizationWarmth = useMemo(
-    () => scaleToPercent(editableStudioRack.modules.tubeMicCharacter.warmth, -1, 1),
-    [editableStudioRack.modules.tubeMicCharacter.warmth],
+  const voicePolish = useMemo(
+    () => editableStudioRack.voice_polish ?? createDefaultHammerVoicePolishState(),
+    [editableStudioRack.voice_polish],
   );
-  const audioFinalizationPresence = useMemo(
-    () => scaleToPercent(editableStudioRack.modules.eq.mid_gain_db, -6, 6),
-    [editableStudioRack.modules.eq.mid_gain_db],
-  );
-  const audioFinalizationHarshness = useMemo(
-    () => scaleToPercent(editableStudioRack.modules.eq.high_shelf_gain_db, -8, 4),
-    [editableStudioRack.modules.eq.high_shelf_gain_db],
-  );
-  const audioFinalizationOutputLevel = useMemo(
-    () => scaleToPercent(editableStudioRack.modules.compressor.makeup_gain_db, -6, 12),
-    [editableStudioRack.modules.compressor.makeup_gain_db],
-  );
-  const audioStudioSoundApplied = useMemo(
-    () => editableStudioRack.is_enabled
-      && editableStudioRack.modules.compressor.is_enabled
-      && editableStudioRack.modules.eq.is_enabled
-      && editableStudioRack.modules.tubeMicCharacter.is_enabled,
-    [
-      editableStudioRack.is_enabled,
-      editableStudioRack.modules.compressor.is_enabled,
-      editableStudioRack.modules.eq.is_enabled,
-      editableStudioRack.modules.tubeMicCharacter.is_enabled,
-    ],
+  const voicePolishHasAnyFixEnabled = useMemo(
+    () => Object.values(voicePolish.fixes).some(Boolean),
+    [voicePolish.fixes],
   );
   const studioRackRenderAppliedModules = useMemo(() => {
     const summary = studioRackRenderStatus?.rawResponse?.settings_summary ?? null;
@@ -4251,6 +4371,11 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       const rawVideoSrc = await resolveRawPreviewVideoSrc();
       if (!active) return;
 
+      if (shouldUseStudioRackPreviewForCompare && studioRackPreviewSrc) {
+        setPlaybackMediaSrc(studioRackPreviewSrc);
+        return;
+      }
+
       if (preferredPlayback.kind === "polished") {
         if (preferredPlayback.local_relpath && playbackLocalRootAbs) {
           setPlaybackMediaSrc(
@@ -4300,6 +4425,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     preferredPlayback.local_relpath,
     preferredPlayback.mime_type,
     preferredPlayback.workpiece_path,
+    shouldUseStudioRackPreviewForCompare,
+    studioRackPreviewSrc,
   ]);
 
   useEffect(() => {
@@ -5563,107 +5690,65 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }));
   }
 
-  function applyStudioSoundProfile(): void {
-    applyStudioRackMutation("Apply Studio Sound", (current) => ({
-      ...current,
-      is_enabled: true,
-      is_bypassed: false,
-      modules: {
-        ...current.modules,
-        compressor: {
-          ...current.modules.compressor,
-          is_enabled: true,
-          is_bypassed: false,
-          threshold_db: -23,
-          ratio: 2.2,
-          makeup_gain_db: 2,
-        },
-        eq: {
-          ...current.modules.eq,
-          is_enabled: true,
-          is_bypassed: false,
-          low_shelf_gain_db: -1.2,
-          mid_gain_db: 1.6,
-          high_shelf_gain_db: 1,
-        },
-        tubeMicCharacter: {
-          ...current.modules.tubeMicCharacter,
-          is_enabled: true,
-          is_bypassed: false,
-          amount: 0.24,
-          warmth: 0.32,
-          air: 0.18,
-        },
-      },
-    }));
-    applyPodcastMasterPass();
-    setAudioFinalizationCompareMode("after");
-  }
-
   function setAudioFinalizationCompare(nextMode: HammerAudioFinalizationCompareMode): void {
     setAudioFinalizationCompareMode(nextMode);
     setStudioRackBypassed(nextMode === "before");
   }
 
-  function updateAudioFinalizationWarmth(nextPercent: number): void {
-    applyStudioRackMutation("Adjust warmth", (current) => ({
-      ...current,
-      modules: {
-        ...current.modules,
-        tubeMicCharacter: {
-          ...current.modules.tubeMicCharacter,
-          is_enabled: true,
-          is_bypassed: false,
-          warmth: percentToScale(nextPercent, -1, 1),
-          amount: clampNumber(0.18 + (nextPercent / 100) * 0.2, 0, 1),
-        },
-      },
-    }));
+  function applyVoicePolishPreset(nextPresetId: HammerVoicePolishPresetId): void {
+    applyStudioRackMutation("Apply audio preset", (current) => {
+      const nextVoicePolish = applyHammerVoicePolishPreset(
+        current.voice_polish ?? createDefaultHammerVoicePolishState(),
+        nextPresetId,
+      );
+      return {
+        ...current,
+        is_enabled: true,
+        is_bypassed: false,
+        voice_polish: nextVoicePolish,
+      };
+    });
+    applyPodcastMasterPass();
+    setAudioFinalizationCompareMode("after");
   }
 
-  function updateAudioFinalizationPresence(nextPercent: number): void {
-    applyStudioRackMutation("Adjust presence", (current) => ({
+  function setVoicePolishFixEnabled(fixId: HammerVoicePolishFixId, nextEnabled: boolean): void {
+    applyStudioRackMutation(nextEnabled ? `Enable ${fixId}` : `Disable ${fixId}`, (current) => ({
       ...current,
-      modules: {
-        ...current.modules,
-        eq: {
-          ...current.modules.eq,
-          is_enabled: true,
-          is_bypassed: false,
-          mid_gain_db: percentToScale(nextPercent, -6, 6),
-        },
-      },
+      is_enabled: true,
+      is_bypassed: false,
+      voice_polish: setHammerVoicePolishFixEnabled(
+        current.voice_polish ?? createDefaultHammerVoicePolishState(),
+        fixId,
+        nextEnabled,
+      ),
     }));
+    applyPodcastMasterPass();
+    setAudioFinalizationCompareMode("after");
   }
 
-  function updateAudioFinalizationHarshness(nextPercent: number): void {
-    applyStudioRackMutation("Adjust harshness", (current) => ({
+  function setVoicePolishDeEsserStrength(nextStrength: HammerVoicePolishDeEsserStrength): void {
+    applyStudioRackMutation("Update de-esser strength", (current) => ({
       ...current,
-      modules: {
-        ...current.modules,
-        eq: {
-          ...current.modules.eq,
-          is_enabled: true,
-          is_bypassed: false,
-          high_shelf_gain_db: percentToScale(nextPercent, -8, 4),
-        },
-      },
+      is_enabled: true,
+      voice_polish: setHammerVoicePolishDeEsserStrength(
+        current.voice_polish ?? createDefaultHammerVoicePolishState(),
+        nextStrength,
+      ),
     }));
+    applyPodcastMasterPass();
   }
 
-  function updateAudioFinalizationOutputLevel(nextPercent: number): void {
-    applyStudioRackMutation("Adjust output level", (current) => ({
+  function setVoicePolishEqProfile(nextProfile: HammerVoicePolishEqProfile): void {
+    applyStudioRackMutation("Update EQ profile", (current) => ({
       ...current,
-      modules: {
-        ...current.modules,
-        compressor: {
-          ...current.modules.compressor,
-          is_enabled: true,
-          is_bypassed: false,
-          makeup_gain_db: percentToScale(nextPercent, -6, 12),
-        },
-      },
+      is_enabled: true,
+      voice_polish: setHammerVoicePolishEqProfile(
+        current.voice_polish ?? createDefaultHammerVoicePolishState(),
+        nextProfile,
+      ),
     }));
+    applyPodcastMasterPass();
   }
 
   function applyTranscriptSelection(segmentId: string, extendRange: boolean): void {
@@ -10026,6 +10111,15 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
           rawResponse: null,
         };
       } else {
+        const renderLocalRelpath = preferredPlayback.kind === "polished"
+          ? (preferredPlayback.local_relpath ?? mediaRef.local_relpath ?? null)
+          : (mediaRef.local_relpath ?? null);
+        const renderCanonicalWorkpiecePath = preferredPlayback.kind === "polished"
+          ? (preferredPlayback.workpiece_path ?? null)
+          : (mediaRef.local_relpath ?? null);
+        const renderMimeType = preferredPlayback.kind === "polished"
+          ? (preferredPlayback.mime_type ?? null)
+          : null;
         renderExecution = await executeDialogueAudioRenderWithBackend({
           workspaceId: launchContext.workspace_id,
           workpieceId: launchContext.workpiece_id,
@@ -10039,8 +10133,9 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
           })),
           rackState: editableStudioRack,
           localRootAbs: playbackLocalRootAbs,
-          localRelpath: mediaRef.local_relpath ?? null,
-          canonicalWorkpiecePath: mediaRef.local_relpath ?? null,
+          localRelpath: renderLocalRelpath,
+          canonicalWorkpiecePath: renderCanonicalWorkpiecePath,
+          mimeType: renderMimeType,
           runtimeSummary: mediaBackboneRuntime,
         });
       }
@@ -10227,15 +10322,15 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     applyOutroPlacement,
     applyPodcastMasterPass,
     applyStudioRackMutation,
-    applyStudioSoundProfile,
+    applyVoicePolishPreset,
     audioFinalizationCompareMode,
-    audioFinalizationHarshness,
-    audioFinalizationOutputLevel,
-    audioFinalizationPresence,
-    audioFinalizationWarmth,
     audioLevelingEnabled,
     audioNoiseReductionEnabled,
-    audioStudioSoundApplied,
+    setVoicePolishDeEsserStrength,
+    setVoicePolishEqProfile,
+    setVoicePolishFixEnabled,
+    voicePolish,
+    voicePolishHasAnyFixEnabled: voicePolishHasAnyFixEnabled,
     backgroundBlurProviderDescriptor,
     boundAttentionQueue,
     boundAttentionSummary,
@@ -10457,10 +10552,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     transcriptSelectionRange,
     trimResolvedBrollBinding,
     unresolvedBrollSuggestionItems,
-    updateAudioFinalizationHarshness,
-    updateAudioFinalizationOutputLevel,
-    updateAudioFinalizationPresence,
-    updateAudioFinalizationWarmth,
     updateImagePlacementTransform,
     updateVisualPlacementTiming,
     videoSnapMode,
@@ -10520,15 +10611,15 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     applyOutroPlacement,
     applyPodcastMasterPass,
     applyStudioRackMutation,
-    applyStudioSoundProfile,
+    applyVoicePolishPreset,
     audioFinalizationCompareMode,
-    audioFinalizationHarshness,
-    audioFinalizationOutputLevel,
-    audioFinalizationPresence,
-    audioFinalizationWarmth,
     audioLevelingEnabled,
     audioNoiseReductionEnabled,
-    audioStudioSoundApplied,
+    setVoicePolishDeEsserStrength,
+    setVoicePolishEqProfile,
+    setVoicePolishFixEnabled,
+    voicePolish,
+    voicePolishHasAnyFixEnabled,
     backgroundBlurProviderDescriptor,
     boundAttentionQueue,
     boundAttentionSummary,
@@ -10751,10 +10842,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     transcriptSelectionRange,
     trimResolvedBrollBinding,
     unresolvedBrollSuggestionItems,
-    updateAudioFinalizationHarshness,
-    updateAudioFinalizationOutputLevel,
-    updateAudioFinalizationPresence,
-    updateAudioFinalizationWarmth,
     updateImagePlacementTransform,
     updateVisualPlacementTiming,
     videoSnapMode,

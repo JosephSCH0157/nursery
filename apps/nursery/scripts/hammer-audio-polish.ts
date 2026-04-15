@@ -874,7 +874,7 @@ function applyHighPass(samples: Float32Array, sampleRate: number, cutoffHz: numb
   }
 }
 
-function applyPresenceLift(samples: Float32Array, sampleRate: number, cutoffHz: number, amount: number): void {
+function applyLowPass(samples: Float32Array, sampleRate: number, cutoffHz: number): void {
   const dt = 1 / sampleRate;
   const rc = 1 / (2 * Math.PI * cutoffHz);
   const alpha = dt / (rc + dt);
@@ -882,39 +882,81 @@ function applyPresenceLift(samples: Float32Array, sampleRate: number, cutoffHz: 
   for (let index = 0; index < samples.length; index += 1) {
     const input = samples[index];
     lowPass += alpha * (input - lowPass);
-    const highBand = input - lowPass;
-    samples[index] = Math.max(-1, Math.min(1, input + highBand * amount));
+    samples[index] = lowPass;
   }
 }
 
-function applyGentleNoiseReduction(samples: Float32Array, sampleRate: number): void {
-  const windowSize = Math.max(64, Math.round(sampleRate * 0.01));
-  const rmsValues: number[] = [];
-  for (let start = 0; start < samples.length; start += windowSize) {
-    let sumSquares = 0;
-    const end = Math.min(start + windowSize, samples.length);
-    for (let index = start; index < end; index += 1) {
-      const sample = samples[index];
-      sumSquares += sample * sample;
-    }
-    rmsValues.push(Math.sqrt(sumSquares / Math.max(end - start, 1)));
+function applyPeakingEq(samples: Float32Array, sampleRate: number, centerHz: number, gainDb: number, q: number): void {
+  const w0 = (2 * Math.PI * centerHz) / sampleRate;
+  const cos = Math.cos(w0);
+  const sin = Math.sin(w0);
+  const A = Math.pow(10, gainDb / 40);
+  const alpha = sin / (2 * Math.max(0.1, q));
+
+  const b0 = 1 + alpha * A;
+  const b1 = -2 * cos;
+  const b2 = 1 - alpha * A;
+  const a0 = 1 + alpha / A;
+  const a1 = -2 * cos;
+  const a2 = 1 - alpha / A;
+
+  const nb0 = b0 / a0;
+  const nb1 = b1 / a0;
+  const nb2 = b2 / a0;
+  const na1 = a1 / a0;
+  const na2 = a2 / a0;
+
+  let x1 = samples[0] ?? 0;
+  let x2 = samples[0] ?? 0;
+  let y1 = x1;
+  let y2 = x2;
+
+  for (let index = 0; index < samples.length; index += 1) {
+    const x0 = samples[index];
+    const y0 = nb0 * x0 + nb1 * x1 + nb2 * x2 - na1 * y1 - na2 * y2;
+    samples[index] = Math.max(-1, Math.min(1, y0));
+    x2 = x1;
+    x1 = x0;
+    y2 = y1;
+    y1 = y0;
   }
-  if (rmsValues.length === 0) return;
+}
 
-  const sorted = [...rmsValues].sort((left, right) => left - right);
-  const percentileIndex = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.2));
-  const floorRms = Math.max(sorted[percentileIndex] ?? 0, 0.0015);
-  const attenuationCeiling = 0.84;
+function applyGentleDeEsser(samples: Float32Array, sampleRate: number): void {
+  const highBand = new Float32Array(samples);
+  applyHighPass(highBand, sampleRate, 4_500);
+  applyLowPass(highBand, sampleRate, 11_000);
+  const originalBand = new Float32Array(highBand);
 
-  for (let windowIndex = 0; windowIndex < rmsValues.length; windowIndex += 1) {
-    const rms = rmsValues[windowIndex];
-    const normalized = Math.min(1, rms / (floorRms * 2.25));
-    const gain = attenuationCeiling + (1 - attenuationCeiling) * normalized;
-    const start = windowIndex * windowSize;
-    const end = Math.min(start + windowSize, samples.length);
-    for (let index = start; index < end; index += 1) {
-      samples[index] *= gain;
-    }
+  let sumSquares = 0;
+  for (let index = 0; index < highBand.length; index += 1) {
+    const value = highBand[index];
+    sumSquares += value * value;
+  }
+  const rms = Math.sqrt(sumSquares / Math.max(1, highBand.length));
+  const threshold = rms * 2.2;
+  const intensity = 0.18;
+
+  const attack = Math.max(0.001, 1 / (sampleRate * 0.004));
+  const release = Math.max(0.001, 1 / (sampleRate * 0.02));
+  let envelope = 0;
+
+  for (let index = 0; index < highBand.length; index += 1) {
+    const value = highBand[index];
+    const magnitude = Math.abs(value);
+    envelope = magnitude > envelope
+      ? envelope + (magnitude - envelope) * attack
+      : envelope + (magnitude - envelope) * release;
+
+    if (envelope <= threshold) continue;
+    const over = envelope - threshold;
+    const damp = Math.max(0.5, 1 - intensity * (over / (envelope + 1e-6)));
+    highBand[index] = value * damp;
+  }
+
+  for (let index = 0; index < samples.length; index += 1) {
+    const delta = highBand[index] - originalBand[index];
+    samples[index] = Math.max(-1, Math.min(1, samples[index] + delta));
   }
 }
 
@@ -945,15 +987,32 @@ function applyLightCompression(samples: Float32Array, sampleRate: number): void 
   }
 }
 
-function normalizePeak(channelData: Float32Array[], targetPeak = 0.89): void {
+function normalizeLoudness(channelData: Float32Array[], targetRmsDbfs: number, maxPeak = 0.92): void {
+  let sumSquares = 0;
+  let sampleTotal = 0;
   let peak = 0;
+
   for (const samples of channelData) {
     for (let index = 0; index < samples.length; index += 1) {
-      peak = Math.max(peak, Math.abs(samples[index]));
+      const sample = samples[index];
+      sumSquares += sample * sample;
+      sampleTotal += 1;
+      peak = Math.max(peak, Math.abs(sample));
     }
   }
-  if (peak <= 0) return;
-  const gain = targetPeak / peak;
+
+  const rms = sampleTotal > 0 ? Math.sqrt(sumSquares / sampleTotal) : 0;
+  if (!(rms > 0)) return;
+
+  const targetRms = Math.pow(10, targetRmsDbfs / 20);
+  let gain = targetRms / rms;
+  gain = Math.max(0.25, Math.min(6, gain));
+
+  const projectedPeak = peak * gain;
+  if (projectedPeak > maxPeak && projectedPeak > 0) {
+    gain *= (maxPeak / projectedPeak);
+  }
+
   for (const samples of channelData) {
     for (let index = 0; index < samples.length; index += 1) {
       samples[index] = Math.max(-1, Math.min(1, samples[index] * gain));
@@ -965,12 +1024,12 @@ function renderPolishedWaveBuffer(parsedWave: ParsedWave): Buffer {
   const processedChannels = parsedWave.channelData.map((channel) => new Float32Array(channel));
   for (const samples of processedChannels) {
     applyDcRemoval(samples);
-    applyHighPass(samples, parsedWave.sampleRate, 72);
-    applyPresenceLift(samples, parsedWave.sampleRate, 1_900, 0.1);
-    applyGentleNoiseReduction(samples, parsedWave.sampleRate);
+    applyHighPass(samples, parsedWave.sampleRate, 85);
+    applyPeakingEq(samples, parsedWave.sampleRate, 320, -2.6, 1.1);
+    applyGentleDeEsser(samples, parsedWave.sampleRate);
     applyLightCompression(samples, parsedWave.sampleRate);
   }
-  normalizePeak(processedChannels);
+  normalizeLoudness(processedChannels, -20, 0.92);
 
   const blockAlign = parsedWave.channelCount * 2;
   const byteRate = parsedWave.sampleRate * blockAlign;
@@ -2044,7 +2103,7 @@ export async function handleHammerAudioPolishRequest(
             analysis_dual_mono: channelCharacterization?.dual_mono ?? false,
             analysis_waveform_bucket_count: waveformProxy?.bucket_count ?? 0,
             analysis_phase: activePhase,
-            chain: "dc_remove,high_pass,presence_lift,gentle_noise_reduction,light_compression,peak_normalize",
+            chain: "high_pass,boxiness_reduction,gentle_deesser,light_compression,loudness_normalize",
           },
         },
       },

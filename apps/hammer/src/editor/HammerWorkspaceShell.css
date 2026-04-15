@@ -1220,11 +1220,61 @@ Guardrails:
   font-weight: 700;
 }
 
+.hammer-tool-card__subhead {
+  color: rgba(226, 232, 240, 0.9);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .hammer-tool-field {
   display: grid;
   gap: 4px;
   color: #cbd5e1;
   font-size: 11px;
+}
+
+.hammer-audio-fix {
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+}
+
+.hammer-audio-fix input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+}
+
+.hammer-audio-fix__copy {
+  display: grid;
+  gap: 2px;
+}
+
+.hammer-audio-fix__help {
+  color: rgba(147, 197, 253, 0.95);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.hammer-inline-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-left: 8px;
+  font-size: 10px;
+  color: rgba(226, 232, 240, 0.92);
+  background: rgba(2, 6, 23, 0.72);
+}
+
+.hammer-tool-advanced summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.hammer-tool-advanced summary::-webkit-details-marker {
+  display: none;
 }
 
 .hammer-tool-field input,

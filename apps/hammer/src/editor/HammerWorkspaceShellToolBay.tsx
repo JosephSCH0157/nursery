@@ -308,19 +308,13 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const applyCleanup = ctx.applyCleanup as (...args: any[]) => void;
   const cleanupReceipt = ctx.cleanupReceipt as any;
 
-  const applyStudioSoundProfile = ctx.applyStudioSoundProfile as (...args: any[]) => void;
-  const audioStudioSoundApplied = ctx.audioStudioSoundApplied as boolean;
-
   const audioFinalizationCompareMode = ctx.audioFinalizationCompareMode as any;
   const setAudioFinalizationCompare = ctx.setAudioFinalizationCompare as (...args: any[]) => void;
-  const audioFinalizationWarmth = ctx.audioFinalizationWarmth as number;
-  const updateAudioFinalizationWarmth = ctx.updateAudioFinalizationWarmth as (...args: any[]) => void;
-  const audioFinalizationPresence = ctx.audioFinalizationPresence as number;
-  const updateAudioFinalizationPresence = ctx.updateAudioFinalizationPresence as (...args: any[]) => void;
-  const audioFinalizationHarshness = ctx.audioFinalizationHarshness as number;
-  const updateAudioFinalizationHarshness = ctx.updateAudioFinalizationHarshness as (...args: any[]) => void;
-  const audioFinalizationOutputLevel = ctx.audioFinalizationOutputLevel as number;
-  const updateAudioFinalizationOutputLevel = ctx.updateAudioFinalizationOutputLevel as (...args: any[]) => void;
+  const applyVoicePolishPreset = ctx.applyVoicePolishPreset as (presetId: string) => void;
+  const voicePolish = ctx.voicePolish as any;
+  const setVoicePolishFixEnabled = ctx.setVoicePolishFixEnabled as (fixId: string, enabled: boolean) => void;
+  const setVoicePolishDeEsserStrength = ctx.setVoicePolishDeEsserStrength as (value: string) => void;
+  const setVoicePolishEqProfile = ctx.setVoicePolishEqProfile as (value: string) => void;
 
   const editableAudioPolish = ctx.editableAudioPolish as any;
   const persistedAudioCutCount = ctx.persistedAudioCutCount as number;
@@ -1554,17 +1548,87 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                 currentPass === "audio_finalization" ? (
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Audio Finalization</header>
-                    <div className="hammer-tool-hint">
-                      Podcast-first finish. Apply Studio Sound once, then make lightweight tweaks only if needed.
-                    </div>
-                    <div className="hammer-source-card__actions">
-                      <button type="button" onClick={applyStudioSoundProfile}>
-                        Apply Studio Sound
+
+                    <header className="hammer-tool-card__subhead">Audio Fixes</header>
+                    <label className="hammer-tool-field hammer-audio-fix">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(voicePolish?.fixes?.remove_harsh_sibilance)}
+                        onChange={(event) => setVoicePolishFixEnabled("remove_harsh_sibilance", event.target.checked)}
+                      />
+                      <span className="hammer-audio-fix__copy">
+                        <strong>Remove Harsh Sibilance</strong>
+                        <span className="hammer-audio-fix__help">Softens sharp “S” sounds</span>
+                      </span>
+                    </label>
+                    <label className="hammer-tool-field hammer-audio-fix">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(voicePolish?.fixes?.reduce_room_boxiness)}
+                        onChange={(event) => setVoicePolishFixEnabled("reduce_room_boxiness", event.target.checked)}
+                      />
+                      <span className="hammer-audio-fix__copy">
+                        <strong>Reduce Room / Boxiness</strong>
+                        <span className="hammer-audio-fix__help">Removes echo / boxy room tone</span>
+                      </span>
+                    </label>
+                    <label className="hammer-tool-field hammer-audio-fix">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(voicePolish?.fixes?.enhance_voice_clarity)}
+                        onChange={(event) => setVoicePolishFixEnabled("enhance_voice_clarity", event.target.checked)}
+                      />
+                      <span className="hammer-audio-fix__copy">
+                        <strong>Enhance Voice Clarity</strong>
+                        <span className="hammer-audio-fix__help">Brings the voice forward and improves intelligibility</span>
+                      </span>
+                    </label>
+                    <label className="hammer-tool-field hammer-audio-fix">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(voicePolish?.fixes?.level_volume)}
+                        onChange={(event) => setVoicePolishFixEnabled("level_volume", event.target.checked)}
+                      />
+                      <span className="hammer-audio-fix__copy">
+                        <strong>Level Volume</strong>
+                        <span className="hammer-audio-fix__help">Evens out overall loudness</span>
+                      </span>
+                    </label>
+
+                    <header className="hammer-tool-card__subhead">Presets</header>
+                    <div className="hammer-source-card__actions hammer-audio-presets">
+                      <button
+                        type="button"
+                        className={voicePolish?.preset_id === "podcast_voice_balanced" ? "is-selected" : ""}
+                        onClick={() => applyVoicePolishPreset("podcast_voice_balanced")}
+                      >
+                        Podcast Voice (Balanced)
+                      </button>
+                      <button
+                        type="button"
+                        className={voicePolish?.preset_id === "clean_bright" ? "is-selected" : ""}
+                        onClick={() => applyVoicePolishPreset("clean_bright")}
+                      >
+                        Clean & Bright
+                      </button>
+                      <button
+                        type="button"
+                        className={voicePolish?.preset_id === "warm_full" ? "is-selected" : ""}
+                        onClick={() => applyVoicePolishPreset("warm_full")}
+                      >
+                        Warm & Full
+                      </button>
+                      <button
+                        type="button"
+                        className={voicePolish?.preset_id === "broadcast_ready" ? "is-selected" : ""}
+                        onClick={() => applyVoicePolishPreset("broadcast_ready")}
+                      >
+                        <span>Broadcast Ready</span>
+                        <span className="hammer-inline-badge">Recommended</span>
                       </button>
                     </div>
-                    <div className="hammer-tool-hint">
-                      Status: {audioStudioSoundApplied ? "Studio Sound applied" : "Studio Sound not applied yet"}
-                    </div>
+
+                    <header className="hammer-tool-card__subhead">Compare</header>
                     <div className="hammer-source-card__actions">
                       <button
                         type="button"
@@ -1581,54 +1645,32 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                         After
                       </button>
                     </div>
-                    <div className="hammer-tool-hint">
-                      Compare mode: {audioFinalizationCompareMode === "before" ? "Before (rack bypassed)" : "After (rack active)"}
-                    </div>
 
-                    <label className="hammer-tool-field">
-                      <span>Warmth ({audioFinalizationWarmth})</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={audioFinalizationWarmth}
-                        onChange={(event) => updateAudioFinalizationWarmth(Number(event.target.value))}
-                      />
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Presence ({audioFinalizationPresence})</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={audioFinalizationPresence}
-                        onChange={(event) => updateAudioFinalizationPresence(Number(event.target.value))}
-                      />
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Harshness ({audioFinalizationHarshness})</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={audioFinalizationHarshness}
-                        onChange={(event) => updateAudioFinalizationHarshness(Number(event.target.value))}
-                      />
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Output Level ({audioFinalizationOutputLevel})</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={audioFinalizationOutputLevel}
-                        onChange={(event) => updateAudioFinalizationOutputLevel(Number(event.target.value))}
-                      />
-                    </label>
+                    <details className="hammer-tool-advanced">
+                      <summary className="hammer-tool-card__subhead">Advanced</summary>
+                      <label className="hammer-tool-field">
+                        <span>De-esser strength</span>
+                        <select
+                          value={voicePolish?.advanced?.de_esser_strength ?? "medium"}
+                          onChange={(event) => setVoicePolishDeEsserStrength(event.target.value)}
+                        >
+                          <option value="low">Low</option>
+                          <option value="medium">Medium</option>
+                          <option value="high">High</option>
+                        </select>
+                      </label>
+                      <label className="hammer-tool-field">
+                        <span>EQ profile</span>
+                        <select
+                          value={voicePolish?.advanced?.eq_profile ?? "voice"}
+                          onChange={(event) => setVoicePolishEqProfile(event.target.value)}
+                        >
+                          <option value="flat">Flat</option>
+                          <option value="voice">Voice</option>
+                          <option value="bright">Bright</option>
+                        </select>
+                      </label>
+                    </details>
                   </section>
                 ) : (
                 <section className="hammer-tool-card">
