@@ -6542,7 +6542,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       }
       return !current;
     });
-    setFocusOverride("time-focus");
   }
 
   function applyCleanup(preview: HammerCleanupPreview): void {
