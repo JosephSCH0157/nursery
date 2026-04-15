@@ -2295,10 +2295,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   const pauseAuxiliaryMediaPlayback = useCallback((): void => {
     const primaryPreviewAudio = previewAudioRef.current;
+    const primaryPreviewVideo = previewVideoRef.current;
+    const previewBrollVideos = new Set(previewBrollVideoRefs.current.values());
     const mediaNodes = document.querySelectorAll("audio,video");
     mediaNodes.forEach((node) => {
       if (!(node instanceof HTMLMediaElement)) return;
       if (primaryPreviewAudio && node === primaryPreviewAudio) return;
+      if (primaryPreviewVideo && node === primaryPreviewVideo) return;
+      if (node instanceof HTMLVideoElement && previewBrollVideos.has(node)) return;
       node.pause();
       if (!node.ended) {
         node.currentTime = 0;
