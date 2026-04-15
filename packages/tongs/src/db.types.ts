@@ -1123,6 +1123,87 @@ export type Database = {
           },
         ]
       }
+      workpiece_jobs: {
+        Row: {
+          id: string
+          workspace_id: string
+          workpiece_id: string
+          job_type: string
+          status: string
+          requested_by: string
+          payload_json: Json
+          result_json: Json | null
+          error_code: string | null
+          error_message: string | null
+          progress_percent: number | null
+          attempt_count: number
+          runner_id: string | null
+          lease_expires_at: string | null
+          heartbeat_at: string | null
+          started_at: string | null
+          completed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          workpiece_id: string
+          job_type: string
+          status: string
+          requested_by: string
+          payload_json?: Json
+          result_json?: Json | null
+          error_code?: string | null
+          error_message?: string | null
+          progress_percent?: number | null
+          attempt_count?: number
+          runner_id?: string | null
+          lease_expires_at?: string | null
+          heartbeat_at?: string | null
+          started_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          workpiece_id?: string
+          job_type?: string
+          status?: string
+          requested_by?: string
+          payload_json?: Json
+          result_json?: Json | null
+          error_code?: string | null
+          error_message?: string | null
+          progress_percent?: number | null
+          attempt_count?: number
+          runner_id?: string | null
+          lease_expires_at?: string | null
+          heartbeat_at?: string | null
+          started_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workpiece_jobs_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workpiece_jobs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workpiece_files: {
         Row: {
           workpiece_id: string

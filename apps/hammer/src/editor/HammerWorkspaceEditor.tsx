@@ -94,7 +94,6 @@ import {
   applyPreparedTranscriptToLaunchContext,
   buildHammerPrepOverlayViewModel,
   buildHammerPrepPersistenceSaveRequest,
-  buildPreparedTranscript,
   createHammerPrepState,
   ensureHammerLaunchSessionId,
   resolveHammerPrepOpenDecision,
@@ -120,9 +119,14 @@ import {
 } from "../prep/hammerAudioPolishApi";
 import { resolveAudioPolishInputSource } from "../prep/resolveAudioPolishInputSource";
 import {
-  requestHammerTranscriptPrep,
   type HammerTranscriptPrepError,
 } from "../prep/hammerPrepApi";
+import {
+  createWorkpieceJob,
+  fetchWorkpieceJob,
+  listWorkpieceJobs,
+  type HammerWorkpieceJob,
+} from "./hammerWorkpieceJobsApi";
 import {
   type HammerIngestDiagnosticV1,
   writeHammerIngestDiagnostics,
@@ -365,8 +369,10 @@ export default function HammerWorkspaceEditor(
   const [regenAiTranscriptOpen, setRegenAiTranscriptOpen] = useState(false);
   const [regenAiTranscriptRefreshPlacements, setRegenAiTranscriptRefreshPlacements] = useState(true);
   const [regenAiTranscriptInFlight, setRegenAiTranscriptInFlight] = useState(false);
+  const [regenAiTranscriptJobId, setRegenAiTranscriptJobId] = useState<string | null>(null);
   const [regenAiTranscriptError, setRegenAiTranscriptError] = useState<string | null>(null);
   const [regenAiTranscriptResult, setRegenAiTranscriptResult] = useState<HammerAiTranscriptRegenerationResult | null>(null);
+  const [prepTranscriptJobId, setPrepTranscriptJobId] = useState<string | null>(null);
   const [regenAiTranscriptCurrentIngest, setRegenAiTranscriptCurrentIngest] = useState<{
     final_status: string | null;
     selected_source: string | null;
@@ -1477,6 +1483,179 @@ export default function HammerWorkspaceEditor(
   }, [persistenceTarget?.workpieceId, regenAiTranscriptOpen, regenAiTranscriptResult?.finished_at, regenAiTranscriptCurrentIngestNonce]);
 
   useEffect(() => {
+    if (!regenAiTranscriptJobId) return;
+    if (!persistenceTarget) return;
+
+    let active = true;
+    let timer: number | null = null;
+
+    const poll = async (): Promise<void> => {
+      const result = await fetchWorkpieceJob({
+        workspaceId: persistenceTarget.workspaceId,
+        workpieceId: persistenceTarget.workpieceId,
+        jobId: regenAiTranscriptJobId,
+      });
+      if (!active) return;
+      if (!result.ok) {
+        setRegenAiTranscriptError(result.error);
+        setRegenAiTranscriptInFlight(false);
+        return;
+      }
+
+      const job: HammerWorkpieceJob = result.data.job;
+      if (job.status === "completed") {
+        const payload = job.result_json ?? {};
+        const finishedAt = typeof payload.finished_at === "string" ? payload.finished_at : new Date().toISOString();
+        const segmentCountBefore = typeof payload.segment_count_before === "number"
+          ? payload.segment_count_before
+          : regenAiTranscriptRequestRef.current?.segmentCountBefore
+            ?? 0;
+        const placementCountBefore = typeof payload.placement_count_before === "number"
+          ? payload.placement_count_before
+          : regenAiTranscriptRequestRef.current?.placementCountBefore
+            ?? null;
+        const placementCountAfter = typeof payload.placement_count_after === "number" ? payload.placement_count_after : null;
+        const uncertainCountBefore = typeof payload.uncertain_count_before === "number"
+          ? payload.uncertain_count_before
+          : regenAiTranscriptRequestRef.current?.uncertainCountBefore
+            ?? null;
+        setRegenAiTranscriptResult({
+          finished_at: finishedAt,
+          transcript_source_before: regenAiTranscriptRequestRef.current?.transcriptSourceBefore ?? null,
+          segment_count_before: segmentCountBefore,
+          segment_count_after: typeof payload.segment_count_after === "number" ? payload.segment_count_after : null,
+          placements_refreshed: Boolean(payload.placements_refreshed),
+          placement_count_before: placementCountBefore,
+          placement_count_after: placementCountAfter,
+          uncertain_count_before: uncertainCountBefore,
+          uncertain_count_after: typeof payload.uncertain_count_after === "number" ? payload.uncertain_count_after : null,
+        });
+        setRegenAiTranscriptError(null);
+        setRegenAiTranscriptInFlight(false);
+        setRegenAiTranscriptJobId(null);
+        setReloadRequestNonce((current) => current + 1);
+        return;
+      }
+
+      if (job.status === "failed" || job.status === "canceled") {
+        setRegenAiTranscriptError(job.error_message ?? "Transcript job failed.");
+        setRegenAiTranscriptInFlight(false);
+        setRegenAiTranscriptJobId(null);
+        return;
+      }
+
+      timer = window.setTimeout(() => {
+        void poll();
+      }, 1500);
+    };
+
+    void poll();
+    return () => {
+      active = false;
+      if (timer != null) window.clearTimeout(timer);
+    };
+  }, [regenAiTranscriptJobId, persistenceTarget, setReloadRequestNonce]);
+
+  useEffect(() => {
+    if (!persistenceTarget) return;
+    let active = true;
+
+    void listWorkpieceJobs({
+      workspaceId: persistenceTarget.workspaceId,
+      workpieceId: persistenceTarget.workpieceId,
+      activeOnly: true,
+      limit: 10,
+    }).then((result) => {
+      if (!active) return;
+      if (!result.ok) return;
+
+      const jobs = result.data.jobs;
+      const activePrep = jobs.find((job) => (
+        job.job_type === "hammer_transcript_prep"
+        && (job.status === "queued" || job.status === "running")
+      ));
+      if (activePrep && !prepTranscriptJobId) {
+        setPrepTranscriptJobId(activePrep.id);
+        if (prepState.status !== "preparing" || prepState.step === "loading_context") {
+          setPrepState(createHammerPrepState("preparing", "transcribing_audio"));
+        }
+      }
+
+      const activeRegen = jobs.find((job) => (
+        job.job_type === "hammer_transcript_regeneration"
+        && (job.status === "queued" || job.status === "running")
+      ));
+      if (activeRegen && !regenAiTranscriptJobId) {
+        setRegenAiTranscriptJobId(activeRegen.id);
+        setRegenAiTranscriptInFlight(true);
+        setRegenAiTranscriptError(null);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    persistenceTarget?.workspaceId,
+    persistenceTarget?.workpieceId,
+    prepTranscriptJobId,
+    prepState.status,
+    prepState.step,
+    regenAiTranscriptJobId,
+    setPrepState,
+  ]);
+
+  useEffect(() => {
+    if (!prepTranscriptJobId) return;
+    if (!persistenceTarget) return;
+
+    let active = true;
+    let timer: number | null = null;
+
+    const poll = async (): Promise<void> => {
+      const result = await fetchWorkpieceJob({
+        workspaceId: persistenceTarget.workspaceId,
+        workpieceId: persistenceTarget.workpieceId,
+        jobId: prepTranscriptJobId,
+      });
+      if (!active) return;
+      if (!result.ok) {
+        setPrepState(createHammerPrepState("prep_failed", null, result.error));
+        setPrepFailureKind("ai_failed");
+        setPrepTranscriptJobId(null);
+        return;
+      }
+
+      const job = result.data.job;
+      if (job.status === "completed") {
+        setPrepTranscriptJobId(null);
+        setReloadRequestNonce((current) => current + 1);
+        setPrepFailureKind(null);
+        setPrepState(createHammerPrepState("prepared", "ready_for_next_step"));
+        setShowPreparedHandoff(true);
+        return;
+      }
+
+      if (job.status === "failed" || job.status === "canceled") {
+        setPrepState(createHammerPrepState("prep_failed", null, job.error_message ?? "Transcript job failed."));
+        setPrepFailureKind("ai_failed");
+        setPrepTranscriptJobId(null);
+        return;
+      }
+
+      timer = window.setTimeout(() => {
+        void poll();
+      }, 1500);
+    };
+
+    void poll();
+    return () => {
+      active = false;
+      if (timer != null) window.clearTimeout(timer);
+    };
+  }, [prepTranscriptJobId, persistenceTarget, setReloadRequestNonce, setPrepState, setShowPreparedHandoff]);
+
+  useEffect(() => {
     if (persistenceMode !== "canonical" || !persistenceTarget || !hydrationReady) {
       return;
     }
@@ -1490,14 +1669,7 @@ export default function HammerWorkspaceEditor(
       effectiveLaunchContext,
       loadedPersistenceSnapshot,
     );
-    const regenRequest = regenAiTranscriptRequestRef.current;
-    const effectiveOpenDecision = regenRequest
-      ? {
-        action: "prepare" as const,
-        state: createHammerPrepState("preparing", "transcribing_audio"),
-        reason: "manual_regenerate_ai_transcript",
-      }
-      : openDecision;
+    const effectiveOpenDecision = openDecision;
 
     if (effectiveOpenDecision.action === "reuse") {
       // Avoid keeping a stale "prep_failed" state when we have a reusable transcript.
@@ -1830,11 +2002,7 @@ export default function HammerWorkspaceEditor(
       setPrepState(createHammerPrepState("preparing", "loading_context"));
       setPrepFailureKind(null);
 
-      const regenContext = regenAiTranscriptRequestRef.current;
-      if (regenContext) {
-        regenAiTranscriptRequestRef.current = null;
-      }
-      const regenRefreshPlacements = regenContext?.refreshPlacements ?? true;
+      let submittedTranscriptJob = false;
 
       const transcriptPipelineStartedAt = typeof performance !== "undefined" ? performance.now() : null;
       const transcriptElapsedMs = (): number | null => (
@@ -2114,399 +2282,55 @@ export default function HammerWorkspaceEditor(
         }
 
         setPrepState(createHammerPrepState("preparing", "transcribing_audio"));
-        logTranscriptStage("request:start");
-        const transcriptSpan = run.span("transcript_prep:request", {
-          media_kind: prepSource.mediaRef.kind,
-          local_relpath: prepSource.local_relpath,
-          canonical_workpiece_path: prepSource.canonical_workpiece_path,
-        });
+        logTranscriptStage("job:create:start");
+        if (!persistenceTarget || !activeRevision || !activeCanonicalRecording) {
+          throw new Error("Hammer transcript jobs require a canonical persistence target.");
+        }
+        if (prepSource.local_root_abs) {
+          throw new Error("Transcript jobs require a canonical workpiece file path (local media is not supported).");
+        }
+        if (!prepSource.canonical_workpiece_path) {
+          throw new Error("Transcript job payload is missing canonical_workpiece_path.");
+        }
+
         const transcriptClientRequestId = typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
           : `prep_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-        if (ingestDiagnosticRef.current) {
-          ingestDiagnosticRef.current.request_ids = {
-            ...(ingestDiagnosticRef.current.request_ids ?? {}),
-            client_request_id: transcriptClientRequestId,
-          };
-          ingestDiagnosticRef.current.prep_source = {
-            media_kind: prepSource.mediaRef.kind,
-            source_kind: prepSource.source_kind,
-            canonical_workpiece_path: prepSource.canonical_workpiece_path,
-            local_relpath: prepSource.local_relpath,
-            media_signature: prepSource.media_signature ?? null,
-            media_id: prepSource.mediaRef.media_id ?? null,
-          };
-        }
 
-        const preparedResult = await requestHammerTranscriptPrep({
-          workspace_id: effectiveLaunchContext.workspace_id,
-          workpiece_id: effectiveLaunchContext.workpiece_id,
-          client_request_id: transcriptClientRequestId,
-          media_kind: prepSource.mediaRef.kind,
-          ...(prepSource.local_root_abs
-            ? {
-              local_root_abs: prepSource.local_root_abs,
-              local_relpath: prepSource.local_relpath,
-            }
-            : {
-              canonical_workpiece_path: prepSource.canonical_workpiece_path,
-            }),
-          mime_type: prepSource.mediaRef.kind === "recording_audio" ? "audio/wav" : null,
-        });
-        if (!preparedResult.ok) {
-          transcriptSpan.end({
-            ok: false,
-            status: preparedResult.status,
-            code: preparedResult.error.code,
-            retryable: preparedResult.error.retryable,
-            provider_request_id: preparedResult.meta?.provider_request_id ?? null,
-          });
-          if (ingestDiagnosticRef.current) {
-            ingestDiagnosticRef.current.request_ids = {
-              ...(ingestDiagnosticRef.current.request_ids ?? {}),
-              provider_request_id: preparedResult.meta?.provider_request_id ?? undefined,
-            };
-            ingestDiagnosticRef.current.extra = {
-              ...(ingestDiagnosticRef.current.extra ?? {}),
-              prep_error_code: preparedResult.error.code,
-              prep_error_message: preparedResult.error.message,
-              prep_error_retryable: preparedResult.error.retryable,
-              prep_error_status: preparedResult.status,
-            };
-          }
-          const message = mapTranscriptPrepErrorToUserMessage(preparedResult.error);
-          logTranscriptStage("request:failed", {
-            status: preparedResult.status,
-            code: preparedResult.error.code,
-            retryable: preparedResult.error.retryable,
-            provider_request_id: preparedResult.meta?.provider_request_id ?? null,
-            message,
-          }, "error");
-          throw new Error(message);
-        }
-
-        const preparedResponse = preparedResult.data;
-        usedAiPrep = true;
-        if (ingestDiagnosticRef.current) {
-          ingestDiagnosticRef.current.extra = {
-            ...(ingestDiagnosticRef.current.extra ?? {}),
-            prep_provider: preparedResponse.provider,
-            prep_model: preparedResponse.model,
-            prep_segments: preparedResponse.segments.length,
-          };
-        }
-        transcriptSpan.end({
-          ok: true,
-          provider: preparedResponse.provider,
-          model: preparedResponse.model,
-          provider_request_id: preparedResponse.provider_request_id,
-          segments: preparedResponse.segments.length,
-          has_text: Boolean(preparedResponse.text),
-        });
-        if (ingestDiagnosticRef.current) {
-          ingestDiagnosticRef.current.request_ids = {
-            ...(ingestDiagnosticRef.current.request_ids ?? {}),
-            provider_request_id: preparedResponse.provider_request_id ?? undefined,
-          };
-        }
-        logTranscriptStage("request:ok", {
-          provider: preparedResponse.provider,
-          model: preparedResponse.model,
-          provider_request_id: preparedResponse.provider_request_id ?? null,
-          segments: preparedResponse.segments.length,
-          has_text: Boolean(preparedResponse.text),
-        });
-        if (!isPrepExecutionActive(executionId)) return;
-
-        setPrepState(createHammerPrepState("preparing", "identifying_speaker_turns"));
-        logTranscriptStage("normalize:start");
-        let preparedTranscript = buildPreparedTranscript(effectiveLaunchContext, preparedResponse);
-        logTranscriptStage("normalize:ok", {
-          transcript_id: preparedTranscript.transcriptId,
-          turns: preparedTranscript.turns.length,
-        });
-        let nextLaunchContext = applyPreparedTranscriptToLaunchContext(
-          effectiveLaunchContext,
-          preparedTranscript,
-        );
-        if (!isPrepExecutionActive(executionId)) return;
-
-        let canonicalAfterSeal: HammerCanonicalRecordingRecord | null = activeCanonicalRecording;
-        if (!persistenceTarget) {
-          logTranscriptStage("seal:skipped", { reason: "missing_persistence_target" }, "warn");
-        } else if (!activeCanonicalRecording) {
-          logTranscriptStage("seal:skipped", { reason: "missing_canonical_recording" }, "warn");
-        } else if (activeCanonicalRecording.sealed_at) {
-          logTranscriptStage("seal:skipped", {
-            reason: "already_sealed",
+        const jobCreate = await createWorkpieceJob({
+          workspaceId: persistenceTarget.workspaceId,
+          workpieceId: persistenceTarget.workpieceId,
+          jobType: "hammer_transcript_prep",
+          payloadJson: {
+            revision_id: activeRevision.id,
             canonical_recording_id: activeCanonicalRecording.id,
-            sealed_at: activeCanonicalRecording.sealed_at ?? null,
-            note: "Skipping baseline seal; transcript must already exist on the canonical recording baseline for non-AI reuse.",
-          }, "warn");
-        } else {
-          logTranscriptStage("seal:start", { canonical_recording_id: activeCanonicalRecording.id });
-          const sealSpan = run.span("canonical:seal_transcript");
-          const sealResult = await sealHammerCanonicalBaseline(
-            persistenceTarget,
-            activeCanonicalRecording.id,
-            {
-              structured_transcript: preparedTranscript.structuredTranscript,
-              speaker_map: preparedTranscript.speakerMap,
-            },
-          );
-          if (!sealResult.ok) {
-            const sealCode = sealResult.error_code ?? null;
-            if (isSealRaceRecoverable(sealCode)) {
-              if (ingestDiagnosticRef.current) {
-                ingestDiagnosticRef.current.seal = {
-                  attempted: true,
-                  outcome: sealCode === "canonical_recording_already_sealed" ? "already_sealed" : "conflict_recovered",
-                  error_code: sealCode ?? undefined,
-                  error_message: sealResult.error,
-                };
-              }
-              const refreshed = await openHammerRecordingSession(persistenceTarget);
-              if (refreshed.ok) {
-                canonicalAfterSeal = refreshed.data.canonical_recording;
-                setActiveCanonicalRecording(refreshed.data.canonical_recording);
-                setActiveRevision(refreshed.data.revision);
-                const baselineReload = await loadHammerCanonicalBaselineArtifacts(refreshed.data.canonical_recording);
-                const baselineTranscript = baselineReload.ok ? baselineReload.data.structured_transcript : null;
-                const baselineSpeakerMap = baselineReload.ok ? baselineReload.data.speaker_map : null;
-                if (baselineTranscript && baselineSpeakerMap && baselineTranscript.segments.length > 0) {
-                  preparedTranscript = {
-                    transcriptId: baselineTranscript.transcript_id,
-                    preparedAt: baselineTranscript.prepared_at,
-                    turns: baselineTranscript.segments,
-                    structuredTranscript: baselineTranscript,
-                    speakerMap: baselineSpeakerMap,
-                  };
-                }
-              }
-              sealSpan.end({ ok: true, recovered: true, code: sealCode, sealed_at: canonicalAfterSeal?.sealed_at ?? null });
-              logTranscriptStage("seal:recovered", {
-                code: sealCode,
-                sealed_at: canonicalAfterSeal?.sealed_at ?? null,
-              }, "warn");
-            } else {
-              if (ingestDiagnosticRef.current) {
-                ingestDiagnosticRef.current.seal = {
-                  attempted: true,
-                  outcome: "failed",
-                  error_code: sealCode ?? undefined,
-                  error_message: sealResult.error,
-                };
-              }
-              sealSpan.end({ ok: false, status: sealResult.status, code: sealCode });
-              throw new Error(sealResult.error);
-            }
-          } else {
-            if (ingestDiagnosticRef.current) {
-              ingestDiagnosticRef.current.seal = {
-                attempted: true,
-                outcome: "sealed",
-              };
-            }
-            sealSpan.end({ ok: true, sealed_at: sealResult.data.canonical_recording.sealed_at ?? null });
-            logTranscriptStage("seal:ok", { sealed_at: sealResult.data.canonical_recording.sealed_at ?? null });
-            canonicalAfterSeal = sealResult.data.canonical_recording;
-            setActiveCanonicalRecording(canonicalAfterSeal);
-          }
-        }
-
-        nextLaunchContext = applyPreparedTranscriptToLaunchContext(effectiveLaunchContext, preparedTranscript);
-        if (!isPrepExecutionActive(executionId)) return;
-
-        let placementsRefreshed = false;
-        let visualPlacementsToPersist: HammerPersistedVisualPlacements | null = null;
-        if (regenContext && !regenRefreshPlacements) {
-          logTranscriptStage("visuals:skipped", { note: "Preserving existing visual placements by request." }, "warn");
-        } else {
-          setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
-          const visualPackageSpan = run.span("visual_package:load");
-          const visualPackageResult = await loadHammerWorkpieceVisualPackage(
-            nextLaunchContext.workpiece_id,
-            nextLaunchContext.workspace_id,
-          );
-          visualPackageSpan.end({ ok: visualPackageResult.ok, status: visualPackageResult.status });
-          if (!isPrepExecutionActive(executionId)) return;
-
-          if (visualPackageResult.ok) {
-            visualPlacementsToPersist = deriveHammerVisualPlacements({
-              transcriptSourceId: preparedTranscript.transcriptId,
-              transcriptSegments: preparedTranscript.turns,
-              visualPackage: visualPackageResult.data,
-            });
-            placementsRefreshed = true;
-          } else if (regenContext) {
-            // For manual regeneration, never wipe a user's existing placements just because refresh failed.
-            logTranscriptStage("visuals:preserved_after_error", { status: visualPackageResult.status }, "warn");
-            visualPlacementsToPersist = null;
-          } else {
-            visualPlacementsToPersist = buildUnavailableHammerVisualPlacements(
-              preparedTranscript.transcriptId,
-              `visual_package_unavailable:${visualPackageResult.status}`,
-            );
-          }
-        }
-
-        const preparedRequest = buildHammerPrepPersistenceSaveRequest({
-          launchContext: nextLaunchContext,
-          status: "prepared",
-          preparedTranscript,
-          ...(visualPlacementsToPersist ? { visualPlacements: visualPlacementsToPersist } : {}),
-        });
-        if (!activeRevision) {
-          throw new Error("Hammer prep requires an active revision.");
-        }
-
-        const saveSpan = run.span("revision:save_prepared");
-        let preparedSaveRevision = await saveHammerRecordingRevision(
-          persistenceTarget,
-          activeRevision.id,
-          {
-            editor_session: preparedRequest.editor_session,
-            revision_transcript: { data: preparedTranscript.structuredTranscript },
-            ...(preparedRequest.visual_placements ? { visual_placements: preparedRequest.visual_placements } : {}),
+            canonical_workpiece_path: prepSource.canonical_workpiece_path,
+            refresh_visual_placements: true,
+            client_request_id: transcriptClientRequestId,
+            mime_type: prepSource.mediaRef.kind === "recording_audio" ? "audio/wav" : null,
           },
-        );
-        if (!preparedSaveRevision.ok) throw new Error(preparedSaveRevision.error);
-
-        // Promote the prepared transcript to the persisted workpiece-level transcript pointer.
-        // This prevents refresh/reopen from silently falling back to an older registered transcript.
-        const promoteResult = await saveHammerPersistenceSnapshot(persistenceTarget, preparedRequest);
-        if (!promoteResult.ok) {
-          throw new Error(promoteResult.error);
+        });
+        if (!jobCreate.ok) {
+          throw new Error(jobCreate.error);
         }
 
-        saveSpan.end({
-          ok: true,
-          visual_placements_path: preparedSaveRevision.data.revision.visual_placements_path,
-          editor_session_path: preparedSaveRevision.data.revision.editor_session_path,
-          revision_transcript_path: preparedSaveRevision.data.revision.revision_transcript_path ?? null,
+        submittedTranscriptJob = true;
+        setPrepTranscriptJobId(jobCreate.data.job.id);
+        logTranscriptStage("job:create:ok", {
+          job_id: jobCreate.data.job.id,
         });
-        logTranscriptStage("persist:ok", {
-          visual_placements_path: preparedSaveRevision.data.revision.visual_placements_path,
-          editor_session_path: preparedSaveRevision.data.revision.editor_session_path,
-          revision_transcript_path: preparedSaveRevision.data.revision.revision_transcript_path ?? null,
+        run.log("transcript_job:queued", {
+          job_id: jobCreate.data.job.id,
+          job_type: "hammer_transcript_prep",
+          refresh_visual_placements: true,
+          canonical_workpiece_path: prepSource.canonical_workpiece_path,
         });
-        setActiveRevision(preparedSaveRevision.data.revision);
-        if (regenContext) {
-          const finishedAt = new Date().toISOString();
-          const placementCountAfter = placementsRefreshed && visualPlacementsToPersist
-            ? visualPlacementsToPersist.placements.length
-            : regenContext.placementCountBefore;
-          const uncertainCountAfter = placementsRefreshed && visualPlacementsToPersist
-            ? visualPlacementsToPersist.placements.reduce(
-              (count, placement) => count + (placement.status === "uncertain" ? 1 : 0),
-              0,
-            )
-            : regenContext.uncertainCountBefore;
-          setRegenAiTranscriptResult({
-            finished_at: finishedAt,
-            transcript_source_before: regenContext.transcriptSourceBefore,
-            segment_count_before: regenContext.segmentCountBefore,
-            segment_count_after: preparedTranscript.turns.length,
-            placements_refreshed: placementsRefreshed,
-            placement_count_before: regenContext.placementCountBefore,
-            placement_count_after: placementCountAfter,
-            uncertain_count_before: regenContext.uncertainCountBefore,
-            uncertain_count_after: uncertainCountAfter,
-          });
-          setRegenAiTranscriptError(null);
-        }
-        const effectiveCanonical = canonicalAfterSeal ?? activeCanonicalRecording ?? {
-          id: "canonical_missing",
-          workspace_id: persistenceTarget.workspaceId,
-          workpiece_id: persistenceTarget.workpieceId,
-          status: "draft" as const,
-          media_path: "",
-          sealed_at: null,
-          baseline_transcript_path: null,
-          baseline_speaker_map_path: null,
-          baseline_timing_path: null,
-        };
-
-        const hydratedAfterPrep = buildHydratedSnapshot({
-          target: persistenceTarget,
-          canonicalRecording: effectiveCanonical,
-          revision: preparedSaveRevision.data.revision,
-          canonicalTranscript: preparedTranscript.structuredTranscript,
-          canonicalSpeakerMap: preparedTranscript.speakerMap,
-          revisionEditorSession: preparedRequest.editor_session?.data ?? null,
-          revisionTranscript: null,
-          revisionAudioPolish: null,
-          revisionVisualTimeline: null,
-          revisionVisualPlacements: visualPlacementsToPersist ?? loadedPersistenceSnapshot?.visual_placements.data ?? null,
-        });
-        setLoadedPersistenceSnapshot(hydratedAfterPrep);
-        finalSnapshot = hydratedAfterPrep;
-        logTranscriptStage("hydrate:ok", {
-          transcript_id: preparedTranscript.transcriptId,
-          structured_segments: preparedTranscript.structuredTranscript.segments.length,
-        });
-        if (!isPrepExecutionActive(executionId)) return;
-
-        setPrepState(createHammerPrepState("preparing", "extracting_working_audio"));
-        try {
-          const audioSpan = run.span("audio_polish:ensure");
-          const audioSnapshot = await ensureAudioPolish({
-            launchContext: nextLaunchContext,
-            currentSnapshot: hydratedAfterPrep,
-            onPhaseChange: (phase) => {
-              if (!isPrepExecutionActive(executionId)) return;
-              setPrepState(createHammerPrepState("preparing", mapAudioPolishPhaseToPrepStep(phase)));
-            },
-            logRun: run,
-          });
-          audioSpan.end({ ok: Boolean(audioSnapshot) });
-          audioPolishStatus = audioSnapshot?.audio_polish.data?.status ?? null;
-          audioPolishFailureCode = audioSnapshot?.audio_polish.data?.status === "failed"
-            ? (audioSnapshot.audio_polish.data.failure_code ?? null)
-            : null;
-          if (audioSnapshot) {
-            setLoadedPersistenceSnapshot(audioSnapshot);
-            finalSnapshot = audioSnapshot;
-          }
-        } catch (error) {
-          // Audio polish falls back to raw playback without blocking workspace open.
-          run.warn("audio_polish:skipped_after_error", {
-            message: toErrorMessage(error, "Hammer could not produce a baseline audio polish artifact."),
-          });
-        }
-        if (!isPrepExecutionActive(executionId)) return;
-
-        prepRunKeyRef.current = `${targetKey ?? "hammer"}:reuse:${preparedTranscript.transcriptId}:${prepAttemptNonce}`;
-        setHasCanonicalBasis(true);
-        startTransition(() => {
-          setEffectiveLaunchContext(nextLaunchContext);
-        });
-        setPrepState(createHammerPrepState("preparing", "ready_for_next_step"));
-        readyTransitionTimerRef.current = window.setTimeout(() => {
-          if (!isPrepExecutionActive(executionId)) return;
-          setPrepState(createHammerPrepState("prepared", "ready_for_next_step"));
-          setShowPreparedHandoff(true);
-          readyTransitionTimerRef.current = null;
-        }, READY_HANDOFF_DELAY_MS);
-        outcome = "prepared";
-        logTranscriptStage("pipeline:done", { outcome });
+        outcome = "job_submitted";
+        logTranscriptStage("pipeline:done", { outcome, job_id: jobCreate.data.job.id });
+        return;
       } catch (error) {
         if (!isPrepExecutionActive(executionId)) return;
         const message = toErrorMessage(error, "Hammer could not prepare the transcript.");
-        if (regenContext) {
-          setRegenAiTranscriptError(message);
-          setRegenAiTranscriptResult({
-            finished_at: new Date().toISOString(),
-            transcript_source_before: regenContext.transcriptSourceBefore,
-            segment_count_before: regenContext.segmentCountBefore,
-            segment_count_after: null,
-            placements_refreshed: false,
-            placement_count_before: regenContext.placementCountBefore,
-            placement_count_after: regenContext.placementCountBefore,
-            uncertain_count_before: regenContext.uncertainCountBefore,
-            uncertain_count_after: regenContext.uncertainCountBefore,
-          });
-        }
         setPrepState(createHammerPrepState("prep_failed", null, message));
         setShowPreparedHandoff(false);
         setPrepFailureKind("ai_failed");
@@ -2530,11 +2354,7 @@ export default function HammerWorkspaceEditor(
           // Keep the user-facing failure stable even if persistence also failed.
         }
       } finally {
-        if (regenContext) {
-          setRegenAiTranscriptInFlight(false);
-          setPrepAiFallbackRequested(regenContext.previousAiFallbackRequested);
-        }
-        if (ingestDiagnosticRef.current && persistenceTarget) {
+        if (!submittedTranscriptJob && ingestDiagnosticRef.current && persistenceTarget) {
           const visualStatus = finalSnapshot?.visual_placements.data?.status ?? null;
           const audioStatus = finalSnapshot?.audio_polish.data?.status ?? null;
           const baseStatus: Exclude<HammerIngestDiagnosticV1["final_status"], "degraded"> = outcome === "prepared"
@@ -3053,9 +2873,14 @@ export default function HammerWorkspaceEditor(
     setRegenAiTranscriptOpen(true);
   }, []);
 
-  const startRegenAiTranscript = useCallback((): void => {
+  const startRegenAiTranscript = useCallback(async (): Promise<void> => {
     if (!canPersistCanonicalState || !persistenceTarget || !effectiveLaunchContext) {
       setRegenAiTranscriptError("Hammer is not ready to regenerate a transcript yet. Wait for session hydration to finish, then retry.");
+      setRegenAiTranscriptOpen(true);
+      return;
+    }
+    if (!activeRevision || !activeCanonicalRecording) {
+      setRegenAiTranscriptError("Hammer is not ready to regenerate a transcript yet (missing canonical recording or revision).");
       setRegenAiTranscriptOpen(true);
       return;
     }
@@ -3089,32 +2914,53 @@ export default function HammerWorkspaceEditor(
     setRegenAiTranscriptResult(null);
     setRegenAiTranscriptError(null);
     setRegenAiTranscriptInFlight(true);
-    setPrepAiFallbackRequested(true);
-    beginPrepExecution();
-    resetPrepRunKey("manual_regenerate_ai_transcript", {
-      refresh_placements: regenAiTranscriptRefreshPlacements,
-      transcript_source_before: transcriptSourceBefore,
-      segment_count_before: segmentCountBefore,
+
+    const prepSource = resolveHammerPrepSource(effectiveLaunchContext);
+    if (!prepSource || prepSource.local_root_abs) {
+      setRegenAiTranscriptError("Regeneration requires a canonical workpiece media path (local media is not supported).");
+      setRegenAiTranscriptInFlight(false);
+      return;
+    }
+
+    const transcriptClientRequestId = typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `regen_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+    const jobCreate = await createWorkpieceJob({
+      workspaceId: persistenceTarget.workspaceId,
+      workpieceId: persistenceTarget.workpieceId,
+      jobType: "hammer_transcript_regeneration",
+      payloadJson: {
+        revision_id: activeRevision.id,
+        canonical_recording_id: activeCanonicalRecording.id,
+        canonical_workpiece_path: prepSource.canonical_workpiece_path ?? activeCanonicalRecording.media_path ?? null,
+        refresh_visual_placements: regenAiTranscriptRefreshPlacements,
+        client_request_id: transcriptClientRequestId,
+        mime_type: prepSource.mediaRef.kind === "recording_audio" ? "audio/wav" : null,
+      },
     });
-    setShowPreparedHandoff(false);
-    setPrepState(createHammerPrepState("preparing", "loading_context"));
-    bumpPrepAttemptNonce("manual_regenerate_ai_transcript", { refreshPlacements: regenAiTranscriptRefreshPlacements });
+
+    if (!jobCreate.ok) {
+      setRegenAiTranscriptError(jobCreate.error);
+      setRegenAiTranscriptInFlight(false);
+      return;
+    }
+
+    setRegenAiTranscriptJobId(jobCreate.data.job.id);
   }, [
-    beginPrepExecution,
-    bumpPrepAttemptNonce,
+    activeCanonicalRecording,
+    activeRevision,
     canPersistCanonicalState,
     effectiveLaunchContext,
     loadedPersistenceSnapshot?.structured_transcript.data?.segments,
     loadedPersistenceSnapshot?.visual_placements.data?.placements,
     persistenceTarget,
-    prepAiFallbackRequested,
     regenAiTranscriptCurrentIngest?.selected_source,
     regenAiTranscriptInFlight,
     regenAiTranscriptRefreshPlacements,
-    resetPrepRunKey,
-    setPrepAiFallbackRequested,
-    setPrepState,
-    setShowPreparedHandoff,
+    setRegenAiTranscriptError,
+    setRegenAiTranscriptInFlight,
+    setRegenAiTranscriptJobId,
   ]);
 
   // Note: We intentionally do not auto-apply saved transcript-prep preferences (non-AI missing) via an effect.
@@ -3800,7 +3646,7 @@ export default function HammerWorkspaceEditor(
                             if (!regenAiTranscriptRefreshPlacements) {
                               setRegenAiTranscriptRefreshPlacements(true);
                             }
-                            startRegenAiTranscript();
+                            void startRegenAiTranscript();
                           }}
                           disabled={regenAiTranscriptInFlight}
                         >
@@ -3813,7 +3659,7 @@ export default function HammerWorkspaceEditor(
                             if (regenAiTranscriptRefreshPlacements) {
                               setRegenAiTranscriptRefreshPlacements(false);
                             }
-                            startRegenAiTranscript();
+                            void startRegenAiTranscript();
                           }}
                           disabled={regenAiTranscriptInFlight}
                         >

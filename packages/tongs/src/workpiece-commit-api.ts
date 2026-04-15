@@ -40,6 +40,7 @@ import {
   calculateForgeBillingTokens,
   estimateOpenAiCost,
 } from "./ai-pricing.js";
+import { getAiReasonMessage, isAiAllowDecision, resolveAiPolicy } from "./ai-policy.js";
 import {
   HAMMER_ALIGNMENT_STATUS_VALUES,
   HAMMER_PASS_ID_VALUES,
@@ -133,6 +134,41 @@ const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
   editor: 20,
   admin: 30,
   owner: 40,
+};
+
+export type WorkpieceJobType = "hammer_transcript_prep" | "hammer_transcript_regeneration";
+const WORKPIECE_JOB_TYPE_SET = new Set<WorkpieceJobType>(["hammer_transcript_prep", "hammer_transcript_regeneration"]);
+
+export type WorkpieceJobStatus = "queued" | "running" | "completed" | "failed" | "canceled";
+const WORKPIECE_JOB_STATUS_SET = new Set<WorkpieceJobStatus>(["queued", "running", "completed", "failed", "canceled"]);
+
+type WorkpieceJobRow = Database["tongs"]["Tables"]["workpiece_jobs"]["Row"];
+
+export type CreateWorkpieceJobRequest = {
+  job_type: WorkpieceJobType;
+  payload_json?: unknown;
+};
+
+export type WorkpieceJobDTO = {
+  id: string;
+  workspace_id: string;
+  workpiece_id: string;
+  job_type: WorkpieceJobType;
+  status: WorkpieceJobStatus;
+  requested_by: string;
+  payload_json: Record<string, unknown>;
+  result_json: Record<string, unknown> | null;
+  error_code: string | null;
+  error_message: string | null;
+  progress_percent: number | null;
+  attempt_count: number;
+  runner_id: string | null;
+  lease_expires_at: string | null;
+  heartbeat_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
 const THUMBNAIL_ASSET_PREFIX = "assets/thumbnails";
 const THUMBNAIL_ASSET_KIND = "thumbnail_image" as const;
@@ -1150,44 +1186,44 @@ export type TongsCommitApiService = {
   readHammerWorkpieceState(
     workspaceId: string,
     workpieceId: string,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<HammerPersistenceSnapshot>;
   clearHammerTranscriptPointer(
     workspaceId: string,
     workpieceId: string,
     input: ClearHammerTranscriptPointerRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<ClearHammerTranscriptPointerResult>;
   saveHammerWorkpieceState(
     workspaceId: string,
     workpieceId: string,
     input: SaveHammerWorkpieceStateRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<HammerPersistenceSnapshot>;
   ensureHammerCanonicalRecording(
     workspaceId: string,
     workpieceId: string,
     input: EnsureHammerCanonicalRecordingRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<CanonicalRecordingRecord>;
   sealHammerCanonicalBaseline(
     workspaceId: string,
     workpieceId: string,
     canonicalRecordingId: string,
     input: SealHammerCanonicalBaselineRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<SealHammerCanonicalBaselineResult>;
   createHammerRecordingRevision(
     workspaceId: string,
     workpieceId: string,
     input: CreateHammerRecordingRevisionRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<RecordingRevisionRecord>;
   readHammerRecordingRevision(
     workspaceId: string,
     workpieceId: string,
     revisionId: string,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<{
     canonical_recording: CanonicalRecordingRecord;
     revision: RecordingRevisionRecord;
@@ -1197,38 +1233,55 @@ export type TongsCommitApiService = {
     workpieceId: string,
     revisionId: string,
     input: SaveHammerRecordingRevisionRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<RecordingRevisionRecord>;
   resetHammerRecordingRevision(
     workspaceId: string,
     workpieceId: string,
     revisionId: string,
     input: ResetHammerRecordingRevisionRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<ResetHammerRecordingRevisionResult>;
   openHammerRecordingSession(
     workspaceId: string,
     workpieceId: string,
     input: OpenHammerRecordingSessionRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<OpenHammerRecordingSessionResult>;
   resetHammerWorkpieceToRaw(
     workspaceId: string,
     workpieceId: string,
     input: ResetHammerWorkpieceToRawRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<ResetHammerWorkpieceToRawResult>;
   listHammerWorkpiecePresence(
     workspaceId: string,
     workpieceId: string,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<HammerWorkpiecePresenceRow[]>;
   upsertHammerWorkpiecePresence(
     workspaceId: string,
     workpieceId: string,
     input: UpsertHammerWorkpiecePresenceRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<HammerWorkpiecePresenceRow>;
+  createWorkpieceJob(
+    workspaceId: string,
+    workpieceId: string,
+    input: CreateWorkpieceJobRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceJobDTO>;
+  listWorkpieceJobs(
+    workspaceId: string,
+    workpieceId: string,
+    options?: { userAccessToken?: string | null; activeOnly?: boolean; limit?: number },
+  ): Promise<WorkpieceJobDTO[]>;
+  getWorkpieceJob(
+    workspaceId: string,
+    workpieceId: string,
+    jobId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceJobDTO>;
   attachCalendarEventAssignment(
     workspaceId: string,
     calendarEventId: string,
@@ -1411,6 +1464,62 @@ function normalizeWorkspaceRole(input: unknown): WorkspaceRole | null {
 
 function workspaceRoleAtLeast(currentRole: WorkspaceRole, minRole: WorkspaceRole): boolean {
   return WORKSPACE_ROLE_RANK[currentRole] >= WORKSPACE_ROLE_RANK[minRole];
+}
+
+function normalizeWorkpieceJobType(input: unknown): WorkpieceJobType | null {
+  if (typeof input !== "string") return null;
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  return WORKPIECE_JOB_TYPE_SET.has(trimmed as WorkpieceJobType) ? (trimmed as WorkpieceJobType) : null;
+}
+
+function normalizeWorkpieceJobStatus(input: unknown): WorkpieceJobStatus | null {
+  if (typeof input !== "string") return null;
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  return WORKPIECE_JOB_STATUS_SET.has(trimmed as WorkpieceJobStatus) ? (trimmed as WorkpieceJobStatus) : null;
+}
+
+function normalizeCreateWorkpieceJobRequest(payload: unknown): CreateWorkpieceJobRequest {
+  if (!isRecord(payload)) {
+    throw new HttpError(400, "invalid_body", "Request body must be a JSON object");
+  }
+  const jobType = normalizeWorkpieceJobType(payload.job_type);
+  if (!jobType) {
+    throw new HttpError(400, "invalid_job_type", "job_type is required");
+  }
+  return {
+    job_type: jobType,
+    payload_json: typeof payload.payload_json === "undefined" ? undefined : payload.payload_json,
+  };
+}
+
+function toWorkpieceJobDTO(row: WorkpieceJobRow): WorkpieceJobDTO {
+  const jobType = normalizeWorkpieceJobType(row.job_type) ?? "hammer_transcript_prep";
+  const status = normalizeWorkpieceJobStatus(row.status) ?? "queued";
+  const payload = isRecord(row.payload_json) ? row.payload_json : {};
+  const result = row.result_json && isRecord(row.result_json) ? row.result_json : null;
+  return {
+    id: row.id,
+    workspace_id: row.workspace_id,
+    workpiece_id: row.workpiece_id,
+    job_type: jobType,
+    status,
+    requested_by: row.requested_by,
+    payload_json: payload,
+    result_json: result,
+    error_code: row.error_code ?? null,
+    error_message: row.error_message ?? null,
+    progress_percent: typeof row.progress_percent === "number" ? row.progress_percent : null,
+    attempt_count: row.attempt_count ?? 0,
+    runner_id: row.runner_id ?? null,
+    lease_expires_at: row.lease_expires_at ?? null,
+    heartbeat_at: row.heartbeat_at ?? null,
+    started_at: row.started_at ?? null,
+    completed_at: row.completed_at ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
 }
 
 function normalizeUuid(input: unknown, field: string): string {
@@ -4909,6 +5018,29 @@ export class TongsCommitService {
     return { userId, role };
   }
 
+  private async assertWorkspaceRole(
+    workspaceId: string,
+    minRole: WorkspaceRole,
+    options?: { userAccessToken?: string | null; userId?: string | null },
+  ): Promise<{ userId: string; role: WorkspaceRole }> {
+    const userId = options?.userId?.trim() || null;
+    if (!userId) {
+      return this.assertWorkspaceRoleFromAccessToken(workspaceId, minRole, options?.userAccessToken);
+    }
+
+    const role = await this.resolveWorkspaceRoleForUser(workspaceId, userId);
+    if (!role) {
+      throw new HttpError(403, "workspace_access_denied", "You are not a member of this workspace");
+    }
+    if (!workspaceRoleAtLeast(role, minRole)) {
+      throw new HttpError(403, "insufficient_role", `This action requires ${minRole} role or higher`, {
+        required: minRole,
+        actual: role,
+      });
+    }
+    return { userId, role };
+  }
+
   private async assertWorkpieceInWorkspace(workpieceId: string, workspaceId: string): Promise<EpisodeRow> {
     const cradle = await this.getCradleOrThrow(workpieceId);
     if (cradle.workspace_id !== workspaceId) {
@@ -5368,11 +5500,11 @@ export class TongsCommitService {
   async readHammerWorkpieceState(
     workspaceId: string,
     workpieceId: string,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<HammerPersistenceSnapshot> {
     await this.getWorkspaceOrThrow(workspaceId);
     await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
-    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    await this.assertWorkspaceRole(workspaceId, "viewer", options);
 
     const { data: state, error } = await this.supabase
       .schema("tongs")
@@ -5440,11 +5572,11 @@ export class TongsCommitService {
     workspaceId: string,
     workpieceId: string,
     input: ClearHammerTranscriptPointerRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<ClearHammerTranscriptPointerResult> {
     await this.getWorkspaceOrThrow(workspaceId);
     await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
-    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    const auth = await this.assertWorkspaceRole(workspaceId, "editor", options);
     const writtenBy = normalizeWrittenBy(input.written_by);
 
     const { data: state, error } = await this.supabase
@@ -5506,11 +5638,11 @@ export class TongsCommitService {
     workspaceId: string,
     workpieceId: string,
     input: SaveHammerWorkpieceStateRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<HammerPersistenceSnapshot> {
     await this.getWorkspaceOrThrow(workspaceId);
     await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
-    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    const auth = await this.assertWorkspaceRole(workspaceId, "editor", options);
 
     const { data: existingState, error: existingStateError } = await this.supabase
       .schema("tongs")
@@ -5664,11 +5796,11 @@ export class TongsCommitService {
     workspaceId: string,
     workpieceId: string,
     input: EnsureHammerCanonicalRecordingRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<CanonicalRecordingRecord> {
     await this.getWorkspaceOrThrow(workspaceId);
     await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
-    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    const auth = await this.assertWorkspaceRole(workspaceId, "editor", options);
     const writtenBy = normalizeWrittenBy(input.written_by);
 
     const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
@@ -5773,11 +5905,11 @@ export class TongsCommitService {
     workpieceId: string,
     canonicalRecordingId: string,
     input: SealHammerCanonicalBaselineRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<SealHammerCanonicalBaselineResult> {
     await this.getWorkspaceOrThrow(workspaceId);
     await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
-    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    const auth = await this.assertWorkspaceRole(workspaceId, "editor", options);
     const writtenBy = normalizeWrittenBy(input.written_by);
 
     const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
@@ -5939,11 +6071,11 @@ export class TongsCommitService {
     workspaceId: string,
     workpieceId: string,
     input: CreateHammerRecordingRevisionRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<RecordingRevisionRecord> {
     await this.getWorkspaceOrThrow(workspaceId);
     await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
-    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    const auth = await this.assertWorkspaceRole(workspaceId, "editor", options);
     const writtenBy = normalizeWrittenBy(input.written_by);
 
     const canonical = await this.ensureHammerCanonicalRecording(
@@ -6014,11 +6146,11 @@ export class TongsCommitService {
     workspaceId: string,
     workpieceId: string,
     input: OpenHammerRecordingSessionRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<OpenHammerRecordingSessionResult> {
     await this.getWorkspaceOrThrow(workspaceId);
     await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
-    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    await this.assertWorkspaceRole(workspaceId, "editor", options);
     const writtenBy = normalizeWrittenBy(input.written_by);
 
     const canonical = await this.ensureHammerCanonicalRecording(
@@ -6069,11 +6201,11 @@ export class TongsCommitService {
     workspaceId: string,
     workpieceId: string,
     revisionId: string,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<{ canonical_recording: CanonicalRecordingRecord; revision: RecordingRevisionRecord }> {
     await this.getWorkspaceOrThrow(workspaceId);
     await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
-    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    await this.assertWorkspaceRole(workspaceId, "viewer", options);
 
     const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
 
@@ -6123,11 +6255,11 @@ export class TongsCommitService {
     workpieceId: string,
     revisionId: string,
     input: SaveHammerRecordingRevisionRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<RecordingRevisionRecord> {
     await this.getWorkspaceOrThrow(workspaceId);
     await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
-    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    const auth = await this.assertWorkspaceRole(workspaceId, "editor", options);
 
     const { revision } = await this.readHammerRecordingRevision(workspaceId, workpieceId, revisionId, options);
     this.assertRevisionWritable(revision);
@@ -6309,12 +6441,12 @@ export class TongsCommitService {
     workspaceId: string,
     workpieceId: string,
     input: ResetHammerWorkpieceToRawRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<ResetHammerWorkpieceToRawResult> {
     await this.getWorkspaceOrThrow(workspaceId);
     const cradle = await this.getCradleOrThrow(workpieceId);
     await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
-    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    await this.assertWorkspaceRole(workspaceId, "editor", options);
 
     const warnings: string[] = [];
     const nowIso = new Date().toISOString();
@@ -6463,11 +6595,11 @@ export class TongsCommitService {
   async listHammerWorkpiecePresence(
     workspaceId: string,
     workpieceId: string,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<HammerWorkpiecePresenceRow[]> {
     await this.getWorkspaceOrThrow(workspaceId);
     await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
-    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    await this.assertWorkspaceRole(workspaceId, "viewer", options);
 
     const activeCutoffIso = new Date(Date.now() - 60_000).toISOString();
     const { data, error } = await this.supabase
@@ -6492,11 +6624,11 @@ export class TongsCommitService {
     workspaceId: string,
     workpieceId: string,
     input: UpsertHammerWorkpiecePresenceRequest,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<HammerWorkpiecePresenceRow> {
     await this.getWorkspaceOrThrow(workspaceId);
     await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
-    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    const auth = await this.assertWorkspaceRole(workspaceId, "viewer", options);
 
     const nowIso = new Date().toISOString();
     const { data, error } = await this.supabase
@@ -6524,6 +6656,145 @@ export class TongsCommitService {
     }
 
     return data;
+  }
+
+  async createWorkpieceJob(
+    workspaceId: string,
+    workpieceId: string,
+    input: CreateWorkpieceJobRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceJobDTO> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+
+    const payloadJson = isRecord(input.payload_json) ? input.payload_json : {};
+    const provider = typeof payloadJson.provider === "string" ? payloadJson.provider.trim() : null;
+    const model = typeof payloadJson.model === "string" ? payloadJson.model.trim() : null;
+    const policy = await resolveAiPolicy(this.supabase, {
+      orgId: null,
+      workspaceId,
+      userId: auth.userId,
+      tool: "hammer",
+      feature: "heavy_tasks",
+      action: input.job_type === "hammer_transcript_regeneration" || input.job_type === "hammer_transcript_prep"
+        ? "stt"
+        : null,
+      provider: provider || "openai",
+      model,
+    });
+    if (!isAiAllowDecision(policy)) {
+      throw new HttpError(403, "ai_policy_denied", getAiReasonMessage(policy.reasonCode ?? "NO_VALID_FUNDING_SOURCE"), {
+        decision_type: policy.decisionType,
+        reason_code: policy.reasonCode,
+        selected_funding_source: policy.selectedFundingSource,
+        key_resolution_status: policy.keyResolutionStatus,
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_jobs")
+      .insert({
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        job_type: input.job_type,
+        status: "queued",
+        requested_by: auth.userId,
+        payload_json: {
+          ...payloadJson,
+          policy: {
+            decision_type: policy.decisionType,
+            reason_code: policy.reasonCode,
+            selected_funding_source: policy.selectedFundingSource,
+            fallback_available: policy.fallbackAvailable,
+            fallback_used: policy.fallbackUsed,
+            key_resolution_status: policy.keyResolutionStatus,
+            effective_provider: policy.effectiveProvider,
+          },
+        } as Json,
+        attempt_count: 0,
+        progress_percent: null,
+        runner_id: null,
+        lease_expires_at: null,
+        heartbeat_at: null,
+        started_at: null,
+        completed_at: null,
+        created_at: nowIso,
+        updated_at: nowIso,
+      } satisfies Database["tongs"]["Tables"]["workpiece_jobs"]["Insert"])
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to create workpiece job", { reason: error.message });
+    }
+    if (!data) {
+      throw new HttpError(502, "db_write_failed", "workpiece_jobs insert returned no row");
+    }
+
+    return toWorkpieceJobDTO(data as WorkpieceJobRow);
+  }
+
+  async listWorkpieceJobs(
+    workspaceId: string,
+    workpieceId: string,
+    options?: { userAccessToken?: string | null; activeOnly?: boolean; limit?: number },
+  ): Promise<WorkpieceJobDTO[]> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+
+    const limit = typeof options?.limit === "number" && Number.isFinite(options.limit)
+      ? Math.max(1, Math.min(100, Math.trunc(options.limit)))
+      : 25;
+
+    let query = this.supabase
+      .schema("tongs")
+      .from("workpiece_jobs")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (options?.activeOnly) {
+      query = query.in("status", ["queued", "running"]);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list workpiece jobs", { reason: error.message });
+    }
+    return (data ?? []).map((row) => toWorkpieceJobDTO(row as WorkpieceJobRow));
+  }
+
+  async getWorkpieceJob(
+    workspaceId: string,
+    workpieceId: string,
+    jobId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceJobDTO> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_jobs")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .eq("id", jobId)
+      .maybeSingle();
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to read workpiece job", { reason: error.message });
+    }
+    if (!data) {
+      throw new HttpError(404, "job_not_found", "Workpiece job was not found", { job_id: jobId });
+    }
+    return toWorkpieceJobDTO(data as WorkpieceJobRow);
   }
 
   async listCalendarEventAssignmentsForEvent(
@@ -9156,10 +9427,10 @@ export class TongsCommitService {
 
   async getWorkpieceImageMap(
     workpieceId: string,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<WorkpieceImageMapResponseData> {
     const cradle = await this.getCradleOrThrow(workpieceId);
-    await this.assertWorkspaceRoleFromAccessToken(cradle.workspace_id, "viewer", options?.userAccessToken);
+    await this.assertWorkspaceRole(cradle.workspace_id, "viewer", options);
 
     const state = await this.readWorkpieceImageMapState(workpieceId, cradle.workspace_id);
     const assetRow = await this.getCurrentReadyImageMapAsset(cradle.workspace_id, workpieceId);
@@ -9175,10 +9446,10 @@ export class TongsCommitService {
 
   async getWorkpieceVisualPackage(
     workpieceId: string,
-    options?: { userAccessToken?: string | null },
+    options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<WorkpieceVisualPackageResponseData> {
     const cradle = await this.getCradleOrThrow(workpieceId);
-    await this.assertWorkspaceRoleFromAccessToken(cradle.workspace_id, "viewer", options?.userAccessToken);
+    await this.assertWorkspaceRole(cradle.workspace_id, "viewer", options);
 
     const state = await this.readWorkpieceImageMapState(workpieceId, cradle.workspace_id);
     const imageMapAssetRow = await this.getCurrentReadyImageMapAsset(cradle.workspace_id, workpieceId);
@@ -10716,6 +10987,60 @@ export function createTongsCommitApiHandlerWithService(
         }
 
         throw new HttpError(405, "method_not_allowed", "Expected GET or PUT for this endpoint");
+      }
+
+      if (
+        parts.length === 6
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "workpieces"
+        && parts[5] === "jobs"
+      ) {
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+
+        if (request.method === "GET") {
+          const activeOnly = parseBooleanQueryFlag(url.searchParams.get("active"));
+          const limitParam = url.searchParams.get("limit");
+          const limit = limitParam ? Number(limitParam) : undefined;
+          const jobs = await service.listWorkpieceJobs(
+            workspaceId,
+            workpieceId,
+            { userAccessToken, activeOnly, limit: typeof limit === "number" && Number.isFinite(limit) ? limit : undefined },
+          );
+          return jsonResponse(200, { ok: true, data: { jobs } });
+        }
+
+        if (request.method === "POST") {
+          const body = await parseJsonBody(request);
+          const payload = normalizeCreateWorkpieceJobRequest(body);
+          const job = await service.createWorkpieceJob(
+            workspaceId,
+            workpieceId,
+            payload,
+            { userAccessToken },
+          );
+          return jsonResponse(201, { ok: true, data: { job } });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Expected GET or POST for this endpoint");
+      }
+
+      if (
+        parts.length === 7
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "workpieces"
+        && parts[5] === "jobs"
+      ) {
+        requireMethod(request, "GET");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const jobId = normalizeUuid(decodeURIComponent(parts[6]), "job_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const job = await service.getWorkpieceJob(workspaceId, workpieceId, jobId, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: { job } });
       }
 
       if (

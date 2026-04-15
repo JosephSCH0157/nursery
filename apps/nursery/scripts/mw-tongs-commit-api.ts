@@ -3,9 +3,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 // Use the workspace source in dev so new Tongs routes are available after a Vite restart
 // without depending on a separately rebuilt package dist snapshot.
 import {
-  createTongsCommitApiHandler,
+  createTongsCommitApiHandlerWithService,
+  createTongsCommitService,
 } from "../../../packages/tongs/src/workpiece-commit-api.ts";
 import { resolveTongsRuntimeConfig } from "../server/tongs/tongs-runtime-config";
+import { ensureWorkpieceJobRunnerStarted } from "../server/tongs/workpiece-job-runner";
 
 type Next = (err?: unknown) => void;
 
@@ -57,7 +59,12 @@ async function writeFetchResponse(res: ServerResponse, response: Response): Prom
 export function createNurseryTongsMiddleware(opts?: { routePrefix?: string }) {
   const routePrefix = opts?.routePrefix ?? "/tongs";
   const config = resolveTongsRuntimeConfig();
-  const handler = config.missing.length ? null : createTongsCommitApiHandler(config.options);
+  const service = config.missing.length ? null : createTongsCommitService(config.options);
+  const handler = service ? createTongsCommitApiHandlerWithService(service, config.options.apiToken) : null;
+
+  if (service) {
+    ensureWorkpieceJobRunnerStarted({ service });
+  }
 
   if (!handler) {
     console.warn("[nursery:tongs-commit-api] not mounted: missing required env", config.missing);
