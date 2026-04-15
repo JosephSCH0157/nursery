@@ -3,7 +3,11 @@ import type { MediaKind } from "../../../../packages/contracts/hammer/media-reso
 export const HAMMER_TRANSCRIPT_PREP_ROUTE = "/api/hammer/prep/transcript";
 
 function resolveTranscriptPrepDebugEnabled(): boolean {
-  if (typeof window === "undefined") return false;
+  const runtimeGlobal = globalThis as typeof globalThis & {
+    window?: Record<string, unknown>;
+  };
+  const runtimeWindow = runtimeGlobal.window ?? null;
+  if (!runtimeWindow) return false;
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if (Boolean((import.meta as any)?.env?.DEV)) return true;
@@ -11,8 +15,7 @@ function resolveTranscriptPrepDebugEnabled(): boolean {
     // ignore
   }
   try {
-    const runtime = window as unknown as Record<string, unknown>;
-    return runtime.__forgeHammerDebugTranscriptPrep__ === true;
+    return runtimeWindow.__forgeHammerDebugTranscriptPrep__ === true;
   } catch {
     return false;
   }
@@ -82,10 +85,13 @@ export type HammerTranscriptPrepResult =
 const DEFAULT_TRANSCRIPT_PREP_TIMEOUT_MS = 15 * 60 * 1000;
 
 function resolveTranscriptPrepTimeoutMs(): number {
-  if (typeof window !== "undefined") {
+  const runtimeGlobal = globalThis as typeof globalThis & {
+    window?: Record<string, unknown>;
+  };
+  const runtimeWindow = runtimeGlobal.window ?? null;
+  if (runtimeWindow) {
     try {
-      const runtime = window as unknown as Record<string, unknown>;
-      const override = runtime.__forgeHammerTranscriptPrepTimeoutMs__;
+      const override = runtimeWindow.__forgeHammerTranscriptPrepTimeoutMs__;
       if (typeof override === "number" && Number.isFinite(override) && override >= 30_000) {
         return Math.trunc(override);
       }

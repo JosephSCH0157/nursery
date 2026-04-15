@@ -58,7 +58,10 @@ export async function resolveHammerPrepAiEffectiveLane(
   }
 
   // resolve_ai_policy lives in the tongs schema; use the tongs-profile client so PostgREST can find the RPC.
-  const policy = await resolveAiPolicy(tongsSupabase, {
+  const tongsPolicyClient = (
+    tongsSupabase as unknown as { schema?: (name: string) => unknown }
+  ).schema?.("tongs") as Parameters<typeof resolveAiPolicy>[0] ?? (tongsSupabase as unknown as Parameters<typeof resolveAiPolicy>[0]);
+  const policy = await resolveAiPolicy(tongsPolicyClient, {
     orgId: null,
     workspaceId,
     userId: authData.user.id,

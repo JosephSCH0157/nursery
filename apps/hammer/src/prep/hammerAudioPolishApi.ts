@@ -343,10 +343,13 @@ function normalizeResponse(payload: unknown): HammerAudioPolishResponse | null {
 const DEFAULT_AUDIO_POLISH_TIMEOUT_MS = 15 * 60 * 1000;
 
 function resolveAudioPolishTimeoutMs(): number {
-  if (typeof window !== "undefined") {
+  const runtimeGlobal = globalThis as typeof globalThis & {
+    window?: Record<string, unknown>;
+  };
+  const runtimeWindow = runtimeGlobal.window ?? null;
+  if (runtimeWindow) {
     try {
-      const runtime = window as unknown as Record<string, unknown>;
-      const override = runtime.__forgeHammerAudioPolishTimeoutMs__;
+      const override = runtimeWindow.__forgeHammerAudioPolishTimeoutMs__;
       if (typeof override === "number" && Number.isFinite(override) && override >= 30_000) {
         return Math.trunc(override);
       }

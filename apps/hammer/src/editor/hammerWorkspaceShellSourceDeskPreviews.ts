@@ -8,6 +8,7 @@ export type UseHammerWorkspaceShellSourceDeskPreviewsArgs = {
   fetchKey: string;
   maxItems: number;
   concurrency: number;
+  paused?: boolean;
 
   loadWorkpieceMediaPreviewUrl: (args: { workpieceId: string; path: string; surface: any }) => Promise<string>;
   readHammerMediaPreviewErrorDiagnostics: (error: unknown) => null | {
@@ -40,6 +41,12 @@ function resolveSourceDeskPreviewDebugEnabled(): boolean {
 
 export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspaceShellSourceDeskPreviewsArgs): void {
   useEffect(() => {
+    if (args.paused) {
+      return () => {
+        // keep existing previews mounted while paused; do not start new fetches.
+      };
+    }
+
     let active = true;
     const nextUrls: Record<string, string> = {};
     const nextFailures: Record<string, true> = {};
@@ -145,7 +152,7 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
     return () => {
       active = false;
     };
-  }, [args.workpieceId, args.fetchKey]);
+  }, [args.workpieceId, args.fetchKey, args.paused]);
 
   useEffect(() => () => {
     for (const url of Object.values(args.previewUrls)) URL.revokeObjectURL(url);

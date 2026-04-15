@@ -70,11 +70,9 @@ import {
   loadHammerPersistenceSnapshot,
   loadHammerPresence,
   readHammerPersistenceTarget,
-  saveHammerPersistenceSnapshot,
   upsertHammerPresence,
 } from "../persistence/hammerPersistence";
 import type {
-  HammerPersistedVisualPlacements,
   HammerPersistenceSnapshot,
   HammerPersistenceTarget,
   HammerPresenceRow,
@@ -119,7 +117,6 @@ import {
 } from "../prep/hammerAudioPolishApi";
 import { resolveAudioPolishInputSource } from "../prep/resolveAudioPolishInputSource";
 import {
-  type HammerTranscriptPrepError,
 } from "../prep/hammerPrepApi";
 import {
   createWorkpieceJob,
@@ -2049,11 +2046,11 @@ export default function HammerWorkspaceEditor(
         media_kind: prepSource.mediaRef.kind,
         local_relpath: prepSource.local_relpath,
         canonical_workpiece_path: prepSource.canonical_workpiece_path,
-        manual_regenerate_ai_transcript: Boolean(regenContext),
-        refresh_visual_placements: regenContext ? regenRefreshPlacements : null,
+        manual_regenerate_ai_transcript: Boolean(regenAiTranscriptRequestRef.current),
+        refresh_visual_placements: regenAiTranscriptRequestRef.current?.refreshPlacements ?? null,
       });
 
-      let outcome: "prepared" | "failed" | "non_ai_missing" | "error" = "error";
+      let outcome: "prepared" | "failed" | "non_ai_missing" | "error" | "job_submitted" = "error";
       let audioPolishStatus: string | null = null;
       let audioPolishFailureCode: string | null = null;
       let finalSnapshot: HammerPersistenceSnapshot | null = loadedPersistenceSnapshot;
@@ -2982,43 +2979,6 @@ export default function HammerWorkspaceEditor(
 
   // Note: We intentionally do not auto-apply saved transcript-prep preferences (non-AI missing) via an effect.
   // Auto-retrying can create tight restart loops (and React "maximum update depth exceeded") when no transcript exists yet.
-
-  function mapTranscriptPrepErrorToUserMessage(error: HammerTranscriptPrepError): string {
-    switch (error.code) {
-      case "AUTH_REQUIRED":
-        return "Sign in required to prepare a transcript. Refresh and sign in, then retry.";
-      case "POLICY_DENIED":
-        return `AI policy denied transcript prep. ${error.message}`;
-      case "SERVER_NOT_CONFIGURED":
-        return `Server is not configured for transcript prep. ${error.message}`;
-      case "SOURCE_TOO_LARGE": {
-        const detail = error.detail && typeof error.detail === "object" ? error.detail as Record<string, unknown> : null;
-        const maxBytes = typeof detail?.max_source_bytes === "number" ? detail.max_source_bytes as number : null;
-        const observedBytes = typeof detail?.observed_bytes === "number" ? detail.observed_bytes as number : null;
-        const extras = maxBytes || observedBytes
-          ? ` (max ${maxBytes ?? "unknown"} bytes, observed ${observedBytes ?? "unknown"} bytes)`
-          : "";
-        return `Media source is too large for transcript prep${extras}. Downmix/downsample to a smaller file (e.g. mono, 16k–48kHz) and retry.`;
-      }
-      case "MEDIA_READ_FORBIDDEN":
-        return `Hammer does not have permission to read the media source. ${error.message}`;
-      case "MEDIA_READ_TIMEOUT":
-        return "Timed out while reading the media source. Retry; if it keeps timing out, check network/storage access.";
-      case "MEDIA_READ_FAILED":
-        return `Failed to read the media source. ${error.message}`;
-      case "OPENAI_TIMEOUT":
-        return "OpenAI timed out while transcribing. Retry transcript prep.";
-      case "OPENAI_UPSTREAM_ERROR":
-        return `OpenAI transcription failed. ${error.message}`;
-      case "NORMALIZE_EMPTY":
-        return "Transcript prep returned no usable segments. Retry; if it keeps happening, check the input audio.";
-      case "INVALID_REQUEST":
-        return `Transcript prep request was invalid. ${error.message}`;
-      case "UNKNOWN_ERROR":
-      default:
-        return error.message || "Hammer transcript prep failed unexpectedly. Retry, then check the Nursery server logs if it keeps failing.";
-    }
-  }
 
   function mapSessionOpenErrorToUserMessage(args: { code: string | null; message: string }): string {
     switch (args.code) {

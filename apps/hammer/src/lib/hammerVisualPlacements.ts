@@ -190,7 +190,11 @@ function readJsonObject(value: unknown): Record<string, unknown> | null {
 }
 
 function resolvePlacementDebugEnabled(): boolean {
-  if (typeof window === "undefined") return false;
+  const runtimeGlobal = globalThis as typeof globalThis & {
+    window?: Record<string, unknown>;
+  };
+  const runtimeWindow = runtimeGlobal.window ?? null;
+  if (!runtimeWindow) return false;
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if (Boolean((import.meta as any)?.env?.DEV)) return true;
@@ -198,8 +202,7 @@ function resolvePlacementDebugEnabled(): boolean {
     // ignore
   }
   try {
-    const runtime = window as unknown as Record<string, unknown>;
-    return runtime.__forgeHammerDebugPlacements__ === true;
+    return runtimeWindow.__forgeHammerDebugPlacements__ === true;
   } catch {
     return false;
   }

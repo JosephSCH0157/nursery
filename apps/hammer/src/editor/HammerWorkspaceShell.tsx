@@ -329,6 +329,7 @@ const VIDEO_HARD_SEEK_THRESHOLD_SEC = 0.35;
 const VIDEO_DRIFT_RATE_K = 0.15;
 const VIDEO_PLAYBACK_RATE_MIN = 0.97;
 const VIDEO_PLAYBACK_RATE_MAX = 1.03;
+const VIDEO_HARD_SEEK_COOLDOWN_MS = 2000;
 const PLAYHEAD_WINDOW_EPSILON_SEC = 0.001;
 const MIN_IMAGE_PLACEMENT_DURATION_SEC = 0.5;
 const IMAGE_PLACEMENT_TIME_PRECISION = 100;
@@ -349,6 +350,7 @@ const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
 type HammerPlaybackAuthorityWindow = Window & typeof globalThis & {
   __forgeHammerActivePreviewOwnerId__?: string;
   __forgeHammerActivePreviewAudio__?: HTMLMediaElement;
+  __forgeHammerIsPlaybackActive__?: boolean;
 };
 const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
   preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut", "apply_look", "apply_exposure", "apply_background_effect"],
@@ -1355,19 +1357,6 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function scaleToPercent(value: number, min: number, max: number): number {
-  const safe = clampNumber(value, min, max);
-  const span = max - min;
-  if (span <= 0) return 0;
-  return Math.round(((safe - min) / span) * 100);
-}
-
-function percentToScale(percent: number, min: number, max: number): number {
-  const safePercent = clampNumber(percent, 0, 100);
-  const span = max - min;
-  return clampNumber(min + (span * (safePercent / 100)), min, max);
-}
-
 const IMAGE_ANIMATION_PRESET_OPTIONS: Array<{ id: HammerImageAnimationPreset; label: string }> = [
   { id: "none", label: "None" },
   { id: "fade_in", label: "Fade In" },
@@ -2022,6 +2011,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
   const previewAudioRef = useRef<HTMLVideoElement | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const previewVideoHardSeekAtMsRef = useRef<number>(0);
   const previewSurfaceRef = useRef<HTMLDivElement | null>(null);
   const imageAnimationContextMenuRef = useRef<HTMLDivElement | null>(null);
   const previewBrollVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
@@ -4514,7 +4504,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         const driftSec = previewVideo.currentTime - previewAudio.currentTime;
         if (Number.isFinite(driftSec)) {
           if (Math.abs(driftSec) > VIDEO_HARD_SEEK_THRESHOLD_SEC) {
-            previewVideo.currentTime = previewAudio.currentTime;
+            const nowMs = Date.now();
+            const elapsed = nowMs - previewVideoHardSeekAtMsRef.current;
+            if (elapsed >= VIDEO_HARD_SEEK_COOLDOWN_MS) {
+              previewVideoHardSeekAtMsRef.current = nowMs;
+              previewVideo.currentTime = previewAudio.currentTime;
+            }
             previewVideo.playbackRate = previewAudio.playbackRate;
           } else {
             const correction = clampNumber(1 - (driftSec * VIDEO_DRIFT_RATE_K), VIDEO_PLAYBACK_RATE_MIN, VIDEO_PLAYBACK_RATE_MAX);
@@ -4645,6 +4640,14 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     resolvePlaybackTransportProgress,
     transcriptDurationSec,
   ]);
+
+  useEffect(() => {
+    const runtimeWindow = window as HammerPlaybackAuthorityWindow;
+    runtimeWindow.__forgeHammerIsPlaybackActive__ = Boolean(isPlaybackActive);
+    return () => {
+      runtimeWindow.__forgeHammerIsPlaybackActive__ = false;
+    };
+  }, [isPlaybackActive]);
 
   useEffect(() => {
     if (!selectedSegmentId) return;
@@ -5008,6 +5011,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     fetchKey: sourceDeskPreviewFetchKey,
     maxItems: SOURCE_DESK_PREVIEW_MAX_ITEMS,
     concurrency: SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY,
+    paused: isPlaybackActive,
     loadWorkpieceMediaPreviewUrl,
     readHammerMediaPreviewErrorDiagnostics,
     normalizeWorkpieceRelativePath,

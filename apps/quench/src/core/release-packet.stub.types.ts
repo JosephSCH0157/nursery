@@ -43,6 +43,7 @@ export type ReleasePacketStubAudioPrepStatus = "not_started" | "preparing" | "pr
 export type ReleasePacketStubAudioFailureCode =
   | "unsupported_source"
   | "source_unavailable"
+  | "stuck_preparing"
   | "processing_failed";
 export type ReleasePacketStubAudioPass = "studio_sound" | "noise_cleanup" | "level_consistency";
 export type ReleasePacketStubCheckId =

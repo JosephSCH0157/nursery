@@ -382,7 +382,7 @@ function buildLaunchContext(args: {
     media: {
       kind: "tongs-stub",
       ref: args.mediaRef,
-      workspace_mapping: null,
+      workspace_mapping: undefined,
       label: args.mediaRef.media_id,
     },
   };
