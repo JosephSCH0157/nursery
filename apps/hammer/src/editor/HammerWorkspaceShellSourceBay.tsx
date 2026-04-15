@@ -255,6 +255,11 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const introOutroCandidateItems = ctx.introOutroCandidateItems as any[];
   const persistIntroOutroSelection = ctx.persistIntroOutroSelection as (next: any) => void;
   const savingIntroOutro = ctx.savingIntroOutro as boolean;
+  const applyIntroOutroSelectionToFutureEpisodes = ctx.applyIntroOutroSelectionToFutureEpisodes as boolean;
+  const setApplyIntroOutroSelectionToFutureEpisodes = ctx.setApplyIntroOutroSelectionToFutureEpisodes as ((next: boolean) => void) | undefined;
+  const persistWorkspaceIntroOutroDefaultsNow = ctx.persistWorkspaceIntroOutroDefaultsNow as (() => void) | undefined;
+  const savingWorkspaceIntroOutroDefaults = ctx.savingWorkspaceIntroOutroDefaults as boolean | undefined;
+  const workspaceIntroOutroDefaults = ctx.workspaceIntroOutroDefaults as { updated_at?: string } | null | undefined;
   return (
     <>
       <header className="hammer-bay-head">
@@ -1427,6 +1432,29 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                   <div className="hammer-source-summary">
                     <span>Saved to Tongs workpiece storage</span>
                     <span>{savingIntroOutro ? "Saving..." : `Updated ${introOutroSelection.updated_at}`}</span>
+                  </div>
+                  <div className="hammer-source-summary">
+                    <label className="hammer-source-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(applyIntroOutroSelectionToFutureEpisodes)}
+                        onChange={(event) => setApplyIntroOutroSelectionToFutureEpisodes?.(event.currentTarget.checked)}
+                        disabled={!setApplyIntroOutroSelectionToFutureEpisodes}
+                      />
+                      Apply this intro/outro selection to future episodes
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => persistWorkspaceIntroOutroDefaultsNow?.()}
+                      disabled={Boolean(savingWorkspaceIntroOutroDefaults) || !persistWorkspaceIntroOutroDefaultsNow}
+                    >
+                      {savingWorkspaceIntroOutroDefaults ? "Saving defaults..." : "Save as workspace default"}
+                    </button>
+                    <span>
+                      {workspaceIntroOutroDefaults?.updated_at
+                        ? `Workspace default updated ${workspaceIntroOutroDefaults.updated_at}`
+                        : "No workspace default saved yet"}
+                    </span>
                   </div>
                 </>
               ) : null}

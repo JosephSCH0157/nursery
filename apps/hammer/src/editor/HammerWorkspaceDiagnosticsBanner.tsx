@@ -22,6 +22,7 @@ export function HammerWorkspaceDiagnosticsBanner(props: {
   fixErrorMessage: string | null;
   onRunFixAction: (actionId: HammerIssueFixActionId) => void;
   onRunFixAll: (actionIds: HammerIssueFixActionId[]) => void;
+  onDismiss?: () => void;
 }): JSX.Element | null {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const issues = props.issues;
@@ -89,6 +90,19 @@ export function HammerWorkspaceDiagnosticsBanner(props: {
               disabled={isBusy}
             >
               {detailsOpen ? "Hide details" : "Details"}
+            </button>
+          ) : null}
+          {hasIssues && props.onDismiss ? (
+            <button
+              type="button"
+              className="hammer-diagnostics-banner__link"
+              onClick={() => {
+                setDetailsOpen(false);
+                props.onDismiss?.();
+              }}
+              disabled={isBusy}
+            >
+              Dismiss
             </button>
           ) : null}
         </div>

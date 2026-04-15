@@ -4,6 +4,7 @@ import {
   buildHammerAssetIdentityKey,
   buildSourceDeskUploadPath,
   isAcceptedSourceDeskMediaUpload,
+  listWorkpieceStoredMedia,
   loadIntroOutroSelection,
   loadWorkpieceMediaPreviewUrl,
   readHammerMediaPreviewErrorDiagnostics,
@@ -160,6 +161,25 @@ async function testIntroOutroSelectionSerializationRoundTrip() {
   });
 }
 
+async function testIntroOutroSelectionParsesTongsEnvelope() {
+  const readFetch = async () => createOkJsonResponse({
+    ok: true,
+    data: {
+      schema_version: 1,
+      intro_asset_id: "asset_intro",
+      outro_asset_id: "asset_outro",
+      updated_at: "2026-03-21T12:00:00.000Z",
+    },
+  });
+  const loaded = await loadIntroOutroSelection("workpiece-abc", readFetch as never);
+  assert.deepEqual(loaded, {
+    schema_version: 1,
+    intro_asset_id: "asset_intro",
+    outro_asset_id: "asset_outro",
+    updated_at: "2026-03-21T12:00:00.000Z",
+  });
+}
+
 async function testIntroOutroSelectionLegacyPathMigration() {
   const legacyIntroPath = "assets/uploads/introoutro/1-intro.mp4";
   const legacyOutroPath = "assets/uploads/introoutro/2-outro.mp4";
@@ -177,6 +197,46 @@ async function testIntroOutroSelectionLegacyPathMigration() {
     intro_asset_id: deriveStableHammerAssetIdFromPath(legacyIntroPath),
     outro_asset_id: deriveStableHammerAssetIdFromPath(legacyOutroPath),
     updated_at: "2026-03-21T12:00:00.000Z",
+  });
+}
+
+async function testListWorkpieceStoredMediaParsesTongsEnvelopeAndNormalizesPaths() {
+  const storageFetch = async () => createOkJsonResponse({
+    ok: true,
+    data: {
+      listing: {
+        nodes: [
+          {
+            kind: "directory",
+            path: "workpieces/abc123/assets",
+            children: [
+              {
+                kind: "directory",
+                path: "workpieces/abc123/assets/uploads",
+                children: [
+                  {
+                    kind: "file",
+                    path: "workpieces/abc123/assets/uploads/introoutro/123-intro.mp3",
+                    bytes: 100,
+                    updated_at: "2026-04-14T12:00:00.000Z",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    },
+  });
+
+  const files = await listWorkpieceStoredMedia("abc123", storageFetch as never);
+  assert.equal(files.length, 1);
+  assert.deepEqual(files[0], {
+    path: "assets/uploads/introoutro/123-intro.mp3",
+    name: "123-intro.mp3",
+    kind: "audio",
+    bytes: 100,
+    updatedAt: "2026-04-14T12:00:00.000Z",
   });
 }
 
@@ -407,13 +467,15 @@ async function run() {
   await testMediaTypeAcceptance();
   await testUploadDestinationAndPayloadShape();
   await testInvalidUploadRejectedBeforeFetch();
-await testIntroOutroSelectionSerializationRoundTrip();
-await testIntroOutroSelectionLegacyPathMigration();
-await testNormalizeWorkpieceRelativePath();
-await testPreviewRequestUsesNormalizedRelativePath();
-await testPreviewRequestCachesNetworkFetchPerAssetIdentity();
-await testDeterministicAssetIdentityKey();
-await testPreviewErrorIncludesNormalizationDiagnostics();
+  await testIntroOutroSelectionSerializationRoundTrip();
+  await testIntroOutroSelectionParsesTongsEnvelope();
+  await testIntroOutroSelectionLegacyPathMigration();
+  await testListWorkpieceStoredMediaParsesTongsEnvelopeAndNormalizesPaths();
+  await testNormalizeWorkpieceRelativePath();
+  await testPreviewRequestUsesNormalizedRelativePath();
+  await testPreviewRequestCachesNetworkFetchPerAssetIdentity();
+  await testDeterministicAssetIdentityKey();
+  await testPreviewErrorIncludesNormalizationDiagnostics();
   await testNoLocalStorageDependencyInApiModule();
   await testHammerIntakeDetectMediaType();
   await testHammerIntakeEpisodeAttachedSkipsCradleCreation();

@@ -6,6 +6,7 @@ import { deriveStableHammerAssetIdFromPath } from "./hammerAssetIdentity";
 export { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
 
 const INTRO_OUTRO_SELECTION_PATH = "hammer/session/intro-outro.v1.json";
+const WORKSPACE_INTRO_OUTRO_DEFAULTS_PATH = "hammer/settings/intro-outro-defaults.v1.json";
 const SOURCE_DESK_UPLOAD_BASE_PATH = "assets/uploads";
 
 export type HammerStoredMediaKind = "image" | "broll" | "reference_clip" | "audio" | "other";
@@ -23,6 +24,18 @@ export type HammerIntroOutroSelection = {
   schema_version: 1;
   intro_asset_id: string | null;
   outro_asset_id: string | null;
+  updated_at: string;
+};
+
+export type HammerIntroOutroDefaultsSource = {
+  workpiece_id: string;
+  path: string;
+};
+
+export type HammerWorkspaceIntroOutroDefaults = {
+  schema_version: 1;
+  intro: HammerIntroOutroDefaultsSource | null;
+  outro: HammerIntroOutroDefaultsSource | null;
   updated_at: string;
 };
 
@@ -141,14 +154,15 @@ export function readHammerMediaPreviewErrorDiagnostics(error: unknown): HammerMe
   };
 }
 
-function flattenStorageFiles(nodes: StorageNode[]): HammerStoredMediaFile[] {
+function flattenStorageFiles(nodes: StorageNode[], workpieceId: string): HammerStoredMediaFile[] {
   const files: HammerStoredMediaFile[] = [];
   const walk = (node: StorageNode) => {
     if (node.kind === "file") {
+      const workpieceRelativePath = normalizeWorkpieceRelativePath(workpieceId, node.path);
       files.push({
-        path: node.path,
-        name: basename(node.path),
-        kind: inferStoredMediaKind(node.path),
+        path: workpieceRelativePath,
+        name: basename(workpieceRelativePath),
+        kind: inferStoredMediaKind(workpieceRelativePath),
         bytes: readNullableNumber(node.bytes),
         updatedAt: readString(node.updated_at),
       });
@@ -234,9 +248,11 @@ export async function listWorkpieceStoredMedia(
     throw new Error(message);
   }
 
-  const listing = readJsonObject(readJsonObject(payload)?.listing);
+  const root = readJsonObject(payload);
+  const data = readJsonObject(root?.data);
+  const listing = readJsonObject(data?.listing ?? root?.listing);
   const nodes = Array.isArray(listing?.nodes) ? listing?.nodes as StorageNode[] : [];
-  return flattenStorageFiles(nodes);
+  return flattenStorageFiles(nodes, workpieceId);
 }
 
 export async function uploadWorkpieceMediaFile(args: {
@@ -299,7 +315,7 @@ export async function loadIntroOutroSelection(
     return null;
   }
   const root = readJsonObject(payload);
-  if (root?.exists !== true) return null;
+  if (root?.exists === false) return null;
   const data = readJsonObject(root?.data);
   if (!data) return null;
   const schemaVersion = data.schema_version === 1 ? 1 : 1;
@@ -337,6 +353,119 @@ export async function saveIntroOutroSelection(args: {
     const payload = await response.json().catch(() => null);
     const root = readJsonObject(payload);
     const message = readString(readJsonObject(root?.error)?.message) ?? "Hammer could not save intro/outro selection.";
+    throw new Error(message);
+  }
+}
+
+export async function loadWorkspaceIntroOutroDefaults(
+  workspaceId: string,
+  fetcher: TongsFetcher = tongsFetch,
+): Promise<HammerWorkspaceIntroOutroDefaults | null> {
+  const response = await fetcher(
+    `/tongs/workspaces/${encodeURIComponent(workspaceId)}/read-file?path=${encodeURIComponent(WORKSPACE_INTRO_OUTRO_DEFAULTS_PATH)}`,
+    {
+      method: "GET",
+      timeoutMs: 30_000,
+    },
+  );
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) return null;
+  const root = readJsonObject(payload);
+  if (root?.exists === false) return null;
+  const data = readJsonObject(root?.data);
+  if (!data) return null;
+
+  const intro = readJsonObject(data.intro);
+  const outro = readJsonObject(data.outro);
+  const introWorkpieceId = readString(intro?.workpiece_id);
+  const introPath = readString(intro?.path);
+  const outroWorkpieceId = readString(outro?.workpiece_id);
+  const outroPath = readString(outro?.path);
+
+  return {
+    schema_version: 1,
+    intro: introWorkpieceId && introPath ? { workpiece_id: introWorkpieceId, path: introPath } : null,
+    outro: outroWorkpieceId && outroPath ? { workpiece_id: outroWorkpieceId, path: outroPath } : null,
+    updated_at: readString(data.updated_at) ?? new Date().toISOString(),
+  };
+}
+
+export async function saveWorkspaceIntroOutroDefaults(args: {
+  workspaceId: string;
+  defaults: HammerWorkspaceIntroOutroDefaults;
+  fetcher?: TongsFetcher;
+}): Promise<void> {
+  const response = await (args.fetcher ?? tongsFetch)(
+    `/tongs/workspaces/${encodeURIComponent(args.workspaceId)}/commit-file`,
+    {
+      method: "POST",
+      json: {
+        path: WORKSPACE_INTRO_OUTRO_DEFAULTS_PATH,
+        content_type: "application/json",
+        written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
+        json: args.defaults,
+      },
+      timeoutMs: 30_000,
+    },
+  );
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const root = readJsonObject(payload);
+    const message = readString(readJsonObject(root?.error)?.message) ?? "Hammer could not save workspace intro/outro defaults.";
+    throw new Error(message);
+  }
+}
+
+export async function copyWorkpieceMediaFile(args: {
+  sourceWorkpieceId: string;
+  sourcePath: string;
+  destWorkpieceId: string;
+  destPath: string;
+  fetcher?: TongsFetcher;
+}): Promise<void> {
+  const fetcher = args.fetcher ?? tongsFetch;
+  const sourcePath = normalizeWorkpieceRelativePath(args.sourceWorkpieceId, args.sourcePath);
+  const destPath = normalizeWorkpieceRelativePath(args.destWorkpieceId, args.destPath);
+  const sourceParams = new URLSearchParams({
+    path: sourcePath,
+    encoding: "base64",
+  });
+  const readResponse = await fetcher(
+    `/tongs/workpieces/${encodeURIComponent(args.sourceWorkpieceId)}/read-file?${sourceParams.toString()}`,
+    { method: "GET", timeoutMs: 60_000 },
+  );
+  const readPayload = await readResponse.json().catch(() => null);
+  if (!readResponse.ok) {
+    const root = readJsonObject(readPayload);
+    const message = readString(readJsonObject(root?.error)?.message) ?? "Hammer could not read intro/outro defaults source media.";
+    throw new Error(message);
+  }
+
+  const readRoot = readJsonObject(readPayload);
+  const readData = readJsonObject(readRoot?.data);
+  const bytesBase64 = readString(readData?.bytes_base64) ?? readString(readRoot?.bytes_base64);
+  const contentType = readString(readData?.content_type) ?? readString(readRoot?.content_type) ?? "application/octet-stream";
+  if (!bytesBase64) {
+    throw new Error("Hammer could not read intro/outro defaults source media bytes.");
+  }
+
+  const commitResponse = await fetcher(
+    `/tongs/workpieces/${encodeURIComponent(args.destWorkpieceId)}/commit-file`,
+    {
+      method: "POST",
+      json: {
+        path: destPath,
+        content_type: contentType,
+        written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
+        bytes_base64: bytesBase64,
+      },
+      timeoutMs: 60_000,
+    },
+  );
+  const commitPayload = await commitResponse.json().catch(() => null);
+  if (!commitResponse.ok) {
+    const root = readJsonObject(commitPayload);
+    const message = readString(readJsonObject(root?.error)?.message) ?? "Hammer could not copy intro/outro defaults media into this episode.";
     throw new Error(message);
   }
 }

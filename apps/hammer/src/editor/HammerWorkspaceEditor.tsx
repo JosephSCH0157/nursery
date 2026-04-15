@@ -70,6 +70,7 @@ import {
   loadHammerPersistenceSnapshot,
   loadHammerPresence,
   readHammerPersistenceTarget,
+  saveHammerPersistenceSnapshot,
   upsertHammerPresence,
 } from "../persistence/hammerPersistence";
 import type {
@@ -100,6 +101,7 @@ import {
   resolveHammerPrepSource,
   type HammerPrepState,
 } from "../prep/hammerPrep";
+import { decideHammerTranscriptHydrationSource } from "./hammerTranscriptSelection";
 import {
   buildHammerPrepAiNoticeModel,
   shouldShowHammerPrepAiNotice,
@@ -1233,15 +1235,29 @@ export default function HammerWorkspaceEditor(
             rejection_reason: null,
           });
 
-          if (registeredTranscriptLoadOk && !registeredTranscriptDefinitiveFailure && (registeredTranscriptSegmentCount ?? 0) > 0) {
+          const hydrationDecision = decideHammerTranscriptHydrationSource({
+            registered: {
+              load_ok: registeredTranscriptLoadOk,
+              segment_count: registeredTranscriptSegmentCount,
+              definitively_bad: registeredTranscriptDefinitiveFailure,
+            },
+            revision: {
+              load_ok: revisionTranscriptLoadOk,
+              segment_count: revisionTranscriptSegmentCount,
+            },
+            baseline: {
+              load_ok: baselineTranscriptLoadOk,
+              segment_count: baselineTranscriptSegmentCount,
+            },
+          });
+
+          transcriptSource = hydrationDecision.selected_source;
+          if (transcriptSource === "registered_transcript") {
             hydratedTranscript = registeredTranscript;
-            transcriptSource = "registered_transcript";
-          } else if (revisionTranscriptLoadOk && (revisionTranscriptSegmentCount ?? 0) > 0) {
+          } else if (transcriptSource === "revision_transcript") {
             hydratedTranscript = revisionTranscript;
-            transcriptSource = "revision_transcript";
-          } else if (baselineTranscriptLoadOk && (baselineTranscriptSegmentCount ?? 0) > 0) {
+          } else if (transcriptSource === "canonical_baseline") {
             hydratedTranscript = canonicalTranscript;
-            transcriptSource = "canonical_baseline";
           } else {
             rejectionReason = "No valid transcript found in any source (registered, revision, baseline)";
           }
@@ -1251,6 +1267,7 @@ export default function HammerWorkspaceEditor(
             ingestDiagnosticRef.current.extra = {
               ...(ingestDiagnosticRef.current.extra ?? {}),
               selected_transcript_source: transcriptSource,
+              transcript_downgrade_guard_applied: hydrationDecision.downgrade_guard_applied,
             };
           }
 
@@ -2354,6 +2371,14 @@ export default function HammerWorkspaceEditor(
           },
         );
         if (!preparedSaveRevision.ok) throw new Error(preparedSaveRevision.error);
+
+        // Promote the prepared transcript to the persisted workpiece-level transcript pointer.
+        // This prevents refresh/reopen from silently falling back to an older registered transcript.
+        const promoteResult = await saveHammerPersistenceSnapshot(persistenceTarget, preparedRequest);
+        if (!promoteResult.ok) {
+          throw new Error(promoteResult.error);
+        }
+
         saveSpan.end({
           ok: true,
           visual_placements_path: preparedSaveRevision.data.revision.visual_placements_path,
@@ -2944,6 +2969,29 @@ export default function HammerWorkspaceEditor(
     sessionState,
     workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning,
   ]);
+  const [diagnosticsBannerCollapsed, setDiagnosticsBannerCollapsed] = useState(false);
+  const diagnosticsIssuesFingerprint = useMemo(
+    () => diagnosticsIssues
+      .map((issue) => `${issue.id}:${issue.severity}`)
+      .sort()
+      .join("|"),
+    [diagnosticsIssues],
+  );
+  const lastDiagnosticsIssuesFingerprintRef = useRef<string>("");
+  useEffect(() => {
+    if (diagnosticsIssues.length === 0) {
+      lastDiagnosticsIssuesFingerprintRef.current = "";
+      setDiagnosticsBannerCollapsed(false);
+      return;
+    }
+    if (
+      diagnosticsIssuesFingerprint
+      && diagnosticsIssuesFingerprint !== lastDiagnosticsIssuesFingerprintRef.current
+    ) {
+      lastDiagnosticsIssuesFingerprintRef.current = diagnosticsIssuesFingerprint;
+      setDiagnosticsBannerCollapsed(false);
+    }
+  }, [diagnosticsIssues.length, diagnosticsIssuesFingerprint]);
   const progressFillClassName = useMemo(
     () => `${dynamicStyleScopeIdRef.current}__progress-fill`,
     [],
@@ -3522,15 +3570,18 @@ export default function HammerWorkspaceEditor(
               sessionState.isDegraded ? "is-degraded" : "",
             ].filter(Boolean).join(" ")}
           >
-            <HammerWorkspaceDiagnosticsBanner
-              issues={diagnosticsIssues}
-              fallbackTitle={sessionState.humanLabel}
-              fallbackSummary={sessionState.detail}
-              inFlightFixActionId={diagnosticsFixInFlight}
-              fixErrorMessage={diagnosticsFixErrorMessage}
-              onRunFixAction={runDiagnosticsFixAction}
-              onRunFixAll={runDiagnosticsFixAll}
-            />
+            {!diagnosticsBannerCollapsed ? (
+              <HammerWorkspaceDiagnosticsBanner
+                issues={diagnosticsIssues}
+                fallbackTitle={sessionState.humanLabel}
+                fallbackSummary={sessionState.detail}
+                inFlightFixActionId={diagnosticsFixInFlight}
+                fixErrorMessage={diagnosticsFixErrorMessage}
+                onRunFixAction={runDiagnosticsFixAction}
+                onRunFixAll={runDiagnosticsFixAll}
+                onDismiss={diagnosticsIssues.length > 0 ? () => setDiagnosticsBannerCollapsed(true) : undefined}
+              />
+            ) : null}
           </div>
           <div className="hammer-prep-shell__session-actions">
             <div className="hammer-prep-shell__session-actions-summary">
@@ -3544,6 +3595,16 @@ export default function HammerWorkspaceEditor(
                   : ""}
               </span>
             </div>
+            {diagnosticsBannerCollapsed && diagnosticsIssues.length > 0 ? (
+              <button
+                type="button"
+                className="hammer-prep-shell__session-action hammer-prep-shell__session-action--issues"
+                onClick={() => setDiagnosticsBannerCollapsed(false)}
+                title="Show issues"
+              >
+                Issues ({diagnosticsIssues.length})
+              </button>
+            ) : null}
           </div>
 
           {regenAiTranscriptOpen ? (
