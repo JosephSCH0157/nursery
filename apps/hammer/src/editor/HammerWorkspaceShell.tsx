@@ -340,6 +340,21 @@ const IMAGE_PLACEMENT_TIME_PRECISION = 100;
 const IMAGE_PLACEMENT_FINE_STEP_SEC = 0.01;
 const IMAGE_PLACEMENT_COARSE_STEP_SEC = 0.1;
 
+function appendUniquePaths(target: string[], candidates: Array<string | null | undefined>): string[] {
+  const seen = new Set(target);
+  for (const candidate of candidates) {
+    const next = typeof candidate === "string" ? candidate.trim() : "";
+    if (!next || seen.has(next)) continue;
+    seen.add(next);
+    target.push(next);
+  }
+  return target;
+}
+
+function areStringArraysEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 function roundImagePlacementTime(value: number): number {
   return Math.round(value * IMAGE_PLACEMENT_TIME_PRECISION) / IMAGE_PLACEMENT_TIME_PRECISION;
 }
@@ -1973,6 +1988,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
   const attemptedWorkspaceDefaultsApplyRef = useRef<string | null>(null);
   const [sourceDeskPreviewUrls, setSourceDeskPreviewUrls] = useState<Record<string, string>>({});
   const [sourceDeskPreviewFailures, setSourceDeskPreviewFailures] = useState<Record<string, true>>({});
+  const [sourceDeskRequestedPreviewPaths, setSourceDeskRequestedPreviewPaths] = useState<string[]>([]);
+  const [sourceDeskVisiblePreviewPaths, setSourceDeskVisiblePreviewPaths] = useState<string[]>([]);
   const [releasePrepSaving, setReleasePrepSaving] = useState(false);
   const [releasePrepLoading, setReleasePrepLoading] = useState(false);
   const [releasePrepError, setReleasePrepError] = useState<string | null>(null);
@@ -3468,13 +3485,53 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return [...paths];
   }, [sourceBrollItems, sourceImageItems, sourceImageLibraryItems]);
+  const selectedSourceDeskPreviewAssetPath = selectedVisualClip?.asset_id
+    ? (visualAssetsById.get(selectedVisualClip.asset_id)?.path ?? null)
+    : null;
+  const prioritizedSourceDeskPreviewPaths = useMemo(() => {
+    const ordered: string[] = [];
+    appendUniquePaths(ordered, [selectedSourceDeskPreviewAssetPath]);
+    appendUniquePaths(ordered, sourceImageItems.map((item) => item.assetPath));
+    appendUniquePaths(ordered, sourceDeskVisiblePreviewPaths);
+    appendUniquePaths(ordered, sourceImageLibraryItems.map((file) => file.path));
+    appendUniquePaths(ordered, sourceBrollItems.map((item) => item.assetPath));
+    appendUniquePaths(ordered, sourceDeskPreviewPaths);
+    return ordered;
+  }, [selectedSourceDeskPreviewAssetPath, sourceBrollItems, sourceDeskPreviewPaths, sourceDeskVisiblePreviewPaths, sourceImageItems, sourceImageLibraryItems]);
   const sourceDeskPreviewFetchPaths = useMemo(
-    () => sourceDeskPreviewPaths.slice(0, SOURCE_DESK_PREVIEW_MAX_ITEMS),
-    [sourceDeskPreviewPaths],
+    () => prioritizedSourceDeskPreviewPaths.slice(0, SOURCE_DESK_PREVIEW_MAX_ITEMS),
+    [prioritizedSourceDeskPreviewPaths],
   );
-  const sourceDeskPreviewFetchKey = useMemo(
-    () => buildSourceDeskPreviewFetchKey(sourceDeskPreviewFetchPaths),
+  const sourceDeskAutomaticPreviewPathSet = useMemo(
+    () => new Set(sourceDeskPreviewFetchPaths),
     [sourceDeskPreviewFetchPaths],
+  );
+  const sourceDeskRemainingPreviewPaths = useMemo(() => (
+    sourceDeskPreviewPaths.filter((path) => (
+      !sourceDeskAutomaticPreviewPathSet.has(path)
+      && !sourceDeskRequestedPreviewPaths.includes(path)
+    ))
+  ), [sourceDeskAutomaticPreviewPathSet, sourceDeskPreviewPaths, sourceDeskRequestedPreviewPaths]);
+  const sourceDeskAllRequestedPreviewPaths = useMemo(() => {
+    const ordered = [...sourceDeskPreviewFetchPaths];
+    appendUniquePaths(ordered, sourceDeskRequestedPreviewPaths);
+    return ordered;
+  }, [sourceDeskPreviewFetchPaths, sourceDeskRequestedPreviewPaths]);
+  const sourceDeskRequestedPreviewPathSet = useMemo(
+    () => new Set(sourceDeskAllRequestedPreviewPaths),
+    [sourceDeskAllRequestedPreviewPaths],
+  );
+  const sourceDeskPreviewPendingPathSet = useMemo(() => {
+    const pending = new Set<string>();
+    for (const path of sourceDeskAllRequestedPreviewPaths) {
+      if (sourceDeskPreviewUrls[path] || sourceDeskPreviewFailures[path]) continue;
+      pending.add(path);
+    }
+    return pending;
+  }, [sourceDeskAllRequestedPreviewPaths, sourceDeskPreviewFailures, sourceDeskPreviewUrls]);
+  const sourceDeskPreviewFetchKey = useMemo(
+    () => buildSourceDeskPreviewFetchKey(sourceDeskAllRequestedPreviewPaths),
+    [sourceDeskAllRequestedPreviewPaths],
   );
   const imageUsageByPath = useMemo(() => {
     const usage = new Map<string, number>();
@@ -3484,6 +3541,44 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     }
     return usage;
   }, [sourceImageItems]);
+  const requestSourceDeskPreviews = useCallback((paths: Array<string | null | undefined>): void => {
+    setSourceDeskRequestedPreviewPaths((current) => {
+      const next = [...current];
+      appendUniquePaths(next, paths);
+      return areStringArraysEqual(current, next) ? current : next;
+    });
+  }, []);
+  const reportVisibleSourceDeskPreviewPaths = useCallback((paths: string[]): void => {
+    setSourceDeskVisiblePreviewPaths((current) => (areStringArraysEqual(current, paths) ? current : paths));
+  }, []);
+
+  useEffect(() => {
+    setSourceDeskRequestedPreviewPaths([]);
+    setSourceDeskVisiblePreviewPaths([]);
+    setSourceDeskPreviewFailures({});
+    setSourceDeskPreviewUrls((current) => {
+      for (const url of Object.values(current)) {
+        URL.revokeObjectURL(url);
+      }
+      return {};
+    });
+  }, [launchContext.workpiece_id]);
+
+  useEffect(() => {
+    const assetPath = selectedImagePlacement?.assetPath ?? null;
+    if (!assetPath || sourceDeskPreviewUrls[assetPath] || sourceDeskPreviewFailures[assetPath]) {
+      return;
+    }
+    const selectedIndex = sourceImageItems.findIndex((item) => item.id === selectedImagePlacement?.id);
+    const neighboringPaths = selectedIndex >= 0
+      ? [
+        sourceImageItems[selectedIndex - 1]?.assetPath,
+        assetPath,
+        sourceImageItems[selectedIndex + 1]?.assetPath,
+      ]
+      : [assetPath];
+    requestSourceDeskPreviews(neighboringPaths);
+  }, [requestSourceDeskPreviews, selectedImagePlacement?.assetPath, selectedImagePlacement?.id, sourceDeskPreviewFailures, sourceDeskPreviewUrls, sourceImageItems]);
   const speakerOptions = useMemo(() => {
     const labels = new Set<string>();
     for (const segment of editableTranscriptSegments) {
@@ -5013,17 +5108,18 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
 
   useHammerWorkspaceShellSourceDeskPreviews({
     workpieceId: launchContext.workpiece_id,
-    previewPaths: sourceDeskPreviewFetchPaths,
+    previewPaths: sourceDeskAllRequestedPreviewPaths,
     requestedPreviewPathCount: sourceDeskPreviewPaths.length,
     fetchKey: sourceDeskPreviewFetchKey,
     maxItems: SOURCE_DESK_PREVIEW_MAX_ITEMS,
     concurrency: SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY,
-    paused: isPlaybackActive,
+    paused: isPlaybackActive && sourceDeskRequestedPreviewPaths.length === 0,
     loadWorkpieceMediaPreviewUrl,
     readHammerMediaPreviewErrorDiagnostics,
     normalizeWorkpieceRelativePath,
     setPreviewUrls: setSourceDeskPreviewUrls,
     setPreviewFailures: setSourceDeskPreviewFailures,
+    previewFailures: sourceDeskPreviewFailures,
     previewUrls: sourceDeskPreviewUrls,
   });
 
@@ -9566,6 +9662,12 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       persistWorkspaceIntroOutroDefaultsNow,
       sourceDeskPreviewUrls,
       sourceDeskPreviewFailures,
+      sourceDeskRequestedPreviewPathSet,
+      sourceDeskPreviewPendingPathSet,
+      sourceDeskRemainingPreviewCount: sourceDeskRemainingPreviewPaths.length,
+      requestSourceDeskPreviews,
+      loadRemainingSourceDeskPreviews: () => requestSourceDeskPreviews(sourceDeskRemainingPreviewPaths),
+      reportVisibleSourceDeskPreviewPaths,
       imageUploadInputRef,
       brollUploadInputRef,
       introOutroUploadInputRef,

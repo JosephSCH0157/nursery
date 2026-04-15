@@ -340,6 +340,12 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const handleSourceDeskUpload = ctx.handleSourceDeskUpload as (category: any, files: FileList | null) => void;
   const sourceDeskPreviewUrls = ctx.sourceDeskPreviewUrls as Record<string, string>;
   const sourceDeskPreviewFailures = ctx.sourceDeskPreviewFailures as Record<string, true>;
+  const sourceDeskRequestedPreviewPathSet = ctx.sourceDeskRequestedPreviewPathSet as Set<string>;
+  const sourceDeskPreviewPendingPathSet = ctx.sourceDeskPreviewPendingPathSet as Set<string>;
+  const sourceDeskRemainingPreviewCount = ctx.sourceDeskRemainingPreviewCount as number;
+  const requestSourceDeskPreviews = ctx.requestSourceDeskPreviews as (paths: Array<string | null | undefined>) => void;
+  const loadRemainingSourceDeskPreviews = ctx.loadRemainingSourceDeskPreviews as () => void;
+  const reportVisibleSourceDeskPreviewPaths = ctx.reportVisibleSourceDeskPreviewPaths as ((paths: string[]) => void) | undefined;
   const imageUsageByPath = ctx.imageUsageByPath as Map<string, any>;
   const addImagePlacementFromLibrary = ctx.addImagePlacementFromLibrary as (...args: any[]) => void;
   const buildTimelineImagePrompt = ctx.buildTimelineImagePrompt as (prompt: any) => string;
@@ -378,6 +384,98 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const unresolvedBrollSuggestionItems = ctx.unresolvedBrollSuggestionItems as any[];
   const analyzeReferenceClipInput = ctx.analyzeReferenceClipInput as (...args: any[]) => any;
   const visualPlacementsById = ctx.visualPlacementsById as Map<string, any>;
+  const sourceDeskImagesViewportRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const root = sourceDeskImagesViewportRef.current;
+    if (selectedSourceTab !== "images" || !root || !reportVisibleSourceDeskPreviewPaths) {
+      reportVisibleSourceDeskPreviewPaths?.([]);
+      return;
+    }
+
+    const readOrderedVisiblePaths = (visibleElements?: Set<Element>): string[] => {
+      const seen = new Set<string>();
+      const next: string[] = [];
+      const nodes = root.querySelectorAll<HTMLElement>("[data-source-desk-preview-path]");
+      nodes.forEach((node) => {
+        if (visibleElements && !visibleElements.has(node)) return;
+        const path = node.dataset.sourceDeskPreviewPath?.trim();
+        if (!path || seen.has(path)) return;
+        seen.add(path);
+        next.push(path);
+      });
+      return next;
+    };
+
+    if (typeof IntersectionObserver === "undefined") {
+      reportVisibleSourceDeskPreviewPaths(readOrderedVisiblePaths());
+      return () => {
+        reportVisibleSourceDeskPreviewPaths([]);
+      };
+    }
+
+    const visibleElements = new Set<Element>();
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          visibleElements.add(entry.target);
+        } else {
+          visibleElements.delete(entry.target);
+        }
+      }
+      reportVisibleSourceDeskPreviewPaths(readOrderedVisiblePaths(visibleElements));
+    }, { threshold: 0.25 });
+
+    const nodes = root.querySelectorAll<HTMLElement>("[data-source-desk-preview-path]");
+    nodes.forEach((node) => observer.observe(node));
+    reportVisibleSourceDeskPreviewPaths(readOrderedVisiblePaths(visibleElements));
+
+    return () => {
+      observer.disconnect();
+      reportVisibleSourceDeskPreviewPaths([]);
+    };
+  }, [reportVisibleSourceDeskPreviewPaths, selectedSourceTab, sourceImageItems, sourceImageLibraryItems]);
+
+  function renderSourceDeskPreviewThumb(args: { assetPath: string | null; label: string }): JSX.Element {
+    const assetPath = args.assetPath?.trim() ?? "";
+    if (assetPath && sourceDeskPreviewUrls[assetPath]) {
+      return (
+        <img
+          className="hammer-source-card__thumb"
+          src={sourceDeskPreviewUrls[assetPath]}
+          alt={args.label}
+        />
+      );
+    }
+
+    let message = "Not provided";
+    let action: JSX.Element | null = null;
+    if (assetPath) {
+      if (sourceDeskPreviewFailures[assetPath]) {
+        message = "Preview unavailable";
+      } else if (sourceDeskPreviewPendingPathSet.has(assetPath) || sourceDeskRequestedPreviewPathSet.has(assetPath)) {
+        message = "Loading preview...";
+      } else {
+        message = "Preview not loaded";
+        action = (
+          <button
+            type="button"
+            className="hammer-source-card__thumb-action"
+            onClick={() => requestSourceDeskPreviews([assetPath])}
+          >
+            Load preview
+          </button>
+        );
+      }
+    }
+
+    return (
+      <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">
+        <span>{message}</span>
+        {action}
+      </div>
+    );
+  }
   const generatingReferenceBeatId = ctx.generatingReferenceBeatId as string | null;
 
   const brollUploadInputRef = ctx.brollUploadInputRef as { current: HTMLInputElement | null };
@@ -778,21 +876,32 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
 
               {selectedSourceTab === "images" ? (
                 sourceImageItems.length > 0 || sourceImageLibraryItems.length > 0 ? (
-                  <>
+                  <div ref={sourceDeskImagesViewportRef}>
                     <div className="hammer-source-summary">
                       <span>{sourceImageItems.length} placements</span>
                       <span>{sourceImageItems.filter((item) => item.status === "uncertain").length} uncertain</span>
                     </div>
                     <div className="hammer-source-summary">
                       <span>{sourceImageLibraryItems.length} stored images</span>
-                      <button
-                        type="button"
-                        className="hammer-source-upload-button is-secondary"
-                        onClick={() => imageUploadInputRef.current?.click()}
-                        disabled={uploadingCategory != null}
-                      >
-                        {uploadingCategory === "images" ? "Uploading..." : "Upload Image"}
-                      </button>
+                      <div className="hammer-source-summary__actions">
+                        {sourceDeskRemainingPreviewCount > 0 ? (
+                          <button
+                            type="button"
+                            className="hammer-source-upload-button is-secondary"
+                            onClick={loadRemainingSourceDeskPreviews}
+                          >
+                            Load remaining previews ({sourceDeskRemainingPreviewCount})
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="hammer-source-upload-button is-secondary"
+                          onClick={() => imageUploadInputRef.current?.click()}
+                          disabled={uploadingCategory != null}
+                        >
+                          {uploadingCategory === "images" ? "Uploading..." : "Upload Image"}
+                        </button>
+                      </div>
                     </div>
                     <input
                       ref={imageUploadInputRef}
@@ -816,6 +925,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                         return (
                           <article
                             key={item.id}
+                            data-source-desk-preview-path={item.assetPath ?? undefined}
                             ref={(node) => {
                               if (node) {
                                 visualPlacementCardRefs.current.set(item.id, node);
@@ -825,19 +935,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                             }}
                             className={effectiveSelectedClipId === item.id ? "hammer-source-card is-selected" : "hammer-source-card"}
                           >
-                            {item.assetPath && sourceDeskPreviewUrls[item.assetPath] ? (
-                              <img
-                                className="hammer-source-card__thumb"
-                                src={sourceDeskPreviewUrls[item.assetPath]}
-                                alt={item.label}
-                              />
-                            ) : (
-                              <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">
-                                {item.assetPath
-                                  ? (sourceDeskPreviewFailures[item.assetPath] ? "Preview unavailable" : "No thumbnail")
-                                  : "Not provided"}
-                              </div>
-                            )}
+                            {renderSourceDeskPreviewThumb({ assetPath: item.assetPath ?? null, label: item.label })}
                             <header className="hammer-source-card__head">
                               <strong>{item.label}</strong>
                               <span className={item.status === "uncertain" ? "is-warning" : "is-ready"}>{item.status}</span>
@@ -854,7 +952,12 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                             <div className="hammer-source-card__actions">
                               <button
                                 type="button"
-                                onClick={() => selectVisualClip({ clipId: item.id, origin: "tool_window", revealUI: true })}
+                                onClick={() => {
+                                  if (item.assetPath && !sourceDeskPreviewUrls[item.assetPath] && !sourceDeskPreviewFailures[item.assetPath]) {
+                                    requestSourceDeskPreviews([item.assetPath]);
+                                  }
+                                  selectVisualClip({ clipId: item.id, origin: "tool_window", revealUI: true });
+                                }}
                               >
                                 Select
                               </button>
@@ -929,18 +1032,8 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                       })()
                     ))}
                     {sourceImageLibraryItems.map((file) => (
-                      <article key={file.path} className="hammer-source-card">
-                        {sourceDeskPreviewUrls[file.path] ? (
-                          <img
-                            className="hammer-source-card__thumb"
-                            src={sourceDeskPreviewUrls[file.path]}
-                            alt={file.name}
-                          />
-                        ) : (
-                          <div className="hammer-source-card__thumb hammer-source-card__thumb--placeholder">
-                            {sourceDeskPreviewFailures[file.path] ? "Preview unavailable" : "No thumbnail"}
-                          </div>
-                        )}
+                      <article key={file.path} data-source-desk-preview-path={file.path} className="hammer-source-card">
+                        {renderSourceDeskPreviewThumb({ assetPath: file.path, label: file.name })}
                         <header className="hammer-source-card__head">
                           <strong>{file.name}</strong>
                           <span>stored</span>
@@ -956,6 +1049,9 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                           <button
                             type="button"
                             onClick={() => {
+                              if (!sourceDeskPreviewUrls[file.path] && !sourceDeskPreviewFailures[file.path]) {
+                                requestSourceDeskPreviews([file.path]);
+                              }
                               setFocusOverride("tool-focus");
                               addImagePlacementFromLibrary({
                                 assetPath: file.path,
@@ -968,7 +1064,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                         </div>
                       </article>
                     ))}
-                  </>
+                  </div>
                 ) : (
                   <>
                     <div className="hammer-source-summary">

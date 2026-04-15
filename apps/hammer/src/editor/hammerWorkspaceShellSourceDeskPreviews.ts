@@ -20,6 +20,7 @@ export type UseHammerWorkspaceShellSourceDeskPreviewsArgs = {
 
   setPreviewUrls: Dispatch<SetStateAction<Record<string, string>>>;
   setPreviewFailures: Dispatch<SetStateAction<Record<string, true>>>;
+  previewFailures: Record<string, true>;
   previewUrls: Record<string, string>;
 };
 
@@ -50,9 +51,15 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
     let active = true;
     const nextUrls: Record<string, string> = {};
     const nextFailures: Record<string, true> = {};
-    const previewPaths = args.previewPaths;
+    const previewPaths = args.previewPaths.filter((path) => !args.previewUrls[path] && !args.previewFailures[path]);
     const debugEnabled = resolveSourceDeskPreviewDebugEnabled();
     const startedAt = typeof performance !== "undefined" ? performance.now() : null;
+
+    if (previewPaths.length === 0) {
+      return () => {
+        active = false;
+      };
+    }
 
     if (args.requestedPreviewPathCount > args.maxItems) {
       console.info("Hammer Source Desk preview load capped", {
@@ -132,27 +139,29 @@ export function useHammerWorkspaceShellSourceDeskPreviews(args: UseHammerWorkspa
         elapsed_ms: elapsedMs,
       });
       args.setPreviewUrls((previous) => {
-        const previousKeys = Object.keys(previous);
         const nextKeys = Object.keys(nextUrls);
-        const unchanged = previousKeys.length === nextKeys.length
-          && nextKeys.every((key) => previous[key] === nextUrls[key]);
+        const unchanged = nextKeys.every((key) => previous[key] === nextUrls[key]);
         if (unchanged) return previous;
-        for (const url of Object.values(previous)) URL.revokeObjectURL(url);
-        return nextUrls;
+        const merged = { ...previous };
+        for (const key of nextKeys) {
+          if (merged[key] && merged[key] !== nextUrls[key]) {
+            URL.revokeObjectURL(merged[key]);
+          }
+          merged[key] = nextUrls[key];
+        }
+        return merged;
       });
       args.setPreviewFailures((previous) => {
-        const previousKeys = Object.keys(previous);
         const nextKeys = Object.keys(nextFailures);
-        const unchanged = previousKeys.length === nextKeys.length
-          && nextKeys.every((key) => previous[key] === nextFailures[key]);
-        return unchanged ? previous : nextFailures;
+        const unchanged = nextKeys.every((key) => previous[key] === nextFailures[key]);
+        return unchanged ? previous : { ...previous, ...nextFailures };
       });
     })();
 
     return () => {
       active = false;
     };
-  }, [args.workpieceId, args.fetchKey, args.paused]);
+  }, [args.workpieceId, args.fetchKey, args.paused, args.previewFailures, args.previewUrls]);
 
   useEffect(() => () => {
     for (const url of Object.values(args.previewUrls)) URL.revokeObjectURL(url);

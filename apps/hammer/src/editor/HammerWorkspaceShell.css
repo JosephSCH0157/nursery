@@ -727,6 +727,14 @@ Guardrails:
   align-items: center;
 }
 
+.hammer-source-summary__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .hammer-source-status {
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 8px;
@@ -918,11 +926,27 @@ Guardrails:
 .hammer-source-card__thumb--placeholder {
   display: grid;
   place-items: center;
+  align-content: center;
+  gap: 6px;
   font-size: 11px;
   color: #94a3b8;
   background:
     linear-gradient(135deg, rgba(30, 41, 59, 0.7) 25%, rgba(15, 23, 42, 0.88) 25%, rgba(15, 23, 42, 0.88) 50%, rgba(30, 41, 59, 0.7) 50%, rgba(30, 41, 59, 0.7) 75%, rgba(15, 23, 42, 0.88) 75%, rgba(15, 23, 42, 0.88));
   background-size: 14px 14px;
+}
+
+.hammer-source-card__thumb-action {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.78);
+  color: #dbeafe;
+  padding: 4px 8px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.hammer-source-card__thumb-action:hover {
+  border-color: rgba(96, 165, 250, 0.62);
 }
 
 .hammer-source-card__head {
