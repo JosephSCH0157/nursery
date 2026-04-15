@@ -1,4 +1,5 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import { diffWords } from "../lib/hammerWordDiff";
 import type { HammerDeadAirAnalysis } from "./hammerDeadAirClosure";
 
 export type HammerAudioCutSelection = {
@@ -124,6 +125,62 @@ export function deriveAudioCutsForTimelineCompression(args: {
     const startSec = clampToDuration(endSec - deltaSec, args.durationSec);
     if (endSec - startSec > MIN_CUT_SEC) {
       selections.push({ startSec, endSec });
+    }
+  }
+
+  return normalizeAndMerge(selections);
+}
+
+export function deriveAudioCutsForSubtractiveTextEdits(args: {
+  beforeSegments: HammerTranscriptSegment[];
+  afterSegments: HammerTranscriptSegment[];
+  durationSec: number;
+}): HammerAudioCutSelection[] {
+  if (!Number.isFinite(args.durationSec) || args.durationSec <= 0) return [];
+
+  const afterById = new Map<string, HammerTranscriptSegment>();
+  for (const segment of args.afterSegments) {
+    afterById.set(segment.segment_id, segment);
+  }
+
+  const selections: HammerAudioCutSelection[] = [];
+  for (const before of args.beforeSegments) {
+    const after = afterById.get(before.segment_id);
+    if (!after || before.text === after.text) continue;
+
+    const ops = diffWords(before.text, after.text);
+    if (ops.some((op) => op.type === "insert" && op.words.length > 0)) {
+      continue;
+    }
+
+    const beforeWordCount = ops.reduce((count, op) => (
+      op.type === "equal" || op.type === "delete" ? count + op.words.length : count
+    ), 0);
+    const segmentDurationSec = Math.max(0, Number(before.end_sec) - Number(before.start_sec));
+    if (beforeWordCount <= 0 || segmentDurationSec <= MIN_CUT_SEC) continue;
+
+    let beforeWordCursor = 0;
+    for (const op of ops) {
+      if (op.type === "equal") {
+        beforeWordCursor += op.words.length;
+        continue;
+      }
+      if (op.type === "insert") continue;
+
+      const startRatio = beforeWordCursor / beforeWordCount;
+      const endRatio = (beforeWordCursor + op.words.length) / beforeWordCount;
+      const startSec = clampToDuration(
+        Number(before.start_sec) + (segmentDurationSec * startRatio),
+        args.durationSec,
+      );
+      const endSec = clampToDuration(
+        Number(before.start_sec) + (segmentDurationSec * endRatio),
+        args.durationSec,
+      );
+      if (endSec - startSec > MIN_CUT_SEC) {
+        selections.push({ startSec, endSec });
+      }
+      beforeWordCursor += op.words.length;
     }
   }
 

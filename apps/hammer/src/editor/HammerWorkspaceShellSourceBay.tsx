@@ -84,10 +84,9 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const editableTranscriptSegments = ctx.editableTranscriptSegments as any[];
   const selectedSegmentId = ctx.selectedSegmentId as string | null;
   const setFocusOverride = ctx.setFocusOverride as (mode: "auto" | "source-focus" | "tool-focus" | "time-focus") => void;
-  const applyHistoryMutation = ctx.applyHistoryMutation as (args: { computeAfter: (before: any) => any } & Record<string, any>) => void;
-  const updateSegmentInTimeline = ctx.updateSegmentInTimeline as (segments: any[], segmentId: string, updater: (segment: any) => any) => any[];
   const transcriptTimingHint = ctx.transcriptTimingHint as string | null;
   const applyTranscriptSelection = ctx.applyTranscriptSelection as (segmentId: string, extend: boolean) => void;
+  const commitTranscriptTextEdits = ctx.commitTranscriptTextEdits as ((drafts: Record<string, string>) => { applied: boolean; playbackChanged: boolean }) | undefined;
   const disableTranscriptSelection = ctx.disableTranscriptSelection as () => void;
   const cutTranscriptSelection = ctx.cutTranscriptSelection as () => void;
   const tightenTranscriptSelection = ctx.tightenTranscriptSelection as () => void;
@@ -455,7 +454,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                     <section className="hammer-transcript-page-actions" aria-label="Transcript editor actions">
                       <div className="hammer-transcript-page-actions__meta">
                         <span>{hasDirtyTranscriptEdits ? "Unsaved transcript text edits" : "Transcript text saved"}</span>
-                        <span>Text-only edits do not change playback. Use structural actions to affect episode timing.</span>
+                        <span>Delete words or phrases only. Deletions cut playback; additions are blocked.</span>
                       </div>
                       <div className="hammer-transcript-page-actions__buttons">
                         <button
@@ -473,32 +472,25 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                 return;
                               }
                             }
-                            applyHistoryMutation({
-                              label: "Edit transcript",
-                              kind: "transcript_text_edit",
-                              affectedSegments: dirtyIds,
-                              immediatePersist: true,
-                              computeAfter: (before) => {
-                                let updatedSegments = before.transcriptSegments;
-                                for (const segmentId of dirtyIds) {
-                                  const draftText = draftTextBySegmentId[segmentId];
-                                  if (draftText == null) continue;
-                                  updatedSegments = updateSegmentInTimeline(
-                                    updatedSegments,
-                                    segmentId,
-                                    (segment) => ({ ...segment, text: draftText }),
-                                  );
-                                }
-                                return {
-                                  ...before,
-                                  transcriptSegments: updatedSegments,
-                                  transcriptTimingHint: null,
-                                };
-                              },
-                            });
+                            const nextDrafts = Object.fromEntries(
+                              dirtyIds
+                                .map((segmentId) => [segmentId, draftTextBySegmentId[segmentId]])
+                                .filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+                            );
+                            const result = commitTranscriptTextEdits
+                              ? commitTranscriptTextEdits(nextDrafts)
+                              : { applied: false, playbackChanged: false };
+                            if (!result.applied) {
+                              showInlineEditHint("Transcript edit did not commit any canonical changes.");
+                              return;
+                            }
                             setDraftTextBySegmentId({});
                             setInlineEditHint(null);
-                            setTranscriptTimingHint("Transcript text saved. Playback is unchanged because text edits do not rewrite source audio.");
+                            setTranscriptTimingHint(
+                              result.playbackChanged
+                                ? "Transcript text saved. Removed words now cut playback from the source audio."
+                                : "Transcript text saved. Playback is unchanged because no timed deletion span could be derived.",
+                            );
                           }}
                         >
                           Save
