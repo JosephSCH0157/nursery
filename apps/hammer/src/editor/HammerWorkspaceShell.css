@@ -1243,6 +1243,8 @@ Guardrails:
   width: 16px;
   height: 16px;
   margin-top: 2px;
+  accent-color: rgba(96, 165, 250, 0.92);
+  cursor: pointer;
 }
 
 .hammer-audio-fix__copy {
@@ -1266,6 +1268,12 @@ Guardrails:
   font-size: 10px;
   color: rgba(226, 232, 240, 0.92);
   background: rgba(2, 6, 23, 0.72);
+}
+
+.hammer-source-card__actions button.is-selected {
+  border-color: rgba(96, 165, 250, 0.68);
+  background: rgba(59, 130, 246, 0.18);
+  color: #dbeafe;
 }
 
 .hammer-tool-advanced summary {

@@ -1554,9 +1554,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                       <input
                         type="checkbox"
                         checked={Boolean(voicePolish?.fixes?.remove_harsh_sibilance)}
-                        onChange={() => setVoicePolishFixEnabled(
+                        onChange={(event) => setVoicePolishFixEnabled(
                           "remove_harsh_sibilance",
-                          !Boolean(voicePolish?.fixes?.remove_harsh_sibilance),
+                          event.target.checked,
                         )}
                       />
                       <span className="hammer-audio-fix__copy">
@@ -1568,9 +1568,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                       <input
                         type="checkbox"
                         checked={Boolean(voicePolish?.fixes?.reduce_room_boxiness)}
-                        onChange={() => setVoicePolishFixEnabled(
+                        onChange={(event) => setVoicePolishFixEnabled(
                           "reduce_room_boxiness",
-                          !Boolean(voicePolish?.fixes?.reduce_room_boxiness),
+                          event.target.checked,
                         )}
                       />
                       <span className="hammer-audio-fix__copy">
@@ -1582,9 +1582,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                       <input
                         type="checkbox"
                         checked={Boolean(voicePolish?.fixes?.enhance_voice_clarity)}
-                        onChange={() => setVoicePolishFixEnabled(
+                        onChange={(event) => setVoicePolishFixEnabled(
                           "enhance_voice_clarity",
-                          !Boolean(voicePolish?.fixes?.enhance_voice_clarity),
+                          event.target.checked,
                         )}
                       />
                       <span className="hammer-audio-fix__copy">
@@ -1596,9 +1596,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                       <input
                         type="checkbox"
                         checked={Boolean(voicePolish?.fixes?.level_volume)}
-                        onChange={() => setVoicePolishFixEnabled(
+                        onChange={(event) => setVoicePolishFixEnabled(
                           "level_volume",
-                          !Boolean(voicePolish?.fixes?.level_volume),
+                          event.target.checked,
                         )}
                       />
                       <span className="hammer-audio-fix__copy">

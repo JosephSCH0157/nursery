@@ -104,7 +104,10 @@ const BOOTSTRAP_WORKPIECE_PATHS = new Set([
   "hammer/history/history.v1.json",
   "hammer/release-prep/package.v1.json",
 ]);
-const BOOTSTRAP_WORKSPACE_PATHS = new Set(["sources/index.json"]);
+const BOOTSTRAP_WORKSPACE_PATHS = new Set([
+  "sources/index.json",
+  "hammer/settings/intro-outro-defaults.v1.json",
+]);
 const READY_SCRIPT_PATH_CANDIDATES = [
   "script/script.published.md",
   "script/script.md",

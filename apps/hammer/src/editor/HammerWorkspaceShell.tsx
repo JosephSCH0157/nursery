@@ -325,6 +325,10 @@ const PLAYHEAD_SNAP_TOLERANCE_SEC = DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC;
 const PRE_ROLL_SEC = 2;
 const POST_ROLL_SEC = 1;
 const SCRUB_SEEK_THRESHOLD_SEC = 0.05;
+const VIDEO_HARD_SEEK_THRESHOLD_SEC = 0.35;
+const VIDEO_DRIFT_RATE_K = 0.15;
+const VIDEO_PLAYBACK_RATE_MIN = 0.97;
+const VIDEO_PLAYBACK_RATE_MAX = 1.03;
 const PLAYHEAD_WINDOW_EPSILON_SEC = 0.001;
 const MIN_IMAGE_PLACEMENT_DURATION_SEC = 0.5;
 const IMAGE_PLACEMENT_TIME_PRECISION = 100;
@@ -4495,10 +4499,36 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
         applySeamFade: transportProgress.shouldSyncMediaTime,
       });
     }
-    if (previewVideoSrc && previewVideo && shouldSynchronizeCurrentTime && Math.abs(previewVideo.currentTime - targetTime) > SCRUB_SEEK_THRESHOLD_SEC) {
+    if (previewVideoSrc && previewVideo) {
       previewVideo.muted = true;
       previewVideo.volume = 0;
-      previewVideo.currentTime = targetTime;
+
+      const allowAdaptiveRateSync =
+        isPlaybackActive
+        && !isScrubbing
+        && !srcChanged
+        && !previewVideoSrcChanged
+        && !transportProgress.shouldSyncMediaTime;
+
+      if (allowAdaptiveRateSync) {
+        const driftSec = previewVideo.currentTime - previewAudio.currentTime;
+        if (Number.isFinite(driftSec)) {
+          if (Math.abs(driftSec) > VIDEO_HARD_SEEK_THRESHOLD_SEC) {
+            previewVideo.currentTime = previewAudio.currentTime;
+            previewVideo.playbackRate = previewAudio.playbackRate;
+          } else {
+            const correction = clampNumber(1 - (driftSec * VIDEO_DRIFT_RATE_K), VIDEO_PLAYBACK_RATE_MIN, VIDEO_PLAYBACK_RATE_MAX);
+            previewVideo.playbackRate = previewAudio.playbackRate * correction;
+          }
+        } else {
+          previewVideo.playbackRate = previewAudio.playbackRate;
+        }
+      } else {
+        previewVideo.playbackRate = previewAudio.playbackRate;
+        if (shouldSynchronizeCurrentTime && Math.abs(previewVideo.currentTime - targetTime) > SCRUB_SEEK_THRESHOLD_SEC) {
+          previewVideo.currentTime = targetTime;
+        }
+      }
     }
 
     if (transportProgress.shouldStop) {
@@ -4532,7 +4562,6 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     if (previewVideoSrc && previewVideo) {
       previewVideo.muted = true;
       previewVideo.volume = 0;
-      previewVideo.playbackRate = previewAudio.playbackRate;
       if (previewVideo.paused) {
         void previewVideo.play().catch(() => {
           // keep base video best-effort; audio continues as authority
