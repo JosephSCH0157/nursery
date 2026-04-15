@@ -98,12 +98,14 @@ import {
 import {
   deriveAudioCutsForDeadAirClosure,
   deriveAudioCutsForRemovedSegments,
+  type HammerAudioCutSelection,
   deriveAudioCutsForSubtractiveTextEdits,
   deriveAudioCutsForTimelineCompression,
   HAMMER_FILLER_CUT_PAD_AFTER_SEC,
   HAMMER_FILLER_CUT_PAD_BEFORE_SEC,
   HAMMER_FILLER_CUT_SEAM_FADE_SEC,
 } from "./hammerCleanupExecution";
+import type { HammerDeleteOnlyTranscriptDeletion } from "./hammerDeleteOnlyTranscriptEditing";
 import {
   resolveSelectedSegmentId,
   resolveTranscriptDurationSec,
@@ -5340,6 +5342,77 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     };
   }
 
+  function commitDeleteOnlyTranscriptEdits(edits: Array<{
+    segmentId: string;
+    nextText: string;
+    deletion: HammerDeleteOnlyTranscriptDeletion;
+    cutSelection: HammerAudioCutSelection | null;
+  }>): {
+    applied: boolean;
+    playbackChanged: boolean;
+    deletedTokenCount: number;
+  } {
+    const controller = historyControllerRef.current;
+    if (!controller || edits.length === 0) {
+      return { applied: false, playbackChanged: false, deletedTokenCount: 0 };
+    }
+
+    const beforeState = controller.getState();
+    const uniqueEdits = edits.filter((edit, index, allEdits) => (
+      allEdits.findIndex((candidate) => candidate.segmentId === edit.segmentId) === index
+    ));
+    if (uniqueEdits.length === 0) {
+      return { applied: false, playbackChanged: false, deletedTokenCount: 0 };
+    }
+
+    const cutSelections = uniqueEdits
+      .map((edit) => edit.cutSelection)
+      .filter((selection): selection is HammerAudioCutSelection => Boolean(selection));
+    if (cutSelections.length !== uniqueEdits.length) {
+      return { applied: false, playbackChanged: false, deletedTokenCount: 0 };
+    }
+    const transcriptChanged = uniqueEdits.some((edit) => {
+      const baseline = beforeState.transcriptSegments.find((segment) => segment.segment_id === edit.segmentId)?.text ?? null;
+      return baseline != null && baseline !== edit.nextText;
+    });
+    if (!transcriptChanged && cutSelections.length === 0) {
+      return { applied: false, playbackChanged: false, deletedTokenCount: 0 };
+    }
+
+    const beforeAudioOpCount = beforeState.audioEdit?.operations?.length ?? 0;
+    const applied = applyHistoryMutation({
+      label: "Delete transcript tokens",
+      kind: "transcript_text_edit",
+      affectedSegments: uniqueEdits.map((edit) => edit.segmentId),
+      immediatePersist: true,
+      computeAfter: (before) => ({
+        ...before,
+        transcriptSegments: uniqueEdits.reduce((segments, edit) => updateSegmentInTimeline(
+          segments,
+          edit.segmentId,
+          (segment) => ({ ...segment, text: edit.nextText }),
+        ), before.transcriptSegments),
+        audioEdit: applyCutSelectionsToAudioEdit({
+          audioEdit: before.audioEdit,
+          cutSelections,
+          operationIdPrefix: "transcript-delete",
+        }),
+        transcriptTimingHint: null,
+      }),
+    });
+    if (!applied) {
+      return { applied: false, playbackChanged: false, deletedTokenCount: 0 };
+    }
+
+    const afterState = historyControllerRef.current?.getState() ?? null;
+    const afterAudioOpCount = afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount;
+    return {
+      applied: true,
+      playbackChanged: cutSelections.length > 0 && afterAudioOpCount > beforeAudioOpCount,
+      deletedTokenCount: uniqueEdits.reduce((count, edit) => count + edit.deletion.deletedTokenCount, 0),
+    };
+  }
+
   function applyAudioCutSelection(): void {
     const applied = commitEditableAudioCut({
       startSec: audioCutSelectionStartSec,
@@ -9478,6 +9551,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       transcriptLineRefs,
       isSubtractiveTranscriptEdit,
       commitTranscriptTextEdits,
+      commitDeleteOnlyTranscriptEdits,
       setTranscriptTimingHint,
 
       buildTimelineImagePrompt,

@@ -1,4 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type JSX } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type JSX,
+  type KeyboardEvent,
+} from "react";
+import {
+  deriveDeleteOnlyTranscriptCutSelection,
+  resolveDeleteOnlyTranscriptDeletion,
+  type HammerDeleteOnlyTranscriptDirection,
+} from "./hammerDeleteOnlyTranscriptEditing";
 
 export type HammerWorkspaceShellSourceTabVM = {
   id: string;
@@ -86,7 +99,19 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const setFocusOverride = ctx.setFocusOverride as (mode: "auto" | "source-focus" | "tool-focus" | "time-focus") => void;
   const transcriptTimingHint = ctx.transcriptTimingHint as string | null;
   const applyTranscriptSelection = ctx.applyTranscriptSelection as (segmentId: string, extend: boolean) => void;
-  const commitTranscriptTextEdits = ctx.commitTranscriptTextEdits as ((drafts: Record<string, string>) => { applied: boolean; playbackChanged: boolean }) | undefined;
+  const commitDeleteOnlyTranscriptEdits = ctx.commitDeleteOnlyTranscriptEdits as ((edits: Array<{
+    segmentId: string;
+    nextText: string;
+    deletion: {
+      nextText: string;
+      deletedText: string;
+      deletedTokenCount: number;
+      startTokenIndex: number;
+      endTokenIndexExclusive: number;
+      totalTokenCount: number;
+    };
+    cutSelection: { startSec: number; endSec: number } | null;
+  }>) => { applied: boolean; playbackChanged: boolean; deletedTokenCount: number }) | undefined;
   const disableTranscriptSelection = ctx.disableTranscriptSelection as () => void;
   const cutTranscriptSelection = ctx.cutTranscriptSelection as () => void;
   const tightenTranscriptSelection = ctx.tightenTranscriptSelection as () => void;
@@ -100,38 +125,14 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const candidateSegmentIdSet = ctx.candidateSegmentIdSet as Set<string>;
   const activeCandidateSegmentIdSet = ctx.activeCandidateSegmentIdSet as Set<string>;
   const transcriptLineRefs = ctx.transcriptLineRefs as { current: Map<string, HTMLElement> };
-  const isSubtractiveTranscriptEdit = ctx.isSubtractiveTranscriptEdit as (before: string, after: string) => boolean;
   const setTranscriptTimingHint = ctx.setTranscriptTimingHint as (message: string | null) => void;
 
-  const [draftTextBySegmentId, setDraftTextBySegmentId] = useState<Record<string, string>>({});
   const [inlineEditHint, setInlineEditHint] = useState<string | null>(null);
   const hintTimerRef = useRef<number | null>(null);
 
-  const segmentById = useMemo(() => {
-    const next = new Map<string, any>();
-    for (const segment of editableTranscriptSegments) {
-      next.set(segment.segment_id, segment);
-    }
-    return next;
-  }, [editableTranscriptSegments]);
-
   useEffect(() => {
-    setDraftTextBySegmentId({});
     setInlineEditHint(null);
   }, [editableTranscriptSegments]);
-
-  const dirtyTranscriptEdits = useMemo(() => {
-    const dirtyIds = new Set<string>();
-    for (const [segmentId, draftText] of Object.entries(draftTextBySegmentId)) {
-      const segment = segmentById.get(segmentId);
-      if (!segment) continue;
-      if (draftText !== segment.text) {
-        dirtyIds.add(segmentId);
-      }
-    }
-    return dirtyIds;
-  }, [draftTextBySegmentId, segmentById]);
-  const hasDirtyTranscriptEdits = dirtyTranscriptEdits.size > 0;
 
   const transcriptTurns = useMemo(() => {
     const turns: Array<{ speaker: string; segments: any[] }> = [];
@@ -198,6 +199,139 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
       window.clearTimeout(hintTimerRef.current);
     }
   }, []);
+
+  function commitDeleteOnlySegmentEdit(
+    segment: any,
+    selectionStart: number,
+    selectionEnd: number,
+    direction: HammerDeleteOnlyTranscriptDirection,
+  ): boolean {
+    const deletion = resolveDeleteOnlyTranscriptDeletion({
+      text: String(segment.text ?? ""),
+      selectionStart,
+      selectionEnd,
+      direction,
+    });
+    if (!deletion) {
+      return false;
+    }
+
+    const cutSelection = deriveDeleteOnlyTranscriptCutSelection({
+      segment,
+      deletion,
+    });
+    if (!cutSelection) {
+      showInlineEditHint("Hammer could not map that delete to a timed playback span.");
+      return true;
+    }
+
+    const result = commitDeleteOnlyTranscriptEdits
+      ? commitDeleteOnlyTranscriptEdits([{
+        segmentId: segment.segment_id,
+        nextText: deletion.nextText,
+        deletion,
+        cutSelection,
+      }])
+      : { applied: false, playbackChanged: false, deletedTokenCount: 0 };
+    if (!result.applied) {
+      showInlineEditHint("Transcript delete did not commit any canonical changes.");
+      return true;
+    }
+
+    setInlineEditHint(null);
+    setTranscriptTimingHint(
+      `Deleted ${result.deletedTokenCount} token${result.deletedTokenCount === 1 ? "" : "s"}. Playback now follows the canonical transcript cut.`,
+    );
+    return true;
+  }
+
+  function handleBlockedTranscriptTyping(event: KeyboardEvent<HTMLTextAreaElement>, reason: string): void {
+    event.preventDefault();
+    showInlineEditHint(reason);
+  }
+
+  function handleDeleteOnlyTranscriptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>, segment: any): void {
+    if (event.altKey) {
+      event.preventDefault();
+      showInlineEditHint("Delete-only transcript editing removes transcript tokens from playback. Typing is disabled.");
+      return;
+    }
+
+    const target = event.currentTarget;
+    const hasModifier = event.ctrlKey || event.metaKey;
+    const selectionStart = target.selectionStart ?? 0;
+    const selectionEnd = target.selectionEnd ?? selectionStart;
+
+    if (hasModifier && (
+      event.key === "c" || event.key === "C"
+      || event.key === "a" || event.key === "A"
+      || event.key === "z" || event.key === "Z"
+      || event.key === "y" || event.key === "Y"
+    )) {
+      return;
+    }
+
+    if (hasModifier && (event.key === "v" || event.key === "V")) {
+      handleBlockedTranscriptTyping(event, "Paste is blocked in delete-only transcript editing.");
+      return;
+    }
+
+    if (hasModifier && (event.key === "x" || event.key === "X")) {
+      return;
+    }
+
+    if (event.key === "Backspace" || event.key === "Delete") {
+      event.preventDefault();
+      const direction: HammerDeleteOnlyTranscriptDirection = selectionStart !== selectionEnd
+        ? "selection"
+        : event.key === "Delete"
+        ? "forward"
+        : "backward";
+      commitDeleteOnlySegmentEdit(segment, selectionStart, selectionEnd, direction);
+      return;
+    }
+
+    const navigationKeys = new Set([
+      "ArrowLeft",
+      "ArrowRight",
+      "ArrowUp",
+      "ArrowDown",
+      "Home",
+      "End",
+      "PageUp",
+      "PageDown",
+      "Tab",
+      "Escape",
+    ]);
+    if (navigationKeys.has(event.key)) {
+      return;
+    }
+
+    if (event.key.length === 1 || hasModifier) {
+      handleBlockedTranscriptTyping(event, "Typing is disabled in delete-only transcript editing.");
+    }
+  }
+
+  function handleDeleteOnlyTranscriptCut(event: ClipboardEvent<HTMLTextAreaElement>, segment: any): void {
+    const target = event.currentTarget;
+    const selectionStart = target.selectionStart ?? 0;
+    const selectionEnd = target.selectionEnd ?? selectionStart;
+    const deletion = resolveDeleteOnlyTranscriptDeletion({
+      text: String(segment.text ?? ""),
+      selectionStart,
+      selectionEnd,
+      direction: "selection",
+    });
+    if (!deletion) {
+      event.preventDefault();
+      showInlineEditHint("Select transcript tokens to cut from playback.");
+      return;
+    }
+
+    event.preventDefault();
+    event.clipboardData.setData("text/plain", deletion.deletedText);
+    commitDeleteOnlySegmentEdit(segment, selectionStart, selectionEnd, "selection");
+  }
 
   const sourceImageItems = ctx.sourceImageItems as any[];
   const sourceImageLibraryItems = ctx.sourceImageLibraryItems as any[];
@@ -453,60 +587,8 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                   <>
                     <section className="hammer-transcript-page-actions" aria-label="Transcript editor actions">
                       <div className="hammer-transcript-page-actions__meta">
-                        <span>{hasDirtyTranscriptEdits ? "Unsaved transcript text edits" : "Transcript text saved"}</span>
-                        <span>Delete words or phrases only. Deletions cut playback; additions are blocked.</span>
-                      </div>
-                      <div className="hammer-transcript-page-actions__buttons">
-                        <button
-                          type="button"
-                          disabled={!hasDirtyTranscriptEdits}
-                          onClick={() => {
-                            setFocusOverride("source-focus");
-                            const dirtyIds = Array.from(dirtyTranscriptEdits);
-                            for (const segmentId of dirtyIds) {
-                              const baseline = segmentById.get(segmentId)?.text ?? null;
-                              const draft = draftTextBySegmentId[segmentId];
-                              if (baseline == null || draft == null) continue;
-                              if (!isSubtractiveTranscriptEdit(baseline, draft)) {
-                                showInlineEditHint("Subtractive-only editing: delete words/phrases, but you cannot add new words.");
-                                return;
-                              }
-                            }
-                            const nextDrafts = Object.fromEntries(
-                              dirtyIds
-                                .map((segmentId) => [segmentId, draftTextBySegmentId[segmentId]])
-                                .filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-                            );
-                            const result = commitTranscriptTextEdits
-                              ? commitTranscriptTextEdits(nextDrafts)
-                              : { applied: false, playbackChanged: false };
-                            if (!result.applied) {
-                              showInlineEditHint("Transcript edit did not commit any canonical changes.");
-                              return;
-                            }
-                            setDraftTextBySegmentId({});
-                            setInlineEditHint(null);
-                            setTranscriptTimingHint(
-                              result.playbackChanged
-                                ? "Transcript text saved. Removed words now cut playback from the source audio."
-                                : "Transcript text saved. Playback is unchanged because no timed deletion span could be derived.",
-                            );
-                          }}
-                        >
-                          Save
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!hasDirtyTranscriptEdits}
-                          onClick={() => {
-                            setFocusOverride("source-focus");
-                            setDraftTextBySegmentId({});
-                            setInlineEditHint(null);
-                            setTranscriptTimingHint(null);
-                          }}
-                        >
-                          Discard
-                        </button>
+                        <span>Delete-only transcript editing</span>
+                        <span>Deleting removes transcript tokens from playback. Typing, replace, and paste are blocked.</span>
                       </div>
                     </section>
                     {inlineEditHint || transcriptTimingHint ? (
@@ -564,8 +646,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                           </header>
                           <p className="hammer-transcript-doc-turn__para">
                             {turn.segments.map((segment, segmentIndex) => {
-                              const draftText = draftTextBySegmentId[segment.segment_id];
-                              const value = draftText ?? segment.text;
+                              const value = segment.text;
                               const prevText = segmentIndex > 0 ? String(turn.segments[segmentIndex - 1]?.text ?? "") : "";
                               const joiner = segmentIndex > 0 ? getSegmentJoiner(prevText, String(value ?? "")) : "";
                               return (
@@ -616,8 +697,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                             </header>
                             <div className="hammer-transcript-turn__body">
                               {turn.segments.map((segment) => {
-                                const draftText = draftTextBySegmentId[segment.segment_id];
-                                const value = draftText ?? segment.text;
+                                const value = segment.text;
                                 return (
                                   <div
                                     key={`diag-${segment.segment_id}`}
@@ -658,6 +738,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                       aria-label={`Transcript segment ${segment.segment_id} (diagnostics)`}
                                       value={value}
                                       disabled={segment.is_disabled}
+                                      readOnly
                                       rows={1}
                                       onMouseDown={(event) => {
                                         event.stopPropagation();
@@ -666,22 +747,21 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                         setFocusOverride("source-focus");
                                         applyTranscriptSelection(segment.segment_id, false);
                                       }}
-                                      onChange={(event) => {
-                                        const nextValue = event.target.value;
-                                        if (!isSubtractiveTranscriptEdit(segment.text, nextValue)) {
-                                          showInlineEditHint(
-                                            "Subtractive-only editing: delete words/phrases, but you cannot add new words.",
-                                          );
-                                          return;
-                                        }
+                                      onKeyDown={(event) => {
                                         setFocusOverride("source-focus");
-                                        setDraftTextBySegmentId((current) => ({
-                                          ...current,
-                                          [segment.segment_id]: nextValue,
-                                        }));
-                                        setTranscriptTimingHint(null);
-                                        event.currentTarget.style.height = "auto";
-                                        event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`;
+                                        handleDeleteOnlyTranscriptKeyDown(event, segment);
+                                      }}
+                                      onCut={(event) => {
+                                        setFocusOverride("source-focus");
+                                        handleDeleteOnlyTranscriptCut(event, segment);
+                                      }}
+                                      onPaste={(event) => {
+                                        event.preventDefault();
+                                        showInlineEditHint("Paste is blocked in delete-only transcript editing.");
+                                      }}
+                                      onDrop={(event) => {
+                                        event.preventDefault();
+                                        showInlineEditHint("Dragging text into the transcript is blocked in delete-only transcript editing.");
                                       }}
                                     />
                                   </div>
