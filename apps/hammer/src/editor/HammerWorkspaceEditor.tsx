@@ -1559,16 +1559,27 @@ export default function HammerWorkspaceEditor(
   useEffect(() => {
     if (!persistenceTarget) return;
     let active = true;
+    let timer: number | null = null;
 
-    void listWorkpieceJobs({
-      workspaceId: persistenceTarget.workspaceId,
-      workpieceId: persistenceTarget.workpieceId,
-      activeOnly: true,
-      limit: 10,
-    }).then((result) => {
+    const poll = async (): Promise<void> => {
+      const result = await listWorkpieceJobs({
+        workspaceId: persistenceTarget.workspaceId,
+        workpieceId: persistenceTarget.workpieceId,
+        activeOnly: true,
+        limit: 10,
+      });
       if (!active) return;
-      if (!result.ok) return;
 
+      if (!result.ok) {
+        setJobsStatusUnavailable({ status: result.status, message: result.error });
+        const delay = typeof result.retryAfterMs === "number" && Number.isFinite(result.retryAfterMs)
+          ? Math.max(500, Math.min(30_000, Math.trunc(result.retryAfterMs)))
+          : 5000;
+        timer = window.setTimeout(() => void poll(), delay);
+        return;
+      }
+
+      setJobsStatusUnavailable(null);
       const jobs = result.data.jobs;
       const activePrep = jobs.find((job) => (
         job.job_type === "hammer_transcript_prep"
@@ -1590,10 +1601,13 @@ export default function HammerWorkspaceEditor(
         setRegenAiTranscriptInFlight(true);
         setRegenAiTranscriptError(null);
       }
-    });
+    };
+
+    void poll();
 
     return () => {
       active = false;
+      if (timer != null) window.clearTimeout(timer);
     };
   }, [
     persistenceTarget?.workspaceId,
@@ -2780,12 +2794,15 @@ export default function HammerWorkspaceEditor(
   );
   const [diagnosticsFixInFlight, setDiagnosticsFixInFlight] = useState<HammerIssueFixActionId | null>(null);
   const [diagnosticsFixErrorMessage, setDiagnosticsFixErrorMessage] = useState<string | null>(null);
+  const [jobsStatusUnavailable, setJobsStatusUnavailable] = useState<{ status: number; message: string } | null>(null);
   const diagnosticsIssues = useMemo(() => deriveHammerIssueDiagnostics({
     sessionState,
     mediaPrepOutputs: handoffMediaPrepOutputs,
     mediaLabelMismatchWarning: workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning ?? null,
+    jobsStatusUnavailable,
   }), [
     handoffMediaPrepOutputs,
+    jobsStatusUnavailable,
     sessionState,
     workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning,
   ]);

@@ -52,9 +52,10 @@ export function deriveHammerIssueDiagnostics(args: {
   sessionState: HammerSessionStateResult;
   mediaPrepOutputs: HammerMediaPrepOutputsPackage | null;
   mediaLabelMismatchWarning: string | null;
+  jobsStatusUnavailable: { status: number; message: string } | null;
 }): HammerIssueDiagnostic[] {
   const issues: HammerIssueDiagnostic[] = [];
-  const { sessionState, mediaPrepOutputs, mediaLabelMismatchWarning } = args;
+  const { sessionState, mediaPrepOutputs, mediaLabelMismatchWarning, jobsStatusUnavailable } = args;
 
   if (mediaLabelMismatchWarning) {
     issues.push({
@@ -65,6 +66,20 @@ export function deriveHammerIssueDiagnostics(args: {
       affectedAreas: ["playback", "preview_fidelity", "export"],
       safeActions: ["Transcript review and non-destructive transcript editing are still safe."],
       recommendedAction: "Verify this episode is linked to the correct recording before trusting playback or prep artifacts.",
+      canAutoFix: false,
+      fixActionId: null,
+    });
+  }
+
+  if (jobsStatusUnavailable) {
+    issues.push({
+      id: "jobs_unavailable",
+      severity: "warning",
+      title: "Background job status temporarily unavailable",
+      summary: `${jobsStatusUnavailable.message} (HTTP ${jobsStatusUnavailable.status}). Transcript jobs may run, but status updates may be delayed.`,
+      affectedAreas: ["transcript_cleanup", "transcript_editing"],
+      safeActions: ["Transcript review and editing are still safe."],
+      recommendedAction: "Reload in a moment. If this persists, check the server logs and ensure the workpiece_jobs schema migration is applied.",
       canAutoFix: false,
       fixActionId: null,
     });

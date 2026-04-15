@@ -10432,6 +10432,42 @@ export function createTongsCommitApiHandlerWithService(
       const url = new URL(request.url);
       const parts = url.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
 
+      const logJobsRouteException = (
+        route: string,
+        ctx: { workspaceId: string; workpieceId: string; jobId?: string },
+        error: unknown,
+      ): void => {
+        const isHttpError = error instanceof HttpError;
+        const status = isHttpError ? error.status : 500;
+        if (status < 500) return;
+
+        const message = error instanceof Error ? error.message : String(error);
+        const details = isHttpError ? error.details : null;
+        const hint = /workpiece_jobs/i.test(message) && /(does not exist|relation|schema)/i.test(message)
+          ? "Possible missing schema: tongs.workpiece_jobs (apply migration 20260414203147_tongs_workpiece_jobs.sql)."
+          : null;
+
+        try {
+          console.error("[tongs][jobs] exception", {
+            request_id: requestId,
+            route,
+            path: url.pathname,
+            method: request.method,
+            workspace_id: ctx.workspaceId,
+            workpiece_id: ctx.workpieceId,
+            job_id: ctx.jobId ?? null,
+            api_token_present: request.headers.has("authorization"),
+            user_token_present: Boolean(readUserAccessTokenHeader(request)),
+            error_message: message,
+            error_details: details,
+            hint,
+            stack: error instanceof Error ? error.stack : null,
+          });
+        } catch {
+          // ignore logging failures
+        }
+      };
+
       if (parts.length === 2 && parts[0] === "tongs" && parts[1] === "cradles") {
         requireMethod(request, "POST");
         const body = await parseJsonBody(request);
@@ -11004,27 +11040,37 @@ export function createTongsCommitApiHandlerWithService(
         const userAccessToken = requireUserAccessTokenHeader(request);
 
         if (request.method === "GET") {
-          const activeOnly = parseBooleanQueryFlag(url.searchParams.get("active"));
-          const limitParam = url.searchParams.get("limit");
-          const limit = limitParam ? Number(limitParam) : undefined;
-          const jobs = await service.listWorkpieceJobs(
-            workspaceId,
-            workpieceId,
-            { userAccessToken, activeOnly, limit: typeof limit === "number" && Number.isFinite(limit) ? limit : undefined },
-          );
-          return jsonResponse(200, { ok: true, data: { jobs } });
+          try {
+            const activeOnly = parseBooleanQueryFlag(url.searchParams.get("active"));
+            const limitParam = url.searchParams.get("limit");
+            const limit = limitParam ? Number(limitParam) : undefined;
+            const jobs = await service.listWorkpieceJobs(
+              workspaceId,
+              workpieceId,
+              { userAccessToken, activeOnly, limit: typeof limit === "number" && Number.isFinite(limit) ? limit : undefined },
+            );
+            return jsonResponse(200, { ok: true, data: { jobs } });
+          } catch (error) {
+            logJobsRouteException("list_workpiece_jobs", { workspaceId, workpieceId }, error);
+            throw error;
+          }
         }
 
         if (request.method === "POST") {
-          const body = await parseJsonBody(request);
-          const payload = normalizeCreateWorkpieceJobRequest(body);
-          const job = await service.createWorkpieceJob(
-            workspaceId,
-            workpieceId,
-            payload,
-            { userAccessToken },
-          );
-          return jsonResponse(201, { ok: true, data: { job } });
+          try {
+            const body = await parseJsonBody(request);
+            const payload = normalizeCreateWorkpieceJobRequest(body);
+            const job = await service.createWorkpieceJob(
+              workspaceId,
+              workpieceId,
+              payload,
+              { userAccessToken },
+            );
+            return jsonResponse(201, { ok: true, data: { job } });
+          } catch (error) {
+            logJobsRouteException("create_workpiece_job", { workspaceId, workpieceId }, error);
+            throw error;
+          }
         }
 
         throw new HttpError(405, "method_not_allowed", "Expected GET or POST for this endpoint");
@@ -11042,8 +11088,13 @@ export function createTongsCommitApiHandlerWithService(
         const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
         const jobId = normalizeUuid(decodeURIComponent(parts[6]), "job_id");
         const userAccessToken = requireUserAccessTokenHeader(request);
-        const job = await service.getWorkpieceJob(workspaceId, workpieceId, jobId, { userAccessToken });
-        return jsonResponse(200, { ok: true, data: { job } });
+        try {
+          const job = await service.getWorkpieceJob(workspaceId, workpieceId, jobId, { userAccessToken });
+          return jsonResponse(200, { ok: true, data: { job } });
+        } catch (error) {
+          logJobsRouteException("get_workpiece_job", { workspaceId, workpieceId, jobId }, error);
+          throw error;
+        }
       }
 
       if (

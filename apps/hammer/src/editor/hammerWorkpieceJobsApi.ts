@@ -28,7 +28,45 @@ export type HammerWorkpieceJob = {
 
 export type HammerWorkpieceJobsResult<T> =
   | { ok: true; status: number; data: T }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; retryAfterMs?: number };
+
+type HammerJobsBackoffState = {
+  attempts: number;
+  nextAllowedAtMs: number;
+};
+
+const jobsBackoffByKey = new Map<string, HammerJobsBackoffState>();
+
+function isRetryableJobsStatus(status: number): boolean {
+  return status === 502 || status === 503 || status === 504;
+}
+
+function computeBackoffDelayMs(attempts: number): number {
+  const safeAttempts = Number.isFinite(attempts) && attempts > 0 ? Math.trunc(attempts) : 1;
+  const baseMs = 1000;
+  const capMs = 30_000;
+  const exp = Math.min(5, safeAttempts - 1);
+  const delay = Math.min(capMs, baseMs * (2 ** exp));
+  const jitter = Math.floor(Math.random() * 250);
+  return delay + jitter;
+}
+
+function getBackoffKey(args: { workspaceId: string; workpieceId: string; route: string }): string {
+  return `${args.workspaceId}:${args.workpieceId}:${args.route}`;
+}
+
+function noteJobsFailure(key: string): number {
+  const state = jobsBackoffByKey.get(key) ?? { attempts: 0, nextAllowedAtMs: 0 };
+  state.attempts += 1;
+  const delay = computeBackoffDelayMs(state.attempts);
+  state.nextAllowedAtMs = Date.now() + delay;
+  jobsBackoffByKey.set(key, state);
+  return delay;
+}
+
+function clearJobsBackoff(key: string): void {
+  jobsBackoffByKey.delete(key);
+}
 
 function readErrorMessage(payload: unknown, fallback: string): string {
   if (payload && typeof payload === "object" && !Array.isArray(payload)) {
@@ -48,6 +86,17 @@ export async function createWorkpieceJob(args: {
   jobType: HammerWorkpieceJobType;
   payloadJson?: Record<string, unknown>;
 }): Promise<HammerWorkpieceJobsResult<{ job: HammerWorkpieceJob }>> {
+  const backoffKey = getBackoffKey({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, route: "create" });
+  const backoff = jobsBackoffByKey.get(backoffKey);
+  if (backoff && Date.now() < backoff.nextAllowedAtMs) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Background job status temporarily unavailable.",
+      retryAfterMs: Math.max(250, backoff.nextAllowedAtMs - Date.now()),
+    };
+  }
+
   let response: Response;
   try {
     response = await tongsFetch(
@@ -62,13 +111,20 @@ export async function createWorkpieceJob(args: {
       },
     );
   } catch (error) {
-    return { ok: false, status: 504, error: error instanceof Error ? error.message : "Failed to create job." };
+    const retryAfterMs = noteJobsFailure(backoffKey);
+    return { ok: false, status: 504, error: error instanceof Error ? error.message : "Failed to create job.", retryAfterMs };
   }
 
   const payload = await readJsonBody(response);
   if (!response.ok) {
-    return { ok: false, status: response.status, error: readErrorMessage(payload, "Failed to create job.") };
+    const errorMessage = readErrorMessage(payload, "Failed to create job.");
+    if (isRetryableJobsStatus(response.status)) {
+      const retryAfterMs = noteJobsFailure(backoffKey);
+      return { ok: false, status: response.status, error: errorMessage, retryAfterMs };
+    }
+    return { ok: false, status: response.status, error: errorMessage };
   }
+  clearJobsBackoff(backoffKey);
   const root = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : null;
   const data = root?.data && typeof root.data === "object" && !Array.isArray(root.data) ? root.data as Record<string, unknown> : null;
   const job = data?.job as HammerWorkpieceJob | undefined;
@@ -83,6 +139,17 @@ export async function fetchWorkpieceJob(args: {
   workpieceId: string;
   jobId: string;
 }): Promise<HammerWorkpieceJobsResult<{ job: HammerWorkpieceJob }>> {
+  const backoffKey = getBackoffKey({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, route: "fetch" });
+  const backoff = jobsBackoffByKey.get(backoffKey);
+  if (backoff && Date.now() < backoff.nextAllowedAtMs) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Background job status temporarily unavailable.",
+      retryAfterMs: Math.max(250, backoff.nextAllowedAtMs - Date.now()),
+    };
+  }
+
   let response: Response;
   try {
     response = await tongsFetch(
@@ -90,13 +157,20 @@ export async function fetchWorkpieceJob(args: {
       { method: "GET", timeoutMs: 20_000 },
     );
   } catch (error) {
-    return { ok: false, status: 504, error: error instanceof Error ? error.message : "Failed to load job." };
+    const retryAfterMs = noteJobsFailure(backoffKey);
+    return { ok: false, status: 504, error: error instanceof Error ? error.message : "Failed to load job.", retryAfterMs };
   }
 
   const payload = await readJsonBody(response);
   if (!response.ok) {
-    return { ok: false, status: response.status, error: readErrorMessage(payload, "Failed to load job.") };
+    const errorMessage = readErrorMessage(payload, "Failed to load job.");
+    if (isRetryableJobsStatus(response.status)) {
+      const retryAfterMs = noteJobsFailure(backoffKey);
+      return { ok: false, status: response.status, error: errorMessage, retryAfterMs };
+    }
+    return { ok: false, status: response.status, error: errorMessage };
   }
+  clearJobsBackoff(backoffKey);
   const root = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : null;
   const data = root?.data && typeof root.data === "object" && !Array.isArray(root.data) ? root.data as Record<string, unknown> : null;
   const job = data?.job as HammerWorkpieceJob | undefined;
@@ -112,6 +186,17 @@ export async function listWorkpieceJobs(args: {
   activeOnly?: boolean;
   limit?: number;
 }): Promise<HammerWorkpieceJobsResult<{ jobs: HammerWorkpieceJob[] }>> {
+  const backoffKey = getBackoffKey({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, route: "list" });
+  const backoff = jobsBackoffByKey.get(backoffKey);
+  if (backoff && Date.now() < backoff.nextAllowedAtMs) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Background job status temporarily unavailable.",
+      retryAfterMs: Math.max(250, backoff.nextAllowedAtMs - Date.now()),
+    };
+  }
+
   const params = new URLSearchParams();
   if (args.activeOnly) params.set("active", "1");
   if (typeof args.limit === "number" && Number.isFinite(args.limit)) params.set("limit", String(Math.trunc(args.limit)));
@@ -123,13 +208,20 @@ export async function listWorkpieceJobs(args: {
       { method: "GET", timeoutMs: 20_000 },
     );
   } catch (error) {
-    return { ok: false, status: 504, error: error instanceof Error ? error.message : "Failed to list jobs." };
+    const retryAfterMs = noteJobsFailure(backoffKey);
+    return { ok: false, status: 504, error: error instanceof Error ? error.message : "Failed to list jobs.", retryAfterMs };
   }
 
   const payload = await readJsonBody(response);
   if (!response.ok) {
-    return { ok: false, status: response.status, error: readErrorMessage(payload, "Failed to list jobs.") };
+    const errorMessage = readErrorMessage(payload, "Failed to list jobs.");
+    if (isRetryableJobsStatus(response.status)) {
+      const retryAfterMs = noteJobsFailure(backoffKey);
+      return { ok: false, status: response.status, error: errorMessage, retryAfterMs };
+    }
+    return { ok: false, status: response.status, error: errorMessage };
   }
+  clearJobsBackoff(backoffKey);
   const root = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : null;
   const data = root?.data && typeof root.data === "object" && !Array.isArray(root.data) ? root.data as Record<string, unknown> : null;
   const jobs = Array.isArray(data?.jobs) ? data?.jobs as HammerWorkpieceJob[] : null;
@@ -138,4 +230,3 @@ export async function listWorkpieceJobs(args: {
   }
   return { ok: true, status: response.status, data: { jobs } };
 }
-
