@@ -151,6 +151,18 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
         <div className="hammer-preview-meta">
           <span>Playhead {vm.playheadSec.toFixed(1)}s</span>
           <span>{vm.playbackModeLabel}</span>
+          {vm.playbackWindow?.mode === "loop" ? (
+            <button
+              type="button"
+              onClick={() => {
+                vm.clearPlaybackWindow();
+                vm.setIsPlaybackActive(false);
+              }}
+              title="Disable loop playback"
+            >
+              Disable loop playback
+            </button>
+          ) : null}
           <span>{vm.playbackSourceLabel ?? "No media source"}</span>
           {vm.mediaLabelMismatchWarning ? (
             <span className="hammer-preview-meta__warning">{vm.mediaLabelMismatchWarning}</span>
