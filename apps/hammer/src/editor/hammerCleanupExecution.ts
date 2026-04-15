@@ -1,5 +1,5 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
-import { diffWords } from "../lib/hammerWordDiff";
+import { diffTranscriptWords } from "../lib/hammerWordDiff";
 import type { HammerDeadAirAnalysis } from "./hammerDeadAirClosure";
 
 export type HammerAudioCutSelection = {
@@ -148,7 +148,7 @@ export function deriveAudioCutsForSubtractiveTextEdits(args: {
     const after = afterById.get(before.segment_id);
     if (!after || before.text === after.text) continue;
 
-    const ops = diffWords(before.text, after.text);
+    const ops = diffTranscriptWords(before.text, after.text);
     if (ops.some((op) => op.type === "insert" && op.words.length > 0)) {
       continue;
     }

@@ -155,7 +155,7 @@ import {
   saveHammerHistoryDocument,
   saveHammerRevisionHistoryDocument,
 } from "../lib/hammerHistoryArtifactApi";
-import { diffWords } from "../lib/hammerWordDiff";
+import { diffWords, isSubtractiveTranscriptWordEdit } from "../lib/hammerWordDiff";
 import {
   buildCandidateQueue,
   clampActiveCandidateIndex,
@@ -980,7 +980,7 @@ function isSystemMediaLabel(value: string | null | undefined): boolean {
 }
 
 function isSubtractiveTranscriptEdit(previousText: string, nextText: string): boolean {
-  return diffWords(previousText, nextText).every((op) => op.type !== "insert" || op.words.length === 0);
+  return isSubtractiveTranscriptWordEdit(previousText, nextText);
 }
 
 function resolveVisualPresetFilter(preset: HammerVisualLutPreset): string {
@@ -6670,7 +6670,13 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
           const inFlight = kind === "retakes" ? retakeDecisionInFlight : fillerDecisionInFlight;
           if (!activeCard) return;
           if (inFlight) return;
-          handleCandidateDecision(kind, lower === "a");
+          const useEditedProposal = lower === "a" && Boolean(candidateEditModeById[activeCard.id]);
+          handleCandidateDecision(kind, lower === "a", useEditedProposal
+            ? {
+              useEditedProposal: true,
+              editedProposalText: candidateProposedTextById[activeCard.id] ?? (activeCard.afterText ?? ""),
+            }
+            : undefined);
           return;
         }
       }
@@ -6708,6 +6714,8 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
     activeFillerCandidateCard,
     activeReviewKind,
     activeRetakeCandidateCard,
+    candidateEditModeById,
+    candidateProposedTextById,
     deadAirAnalysis,
     deadAirApplyInFlight,
     fillerCandidateCards.length,

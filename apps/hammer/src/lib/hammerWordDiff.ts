@@ -5,6 +5,15 @@ export type WordDiffOp = {
   words: string[];
 };
 
+function tokenizeComparisonWords(text: string): string[] {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9'\s]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
 function tokenizeWords(text: string): string[] {
   return String(text || "")
     .trim()
@@ -21,12 +30,7 @@ function pushOp(ops: WordDiffOp[], type: WordDiffOpType, word: string) {
   ops.push({ type, words: [word] });
 }
 
-// Word-level diff using LCS. Intended for short transcript segments; for very large inputs,
-// fall back to a single replace operation to avoid quadratic work.
-export function diffWords(beforeText: string, afterText: string): WordDiffOp[] {
-  const before = tokenizeWords(beforeText);
-  const after = tokenizeWords(afterText);
-
+function diffTokenArrays(before: string[], after: string[]): WordDiffOp[] {
   if (before.length === 0 && after.length === 0) return [];
   if (before.length === 0) return after.length ? [{ type: "insert", words: after }] : [];
   if (after.length === 0) return before.length ? [{ type: "delete", words: before }] : [];
@@ -39,7 +43,6 @@ export function diffWords(beforeText: string, afterText: string): WordDiffOp[] {
     ];
   }
 
-  // DP table: lengths of LCS up to i/j.
   const rows = before.length + 1;
   const cols = after.length + 1;
   const dp: number[][] = Array.from({ length: rows }, () => new Array<number>(cols).fill(0));
@@ -76,10 +79,23 @@ export function diffWords(beforeText: string, afterText: string): WordDiffOp[] {
     }
   }
 
-  // Backtracking builds operations in reverse. Reverse both op order and word order.
   ops.reverse();
   for (const op of ops) {
     op.words.reverse();
   }
   return ops;
+}
+
+// Word-level diff using LCS. Intended for short transcript segments; for very large inputs,
+// fall back to a single replace operation to avoid quadratic work.
+export function diffWords(beforeText: string, afterText: string): WordDiffOp[] {
+  return diffTokenArrays(tokenizeWords(beforeText), tokenizeWords(afterText));
+}
+
+export function diffTranscriptWords(beforeText: string, afterText: string): WordDiffOp[] {
+  return diffTokenArrays(tokenizeComparisonWords(beforeText), tokenizeComparisonWords(afterText));
+}
+
+export function isSubtractiveTranscriptWordEdit(previousText: string, nextText: string): boolean {
+  return diffTranscriptWords(previousText, nextText).every((op) => op.type !== "insert" || op.words.length === 0);
 }
