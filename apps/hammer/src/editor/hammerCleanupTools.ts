@@ -307,7 +307,7 @@ export function previewRemoveFillers(
     const normalizedAfter = normalizeTextSpacing(cleaned.text);
     // Conservative pass: only emit a candidate when the proposed text is meaningfully different.
     // If the cleaned segment becomes empty, remove the segment entirely (filler-only).
-    if (!normalizedAfter) {
+    if (!normalizedAfter || tokens(normalizedAfter).length === 0) {
       removed.add(segment.segment_id);
       suggestions.push({
         id: `filler:${segment.segment_id}`,
