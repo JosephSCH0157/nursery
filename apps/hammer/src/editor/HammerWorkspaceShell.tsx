@@ -6905,6 +6905,7 @@ export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): 
       event.target.closest(".hammer-timeline-ruler, .hammer-timeline-lane__track"),
     );
     if (!isOverTimelineSurface) return;
+    if (!event.ctrlKey) return;
     if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
     event.preventDefault();
     if (event.deltaY < 0) {
